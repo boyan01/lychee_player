@@ -116,15 +116,13 @@ class _RemotePlayerManager {
   final Map<String, AudioPlayer> players = {};
 
   _RemotePlayerManager() {
-    _channel.setMethodCallHandler((call) async {
+    _channel.setMethodCallHandler((call) {
       debugPrint("on method call: ${call.method} args = ${call.arguments}");
-      try {
-        return await _handleMessage(call);
-      } catch (e, s) {
-        debugPrint(e);
-        debugPrintStack(stackTrace: s);
-        rethrow;
-      }
+      return _handleMessage(call)
+        ..catchError((e, s) {
+          debugPrint(e.toString());
+          debugPrintStack(stackTrace: s);
+        });
     });
   }
 
@@ -138,7 +136,7 @@ class _RemotePlayerManager {
       final AudioPlayer player = players[playerId];
       assert(player != null);
       final int eventId = call.argument("event");
-      assert(eventId != null && eventId > 0 && eventId < _ClientPlayerEvent.values.length);
+      assert(eventId != null && eventId >= 0 && eventId < _ClientPlayerEvent.values.length);
       final _ClientPlayerEvent event = _ClientPlayerEvent.values[eventId];
       _updatePlayerState(player, event, call);
     }
@@ -180,8 +178,7 @@ class _RemotePlayerManager {
         player._state.value = PlayerStatus.Seeking;
         break;
       case _ClientPlayerEvent.SeekFinished:
-        final bool finished = call.argument("finished");
-        assert(finished != null);
+        final bool finished = call.argument("finished") ?? true;
         if (finished) {
           final int position = call.argument("position");
           final int updateTime = call.argument("updateTime");
@@ -254,7 +251,7 @@ enum PlayerStatus {
 extension _MethodCallArg on MethodCall {
   T argument<T>(String key) {
     final dynamic value = (arguments as Map)[key];
-    assert(value is T);
+    assert(value == null || value is T);
     return value as T;
   }
 }
