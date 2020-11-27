@@ -56,7 +56,7 @@ public class SwiftAudioPlayerPlugin: NSObject, FlutterPlugin {
         case "seek":
             if let player = players[playerId] {
                 let position: Int = call.argument(key: "position")
-                player.seek(to: Double(position))
+                player.seek(to: Double(position) / 1000.0)
                 result(nil)
             } else {
                 result(FlutterError.kPlayerNotCreated)
@@ -118,7 +118,14 @@ class ClientAudioPlayer: NSObject {
     }
 
     func seek(to time: TimeInterval) {
-        player.seek(to: CMTime(seconds: time, preferredTimescale: 1000)) { _ in
+        let targetTime = CMTime(seconds: time, preferredTimescale: 1000)
+        dispatchEvent(.seeking, params: ["targetTime": targetTime.inMills])
+        player.seek(to: targetTime) { finished in
+            self.dispatchEvent(.seekFinished, params: [
+                "position": self.player.currentTime().inMills,
+                "updateTime": systemUptime(),
+                "finished": finished,
+            ])
         }
     }
 
@@ -166,6 +173,8 @@ enum PlaybackEvent: Int {
     case prepared
     case buffering
     case error
+    case seeking
+    case seekFinished
 }
 
 extension CMTime {

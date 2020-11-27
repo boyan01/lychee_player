@@ -17,7 +17,7 @@ class AudioPlayer {
   int _currentTime = 0;
   int _currentUpdateUptime = -1;
 
-  Duration _duration = Duration.zero;
+  Duration _duration = const Duration(microseconds: -1);
 
   AudioPlayer._create(this._uri) : assert(_uri != null) {
     _createRemotePlayer();
@@ -176,6 +176,22 @@ class _RemotePlayerManager {
       case _ClientPlayerEvent.Error:
         player._state.value = PlayerStatus.Error;
         break;
+      case _ClientPlayerEvent.Seeking:
+        player._state.value = PlayerStatus.Seeking;
+        break;
+      case _ClientPlayerEvent.SeekFinished:
+        final bool finished = call.argument("finished");
+        assert(finished != null);
+        if (finished) {
+          final int position = call.argument("position");
+          final int updateTime = call.argument("updateTime");
+          assert(position != null);
+          assert(updateTime != null);
+          player._currentTime = position;
+          player._currentUpdateUptime = updateTime;
+        }
+        player._state.value = PlayerStatus.Ready;
+        break;
       default:
         if (player._state.value == PlayerStatus.Buffering) {
           player._state.value = PlayerStatus.Ready;
@@ -216,12 +232,22 @@ class _RemotePlayerManager {
   }
 }
 
-enum _ClientPlayerEvent { Paused, Playing, Preparing, Prepared, Buffering, Error }
+enum _ClientPlayerEvent {
+  Paused,
+  Playing,
+  Preparing,
+  Prepared,
+  Buffering,
+  Error,
+  Seeking,
+  SeekFinished,
+}
 
 enum PlayerStatus {
   Idle,
   Buffering,
   Ready,
+  Seeking,
   Error,
 }
 

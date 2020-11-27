@@ -39,7 +39,7 @@ class _MyAppState extends State<MyApp> {
               ProgressTrackingContainer(
                 builder: (context) {
                   double progress;
-                  if (player.duration != Duration.zero) {
+                  if (player.duration > Duration.zero) {
                     progress = player.currentTime.inMilliseconds / player.duration.inMilliseconds;
                   }
                   return LinearProgressIndicator(
@@ -47,12 +47,50 @@ class _MyAppState extends State<MyApp> {
                   );
                 },
                 player: player,
-              )
+              ),
+              _ForwardRewindButton(player: player)
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+class _ForwardRewindButton extends StatelessWidget {
+  final AudioPlayer player;
+  const _ForwardRewindButton({Key key, this.player}) : super(key: key);
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+            icon: Icon(Icons.replay_10),
+            onPressed: () {
+              final Duration to = player.currentTime - const Duration(seconds: 10);
+              player.seek(to.atmost(player.duration));
+            }),
+        SizedBox(width: 20),
+        IconButton(
+            icon: Icon(Icons.forward_10),
+            onPressed: () {
+              final Duration to = player.currentTime + const Duration(seconds: 10);
+              debugPrint("current = ${player.currentTime}");
+              player.seek(to.atleast(Duration.zero));
+            }),
+      ],
+    );
+  }
+}
+
+extension _DurationClimp on Duration {
+  Duration atmost(Duration duration) {
+    return this <= duration ? this : duration;
+  }
+
+  Duration atleast(Duration duration) {
+    return this >= duration ? this : duration;
   }
 }
 
