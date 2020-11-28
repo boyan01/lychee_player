@@ -105,6 +105,8 @@ class ClientAudioPlayer: NSObject {
         player.addObserver(self, forKeyPath: #keyPath(AVPlayer.rate), options: [.new], context: nil)
         player.addObserver(self, forKeyPath: #keyPath(AVPlayer.timeControlStatus), options: [.new], context: nil)
         playItem.addObserver(self, forKeyPath: #keyPath(AVPlayerItem.status), options: [.new], context: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(onPlayerEnded), name: .AVPlayerItemDidPlayToEndTime, object: nil)
+        player.actionAtItemEnd = .none
         self.playItem = playItem
         dispatchEvent(.preparing)
     }
@@ -115,6 +117,12 @@ class ClientAudioPlayer: NSObject {
 
     func pause() {
         player.pause()
+    }
+
+    @objc func onPlayerEnded() {
+        dispatchEvent(.end, params: [
+            "position": player.currentTime().inMills,
+            "updateTime": systemUptime()])
     }
 
     func seek(to time: TimeInterval) {
@@ -175,6 +183,7 @@ enum PlaybackEvent: Int {
     case error
     case seeking
     case seekFinished
+    case end
 }
 
 extension CMTime {
