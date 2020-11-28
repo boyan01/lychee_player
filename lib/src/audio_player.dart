@@ -206,6 +206,15 @@ class _RemotePlayerManager {
         player._status.value = PlayerStatus.End;
         player._playWhenReady.value = false;
         break;
+      case _ClientPlayerEvent.Paused:
+        if (player._status.value == PlayerStatus.Buffering) {
+          player._status.value = PlayerStatus.Ready;
+        }
+        // Maybe pasued by some reason.
+        if (player._playWhenReady.value) {
+          player._playWhenReady.value = false;
+        }
+        break;
       default:
         if (player._status.value == PlayerStatus.Buffering) {
           player._status.value = PlayerStatus.Ready;
