@@ -23,6 +23,7 @@ class _MyAppState extends State<MyApp> {
     player.onStateChanged.addListener(() {
       debugPrint("state change: ${player.status} playing: ${player.isPlaying}");
     });
+    player.playWhenReady = true;
   }
 
   @override
@@ -118,6 +119,9 @@ class _PlaybackStatefulButton extends StatelessWidget {
             }
           }),
       onPressed: () {
+        if (player.status == PlayerStatus.End) {
+          player.seek(Duration.zero);
+        }
         player.playWhenReady = !player.playWhenReady;
       },
     );

@@ -10,7 +10,7 @@ import 'package:system_clock/system_clock.dart';
 class AudioPlayer {
   final String _uri;
 
-  final ValueNotifier<PlayerStatus> _state = ValueNotifier(PlayerStatus.Idle);
+  final ValueNotifier<PlayerStatus> _status = ValueNotifier(PlayerStatus.Idle);
 
   final String _playerId = _AudioPlayerIdGenerater.generatePlayerId();
 
@@ -21,6 +21,12 @@ class AudioPlayer {
 
   AudioPlayer._create(this._uri) : assert(_uri != null) {
     _createRemotePlayer();
+    _status.addListener(() {
+      if (_status.value == PlayerStatus.Ready && _peddingPlay && playWhenReady) {
+        _peddingPlay = false;
+        _remotePlayerManager.play(_playerId);
+      }
+    });
   }
 
   factory AudioPlayer.file(String path) {
@@ -41,14 +47,20 @@ class AudioPlayer {
 
   ValueNotifier<bool> _playWhenReady = ValueNotifier(false);
 
+  bool _peddingPlay = false;
+
   set playWhenReady(bool value) {
     if (_playWhenReady.value == value) {
       return;
     }
     _playWhenReady.value = value;
+    _peddingPlay = false;
     if (value) {
-      _remotePlayerManager.play(_playerId);
-      if (status == PlayerStatus.Ready) {}
+      if (status == PlayerStatus.Ready) {
+        _remotePlayerManager.play(_playerId);
+      } else {
+        _peddingPlay = true;
+      }
     } else {
       _remotePlayerManager.pause(_playerId);
     }
@@ -75,13 +87,13 @@ class AudioPlayer {
     return playWhenReady && status == PlayerStatus.Ready;
   }
 
-  PlayerStatus get status => _state.value;
+  PlayerStatus get status => _status.value;
 
   Listenable _onStateChange;
 
   Listenable get onStateChanged {
     if (_onStateChange == null) {
-      _onStateChange = Listenable.merge([_state, _playWhenReady]);
+      _onStateChange = Listenable.merge([_status, _playWhenReady]);
     }
     return _onStateChange;
   }
@@ -146,7 +158,8 @@ class _RemotePlayerManager {
     const playbackEvents = <_ClientPlayerEvent>{
       _ClientPlayerEvent.Playing,
       _ClientPlayerEvent.Paused,
-      _ClientPlayerEvent.Buffering
+      _ClientPlayerEvent.Buffering,
+      _ClientPlayerEvent.End,
     };
     if (playbackEvents.contains(event)) {
       final int position = call.argument("position");
@@ -159,23 +172,23 @@ class _RemotePlayerManager {
 
     switch (event) {
       case _ClientPlayerEvent.Preparing:
-        player._state.value = PlayerStatus.Buffering;
+        player._status.value = PlayerStatus.Buffering;
         break;
       case _ClientPlayerEvent.Prepared:
         final int duration = call.argument("duration");
         if (duration > 0) {
           player._duration = Duration(milliseconds: duration);
         }
-        player._state.value = PlayerStatus.Ready;
+        player._status.value = PlayerStatus.Ready;
         break;
       case _ClientPlayerEvent.Buffering:
-        player._state.value = PlayerStatus.Buffering;
+        player._status.value = PlayerStatus.Buffering;
         break;
       case _ClientPlayerEvent.Error:
-        player._state.value = PlayerStatus.Error;
+        player._status.value = PlayerStatus.Error;
         break;
       case _ClientPlayerEvent.Seeking:
-        player._state.value = PlayerStatus.Seeking;
+        player._status.value = PlayerStatus.Seeking;
         break;
       case _ClientPlayerEvent.SeekFinished:
         final bool finished = call.argument("finished") ?? true;
@@ -187,11 +200,15 @@ class _RemotePlayerManager {
           player._currentTime = position;
           player._currentUpdateUptime = updateTime;
         }
-        player._state.value = PlayerStatus.Ready;
+        player._status.value = PlayerStatus.Ready;
+        break;
+      case _ClientPlayerEvent.End:
+        player._status.value = PlayerStatus.End;
+        player._playWhenReady.value = false;
         break;
       default:
-        if (player._state.value == PlayerStatus.Buffering) {
-          player._state.value = PlayerStatus.Ready;
+        if (player._status.value == PlayerStatus.Buffering) {
+          player._status.value = PlayerStatus.Ready;
         }
         break;
     }
@@ -238,6 +255,7 @@ enum _ClientPlayerEvent {
   Error,
   Seeking,
   SeekFinished,
+  End,
 }
 
 enum PlayerStatus {
@@ -245,6 +263,7 @@ enum PlayerStatus {
   Buffering,
   Ready,
   Seeking,
+  End,
   Error,
 }
 

@@ -1,9 +1,8 @@
 package tech.soit.flutter.audio_player
 
 import android.media.MediaPlayer
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import androidx.annotation.NonNull
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
@@ -13,6 +12,11 @@ import io.flutter.plugin.common.MethodChannel.Result
 
 /** AudioPlayerPlugin */
 class AudioPlayerPlugin : FlutterPlugin, MethodCallHandler {
+
+    companion object {
+        private const val TAG = "AudioPlayerPlugin"
+    }
+
     private lateinit var channel: MethodChannel
 
     private val players = mutableMapOf<String, ClientAudioPlayer>()
@@ -37,6 +41,9 @@ class AudioPlayerPlugin : FlutterPlugin, MethodCallHandler {
     }
 
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "onMethodCall: ${call.method}, args = ${call.arguments}")
+        }
         if (call.method == "initialize") {
             destroyAllPlayer()
             result.success(null)
@@ -106,9 +113,12 @@ private class ClientAudioPlayer(
     url: String,
     private val playerId: String,
     private val channel: MethodChannel
-) : MediaPlayer.OnPreparedListener, MediaPlayer.OnInfoListener, MediaPlayer.OnErrorListener {
+) : MediaPlayer.OnPreparedListener, MediaPlayer.OnInfoListener, MediaPlayer.OnErrorListener,
+    MediaPlayer.OnCompletionListener {
 
-    private val handler = Handler(Looper.getMainLooper())
+    companion object {
+        private const val TAG = "AudioPlayerPlugin"
+    }
 
     private val player = MediaPlayer()
 
@@ -121,6 +131,7 @@ private class ClientAudioPlayer(
         player.setOnPreparedListener(this)
         player.setOnInfoListener(this)
         player.setOnErrorListener(this)
+        player.setOnCompletionListener(this)
         dispatchEvent(PlaybackEvent.Preparing)
         player.prepareAsync()
     }
@@ -202,6 +213,10 @@ private class ClientAudioPlayer(
         return false
     }
 
+    override fun onCompletion(mp: MediaPlayer) {
+        dispatchEventWithPosition(PlaybackEvent.End)
+    }
+
 }
 
 
@@ -214,4 +229,5 @@ private enum class PlaybackEvent {
     Error,
     Seeking,
     SeekFinished,
+    End,
 }
