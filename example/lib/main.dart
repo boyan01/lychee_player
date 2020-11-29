@@ -2,11 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:audio_player/audio_player.dart';
 import 'package:flutter/scheduler.dart';
 
-String _playUrl = "http://music.163.com/song/media/outer/url?id=33894312.mp3";
-
 void main() {
   runApp(MyApp());
 }
+
+enum _Type { file, url, asset }
+
+const Map<String, _Type> urls = {
+  "http://music.163.com/song/media/outer/url?id=33894312.mp3": _Type.url,
+  "tracks/rise.mp3": _Type.asset,
+};
 
 class MyApp extends StatefulWidget {
   @override
@@ -15,11 +20,35 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   AudioPlayer player;
+  String url;
 
   @override
   void initState() {
     super.initState();
-    player = AudioPlayer.url(_playUrl);
+    _newPlayer(urls.keys.first);
+  }
+
+  void _newPlayer(String uri) {
+    if (this.url == uri) {
+      return;
+    }
+    if (player != null) {
+      player.dispose();
+    }
+    final type = urls[uri];
+    assert(type != null);
+    switch (type) {
+      case _Type.file:
+        player = AudioPlayer.file(uri);
+        break;
+      case _Type.url:
+        player = AudioPlayer.url(uri);
+        break;
+      case _Type.asset:
+        player = AudioPlayer.asset(uri);
+        break;
+    }
+    this.url = uri;
     player.onStateChanged.addListener(() {
       debugPrint("state change: ${player.status} playing: ${player.isPlaying}");
     });
@@ -33,26 +62,67 @@ class _MyAppState extends State<MyApp> {
         appBar: AppBar(
           title: const Text('Plugin example app'),
         ),
-        body: Center(
-          child: Column(
-            children: [
-              _PlaybackStatefulButton(player: player),
-              ProgressTrackingContainer(
-                builder: (context) {
-                  double progress;
-                  if (player.duration > Duration.zero) {
-                    progress = player.currentTime.inMilliseconds / player.duration.inMilliseconds;
-                  }
-                  return LinearProgressIndicator(
-                    value: progress,
-                  );
+        body: Column(
+          children: [
+            Spacer(),
+            _PlayerUi(player: player, url: this.url),
+            Spacer(),
+            for (var item in urls.keys)
+              RadioListTile(
+                value: item,
+                groupValue: url,
+                title: Text(item),
+                onChanged: (newValue) {
+                  setState(() {
+                    _newPlayer(newValue);
+                  });
                 },
-                player: player,
               ),
-              _ForwardRewindButton(player: player)
-            ],
-          ),
+            Spacer(),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+class _PlayerUi extends StatelessWidget {
+  const _PlayerUi({
+    Key key,
+    @required this.player,
+    @required this.url,
+  }) : super(key: key);
+
+  final AudioPlayer player;
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            "playing: $url",
+            softWrap: false,
+            overflow: TextOverflow.fade,
+          ),
+          _PlaybackStatefulButton(player: player),
+          ProgressTrackingContainer(
+            builder: (context) {
+              double progress;
+              if (player.duration > Duration.zero) {
+                progress = player.currentTime.inMilliseconds / player.duration.inMilliseconds;
+              }
+              return LinearProgressIndicator(
+                value: progress,
+              );
+            },
+            player: player,
+          ),
+          _ForwardRewindButton(player: player)
+        ],
       ),
     );
   }
@@ -156,6 +226,14 @@ class _ProgressTrackingContainerState extends State<ProgressTrackingContainer> w
     _ticker = createTicker((elapsed) {
       setState(() {});
     });
+    _onStateChanged();
+  }
+
+  @override
+  void didUpdateWidget(covariant ProgressTrackingContainer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _player?.onStateChanged?.removeListener(_onStateChanged);
+    _player = widget.player..onStateChanged.addListener(_onStateChanged);
     _onStateChanged();
   }
 

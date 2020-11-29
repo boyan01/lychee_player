@@ -9,6 +9,7 @@ import 'package:system_clock/system_clock.dart';
 
 class AudioPlayer {
   final String _uri;
+  final _DataSourceType _type;
 
   final ValueNotifier<PlayerStatus> _status = ValueNotifier(PlayerStatus.Idle);
 
@@ -19,7 +20,7 @@ class AudioPlayer {
 
   Duration _duration = const Duration(microseconds: -1);
 
-  AudioPlayer._create(this._uri) : assert(_uri != null) {
+  AudioPlayer._create(this._uri, this._type) : assert(_uri != null) {
     _createRemotePlayer();
     _status.addListener(() {
       if (_status.value == PlayerStatus.Ready && _peddingPlay && playWhenReady) {
@@ -30,15 +31,19 @@ class AudioPlayer {
   }
 
   factory AudioPlayer.file(String path) {
-    return AudioPlayer._create(path);
+    return AudioPlayer._create(path, _DataSourceType.file);
   }
 
   factory AudioPlayer.url(String url) {
-    return AudioPlayer._create(url);
+    return AudioPlayer._create(url, _DataSourceType.url);
+  }
+
+  factory AudioPlayer.asset(String name) {
+    return AudioPlayer._create(name, _DataSourceType.asset);
   }
 
   void _createRemotePlayer() {
-    _remotePlayerManager.create(this, _playerId, _uri);
+    _remotePlayerManager.create(this);
   }
 
   void seek(Duration duration) {
@@ -98,7 +103,7 @@ class AudioPlayer {
     return _onStateChange;
   }
 
-  void release() {
+  void dispose() {
     _remotePlayerManager.dispose(this);
   }
 
@@ -223,16 +228,13 @@ class _RemotePlayerManager {
     }
   }
 
-  Future<void> create(AudioPlayer player, String playerId, String url) async {
-    players[playerId] = player;
-    try {
-      await _channel.invokeMethod("create", {
-        "playerId": playerId,
-        "url": url,
-      });
-    } on FlutterError catch (e) {
-      debugPrint("error: $e");
-    }
+  Future<void> create(AudioPlayer player) async {
+    players[player._playerId] = player;
+    await _channel.invokeMethod("create", {
+      "playerId": player._playerId,
+      "url": player._uri,
+      "type": player._type.index,
+    });
   }
 
   Future<void> play(String playerId) async {
@@ -250,10 +252,22 @@ class _RemotePlayerManager {
     });
   }
 
-  void dispose(AudioPlayer audioPlayer) {
-    players.remove(audioPlayer._playerId);
+  Future<void> dispose(AudioPlayer player) async {
+    players.remove(player._playerId);
+
+    player._currentTime = 0;
+    player._currentUpdateUptime = -1;
+
+    player._status.value = PlayerStatus.Idle;
+    player._playWhenReady.value = false;
+    player._peddingPlay = false;
+    player._duration = const Duration(microseconds: -1);
+
+    await _channel.invokeMethod("dispose", {"playerId": player._playerId});
   }
 }
+
+enum _DataSourceType { url, file, asset }
 
 enum _ClientPlayerEvent {
   Paused,

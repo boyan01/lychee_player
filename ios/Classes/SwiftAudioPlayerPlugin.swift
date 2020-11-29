@@ -6,6 +6,7 @@ public class SwiftAudioPlayerPlugin: NSObject, FlutterPlugin {
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "tech.soit.flutter.audio_player", binaryMessenger: registrar.messenger())
         let instance = SwiftAudioPlayerPlugin(channel: channel)
+        instance.registrar = registrar
         registrar.addMethodCallDelegate(instance, channel: channel)
     }
 
@@ -15,6 +16,8 @@ public class SwiftAudioPlayerPlugin: NSObject, FlutterPlugin {
     }
 
     private let channel: FlutterMethodChannel
+
+    private weak var registrar: FlutterPluginRegistrar?
 
     private var players: [String: ClientAudioPlayer] = [:]
 
@@ -35,7 +38,7 @@ public class SwiftAudioPlayerPlugin: NSObject, FlutterPlugin {
             if players.keys.contains(playerId) {
                 result(FlutterError.kPlayerAlreadyCreated)
             } else {
-                let player = ClientAudioPlayer(url: call.argument(key: "url"), channel: channel, playerId: playerId)
+                let player = ClientAudioPlayer(url: parseURLForCreate(call: call), channel: channel, playerId: playerId)
                 players[playerId] = player
                 result(nil)
             }
@@ -61,6 +64,9 @@ public class SwiftAudioPlayerPlugin: NSObject, FlutterPlugin {
             } else {
                 result(FlutterError.kPlayerNotCreated)
             }
+        case "dispose":
+            players[playerId] = nil
+            result(nil)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -68,6 +74,24 @@ public class SwiftAudioPlayerPlugin: NSObject, FlutterPlugin {
 
     public func detachFromEngine(for registrar: FlutterPluginRegistrar) {
         players.removeAll()
+    }
+}
+
+extension SwiftAudioPlayerPlugin {
+    func parseURLForCreate(call: FlutterMethodCall) -> URL? {
+        let typeInt: Int = call.argument(key: "type")
+        guard let type = DataSourceType(rawValue: typeInt) else { return nil }
+        let urlString: String = call.argument(key: "url")
+        switch type {
+        case .asset:
+            guard let assetKey = registrar?.lookupKey(forAsset: urlString) else { return nil }
+            guard let path = Bundle.main.path(forResource: assetKey, ofType: nil) else { return nil }
+            return URL(fileURLWithPath: path)
+        case .url:
+            return URL(string: urlString)
+        case .file:
+            return URL(fileURLWithPath: urlString)
+        }
     }
 }
 
@@ -95,20 +119,32 @@ class ClientAudioPlayer: NSObject {
 
     private var playItem: AVPlayerItem?
 
-    init(url: String, channel: FlutterMethodChannel, playerId: String) {
+    init(url: URL?, channel: FlutterMethodChannel, playerId: String) {
         self.channel = channel
         self.playerId = playerId
-        let playItem = AVPlayerItem(url: URL(string: url)!)
+
+        let playItem: AVPlayerItem?
+        if let url = url {
+            playItem = AVPlayerItem(url: url)
+        } else {
+            playItem = nil
+        }
         player = AVPlayer(playerItem: playItem)
         super.init()
-        player.addObserver(self, forKeyPath: #keyPath(AVPlayer.status), options: [.new], context: nil)
-        player.addObserver(self, forKeyPath: #keyPath(AVPlayer.rate), options: [.new], context: nil)
-        player.addObserver(self, forKeyPath: #keyPath(AVPlayer.timeControlStatus), options: [.new], context: nil)
-        playItem.addObserver(self, forKeyPath: #keyPath(AVPlayerItem.status), options: [.new], context: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(onPlayerEnded), name: .AVPlayerItemDidPlayToEndTime, object: nil)
-        player.actionAtItemEnd = .none
-        self.playItem = playItem
+
         dispatchEvent(.preparing)
+
+        if playItem == nil {
+            dispatchEvent(.error)
+        } else {
+            player.addObserver(self, forKeyPath: #keyPath(AVPlayer.status), options: [.new], context: nil)
+            player.addObserver(self, forKeyPath: #keyPath(AVPlayer.rate), options: [.new], context: nil)
+            player.addObserver(self, forKeyPath: #keyPath(AVPlayer.timeControlStatus), options: [.new], context: nil)
+            playItem?.addObserver(self, forKeyPath: #keyPath(AVPlayerItem.status), options: [.new], context: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(onPlayerEnded), name: .AVPlayerItemDidPlayToEndTime, object: nil)
+            player.actionAtItemEnd = .none
+            self.playItem = playItem
+        }
     }
 
     func play() {
@@ -184,6 +220,12 @@ enum PlaybackEvent: Int {
     case seeking
     case seekFinished
     case end
+}
+
+enum DataSourceType: Int {
+    case url
+    case file
+    case asset
 }
 
 extension CMTime {
