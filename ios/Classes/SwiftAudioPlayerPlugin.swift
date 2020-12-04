@@ -119,6 +119,8 @@ class ClientAudioPlayer: NSObject {
 
     private var playItem: AVPlayerItem?
 
+    private var isWaitingToPlay: Bool = false
+
     init(url: URL?, channel: FlutterMethodChannel, playerId: String) {
         self.channel = channel
         self.playerId = playerId
@@ -141,8 +143,9 @@ class ClientAudioPlayer: NSObject {
             player.addObserver(self, forKeyPath: #keyPath(AVPlayer.rate), options: [.new], context: nil)
             player.addObserver(self, forKeyPath: #keyPath(AVPlayer.timeControlStatus), options: [.new], context: nil)
             playItem?.addObserver(self, forKeyPath: #keyPath(AVPlayerItem.status), options: [.new], context: nil)
+            playItem?.addObserver(self, forKeyPath: #keyPath(AVPlayerItem.loadedTimeRanges), options: [.new], context: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(onPlayerEnded), name: .AVPlayerItemDidPlayToEndTime, object: nil)
-            player.actionAtItemEnd = .none
+            player.actionAtItemEnd = .pause
             self.playItem = playItem
         }
     }
@@ -170,6 +173,7 @@ class ClientAudioPlayer: NSObject {
                 "updateTime": systemUptime(),
                 "finished": finished,
             ])
+            self.dispatchPlayerTimeControlStatus()
         }
     }
 
@@ -189,23 +193,41 @@ class ClientAudioPlayer: NSObject {
         } else if keyPath == #keyPath(AVPlayer.rate) {
             debugPrint("playback rate \(self.player.rate)")
         } else if keyPath == #keyPath(AVPlayer.timeControlStatus) {
-            let params: [String: Any] = ["position": player.currentTime().inMills, "updateTime": systemUptime()]
-            switch self.player.timeControlStatus {
-            case .paused:
-                dispatchEvent(.paused, params: params)
-            case .playing:
-                dispatchEvent(.playing, params: params)
-            case .waitingToPlayAtSpecifiedRate:
-                dispatchEvent(.buffering, params: params)
-            @unknown default:
-                break
-            }
+            dispatchPlayerTimeControlStatus()
         }
 
         if keyPath == #keyPath(AVPlayerItem.status), let playItem = playItem {
             if playItem.status == .readyToPlay {
                 dispatchEvent(.prepared, params: ["duration": playItem.duration.inMills])
             }
+        } else if keyPath == #keyPath(AVPlayerItem.loadedTimeRanges), let playItem = playItem {
+            var ranges = [Int64]()
+            playItem.loadedTimeRanges.forEach { value in
+                let range = value.timeRangeValue
+                ranges.append(range.start.inMills)
+                ranges.append(range.end.inMills)
+            }
+            dispatchEvent(.updateBufferPosition, params: ["ranges": ranges])
+        }
+    }
+
+    private func dispatchPlayerTimeControlStatus() {
+        debugPrint("time control status \(String(describing: player.timeControlStatus.rawValue))")
+        let params: [String: Any] = ["position": player.currentTime().inMills, "updateTime": systemUptime()]
+        switch player.timeControlStatus {
+        case .paused:
+            dispatchEvent(.paused, params: params)
+        case .playing:
+            if isWaitingToPlay {
+                isWaitingToPlay = false
+                dispatchEvent(.bufferingEnd, params: params)
+            }
+            dispatchEvent(.playing, params: params)
+        case .waitingToPlayAtSpecifiedRate:
+            isWaitingToPlay = true
+            dispatchEvent(.buffering, params: params)
+        @unknown default:
+            break
         }
     }
 }
@@ -216,10 +238,12 @@ enum PlaybackEvent: Int {
     case preparing
     case prepared
     case buffering
+    case bufferingEnd
     case error
     case seeking
     case seekFinished
     case end
+    case updateBufferPosition
 }
 
 enum DataSourceType: Int {

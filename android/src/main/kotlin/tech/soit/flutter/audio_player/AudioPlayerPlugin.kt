@@ -143,6 +143,21 @@ private class ClientAudioPlayer(
 
     private var destoried = false
 
+    private val bufferingUpdateListener = MediaPlayer.OnBufferingUpdateListener { player, percent ->
+        if (!prepared || player.duration == -1) {
+            return@OnBufferingUpdateListener
+        }
+        val position = (percent / 100.0) * player.duration
+        dispatchEvent(
+            PlaybackEvent.UpdateBufferPosition,
+            params = mapOf("ranges" to listOf(0, position.toInt()))
+        )
+    }
+
+    private val seekCompletedListener = MediaPlayer.OnSeekCompleteListener {
+        dispatchEventWithPosition(PlaybackEvent.SeekFinished)
+    }
+
     init {
         when (type) {
             DataSourceType.Url, DataSourceType.File -> player.setDataSource(url)
@@ -159,6 +174,8 @@ private class ClientAudioPlayer(
         player.setOnInfoListener(this)
         player.setOnErrorListener(this)
         player.setOnCompletionListener(this)
+        player.setOnBufferingUpdateListener(bufferingUpdateListener)
+        player.setOnSeekCompleteListener(seekCompletedListener)
         dispatchEvent(PlaybackEvent.Preparing)
         try {
             player.prepareAsync()
@@ -204,7 +221,6 @@ private class ClientAudioPlayer(
             } else {
                 player.seekTo(position.toInt())
             }
-            dispatchEventWithPosition(PlaybackEvent.SeekFinished)
         }
     }
 
@@ -232,15 +248,17 @@ private class ClientAudioPlayer(
     }
 
     override fun onInfo(mp: MediaPlayer, what: Int, extra: Int): Boolean {
+        Log.d(TAG, "onInfo() called with: mp = $mp, what = $what, extra = $extra")
         if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START) {
-            dispatchEventWithPosition(PlaybackEvent.Buffering)
+            dispatchEventWithPosition(PlaybackEvent.BufferingStart)
         } else if (what == MediaPlayer.MEDIA_INFO_BUFFERING_END) {
-            dispatchEventWithPosition(PlaybackEvent.Prepared)
+            dispatchEventWithPosition(PlaybackEvent.BufferingEnd)
         }
         return false
     }
 
     override fun onError(mp: MediaPlayer, what: Int, extra: Int): Boolean {
+        Log.d(TAG, "onError() called with: mp = $mp, what = $what, extra = $extra")
         dispatchEvent(PlaybackEvent.Error)
         return false
     }
@@ -257,11 +275,13 @@ private enum class PlaybackEvent {
     Playing,
     Preparing,
     Prepared,
-    Buffering,
+    BufferingStart,
+    BufferingEnd,
     Error,
     Seeking,
     SeekFinished,
     End,
+    UpdateBufferPosition,
 }
 
 private enum class DataSourceType {

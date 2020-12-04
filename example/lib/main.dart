@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:audio_player/audio_player.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 void main() {
@@ -11,6 +11,7 @@ enum _Type { file, url, asset }
 const Map<String, _Type> urls = {
   "http://music.163.com/song/media/outer/url?id=33894312.mp3": _Type.url,
   "tracks/rise.mp3": _Type.asset,
+  "https://storage.googleapis.com/exoplayer-test-media-0/play.mp3": _Type.url,
 };
 
 class MyApp extends StatefulWidget {
@@ -113,7 +114,8 @@ class _PlayerUi extends StatelessWidget {
             builder: (context) {
               double progress;
               if (player.duration > Duration.zero) {
-                progress = player.currentTime.inMilliseconds / player.duration.inMilliseconds;
+                progress = player.currentTime.inMilliseconds /
+                    player.duration.inMilliseconds;
               }
               return LinearProgressIndicator(
                 value: progress,
@@ -121,6 +123,8 @@ class _PlayerUi extends StatelessWidget {
             },
             player: player,
           ),
+          SizedBox(height: 8),
+          _PlayerBufferedRangeIndicator(player: player),
           _ForwardRewindButton(player: player)
         ],
       ),
@@ -130,7 +134,9 @@ class _PlayerUi extends StatelessWidget {
 
 class _ForwardRewindButton extends StatelessWidget {
   final AudioPlayer player;
+
   const _ForwardRewindButton({Key key, this.player}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -139,16 +145,18 @@ class _ForwardRewindButton extends StatelessWidget {
         IconButton(
             icon: Icon(Icons.replay_10),
             onPressed: () {
-              final Duration to = player.currentTime - const Duration(seconds: 10);
-              player.seek(to.atmost(player.duration));
+              final Duration to =
+                  player.currentTime - const Duration(seconds: 10);
+              player.seek(to.atMost(player.duration));
             }),
         SizedBox(width: 20),
         IconButton(
             icon: Icon(Icons.forward_10),
             onPressed: () {
-              final Duration to = player.currentTime + const Duration(seconds: 10);
+              final Duration to =
+                  player.currentTime + const Duration(seconds: 10);
               debugPrint("current = ${player.currentTime}");
-              player.seek(to.atleast(Duration.zero));
+              player.seek(to.atLeast(Duration.zero));
             }),
       ],
     );
@@ -156,18 +164,20 @@ class _ForwardRewindButton extends StatelessWidget {
 }
 
 extension _DurationClimp on Duration {
-  Duration atmost(Duration duration) {
+  Duration atMost(Duration duration) {
     return this <= duration ? this : duration;
   }
 
-  Duration atleast(Duration duration) {
+  Duration atLeast(Duration duration) {
     return this >= duration ? this : duration;
   }
 }
 
 class _PlaybackStatefulButton extends StatelessWidget {
   final AudioPlayer player;
+
   const _PlaybackStatefulButton({Key key, this.player}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
     return IconButton(
@@ -211,10 +221,12 @@ class ProgressTrackingContainer extends StatefulWidget {
         super(key: key);
 
   @override
-  _ProgressTrackingContainerState createState() => _ProgressTrackingContainerState();
+  _ProgressTrackingContainerState createState() =>
+      _ProgressTrackingContainerState();
 }
 
-class _ProgressTrackingContainerState extends State<ProgressTrackingContainer> with SingleTickerProviderStateMixin {
+class _ProgressTrackingContainerState extends State<ProgressTrackingContainer>
+    with SingleTickerProviderStateMixin {
   AudioPlayer _player;
 
   Ticker _ticker;
@@ -261,5 +273,125 @@ class _ProgressTrackingContainerState extends State<ProgressTrackingContainer> w
         builder: (context, child) {
           return widget.builder(context);
         });
+  }
+}
+
+class _PlayerBufferedRangeIndicator extends StatefulWidget {
+  final AudioPlayer player;
+
+  const _PlayerBufferedRangeIndicator({
+    Key key,
+    @required this.player,
+  }) : super(key: key);
+
+  @override
+  _PlayerBufferedRangeIndicatorState createState() =>
+      _PlayerBufferedRangeIndicatorState();
+}
+
+class _PlayerBufferedRangeIndicatorState
+    extends State<_PlayerBufferedRangeIndicator> {
+  AudioPlayer _player;
+  Duration _duration;
+
+  AudioPlayerDisposable _disposable;
+
+  @override
+  void initState() {
+    super.initState();
+    _player = widget.player;
+    _initPlayer();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PlayerBufferedRangeIndicator oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _player = widget.player;
+    _initPlayer();
+  }
+
+  void _initPlayer() {
+    _disposable?.dispose();
+    _disposable = _player.onReady(() {
+      setState(() {
+        _duration = _player.duration;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _disposable?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget indicator;
+    if (_duration != null) {
+      indicator = AnimatedBuilder(
+          animation: _player.buffered,
+          builder: (context, snapshot) {
+            debugPrint("_player.buffered = ${_player.buffered.value}");
+            return CustomPaint(
+              painter: _PlayerBufferedRangeIndicatorPainter(
+                  _player.buffered.value,
+                  _duration,
+                  Colors.transparent,
+                  Theme.of(context).primaryColor),
+            );
+          });
+    }
+    return Container(
+      constraints: BoxConstraints(
+        minWidth: double.infinity,
+        minHeight: 4.0,
+      ),
+      child: indicator,
+    );
+  }
+}
+
+class _PlayerBufferedRangeIndicatorPainter extends CustomPainter {
+  final List<DurationRange> ranges;
+  final Duration duration;
+
+  final Color backgroundColor;
+  final Color valueColor;
+
+  _PlayerBufferedRangeIndicatorPainter(
+      this.ranges, this.duration, this.backgroundColor, this.valueColor);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()
+      ..color = backgroundColor
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(Offset.zero & size, paint);
+
+    paint.color = valueColor;
+
+    void drawBar(double startFraction, double endFraction) {
+      if (endFraction <= startFraction) {
+        return;
+      }
+      canvas.drawRect(
+          Offset(size.width * startFraction, 0) &
+              Size(size.width * (endFraction - startFraction), size.height),
+          paint);
+    }
+
+    ranges.forEach((e) {
+      drawBar(e.startFraction(duration), e.endFraction(duration));
+    });
+  }
+
+  @override
+  bool shouldRepaint(
+      covariant _PlayerBufferedRangeIndicatorPainter oldDelegate) {
+    return duration != oldDelegate.duration ||
+        ranges != oldDelegate.ranges ||
+        backgroundColor != oldDelegate.backgroundColor ||
+        valueColor != oldDelegate.valueColor;
   }
 }

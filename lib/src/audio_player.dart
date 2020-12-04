@@ -1,10 +1,9 @@
+import 'dart:developer';
 import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'dart:developer';
-
 import 'package:system_clock/system_clock.dart';
 
 class AudioPlayer {
@@ -20,11 +19,17 @@ class AudioPlayer {
 
   Duration _duration = const Duration(microseconds: -1);
 
+  final ValueNotifier<List<DurationRange>> _buffered = ValueNotifier(const []);
+
+  ValueListenable<List<DurationRange>> get buffered => _buffered;
+
   AudioPlayer._create(this._uri, this._type) : assert(_uri != null) {
     _createRemotePlayer();
     _status.addListener(() {
-      if (_status.value == PlayerStatus.Ready && _peddingPlay && playWhenReady) {
-        _peddingPlay = false;
+      if (_status.value == PlayerStatus.Ready &&
+          _pendingPlay &&
+          playWhenReady) {
+        _pendingPlay = false;
         _remotePlayerManager.play(_playerId);
       }
     });
@@ -52,19 +57,19 @@ class AudioPlayer {
 
   ValueNotifier<bool> _playWhenReady = ValueNotifier(false);
 
-  bool _peddingPlay = false;
+  bool _pendingPlay = false;
 
   set playWhenReady(bool value) {
     if (_playWhenReady.value == value) {
       return;
     }
     _playWhenReady.value = value;
-    _peddingPlay = false;
+    _pendingPlay = false;
     if (value) {
       if (status == PlayerStatus.Ready) {
         _remotePlayerManager.play(_playerId);
       } else {
-        _peddingPlay = true;
+        _pendingPlay = true;
       }
     } else {
       _remotePlayerManager.pause(_playerId);
@@ -80,8 +85,9 @@ class AudioPlayer {
     if (!isPlaying) {
       return Duration(milliseconds: _currentTime);
     }
-    final int offset = SystemClock.uptime().inMilliseconds - _currentUpdateUptime;
-    return Duration(milliseconds: _currentTime + offset.atleast(0));
+    final int offset =
+        SystemClock.uptime().inMilliseconds - _currentUpdateUptime;
+    return Duration(milliseconds: _currentTime + offset.atLeast(0));
   }
 
   Duration get duration {
@@ -125,16 +131,17 @@ class AudioPlayer {
   }
 }
 
-final _RemotePlayerManager _remotePlayerManager = _RemotePlayerManager()..init();
+final _RemotePlayerManager _remotePlayerManager = _RemotePlayerManager()
+  ..init();
 
 class _RemotePlayerManager {
-  final MethodChannel _channel = MethodChannel("tech.soit.flutter.audio_player");
+  final MethodChannel _channel =
+      MethodChannel("tech.soit.flutter.audio_player");
 
   final Map<String, AudioPlayer> players = {};
 
   _RemotePlayerManager() {
     _channel.setMethodCallHandler((call) {
-      debugPrint("on method call: ${call.method} args = ${call.arguments}");
       return _handleMessage(call)
         ..catchError((e, s) {
           debugPrint(e.toString());
@@ -153,17 +160,23 @@ class _RemotePlayerManager {
       final AudioPlayer player = players[playerId];
       assert(player != null);
       final int eventId = call.argument("event");
-      assert(eventId != null && eventId >= 0 && eventId < _ClientPlayerEvent.values.length);
+      assert(eventId != null &&
+          eventId >= 0 &&
+          eventId < _ClientPlayerEvent.values.length);
       final _ClientPlayerEvent event = _ClientPlayerEvent.values[eventId];
       _updatePlayerState(player, event, call);
     }
   }
 
-  void _updatePlayerState(AudioPlayer player, _ClientPlayerEvent event, MethodCall call) {
+  void _updatePlayerState(
+      AudioPlayer player, _ClientPlayerEvent event, MethodCall call) {
+    debugPrint(
+        "_updatePlayerState($event): ${player._playerId} args = ${call.arguments}");
     const playbackEvents = <_ClientPlayerEvent>{
       _ClientPlayerEvent.Playing,
       _ClientPlayerEvent.Paused,
-      _ClientPlayerEvent.Buffering,
+      _ClientPlayerEvent.BufferingStart,
+      _ClientPlayerEvent.BufferingEnd,
       _ClientPlayerEvent.End,
     };
     if (playbackEvents.contains(event)) {
@@ -186,8 +199,11 @@ class _RemotePlayerManager {
         }
         player._status.value = PlayerStatus.Ready;
         break;
-      case _ClientPlayerEvent.Buffering:
+      case _ClientPlayerEvent.BufferingStart:
         player._status.value = PlayerStatus.Buffering;
+        break;
+      case _ClientPlayerEvent.BufferingEnd:
+        player._status.value = PlayerStatus.Ready;
         break;
       case _ClientPlayerEvent.Error:
         player._status.value = PlayerStatus.Error;
@@ -215,9 +231,27 @@ class _RemotePlayerManager {
         if (player._status.value == PlayerStatus.Buffering) {
           player._status.value = PlayerStatus.Ready;
         }
-        // Maybe pasued by some reason.
+        // Maybe paused by some reason.
         if (player._playWhenReady.value) {
           player._playWhenReady.value = false;
+        }
+        break;
+      case _ClientPlayerEvent.UpdateBufferPosition:
+        final List<int> ranges = call.argument<List>("ranges").cast();
+        final List<DurationRange> buffered = [];
+        for (var index = 0; index < ranges.length; index += 2) {
+          final DurationRange range =
+              DurationRange._mills(ranges[index], ranges[index + 1]);
+          buffered.add(range);
+        }
+        player._buffered.value = buffered;
+        break;
+      case _ClientPlayerEvent.Playing:
+        if (player._status.value == PlayerStatus.End) {
+          player._status.value = PlayerStatus.Ready;
+        }
+        if (!player._playWhenReady.value) {
+          player._playWhenReady.value = true;
         }
         break;
       default:
@@ -260,11 +294,53 @@ class _RemotePlayerManager {
 
     player._status.value = PlayerStatus.Idle;
     player._playWhenReady.value = false;
-    player._peddingPlay = false;
+    player._pendingPlay = false;
     player._duration = const Duration(microseconds: -1);
 
     await _channel.invokeMethod("dispose", {"playerId": player._playerId});
   }
+}
+
+extension AudioPlayerEvents on AudioPlayer {
+  AudioPlayerDisposable onReady(VoidCallback action) {
+    if (_status.value == PlayerStatus.Ready) {
+      action();
+      return const _EmptyAudioPlayerDisposable();
+    } else {
+      return _AudioPlayerReadyListener(_status, action);
+    }
+  }
+}
+
+class _AudioPlayerReadyListener implements AudioPlayerDisposable {
+  final VoidCallback callback;
+  final ValueNotifier<PlayerStatus> status;
+
+  _AudioPlayerReadyListener(this.status, this.callback) {
+    status.addListener(_onChanged);
+  }
+
+  void _onChanged() {
+    if (status.value == PlayerStatus.Ready) {
+      callback();
+    }
+  }
+
+  @override
+  void dispose() {
+    status.removeListener(_onChanged);
+  }
+}
+
+abstract class AudioPlayerDisposable {
+  void dispose();
+}
+
+class _EmptyAudioPlayerDisposable implements AudioPlayerDisposable {
+  const _EmptyAudioPlayerDisposable();
+
+  @override
+  void dispose() {}
 }
 
 enum _DataSourceType { url, file, asset }
@@ -274,11 +350,13 @@ enum _ClientPlayerEvent {
   Playing,
   Preparing,
   Prepared,
-  Buffering,
+  BufferingStart,
+  BufferingEnd,
   Error,
   Seeking,
   SeekFinished,
   End,
+  UpdateBufferPosition,
 }
 
 enum PlayerStatus {
@@ -288,6 +366,44 @@ enum PlayerStatus {
   Seeking,
   End,
   Error,
+}
+
+class DurationRange {
+  final Duration start;
+  final Duration end;
+
+  DurationRange(this.start, this.end);
+
+  factory DurationRange._mills(int start, int end) {
+    return DurationRange(
+      Duration(milliseconds: start),
+      Duration(milliseconds: end),
+    );
+  }
+
+  double startFraction(Duration duration) {
+    return start.inMilliseconds / duration.inMilliseconds;
+  }
+
+  double endFraction(Duration duration) {
+    return end.inMilliseconds / duration.inMilliseconds;
+  }
+
+  @override
+  String toString() {
+    return '$runtimeType{start: $start, end: $end}';
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DurationRange &&
+          runtimeType == other.runtimeType &&
+          start == other.start &&
+          end == other.end;
+
+  @override
+  int get hashCode => start.hashCode ^ end.hashCode;
 }
 
 extension _MethodCallArg on MethodCall {
@@ -309,7 +425,7 @@ extension _AudioPlayerIdGenerater on AudioPlayer {
 }
 
 extension _IntClamp on int {
-  int atleast(int value) {
+  int atLeast(int value) {
     return this < value ? value : this;
   }
 }
