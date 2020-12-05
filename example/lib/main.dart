@@ -186,7 +186,7 @@ class _PlaybackStatefulButton extends StatelessWidget {
           builder: (context, child) {
             if (player.isPlaying) {
               return Icon(Icons.pause);
-            } else if (player.status == PlayerStatus.Error) {
+            } else if (player.hasError) {
               return Icon(Icons.error);
             } else if (player.status == PlayerStatus.Buffering) {
               return Container(
@@ -250,7 +250,7 @@ class _ProgressTrackingContainerState extends State<ProgressTrackingContainer>
   }
 
   void _onStateChanged() {
-    final needTrack = widget.player.isPlaying;
+    final needTrack = true;
     if (_ticker.isActive == needTrack) return;
     if (_ticker.isActive) {
       _ticker.stop();

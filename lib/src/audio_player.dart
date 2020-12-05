@@ -21,10 +21,12 @@ class AudioPlayer {
 
   final ValueNotifier<List<DurationRange>> _buffered = ValueNotifier(const []);
 
+  final ValueNotifier<dynamic> _error = ValueNotifier(null);
+
   ValueListenable<List<DurationRange>> get buffered => _buffered;
 
   AudioPlayer._create(this._uri, this._type) : assert(_uri != null) {
-    _createRemotePlayer();
+    _remotePlayerManager.create(this);
     _status.addListener(() {
       if (_status.value == PlayerStatus.Ready &&
           _pendingPlay &&
@@ -45,10 +47,6 @@ class AudioPlayer {
 
   factory AudioPlayer.asset(String name) {
     return AudioPlayer._create(name, _DataSourceType.asset);
-  }
-
-  void _createRemotePlayer() {
-    _remotePlayerManager.create(this);
   }
 
   void seek(Duration duration) {
@@ -170,8 +168,13 @@ class _RemotePlayerManager {
 
   void _updatePlayerState(
       AudioPlayer player, _ClientPlayerEvent event, MethodCall call) {
-    debugPrint(
-        "_updatePlayerState($event): ${player._playerId} args = ${call.arguments}");
+    assert(() {
+      if (event != _ClientPlayerEvent.UpdateBufferPosition) {
+        debugPrint("_updatePlayerState($event): "
+            "${player._playerId} args = ${call.arguments}");
+      }
+      return true;
+    }());
     const playbackEvents = <_ClientPlayerEvent>{
       _ClientPlayerEvent.Playing,
       _ClientPlayerEvent.Paused,
@@ -197,6 +200,9 @@ class _RemotePlayerManager {
         if (duration > 0) {
           player._duration = Duration(milliseconds: duration);
         }
+        if (player.hasError) {
+          player._error.value = null;
+        }
         player._status.value = PlayerStatus.Ready;
         break;
       case _ClientPlayerEvent.BufferingStart:
@@ -206,10 +212,10 @@ class _RemotePlayerManager {
         player._status.value = PlayerStatus.Ready;
         break;
       case _ClientPlayerEvent.Error:
-        player._status.value = PlayerStatus.Error;
+        player._error.value = "";
+        player._status.value = PlayerStatus.Idle;
         break;
       case _ClientPlayerEvent.Seeking:
-        player._status.value = PlayerStatus.Seeking;
         break;
       case _ClientPlayerEvent.SeekFinished:
         final bool finished = call.argument("finished") ?? true;
@@ -221,7 +227,6 @@ class _RemotePlayerManager {
           player._currentTime = position;
           player._currentUpdateUptime = updateTime;
         }
-        player._status.value = PlayerStatus.Ready;
         break;
       case _ClientPlayerEvent.End:
         player._status.value = PlayerStatus.End;
@@ -301,6 +306,12 @@ class _RemotePlayerManager {
   }
 }
 
+extension AudioPlayerStatus on AudioPlayer {
+  bool get hasError => _error.value != null;
+
+  ValueListenable<dynamic> get error => _error;
+}
+
 extension AudioPlayerEvents on AudioPlayer {
   AudioPlayerDisposable onReady(VoidCallback action) {
     if (_status.value == PlayerStatus.Ready) {
@@ -363,9 +374,7 @@ enum PlayerStatus {
   Idle,
   Buffering,
   Ready,
-  Seeking,
   End,
-  Error,
 }
 
 class DurationRange {

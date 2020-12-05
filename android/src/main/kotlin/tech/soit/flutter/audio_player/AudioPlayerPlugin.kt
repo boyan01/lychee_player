@@ -1,15 +1,24 @@
 package tech.soit.flutter.audio_player
 
 import android.content.Context
-import android.media.MediaPlayer
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.NonNull
+import com.google.android.exoplayer2.ExoPlaybackException
+import com.google.android.exoplayer2.MediaItem
+import com.google.android.exoplayer2.Player
+import com.google.android.exoplayer2.SimpleExoPlayer
+import com.google.android.exoplayer2.source.ProgressiveMediaSource
+import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import java.io.File
 
 /** AudioPlayerPlugin */
 class AudioPlayerPlugin : FlutterPlugin, MethodCallHandler {
@@ -84,22 +93,14 @@ class AudioPlayerPlugin : FlutterPlugin, MethodCallHandler {
                     result.success()
                 }
             }
-            "play" -> {
-                answerWithPlayer { player -> player.play() }
+            "play" -> answerWithPlayer { player -> player.play() }
+            "pause" -> answerWithPlayer { player -> player.pause() }
+            "seek" -> answerWithPlayer { player ->
+                val position = call.argument<Long>("position")!!
+                player.seek(position)
             }
-            "pause" -> {
-                answerWithPlayer { player -> player.pause() }
-            }
-            "seek" -> {
-                answerWithPlayer { player ->
-                    val position = call.argument<Long>("position")!!
-                    player.seek(position)
-                }
-            }
-            "dispose" -> {
-                answerWithPlayer { player ->
-                    player.destroy()
-                }
+            "dispose" -> answerWithPlayer { player ->
+                player.destroy()
             }
         }
 
@@ -130,104 +131,85 @@ private class ClientAudioPlayer(
     type: DataSourceType,
     context: Context,
     flutterAssets: FlutterPlugin.FlutterAssets
-) : MediaPlayer.OnPreparedListener, MediaPlayer.OnInfoListener, MediaPlayer.OnErrorListener,
-    MediaPlayer.OnCompletionListener {
+) : Player.EventListener {
 
     companion object {
         private const val TAG = "AudioPlayerPlugin"
     }
 
-    private val player = MediaPlayer()
+    private val player = SimpleExoPlayer.Builder(context).build()
 
-    private var prepared = false
+    private var destroyed = false
 
-    private var destoried = false
+    private var buffering = false
 
-    private val bufferingUpdateListener = MediaPlayer.OnBufferingUpdateListener { player, percent ->
-        if (!prepared || player.duration == -1) {
-            return@OnBufferingUpdateListener
+    private val handler = Handler(Looper.getMainLooper())
+
+    private var lastDispatchedBufferedPosition: Long? = null
+
+    private fun scheduleDispatchBufferedSize() {
+        val bufferedPosition = player.bufferedPosition
+        if (bufferedPosition != lastDispatchedBufferedPosition) {
+            dispatchEvent(
+                PlaybackEvent.UpdateBufferPosition,
+                params = mapOf("ranges" to listOf(0, bufferedPosition))
+            )
+            lastDispatchedBufferedPosition = bufferedPosition
         }
-        val position = (percent / 100.0) * player.duration
-        dispatchEvent(
-            PlaybackEvent.UpdateBufferPosition,
-            params = mapOf("ranges" to listOf(0, position.toInt()))
-        )
-    }
-
-    private val seekCompletedListener = MediaPlayer.OnSeekCompleteListener {
-        dispatchEventWithPosition(PlaybackEvent.SeekFinished)
+        handler.postDelayed(::scheduleDispatchBufferedSize, 200)
     }
 
     init {
-        when (type) {
-            DataSourceType.Url, DataSourceType.File -> player.setDataSource(url)
-            DataSourceType.Asset -> {
-                val fd = context.assets.openFd(flutterAssets.getAssetFilePathByName(url))
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                    player.setDataSource(fd)
-                } else {
-                    player.setDataSource(fd.fileDescriptor)
-                }
-            }
+        val uri = when (type) {
+            DataSourceType.Url -> Uri.parse(url)
+            DataSourceType.File -> Uri.fromFile(File(url))
+            DataSourceType.Asset -> Uri.parse("asset:///${flutterAssets.getAssetFilePathByName(url)}")
         }
-        player.setOnPreparedListener(this)
-        player.setOnInfoListener(this)
-        player.setOnErrorListener(this)
-        player.setOnCompletionListener(this)
-        player.setOnBufferingUpdateListener(bufferingUpdateListener)
-        player.setOnSeekCompleteListener(seekCompletedListener)
+        val mediaSource = ProgressiveMediaSource
+            .Factory(DefaultDataSourceFactory(context))
+            .createMediaSource(MediaItem.fromUri(uri))
+        player.setMediaSource(mediaSource)
+        player.prepare()
+        player.addListener(this)
         dispatchEvent(PlaybackEvent.Preparing)
-        try {
-            player.prepareAsync()
-        } catch (e: IllegalStateException) {
-            Log.e(TAG, "prepare failed", e)
-            dispatchEvent(PlaybackEvent.Error)
-        }
+        scheduleDispatchBufferedSize()
     }
 
     fun destroy() {
-        destoried = true
+        destroyed = true
         player.release()
+        handler.removeCallbacksAndMessages(null)
     }
 
     fun play() {
-        if (destoried) {
+        if (destroyed) {
             return
         }
-        if (prepared) {
-            player.start()
-            dispatchEventWithPosition(PlaybackEvent.Playing)
-        }
+        player.playWhenReady = true
     }
 
     fun pause() {
-        if (destoried) {
+        if (destroyed) {
             return
         }
-        if (player.isPlaying) {
-            player.pause()
-            dispatchEventWithPosition(PlaybackEvent.Paused)
-        }
+        player.playWhenReady = false
     }
 
     fun seek(position: Long) {
-        if (destoried) {
+        if (destroyed) {
             return
         }
-        if (prepared) {
-            dispatchEvent(PlaybackEvent.Seeking)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                player.seekTo(position, MediaPlayer.SEEK_CLOSEST)
-            } else {
-                player.seekTo(position.toInt())
-            }
-        }
+        dispatchEvent(PlaybackEvent.Seeking)
+        player.seekTo(position)
+        dispatchEventWithPosition(PlaybackEvent.SeekFinished)
     }
 
-
-    override fun onPrepared(mp: MediaPlayer) {
-        dispatchEvent(PlaybackEvent.Prepared, mapOf("duration" to mp.duration))
-        prepared = true
+    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+        if (playWhenReady) {
+            dispatchEventWithPosition(PlaybackEvent.Playing)
+        } else {
+            dispatchEventWithPosition(PlaybackEvent.Paused)
+        }
     }
 
     private fun dispatchEventWithPosition(event: PlaybackEvent) {
@@ -247,24 +229,29 @@ private class ClientAudioPlayer(
         channel.invokeMethod("onPlaybackEvent", map)
     }
 
-    override fun onInfo(mp: MediaPlayer, what: Int, extra: Int): Boolean {
-        Log.d(TAG, "onInfo() called with: mp = $mp, what = $what, extra = $extra")
-        if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START) {
-            dispatchEventWithPosition(PlaybackEvent.BufferingStart)
-        } else if (what == MediaPlayer.MEDIA_INFO_BUFFERING_END) {
-            dispatchEventWithPosition(PlaybackEvent.BufferingEnd)
-        }
-        return false
-    }
-
-    override fun onError(mp: MediaPlayer, what: Int, extra: Int): Boolean {
-        Log.d(TAG, "onError() called with: mp = $mp, what = $what, extra = $extra")
+    override fun onPlayerError(error: ExoPlaybackException) {
+        Log.d(TAG, "onPlayerError() called with: error = $error")
         dispatchEvent(PlaybackEvent.Error)
-        return false
     }
 
-    override fun onCompletion(mp: MediaPlayer) {
-        dispatchEventWithPosition(PlaybackEvent.End)
+    override fun onPlaybackStateChanged(state: Int) {
+        when (state) {
+            Player.STATE_READY -> {
+                if (buffering) {
+                    buffering = false
+                    dispatchEventWithPosition(PlaybackEvent.BufferingEnd)
+                } else {
+                    dispatchEvent(PlaybackEvent.Prepared, mapOf("duration" to player.duration))
+                }
+            }
+            Player.STATE_BUFFERING -> {
+                dispatchEventWithPosition(PlaybackEvent.BufferingStart)
+                buffering = true
+            }
+            Player.STATE_ENDED, Player.STATE_IDLE -> {
+                dispatchEventWithPosition(PlaybackEvent.End)
+            }
+        }
     }
 
 }

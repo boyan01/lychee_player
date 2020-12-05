@@ -121,6 +121,8 @@ class ClientAudioPlayer: NSObject {
 
     private var isWaitingToPlay: Bool = false
 
+    private var isPlayEnded: Bool = false
+
     init(url: URL?, channel: FlutterMethodChannel, playerId: String) {
         self.channel = channel
         self.playerId = playerId
@@ -159,6 +161,7 @@ class ClientAudioPlayer: NSObject {
     }
 
     @objc func onPlayerEnded() {
+        isPlayEnded = true
         dispatchEvent(.end, params: [
             "position": player.currentTime().inMills,
             "updateTime": systemUptime()])
@@ -173,7 +176,15 @@ class ClientAudioPlayer: NSObject {
                 "updateTime": systemUptime(),
                 "finished": finished,
             ])
-            self.dispatchPlayerTimeControlStatus()
+            if self.isPlayEnded {
+                self.isPlayEnded = false
+                self.dispatchEvent(.buffering, params: [
+                    "position": self.player.currentTime().inMills,
+                    "updateTime": systemUptime()])
+                self.dispatchEvent(.bufferingEnd, params: [
+                    "position": self.player.currentTime().inMills,
+                    "updateTime": systemUptime()])
+            }
         }
     }
 
