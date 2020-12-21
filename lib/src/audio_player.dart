@@ -99,13 +99,13 @@ class AudioPlayer {
 
   PlayerStatus get status => _status.value;
 
-  Listenable _onStateChange;
+  Listenable? _onStateChange;
 
   Listenable get onStateChanged {
     if (_onStateChange == null) {
       _onStateChange = Listenable.merge([_status, _playWhenReady]);
     }
-    return _onStateChange;
+    return _onStateChange!;
   }
 
   void dispose() {
@@ -152,12 +152,11 @@ class _RemotePlayerManager {
   }
 
   Future<dynamic> _handleMessage(MethodCall call) async {
-    final String playerId = call.argument("playerId");
+    final String? playerId = call.argument("playerId");
     if (call.method == "onPlaybackEvent") {
-      final AudioPlayer player = players[playerId];
-      assert(player != null);
+      final AudioPlayer player = players[playerId!]!;
       final int eventId = call.argument("event");
-      assert(eventId != null && eventId >= 0 && eventId < _ClientPlayerEvent.values.length);
+      assert(eventId >= 0 && eventId < _ClientPlayerEvent.values.length);
       final _ClientPlayerEvent event = _ClientPlayerEvent.values[eventId];
       _updatePlayerState(player, event, call);
     }
@@ -219,8 +218,6 @@ class _RemotePlayerManager {
         if (finished) {
           final int position = call.argument("position");
           final int updateTime = call.argument("updateTime");
-          assert(position != null);
-          assert(updateTime != null);
           player._currentTime = position;
           player._currentUpdateUptime = updateTime;
         }
@@ -239,7 +236,7 @@ class _RemotePlayerManager {
         }
         break;
       case _ClientPlayerEvent.UpdateBufferPosition:
-        final List<int> ranges = call.argument<List>("ranges").cast();
+        final List<int> ranges = call.argument<List>("ranges")!.cast();
         final List<DurationRange> buffered = [];
         for (var index = 0; index < ranges.length; index += 2) {
           final DurationRange range = DurationRange._mills(ranges[index], ranges[index + 1]);
@@ -414,10 +411,10 @@ class DurationRange {
 }
 
 extension _MethodCallArg on MethodCall {
-  T argument<T>(String key) {
+  T? argument<T>(String key) {
     final dynamic value = (arguments as Map)[key];
     assert(value == null || value is T);
-    return value as T;
+    return value as T?;
   }
 }
 
@@ -425,7 +422,7 @@ extension _AudioPlayerIdGenerater on AudioPlayer {
   static int _id = 0;
 
   static String generatePlayerId() {
-    final String isolateId = Service.getIsolateID(Isolate.current);
+    final String? isolateId = Service.getIsolateID(Isolate.current)!;
     assert(isolateId != null, "isolate id is empty");
     return "${isolateId}_${_id++}";
   }

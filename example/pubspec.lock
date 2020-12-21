@@ -56,7 +56,7 @@ packages:
       name: cupertino_icons
       url: "https://pub.flutter-io.cn"
     source: hosted
-    version: "1.0.0"
+    version: "1.0.2"
   fake_async:
     dependency: transitive
     description:
@@ -134,7 +134,7 @@ packages:
       name: system_clock
       url: "https://pub.flutter-io.cn"
     source: hosted
-    version: "0.8.0"
+    version: "1.0.0-nullsafety.0"
   term_glyph:
     dependency: transitive
     description:
