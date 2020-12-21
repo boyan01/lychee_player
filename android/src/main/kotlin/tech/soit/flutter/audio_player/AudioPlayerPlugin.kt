@@ -212,13 +212,16 @@ private class ClientAudioPlayer(
         }
     }
 
-    private fun dispatchEventWithPosition(event: PlaybackEvent) {
+    private fun dispatchEventWithPosition(
+        event: PlaybackEvent,
+        params: Map<String, Any?> = emptyMap()
+    ) {
         dispatchEvent(
             event,
             mapOf(
                 "position" to player.currentPosition,
                 "updateTime" to SystemClock.uptimeMillis()
-            )
+            ) + params
         )
     }
 
@@ -227,6 +230,13 @@ private class ClientAudioPlayer(
         map["playerId"] = playerId
         map["event"] = event.ordinal
         channel.invokeMethod("onPlaybackEvent", map)
+    }
+
+    override fun onIsPlayingChanged(isPlaying: Boolean) {
+        dispatchEventWithPosition(
+            PlaybackEvent.OnIsPlayingChanged,
+            params = mapOf("playing" to isPlaying)
+        )
     }
 
     override fun onPlayerError(error: ExoPlaybackException) {
@@ -269,6 +279,7 @@ private enum class PlaybackEvent {
     SeekFinished,
     End,
     UpdateBufferPosition,
+    OnIsPlayingChanged,
 }
 
 private enum class DataSourceType {

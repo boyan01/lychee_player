@@ -19,6 +19,10 @@ class AudioPlayer {
 
   Duration _duration = const Duration(microseconds: -1);
 
+  // Changed by client player play/pause event.
+  // Make [currentTime] more precise
+  bool _isClientPlaying = false;
+
   final ValueNotifier<List<DurationRange>> _buffered = ValueNotifier(const []);
 
   final ValueNotifier<dynamic> _error = ValueNotifier(null);
@@ -28,9 +32,7 @@ class AudioPlayer {
   AudioPlayer._create(this._uri, this._type) : assert(_uri != null) {
     _remotePlayerManager.create(this);
     _status.addListener(() {
-      if (_status.value == PlayerStatus.Ready &&
-          _pendingPlay &&
-          playWhenReady) {
+      if (_status.value == PlayerStatus.Ready && _pendingPlay && playWhenReady) {
         _pendingPlay = false;
         _remotePlayerManager.play(_playerId);
       }
@@ -80,11 +82,10 @@ class AudioPlayer {
     if (_currentUpdateUptime == -1 || _currentTime < 0) {
       return Duration.zero;
     }
-    if (!isPlaying) {
+    if (!_isClientPlaying) {
       return Duration(milliseconds: _currentTime);
     }
-    final int offset =
-        SystemClock.uptime().inMilliseconds - _currentUpdateUptime;
+    final int offset = SystemClock.uptime().inMilliseconds - _currentUpdateUptime;
     return Duration(milliseconds: _currentTime + offset.atLeast(0));
   }
 
@@ -129,12 +130,10 @@ class AudioPlayer {
   }
 }
 
-final _RemotePlayerManager _remotePlayerManager = _RemotePlayerManager()
-  ..init();
+final _RemotePlayerManager _remotePlayerManager = _RemotePlayerManager()..init();
 
 class _RemotePlayerManager {
-  final MethodChannel _channel =
-      MethodChannel("tech.soit.flutter.audio_player");
+  final MethodChannel _channel = MethodChannel("tech.soit.flutter.audio_player");
 
   final Map<String, AudioPlayer> players = {};
 
@@ -158,16 +157,13 @@ class _RemotePlayerManager {
       final AudioPlayer player = players[playerId];
       assert(player != null);
       final int eventId = call.argument("event");
-      assert(eventId != null &&
-          eventId >= 0 &&
-          eventId < _ClientPlayerEvent.values.length);
+      assert(eventId != null && eventId >= 0 && eventId < _ClientPlayerEvent.values.length);
       final _ClientPlayerEvent event = _ClientPlayerEvent.values[eventId];
       _updatePlayerState(player, event, call);
     }
   }
 
-  void _updatePlayerState(
-      AudioPlayer player, _ClientPlayerEvent event, MethodCall call) {
+  void _updatePlayerState(AudioPlayer player, _ClientPlayerEvent event, MethodCall call) {
     assert(() {
       if (event != _ClientPlayerEvent.UpdateBufferPosition) {
         debugPrint("_updatePlayerState($event): "
@@ -176,11 +172,12 @@ class _RemotePlayerManager {
       return true;
     }());
     const playbackEvents = <_ClientPlayerEvent>{
-      _ClientPlayerEvent.Playing,
-      _ClientPlayerEvent.Paused,
-      _ClientPlayerEvent.BufferingStart,
-      _ClientPlayerEvent.BufferingEnd,
-      _ClientPlayerEvent.End,
+      // _ClientPlayerEvent.Playing,
+      // _ClientPlayerEvent.Paused,
+      // _ClientPlayerEvent.BufferingStart,
+      // _ClientPlayerEvent.BufferingEnd,
+      // _ClientPlayerEvent.End,
+      _ClientPlayerEvent.OnIsPlayingChanged,
     };
     if (playbackEvents.contains(event)) {
       final int position = call.argument("position");
@@ -245,8 +242,7 @@ class _RemotePlayerManager {
         final List<int> ranges = call.argument<List>("ranges").cast();
         final List<DurationRange> buffered = [];
         for (var index = 0; index < ranges.length; index += 2) {
-          final DurationRange range =
-              DurationRange._mills(ranges[index], ranges[index + 1]);
+          final DurationRange range = DurationRange._mills(ranges[index], ranges[index + 1]);
           buffered.add(range);
         }
         player._buffered.value = buffered;
@@ -258,6 +254,10 @@ class _RemotePlayerManager {
         if (!player._playWhenReady.value) {
           player._playWhenReady.value = true;
         }
+        break;
+      case _ClientPlayerEvent.OnIsPlayingChanged:
+        final bool isPlaying = call.argument("playing");
+        player._isClientPlaying = isPlaying;
         break;
       default:
         if (player._status.value == PlayerStatus.Buffering) {
@@ -368,6 +368,7 @@ enum _ClientPlayerEvent {
   SeekFinished,
   End,
   UpdateBufferPosition,
+  OnIsPlayingChanged
 }
 
 enum PlayerStatus {
@@ -406,10 +407,7 @@ class DurationRange {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is DurationRange &&
-          runtimeType == other.runtimeType &&
-          start == other.start &&
-          end == other.end;
+      other is DurationRange && runtimeType == other.runtimeType && start == other.start && end == other.end;
 
   @override
   int get hashCode => start.hashCode ^ end.hashCode;
