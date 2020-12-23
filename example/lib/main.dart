@@ -114,8 +114,7 @@ class _PlayerUi extends StatelessWidget {
             builder: (context) {
               double? progress;
               if (player!.duration > Duration.zero) {
-                progress = player!.currentTime.inMilliseconds /
-                    player!.duration.inMilliseconds;
+                progress = player!.currentTime.inMilliseconds / player!.duration.inMilliseconds;
               }
               return LinearProgressIndicator(
                 value: progress,
@@ -145,16 +144,14 @@ class _ForwardRewindButton extends StatelessWidget {
         IconButton(
             icon: Icon(Icons.replay_10),
             onPressed: () {
-              final Duration to =
-                  player!.currentTime - const Duration(seconds: 10);
+              final Duration to = player!.currentTime - const Duration(seconds: 10);
               player!.seek(to.atMost(player!.duration));
             }),
         SizedBox(width: 20),
         IconButton(
             icon: Icon(Icons.forward_10),
             onPressed: () {
-              final Duration to =
-                  player!.currentTime + const Duration(seconds: 10);
+              final Duration to = player!.currentTime + const Duration(seconds: 10);
               debugPrint("current = ${player!.currentTime}");
               player!.seek(to.atLeast(Duration.zero));
             }),
@@ -216,17 +213,15 @@ class ProgressTrackingContainer extends StatefulWidget {
     Key? key,
     required this.builder,
     required this.player,
-  })  : assert(builder != null),
+  })   : assert(builder != null),
         assert(player != null),
         super(key: key);
 
   @override
-  _ProgressTrackingContainerState createState() =>
-      _ProgressTrackingContainerState();
+  _ProgressTrackingContainerState createState() => _ProgressTrackingContainerState();
 }
 
-class _ProgressTrackingContainerState extends State<ProgressTrackingContainer>
-    with SingleTickerProviderStateMixin {
+class _ProgressTrackingContainerState extends State<ProgressTrackingContainer> with SingleTickerProviderStateMixin {
   AudioPlayer? _player;
 
   late Ticker _ticker;
@@ -285,12 +280,10 @@ class _PlayerBufferedRangeIndicator extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  _PlayerBufferedRangeIndicatorState createState() =>
-      _PlayerBufferedRangeIndicatorState();
+  _PlayerBufferedRangeIndicatorState createState() => _PlayerBufferedRangeIndicatorState();
 }
 
-class _PlayerBufferedRangeIndicatorState
-    extends State<_PlayerBufferedRangeIndicator> {
+class _PlayerBufferedRangeIndicatorState extends State<_PlayerBufferedRangeIndicator> {
   AudioPlayer? _player;
   Duration? _duration;
 
@@ -335,10 +328,7 @@ class _PlayerBufferedRangeIndicatorState
             debugPrint("_player.buffered = ${_player!.buffered.value}");
             return CustomPaint(
               painter: _PlayerBufferedRangeIndicatorPainter(
-                  _player!.buffered.value,
-                  _duration,
-                  Colors.transparent,
-                  Theme.of(context).primaryColor),
+                  _player!.buffered.value, _duration, Colors.transparent, Theme.of(context).primaryColor),
             );
           });
     }
@@ -359,8 +349,7 @@ class _PlayerBufferedRangeIndicatorPainter extends CustomPainter {
   final Color backgroundColor;
   final Color valueColor;
 
-  _PlayerBufferedRangeIndicatorPainter(
-      this.ranges, this.duration, this.backgroundColor, this.valueColor);
+  _PlayerBufferedRangeIndicatorPainter(this.ranges, this.duration, this.backgroundColor, this.valueColor);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -376,9 +365,7 @@ class _PlayerBufferedRangeIndicatorPainter extends CustomPainter {
         return;
       }
       canvas.drawRect(
-          Offset(size.width * startFraction, 0) &
-              Size(size.width * (endFraction - startFraction), size.height),
-          paint);
+          Offset(size.width * startFraction, 0) & Size(size.width * (endFraction - startFraction), size.height), paint);
     }
 
     ranges.forEach((e) {
@@ -387,8 +374,7 @@ class _PlayerBufferedRangeIndicatorPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(
-      covariant _PlayerBufferedRangeIndicatorPainter oldDelegate) {
+  bool shouldRepaint(covariant _PlayerBufferedRangeIndicatorPainter oldDelegate) {
     return duration != oldDelegate.duration ||
         ranges != oldDelegate.ranges ||
         backgroundColor != oldDelegate.backgroundColor ||

@@ -35,6 +35,8 @@ flutter:
     # -------------------
       ios:
         pluginClass: AudioPlayerPlugin
+      macos:
+        pluginClass: SwiftAudioPlayerPlugin
       android:
         package: tech.soit.flutter.audio_player
         pluginClass: AudioPlayerPlugin

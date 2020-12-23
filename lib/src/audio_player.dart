@@ -181,8 +181,6 @@ class _RemotePlayerManager {
     if (playbackEvents.contains(event)) {
       final int position = call.argument("position");
       final int updateTime = call.argument("updateTime");
-      assert(position != null);
-      assert(updateTime != null);
       player._currentTime = position;
       player._currentUpdateUptime = updateTime;
     }
