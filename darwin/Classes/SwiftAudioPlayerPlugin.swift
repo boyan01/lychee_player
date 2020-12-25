@@ -1,17 +1,17 @@
 import AVKit
 #if os(iOS)
-import Flutter
-import UIKit
+    import Flutter
+    import UIKit
 #elseif os(macOS)
-import FlutterMacOS
+    import FlutterMacOS
 #endif
 
 public class SwiftAudioPlayerPlugin: NSObject, FlutterPlugin {
     public static func register(with registrar: FlutterPluginRegistrar) {
         #if os(iOS)
-        let channel = FlutterMethodChannel(name: "tech.soit.flutter.audio_player", binaryMessenger: registrar.messenger())
+            let channel = FlutterMethodChannel(name: "tech.soit.flutter.audio_player", binaryMessenger: registrar.messenger())
         #elseif os(macOS)
-        let channel = FlutterMethodChannel(name: "tech.soit.flutter.audio_player", binaryMessenger: registrar.messenger)
+            let channel = FlutterMethodChannel(name: "tech.soit.flutter.audio_player", binaryMessenger: registrar.messenger)
         #endif
         let instance = SwiftAudioPlayerPlugin(channel: channel)
         instance.registrar = registrar
@@ -93,11 +93,12 @@ extension SwiftAudioPlayerPlugin {
         switch type {
         case .asset:
             #if os(iOS)
-            guard let assetKey = registrar?.lookupKey(forAsset: urlString) else { return nil }
-            guard let path = Bundle.main.path(forResource: assetKey, ofType: nil) else { return nil }
-            return URL(fileURLWithPath: path)
+                guard let assetKey = registrar?.lookupKey(forAsset: urlString) else { return nil }
+                guard let path = Bundle.main.path(forResource: assetKey, ofType: nil) else { return nil }
+                return URL(fileURLWithPath: path)
             #elseif os(macOS)
-            return nil
+                // Do not support yet.
+                return nil
             #endif
         case .url:
             return URL(string: urlString)
@@ -217,6 +218,15 @@ class ClientAudioPlayer: NSObject {
             debugPrint("playback rate \(self.player.rate)")
         } else if keyPath == #keyPath(AVPlayer.timeControlStatus) {
             dispatchPlayerTimeControlStatus()
+
+            let playing = player.timeControlStatus == .playing
+            dispatchEvent(
+                .onIsPlayingChanged,
+                params: [
+                    "playing": playing,
+                    "position": self.player.currentTime().inMills,
+                    "updateTime": systemUptime(),
+                ])
         }
 
         if keyPath == #keyPath(AVPlayerItem.status), let playItem = playItem {
@@ -267,6 +277,7 @@ enum PlaybackEvent: Int {
     case seekFinished
     case end
     case updateBufferPosition
+    case onIsPlayingChanged
 }
 
 enum DataSourceType: Int {
