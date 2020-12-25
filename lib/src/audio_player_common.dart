@@ -1,3 +1,6 @@
+import 'package:audio_player/audio_player.dart';
+import 'package:flutter/foundation.dart';
+
 enum PlayerStatus {
   Idle,
   Buffering,
@@ -54,4 +57,35 @@ class _EmptyAudioPlayerDisposable implements AudioPlayerDisposable {
 
   @override
   void dispose() {}
+}
+
+extension AudioPlayerCommon on AudioPlayer {
+  AudioPlayerDisposable onReady(VoidCallback action) {
+    if (status == PlayerStatus.Ready) {
+      action();
+      return AudioPlayerDisposable.empty();
+    } else {
+      return _AudioPlayerReadyListener(onStatusChanged, action);
+    }
+  }
+}
+
+class _AudioPlayerReadyListener implements AudioPlayerDisposable {
+  final VoidCallback callback;
+  final ValueListenable<PlayerStatus> status;
+
+  _AudioPlayerReadyListener(this.status, this.callback) {
+    status.addListener(_onChanged);
+  }
+
+  void _onChanged() {
+    if (status.value == PlayerStatus.Ready) {
+      callback();
+    }
+  }
+
+  @override
+  void dispose() {
+    status.removeListener(_onChanged);
+  }
 }

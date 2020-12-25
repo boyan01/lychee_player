@@ -9,7 +9,7 @@ void main() {
 enum _Type { file, url, asset }
 
 const Map<String, _Type> urls = {
-  "http://music.163.com/song/media/outer/url?id=33894312.mp3": _Type.url,
+  "http://music.163.com/song/media/outer/url?id=1451998397.mp3": _Type.url,
   "tracks/rise.mp3": _Type.asset,
   "https://storage.googleapis.com/exoplayer-test-media-0/play.mp3": _Type.url,
 };

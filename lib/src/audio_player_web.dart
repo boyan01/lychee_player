@@ -22,6 +22,8 @@ class AudioPlayer implements api.AudioPlayer {
 
   final ValueNotifier<dynamic> _onError = ValueNotifier(null);
 
+  Listenable? _onStateChanged;
+
   AudioPlayer._create(this._url) : _audioElement = html.AudioElement(_url) {
     _audioElement.onPlaying.forEach((element) {
       debugPrint("on playing: $element");
@@ -57,18 +59,16 @@ class AudioPlayer implements api.AudioPlayer {
       final duration = _audioElement.duration * 1000;
       _duration = Duration(milliseconds: duration.toInt());
     });
-    _audioElement.onLoad.forEach((element) {
-      final buffered = _audioElement.buffered;
-      final ranges = <DurationRange>[];
-      for (var i = 0; i < buffered.length; i++) {
-        final start = buffered.start(i) * 1000;
-        final end = buffered.end(i) * 1000;
-        ranges.add(DurationRange.mills(start.toInt(), end.toInt()));
-      }
-      _buffered.value = ranges;
-    });
 
-    _audioElement.onLoadedData.forEach((element) {});
+    _audioElement.addEventListener("progress", (event) {
+      _updateBuffered();
+    });
+    _audioElement.onLoadedData.forEach((element) {
+      _updateBuffered();
+    });
+    _audioElement.onLoad.forEach((element) {
+      _updateBuffered();
+    });
     _status.addListener(() {
       if (status == PlayerStatus.Ready && _playWhenReady.value) {
         _audioElement.play().catchError((e, s) {
@@ -92,6 +92,18 @@ class AudioPlayer implements api.AudioPlayer {
     final url =
         "${html.window.location.href.replaceAll("/#/", "")}/assets/${name}";
     return AudioPlayer._create(url);
+  }
+
+  void _updateBuffered() {
+    final buffered = _audioElement.buffered;
+    final ranges = <DurationRange>[];
+    for (var i = 0; i < buffered.length; i++) {
+      final start = buffered.start(i) * 1000;
+      final end = buffered.end(i) * 1000;
+      ranges.add(DurationRange.mills(start.toInt(), end.toInt()));
+    }
+    debugPrint("_updateBuffered ${ranges}");
+    _buffered.value = ranges;
   }
 
   @override
@@ -147,22 +159,18 @@ class AudioPlayer implements api.AudioPlayer {
   bool get isPlaying => _playWhenReady.value && status == PlayerStatus.Ready;
 
   @override
-  AudioPlayerDisposable onReady(action) {
-    return AudioPlayerDisposable.empty();
-  }
-
-  Listenable? _onStateChanged;
-
-  @override
   Listenable get onStateChanged {
     if (_onStateChanged == null) {
       _onStateChanged = Listenable.merge([
-        _onStateChanged,
+        _status,
         _playWhenReady,
       ]);
     }
     return _onStateChanged!;
   }
+
+  @override
+  ValueListenable<PlayerStatus> get onStatusChanged => _status;
 
   @override
   void seek(Duration duration) {

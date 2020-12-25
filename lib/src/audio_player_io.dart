@@ -94,16 +94,6 @@ class AudioPlayer implements api.AudioPlayer {
   ValueListenable<dynamic> get error => _error;
 
   @override
-  AudioPlayerDisposable onReady(VoidCallback action) {
-    if (_status.value == PlayerStatus.Ready) {
-      action();
-      return AudioPlayerDisposable.empty();
-    } else {
-      return _AudioPlayerReadyListener(_status, action);
-    }
-  }
-
-  @override
   Duration get currentTime {
     if (_currentUpdateUptime == -1 || _currentTime < 0) {
       return Duration.zero;
@@ -138,6 +128,9 @@ class AudioPlayer implements api.AudioPlayer {
     }
     return _onStateChange!;
   }
+
+  @override
+  ValueListenable<PlayerStatus> get onStatusChanged => _status;
 
   @override
   void dispose() {
@@ -334,30 +327,6 @@ class _RemotePlayerManager {
     player._duration = const Duration(microseconds: -1);
 
     await _channel.invokeMethod("dispose", {"playerId": player._playerId});
-  }
-}
-
-extension AudioPlayerStatus on AudioPlayer {}
-
-extension AudioPlayerEvents on AudioPlayer {}
-
-class _AudioPlayerReadyListener implements AudioPlayerDisposable {
-  final VoidCallback callback;
-  final ValueNotifier<PlayerStatus> status;
-
-  _AudioPlayerReadyListener(this.status, this.callback) {
-    status.addListener(_onChanged);
-  }
-
-  void _onChanged() {
-    if (status.value == PlayerStatus.Ready) {
-      callback();
-    }
-  }
-
-  @override
-  void dispose() {
-    status.removeListener(_onChanged);
   }
 }
 

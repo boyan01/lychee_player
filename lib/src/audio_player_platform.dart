@@ -32,11 +32,11 @@ abstract class AudioPlayer {
 
   Listenable get onStateChanged;
 
+  ValueListenable<PlayerStatus> get onStatusChanged;
+
   bool get hasError;
 
   ValueListenable<dynamic> get error;
-
-  AudioPlayerDisposable onReady(VoidCallback action);
 
   ValueListenable<List<DurationRange>> get buffered;
 
