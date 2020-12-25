@@ -4,8 +4,11 @@
 .packages
 .pub/
 
-.idea/vcs.xml
-.idea/workspace.xml
-.idea/libraries/*
-
 build/
+
+.flutter-plugins
+.flutter-plugins-dependencies
+
+macos/Flutter/ephemeral
+
+.idea/*
