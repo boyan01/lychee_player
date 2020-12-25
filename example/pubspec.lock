@@ -142,6 +142,11 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_web_plugins:
+    dependency: transitive
+    description: flutter
+    source: sdk
+    version: "0.0.0"
   fuchsia_remote_debug_protocol:
     dependency: transitive
     description: flutter
@@ -324,7 +329,7 @@ packages:
       name: system_clock
       url: "https://pub.flutter-io.cn"
     source: hosted
-    version: "1.0.0-nullsafety.0"
+    version: "1.1.0-nullsafety.1"
   term_glyph:
     dependency: transitive
     description:

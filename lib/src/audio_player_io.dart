@@ -6,7 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:system_clock/system_clock.dart';
 
-class AudioPlayer {
+import 'audio_player_common.dart';
+import 'audio_player_platform.dart' as api;
+
+class AudioPlayer implements api.AudioPlayer {
   final String _uri;
   final _DataSourceType _type;
 
@@ -27,12 +30,15 @@ class AudioPlayer {
 
   final ValueNotifier<dynamic> _error = ValueNotifier(null);
 
+  @override
   ValueListenable<List<DurationRange>> get buffered => _buffered;
 
-  AudioPlayer._create(this._uri, this._type) : assert(_uri != null) {
+  AudioPlayer._create(this._uri, this._type) {
     _remotePlayerManager.create(this);
     _status.addListener(() {
-      if (_status.value == PlayerStatus.Ready && _pendingPlay && playWhenReady) {
+      if (_status.value == PlayerStatus.Ready &&
+          _pendingPlay &&
+          playWhenReady) {
         _pendingPlay = false;
         _remotePlayerManager.play(_playerId);
       }
@@ -51,6 +57,7 @@ class AudioPlayer {
     return AudioPlayer._create(name, _DataSourceType.asset);
   }
 
+  @override
   void seek(Duration duration) {
     _remotePlayerManager.seek(_playerId, duration);
   }
@@ -59,6 +66,7 @@ class AudioPlayer {
 
   bool _pendingPlay = false;
 
+  @override
   set playWhenReady(bool value) {
     if (_playWhenReady.value == value) {
       return;
@@ -76,8 +84,26 @@ class AudioPlayer {
     }
   }
 
+  @override
   bool get playWhenReady => _playWhenReady.value;
 
+  @override
+  bool get hasError => _error.value != null;
+
+  @override
+  ValueListenable<dynamic> get error => _error;
+
+  @override
+  AudioPlayerDisposable onReady(VoidCallback action) {
+    if (_status.value == PlayerStatus.Ready) {
+      action();
+      return AudioPlayerDisposable.empty();
+    } else {
+      return _AudioPlayerReadyListener(_status, action);
+    }
+  }
+
+  @override
   Duration get currentTime {
     if (_currentUpdateUptime == -1 || _currentTime < 0) {
       return Duration.zero;
@@ -85,22 +111,27 @@ class AudioPlayer {
     if (!_isClientPlaying) {
       return Duration(milliseconds: _currentTime);
     }
-    final int offset = SystemClock.uptime().inMilliseconds - _currentUpdateUptime;
+    final int offset =
+        SystemClock.uptime().inMilliseconds - _currentUpdateUptime;
     return Duration(milliseconds: _currentTime + offset.atLeast(0));
   }
 
+  @override
   Duration get duration {
     return _duration;
   }
 
+  @override
   bool get isPlaying {
     return playWhenReady && status == PlayerStatus.Ready;
   }
 
+  @override
   PlayerStatus get status => _status.value;
 
   Listenable? _onStateChange;
 
+  @override
   Listenable get onStateChanged {
     if (_onStateChange == null) {
       _onStateChange = Listenable.merge([_status, _playWhenReady]);
@@ -108,6 +139,7 @@ class AudioPlayer {
     return _onStateChange!;
   }
 
+  @override
   void dispose() {
     _remotePlayerManager.dispose(this);
   }
@@ -130,10 +162,12 @@ class AudioPlayer {
   }
 }
 
-final _RemotePlayerManager _remotePlayerManager = _RemotePlayerManager()..init();
+final _RemotePlayerManager _remotePlayerManager = _RemotePlayerManager()
+  ..init();
 
 class _RemotePlayerManager {
-  final MethodChannel _channel = MethodChannel("tech.soit.flutter.audio_player");
+  final MethodChannel _channel =
+      MethodChannel("tech.soit.flutter.audio_player");
 
   final Map<String, AudioPlayer> players = {};
 
@@ -162,7 +196,8 @@ class _RemotePlayerManager {
     }
   }
 
-  void _updatePlayerState(AudioPlayer player, _ClientPlayerEvent event, MethodCall call) {
+  void _updatePlayerState(
+      AudioPlayer player, _ClientPlayerEvent event, MethodCall call) {
     assert(() {
       if (event != _ClientPlayerEvent.UpdateBufferPosition) {
         debugPrint("_updatePlayerState($event): "
@@ -237,7 +272,8 @@ class _RemotePlayerManager {
         final List<int> ranges = call.argument<List>("ranges")!.cast();
         final List<DurationRange> buffered = [];
         for (var index = 0; index < ranges.length; index += 2) {
-          final DurationRange range = DurationRange._mills(ranges[index], ranges[index + 1]);
+          final DurationRange range =
+              DurationRange.mills(ranges[index], ranges[index + 1]);
           buffered.add(range);
         }
         player._buffered.value = buffered;
@@ -301,22 +337,9 @@ class _RemotePlayerManager {
   }
 }
 
-extension AudioPlayerStatus on AudioPlayer {
-  bool get hasError => _error.value != null;
+extension AudioPlayerStatus on AudioPlayer {}
 
-  ValueListenable<dynamic> get error => _error;
-}
-
-extension AudioPlayerEvents on AudioPlayer {
-  AudioPlayerDisposable onReady(VoidCallback action) {
-    if (_status.value == PlayerStatus.Ready) {
-      action();
-      return const _EmptyAudioPlayerDisposable();
-    } else {
-      return _AudioPlayerReadyListener(_status, action);
-    }
-  }
-}
+extension AudioPlayerEvents on AudioPlayer {}
 
 class _AudioPlayerReadyListener implements AudioPlayerDisposable {
   final VoidCallback callback;
@@ -338,17 +361,6 @@ class _AudioPlayerReadyListener implements AudioPlayerDisposable {
   }
 }
 
-abstract class AudioPlayerDisposable {
-  void dispose();
-}
-
-class _EmptyAudioPlayerDisposable implements AudioPlayerDisposable {
-  const _EmptyAudioPlayerDisposable();
-
-  @override
-  void dispose() {}
-}
-
 enum _DataSourceType { url, file, asset }
 
 enum _ClientPlayerEvent {
@@ -364,48 +376,6 @@ enum _ClientPlayerEvent {
   End,
   UpdateBufferPosition,
   OnIsPlayingChanged
-}
-
-enum PlayerStatus {
-  Idle,
-  Buffering,
-  Ready,
-  End,
-}
-
-class DurationRange {
-  final Duration start;
-  final Duration end;
-
-  DurationRange(this.start, this.end);
-
-  factory DurationRange._mills(int start, int end) {
-    return DurationRange(
-      Duration(milliseconds: start),
-      Duration(milliseconds: end),
-    );
-  }
-
-  double startFraction(Duration duration) {
-    return start.inMilliseconds / duration.inMilliseconds;
-  }
-
-  double endFraction(Duration duration) {
-    return end.inMilliseconds / duration.inMilliseconds;
-  }
-
-  @override
-  String toString() {
-    return '$runtimeType{start: $start, end: $end}';
-  }
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is DurationRange && runtimeType == other.runtimeType && start == other.start && end == other.end;
-
-  @override
-  int get hashCode => start.hashCode ^ end.hashCode;
 }
 
 extension _MethodCallArg on MethodCall {
