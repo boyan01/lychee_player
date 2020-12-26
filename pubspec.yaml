@@ -40,6 +40,8 @@ flutter:
       android:
         package: tech.soit.flutter.audio_player
         pluginClass: AudioPlayerPlugin
+      windows:
+        pluginClass: AudioPlayerPlugin
     # -------------------
 
   # To add assets to your plugin package, add an assets section, like this:
