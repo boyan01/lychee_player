@@ -82,6 +82,7 @@ class ClientAudioPlayer : public IMFPMediaPlayerCallback {
       return;
     }
     PROPVARIANT time{};
+    time.vt = VT_I8;
     time.hVal = toLargeInteger(ms * 10000);
     HRESULT result = player->SetPosition(MFP_POSITIONTYPE_100NS, &time);
     if (FAILED(result)) {
