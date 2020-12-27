@@ -1,4 +1,5 @@
 #include "include/audio_player/audio_player_plugin.h"
+
 #include "include/audio_player/client_audio_player.h"
 // This must be included before many other Windows headers.
 #include <windows.h>
@@ -29,8 +30,7 @@ namespace {
         ~AudioPlayerPlugin() override;
 
     private:
-
-        MethodChannel<EncodableValue> *methodChannel{};
+        shared_ptr<MethodChannel<EncodableValue>> methodChannel;
 
         map<string, ClientAudioPlayer *> players = map<string, ClientAudioPlayer *>();
 
@@ -44,7 +44,7 @@ namespace {
     void AudioPlayerPlugin::RegisterWithRegistrar(
             flutter::PluginRegistrarWindows *registrar) {
         auto channel =
-                std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+                std::make_shared<flutter::MethodChannel<flutter::EncodableValue >>(
                         registrar->messenger(), "tech.soit.flutter.audio_player",
                         &flutter::StandardMethodCodec::GetInstance());
 
@@ -54,22 +54,23 @@ namespace {
                 [plugin_pointer = plugin.get()](const auto &call, auto result) {
                     plugin_pointer->HandleMethodCall(call, std::move(result));
                 });
-        plugin->methodChannel = channel.get();
+        plugin->methodChannel = channel;
 
         registrar->AddPlugin(std::move(plugin));
     }
-
 
     template<class T>
     T getArgument(const EncodableMap *params, const char *key) {
         auto pair = params->find(EncodableValue(key));
         if (pair == params->end()) {
-            return nullptr;
+            throw exception("error");
         }
         return get<T>(pair->second);
     }
 
     AudioPlayerPlugin::~AudioPlayerPlugin() = default;
+
+    AudioPlayerPlugin::AudioPlayerPlugin() = default;
 
     void AudioPlayerPlugin::HandleMethodCall(
             const MethodCall<EncodableValue> &methodCall,
@@ -77,48 +78,65 @@ namespace {
         std::cout << "hand call: " << methodCall.method_name() << " " << methodCall.arguments() << std::endl;
 
         if (methodCall.method_name() == "initialize") {
+            for (const auto &pair: players) {
+                delete pair.second;
+            }
             players.clear();
             result->Success();
             return;
         }
 
         const EncodableMap *arguments = std::get_if<EncodableMap>(methodCall.arguments());
-
         auto playerId = getArgument<string>(arguments, "playerId");
         if (playerId.empty()) {
             result->Error("can not find playerId");
             return;
         }
+
+        auto answerWithPlayer = [playerId, this, result = result.get()](function<void(ClientAudioPlayer *)> action) {
+            auto player = this->players[playerId];
+            if (player) {
+                action(player);
+                result->Success();
+            } else {
+                result->Error("2", "player haven't created");
+            }
+        };
+
         if (methodCall.method_name() == "create") {
             if (players[playerId] != nullptr) {
                 result->Error("1", "player already created");
             } else {
                 auto url = getArgument<string>(arguments, "url");
-                auto player = new ClientAudioPlayer(wstring(url.begin(), url.end()).c_str(), methodChannel, playerId);
+                auto player = new ClientAudioPlayer(wstring(url.begin(), url.end()).c_str(), methodChannel, playerId.c_str());
+                printf("create player: %s,  %p \n", playerId.c_str(), player);
                 players[playerId] = player;
                 result->Success();
             }
-        }
-
-        if (methodCall.method_name() == "getPlatformVersion") {
-            std::ostringstream version_stream;
-            version_stream << "Windows ";
-            if (IsWindows10OrGreater()) {
-                version_stream << "10+";
-            } else if (IsWindows8OrGreater()) {
-                version_stream << "8";
-            } else if (IsWindows7OrGreater()) {
-                version_stream << "7";
-            }
-            result->Success(flutter::EncodableValue(version_stream.str()));
+        } else if (methodCall.method_name() == "play") {
+            answerWithPlayer([](auto player) {
+                player->play();
+            });
+        } else if (methodCall.method_name() == "pause") {
+            answerWithPlayer([](auto player) {
+                player->pause();
+            });
+        } else if (methodCall.method_name() == "seek") {
+            answerWithPlayer([arguments](ClientAudioPlayer *player) {
+                auto position = arguments->find(EncodableValue("position")) -> second;
+                player->seekTo(position.LongValue());
+            });
+        } else if (methodCall.method_name() == "dispose") {
+            answerWithPlayer([playerId, this](auto player) {
+                this->players.erase(playerId);
+                delete player;
+            });
         } else {
             result->NotImplemented();
         }
     }
 
-    AudioPlayerPlugin::AudioPlayerPlugin() = default;
-
-} //namespace
+}  //namespace
 
 void AudioPlayerPluginRegisterWithRegistrar(
         FlutterDesktopPluginRegistrarRef registrar) {
@@ -126,4 +144,3 @@ void AudioPlayerPluginRegisterWithRegistrar(
             flutter::PluginRegistrarManager::GetInstance()
                     ->GetRegistrar<flutter::PluginRegistrarWindows>(registrar));
 }
-
