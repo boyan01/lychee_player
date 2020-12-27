@@ -72,10 +72,37 @@ namespace {
 
     AudioPlayerPlugin::AudioPlayerPlugin() = default;
 
+    void debugPrintMethodCall(const MethodCall<EncodableValue> &methodCall) {
+      std::cout << "hand call: " << methodCall.method_name() << " args = ";
+      auto argMap = get_if<EncodableMap>(methodCall.arguments());
+      if (argMap) {
+        for (auto pair : *argMap) {
+          cout << get<string>(pair.first) << ":";
+          if (holds_alternative<string>(pair.second)) {
+            cout << get<string>(pair.second);
+          } else if (holds_alternative<int32_t>(pair.second)) {
+            cout << get<int32_t>(pair.second);
+          } else if (holds_alternative<int64_t>(pair.second)) {
+            cout << get<int64_t>(pair.second);
+          } else if (holds_alternative<double>(pair.second)) {
+            cout << get<double>(pair.second);
+          } else if (holds_alternative<bool>(pair.second)) {
+            cout << get<bool>(pair.second);
+          } else {
+            cout << "CAN NOT PARSE";
+          }
+          cout << " ";
+        }
+      } else {
+        cout << "nil";
+      }
+      cout << std::endl;
+    }
+
     void AudioPlayerPlugin::HandleMethodCall(
             const MethodCall<EncodableValue> &methodCall,
             std::unique_ptr<MethodResult<EncodableValue>> result) {
-        std::cout << "hand call: " << methodCall.method_name() << " " << methodCall.arguments() << std::endl;
+        debugPrintMethodCall(methodCall);
 
         if (methodCall.method_name() == "initialize") {
             for (const auto &pair: players) {
