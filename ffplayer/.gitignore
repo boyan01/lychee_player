@@ -1,0 +1,4 @@
+build/
+make-build-debug/
+.vs/
+.idea/
