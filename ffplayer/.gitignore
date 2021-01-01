@@ -1,4 +1,5 @@
 build/
 make-build-debug/
-.vs/
+.vs
 .idea/
+out
