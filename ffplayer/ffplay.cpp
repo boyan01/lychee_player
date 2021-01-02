@@ -1,13 +1,4 @@
+﻿// ffplayer.cpp: 定义应用程序的入口点。
+//
 
-#include <iostream>
-
-extern "C" {
-#include "libavutil/time.h"
-}
-
-using namespace std;
-
-int main() {
-  cout << "Hello CMake 1." << av_gettime_relative() << endl;
-  return 0;
-}
+#include "ffplayer/ffplayer.h"
