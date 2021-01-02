@@ -2,3 +2,8 @@
 //
 
 #include "ffplayer/ffplayer.h"
+
+int main(int argc, char *argv[]) {
+    printf("heelo world");
+    return 0;
+}

@@ -3,26 +3,28 @@
 #ifndef FFPLAYER_FFPLAYER_H_
 #define FFPLAYER_FFPLAYER_H_
 
-#include "libavutil/avstring.h"
-#include "libavutil/eval.h"
-#include "libavutil/mathematics.h"
-#include "libavutil/pixdesc.h"
-#include "libavutil/imgutils.h"
-#include "libavutil/dict.h"
-#include "libavutil/parseutils.h"
-#include "libavutil/samplefmt.h"
-#include "libavutil/avassert.h"
-#include "libavutil/time.h"
-#include "libavutil/bprint.h"
-#include "libavformat/avformat.h"
-#include "libavdevice/avdevice.h"
-#include "libswscale/swscale.h"
-#include "libavutil/opt.h"
-#include "libavcodec/avfft.h"
-#include "libswresample/swresample.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-const char program_name[] = "ffplay";
-const int program_birth_year = 2003;
+#include "SDL2/SDL.h"
+#include "libavcodec/avfft.h"
+#include "libavdevice/avdevice.h"
+#include "libavformat/avformat.h"
+#include "libavutil/avassert.h"
+#include "libavutil/avstring.h"
+#include "libavutil/bprint.h"
+#include "libavutil/dict.h"
+#include "libavutil/eval.h"
+#include "libavutil/imgutils.h"
+#include "libavutil/mathematics.h"
+#include "libavutil/opt.h"
+#include "libavutil/parseutils.h"
+#include "libavutil/pixdesc.h"
+#include "libavutil/samplefmt.h"
+#include "libavutil/time.h"
+#include "libswresample/swresample.h"
+#include "libswscale/swscale.h"
 
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
 #define MIN_FRAMES 25
@@ -50,12 +52,12 @@ const int program_birth_year = 2003;
 #define SAMPLE_CORRECTION_PERCENT_MAX 10
 
 /* external clock speed adjustment constants for realtime sources based on buffer fullness */
-#define EXTERNAL_CLOCK_SPEED_MIN  0.900
-#define EXTERNAL_CLOCK_SPEED_MAX  1.010
+#define EXTERNAL_CLOCK_SPEED_MIN 0.900
+#define EXTERNAL_CLOCK_SPEED_MAX 1.010
 #define EXTERNAL_CLOCK_SPEED_STEP 0.001
 
 /* we use about AUDIO_DIFF_AVG_NB A-V differences to make the average */
-#define AUDIO_DIFF_AVG_NB   20
+#define AUDIO_DIFF_AVG_NB 20
 
 /* polls for possible required screen refresh at least this often, should be less than 1/fps */
 #define REFRESH_RATE 0.01
@@ -102,13 +104,13 @@ typedef struct AudioParams {
 } AudioParams;
 
 typedef struct Clock {
-    double pts;           /* clock base */
-    double pts_drift;     /* clock base minus time at which we updated the clock */
+    double pts;       /* clock base */
+    double pts_drift; /* clock base minus time at which we updated the clock */
     double last_updated;
     double speed;
-    int serial;           /* clock is based on a packet with this serial */
+    int serial; /* clock is based on a packet with this serial */
     int paused;
-    int *queue_serial;    /* pointer to the current packet queue serial, used for obsolete clock detection */
+    int *queue_serial; /* pointer to the current packet queue serial, used for obsolete clock detection */
 } Clock;
 
 /* Common struct for handling all types of decoded data and allocated render buffers. */
@@ -116,9 +118,9 @@ typedef struct Frame {
     AVFrame *frame;
     AVSubtitle sub;
     int serial;
-    double pts;           /* presentation timestamp for the frame */
-    double duration;      /* estimated duration of the frame */
-    int64_t pos;          /* byte position of the frame in the input file */
+    double pts;      /* presentation timestamp for the frame */
+    double duration; /* estimated duration of the frame */
+    int64_t pos;     /* byte position of the frame in the input file */
     int width;
     int height;
     int format;
@@ -220,7 +222,11 @@ typedef struct VideoState {
     int frame_drops_late;
 
     enum ShowMode {
-        SHOW_MODE_NONE = -1, SHOW_MODE_VIDEO = 0, SHOW_MODE_WAVES, SHOW_MODE_RDFT, SHOW_MODE_NB
+        SHOW_MODE_NONE = -1,
+        SHOW_MODE_VIDEO = 0,
+        SHOW_MODE_WAVES,
+        SHOW_MODE_RDFT,
+        SHOW_MODE_NB
     } show_mode;
     int16_t sample_array[SAMPLE_ARRAY_SIZE];
     int sample_array_index;
@@ -244,7 +250,7 @@ typedef struct VideoState {
     int video_stream;
     AVStream *video_st;
     PacketQueue videoq;
-    double max_frame_duration;      // maximum duration of a frame - above this, we consider the jump a timestamp discontinuity
+    double max_frame_duration;  // maximum duration of a frame - above this, we consider the jump a timestamp discontinuity
     struct SwsContext *img_convert_ctx;
     struct SwsContext *sub_convert_ctx;
     int eof;
@@ -267,12 +273,56 @@ typedef struct VideoState {
     SDL_cond *continue_read_thread;
 } VideoState;
 
-
-typedef struct _CPlayer
-{
+typedef struct _CPlayer {
     VideoState *is;
+    int audio_disable;
+    int video_disable;
+    int subtitle_disable;
+
+    int display_disable;
+
+    char *wanted_stream_spec[AVMEDIA_TYPE_NB];
+    int seek_by_bytes;
+
+    int show_status;
+    int64_t start_time;
+    int64_t duration;
+    int fast;
+    int genpts;
+    int lowres;
+    int decoder_reorder_pts;
+    int autoexit;
+
+    int loop;
+    int framedrop;
+    int infinite_buffer;
+    enum ShowMode show_mode;
+    const char *audio_codec_name;
+    const char *subtitle_codec_name;
+    const char *video_codec_name;
+    double rdftspeed;
+
+#if CONFIG_AVFILTER
+    const char **vfilters_list = NULL;
+    int nb_vfilters = 0;
+    char *afilters = NULL;
+#endif
+    int autorotate;
+    int find_stream_info;
+    int filter_nbthreads;
+
+    /* current context */
+    int64_t audio_callback_time;
+
+    AVPacket flush_pkt;
 } CPlayer;
 
+CPlayer *ffplayer_alloc_player();
 
+void ffplayer_free_player(CPlayer *player);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // FFPLAYER_FFPLAYER_H_
