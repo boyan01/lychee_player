@@ -1100,7 +1100,6 @@ bool ffplayer_is_paused(CPlayer *player) {
 }
 
 bool ffplayer_is_playing(CPlayer *player) {
-
 }
 
 static double compute_target_delay(double delay, VideoState *is) {
@@ -2560,8 +2559,14 @@ static int read_thread(void *arg) {
         if (!is->paused &&
             (!is->audio_st || (is->auddec.finished == is->audioq.serial && frame_queue_nb_remaining(&is->sampq) == 0)) &&
             (!is->video_st || (is->viddec.finished == is->videoq.serial && frame_queue_nb_remaining(&is->pictq) == 0))) {
-            if (player->loop != 1 && (!player->loop || --player->loop)) {
+            bool loop = player->loop != 1 && (!player->loop || --player->loop);
+            if (player->on_play_completed) {
+                player->on_play_completed(player, loop);
+            }
+            if (loop) {
                 stream_seek(is, player->start_time != AV_NOPTS_VALUE ? player->start_time : 0, 0, 0);
+            } else {
+                is->paused = true;
             }
         }
         ret = av_read_frame(ic, pkt);
@@ -2642,7 +2647,6 @@ static void stream_open(CPlayer *player, const char *filename, AVInputFormat *if
     }
     return;
 }
-
 
 static void seek_chapter(VideoState *is, int incr) {
     int64_t pos = get_master_clock(is) * AV_TIME_BASE;

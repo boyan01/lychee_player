@@ -397,6 +397,10 @@ static void on_first_frame(void *op, int width, int height, AVRational sar) {
     // player->is->height = h;
 }
 
+static void on_play_completed(void *player, bool loop) {
+    printf("on_play_completed. loop: %d \n", loop);
+}
+
 int main(int argc, char *argv[]) {
     if (!input_filename) {
         av_log(NULL, AV_LOG_FATAL, "An input file must be specified\n");
@@ -477,6 +481,7 @@ int main(int argc, char *argv[]) {
     player->renderer = renderer;
     player->on_load_metadata = on_load_metadata;
     player->on_first_frame = on_first_frame;
+    player->on_play_completed = on_play_completed;
 
     ffplayer_open_file(player, input_filename);
     if (!player->is) {

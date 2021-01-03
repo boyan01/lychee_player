@@ -333,6 +333,8 @@ typedef struct _CPlayer {
      */
     void (*on_first_frame)(void* player, int width, int height, AVRational sar);
 
+    void (*on_play_completed)(void* player, bool loop);
+
 } CPlayer;
 
 CPlayer *ffplayer_alloc_player();
