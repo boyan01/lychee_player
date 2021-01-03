@@ -294,7 +294,6 @@ typedef struct _CPlayer {
     int genpts;
     int lowres;
     int decoder_reorder_pts;
-    int autoexit;
 
     int loop;
     int framedrop;

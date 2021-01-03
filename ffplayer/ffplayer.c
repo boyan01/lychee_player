@@ -2562,9 +2562,6 @@ static int read_thread(void *arg) {
             (!is->video_st || (is->viddec.finished == is->videoq.serial && frame_queue_nb_remaining(&is->pictq) == 0))) {
             if (player->loop != 1 && (!player->loop || --player->loop)) {
                 stream_seek(is, player->start_time != AV_NOPTS_VALUE ? player->start_time : 0, 0, 0);
-            } else if (player->autoexit) {
-                ret = AVERROR_EOF;
-                goto fail;
             }
         }
         ret = av_read_frame(ic, pkt);
@@ -2766,7 +2763,6 @@ CPlayer *ffplayer_alloc_player() {
     player->genpts = 0;
     player->lowres = 0;
     player->decoder_reorder_pts = -1;
-    player->autoexit = 0;
 
     player->loop = 1;
     player->framedrop = -1;
