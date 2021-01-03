@@ -326,7 +326,13 @@ typedef struct _CPlayer {
     void (*on_load_metadata)(void* player);
 
     bool is_first_frame_loaded;
-    void (*on_first_frame)(void* player, int width, int height);
+
+    /**
+     * @param sar Sample aspect ratio for the video frame, 0/1 if unknown/unspecified. 
+     * 
+     * https://forum.videohelp.com/threads/323530-please-explain-SAR-DAR-PAR#post2003533
+     */
+    void (*on_first_frame)(void* player, int width, int height, AVRational sar);
 
 } CPlayer;
 
@@ -355,6 +361,18 @@ double ffplayer_get_current_position(CPlayer *player);
 void ffplayer_seek_to_position(CPlayer *player, double position);
 
 double ffplayer_get_duration(CPlayer *player);
+
+/**
+ * @param volume from 0 to 100.
+ */
+void ffplayer_set_volume(CPlayer* player, int volume);
+
+/**
+ * called to display each frame
+ * 
+ * \return time for next frame should be schudled.
+ */
+double ffplayer_draw_frame(CPlayer* player);
 
 #ifdef __cplusplus
 }
