@@ -7,6 +7,9 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "SDL2/SDL.h"
 #include "libavcodec/avfft.h"
 #include "libavdevice/avdevice.h"
@@ -315,11 +318,43 @@ typedef struct _CPlayer {
     int64_t audio_callback_time;
 
     AVPacket flush_pkt;
+
+    SDL_AudioDeviceID audio_dev;
+    SDL_Renderer *renderer;
+    SDL_RendererInfo renderer_info;
+
+    void (*on_load_metadata)(void* player);
+
+    bool is_first_frame_loaded;
+    void (*on_first_frame)(void* player, int width, int height);
+
 } CPlayer;
 
 CPlayer *ffplayer_alloc_player();
 
 void ffplayer_free_player(CPlayer *player);
+
+int ffplayer_open_file(CPlayer *player, const char *filename);
+
+bool ffplayer_is_paused(CPlayer *player);
+
+void ffplayer_toggle_pause(CPlayer *player);
+
+bool ffplayer_is_mute(CPlayer *player);
+
+void ffplayer_set_mute(CPlayer *player, bool mute);
+
+int ffplayer_get_current_chapter(CPlayer *player);
+
+int ffplayer_get_chapter_count(CPlayer *player);
+
+void ffplayer_seek_to_chapter(CPlayer *player, int chapter);
+
+double ffplayer_get_current_position(CPlayer *player);
+
+void ffplayer_seek_to_position(CPlayer *player, double position);
+
+double ffplayer_get_duration(CPlayer *player);
 
 #ifdef __cplusplus
 }

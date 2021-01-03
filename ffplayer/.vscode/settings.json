@@ -1,6 +1,4 @@
 {
     "C_Cpp.errorSquiggles": "Enabled",
-    "files.associations": {
-        "xlocale": "c"
-    },
+    "files.associations": {},
 }
