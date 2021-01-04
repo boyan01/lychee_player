@@ -8,10 +8,13 @@ set(FFMPEG_LIBRARY "C:/Users/boyan/dev/vcpkg/installed/x64-windows/lib")
 link_directories(${FFMPEG_LIBRARY})
 include_directories("include" ${FFMPEG_INCLUDE_DIR})
 link_directories("C:/Users/boyan/dev/vcpkg/installed/x64-windows/lib/manual-link")
-add_executable(ffplayer "ffplayer.c" "ffplay.c" "utils.c")
+
+add_library(ffplayer "ffplayer.c"  "utils.c")
+add_executable(ffplay_example "ffplay.c")
 
 
-target_link_libraries(ffplayer avutil avcodec avdevice avformat avfilter swscale SDL2 SDL2main)
+target_link_libraries(ffplayer avutil avcodec avdevice avformat avfilter swscale SDL2 SDL2main )
+target_link_libraries(ffplay_example PRIVATE ffplayer)
     
 # target_link_libraries(main PRIVATE SDL2::SDL2 SDL2::SDL2main)
 

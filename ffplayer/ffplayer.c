@@ -1840,6 +1840,7 @@ static int subtitle_thread(void *arg) {
     return 0;
 }
 
+// TODO audio sample callback.
 /* copy samples for viewing in editor window */
 static void update_sample_display(VideoState *is, short *samples, int samples_size) {
     int size, len;
