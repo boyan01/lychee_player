@@ -1054,9 +1054,12 @@ void ffplayer_seek_to_position(CPlayer *player, double position) {
     stream_seek(player->is, (int64_t)(position * AV_TIME_BASE), 0, 0);
 }
 
-// FIXME: 有时会返回 NAN.
 double ffplayer_get_current_position(CPlayer *player) {
-    return get_master_clock(player->is);
+    double position = get_master_clock(player->is);
+    if (isnan(position)) {
+        position = (double)player->is->seek_pos / AV_TIME_BASE;
+    }
+    return position;
 }
 
 double ffplayer_get_duration(CPlayer *player) {
@@ -2530,6 +2533,7 @@ static int read_thread(void *arg) {
             is->seek_req = 0;
             is->queue_attachments_req = 1;
             is->eof = 0;
+            // step to next frame
             if (is->paused) {
                 ffplayer_toggle_pause(player);
                 player->is->step = 1;

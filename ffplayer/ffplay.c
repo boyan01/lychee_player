@@ -423,7 +423,7 @@ int main(int argc, char *argv[]) {
         printf("failed to alloc player");
         return -1;
     }
-    player->show_status = false;
+    player->show_status = true;
     ffplayer_set_volume(player, 100);
 
     int flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER;
