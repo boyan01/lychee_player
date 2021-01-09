@@ -401,6 +401,10 @@ static void on_play_completed(void *player, bool loop) {
     printf("on_play_completed. loop: %d \n", loop);
 }
 
+static void on_buffered_update(void *player, double position) {
+    av_log(NULL, AV_LOG_INFO, " on loaded: %0.2f/%0.2f\n", position, ffplayer_get_duration(player));
+}
+
 int main(int argc, char *argv[]) {
     if (!input_filename) {
         av_log(NULL, AV_LOG_FATAL, "An input file must be specified\n");
@@ -482,6 +486,7 @@ int main(int argc, char *argv[]) {
     player->on_load_metadata = on_load_metadata;
     player->on_first_frame = on_first_frame;
     player->on_play_completed = on_play_completed;
+    player->on_buffered_update = on_buffered_update;
 
     ffplayer_open_file(player, input_filename);
     if (!player->is) {

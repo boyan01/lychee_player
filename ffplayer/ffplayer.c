@@ -1027,7 +1027,8 @@ static void check_external_clock_speed(VideoState *is) {
 }
 
 /* seek in the stream */
-static void stream_seek(VideoState *is, int64_t pos, int64_t rel, int seek_by_bytes) {
+static void stream_seek(CPlayer* player, int64_t pos, int64_t rel, int seek_by_bytes) {
+    VideoState *is = player->is;
     if (!is->seek_req) {
         is->seek_pos = pos;
         is->seek_rel = rel;
@@ -1035,6 +1036,7 @@ static void stream_seek(VideoState *is, int64_t pos, int64_t rel, int seek_by_by
         if (seek_by_bytes)
             is->seek_flags |= AVSEEK_FLAG_BYTE;
         is->seek_req = 1;
+        player->buffered_position = -1;
         SDL_CondSignal(is->continue_read_thread);
     }
 }
@@ -1051,7 +1053,7 @@ void ffplayer_seek_to_position(CPlayer *player, double position) {
         return;
     }
     av_log(NULL, AV_LOG_INFO, "ffplayer_seek_to_position to %0.2f \n", position);
-    stream_seek(player->is, (int64_t)(position * AV_TIME_BASE), 0, 0);
+    stream_seek(player, (int64_t)(position * AV_TIME_BASE), 0, 0);
 }
 
 double ffplayer_get_current_position(CPlayer *player) {
@@ -2569,7 +2571,7 @@ static int read_thread(void *arg) {
                 player->on_play_completed(player, loop);
             }
             if (loop) {
-                stream_seek(is, player->start_time != AV_NOPTS_VALUE ? player->start_time : 0, 0, 0);
+                stream_seek(player, player->start_time != AV_NOPTS_VALUE ? player->start_time : 0, 0, 0);
             } else {
                 is->paused = true;
             }
@@ -2602,6 +2604,15 @@ static int read_thread(void *arg) {
                                         av_q2d(ic->streams[pkt->stream_index]->time_base) -
                                     (double)(player->start_time != AV_NOPTS_VALUE ? player->start_time : 0) / 1000000 <=
                                 ((double)player->duration / 1000000);
+
+        if (player->on_buffered_update) {
+            double position = (double)pkt_ts * av_q2d(ic->streams[pkt->stream_index]->time_base);
+            if (position > player->buffered_position) {
+                player->buffered_position = position;
+                player->on_buffered_update(player, position);
+            }
+        }
+
         if (pkt->stream_index == is->audio_stream && pkt_in_play_range) {
             packet_queue_put(&is->audioq, pkt, player);
         } else if (pkt->stream_index == is->video_stream && pkt_in_play_range && !(is->video_st->disposition & AV_DISPOSITION_ATTACHED_PIC)) {
@@ -2653,31 +2664,6 @@ static void stream_open(CPlayer *player, const char *filename, AVInputFormat *if
     return;
 }
 
-static void seek_chapter(VideoState *is, int incr) {
-    int64_t pos = get_master_clock(is) * AV_TIME_BASE;
-    int i;
-
-    if (!is->ic->nb_chapters)
-        return;
-
-    /* find the current chapter */
-    for (i = 0; i < is->ic->nb_chapters; i++) {
-        AVChapter *ch = is->ic->chapters[i];
-        if (av_compare_ts(pos, AV_TIME_BASE_Q, ch->start, ch->time_base) < 0) {
-            i--;
-            break;
-        }
-    }
-
-    i += incr;
-    i = FFMAX(i, 0);
-    if (i >= is->ic->nb_chapters)
-        return;
-
-    av_log(NULL, AV_LOG_VERBOSE, "Seeking to chapter %d.\n", i);
-    stream_seek(is, av_rescale_q(is->ic->chapters[i]->start, is->ic->chapters[i]->time_base, AV_TIME_BASE_Q), 0, 0);
-}
-
 int ffplayer_get_chapter_count(CPlayer *player) {
     return player->is->ic->nb_chapters;
 }
@@ -2708,7 +2694,7 @@ void ffplayer_seek_to_chapter(CPlayer *player, int chapter) {
         return;
     }
     AVChapter *ac = player->is->ic->chapters[chapter];
-    stream_seek(player->is, av_rescale_q(ac->start, ac->time_base, AV_TIME_BASE_Q), 0, 0);
+    stream_seek(player, av_rescale_q(ac->start, ac->time_base, AV_TIME_BASE_Q), 0, 0);
 }
 
 static int dummy;
@@ -2799,6 +2785,9 @@ CPlayer *ffplayer_alloc_player() {
     player->on_load_metadata = NULL;
     player->is_first_frame_loaded = false;
     player->on_first_frame = NULL;
+
+    player->buffered_position = -1;
+    player->on_buffered_update = NULL;
 
     player->is = alloc_video_state();
     if (!player->is) {

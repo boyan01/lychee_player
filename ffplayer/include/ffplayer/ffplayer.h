@@ -335,6 +335,13 @@ typedef struct _CPlayer {
 
     void (*on_play_completed)(void* player, bool loop);
 
+    // buffered position in seconds. -1 if not avalible
+    double buffered_position;
+    /**
+     * @param position 0 - duration.
+     */
+    void (*on_buffered_update)(void* player, double position);
+
 } CPlayer;
 
 CPlayer *ffplayer_alloc_player();
