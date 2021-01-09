@@ -15,6 +15,10 @@
 #include <memory>
 #include <sstream>
 
+extern "C" {
+  #include "ffplayer/ffplayer.h"
+}
+
 using namespace std;
 
 using namespace flutter;
@@ -55,7 +59,6 @@ namespace {
                     plugin_pointer->HandleMethodCall(call, std::move(result));
                 });
         plugin->methodChannel = channel;
-
         registrar->AddPlugin(std::move(plugin));
     }
 

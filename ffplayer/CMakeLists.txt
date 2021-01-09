@@ -13,6 +13,8 @@ add_library(ffplayer "ffplayer.c"  "utils.c")
 add_executable(ffplay_example "ffplay.c")
 
 
+target_include_directories(ffplayer PUBLIC include)
+
 target_link_libraries(ffplayer avutil avcodec avdevice avformat avfilter swscale SDL2 SDL2main )
 target_link_libraries(ffplay_example PRIVATE ffplayer)
     
