@@ -344,6 +344,8 @@ typedef struct _CPlayer {
 
 } CPlayer;
 
+void ffplayer_global_init();
+
 CPlayer *ffplayer_alloc_player();
 
 void ffplayer_free_player(CPlayer *player);
