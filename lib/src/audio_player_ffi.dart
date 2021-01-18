@@ -61,8 +61,8 @@ class FfiAudioPlayer implements AudioPlayer {
     if (player == nullptr) {
       throw Exception("memory not enough");
     }
-    debugPrint("player ${player}");
     ffplayer_open_file(player, Utf8.toUtf8(uri));
+    debugPrint("player ${player}");
   }
 
   @override
