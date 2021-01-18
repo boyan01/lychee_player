@@ -26,6 +26,15 @@
       <excludeFolder url="file://$MODULE_DIR$/example/windows/flutter/ephemeral/.plugin_symlinks/audio_player/.dart_tool" />
       <excludeFolder url="file://$MODULE_DIR$/example/windows/flutter/ephemeral/.plugin_symlinks/audio_player/.pub" />
       <excludeFolder url="file://$MODULE_DIR$/example/windows/flutter/ephemeral/.plugin_symlinks/audio_player/build" />
+      <excludeFolder url="file://$MODULE_DIR$/example/linux/flutter/ephemeral/.plugin_symlinks/system_clock/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/example/linux/flutter/ephemeral/.plugin_symlinks/system_clock/.dart_tool" />
+      <excludeFolder url="file://$MODULE_DIR$/example/linux/flutter/ephemeral/.plugin_symlinks/system_clock/build" />
+      <excludeFolder url="file://$MODULE_DIR$/example/linux/flutter/ephemeral/.plugin_symlinks/system_clock/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/example/linux/flutter/ephemeral/.plugin_symlinks/system_clock/example/.dart_tool" />
+      <excludeFolder url="file://$MODULE_DIR$/example/linux/flutter/ephemeral/.plugin_symlinks/system_clock/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/example/linux/flutter/ephemeral/.plugin_symlinks/system_clock/tools/build" />
+      <excludeFolder url="file://$MODULE_DIR$/example/linux/flutter/ephemeral/.plugin_symlinks/system_clock/tools/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/example/linux/flutter/ephemeral/.plugin_symlinks/system_clock/tools/.dart_tool" />
     </content>
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="Dart SDK" level="project" />
