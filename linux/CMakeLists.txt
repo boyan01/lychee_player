@@ -7,19 +7,32 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 set(PLUGIN_NAME "audio_player_plugin")
 
 add_library(${PLUGIN_NAME} SHARED
-  "audio_player_plugin.cc"
-)
+        "audio_player_plugin.cc"
+        )
+
+add_subdirectory(../ffplayer ffplayer.out)
+
+set_target_properties(ffplayer
+        PROPERTIES
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        )
+
 apply_standard_settings(${PLUGIN_NAME})
 set_target_properties(${PLUGIN_NAME} PROPERTIES
-  CXX_VISIBILITY_PRESET hidden)
+        CXX_VISIBILITY_PRESET hidden)
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
 target_include_directories(${PLUGIN_NAME} INTERFACE
-  "${CMAKE_CURRENT_SOURCE_DIR}/include")
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
+target_link_libraries(${PLUGIN_NAME} PRIVATE ffplayer)
+
+add_dependencies(${PLUGIN_NAME} ffplayer)
 
 # List of absolute paths to libraries that should be bundled with the plugin
 set(audio_player_bundled_libraries
-  ""
-  PARENT_SCOPE
-)
+        "$<TARGET_FILE:ffplayer>"
+        PARENT_SCOPE
+        )
