@@ -3,3 +3,4 @@ make-build-debug/
 .vs
 .idea/
 out
+cmake-build-debug/

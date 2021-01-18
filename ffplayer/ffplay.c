@@ -18,7 +18,11 @@ static int cursor_hidden;
 
 static int is_full_screen;
 
+#ifdef _WIN32
 static const char *input_filename = "C:/Users/boyan/Desktop/mojito.mp4";
+#elif __LINUX__
+static const char *input_filename = "/home/boyan/mojito.mp4";
+#endif
 
 static const char *window_title;
 static int default_width = 640;
