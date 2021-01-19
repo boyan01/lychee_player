@@ -20,7 +20,7 @@ directory. You can also find a detailed instruction on how to add platforms in t
 
 ## Dev Tips
 
-### Linux
+### Linux**
 
 #### how to debug c/c++ code in Clion
 

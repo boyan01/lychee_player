@@ -390,6 +390,8 @@ FFPLAYER_EXPORT void ffplayer_set_volume(CPlayer *player, int volume);
  */
 FFPLAYER_EXPORT double ffplayer_draw_frame(CPlayer *player);
 
+void ffplayer_set_on_buffered_callback(CPlayer* player, void (*callback)(void* player, double position));
+
 #ifdef __cplusplus
 }
 #endif

@@ -43,6 +43,21 @@ final ffplayer_get_duration =
     _library.lookupFunction<Double Function(Pointer), double Function(Pointer)>(
         "ffplayer_get_duration");
 
+final ffplayer_seek_to_position = _library.lookupFunction<
+    Void Function(Pointer, Double),
+    void Function(Pointer, double)>("ffplayer_seek_to_position");
+
+typedef native_buffered_callback = Void Function(
+    Pointer player, Double buffered);
+
+final ffplayer_set_on_buffered_callback =
+    _library.lookupFunction<
+            Void Function(
+                Pointer, Pointer<NativeFunction<native_buffered_callback>>),
+            void Function(
+                Pointer, Pointer<NativeFunction<native_buffered_callback>>)>(
+        "ffplayer_set_on_buffered_callback");
+
 var _inited = false;
 
 void _ensureFfplayerGlobalInited() {
@@ -66,10 +81,19 @@ class FfiAudioPlayer implements AudioPlayer {
     }
     ffplayer_open_file(player, Utf8.toUtf8(uri));
     debugPrint("player ${player}");
+    // ffplayer_set_on_buffered_callback(
+    //   player,
+    //   Pointer.fromFunction<native_buffered_callback>(_onBufferedUpdate),
+    // );
+  }
+
+  // TODO need called from dart isolate thread.
+  static void _onBufferedUpdate(Pointer player, double position) {
+    debugPrint("_onBufferedUpdate: $position seconds.");
   }
 
   @override
-  bool playWhenReady = false;
+  bool playWhenReady = true;
 
   @override
   ValueListenable<List<DurationRange>> get buffered => ValueNotifier(const []);
@@ -126,7 +150,12 @@ class FfiAudioPlayer implements AudioPlayer {
   ValueListenable<PlayerStatus> get onStatusChanged => _status;
 
   @override
-  void seek(Duration duration) {}
+  void seek(Duration duration) {
+    if (player == nullptr) {
+      return;
+    }
+    ffplayer_seek_to_position(player, duration.inMilliseconds / 1000);
+  }
 
   @override
   PlayerStatus get status => _status.value;

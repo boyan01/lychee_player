@@ -676,14 +676,14 @@ static void video_image_display(CPlayer *player) {
         SDL_RenderCopy(player->renderer, is->sub_texture, NULL, &rect);
 #else
         int i;
-        double xratio = (double)rect.w / (double)sp->width;
-        double yratio = (double)rect.h / (double)sp->height;
+        double xratio = (double) rect.w / (double) sp->width;
+        double yratio = (double) rect.h / (double) sp->height;
         for (i = 0; i < sp->sub.num_rects; i++) {
-            SDL_Rect *sub_rect = (SDL_Rect *)sp->sub.rects[i];
+            SDL_Rect *sub_rect = (SDL_Rect *) sp->sub.rects[i];
             SDL_Rect target = {.x = rect.x + sub_rect->x * xratio,
-                               .y = rect.y + sub_rect->y * yratio,
-                               .w = sub_rect->w * xratio,
-                               .h = sub_rect->h * yratio};
+                    .y = rect.y + sub_rect->y * yratio,
+                    .w = sub_rect->w * xratio,
+                    .h = sub_rect->h * yratio};
             SDL_RenderCopy(player->renderer, is->sub_texture, sub_rect, &target);
         }
 #endif
@@ -1058,6 +1058,10 @@ static void stream_seek(CPlayer *player, int64_t pos, int64_t rel, int seek_by_b
 }
 
 void ffplayer_seek_to_position(CPlayer *player, double position) {
+    if (!player) {
+        av_log(NULL, AV_LOG_ERROR, "ffplayer_seek_to_position: player is not available");
+        return;
+    }
     if (player->is->ic->start_time != AV_NOPTS_VALUE) {
         double start = player->is->ic->start_time / (double) AV_TIME_BASE;
         if (position < start) {
@@ -1073,6 +1077,10 @@ void ffplayer_seek_to_position(CPlayer *player, double position) {
 }
 
 double ffplayer_get_current_position(CPlayer *player) {
+    if (!player || !player->is) {
+        av_log(NULL, AV_LOG_ERROR, "ffplayer_get_current_position: player is not available.\n");
+        return 0;
+    }
     double position = get_master_clock(player->is);
     if (isnan(position)) {
         position = (double) player->is->seek_pos / AV_TIME_BASE;
@@ -1081,6 +1089,10 @@ double ffplayer_get_current_position(CPlayer *player) {
 }
 
 double ffplayer_get_duration(CPlayer *player) {
+    if (!player || !player->is || !player->is->ic) {
+        av_log(NULL, AV_LOG_ERROR, "ffplayer_get_duration: player is not available. %p \n", player);
+        return -1;
+    }
     return player->is->ic->duration / (double) AV_TIME_BASE;
 }
 
@@ -1317,7 +1329,11 @@ double ffplayer_draw_frame(CPlayer *player) {
 
             av_bprint_init(&buf, 0, AV_BPRINT_SIZE_AUTOMATIC);
             av_bprintf(&buf,
-                       "%7.2f %s:%7.3f fd=%4d aq=%5dKB vq=%5dKB sq=%5dB f=%" PRId64 "/%" PRId64 "   \r",
+                       "%7.2f %s:%7.3f fd=%4d aq=%5dKB vq=%5dKB sq=%5dB f=%"
+                       PRId64
+                       "/%"
+                       PRId64
+                       "   \r",
                        get_master_clock(is),
                        (is->audio_st && is->video_st) ? "A-V" : (is->video_st ? "M-V" : (is->audio_st ? "M-A" : "   ")),
                        av_diff,
@@ -2842,6 +2858,7 @@ int ffplayer_open_file(CPlayer *player, const char *filename) {
 }
 
 void ffplayer_free_player(CPlayer *player) {
+    av_log(NULL, AV_LOG_INFO, "free play, close stream %p", player);
     stream_close(player);
 }
 
@@ -2855,4 +2872,8 @@ void ffplayer_global_init() {
     else
         av_log(NULL, AV_LOG_DEBUG, "SDL Audio was initialized fine!\n");
 
+}
+
+void ffplayer_set_on_buffered_callback(CPlayer* player, void (*callback)(void* player, double position)) {
+    player->on_buffered_update = callback;
 }
