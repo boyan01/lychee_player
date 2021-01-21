@@ -16,8 +16,6 @@ apply_standard_settings(${PLUGIN_NAME})
 
 add_subdirectory(../ffplayer ffplayer.out)
 
-link_directories(ffplayer.out)
-
 set_target_properties(${PLUGIN_NAME} PROPERTIES
   CXX_VISIBILITY_PRESET hidden)
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
@@ -25,12 +23,11 @@ target_include_directories(${PLUGIN_NAME} INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin
   # MfPlayer
-  mfplay.lib shlwapi.lib ffplayer
+  mfplay.lib shlwapi.lib
 )
 
 # List of absolute paths to libraries that should be bundled with the plugin
 set(audio_player_bundled_libraries
-  ""
+  "$<TARGET_FILE:ffplayer>"
   PARENT_SCOPE
-  ffplyer.out
 )

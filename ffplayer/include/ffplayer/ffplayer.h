@@ -29,6 +29,12 @@ extern "C" {
 #include "libswresample/swresample.h"
 #include "libswscale/swscale.h"
 
+#ifdef _WIN32
+#define FFPLAYER_EXPORT __declspec(dllexport)
+#else
+#define FFPLAYER_EXPORT __attribute__((visibility("default"))) __attribute__((used))
+#endif
+
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
 #define MIN_FRAMES 25
 #define EXTERNAL_CLOCK_MIN_FRAMES 2
@@ -322,7 +328,7 @@ typedef struct _CPlayer {
     SDL_Renderer *renderer;
     SDL_RendererInfo renderer_info;
 
-    void (*on_load_metadata)(void* player);
+    void (*on_load_metadata)(void *player);
 
     bool is_first_frame_loaded;
 
@@ -331,58 +337,58 @@ typedef struct _CPlayer {
      * 
      * https://forum.videohelp.com/threads/323530-please-explain-SAR-DAR-PAR#post2003533
      */
-    void (*on_first_frame)(void* player, int width, int height, AVRational sar);
+    void (*on_first_frame)(void *player, int width, int height, AVRational sar);
 
-    void (*on_play_completed)(void* player, bool loop);
+    void (*on_play_completed)(void *player, bool loop);
 
     // buffered position in seconds. -1 if not avalible
     double buffered_position;
     /**
      * @param position 0 - duration.
      */
-    void (*on_buffered_update)(void* player, double position);
+    void (*on_buffered_update)(void *player, double position);
 
 } CPlayer;
 
-void ffplayer_global_init();
+FFPLAYER_EXPORT void ffplayer_global_init();
 
-CPlayer *ffplayer_alloc_player();
+FFPLAYER_EXPORT CPlayer *ffplayer_alloc_player();
 
-void ffplayer_free_player(CPlayer *player);
+FFPLAYER_EXPORT void ffplayer_free_player(CPlayer *player);
 
-int ffplayer_open_file(CPlayer *player, const char *filename);
+FFPLAYER_EXPORT int ffplayer_open_file(CPlayer *player, const char *filename);
 
-bool ffplayer_is_paused(CPlayer *player);
+FFPLAYER_EXPORT bool ffplayer_is_paused(CPlayer *player);
 
-void ffplayer_toggle_pause(CPlayer *player);
+FFPLAYER_EXPORT void ffplayer_toggle_pause(CPlayer *player);
 
-bool ffplayer_is_mute(CPlayer *player);
+FFPLAYER_EXPORT bool ffplayer_is_mute(CPlayer *player);
 
-void ffplayer_set_mute(CPlayer *player, bool mute);
+FFPLAYER_EXPORT void ffplayer_set_mute(CPlayer *player, bool mute);
 
-int ffplayer_get_current_chapter(CPlayer *player);
+FFPLAYER_EXPORT int ffplayer_get_current_chapter(CPlayer *player);
 
-int ffplayer_get_chapter_count(CPlayer *player);
+FFPLAYER_EXPORT int ffplayer_get_chapter_count(CPlayer *player);
 
-void ffplayer_seek_to_chapter(CPlayer *player, int chapter);
+FFPLAYER_EXPORT void ffplayer_seek_to_chapter(CPlayer *player, int chapter);
 
-double ffplayer_get_current_position(CPlayer *player);
+FFPLAYER_EXPORT double ffplayer_get_current_position(CPlayer *player);
 
-void ffplayer_seek_to_position(CPlayer *player, double position);
+FFPLAYER_EXPORT void ffplayer_seek_to_position(CPlayer *player, double position);
 
-double ffplayer_get_duration(CPlayer *player);
+FFPLAYER_EXPORT double ffplayer_get_duration(CPlayer *player);
 
 /**
  * @param volume from 0 to 100.
  */
-void ffplayer_set_volume(CPlayer* player, int volume);
+FFPLAYER_EXPORT void ffplayer_set_volume(CPlayer *player, int volume);
 
 /**
  * called to display each frame
  * 
  * \return time for next frame should be schudled.
  */
-double ffplayer_draw_frame(CPlayer* player);
+FFPLAYER_EXPORT double ffplayer_draw_frame(CPlayer *player);
 
 #ifdef __cplusplus
 }

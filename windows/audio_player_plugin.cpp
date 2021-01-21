@@ -15,10 +15,6 @@
 #include <memory>
 #include <sstream>
 
-extern "C" {
-  #include "ffplayer/ffplayer.h"
-}
-
 using namespace std;
 
 using namespace flutter;

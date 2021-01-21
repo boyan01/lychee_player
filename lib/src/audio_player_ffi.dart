@@ -11,6 +11,9 @@ DynamicLibrary _openLibrary() {
   if (Platform.isLinux) {
     return DynamicLibrary.open("libffplayer.so");
   }
+  if (Platform.isWindows) {
+    return DynamicLibrary.open("ffplayer.dll");
+  }
   throw UnimplementedError(
       "can not load for this library: ${Platform.localeName}");
 }

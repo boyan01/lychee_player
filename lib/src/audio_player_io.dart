@@ -18,7 +18,7 @@ abstract class AudioPlayer implements api.AudioPlayer {
   }
 
   factory AudioPlayer._create(String uri, DataSourceType type) {
-    if (Platform.isLinux) {
+    if (Platform.isLinux || Platform.isWindows) {
       return FfiAudioPlayer(uri, type);
     }
     return ChannelAudioPlayer.create(uri, type);
