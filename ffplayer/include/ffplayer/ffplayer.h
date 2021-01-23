@@ -29,6 +29,9 @@ extern "C" {
 #include "libswresample/swresample.h"
 #include "libswscale/swscale.h"
 
+#include "ffplayer_packet_queue.h"
+#include "ffplayer_msg_queue.h"
+
 #ifdef _WIN32
 #define FFPLAYER_EXPORT __declspec(dllexport)
 #else
@@ -81,22 +84,9 @@ extern "C" {
 
 static unsigned sws_flags = SWS_BICUBIC;
 
-typedef struct MyAVPacketList {
-    AVPacket pkt;
-    struct MyAVPacketList *next;
-    int serial;
-} MyAVPacketList;
-
-typedef struct PacketQueue {
-    MyAVPacketList *first_pkt, *last_pkt;
-    int nb_packets;
-    int size;
-    int64_t duration;
-    int abort_request;
-    int serial;
-    SDL_mutex *mutex;
-    SDL_cond *cond;
-} PacketQueue;
+typedef enum ffplayer_info_type {
+    buffered
+} ffplayer_info_t;
 
 #define VIDEO_PICTURE_QUEUE_SIZE 3
 #define SUBPICTURE_QUEUE_SIZE 16
@@ -322,8 +312,6 @@ typedef struct _CPlayer {
     /* current context */
     int64_t audio_callback_time;
 
-    AVPacket flush_pkt;
-
     SDL_AudioDeviceID audio_dev;
     SDL_Renderer *renderer;
     SDL_RendererInfo renderer_info;
@@ -343,11 +331,16 @@ typedef struct _CPlayer {
 
     // buffered position in seconds. -1 if not avalible
     double buffered_position;
+
     /**
      * @param position 0 - duration.
      */
     void (*on_buffered_update)(void *player, double position);
 
+    void *opacity;
+    void (*on_info)(void *player, ffplayer_info_t state, int64_t msg1, int64_t msg2);
+
+    FFPlayerMessageQueue msg_queue;
 } CPlayer;
 
 FFPLAYER_EXPORT void ffplayer_global_init();
@@ -390,7 +383,11 @@ FFPLAYER_EXPORT void ffplayer_set_volume(CPlayer *player, int volume);
  */
 FFPLAYER_EXPORT double ffplayer_draw_frame(CPlayer *player);
 
-void ffplayer_set_on_buffered_callback(CPlayer* player, void (*callback)(void* player, double position));
+FFPLAYER_EXPORT void
+ffplayer_set_on_buffered_callback(CPlayer *player, void (*callback)(void *player, double position));
+
+FFPLAYER_EXPORT void
+ffplayer_set_info_callback(CPlayer *player, void (*callback)(void *player, ffplayer_info_t type));
 
 #ifdef __cplusplus
 }

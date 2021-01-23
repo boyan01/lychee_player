@@ -18,19 +18,24 @@ endif ()
 
 add_library(ffplayer SHARED "ffplayer.c" "utils.c")
 
-add_library(ffplayer_static "ffplayer.c" "utils.c")
-add_executable(ffplay_example "ffplay.c")
-
+if (WIN32)
+    add_library(ffplayer_static "ffplayer.c" "utils.c")
+    add_executable(ffplay_example "ffplay.c")
+    target_link_libraries(ffplay_example PRIVATE ffplayer_static SDL2main)
+else ()
+    add_executable(ffplay_example "ffplay.c")
+    target_link_libraries(ffplay_example PRIVATE ffplayer SDL2main)
+endif ()
 
 target_include_directories(ffplayer PUBLIC include)
 
-target_link_libraries(ffplayer PUBLIC avutil avcodec avdevice avformat avfilter swscale swresample SDL2)
+if (WIN32)
+    target_link_libraries(ffplayer PUBLIC avutil avcodec avdevice avformat avfilter swscale swresample SDL2)
+else ()
+    target_link_libraries(ffplayer PUBLIC avutil avcodec avdevice avformat avfilter swscale swresample SDL2
+            # linux do not have math library.
+            m)
+endif ()
 
-# linux do not have math library. 
-if (UNIX)
-target_link_libraries(ffplayer m)
-endif(UNIX)
-
-target_link_libraries(ffplay_example PRIVATE ffplayer_static SDL2main)
 
 # TODO: 如有需要，请添加测试并安装目标。

@@ -414,14 +414,8 @@ int main(int argc, char *argv[]) {
         av_log(NULL, AV_LOG_FATAL, "An input file must be specified\n");
         exit(1);
     }
-    av_log_set_flags(AV_LOG_SKIP_REPEATED);
-    av_log_set_level(AV_LOG_INFO);
 
-    /* register all codecs, demux and protocols */
-#if CONFIG_AVDEVICE
-    avdevice_register_all();
-#endif
-    avformat_network_init();
+    ffplayer_global_init();
 
     signal(SIGINT, sigterm_handler);  /* Interrupt (ANSI).    */
     signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */
