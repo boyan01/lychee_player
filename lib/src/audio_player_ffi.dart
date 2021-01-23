@@ -1,5 +1,6 @@
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
@@ -28,8 +29,8 @@ final ffplayer_open_file = _library.lookupFunction<
     IntPtr Function(Pointer, Pointer<Utf8>),
     int Function(Pointer, Pointer<Utf8>)>("ffplayer_open_file");
 
-final ffplayer_init = _library
-    .lookupFunction<Void Function(), void Function()>("ffplayer_global_init");
+final ffplayer_init = _library.lookupFunction<Void Function(Pointer<Void>),
+    void Function(Pointer<Void>)>("ffplayer_global_init");
 
 final ffplayer_free_player =
     _library.lookupFunction<Void Function(Pointer), void Function(Pointer)>(
@@ -48,15 +49,14 @@ final ffplayer_seek_to_position = _library.lookupFunction<
     void Function(Pointer, double)>("ffplayer_seek_to_position");
 
 typedef native_buffered_callback = Void Function(
-    Pointer player, Double buffered);
+    Pointer player, Int32 what, Int64 arg1, Int64 arg2);
 
-final ffplayer_set_on_buffered_callback =
-    _library.lookupFunction<
-            Void Function(
-                Pointer, Pointer<NativeFunction<native_buffered_callback>>),
-            void Function(
-                Pointer, Pointer<NativeFunction<native_buffered_callback>>)>(
-        "ffplayer_set_on_buffered_callback");
+final ffp_set_message_callback = _library.lookupFunction<
+        Void Function(
+            Pointer, Int64, Pointer<NativeFunction<native_buffered_callback>>),
+        void Function(
+            Pointer, int, Pointer<NativeFunction<native_buffered_callback>>)>(
+    "ffp_set_message_callback_dart");
 
 var _inited = false;
 
@@ -65,7 +65,7 @@ void _ensureFfplayerGlobalInited() {
     return;
   }
   _inited = true;
-  ffplayer_init();
+  ffplayer_init(NativeApi.initializeApiDLData);
 }
 
 class FfiAudioPlayer implements AudioPlayer {
@@ -73,23 +73,30 @@ class FfiAudioPlayer implements AudioPlayer {
 
   late Pointer player;
 
+  late ReceivePort cppInteractPort;
+
   FfiAudioPlayer(String uri, DataSourceType type) {
     _ensureFfplayerGlobalInited();
     player = ffplayer_alloc_player();
     if (player == nullptr) {
       throw Exception("memory not enough");
     }
+
+    cppInteractPort = ReceivePort("ffp: $uri")
+      ..listen((message) {
+        print("Dart:  on message ($message).");
+      });
+    ffp_set_message_callback(player, cppInteractPort.sendPort.nativePort,
+        Pointer.fromFunction(_onPlayerMessageCallback));
     ffplayer_open_file(player, Utf8.toUtf8(uri));
+
     debugPrint("player ${player}");
-    // ffplayer_set_on_buffered_callback(
-    //   player,
-    //   Pointer.fromFunction<native_buffered_callback>(_onBufferedUpdate),
-    // );
+
   }
 
-  // TODO need called from dart isolate thread.
-  static void _onBufferedUpdate(Pointer player, double position) {
-    debugPrint("_onBufferedUpdate: $position seconds.");
+  static void _onPlayerMessageCallback(
+      Pointer player, int what, int arg1, int arg2) {
+    debugPrint("_on message: ${what} $arg1 $arg2");
   }
 
   @override
@@ -108,13 +115,20 @@ class FfiAudioPlayer implements AudioPlayer {
     );
   }
 
+  bool _disposed = false;
+
   @override
   void dispose() {
+    if (_disposed) {
+      return;
+    }
+    _disposed = true;
     final player = this.player;
     if (player != nullptr) {
       this.player = nullptr;
       ffplayer_free_player(player);
     }
+    cppInteractPort.close();
   }
 
   @override

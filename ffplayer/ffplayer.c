@@ -37,7 +37,6 @@
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_thread.h>
-#include <assert.h>
 
 #include "ffplayer/ffplayer.h"
 #include "ffplayer/utils.h"
@@ -124,7 +123,29 @@ static int message_loop(void *args) {
             break;
         }
         if (player->on_message) {
+#ifdef _FLUTTER
+            if (!player->send_port) {
+                av_log(NULL, AV_LOG_FATAL, "ffp: flutter message callback without send_port. \n");
+                continue;
+            }
+            Dart_CObject what_d = {.type = Dart_CObject_kInt32, .value.as_int64 = msg.what};
+            Dart_CObject arg1_d = {.type = Dart_CObject_kInt64, .value.as_int64 = msg.arg1};
+            Dart_CObject arg2_d = {.type = Dart_CObject_kInt64, .value.as_int64 = msg.arg2};
+            Dart_CObject *arrays= av_mallocz_array(3, sizeof(Dart_CObject));
+            arrays[0] = what_d;
+            arrays[1] = arg1_d;
+            arrays[2] = arg1_d;
+            Dart_CObject *dart_args = av_mallocz(sizeof(Dart_CObject));
+            (*dart_args).type = Dart_CObject_kArray;
+            (*dart_args).value.as_array.length = 3;
+            (*dart_args).value.as_array.values = &arrays;
+            printf("type %d\n", (*dart_args).type);
+            Dart_PostCObject_DL(player->send_port, dart_args);
+            av_free(arrays);
+            av_free(dart_args);
+#else
             player->on_message(player, msg.what, msg.arg1, msg.arg2);
+#endif
         }
     }
     return 0;
@@ -2762,7 +2783,7 @@ void ffplayer_free_player(CPlayer *player) {
     stream_close(player);
 }
 
-void ffplayer_global_init() {
+void ffplayer_global_init(void *arg) {
     av_log_set_flags(AV_LOG_SKIP_REPEATED);
     av_log_set_level(AV_LOG_INFO);
     /* register all codecs, demux and protocols */
@@ -2779,4 +2800,12 @@ void ffplayer_global_init() {
     av_init_packet(&flush_pkt);
     flush_pkt.data = (uint8_t *) &flush_pkt;
 
+#ifdef _FLUTTER
+    assert(arg);
+    Dart_InitializeApiDL(arg);
+#endif
+}
+
+void ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int, int64_t, int64_t)) {
+    player->on_message = callback;
 }

@@ -16,7 +16,9 @@ if (UNIX)
     include_directories("/usr/include/SDL2")
 endif ()
 
-add_library(ffplayer SHARED "ffplayer.c")
+add_library(ffplayer SHARED "ffplayer.c"
+        "include/third_party/dart/dart_api_dl.c"
+        )
 
 if (WIN32)
     add_library(ffplayer_static "ffplayer.c")

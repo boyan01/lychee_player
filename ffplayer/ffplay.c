@@ -413,7 +413,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    ffplayer_global_init();
+    ffplayer_global_init(NULL);
 
     signal(SIGINT, sigterm_handler);  /* Interrupt (ANSI).    */
     signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */

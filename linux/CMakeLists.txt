@@ -9,7 +9,7 @@ set(PLUGIN_NAME "audio_player_plugin")
 add_library(${PLUGIN_NAME} SHARED
         "audio_player_plugin.cc"
         )
-
+add_compile_definitions(_FLUTTER)
 add_subdirectory(../ffplayer ffplayer.out)
 
 set_target_properties(ffplayer

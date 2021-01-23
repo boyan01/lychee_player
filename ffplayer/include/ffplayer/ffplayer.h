@@ -38,6 +38,12 @@ extern "C" {
 #define FFPLAYER_EXPORT __attribute__((visibility("default"))) __attribute__((used))
 #endif
 
+#if _FLUTTER
+
+#include "third_party/dart/dart_api_dl.h"
+
+#endif
+
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
 #define MIN_FRAMES 25
 #define EXTERNAL_CLOCK_MIN_FRAMES 2
@@ -272,7 +278,7 @@ typedef struct VideoState {
     SDL_cond *continue_read_thread;
 } VideoState;
 
-typedef struct _CPlayer {
+typedef struct CPlayer {
     VideoState *is;
     int audio_disable;
     int video_disable;
@@ -326,11 +332,17 @@ typedef struct _CPlayer {
 
     FFPlayerMessageQueue msg_queue;
 
-    void (*on_message)(void* player,int what, int64_t arg1, int64_t arg2);
+    void (*on_message)(struct CPlayer *player, int what, int64_t arg1, int64_t arg2);
+
     SDL_Thread *msg_tid;
+
+#ifdef _FLUTTER
+    Dart_Port send_port;
+#endif
+
 } CPlayer;
 
-FFPLAYER_EXPORT void ffplayer_global_init();
+FFPLAYER_EXPORT void ffplayer_global_init(void *arg);
 
 FFPLAYER_EXPORT CPlayer *ffplayer_alloc_player();
 
@@ -369,6 +381,21 @@ FFPLAYER_EXPORT void ffplayer_set_volume(CPlayer *player, int volume);
  * \return time for next frame should be schudled.
  */
 FFPLAYER_EXPORT double ffplayer_draw_frame(CPlayer *player);
+
+
+FFPLAYER_EXPORT void
+ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int, int64_t, int64_t));
+
+#ifdef _FLUTTER
+
+FFPLAYER_EXPORT void
+ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port,
+                              void (*callback)(CPlayer *, int, int64_t, int64_t)) {
+    player->send_port = send_port;
+    ffp_set_message_callback(player, callback);
+}
+
+#endif
 
 static inline void ffp_send_msg2(CPlayer *player, int what, int arg1, int arg2) {
     FFPlayerMessage msg = {0};
