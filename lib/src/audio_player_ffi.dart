@@ -1,6 +1,7 @@
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
@@ -48,15 +49,9 @@ final ffplayer_seek_to_position = _library.lookupFunction<
     Void Function(Pointer, Double),
     void Function(Pointer, double)>("ffplayer_seek_to_position");
 
-typedef native_buffered_callback = Void Function(
-    Pointer player, Int32 what, Int64 arg1, Int64 arg2);
-
 final ffp_set_message_callback = _library.lookupFunction<
-        Void Function(
-            Pointer, Int64, Pointer<NativeFunction<native_buffered_callback>>),
-        void Function(
-            Pointer, int, Pointer<NativeFunction<native_buffered_callback>>)>(
-    "ffp_set_message_callback_dart");
+    Void Function(Pointer, Int64),
+    void Function(Pointer, int)>("ffp_set_message_callback_dart");
 
 var _inited = false;
 
@@ -84,19 +79,17 @@ class FfiAudioPlayer implements AudioPlayer {
 
     cppInteractPort = ReceivePort("ffp: $uri")
       ..listen((message) {
-        print("Dart:  on message ($message).");
+        if (message is! Uint8List) {
+          throw "unkonwn message $message";
+        }
+        final values = Int64List.view(message.buffer);
+        debugPrint(
+            "Dart:  on message (${values[0]} ${values[1]} ${values[2]}.");
       });
-    ffp_set_message_callback(player, cppInteractPort.sendPort.nativePort,
-        Pointer.fromFunction(_onPlayerMessageCallback));
+    ffp_set_message_callback(player, cppInteractPort.sendPort.nativePort);
     ffplayer_open_file(player, Utf8.toUtf8(uri));
 
     debugPrint("player ${player}");
-
-  }
-
-  static void _onPlayerMessageCallback(
-      Pointer player, int what, int arg1, int arg2) {
-    debugPrint("_on message: ${what} $arg1 $arg2");
   }
 
   @override

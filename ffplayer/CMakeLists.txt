@@ -20,14 +20,14 @@ add_library(ffplayer SHARED "ffplayer.c"
         "include/third_party/dart/dart_api_dl.c"
         )
 
-if (WIN32)
-    add_library(ffplayer_static "ffplayer.c")
-    add_executable(ffplay_example "ffplay.c")
-    target_link_libraries(ffplay_example PRIVATE ffplayer_static SDL2main)
-else ()
-    add_executable(ffplay_example "ffplay.c")
-    target_link_libraries(ffplay_example PRIVATE ffplayer SDL2main)
-endif ()
+if(MSVC)
+    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
+    set(BUILD_SHARED_LIBS TRUE)
+endif()
+
+
+add_executable(ffplay_example "ffplay.c")
+target_link_libraries(ffplay_example PRIVATE ffplayer SDL2main)
 
 target_include_directories(ffplayer PUBLIC include)
 

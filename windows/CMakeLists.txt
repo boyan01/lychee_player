@@ -14,6 +14,7 @@ add_library(${PLUGIN_NAME} SHARED
 )
 apply_standard_settings(${PLUGIN_NAME})
 
+add_compile_definitions(_FLUTTER)
 add_subdirectory(../ffplayer ffplayer.out)
 
 set_target_properties(${PLUGIN_NAME} PROPERTIES

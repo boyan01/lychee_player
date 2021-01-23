@@ -188,7 +188,7 @@ static void toggle_audio_display(VideoState *is) {
 }
 
 /* handle an event sent by the GUI */
-_Noreturn static void event_loop(CPlayer *player) {
+static void event_loop(CPlayer *player) {
     VideoState *cur_stream = player->is;
     SDL_Event event;
     double incr;

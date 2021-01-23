@@ -337,7 +337,7 @@ typedef struct CPlayer {
     SDL_Thread *msg_tid;
 
 #ifdef _FLUTTER
-    Dart_Port send_port;
+    Dart_Port message_send_port;
 #endif
 
 } CPlayer;
@@ -389,10 +389,8 @@ ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int, int64
 #ifdef _FLUTTER
 
 FFPLAYER_EXPORT void
-ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port,
-                              void (*callback)(CPlayer *, int, int64_t, int64_t)) {
-    player->send_port = send_port;
-    ffp_set_message_callback(player, callback);
+ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
+    player->message_send_port = send_port;
 }
 
 #endif

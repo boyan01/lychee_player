@@ -122,32 +122,28 @@ static int message_loop(void *args) {
         if (msg_queue_get(&player->msg_queue, &msg, true) < 0) {
             break;
         }
-        if (player->on_message) {
-#ifdef _FLUTTER
-            if (!player->send_port) {
-                av_log(NULL, AV_LOG_FATAL, "ffp: flutter message callback without send_port. \n");
-                continue;
-            }
-            Dart_CObject what_d = {.type = Dart_CObject_kInt32, .value.as_int64 = msg.what};
-            Dart_CObject arg1_d = {.type = Dart_CObject_kInt64, .value.as_int64 = msg.arg1};
-            Dart_CObject arg2_d = {.type = Dart_CObject_kInt64, .value.as_int64 = msg.arg2};
-            Dart_CObject *arrays= av_mallocz_array(3, sizeof(Dart_CObject));
-            arrays[0] = what_d;
-            arrays[1] = arg1_d;
-            arrays[2] = arg1_d;
-            Dart_CObject *dart_args = av_mallocz(sizeof(Dart_CObject));
-            (*dart_args).type = Dart_CObject_kArray;
-            (*dart_args).value.as_array.length = 3;
-            (*dart_args).value.as_array.values = &arrays;
-            printf("type %d\n", (*dart_args).type);
-            Dart_PostCObject_DL(player->send_port, dart_args);
-            av_free(arrays);
-            av_free(dart_args);
-#else
-            player->on_message(player, msg.what, msg.arg1, msg.arg2);
-#endif
+        #ifdef _FLUTTER
+        if (player->message_send_port) {
+            // dart do not support int64_t array yet.
+            // thanks https://github.com/dart-lang/sdk/issues/44384#issuecomment-738708448
+            // so we pass an uint8_t array to dart isolate.
+            int64_t arrays[] = { msg.what ,msg.arg1, msg.arg2 };
+
+            Dart_CObject dart_args = {
+              .type = Dart_CObject_kTypedData,
+              .value.as_typed_data = {
+                .type = Dart_TypedData_kUint8,
+                .length = 3 * sizeof(int64_t),
+                .values = (uint8_t*)arrays} };
+            Dart_PostCObject_DL(player->message_send_port, &dart_args);
         }
+#else
+        if (player->on_message) {
+            player->on_message(player, msg.what, msg.arg1, msg.arg2);
+        }
+#endif
     }
+
     return 0;
 }
 
