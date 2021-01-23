@@ -26,6 +26,7 @@
 #define FFP_MSG_COMPONENT_OPEN              409
 #define FFP_MSG_VIDEO_SEEK_RENDERING_START  410
 #define FFP_MSG_AUDIO_SEEK_RENDERING_START  411
+#define FFP_MSG_VIDEO_FRAME_LOADED          412     /* arg1 = display width, arg2 = display height */
 
 #define FFP_MSG_BUFFERING_START             500
 #define FFP_MSG_BUFFERING_END               501

@@ -40,6 +40,7 @@
 #include <assert.h>
 
 #include "ffplayer/ffplayer.h"
+#include "ffplayer/utils.h"
 
 /* options specified by the user */
 static AVInputFormat *file_iformat;
@@ -97,14 +98,13 @@ static inline int64_t get_valid_channel_layout(int64_t channel_layout, int chann
         return 0;
 }
 
-static void on_buffered_update(CPlayer *player, double position) {
-    if (!player->on_buffered_update) {
+static void on_buffered_update(CPlayer *player, double position, bool force) {
+    int64_t mills = position * 1000;
+    if (mills < player->buffered_position && !force) {
         return;
     }
-    if (position > player->buffered_position) {
-        player->buffered_position = position;
-        player->on_buffered_update(player, position);
-    }
+    player->buffered_position = mills;
+    ffp_send_msg1(player, FFP_MSG_BUFFERING_TIME_UPDATE, mills);
 }
 
 static void decoder_init(Decoder *d, AVCodecContext *avctx, PacketQueue *queue, SDL_cond *empty_queue_cond) {
@@ -115,6 +115,21 @@ static void decoder_init(Decoder *d, AVCodecContext *avctx, PacketQueue *queue, 
     d->start_pts = AV_NOPTS_VALUE;
     d->pkt_serial = -1;
 }
+
+static int message_loop(void *args) {
+    CPlayer *player = args;
+    while (true) {
+        FFPlayerMessage msg = {0};
+        if (msg_queue_get(&player->msg_queue, &msg, true) < 0) {
+            break;
+        }
+        if (player->on_message) {
+            player->on_message(player, msg.what, msg.arg1, msg.arg2);
+        }
+    }
+    return 0;
+}
+
 
 static int decoder_decode_frame(Decoder *d, AVFrame *frame, AVSubtitle *sub, CPlayer *player) {
     int ret = AVERROR(EAGAIN);
@@ -533,6 +548,11 @@ static void video_image_display(CPlayer *player) {
         vp->flip_v = vp->frame->linesize[0] < 0;
     }
 
+    if (player->first_video_frame_rendered) {
+        player->first_video_frame_rendered = true;
+        ffp_send_msg2(player, FFP_MSG_VIDEO_RENDERING_START, rect.w, rect.h);
+    }
+
     set_sdl_yuv_conversion_mode(vp->frame);
     SDL_RenderCopyEx(player->renderer, is->vid_texture, NULL, &rect, 0, NULL, vp->flip_v ? SDL_FLIP_VERTICAL : 0);
     set_sdl_yuv_conversion_mode(NULL);
@@ -773,11 +793,17 @@ static void stream_close(CPlayer *player) {
     if (is->subtitle_stream >= 0)
         stream_component_close(player, is->subtitle_stream);
 
+    msg_queue_abort(&player->msg_queue);
+    if (player->msg_tid) {
+        SDL_WaitThread(player->msg_tid, NULL);
+    }
+
     avformat_close_input(&is->ic);
 
     packet_queue_destroy(&is->videoq);
     packet_queue_destroy(&is->audioq);
     packet_queue_destroy(&is->subtitleq);
+    msg_queue_destroy(&player->msg_queue);
 
     /* free all pictures */
     frame_queue_destory(&is->pictq);
@@ -1247,11 +1273,12 @@ static int queue_picture(CPlayer *player, AVFrame *src_frame, double pts, double
     vp->pos = pos;
     vp->serial = serial;
 
-    if (!player->is_first_frame_loaded) {
-        player->is_first_frame_loaded = true;
-        if (player->on_first_frame) {
-            player->on_first_frame(player, vp->width, vp->height, vp->sar);
-        }
+    if (!player->first_video_frame_loaded) {
+        player->first_video_frame_loaded = true;
+        // https://forum.videohelp.com/threads/323530-please-explain-SAR-DAR-PAR#post2003533
+        int64_t width_d = vp->width * vp->sar.num;
+        int64_t height_d = vp->height * vp->sar.den;
+        ffp_send_msg2(player, FFP_MSG_VIDEO_FRAME_LOADED, vp->width, av_rescale(vp->width, height_d, width_d));
     }
 
     av_frame_move_ref(vp->frame, src_frame);
@@ -2302,7 +2329,7 @@ static int read_thread(void *arg) {
         ic->pb->eof_reached = 0;  // FIXME hack, ffplay maybe should not use avio_feof() to test for the end
 
     if (player->seek_by_bytes < 0)
-        player->seek_by_bytes = !!(ic->iformat->flags & AVFMT_TS_DISCONT) && strcmp("ogg", ic->iformat->name);
+        player->seek_by_bytes = (ic->iformat->flags & AVFMT_TS_DISCONT) != 0 && strcmp("ogg", ic->iformat->name) != 0;
 
     is->max_frame_duration = (ic->iformat->flags & AVFMT_TS_DISCONT) ? 10.0 : 3600.0;
 
@@ -2487,9 +2514,7 @@ static int read_thread(void *arg) {
             (!is->video_st ||
              (is->viddec.finished == is->videoq.serial && frame_queue_nb_remaining(&is->pictq) == 0))) {
             bool loop = player->loop != 1 && (!player->loop || --player->loop);
-            if (player->on_play_completed) {
-                player->on_play_completed(player, loop);
-            }
+            ffp_send_msg1(player, FFP_MSG_COMPLETED, loop);
             if (loop) {
                 stream_seek(player, player->start_time != AV_NOPTS_VALUE ? player->start_time : 0, 0, 0);
             } else {
@@ -2526,7 +2551,7 @@ static int read_thread(void *arg) {
                             ((double) player->duration / 1000000);
 
         double position = (double) pkt_ts * av_q2d(ic->streams[pkt->stream_index]->time_base);
-        on_buffered_update(player, position);
+        on_buffered_update(player, position, false);
 
         if (pkt->stream_index == is->audio_stream && pkt_in_play_range) {
             packet_queue_put(&is->audioq, pkt);
@@ -2572,19 +2597,32 @@ static void stream_open(CPlayer *player, const char *filename, AVInputFormat *if
     is->read_tid = SDL_CreateThread(read_thread, "read_thread", player);
     if (!is->read_tid) {
         av_log(NULL, AV_LOG_FATAL, "SDL_CreateThread(): %s\n", SDL_GetError());
-        fail:
-        stream_close(player);
-        player->is = NULL;
-        return;
+        goto fail;
+    }
+
+    msg_queue_start(&player->msg_queue);
+    player->msg_tid = SDL_CreateThread(message_loop, "message_loop", player);
+    if (!player->msg_tid) {
+        av_log(NULL, AV_LOG_FATAL, "SDL_CreateThread(): %s\n", SDL_GetError());
+        goto fail;
     }
     return;
+    fail:
+    stream_close(player);
+    player->is = NULL;
 }
 
 int ffplayer_get_chapter_count(CPlayer *player) {
-    return player->is->ic->nb_chapters;
+    if (!player || !player->is->ic) {
+        return -1;
+    }
+    return (int) player->is->ic->nb_chapters;
 }
 
 int ffplayer_get_current_chapter(CPlayer *player) {
+    if (!player || !player->is->ic) {
+        return -1;
+    }
     int64_t pos = get_master_clock(player->is) * AV_TIME_BASE;
 
     if (!player->is->ic->nb_chapters) {
@@ -2601,6 +2639,10 @@ int ffplayer_get_current_chapter(CPlayer *player) {
 }
 
 void ffplayer_seek_to_chapter(CPlayer *player, int chapter) {
+    if (!player || !player->is->ic) {
+        av_log(NULL, AV_LOG_ERROR, "player not prepared");
+        return;
+    }
     if (!player->is->ic->nb_chapters) {
         av_log(NULL, AV_LOG_ERROR, "this video do not contain chapters");
         return;
@@ -2612,8 +2654,6 @@ void ffplayer_seek_to_chapter(CPlayer *player, int chapter) {
     AVChapter *ac = player->is->ic->chapters[chapter];
     stream_seek(player, av_rescale_q(ac->start, ac->time_base, AV_TIME_BASE_Q), 0, 0);
 }
-
-static int dummy;
 
 static VideoState *alloc_video_state() {
     VideoState *is = av_mallocz(sizeof(VideoState));
@@ -2696,11 +2736,11 @@ CPlayer *ffplayer_alloc_player() {
     player->renderer = NULL;
 
     player->on_load_metadata = NULL;
-    player->is_first_frame_loaded = false;
-    player->on_first_frame = NULL;
+    player->first_video_frame_loaded = false;
+    player->first_video_frame_rendered = false;
+    player->on_message = NULL;
 
     player->buffered_position = -1;
-    player->on_buffered_update = NULL;
 
     player->is = alloc_video_state();
 
@@ -2739,9 +2779,4 @@ void ffplayer_global_init() {
     av_init_packet(&flush_pkt);
     flush_pkt.data = (uint8_t *) &flush_pkt;
 
-}
-
-
-void ffplayer_set_on_buffered_callback(CPlayer *player, void (*callback)(void *player, double position)) {
-    player->on_buffered_update = callback;
 }

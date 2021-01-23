@@ -46,7 +46,7 @@ static void do_exit(CPlayer *player) {
         SDL_DestroyRenderer(player->renderer);
     if (window)
         SDL_DestroyWindow(window);
-        // uninit_opts();
+    // uninit_opts();
 #if CONFIG_AVFILTER
     av_freep(&vfilters_list);
 #endif
@@ -64,9 +64,11 @@ static void toggle_full_screen(VideoState *is) {
 }
 
 static void update_volume(VideoState *is, int sign, double step) {
-    double volume_level = is->audio_volume ? (20 * log(is->audio_volume / (double)SDL_MIX_MAXVOLUME) / log(10)) : -1000.0;
+    double volume_level = is->audio_volume ? (20 * log(is->audio_volume / (double) SDL_MIX_MAXVOLUME) / log(10))
+                                           : -1000.0;
     int new_volume = lrint(SDL_MIX_MAXVOLUME * pow(10.0, (volume_level + sign * step) / 20.0));
-    is->audio_volume = av_clip(is->audio_volume == new_volume ? (is->audio_volume + sign) : new_volume, 0, SDL_MIX_MAXVOLUME);
+    is->audio_volume = av_clip(is->audio_volume == new_volume ? (is->audio_volume + sign) : new_volume, 0,
+                               SDL_MIX_MAXVOLUME);
 }
 
 static void step_to_next_frame(CPlayer *player) {
@@ -77,7 +79,7 @@ static void step_to_next_frame(CPlayer *player) {
 }
 
 static void stream_cycle_channel(VideoState *is, int codec_type) {
-#if 0    
+#if 0
     AVFormatContext *ic = is->ic;
     int start_index, stream_index;
     int old_index;
@@ -164,7 +166,7 @@ static void refresh_loop_wait_event(CPlayer *player, SDL_Event *event) {
             cursor_hidden = 1;
         }
         if (remaining_time > 0.0)
-            av_usleep((int64_t)(remaining_time * 1000000.0));
+            av_usleep((int64_t) (remaining_time * 1000000.0));
         remaining_time = REFRESH_RATE;
         if (is->show_mode != SHOW_MODE_NONE && (!is->paused || is->force_refresh)) {
             remaining_time = ffplayer_draw_frame(player);
@@ -177,7 +179,8 @@ static void toggle_audio_display(VideoState *is) {
     int next = is->show_mode;
     do {
         next = (next + 1) % SHOW_MODE_NB;
-    } while (next != is->show_mode && (next == SHOW_MODE_VIDEO && !is->video_st || next != SHOW_MODE_VIDEO && !is->audio_st));
+    } while (next != is->show_mode &&
+             (next == SHOW_MODE_VIDEO && !is->video_st || next != SHOW_MODE_VIDEO && !is->audio_st));
     if (is->show_mode != next) {
         is->force_refresh = 1;
         is->show_mode = next;
@@ -185,7 +188,7 @@ static void toggle_audio_display(VideoState *is) {
 }
 
 /* handle an event sent by the GUI */
-static void event_loop(CPlayer *player) {
+_Noreturn static void event_loop(CPlayer *player) {
     VideoState *cur_stream = player->is;
     SDL_Event event;
     double incr;
@@ -293,7 +296,8 @@ static void event_loop(CPlayer *player) {
                         //     pos += incr;
                         //     stream_seek(cur_stream, pos, incr, 1);
                         // }
-                        printf("ffplayer_seek_to_position from: %0.2f , to: %0.2f .\n", ffplayer_get_current_position(player), ffplayer_get_current_position(player) + incr);
+                        printf("ffplayer_seek_to_position from: %0.2f , to: %0.2f .\n",
+                               ffplayer_get_current_position(player), ffplayer_get_current_position(player) + incr);
                         ffplayer_seek_to_position(player, ffplayer_get_current_position(player) + incr);
                         break;
                     default:
@@ -358,13 +362,14 @@ static void event_loop(CPlayer *player) {
     }
 }
 
-static void set_default_window_size(int width, int height, AVRational sar) {
-    FFP_Rect rect;
+static void set_default_window_size(int width, int height) {
+    SDL_Rect rect;
     int max_width = screen_width ? screen_width : INT_MAX;
     int max_height = screen_height ? screen_height : INT_MAX;
     if (max_width == INT_MAX && max_height == INT_MAX)
         max_height = height;
-    calculate_display_rect(&rect, 0, 0, max_width, max_height, width, height, sar);
+    AVRational rational = {1, 1};
+    calculate_display_rect(&rect, 0, 0, max_width, max_height, width, height, rational);
     default_width = rect.w;
     default_height = rect.h;
 }
@@ -376,37 +381,30 @@ static void on_load_metadata(void *op) {
         window_title = av_asprintf("%s - %s", t->value, input_filename);
 }
 
-static void on_first_frame(void *op, int width, int height, AVRational sar) {
-    printf("on first frame: %d, %d \n", width, height);
 
-    set_default_window_size(width, height, sar);
+static void on_message(void *player, int what, int64_t arg1, int64_t arg2) {
+    av_log(NULL, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n", what, arg1, arg2);
+    switch (what) {
+        case FFP_MSG_VIDEO_FRAME_LOADED:
+            set_default_window_size(arg1, arg2);
+            int w, h;
+            w = screen_width ? screen_width : default_width;
+            h = screen_height ? screen_height : default_height;
 
-    CPlayer *player = op;
-    int w, h;
+            if (!window_title)
+                window_title = input_filename;
+            SDL_SetWindowTitle(window, window_title);
 
-    w = screen_width ? screen_width : default_width;
-    h = screen_height ? screen_height : default_height;
-
-    if (!window_title)
-        window_title = input_filename;
-    SDL_SetWindowTitle(window, window_title);
-
-    SDL_SetWindowSize(window, w, h);
-    SDL_SetWindowPosition(window, screen_left, screen_top);
-    if (is_full_screen)
-        SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-    SDL_ShowWindow(window);
-
-    // player->is->width = w;
-    // player->is->height = h;
-}
-
-static void on_play_completed(void *player, bool loop) {
-    printf("on_play_completed. loop: %d \n", loop);
-}
-
-static void on_buffered_update(void *player, double position) {
-    av_log(NULL, AV_LOG_INFO, " on loaded: %0.2f/%0.2f\n", position, ffplayer_get_duration(player));
+            printf("set_default_window_size : %d , %d \n", w, h);
+            SDL_SetWindowSize(window, w, h);
+            SDL_SetWindowPosition(window, screen_left, screen_top);
+            if (is_full_screen)
+                SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+            SDL_ShowWindow(window);
+            break;
+        default:
+            break;
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -456,18 +454,20 @@ int main(int argc, char *argv[]) {
 #if SDL_VERSION_ATLEAST(2, 0, 5)
             flags |= SDL_WINDOW_ALWAYS_ON_TOP;
 #else
-            av_log(NULL, AV_LOG_WARNING, "Your SDL version doesn't support SDL_WINDOW_ALWAYS_ON_TOP. Feature will be inactive.\n");
+        av_log(NULL, AV_LOG_WARNING, "Your SDL version doesn't support SDL_WINDOW_ALWAYS_ON_TOP. Feature will be inactive.\n");
 #endif
         if (borderless)
             flags |= SDL_WINDOW_BORDERLESS;
         else
             flags |= SDL_WINDOW_RESIZABLE;
-        window = SDL_CreateWindow("ffplay", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, default_width, default_height, flags);
+        window = SDL_CreateWindow("ffplay", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, default_width,
+                                  default_height, flags);
         SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
         if (window) {
             renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
             if (!renderer) {
-                av_log(NULL, AV_LOG_WARNING, "Failed to initialize a hardware accelerated renderer: %s\n", SDL_GetError());
+                av_log(NULL, AV_LOG_WARNING, "Failed to initialize a hardware accelerated renderer: %s\n",
+                       SDL_GetError());
                 renderer = SDL_CreateRenderer(window, -1, 0);
             }
             if (renderer) {
@@ -482,9 +482,7 @@ int main(int argc, char *argv[]) {
     }
     player->renderer = renderer;
     player->on_load_metadata = on_load_metadata;
-    player->on_first_frame = on_first_frame;
-    player->on_play_completed = on_play_completed;
-    player->on_buffered_update = on_buffered_update;
+    player->on_message = on_message;
 
     ffplayer_open_file(player, input_filename);
     if (!player->is) {

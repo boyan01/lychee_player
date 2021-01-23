@@ -16,10 +16,10 @@ if (UNIX)
     include_directories("/usr/include/SDL2")
 endif ()
 
-add_library(ffplayer SHARED "ffplayer.c" "utils.c")
+add_library(ffplayer SHARED "ffplayer.c")
 
 if (WIN32)
-    add_library(ffplayer_static "ffplayer.c" "utils.c")
+    add_library(ffplayer_static "ffplayer.c")
     add_executable(ffplay_example "ffplay.c")
     target_link_libraries(ffplay_example PRIVATE ffplayer_static SDL2main)
 else ()

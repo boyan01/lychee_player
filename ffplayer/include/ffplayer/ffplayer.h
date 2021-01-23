@@ -318,29 +318,16 @@ typedef struct _CPlayer {
 
     void (*on_load_metadata)(void *player);
 
-    bool is_first_frame_loaded;
-
-    /**
-     * @param sar Sample aspect ratio for the video frame, 0/1 if unknown/unspecified. 
-     * 
-     * https://forum.videohelp.com/threads/323530-please-explain-SAR-DAR-PAR#post2003533
-     */
-    void (*on_first_frame)(void *player, int width, int height, AVRational sar);
-
-    void (*on_play_completed)(void *player, bool loop);
+    bool first_video_frame_loaded;
+    bool first_video_frame_rendered;
 
     // buffered position in seconds. -1 if not avalible
-    double buffered_position;
-
-    /**
-     * @param position 0 - duration.
-     */
-    void (*on_buffered_update)(void *player, double position);
-
-    void *opacity;
-    void (*on_info)(void *player, ffplayer_info_t state, int64_t msg1, int64_t msg2);
+    int64_t buffered_position;
 
     FFPlayerMessageQueue msg_queue;
+
+    void (*on_message)(void* player,int what, int64_t arg1, int64_t arg2);
+    SDL_Thread *msg_tid;
 } CPlayer;
 
 FFPLAYER_EXPORT void ffplayer_global_init();
@@ -383,11 +370,22 @@ FFPLAYER_EXPORT void ffplayer_set_volume(CPlayer *player, int volume);
  */
 FFPLAYER_EXPORT double ffplayer_draw_frame(CPlayer *player);
 
-FFPLAYER_EXPORT void
-ffplayer_set_on_buffered_callback(CPlayer *player, void (*callback)(void *player, double position));
+static inline void ffp_send_msg2(CPlayer *player, int what, int arg1, int arg2) {
+    FFPlayerMessage msg = {0};
+    msg.what = what;
+    msg.arg1 = arg1;
+    msg.arg2 = arg2;
+    msg.next = NULL;
+    msg_queue_put(&player->msg_queue, &msg);
+}
 
-FFPLAYER_EXPORT void
-ffplayer_set_info_callback(CPlayer *player, void (*callback)(void *player, ffplayer_info_t type));
+static inline void ffp_send_msg1(CPlayer *player, int what, int64_t arg1) {
+    ffp_send_msg2(player, what, arg1, 0);
+}
+
+static inline void ffp_send_msg(CPlayer *player, int what) {
+    ffp_send_msg1(player, what, 0);
+}
 
 #ifdef __cplusplus
 }
