@@ -1,6 +1,9 @@
+import 'dart:ffi';
+
 import 'package:audio_player/audio_player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:audio_player/src/audio_player_ffi.dart';
 
 void main() {
   runApp(MyApp());
@@ -37,7 +40,6 @@ class _MyAppState extends State<MyApp> {
       player!.dispose();
     }
     final type = urls[uri!]!;
-    assert(type != null);
     switch (type) {
       case _Type.file:
         player = AudioPlayer.file(uri);
@@ -51,9 +53,16 @@ class _MyAppState extends State<MyApp> {
     }
     this.url = uri;
     player!.onStateChanged.addListener(() {
-      debugPrint("state change: ${player!.status} playing: ${player!.isPlaying}");
+      debugPrint(
+          "state change: ${player!.status} playing: ${player!.isPlaying}");
     });
     player!.playWhenReady = true;
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    player?.dispose();
   }
 
   @override
@@ -62,6 +71,9 @@ class _MyAppState extends State<MyApp> {
       home: Scaffold(
         appBar: AppBar(
           title: const Text('Plugin example app'),
+          actions: [TextButton(onPressed: () {
+            ffplayer_init(NativeApi.initializeApiDLData);
+          }, child: Text("Mock Relaod"))],
         ),
         body: Column(
           children: [
@@ -114,7 +126,8 @@ class _PlayerUi extends StatelessWidget {
             builder: (context) {
               double? progress;
               if (player!.duration > Duration.zero) {
-                progress = player!.currentTime.inMilliseconds / player!.duration.inMilliseconds;
+                progress = player!.currentTime.inMilliseconds /
+                    player!.duration.inMilliseconds;
               }
               return LinearProgressIndicator(
                 value: progress,
@@ -144,14 +157,16 @@ class _ForwardRewindButton extends StatelessWidget {
         IconButton(
             icon: Icon(Icons.replay_10),
             onPressed: () {
-              final Duration to = player!.currentTime - const Duration(seconds: 10);
+              final Duration to =
+                  player!.currentTime - const Duration(seconds: 10);
               player!.seek(to.atMost(player!.duration));
             }),
         SizedBox(width: 20),
         IconButton(
             icon: Icon(Icons.forward_10),
             onPressed: () {
-              final Duration to = player!.currentTime + const Duration(seconds: 10);
+              final Duration to =
+                  player!.currentTime + const Duration(seconds: 10);
               debugPrint("current = ${player!.currentTime}");
               player!.seek(to.atLeast(Duration.zero));
             }),
@@ -218,10 +233,12 @@ class ProgressTrackingContainer extends StatefulWidget {
         super(key: key);
 
   @override
-  _ProgressTrackingContainerState createState() => _ProgressTrackingContainerState();
+  _ProgressTrackingContainerState createState() =>
+      _ProgressTrackingContainerState();
 }
 
-class _ProgressTrackingContainerState extends State<ProgressTrackingContainer> with SingleTickerProviderStateMixin {
+class _ProgressTrackingContainerState extends State<ProgressTrackingContainer>
+    with SingleTickerProviderStateMixin {
   AudioPlayer? _player;
 
   late Ticker _ticker;
@@ -280,10 +297,12 @@ class _PlayerBufferedRangeIndicator extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  _PlayerBufferedRangeIndicatorState createState() => _PlayerBufferedRangeIndicatorState();
+  _PlayerBufferedRangeIndicatorState createState() =>
+      _PlayerBufferedRangeIndicatorState();
 }
 
-class _PlayerBufferedRangeIndicatorState extends State<_PlayerBufferedRangeIndicator> {
+class _PlayerBufferedRangeIndicatorState
+    extends State<_PlayerBufferedRangeIndicator> {
   AudioPlayer? _player;
   Duration? _duration;
 
@@ -325,10 +344,13 @@ class _PlayerBufferedRangeIndicatorState extends State<_PlayerBufferedRangeIndic
       indicator = AnimatedBuilder(
           animation: _player!.buffered,
           builder: (context, snapshot) {
-            debugPrint("_player.buffered = ${_player!.buffered.value}");
+            // debugPrint("_player.buffered = ${_player!.buffered.value}");
             return CustomPaint(
               painter: _PlayerBufferedRangeIndicatorPainter(
-                  _player!.buffered.value, _duration, Colors.transparent, Theme.of(context).primaryColor),
+                  _player!.buffered.value,
+                  _duration,
+                  Colors.transparent,
+                  Theme.of(context).primaryColor),
             );
           });
     }
@@ -349,7 +371,8 @@ class _PlayerBufferedRangeIndicatorPainter extends CustomPainter {
   final Color backgroundColor;
   final Color valueColor;
 
-  _PlayerBufferedRangeIndicatorPainter(this.ranges, this.duration, this.backgroundColor, this.valueColor);
+  _PlayerBufferedRangeIndicatorPainter(
+      this.ranges, this.duration, this.backgroundColor, this.valueColor);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -365,7 +388,9 @@ class _PlayerBufferedRangeIndicatorPainter extends CustomPainter {
         return;
       }
       canvas.drawRect(
-          Offset(size.width * startFraction, 0) & Size(size.width * (endFraction - startFraction), size.height), paint);
+          Offset(size.width * startFraction, 0) &
+              Size(size.width * (endFraction - startFraction), size.height),
+          paint);
     }
 
     ranges.forEach((e) {
@@ -374,7 +399,8 @@ class _PlayerBufferedRangeIndicatorPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _PlayerBufferedRangeIndicatorPainter oldDelegate) {
+  bool shouldRepaint(
+      covariant _PlayerBufferedRangeIndicatorPainter oldDelegate) {
     return duration != oldDelegate.duration ||
         ranges != oldDelegate.ranges ||
         backgroundColor != oldDelegate.backgroundColor ||

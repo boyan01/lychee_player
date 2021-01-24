@@ -18,6 +18,7 @@ endif ()
 
 add_library(ffplayer SHARED "ffplayer.c"
         "include/third_party/dart/dart_api_dl.c"
+        "flutter.cpp"
         )
 
 if(MSVC)

@@ -122,19 +122,19 @@ static int message_loop(void *args) {
         if (msg_queue_get(&player->msg_queue, &msg, true) < 0) {
             break;
         }
-        #ifdef _FLUTTER
+#ifdef _FLUTTER
         if (player->message_send_port) {
             // dart do not support int64_t array yet.
             // thanks https://github.com/dart-lang/sdk/issues/44384#issuecomment-738708448
             // so we pass an uint8_t array to dart isolate.
-            int64_t arrays[] = { msg.what ,msg.arg1, msg.arg2 };
+            int64_t arrays[] = {msg.what, msg.arg1, msg.arg2};
 
             Dart_CObject dart_args = {
-              .type = Dart_CObject_kTypedData,
-              .value.as_typed_data = {
-                .type = Dart_TypedData_kUint8,
-                .length = 3 * sizeof(int64_t),
-                .values = (uint8_t*)arrays} };
+                    .type = Dart_CObject_kTypedData,
+                    .value.as_typed_data = {
+                            .type = Dart_TypedData_kUint8,
+                            .length = 3 * sizeof(int64_t),
+                            .values = (uint8_t *) arrays}};
             Dart_PostCObject_DL(player->message_send_port, &dart_args);
         }
 #else
@@ -2763,10 +2763,16 @@ CPlayer *ffplayer_alloc_player() {
 
     msg_queue_init(&player->msg_queue);
 
+    ffplayer_toggle_pause(player);
+
     if (!player->is) {
         av_free(player);
         return NULL;
     }
+#ifdef _FLUTTER
+    flutter_on_post_player_created(player);
+#endif
+    av_log(NULL, AV_LOG_INFO, "malloc player, %p", player);
     return player;
 }
 
@@ -2775,9 +2781,20 @@ int ffplayer_open_file(CPlayer *player, const char *filename) {
 }
 
 void ffplayer_free_player(CPlayer *player) {
-    av_log(NULL, AV_LOG_INFO, "free play, close stream %p", player);
+#ifdef _FLUTTER
+    flutter_on_pre_player_free(player);
+#endif
+    av_log(NULL, AV_LOG_INFO, "free play, close stream %p \n", player);
     stream_close(player);
 }
+
+#ifdef _FLUTTER
+static void flutter_free_player(void *p) {
+    CPlayer *player = p;
+    av_log(NULL, AV_LOG_INFO, "free play, close stream %p by flutter global \n", player);
+    stream_close(player);
+}
+#endif
 
 void ffplayer_global_init(void *arg) {
     av_log_set_flags(AV_LOG_SKIP_REPEATED);
@@ -2799,8 +2816,10 @@ void ffplayer_global_init(void *arg) {
 #ifdef _FLUTTER
     assert(arg);
     Dart_InitializeApiDL(arg);
+    flutter_free_all_player(flutter_free_player);
 #endif
 }
+
 
 void ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int, int64_t, int64_t)) {
     player->on_message = callback;

@@ -490,6 +490,10 @@ int main(int argc, char *argv[]) {
         do_exit(NULL);
     }
 
+    if (ffplayer_is_paused(player)) {
+        // perform play when start.
+        ffplayer_toggle_pause(player);
+    }
     event_loop(player);
 
     return 0;

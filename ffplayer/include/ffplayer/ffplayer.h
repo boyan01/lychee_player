@@ -41,6 +41,7 @@ extern "C" {
 #if _FLUTTER
 
 #include "third_party/dart/dart_api_dl.h"
+#include "flutter.h"
 
 #endif
 
