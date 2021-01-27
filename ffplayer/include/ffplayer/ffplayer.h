@@ -47,6 +47,7 @@ extern "C" {
 
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
 #define MIN_FRAMES 25
+#define CACHE_THRESHOLD_MIN_FRAMES 2
 #define EXTERNAL_CLOCK_MIN_FRAMES 2
 #define EXTERNAL_CLOCK_MAX_FRAMES 10
 
@@ -99,6 +100,13 @@ typedef enum ffplayer_info_type {
 #define SUBPICTURE_QUEUE_SIZE 16
 #define SAMPLE_QUEUE_SIZE 9
 #define FRAME_QUEUE_SIZE FFMAX(SAMPLE_QUEUE_SIZE, FFMAX(VIDEO_PICTURE_QUEUE_SIZE, SUBPICTURE_QUEUE_SIZE))
+
+typedef enum FFPlayerState_ {
+    FFP_STATE_IDLE = 0,
+    FFP_STATE_READY,
+    FFP_STATE_BUFFERING,
+    FFP_STATE_END
+} FFPlayerState;
 
 typedef struct AudioParams {
     int freq;
@@ -336,6 +344,8 @@ typedef struct CPlayer {
     void (*on_message)(struct CPlayer *player, int what, int64_t arg1, int64_t arg2);
 
     SDL_Thread *msg_tid;
+    FFPlayerState state;
+    int64_t last_io_buffering_ts;
 
 #ifdef _FLUTTER
     Dart_Port message_send_port;
@@ -383,6 +393,7 @@ FFPLAYER_EXPORT void ffplayer_set_volume(CPlayer *player, int volume);
  */
 FFPLAYER_EXPORT double ffplayer_draw_frame(CPlayer *player);
 
+FFPLAYER_EXPORT int ffp_get_state(CPlayer *player);
 
 FFPLAYER_EXPORT void
 ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int, int64_t, int64_t));

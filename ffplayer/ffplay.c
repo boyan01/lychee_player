@@ -32,8 +32,6 @@ static int screen_height = 0;
 static int screen_left = SDL_WINDOWPOS_CENTERED;
 static int screen_top = SDL_WINDOWPOS_CENTERED;
 
-#define FF_QUIT_EVENT (SDL_USEREVENT + 2)
-
 static void sigterm_handler(int sig) {
     exit(123);
 }
@@ -66,7 +64,7 @@ static void toggle_full_screen(VideoState *is) {
 static void update_volume(VideoState *is, int sign, double step) {
     double volume_level = is->audio_volume ? (20 * log(is->audio_volume / (double) SDL_MIX_MAXVOLUME) / log(10))
                                            : -1000.0;
-    int new_volume = lrint(SDL_MIX_MAXVOLUME * pow(10.0, (volume_level + sign * step) / 20.0));
+    int new_volume = (int) lrint(SDL_MIX_MAXVOLUME * pow(10.0, (volume_level + sign * step) / 20.0));
     is->audio_volume = av_clip(is->audio_volume == new_volume ? (is->audio_volume + sign) : new_volume, 0,
                                SDL_MIX_MAXVOLUME);
 }
@@ -193,6 +191,7 @@ static void event_loop(CPlayer *player) {
     SDL_Event event;
     double incr;
 
+#pragma ide diagnostic ignored "EndlessLoop"
     for (;;) {
         double x;
         refresh_loop_wait_event(player, &event);
@@ -353,13 +352,13 @@ static void event_loop(CPlayer *player) {
                 }
                 break;
             case SDL_QUIT:
-            case FF_QUIT_EVENT:
                 do_exit(player);
                 break;
             default:
                 break;
         }
     }
+#pragma clang diagnostic pop
 }
 
 static void set_default_window_size(int width, int height) {
@@ -383,7 +382,7 @@ static void on_load_metadata(void *op) {
 
 
 static void on_message(void *player, int what, int64_t arg1, int64_t arg2) {
-    av_log(NULL, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n", what, arg1, arg2);
+//    av_log(NULL, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n", what, arg1, arg2);
     switch (what) {
         case FFP_MSG_VIDEO_FRAME_LOADED:
             set_default_window_size(arg1, arg2);
@@ -401,6 +400,12 @@ static void on_message(void *player, int what, int64_t arg1, int64_t arg2) {
             if (is_full_screen)
                 SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
             SDL_ShowWindow(window);
+            break;
+        case FFP_MSG_PLAYBACK_STATE_CHANGED:
+            printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %ld \n", arg1);
+            if (arg1 == FFP_STATE_END) {
+                do_exit(player);
+            }
             break;
         default:
             break;

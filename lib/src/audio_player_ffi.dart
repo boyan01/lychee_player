@@ -97,6 +97,11 @@ const int _FFP_PROP_INT64_LOGICAL_FILE_SIZE = 20209;
 const int _FFP_PROP_INT64_SHARE_CACHE_DATA = 20210;
 const int _FFP_PROP_INT64_IMMEDIATE_RECONNECT = 20211;
 
+const _FFP_STATE_IDLE = 0;
+const _FFP_STATE_READY = 1;
+const _FFP_STATE_BUFFERING = 2;
+const _FFP_STATE_END = 3;
+
 DynamicLibrary _openLibrary() {
   if (Platform.isLinux) {
     return DynamicLibrary.open("libffplayer.so");
@@ -160,7 +165,7 @@ void _ensureFfplayerGlobalInited() {
 }
 
 class FfiAudioPlayer implements AudioPlayer {
-  final ValueNotifier<PlayerStatus> _status = ValueNotifier(PlayerStatus.Ready);
+  final ValueNotifier<PlayerStatus> _status = ValueNotifier(PlayerStatus.Idle);
   final _buffred = ValueNotifier<List<DurationRange>>(const []);
   final _error = ValueNotifier(null);
 
@@ -192,6 +197,22 @@ class FfiAudioPlayer implements AudioPlayer {
       case _FFP_MSG_BUFFERING_TIME_UPDATE:
         final buffered = DurationRange.mills(0, arg1);
         _buffred.value = [buffered];
+        break;
+      case _FFP_MSG_PLAYBACK_STATE_CHANGED:
+        assert(() {
+          assert(arg1 == _FFP_STATE_BUFFERING ||
+              arg1 == _FFP_STATE_IDLE ||
+              arg1 == _FFP_STATE_READY ||
+              arg1 == _FFP_STATE_END);
+          return true;
+        }());
+        const statesMap = {
+          _FFP_STATE_END: PlayerStatus.End,
+          _FFP_STATE_BUFFERING: PlayerStatus.Buffering,
+          _FFP_STATE_IDLE: PlayerStatus.Idle,
+          _FFP_STATE_READY: PlayerStatus.Ready,
+        };
+        _status.value = statesMap[arg1]!;
         break;
     }
   }

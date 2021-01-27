@@ -97,11 +97,8 @@ static inline int64_t get_valid_channel_layout(int64_t channel_layout, int chann
         return 0;
 }
 
-static void on_buffered_update(CPlayer *player, double position, bool force) {
+static inline void on_buffered_update(CPlayer *player, double position) {
     int64_t mills = position * 1000;
-    if (mills < player->buffered_position && !force) {
-        return;
-    }
     player->buffered_position = mills;
     ffp_send_msg1(player, FFP_MSG_BUFFERING_TIME_UPDATE, mills);
 }
@@ -113,6 +110,14 @@ static void decoder_init(Decoder *d, AVCodecContext *avctx, PacketQueue *queue, 
     d->empty_queue_cond = empty_queue_cond;
     d->start_pts = AV_NOPTS_VALUE;
     d->pkt_serial = -1;
+}
+
+static void change_player_state(CPlayer *player, FFPlayerState state) {
+    if (player->state == state) {
+        return;
+    }
+    player->state = state;
+    ffp_send_msg1(player, FFP_MSG_PLAYBACK_STATE_CHANGED, state);
 }
 
 static int message_loop(void *args) {
@@ -147,6 +152,10 @@ static int message_loop(void *args) {
     return 0;
 }
 
+static void on_decode_frame_block(void *opacity) {
+    CPlayer *player = opacity;
+    change_player_state(player, FFP_STATE_BUFFERING);
+}
 
 static int decoder_decode_frame(Decoder *d, AVFrame *frame, AVSubtitle *sub, CPlayer *player) {
     int ret = AVERROR(EAGAIN);
@@ -184,6 +193,8 @@ static int decoder_decode_frame(Decoder *d, AVFrame *frame, AVSubtitle *sub, CPl
                             }
                         }
                         break;
+                    default:
+                        break;
                 }
                 if (ret == AVERROR_EOF) {
                     d->finished = d->pkt_serial;
@@ -202,7 +213,7 @@ static int decoder_decode_frame(Decoder *d, AVFrame *frame, AVSubtitle *sub, CPl
                 av_packet_move_ref(&pkt, &d->pkt);
                 d->packet_pending = 0;
             } else {
-                if (packet_queue_get(d->queue, &pkt, 1, &d->pkt_serial) < 0)
+                if (packet_queue_get(d->queue, &pkt, 1, &d->pkt_serial, player, on_decode_frame_block) < 0)
                     return -1;
             }
             if (d->queue->serial == d->pkt_serial)
@@ -838,6 +849,7 @@ static void stream_close(CPlayer *player) {
         SDL_DestroyTexture(is->sub_texture);
     av_free(is);
     av_free(player);
+    change_player_state(player, FFP_STATE_IDLE);
 }
 
 /* display the current picture, if any */
@@ -2283,6 +2295,55 @@ static int is_realtime(AVFormatContext *s) {
     return 0;
 }
 
+#define BUFFERING_CHECK_PER_MILLISECONDS                     (500)
+#define BUFFERING_CHECK_PER_MILLISECONDS_NO_RENDERING        (20)
+
+static void check_buffering(CPlayer *player) {
+    int64_t current_ts = av_gettime_relative() / 1000;
+    int step = player->state == FFP_STATE_BUFFERING ? BUFFERING_CHECK_PER_MILLISECONDS_NO_RENDERING
+                                                    : BUFFERING_CHECK_PER_MILLISECONDS;
+    if (current_ts - player->last_io_buffering_ts < step) {
+        return;
+    }
+    if (player->state == FFP_STATE_END || player->state == FFP_STATE_IDLE) {
+        return;
+    }
+    player->last_io_buffering_ts = current_ts;
+    double cached_duration = INT_MAX;
+    int nb_packets = INT_MAX;
+    if (player->is->audio_st) {
+        cached_duration = FFP_MIN(cached_duration,
+                                  player->is->audioq.duration * av_q2d(player->is->audio_st->time_base));
+        nb_packets = FFP_MIN(nb_packets, player->is->audioq.nb_packets);
+    }
+    if (player->is->video_st) {
+        cached_duration = FFP_MIN(cached_duration,
+                                  player->is->videoq.duration * av_q2d(player->is->video_st->time_base));
+        nb_packets = FFP_MIN(nb_packets, player->is->videoq.nb_packets);
+    }
+    if (player->is->subtitle_st) {
+        cached_duration = FFP_MIN(cached_duration,
+                                  player->is->subtitleq.duration * av_q2d(player->is->subtitle_st->time_base));
+        nb_packets = FFP_MIN(nb_packets, player->is->subtitleq.nb_packets);
+    }
+    if (cached_duration == INT_MAX) {
+        av_log(NULL, AV_LOG_ERROR, "check_buffering failed\n");
+        return;
+    }
+    double cached_position = ffplayer_get_current_position(player) + cached_duration;
+    on_buffered_update(player, cached_position);
+
+    if ((player->is->videoq.nb_packets > CACHE_THRESHOLD_MIN_FRAMES || player->is->video_stream < 0 ||
+         player->is->videoq.abort_request)
+        && (player->is->audioq.nb_packets > CACHE_THRESHOLD_MIN_FRAMES || player->is->audio_stream < 0 ||
+            player->is->audioq.abort_request)
+        && (player->is->subtitleq.nb_packets > CACHE_THRESHOLD_MIN_FRAMES || player->is->subtitle_stream < 0 ||
+            player->is->subtitleq.abort_request)) {
+        change_player_state(player, FFP_STATE_READY);
+    }
+
+}
+
 /* this thread gets the stream from the disk or the network */
 static int read_thread(void *arg) {
     CPlayer *player = arg;
@@ -2535,6 +2596,7 @@ static int read_thread(void *arg) {
             if (loop) {
                 stream_seek(player, player->start_time != AV_NOPTS_VALUE ? player->start_time : 0, 0, 0);
             } else {
+                change_player_state(player, FFP_STATE_END);
                 is->paused = true;
             }
         }
@@ -2567,9 +2629,6 @@ static int read_thread(void *arg) {
                             (double) (player->start_time != AV_NOPTS_VALUE ? player->start_time : 0) / 1000000 <=
                             ((double) player->duration / 1000000);
 
-        double position = (double) pkt_ts * av_q2d(ic->streams[pkt->stream_index]->time_base);
-        on_buffered_update(player, position, false);
-
         if (pkt->stream_index == is->audio_stream && pkt_in_play_range) {
             packet_queue_put(&is->audioq, pkt);
         } else if (pkt->stream_index == is->video_stream && pkt_in_play_range &&
@@ -2580,6 +2639,7 @@ static int read_thread(void *arg) {
         } else {
             av_packet_unref(pkt);
         }
+        check_buffering(player);
     }
 
     ret = 0;
@@ -2588,17 +2648,15 @@ static int read_thread(void *arg) {
         avformat_close_input(&ic);
 
     if (ret != 0) {
-        SDL_Event event;
-
-        event.type = SDL_USEREVENT + 2;
-        event.user.data1 = is;
-        SDL_PushEvent(&event);
+        //TODO close stream?
     }
     SDL_DestroyMutex(wait_mutex);
     return 0;
 }
 
 static void stream_open(CPlayer *player, const char *filename, AVInputFormat *iformat) {
+    change_player_state(player, FFP_STATE_BUFFERING);
+
     VideoState *is = player->is;
 
     is->filename = av_strdup(filename);
@@ -2758,6 +2816,8 @@ CPlayer *ffplayer_alloc_player() {
     player->on_message = NULL;
 
     player->buffered_position = -1;
+    player->state = FFP_STATE_IDLE;
+    player->last_io_buffering_ts = -1;
 
     player->is = alloc_video_state();
 

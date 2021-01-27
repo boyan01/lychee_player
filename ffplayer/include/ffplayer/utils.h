@@ -5,6 +5,14 @@
 extern "C" {
 #endif
 
+#ifndef FFP_MAX
+#define FFP_MAX(a, b)    ((a) > (b) ? (a) : (b))
+#endif
+
+#ifndef FFP_MIN
+#define FFP_MIN(a, b)    ((a) < (b) ? (a) : (b))
+#endif
+
 #include "libavutil/rational.h"
 #include "SDL2/SDL_rect.h"
 

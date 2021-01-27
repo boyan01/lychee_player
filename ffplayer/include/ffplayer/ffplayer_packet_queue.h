@@ -48,7 +48,7 @@ static int packet_queue_put_private(PacketQueue *q, AVPacket *pkt) {
         q->last_pkt->next = pkt1;
     q->last_pkt = pkt1;
     q->nb_packets++;
-    q->size += pkt1->pkt.size + sizeof(*pkt1);
+    q->size += pkt1->pkt.size + (int) sizeof(*pkt1);
     q->duration += pkt1->pkt.duration;
     /* XXX: should duplicate packet data in DV case */
     SDL_CondSignal(q->cond);
@@ -135,7 +135,8 @@ static void packet_queue_start(PacketQueue *q) {
 }
 
 /* return < 0 if aborted, 0 if no packet and > 0 if packet.  */
-static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block, int *serial) {
+static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block, int *serial, void *opacity,
+                            void (*on_block)(void *opacity)) {
     MyAVPacketList *pkt1;
     int ret;
 
@@ -165,13 +166,15 @@ static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block, int *seria
             ret = 0;
             break;
         } else {
+            if (on_block) {
+                on_block(opacity);
+            }
             SDL_CondWait(q->cond, q->mutex);
         }
     }
     SDL_UnlockMutex(q->mutex);
     return ret;
 }
-
 
 
 #endif //FFPLAYER_FFPLAYER_PACKET_QUEUE_H
