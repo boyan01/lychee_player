@@ -358,7 +358,6 @@ static void event_loop(CPlayer *player) {
                 break;
         }
     }
-#pragma clang diagnostic pop
 }
 
 static void set_default_window_size(int width, int height) {
@@ -407,6 +406,10 @@ static void on_message(void *player, int what, int64_t arg1, int64_t arg2) {
                 do_exit(player);
             }
             break;
+        case FFP_MSG_BUFFERING_TIME_UPDATE:
+            printf("FFP_MSG_BUFFERING_TIME_UPDATE: %f.  %f:%f \n", arg1 / 1000.0, ffplayer_get_current_position(player),
+                   ffplayer_get_duration(player));
+            break;
         default:
             break;
     }
@@ -423,7 +426,15 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, sigterm_handler);  /* Interrupt (ANSI).    */
     signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */
 
-    CPlayer *player = ffplayer_alloc_player();
+    FFPlayerConfiguration config = {
+            .loop = 1,
+            .start_time = 0,
+            .show_status = 1,
+            .seek_by_bytes = -1,
+            .subtitle_disable = 1,
+            .video_disable = 0,
+            .audio_disable = 0};
+    CPlayer *player = ffp_create_player(&config);
     if (!player) {
         printf("failed to alloc player");
         return -1;

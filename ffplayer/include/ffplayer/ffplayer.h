@@ -287,6 +287,19 @@ typedef struct VideoState {
     SDL_cond *continue_read_thread;
 } VideoState;
 
+typedef struct FFPlayerConfiguration_ {
+    int32_t audio_disable;
+    int32_t video_disable;
+    int32_t subtitle_disable;
+
+    int32_t seek_by_bytes;
+
+    int32_t show_status;
+
+    int64_t start_time;
+    int32_t loop;
+} FFPlayerConfiguration;
+
 typedef struct CPlayer {
     VideoState *is;
     int audio_disable;
@@ -355,7 +368,7 @@ typedef struct CPlayer {
 
 FFPLAYER_EXPORT void ffplayer_global_init(void *arg);
 
-FFPLAYER_EXPORT CPlayer *ffplayer_alloc_player();
+FFPLAYER_EXPORT CPlayer *ffp_create_player(FFPlayerConfiguration *config);
 
 FFPLAYER_EXPORT void ffplayer_free_player(CPlayer *player);
 

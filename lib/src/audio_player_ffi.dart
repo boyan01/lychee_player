@@ -102,6 +102,36 @@ const _FFP_STATE_READY = 1;
 const _FFP_STATE_BUFFERING = 2;
 const _FFP_STATE_END = 3;
 
+class _PlayerConfiguration extends Struct {
+  @Int32()
+  external int audio_disable;
+  @Int32()
+  external int video_disable;
+  @Int32()
+  external int subtitle_disable;
+  @Int32()
+  external int seek_by_bytes;
+  @Int32()
+  external int show_status;
+
+  @Int64()
+  external int start_time;
+
+  @Int32()
+  external int loop;
+
+  factory _PlayerConfiguration.allocate() {
+    final pointer = allocate<_PlayerConfiguration>();
+    return pointer.ref
+      ..video_disable = 1
+      ..audio_disable = 0
+      ..subtitle_disable = 1
+      ..start_time = 0
+      ..loop = 1
+      ..show_status = 0;
+  }
+}
+
 DynamicLibrary _openLibrary() {
   if (Platform.isLinux) {
     return DynamicLibrary.open("libffplayer.so");
@@ -115,9 +145,9 @@ DynamicLibrary _openLibrary() {
 
 final _library = _openLibrary();
 
-final ffplayer_alloc_player =
-    _library.lookupFunction<Pointer Function(), Pointer Function()>(
-        "ffplayer_alloc_player");
+final ffp_create_player = _library.lookupFunction<
+    Pointer Function(Pointer<_PlayerConfiguration>),
+    Pointer Function(Pointer<_PlayerConfiguration>)>("ffp_create_player");
 
 final ffplayer_open_file = _library.lookupFunction<
     IntPtr Function(Pointer, Pointer<Utf8>),
@@ -175,7 +205,9 @@ class FfiAudioPlayer implements AudioPlayer {
 
   FfiAudioPlayer(String uri, DataSourceType type) {
     _ensureFfplayerGlobalInited();
-    player = ffplayer_alloc_player();
+    final configuration = _PlayerConfiguration.allocate();
+    player = ffp_create_player(configuration.addressOf);
+    free(configuration.addressOf);
     if (player == nullptr) {
       throw Exception("memory not enough");
     }
@@ -188,7 +220,6 @@ class FfiAudioPlayer implements AudioPlayer {
       });
     ffp_set_message_callback(player, cppInteractPort.sendPort.nativePort);
     ffplayer_open_file(player, Utf8.toUtf8(uri));
-
     debugPrint("player ${player}");
   }
 

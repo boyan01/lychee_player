@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:audio_player/audio_player.dart';
 import 'package:flutter/foundation.dart';
 
@@ -44,6 +46,18 @@ class DurationRange {
 
   @override
   int get hashCode => start.hashCode ^ end.hashCode;
+}
+
+extension DurationRangeList on List<DurationRange> {
+  Duration get max {
+    Duration max = Duration.zero;
+    for (final element in this) {
+      if (element.end > max) {
+        max = element.end;
+      }
+    }
+    return max;
+  }
 }
 
 abstract class AudioPlayerDisposable {

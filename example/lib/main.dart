@@ -1,9 +1,10 @@
-import 'dart:ffi';
+import 'dart:math' as math;
 
 import 'package:audio_player/audio_player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:audio_player/src/audio_player_ffi.dart';
+
+import 'widgets/player_components.dart';
 
 void main() {
   runApp(MyApp());
@@ -69,12 +70,7 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       home: Scaffold(
-        appBar: AppBar(
-          title: const Text('Plugin example app'),
-          actions: [TextButton(onPressed: () {
-            ffplayer_init(NativeApi.initializeApiDLData);
-          }, child: Text("Mock Relaod"))],
-        ),
+        appBar: AppBar(title: const Text('Plugin example app')),
         body: Column(
           children: [
             Spacer(),
@@ -121,289 +117,90 @@ class _PlayerUi extends StatelessWidget {
             softWrap: false,
             overflow: TextOverflow.fade,
           ),
-          _PlaybackStatefulButton(player: player),
-          ProgressTrackingContainer(
-            builder: (context) {
-              double? progress;
-              if (player!.duration > Duration.zero) {
-                progress = player!.currentTime.inMilliseconds /
-                    player!.duration.inMilliseconds;
-              }
-              return LinearProgressIndicator(
-                value: progress,
-              );
-            },
-            player: player!,
-          ),
-          SizedBox(height: 8),
-          _PlayerBufferedRangeIndicator(player: player),
-          _ForwardRewindButton(player: player)
+          PlaybackStatefulButton(player: player),
+          TickedPlayerState(player: player!),
+          ForwardRewindButton(player: player)
         ],
       ),
     );
   }
 }
 
-class _ForwardRewindButton extends StatelessWidget {
-  final AudioPlayer? player;
-
-  const _ForwardRewindButton({Key? key, this.player}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-            icon: Icon(Icons.replay_10),
-            onPressed: () {
-              final Duration to =
-                  player!.currentTime - const Duration(seconds: 10);
-              player!.seek(to.atMost(player!.duration));
-            }),
-        SizedBox(width: 20),
-        IconButton(
-            icon: Icon(Icons.forward_10),
-            onPressed: () {
-              final Duration to =
-                  player!.currentTime + const Duration(seconds: 10);
-              debugPrint("current = ${player!.currentTime}");
-              player!.seek(to.atLeast(Duration.zero));
-            }),
-      ],
-    );
-  }
-}
-
-extension _DurationClimp on Duration {
-  Duration atMost(Duration duration) {
-    return this <= duration ? this : duration;
-  }
-
-  Duration atLeast(Duration duration) {
-    return this >= duration ? this : duration;
-  }
-}
-
-class _PlaybackStatefulButton extends StatelessWidget {
-  final AudioPlayer? player;
-
-  const _PlaybackStatefulButton({Key? key, this.player}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      icon: AnimatedBuilder(
-          animation: player!.onStateChanged,
-          builder: (context, child) {
-            if (player!.isPlaying) {
-              return Icon(Icons.pause);
-            } else if (player!.hasError) {
-              return Icon(Icons.error);
-            } else if (player!.status == PlayerStatus.Buffering) {
-              return Container(
-                height: 24,
-                width: 24,
-                child: CircularProgressIndicator(),
-              );
-            } else {
-              return Icon(Icons.play_arrow);
-            }
-          }),
-      onPressed: () {
-        if (player!.status == PlayerStatus.End) {
-          player!.seek(Duration.zero);
-        }
-        player!.playWhenReady = !player!.playWhenReady;
-      },
-    );
-  }
-}
-
-class ProgressTrackingContainer extends StatefulWidget {
+class TickedPlayerState extends StatefulWidget {
   final AudioPlayer player;
-  final WidgetBuilder builder;
 
-  const ProgressTrackingContainer({
-    Key? key,
-    required this.builder,
-    required this.player,
-  })   : assert(builder != null),
-        assert(player != null),
-        super(key: key);
+  const TickedPlayerState({Key? key, required this.player}) : super(key: key);
 
   @override
-  _ProgressTrackingContainerState createState() =>
-      _ProgressTrackingContainerState();
+  _TickedPlayerStateState createState() => _TickedPlayerStateState();
 }
 
-class _ProgressTrackingContainerState extends State<ProgressTrackingContainer>
+class _TickedPlayerStateState extends State<TickedPlayerState>
     with SingleTickerProviderStateMixin {
-  AudioPlayer? _player;
-
   late Ticker _ticker;
 
   @override
   void initState() {
-    super.initState();
-    _player = widget.player..onStateChanged.addListener(_onStateChanged);
     _ticker = createTicker((elapsed) {
       setState(() {});
     });
-    _onStateChanged();
-  }
-
-  @override
-  void didUpdateWidget(covariant ProgressTrackingContainer oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _player?.onStateChanged?.removeListener(_onStateChanged);
-    _player = widget.player..onStateChanged.addListener(_onStateChanged);
-    _onStateChanged();
-  }
-
-  void _onStateChanged() {
-    final needTrack = true;
-    if (_ticker.isActive == needTrack) return;
-    if (_ticker.isActive) {
-      _ticker.stop();
-    } else {
-      _ticker.start();
-    }
+    _ticker.start();
+    super.initState();
   }
 
   @override
   void dispose() {
-    _player!.onStateChanged.removeListener(_onStateChanged);
     _ticker.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-        animation: widget.player.onStateChanged,
-        builder: (context, child) {
-          return widget.builder(context);
-        });
-  }
-}
-
-class _PlayerBufferedRangeIndicator extends StatefulWidget {
-  final AudioPlayer? player;
-
-  const _PlayerBufferedRangeIndicator({
-    Key? key,
-    required this.player,
-  }) : super(key: key);
-
-  @override
-  _PlayerBufferedRangeIndicatorState createState() =>
-      _PlayerBufferedRangeIndicatorState();
-}
-
-class _PlayerBufferedRangeIndicatorState
-    extends State<_PlayerBufferedRangeIndicator> {
-  AudioPlayer? _player;
-  Duration? _duration;
-
-  AudioPlayerDisposable? _disposable;
-
-  @override
-  void initState() {
-    super.initState();
-    _player = widget.player;
-    _initPlayer();
-  }
-
-  @override
-  void didUpdateWidget(covariant _PlayerBufferedRangeIndicator oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _player = widget.player;
-    _initPlayer();
-  }
-
-  void _initPlayer() {
-    _disposable?.dispose();
-    _disposable = _player!.onReady(() {
-      setState(() {
-        _duration = _player!.duration;
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _disposable?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    Widget? indicator;
-    if (_duration != null) {
-      indicator = AnimatedBuilder(
-          animation: _player!.buffered,
-          builder: (context, snapshot) {
-            // debugPrint("_player.buffered = ${_player!.buffered.value}");
-            return CustomPaint(
-              painter: _PlayerBufferedRangeIndicatorPainter(
-                  _player!.buffered.value,
-                  _duration,
-                  Colors.transparent,
-                  Theme.of(context).primaryColor),
-            );
-          });
+  Widget _buildProgress() {
+    double? progress;
+    if (widget.player.duration > Duration.zero) {
+      progress = widget.player.currentTime.inMilliseconds /
+          widget.player.duration.inMilliseconds;
     }
-    return Container(
-      constraints: BoxConstraints(
-        minWidth: double.infinity,
-        minHeight: 4.0,
-      ),
-      child: indicator,
+    return LinearProgressIndicator(
+      value: progress,
     );
   }
-}
 
-class _PlayerBufferedRangeIndicatorPainter extends CustomPainter {
-  final List<DurationRange> ranges;
-  final Duration? duration;
-
-  final Color backgroundColor;
-  final Color valueColor;
-
-  _PlayerBufferedRangeIndicatorPainter(
-      this.ranges, this.duration, this.backgroundColor, this.valueColor);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final Paint paint = Paint()
-      ..color = backgroundColor
-      ..style = PaintingStyle.fill;
-    canvas.drawRect(Offset.zero & size, paint);
-
-    paint.color = valueColor;
-
-    void drawBar(double startFraction, double endFraction) {
-      if (endFraction <= startFraction) {
-        return;
+  Widget _buildBufferedProgress() {
+    double? progress;
+    if (widget.player.duration > Duration.zero) {
+      Duration bufferPosition = widget.player.buffered.value.max;
+      if (bufferPosition <= Duration.zero) {
+        progress = null;
+      } else {
+        progress = bufferPosition.inMilliseconds /
+            widget.player.duration.inMilliseconds;
       }
-      canvas.drawRect(
-          Offset(size.width * startFraction, 0) &
-              Size(size.width * (endFraction - startFraction), size.height),
-          paint);
     }
+    return LinearProgressIndicator(
+      value: progress,
+    );
+  }
 
-    ranges.forEach((e) {
-      drawBar(e.startFraction(duration!), e.endFraction(duration!));
-    });
+  Widget _buildProgressText() {
+    return Text(
+        " ${(widget.player.currentTime.inMilliseconds / 1000.0).toStringAsFixed(2)}"
+        "/${(widget.player.duration.inMilliseconds / 1000.0).toStringAsFixed(2)}"
+        " - ${(widget.player.buffered.value.max.inMilliseconds / 1000).toStringAsFixed(2)}");
   }
 
   @override
-  bool shouldRepaint(
-      covariant _PlayerBufferedRangeIndicatorPainter oldDelegate) {
-    return duration != oldDelegate.duration ||
-        ranges != oldDelegate.ranges ||
-        backgroundColor != oldDelegate.backgroundColor ||
-        valueColor != oldDelegate.valueColor;
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildProgress(),
+        SizedBox(height: 16),
+        _buildBufferedProgress(),
+        SizedBox(height: 16),
+        Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: _buildProgressText()),
+      ],
+    );
   }
 }

@@ -2299,6 +2299,8 @@ static int is_realtime(AVFormatContext *s) {
 #define BUFFERING_CHECK_PER_MILLISECONDS_NO_RENDERING        (20)
 
 static void check_buffering(CPlayer *player) {
+    VideoState *is = player->is;
+
     int64_t current_ts = av_gettime_relative() / 1000;
     int step = player->state == FFP_STATE_BUFFERING ? BUFFERING_CHECK_PER_MILLISECONDS_NO_RENDERING
                                                     : BUFFERING_CHECK_PER_MILLISECONDS;
@@ -2311,20 +2313,26 @@ static void check_buffering(CPlayer *player) {
     player->last_io_buffering_ts = current_ts;
     double cached_duration = INT_MAX;
     int nb_packets = INT_MAX;
-    if (player->is->audio_st) {
+    if (is->audio_st) {
         cached_duration = FFP_MIN(cached_duration,
                                   player->is->audioq.duration * av_q2d(player->is->audio_st->time_base));
         nb_packets = FFP_MIN(nb_packets, player->is->audioq.nb_packets);
+        av_log(NULL, AV_LOG_DEBUG, "audio q cached: %f \n",
+               player->is->audioq.duration * av_q2d(player->is->audio_st->time_base));
     }
-    if (player->is->video_st) {
+    if (is->video_st && !(is->video_st->disposition & AV_DISPOSITION_ATTACHED_PIC)) {
         cached_duration = FFP_MIN(cached_duration,
                                   player->is->videoq.duration * av_q2d(player->is->video_st->time_base));
         nb_packets = FFP_MIN(nb_packets, player->is->videoq.nb_packets);
+        av_log(NULL, AV_LOG_DEBUG, "video q cached: %f \n",
+               player->is->videoq.duration * av_q2d(player->is->video_st->time_base));
     }
-    if (player->is->subtitle_st) {
+    if (is->subtitle_st) {
         cached_duration = FFP_MIN(cached_duration,
                                   player->is->subtitleq.duration * av_q2d(player->is->subtitle_st->time_base));
         nb_packets = FFP_MIN(nb_packets, player->is->subtitleq.nb_packets);
+        av_log(NULL, AV_LOG_DEBUG, "subtitle q cached: %f \n",
+               player->is->subtitleq.duration * av_q2d(player->is->audio_st->time_base));
     }
     if (cached_duration == INT_MAX) {
         av_log(NULL, AV_LOG_ERROR, "check_buffering failed\n");
@@ -2333,6 +2341,10 @@ static void check_buffering(CPlayer *player) {
     double cached_position = ffplayer_get_current_position(player) + cached_duration;
     on_buffered_update(player, cached_position);
 
+    bool ready = false;
+    if (is->video_st) {
+
+    }
     if ((player->is->videoq.nb_packets > CACHE_THRESHOLD_MIN_FRAMES || player->is->video_stream < 0 ||
          player->is->videoq.abort_request)
         && (player->is->audioq.nb_packets > CACHE_THRESHOLD_MIN_FRAMES || player->is->audio_stream < 0 ||
@@ -2769,7 +2781,7 @@ static VideoState *alloc_video_state() {
     return NULL;
 }
 
-CPlayer *ffplayer_alloc_player() {
+static CPlayer *ffplayer_alloc_player() {
     CPlayer *player = av_mallocz(sizeof(CPlayer));
     if (!player) {
         return NULL;
@@ -2883,4 +2895,20 @@ void ffplayer_global_init(void *arg) {
 
 void ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int, int64_t, int64_t)) {
     player->on_message = callback;
+}
+
+CPlayer *ffp_create_player(FFPlayerConfiguration *config) {
+    CPlayer *player = ffplayer_alloc_player();
+    if (!player) {
+        return NULL;
+    }
+    player->audio_disable = config->audio_disable;
+    player->video_disable = config->video_disable;
+    player->subtitle_disable = config->subtitle_disable;
+    player->seek_by_bytes = config->seek_by_bytes;
+    player->show_status = config->show_status;
+    player->start_time = config->start_time;
+    player->loop = config->loop;
+
+    return player;
 }
