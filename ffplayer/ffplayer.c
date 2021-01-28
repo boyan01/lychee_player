@@ -973,7 +973,11 @@ static void stream_seek(CPlayer *player, int64_t pos, int64_t rel, int seek_by_b
             is->seek_flags |= AVSEEK_FLAG_BYTE;
         is->seek_req = 1;
         player->buffered_position = -1;
+        change_player_state(player, FFP_STATE_BUFFERING);
         SDL_CondSignal(is->continue_read_thread);
+        if (!ffplayer_is_paused(player)) {
+            ffplayer_toggle_pause(player);
+        }
     }
 }
 
@@ -2300,6 +2304,20 @@ static int is_realtime(AVFormatContext *s) {
 
 static void check_buffering(CPlayer *player) {
     VideoState *is = player->is;
+    if (is->eof) {
+        double position = ffplayer_get_duration(player);
+        if (position <= 0 && is->audioq.last_pkt) {
+            position = av_q2d(is->audio_st->time_base) *
+                       (int64_t) (is->audioq.last_pkt->pkt.pts + is->audioq.last_pkt->pkt.duration);
+        }
+        if (position <= 0 && is->videoq.last_pkt) {
+            position = av_q2d(is->video_st->time_base) *
+                       (int64_t) (is->videoq.last_pkt->pkt.pts + is->videoq.last_pkt->pkt.duration);
+        }
+        on_buffered_update(player, position);
+        change_player_state(player, FFP_STATE_READY);
+        return;
+    }
 
     int64_t current_ts = av_gettime_relative() / 1000;
     int step = player->state == FFP_STATE_BUFFERING ? BUFFERING_CHECK_PER_MILLISECONDS_NO_RENDERING
@@ -2311,34 +2329,33 @@ static void check_buffering(CPlayer *player) {
         return;
     }
     player->last_io_buffering_ts = current_ts;
-    double cached_duration = INT_MAX;
+    double cached_position = INT_MAX;
     int nb_packets = INT_MAX;
-    if (is->audio_st) {
-        cached_duration = FFP_MIN(cached_duration,
-                                  player->is->audioq.duration * av_q2d(player->is->audio_st->time_base));
+    if (is->audio_st && is->audioq.last_pkt) {
         nb_packets = FFP_MIN(nb_packets, player->is->audioq.nb_packets);
+        double audio_position = player->is->audioq.last_pkt->pkt.pts * av_q2d(player->is->audio_st->time_base);
+        cached_position = FFMIN(cached_position, audio_position);
         av_log(NULL, AV_LOG_DEBUG, "audio q cached: %f \n",
                player->is->audioq.duration * av_q2d(player->is->audio_st->time_base));
     }
     if (is->video_st && !(is->video_st->disposition & AV_DISPOSITION_ATTACHED_PIC)) {
-        cached_duration = FFP_MIN(cached_duration,
+        cached_position = FFP_MIN(cached_position,
                                   player->is->videoq.duration * av_q2d(player->is->video_st->time_base));
         nb_packets = FFP_MIN(nb_packets, player->is->videoq.nb_packets);
         av_log(NULL, AV_LOG_DEBUG, "video q cached: %f \n",
                player->is->videoq.duration * av_q2d(player->is->video_st->time_base));
     }
     if (is->subtitle_st) {
-        cached_duration = FFP_MIN(cached_duration,
+        cached_position = FFP_MIN(cached_position,
                                   player->is->subtitleq.duration * av_q2d(player->is->subtitle_st->time_base));
         nb_packets = FFP_MIN(nb_packets, player->is->subtitleq.nb_packets);
         av_log(NULL, AV_LOG_DEBUG, "subtitle q cached: %f \n",
                player->is->subtitleq.duration * av_q2d(player->is->audio_st->time_base));
     }
-    if (cached_duration == INT_MAX) {
+    if (cached_position == INT_MAX) {
         av_log(NULL, AV_LOG_ERROR, "check_buffering failed\n");
         return;
     }
-    double cached_position = ffplayer_get_current_position(player) + cached_duration;
     on_buffered_update(player, cached_position);
 
     bool ready = false;
@@ -2570,10 +2587,10 @@ static int read_thread(void *arg) {
             is->queue_attachments_req = 1;
             is->eof = 0;
             // step to next frame
-            if (is->paused) {
+            if (ffplayer_is_paused(player)) {
                 ffplayer_toggle_pause(player);
-                player->is->step = 1;
             }
+            change_player_state(player, FFP_STATE_READY);
         }
         if (is->queue_attachments_req) {
             if (is->video_st && is->video_st->disposition & AV_DISPOSITION_ATTACHED_PIC) {
@@ -2623,6 +2640,7 @@ static int read_thread(void *arg) {
                 if (is->subtitle_stream >= 0)
                     packet_queue_put_nullpacket(&is->subtitleq, is->subtitle_stream);
                 is->eof = 1;
+                check_buffering(player);
             }
             if (ic->pb && ic->pb->error)
                 break;

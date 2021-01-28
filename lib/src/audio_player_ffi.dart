@@ -244,6 +244,9 @@ class FfiAudioPlayer implements AudioPlayer {
           _FFP_STATE_READY: PlayerStatus.Ready,
         };
         _status.value = statesMap[arg1]!;
+        if (_status.value == PlayerStatus.End) {
+          _playWhenReady.value = false;
+        }
         break;
     }
   }
@@ -255,14 +258,14 @@ class FfiAudioPlayer implements AudioPlayer {
 
   @override
   set playWhenReady(bool value) {
-    if (_playWhenReady.value == value) {
-      return;
-    }
     if (player == nullptr) {
       return;
     }
     _playWhenReady.value = value;
-    ffplayer_toggle_pause(player);
+    final paused = ffplayer_is_paused(player) != 0;
+    if ((paused && value) || (!paused && !value)) {
+      ffplayer_toggle_pause(player);
+    }
   }
 
   @override
