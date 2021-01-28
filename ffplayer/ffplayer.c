@@ -2608,8 +2608,9 @@ static int read_thread(void *arg) {
             if (loop) {
                 stream_seek(player, player->start_time != AV_NOPTS_VALUE ? player->start_time : 0, 0, 0);
             } else {
+                // TODO: 0 it's a bit early to notify complete here
                 change_player_state(player, FFP_STATE_END);
-                is->paused = true;
+                stream_toggle_pause(player->is);
             }
         }
         ret = av_read_frame(ic, pkt);
