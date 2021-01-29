@@ -825,6 +825,10 @@ static void stream_close(CPlayer *player) {
     if (player->msg_tid) {
         SDL_WaitThread(player->msg_tid, NULL);
     }
+    player->abort_video_render = 1;
+    if (player->video_render_tid) {
+        SDL_WaitThread(player->video_render_tid, NULL);
+    }
 
     avformat_close_input(&is->ic);
 
@@ -1106,7 +1110,12 @@ static void update_video_pts(VideoState *is, double pts, int64_t pos, int serial
     sync_clock_to_slave(&is->extclk, &is->vidclk);
 }
 
-double ffplayer_draw_frame(CPlayer *player) {
+/**
+ * called to display each frame
+ *
+ * \return time for next frame should be schudled.
+ */
+static double ffp_draw_frame(CPlayer *player) {
     double remaining_time = 0;
     VideoState *is = player->is;
     double time;
@@ -1658,6 +1667,22 @@ static int audio_thread(void *arg) {
 #endif
     av_frame_free(&frame);
     return ret;
+}
+
+static int video_render(void *args) {
+    CPlayer *player = args;
+    VideoState *is = player->is;
+    double remaining_time = 0.0;
+    while (!player->abort_video_render) {
+        if (remaining_time > 0.0)
+            av_usleep((int64_t) (remaining_time * 1000000.0));
+        remaining_time = REFRESH_RATE;
+        if (is->show_mode != SHOW_MODE_NONE && (!is->paused || is->force_refresh)) {
+            SDL_LockMutex(player->video_render_mutex);
+            remaining_time = ffp_draw_frame(player);
+            SDL_UnlockMutex(player->video_render_mutex);
+        }
+    }
 }
 
 static int decoder_start(Decoder *d, int (*fn)(void *), const char *thread_name, void *arg) {
@@ -2256,6 +2281,12 @@ static int stream_component_open(CPlayer *player, int stream_index) {
             if ((ret = decoder_start(&is->viddec, video_thread, "video_decoder", player)) < 0)
                 goto out;
             is->queue_attachments_req = 1;
+            player->video_render_tid = SDL_CreateThread(video_render, "video_render", player);
+            if (!player->video_render_tid) {
+                av_log(NULL, AV_LOG_ERROR, "can not create video_render thread: %s \n", SDL_GetError());
+                decoder_abort(&is->viddec, &is->pictq);
+                goto out;
+            }
             break;
         case AVMEDIA_TYPE_SUBTITLE:
             is->subtitle_stream = stream_index;
@@ -2852,6 +2883,8 @@ static CPlayer *ffplayer_alloc_player() {
 
     player->is = alloc_video_state();
 
+    player->video_render_mutex = SDL_CreateMutex();
+
     msg_queue_init(&player->msg_queue);
 
     ffplayer_toggle_pause(player);
@@ -2930,4 +2963,18 @@ CPlayer *ffp_create_player(FFPlayerConfiguration *config) {
     player->loop = config->loop;
 
     return player;
+}
+
+void ffp_refresh_texture(CPlayer *player) {
+    if (!player) {
+        return;
+    }
+    VideoState *is = player->is;
+    if (is->vis_texture) {
+        SDL_LockMutex(player->video_render_mutex);
+        SDL_DestroyTexture(is->vis_texture);
+        is->vis_texture = NULL;
+        ffp_draw_frame(player);
+        SDL_UnlockMutex(player->video_render_mutex);
+    }
 }

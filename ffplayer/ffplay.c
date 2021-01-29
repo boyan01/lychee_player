@@ -18,12 +18,6 @@ static int cursor_hidden;
 
 static int is_full_screen;
 
-#ifdef _WIN32
-static const char *input_filename = "C:/Users/boyan/Desktop/mojito.mp4";
-#elif __LINUX__
-static const char *input_filename = "/home/boyan/mojito.mp4";
-#endif
-
 static const char *window_title;
 static int default_width = 640;
 static int default_height = 480;
@@ -154,21 +148,14 @@ the_end:
 #endif
 }
 
-static void refresh_loop_wait_event(CPlayer *player, SDL_Event *event) {
-    VideoState *is = player->is;
-    double remaining_time = 0.0;
+static void refresh_loop_wait_event(SDL_Event *event) {
     SDL_PumpEvents();
     while (!SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
         if (!cursor_hidden && av_gettime_relative() - cursor_last_shown > CURSOR_HIDE_DELAY) {
             SDL_ShowCursor(0);
             cursor_hidden = 1;
         }
-        if (remaining_time > 0.0)
-            av_usleep((int64_t) (remaining_time * 1000000.0));
-        remaining_time = REFRESH_RATE;
-        if (is->show_mode != SHOW_MODE_NONE && (!is->paused || is->force_refresh)) {
-            remaining_time = ffplayer_draw_frame(player);
-        }
+        av_usleep((int64_t) (0.01 * 1000000.0));
         SDL_PumpEvents();
     }
 }
@@ -187,14 +174,14 @@ static void toggle_audio_display(VideoState *is) {
 
 /* handle an event sent by the GUI */
 static void event_loop(CPlayer *player) {
-    VideoState *cur_stream = player->is;
+    VideoState *is = player->is;
     SDL_Event event;
     double incr;
 
 #pragma ide diagnostic ignored "EndlessLoop"
     for (;;) {
         double x;
-        refresh_loop_wait_event(player, &event);
+        refresh_loop_wait_event(&event);
         switch (event.type) {
             case SDL_KEYDOWN:
                 if (exit_on_keydown || event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_q) {
@@ -202,12 +189,12 @@ static void event_loop(CPlayer *player) {
                     break;
                 }
                 // If we don't yet have a window, skip all key events, because read_thread might still be initializing...
-                if (!cur_stream->width)
+                if (!is->width)
                     continue;
                 switch (event.key.keysym.sym) {
                     case SDLK_f:
-                        toggle_full_screen(cur_stream);
-                        cur_stream->force_refresh = 1;
+                        toggle_full_screen(is);
+                        is->force_refresh = 1;
                         break;
                     case SDLK_p:
                     case SDLK_SPACE:
@@ -218,40 +205,40 @@ static void event_loop(CPlayer *player) {
                         break;
                     case SDLK_KP_MULTIPLY:
                     case SDLK_0:
-                        update_volume(cur_stream, 1, SDL_VOLUME_STEP);
+                        update_volume(is, 1, SDL_VOLUME_STEP);
                         break;
                     case SDLK_KP_DIVIDE:
                     case SDLK_9:
-                        update_volume(cur_stream, -1, SDL_VOLUME_STEP);
+                        update_volume(is, -1, SDL_VOLUME_STEP);
                         break;
                     case SDLK_s:  // S: Step to next frame
                         step_to_next_frame(player);
                         break;
                     case SDLK_a:
-                        stream_cycle_channel(cur_stream, AVMEDIA_TYPE_AUDIO);
+                        stream_cycle_channel(is, AVMEDIA_TYPE_AUDIO);
                         break;
                     case SDLK_v:
-                        stream_cycle_channel(cur_stream, AVMEDIA_TYPE_VIDEO);
+                        stream_cycle_channel(is, AVMEDIA_TYPE_VIDEO);
                         break;
                     case SDLK_c:
-                        stream_cycle_channel(cur_stream, AVMEDIA_TYPE_VIDEO);
-                        stream_cycle_channel(cur_stream, AVMEDIA_TYPE_AUDIO);
-                        stream_cycle_channel(cur_stream, AVMEDIA_TYPE_SUBTITLE);
+                        stream_cycle_channel(is, AVMEDIA_TYPE_VIDEO);
+                        stream_cycle_channel(is, AVMEDIA_TYPE_AUDIO);
+                        stream_cycle_channel(is, AVMEDIA_TYPE_SUBTITLE);
                         break;
                     case SDLK_t:
-                        stream_cycle_channel(cur_stream, AVMEDIA_TYPE_SUBTITLE);
+                        stream_cycle_channel(is, AVMEDIA_TYPE_SUBTITLE);
                         break;
                     case SDLK_w:
 #if CONFIG_AVFILTER
-                        if (cur_stream->show_mode == SHOW_MODE_VIDEO && cur_stream->vfilter_idx < nb_vfilters - 1) {
-                            if (++cur_stream->vfilter_idx >= nb_vfilters)
-                                cur_stream->vfilter_idx = 0;
+                        if (is->show_mode == SHOW_MODE_VIDEO && is->vfilter_idx < nb_vfilters - 1) {
+                            if (++is->vfilter_idx >= nb_vfilters)
+                                is->vfilter_idx = 0;
                         } else {
-                            cur_stream->vfilter_idx = 0;
-                            toggle_audio_display(cur_stream);
+                            is->vfilter_idx = 0;
+                            toggle_audio_display(is);
                         }
 #else
-                        toggle_audio_display(cur_stream);
+                        toggle_audio_display(is);
 #endif
                         break;
                     case SDLK_PAGEUP:
@@ -282,18 +269,18 @@ static void event_loop(CPlayer *player) {
                     do_seek:
                         // if (player->seek_by_bytes) {
                         //     pos = -1;
-                        //     if (pos < 0 && cur_stream->video_stream >= 0)
-                        //         pos = frame_queue_last_pos(&cur_stream->pictq);
-                        //     if (pos < 0 && cur_stream->audio_stream >= 0)
-                        //         pos = frame_queue_last_pos(&cur_stream->sampq);
+                        //     if (pos < 0 && is->video_stream >= 0)
+                        //         pos = frame_queue_last_pos(&is->pictq);
+                        //     if (pos < 0 && is->audio_stream >= 0)
+                        //         pos = frame_queue_last_pos(&is->sampq);
                         //     if (pos < 0)
-                        //         pos = avio_tell(cur_stream->ic->pb);
-                        //     if (cur_stream->ic->bit_rate)
-                        //         incr *= cur_stream->ic->bit_rate / 8.0;
+                        //         pos = avio_tell(is->ic->pb);
+                        //     if (is->ic->bit_rate)
+                        //         incr *= is->ic->bit_rate / 8.0;
                         //     else
                         //         incr *= 180000.0;
                         //     pos += incr;
-                        //     stream_seek(cur_stream, pos, incr, 1);
+                        //     stream_seek(is, pos, incr, 1);
                         // }
                         printf("ffplayer_seek_to_position from: %0.2f , to: %0.2f .\n",
                                ffplayer_get_current_position(player), ffplayer_get_current_position(player) + incr);
@@ -311,8 +298,8 @@ static void event_loop(CPlayer *player) {
                 if (event.button.button == SDL_BUTTON_LEFT) {
                     static int64_t last_mouse_left_click = 0;
                     if (av_gettime_relative() - last_mouse_left_click <= 500000) {
-                        toggle_full_screen(cur_stream);
-                        cur_stream->force_refresh = 1;
+                        toggle_full_screen(is);
+                        is->force_refresh = 1;
                         last_mouse_left_click = 0;
                     } else {
                         last_mouse_left_click = av_gettime_relative();
@@ -334,21 +321,18 @@ static void event_loop(CPlayer *player) {
                     x = event.motion.x;
                 }
 
-                double dest = (x / cur_stream->width) * ffplayer_get_duration(player);
+                double dest = (x / is->width) * ffplayer_get_duration(player);
                 ffplayer_seek_to_position(player, dest);
 
                 break;
             case SDL_WINDOWEVENT:
                 switch (event.window.event) {
                     case SDL_WINDOWEVENT_SIZE_CHANGED:
-                        screen_width = cur_stream->width = event.window.data1;
-                        screen_height = cur_stream->height = event.window.data2;
-                        if (cur_stream->vis_texture) {
-                            SDL_DestroyTexture(cur_stream->vis_texture);
-                            cur_stream->vis_texture = NULL;
-                        }
+                        screen_width = is->width = event.window.data1;
+                        screen_height = is->height = event.window.data2;
+                        ffp_refresh_texture(player);
                     case SDL_WINDOWEVENT_EXPOSED:
-                        cur_stream->force_refresh = 1;
+                        is->force_refresh = 1;
                 }
                 break;
             case SDL_QUIT:
@@ -376,11 +360,11 @@ static void on_load_metadata(void *op) {
     CPlayer *player = op;
     AVDictionaryEntry *t;
     if (!window_title && (t = av_dict_get(player->is->ic->metadata, "title", NULL, 0)))
-        window_title = av_asprintf("%s - %s", t->value, input_filename);
+        window_title = av_asprintf("%s - %s", t->value, player->is->filename);
 }
 
 
-static void on_message(void *player, int what, int64_t arg1, int64_t arg2) {
+static void on_message(CPlayer *player, int what, int64_t arg1, int64_t arg2) {
 //    av_log(NULL, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n", what, arg1, arg2);
     switch (what) {
         case FFP_MSG_VIDEO_FRAME_LOADED:
@@ -390,7 +374,7 @@ static void on_message(void *player, int what, int64_t arg1, int64_t arg2) {
             h = screen_height ? screen_height : default_height;
 
             if (!window_title)
-                window_title = input_filename;
+                window_title = player->is->filename;
             SDL_SetWindowTitle(window, window_title);
 
             printf("set_default_window_size : %d , %d \n", w, h);
@@ -402,9 +386,6 @@ static void on_message(void *player, int what, int64_t arg1, int64_t arg2) {
             break;
         case FFP_MSG_PLAYBACK_STATE_CHANGED:
             printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %ld \n", arg1);
-            if (arg1 == FFP_STATE_END) {
-                do_exit(player);
-            }
             break;
         case FFP_MSG_BUFFERING_TIME_UPDATE:
             printf("FFP_MSG_BUFFERING_TIME_UPDATE: %f.  %f:%f \n", arg1 / 1000.0, ffplayer_get_current_position(player),
@@ -416,7 +397,16 @@ static void on_message(void *player, int what, int64_t arg1, int64_t arg2) {
 }
 
 int main(int argc, char *argv[]) {
-    if (!input_filename) {
+    char *input_file = argv[1];
+    if (!input_file) {
+#ifdef _WIN32
+        static const char *input_filename = "C:/Users/boyan/Desktop/mojito.mp4";
+#elif __LINUX__
+        static const char *input_filename = "/home/boyan/mojito.mp4";
+#endif
+        input_file = (char *) input_filename;
+    }
+    if (!input_file) {
         av_log(NULL, AV_LOG_FATAL, "An input file must be specified\n");
         exit(1);
     }
@@ -500,7 +490,7 @@ int main(int argc, char *argv[]) {
     player->on_load_metadata = on_load_metadata;
     player->on_message = on_message;
 
-    ffplayer_open_file(player, input_filename);
+    ffplayer_open_file(player, input_file);
     if (!player->is) {
         av_log(NULL, AV_LOG_FATAL, "Failed to initialize VideoState!\n");
         do_exit(NULL);

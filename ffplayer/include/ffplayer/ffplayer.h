@@ -360,6 +360,10 @@ typedef struct CPlayer {
     FFPlayerState state;
     int64_t last_io_buffering_ts;
 
+    bool abort_video_render;
+    SDL_Thread *video_render_tid;
+    SDL_mutex *video_render_mutex;
+
 #ifdef _FLUTTER
     Dart_Port message_send_port;
 #endif
@@ -399,17 +403,12 @@ FFPLAYER_EXPORT double ffplayer_get_duration(CPlayer *player);
  */
 FFPLAYER_EXPORT void ffplayer_set_volume(CPlayer *player, int volume);
 
-/**
- * called to display each frame
- * 
- * \return time for next frame should be schudled.
- */
-FFPLAYER_EXPORT double ffplayer_draw_frame(CPlayer *player);
-
 FFPLAYER_EXPORT int ffp_get_state(CPlayer *player);
 
 FFPLAYER_EXPORT void
 ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int, int64_t, int64_t));
+
+FFPLAYER_EXPORT void ffp_refresh_texture(CPlayer *player);
 
 #ifdef _FLUTTER
 
