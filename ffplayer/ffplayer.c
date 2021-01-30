@@ -81,6 +81,19 @@ static int opt_add_vfilter(void *optctx, const char *opt, const char *arg) {
 }
 #endif
 
+#define CHECK_PLAYER_WITH_RETURN(PLAYER, RETURN)                           \
+if(!PLAYER || !PLAYER->is) {                                               \
+    av_log(NULL, AV_LOG_ERROR, "check player failed");                     \
+    return RETURN;                                                         \
+}                                                                          \
+
+#define CHECK_PLAYER(PLAYER)                                               \
+if (!PLAYER || !PLAYER->is) {                                              \
+    av_log(NULL, AV_LOG_ERROR, "check player failed");                     \
+    return;                                                                \
+}                                                                          \
+
+
 static inline int cmp_audio_fmts(enum AVSampleFormat fmt1, int64_t channel_count1,
                                  enum AVSampleFormat fmt2, int64_t channel_count2) {
     /* If channel count == 1, planar and non-planar formats are the same */
@@ -1050,13 +1063,21 @@ void ffplayer_set_mute(CPlayer *player, bool mute) {
     player->is->muted = mute;
 }
 
-void ffplayer_set_volume(CPlayer *player, int volume) {
+void ffp_set_volume(CPlayer *player, int volume) {
+    CHECK_PLAYER(player);
     volume = av_clip(volume, 0, 100);
     volume = av_clip(SDL_MIX_MAXVOLUME * volume / 100, 0, SDL_MIX_MAXVOLUME);
     player->is->audio_volume = volume;
 }
 
+int ffp_get_volume(CPlayer* player) {
+    CHECK_PLAYER_WITH_RETURN(player, 0);
+    int volume = player->is->audio_volume * 100 / SDL_MIX_MAXVOLUME;
+    return av_clip(volume, 0 , 100);
+}
+
 bool ffplayer_is_paused(CPlayer *player) {
+    CHECK_PLAYER_WITH_RETURN(player, false);
     return player->is->paused;
 }
 

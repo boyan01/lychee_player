@@ -6,6 +6,9 @@
 #include "ffplayer/ffplayer.h"
 #include "ffplayer/utils.h"
 
+/* Step size for volume control*/
+#define SDL_VOLUME_STEP (10)
+
 static SDL_Window *window;
 
 static float seek_interval = 10;
@@ -50,17 +53,13 @@ static void do_exit(CPlayer *player) {
     exit(0);
 }
 
-static void toggle_full_screen(VideoState *is) {
+static void toggle_full_screen() {
     is_full_screen = !is_full_screen;
     SDL_SetWindowFullscreen(window, is_full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 }
 
-static void update_volume(VideoState *is, int sign, double step) {
-    double volume_level = is->audio_volume ? (20 * log(is->audio_volume / (double) SDL_MIX_MAXVOLUME) / log(10))
-                                           : -1000.0;
-    int new_volume = (int) lrint(SDL_MIX_MAXVOLUME * pow(10.0, (volume_level + sign * step) / 20.0));
-    is->audio_volume = av_clip(is->audio_volume == new_volume ? (is->audio_volume + sign) : new_volume, 0,
-                               SDL_MIX_MAXVOLUME);
+static void update_volume(CPlayer *player, int sign, int step) {
+    ffp_set_volume(player, ffp_get_volume(player) + (sign * step));
 }
 
 static void step_to_next_frame(CPlayer *player) {
@@ -193,7 +192,7 @@ static void event_loop(CPlayer *player) {
                     continue;
                 switch (event.key.keysym.sym) {
                     case SDLK_f:
-                        toggle_full_screen(is);
+                        toggle_full_screen();
                         is->force_refresh = 1;
                         break;
                     case SDLK_p:
@@ -205,11 +204,11 @@ static void event_loop(CPlayer *player) {
                         break;
                     case SDLK_KP_MULTIPLY:
                     case SDLK_0:
-                        update_volume(is, 1, SDL_VOLUME_STEP);
+                        ffp_set_volume(player, ffp_get_volume(player) + SDL_VOLUME_STEP);
                         break;
                     case SDLK_KP_DIVIDE:
                     case SDLK_9:
-                        update_volume(is, -1, SDL_VOLUME_STEP);
+                        ffp_set_volume(player, ffp_get_volume(player) - SDL_VOLUME_STEP);
                         break;
                     case SDLK_s:  // S: Step to next frame
                         step_to_next_frame(player);
@@ -298,7 +297,7 @@ static void event_loop(CPlayer *player) {
                 if (event.button.button == SDL_BUTTON_LEFT) {
                     static int64_t last_mouse_left_click = 0;
                     if (av_gettime_relative() - last_mouse_left_click <= 500000) {
-                        toggle_full_screen(is);
+                        toggle_full_screen();
                         is->force_refresh = 1;
                         last_mouse_left_click = 0;
                     } else {
@@ -430,7 +429,7 @@ int main(int argc, char *argv[]) {
         return -1;
     }
     player->show_status = true;
-    ffplayer_set_volume(player, 100);
+    ffp_set_volume(player, 100);
 
     int flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER;
     if (player->audio_disable)

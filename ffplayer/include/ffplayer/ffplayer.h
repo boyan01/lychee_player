@@ -56,8 +56,6 @@ extern "C" {
 /* Calculate actual buffer size keeping in mind not cause too frequent audio callbacks */
 #define SDL_AUDIO_MAX_CALLBACKS_PER_SEC 30
 
-/* Step size for volume control in dB */
-#define SDL_VOLUME_STEP (0.75)
 
 /* no AV sync correction is done if below the minimum AV sync threshold */
 #define AV_SYNC_THRESHOLD_MIN 0.04
@@ -401,7 +399,9 @@ FFPLAYER_EXPORT double ffplayer_get_duration(CPlayer *player);
 /**
  * @param volume from 0 to 100.
  */
-FFPLAYER_EXPORT void ffplayer_set_volume(CPlayer *player, int volume);
+FFPLAYER_EXPORT void ffp_set_volume(CPlayer *player, int volume);
+
+FFPLAYER_EXPORT int ffp_get_volume(CPlayer *player);
 
 FFPLAYER_EXPORT int ffp_get_state(CPlayer *player);
 
