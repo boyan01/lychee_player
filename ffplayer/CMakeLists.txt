@@ -1,14 +1,23 @@
 ﻿cmake_minimum_required(VERSION 3.10)
 
-project("ffplayer" C)
+#-DCMAKE_TOOLCHAIN_FILE=C:\Users\boyan\dev\vcpkg\scripts\buildsystems\vcpkg.cmake -DCMAKE_SYSTEM_NAME=WindowsStore -DCMAKE_SYSTEM_VERSION=10
+if (WIN32)
+    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
+    set(BUILD_SHARED_LIBS TRUE)
+    if (!CMAKE_TOOLCHAIN_FILE)
+        set(CMAKE_TOOLCHAIN_FILE ${CMAKE_TOOLCHAIN_FILE} "$ENV{VCPKG_ROOT}//scripts//buildsystems//vcpkg.cmake")
+    endif()
+    set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "$ENV{VCPKG_ROOT}//installed//x64-windows")
+    set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} "$ENV{VCPKG_ROOT}//installed//x64-windows//lib//manual-link")
+    set(CMAKE_SYSTEM_VERSION "10")
+    set(CMAKE_SYSTEM_NAME "WindowsStore")
+endif ()
+
+project("ffplayer" "C")
 
 if (WIN32)
-    set(FFMPEG_INCLUDE_DIR "C:/Users/boyan/dev/vcpkg/installed/x64-windows/include")
-    set(FFMPEG_LIBRARY "C:/Users/boyan/dev/vcpkg/installed/x64-windows/lib")
-
-    link_directories(${FFMPEG_LIBRARY})
-    include_directories("include" ${FFMPEG_INCLUDE_DIR})
-    link_directories("C:/Users/boyan/dev/vcpkg/installed/x64-windows/lib/manual-link")
+    set(VCPKG_HEADER_DIR "$ENV{VCPKG_ROOT}//installed//x64-windows//include")
+    include_directories("${VCPKG_HEADER_DIR}")
 endif (WIN32)
 
 if (UNIX)
@@ -21,24 +30,37 @@ add_library(ffplayer SHARED "ffplayer.c"
         "flutter.cpp"
         )
 
-if(MSVC)
-    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
-    set(BUILD_SHARED_LIBS TRUE)
-endif()
-
-
-add_executable(ffplay_example "ffplay.c")
-target_link_libraries(ffplay_example PRIVATE ffplayer SDL2main)
+find_library(LIBSDL2 SDL2 REQUIRED)
+find_library(LIBSDL2MAIN SDL2main REQUIRED)
 
 target_include_directories(ffplayer PUBLIC include)
 
 if (WIN32)
-    target_link_libraries(ffplayer PUBLIC avutil avcodec avdevice avformat avfilter swscale swresample SDL2)
+    find_library(LIBAVUTIL avutil REQUIRED)
+    find_library(LIBAVCODEC avcodec REQUIRED)
+    find_library(LIBAVDEVICE avdevice REQUIRED)
+    find_library(LIBAVFORMAT avformat REQUIRED)
+    find_library(LIBAVFILTER avfilter REQUIRED)
+    find_library(LIBSWSCALE swscale REQUIRED)
+    find_library(LIBSWRESAMPLE swresample REQUIRED)
+
+    target_link_libraries(ffplayer PUBLIC
+            ${LIBAVUTIL}
+            ${LIBAVCODEC}
+            ${LIBAVDEVICE}
+            ${LIBAVFORMAT}
+            ${LIBAVFILTER}
+            ${LIBSWSCALE}
+            ${LIBSWRESAMPLE}
+            ${LIBSDL2})
 else ()
-    target_link_libraries(ffplayer PUBLIC avutil avcodec avdevice avformat avfilter swscale swresample SDL2
+    target_link_libraries(ffplayer PUBLIC avutil avcodec avdevice avformat avfilter swscale swresample ${LIBSDL2}
             # linux do not have math library.
             m)
 endif ()
 
-
-# TODO: 如有需要，请添加测试并安装目标。
+add_executable(ffplay_example "ffplay.c")
+target_link_libraries(ffplay_example PUBLIC ffplayer ${LIBSDL2MAIN})
+if(MSVC)
+	set_property(TARGET ffplay_example APPEND PROPERTY LINK_FLAGS "/NODEFAULTLIB:MSVCRT")
+endif()

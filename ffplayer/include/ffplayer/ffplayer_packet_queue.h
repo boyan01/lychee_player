@@ -6,6 +6,7 @@
 #define FFPLAYER_FFPLAYER_PACKET_QUEUE_H
 
 #include "SDL2/SDL_mutex.h"
+#include "libavcodec/avcodec.h"
 
 typedef struct MyAVPacketList {
     AVPacket pkt;

@@ -9,6 +9,7 @@
 #include "assert.h"
 
 #include "SDL2/SDL_mutex.h"
+#include "libavutil/mem.h"
 
 #define FFP_MSG_FLUSH                       0
 #define FFP_MSG_ERROR                       100     /* arg1 = error */

@@ -1,8 +1,17 @@
 # ffplayer
 
-player warpper for ffmpeg.
+player wrapper for ffmpeg.
 
 ## compile & Run
+
+### Windows 10
+1. install vcpkg. https://github.com/microsoft/vcpkg#quick-start-windows
+2. vcpkg install `ffmpeg` and `sdl2`.
+```shell
+vcpkg install ffmpeg
+vcpkg install sdl2:x64-windows
+```
+* clion should config architecture to `x86_amd64`
 
 ### Linux (Ubuntu 20.04)
 

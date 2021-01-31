@@ -879,7 +879,6 @@ static void video_display(CPlayer *player) {
     //         player->on_video_open(player);
     //     }
     // }
-
     SDL_SetRenderDrawColor(player->renderer, 0, 0, 0, 255);
     SDL_RenderClear(player->renderer);
     if (is->audio_st && is->show_mode != SHOW_MODE_VIDEO)
@@ -2998,4 +2997,14 @@ void ffp_refresh_texture(CPlayer *player) {
         ffp_draw_frame(player);
         SDL_UnlockMutex(player->video_render_mutex);
     }
+}
+
+void ffp_set_video_render(CPlayer *player, SDL_Renderer *renderer) {
+    CHECK_PLAYER(player);
+    FFP_VideoRenderContext *ctx = player->video_render_ctx;
+    if (ctx) {
+        ctx->abort_render = true;
+//        if (ctx.)
+    }
+    player->video_render_ctx->renderer = renderer;
 }

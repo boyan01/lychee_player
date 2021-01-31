@@ -11,6 +11,8 @@ extern "C" {
 #include <stdint.h>
 
 #include "SDL2/SDL.h"
+#include "ffplayer_msg_queue.h"
+#include "ffplayer_packet_queue.h"
 #include "libavcodec/avfft.h"
 #include "libavdevice/avdevice.h"
 #include "libavformat/avformat.h"
@@ -29,9 +31,6 @@ extern "C" {
 #include "libswresample/swresample.h"
 #include "libswscale/swscale.h"
 
-#include "ffplayer_packet_queue.h"
-#include "ffplayer_msg_queue.h"
-
 #ifdef _WIN32
 #define FFPLAYER_EXPORT __declspec(dllexport)
 #else
@@ -40,8 +39,8 @@ extern "C" {
 
 #if _FLUTTER
 
-#include "third_party/dart/dart_api_dl.h"
 #include "flutter.h"
+#include "third_party/dart/dart_api_dl.h"
 
 #endif
 
@@ -55,7 +54,6 @@ extern "C" {
 #define SDL_AUDIO_MIN_BUFFER_SIZE 512
 /* Calculate actual buffer size keeping in mind not cause too frequent audio callbacks */
 #define SDL_AUDIO_MAX_CALLBACKS_PER_SEC 30
-
 
 /* no AV sync correction is done if below the minimum AV sync threshold */
 #define AV_SYNC_THRESHOLD_MIN 0.04
@@ -298,6 +296,19 @@ typedef struct FFPlayerConfiguration_ {
     int32_t loop;
 } FFPlayerConfiguration;
 
+struct FFP_VideoRenderContext_;
+typedef struct FFP_VideoRenderContext_ FFP_VideoRenderContext;
+
+struct FFP_VideoRenderContext_ {
+    bool abort_render;
+    struct SwsContext *img_convert_ctx;
+    SDL_Renderer *renderer;
+    SDL_Texture *texture;
+    SDL_Thread *render_tid;
+    SDL_mutex *render_mutex;
+    void (*render_callback)(FFP_VideoRenderContext *context, AVFrame *frame);
+};
+
 typedef struct CPlayer {
     VideoState *is;
     int audio_disable;
@@ -362,6 +373,8 @@ typedef struct CPlayer {
     SDL_Thread *video_render_tid;
     SDL_mutex *video_render_mutex;
 
+    FFP_VideoRenderContext* video_render_ctx;
+
 #ifdef _FLUTTER
     Dart_Port message_send_port;
 #endif
@@ -373,6 +386,8 @@ FFPLAYER_EXPORT void ffplayer_global_init(void *arg);
 FFPLAYER_EXPORT CPlayer *ffp_create_player(FFPlayerConfiguration *config);
 
 FFPLAYER_EXPORT void ffplayer_free_player(CPlayer *player);
+
+FFPLAYER_EXPORT void ffp_set_video_render(CPlayer *player, SDL_Renderer* renderer);
 
 FFPLAYER_EXPORT int ffplayer_open_file(CPlayer *player, const char *filename);
 
