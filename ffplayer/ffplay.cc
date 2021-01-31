@@ -1,11 +1,17 @@
 ﻿// ffplayer.cpp: 定义应用程序的入口点。
 //
 
-#include <signal.h>
+#include <csignal>
+#include <iostream>
 
+extern "C" {
 #include "ffplayer/ffplayer.h"
 #include "ffplayer/utils.h"
+}
 
+using namespace std;
+
+#define FF_DRAW_EVENT    (SDL_USEREVENT + 2)
 /* Step size for volume control*/
 #define SDL_VOLUME_STEP (10)
 
@@ -29,6 +35,14 @@ static int screen_height = 0;
 static int screen_left = SDL_WINDOWPOS_CENTERED;
 static int screen_top = SDL_WINDOWPOS_CENTERED;
 
+typedef struct DrawEvent_ {
+    FFP_VideoRenderContext_ *context;
+    Frame *frame;
+    int64_t render_time;
+
+    void (*draw)(FFP_VideoRenderContext *c, Frame *f);
+} DrawEvent;
+
 static void sigterm_handler(int sig) {
     exit(123);
 }
@@ -37,8 +51,8 @@ static void do_exit(CPlayer *player) {
     if (player->is) {
         ffplayer_free_player(player);
     }
-    if (player->renderer)
-        SDL_DestroyRenderer(player->renderer);
+    if (player->video_render_ctx->renderer)
+        SDL_DestroyRenderer(player->video_render_ctx->renderer);
     if (window)
         SDL_DestroyWindow(window);
     // uninit_opts();
@@ -56,10 +70,6 @@ static void do_exit(CPlayer *player) {
 static void toggle_full_screen() {
     is_full_screen = !is_full_screen;
     SDL_SetWindowFullscreen(window, is_full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
-}
-
-static void update_volume(CPlayer *player, int sign, int step) {
-    ffp_set_volume(player, ffp_get_volume(player) + (sign * step));
 }
 
 static void step_to_next_frame(CPlayer *player) {
@@ -154,22 +164,10 @@ static void refresh_loop_wait_event(SDL_Event *event) {
             SDL_ShowCursor(0);
             cursor_hidden = 1;
         }
-        av_usleep((int64_t) (0.01 * 1000000.0));
         SDL_PumpEvents();
     }
 }
 
-static void toggle_audio_display(VideoState *is) {
-    int next = is->show_mode;
-    do {
-        next = (next + 1) % SHOW_MODE_NB;
-    } while (next != is->show_mode &&
-             (next == SHOW_MODE_VIDEO && !is->video_st || next != SHOW_MODE_VIDEO && !is->audio_st));
-    if (is->show_mode != next) {
-        is->force_refresh = 1;
-        is->show_mode = next;
-    }
-}
 
 /* handle an event sent by the GUI */
 static void event_loop(CPlayer *player) {
@@ -188,7 +186,7 @@ static void event_loop(CPlayer *player) {
                     break;
                 }
                 // If we don't yet have a window, skip all key events, because read_thread might still be initializing...
-                if (!is->width)
+                if (!player->video_render_ctx->width)
                     continue;
                 switch (event.key.keysym.sym) {
                     case SDLK_f:
@@ -228,17 +226,6 @@ static void event_loop(CPlayer *player) {
                         stream_cycle_channel(is, AVMEDIA_TYPE_SUBTITLE);
                         break;
                     case SDLK_w:
-#if CONFIG_AVFILTER
-                        if (is->show_mode == SHOW_MODE_VIDEO && is->vfilter_idx < nb_vfilters - 1) {
-                            if (++is->vfilter_idx >= nb_vfilters)
-                                is->vfilter_idx = 0;
-                        } else {
-                            is->vfilter_idx = 0;
-                            toggle_audio_display(is);
-                        }
-#else
-                        toggle_audio_display(is);
-#endif
                         break;
                     case SDLK_PAGEUP:
                         if (ffplayer_get_chapter_count(player) <= 1) {
@@ -319,16 +306,16 @@ static void event_loop(CPlayer *player) {
                         break;
                     x = event.motion.x;
                 }
-
-                double dest = (x / is->width) * ffplayer_get_duration(player);
-                ffplayer_seek_to_position(player, dest);
-
+                {
+                    double dest = (x / player->video_render_ctx->width) * ffplayer_get_duration(player);
+                    ffplayer_seek_to_position(player, dest);
+                }
                 break;
             case SDL_WINDOWEVENT:
                 switch (event.window.event) {
                     case SDL_WINDOWEVENT_SIZE_CHANGED:
-                        screen_width = is->width = event.window.data1;
-                        screen_height = is->height = event.window.data2;
+                        screen_width = player->video_render_ctx->width = event.window.data1;
+                        screen_height = player->video_render_ctx->height = event.window.data2;
                         ffp_refresh_texture(player);
                     case SDL_WINDOWEVENT_EXPOSED:
                         is->force_refresh = 1;
@@ -336,6 +323,15 @@ static void event_loop(CPlayer *player) {
                 break;
             case SDL_QUIT:
                 do_exit(player);
+                break;
+            case FF_DRAW_EVENT: {
+                auto *draw_event = static_cast<DrawEvent *>(event.user.data1);
+                draw_event->draw(draw_event->context, draw_event->frame);
+                cout << "draw delay time: "
+                     << (av_gettime_relative() - draw_event->render_time) / 1000 << " milliseconds"
+                     << endl;
+                delete draw_event;
+            }
                 break;
             default:
                 break;
@@ -356,9 +352,9 @@ static void set_default_window_size(int width, int height) {
 }
 
 static void on_load_metadata(void *op) {
-    CPlayer *player = op;
+    auto *player = static_cast<CPlayer *>(op);
     AVDictionaryEntry *t;
-    if (!window_title && (t = av_dict_get(player->is->ic->metadata, "title", NULL, 0)))
+    if (!window_title && (t = av_dict_get(player->is->ic->metadata, "title", nullptr, 0)))
         window_title = av_asprintf("%s - %s", t->value, player->is->filename);
 }
 
@@ -384,7 +380,7 @@ static void on_message(CPlayer *player, int what, int64_t arg1, int64_t arg2) {
             SDL_ShowWindow(window);
             break;
         case FFP_MSG_PLAYBACK_STATE_CHANGED:
-            printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %ld \n", arg1);
+            printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %lld \n", arg1);
             break;
         case FFP_MSG_BUFFERING_TIME_UPDATE:
             printf("FFP_MSG_BUFFERING_TIME_UPDATE: %f.  %f:%f \n", arg1 / 1000.0, ffplayer_get_current_position(player),
@@ -393,6 +389,39 @@ static void on_message(CPlayer *player, int what, int64_t arg1, int64_t arg2) {
         default:
             break;
     }
+}
+
+static void set_sdl_yuv_conversion_mode(AVFrame *frame) {
+#if SDL_VERSION_ATLEAST(2, 0, 8)
+    SDL_YUV_CONVERSION_MODE mode = SDL_YUV_CONVERSION_AUTOMATIC;
+    if (frame && (frame->format == AV_PIX_FMT_YUV420P || frame->format == AV_PIX_FMT_YUYV422 ||
+                  frame->format == AV_PIX_FMT_UYVY422)) {
+        if (frame->color_range == AVCOL_RANGE_JPEG)
+            mode = SDL_YUV_CONVERSION_JPEG;
+        else if (frame->colorspace == AVCOL_SPC_BT709)
+            mode = SDL_YUV_CONVERSION_BT709;
+        else if (frame->colorspace == AVCOL_SPC_BT470BG || frame->colorspace == AVCOL_SPC_SMPTE170M ||
+                 frame->colorspace == AVCOL_SPC_SMPTE240M)
+            mode = SDL_YUV_CONVERSION_BT601;
+    }
+    SDL_SetYUVConversionMode(mode);
+#endif
+}
+
+
+static void render_frame(FFP_VideoRenderContext *context, Frame *frame) {
+    static auto callbalc = [](FFP_VideoRenderContext *c, Frame *vp) {
+        SDL_RenderPresent(c->renderer);
+    };
+    auto *draw_event = new DrawEvent();
+    draw_event->draw = callbalc;
+    draw_event->frame = frame;
+    draw_event->context = context;
+    draw_event->render_time = av_gettime_relative();
+    SDL_Event event;
+    event.type = FF_DRAW_EVENT;
+    event.user.data1 = static_cast<void *>(draw_event);
+    SDL_PushEvent(&event);
 }
 
 int main(int argc, char *argv[]) {
@@ -416,13 +445,15 @@ int main(int argc, char *argv[]) {
     signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */
 
     FFPlayerConfiguration config = {
-            .loop = 1,
-            .start_time = 0,
-            .show_status = 1,
-            .seek_by_bytes = -1,
-            .subtitle_disable = 1,
-            .video_disable = 0,
-            .audio_disable = 0};
+            0,
+            0,
+            1,
+            -1,
+            1,
+            0,
+            1,
+    };
+
     CPlayer *player = ffp_create_player(&config);
     if (!player) {
         printf("failed to alloc player");
@@ -431,7 +462,7 @@ int main(int argc, char *argv[]) {
     player->show_status = true;
     ffp_set_volume(player, 100);
 
-    int flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER;
+    uint32_t flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER;
     if (player->audio_disable)
         flags &= ~SDL_INIT_AUDIO;
     else {
@@ -440,7 +471,7 @@ int main(int argc, char *argv[]) {
         if (!SDL_getenv("SDL_AUDIO_ALSA_SET_BUFFER_SIZE"))
             SDL_setenv("SDL_AUDIO_ALSA_SET_BUFFER_SIZE", "1", 1);
     }
-    if (player->display_disable)
+    if (config.video_disable)
         flags &= ~SDL_INIT_VIDEO;
     if (SDL_Init(flags)) {
         av_log(NULL, AV_LOG_FATAL, "Could not initialize SDL - %s\n", SDL_GetError());
@@ -453,20 +484,20 @@ int main(int argc, char *argv[]) {
     SDL_Renderer *renderer;
     SDL_RendererInfo renderer_info = {0};
 
-    if (!player->display_disable) {
-        int flags = SDL_WINDOW_HIDDEN;
+    if (!config.video_disable) {
+        uint32_t window_flags = SDL_WINDOW_HIDDEN;
         if (alwaysontop)
 #if SDL_VERSION_ATLEAST(2, 0, 5)
-            flags |= SDL_WINDOW_ALWAYS_ON_TOP;
+            window_flags |= SDL_WINDOW_ALWAYS_ON_TOP;
 #else
         av_log(NULL, AV_LOG_WARNING, "Your SDL version doesn't support SDL_WINDOW_ALWAYS_ON_TOP. Feature will be inactive.\n");
 #endif
         if (borderless)
-            flags |= SDL_WINDOW_BORDERLESS;
+            window_flags |= SDL_WINDOW_BORDERLESS;
         else
-            flags |= SDL_WINDOW_RESIZABLE;
+            window_flags |= SDL_WINDOW_RESIZABLE;
         window = SDL_CreateWindow("ffplay", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, default_width,
-                                  default_height, flags);
+                                  default_height, window_flags);
         SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
         if (window) {
             renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
@@ -484,8 +515,9 @@ int main(int argc, char *argv[]) {
             av_log(NULL, AV_LOG_FATAL, "Failed to create window or renderer: %s", SDL_GetError());
             do_exit(NULL);
         }
+        ffp_set_video_render(player, renderer);
+        player->video_render_ctx->render_callback = render_frame;
     }
-    player->renderer = renderer;
     player->on_load_metadata = on_load_metadata;
     player->on_message = on_message;
 

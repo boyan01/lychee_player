@@ -5,6 +5,10 @@
 #ifndef FFPLAYER_FFPLAYER_MSG_QUEUE_H
 #define FFPLAYER_FFPLAYER_MSG_QUEUE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "stdint.h"
 #include "assert.h"
 
@@ -124,7 +128,7 @@ static inline int msg_queue_put_private(FFPlayerMessageQueue *q, FFPlayerMessage
     if (q->abort_request)
         return -1;
 
-    msg1 = av_malloc(sizeof(FFPlayerMessage));
+    msg1 = (FFPlayerMessage*)av_malloc(sizeof(FFPlayerMessage));
     if (!msg1) {
         av_log(NULL, AV_LOG_ERROR, "no memory to alloc msg");
         return -1;
@@ -253,6 +257,8 @@ void msg_queue_remove(FFPlayerMessageQueue *q, int what) {
 
     SDL_UnlockMutex(q->mutex);
 }
-
+#ifdef __cplusplus
+}
+#endif
 
 #endif //FFPLAYER_FFPLAYER_MSG_QUEUE_H

@@ -1,6 +1,5 @@
 ﻿cmake_minimum_required(VERSION 3.10)
 
-#-DCMAKE_TOOLCHAIN_FILE=C:\Users\boyan\dev\vcpkg\scripts\buildsystems\vcpkg.cmake -DCMAKE_SYSTEM_NAME=WindowsStore -DCMAKE_SYSTEM_VERSION=10
 if (WIN32)
     set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
     set(BUILD_SHARED_LIBS TRUE)
@@ -13,7 +12,8 @@ if (WIN32)
     set(CMAKE_SYSTEM_NAME "WindowsStore")
 endif ()
 
-project("ffplayer" "C")
+project("ffplayer" "CXX" "C")
+set(CMAKE_CXX_STANDARD 17)
 
 if (WIN32)
     set(VCPKG_HEADER_DIR "$ENV{VCPKG_ROOT}//installed//x64-windows//include")
@@ -59,7 +59,9 @@ else ()
             m)
 endif ()
 
-add_executable(ffplay_example "ffplay.c")
+add_executable(ffplay_example "ffplay.cc")
+add_dependencies(ffplay_example ffplayer)
+target_include_directories(ffplay_example PUBLIC include)
 target_link_libraries(ffplay_example PUBLIC ffplayer ${LIBSDL2MAIN})
 if(MSVC)
 	set_property(TARGET ffplay_example APPEND PROPERTY LINK_FLAGS "/NODEFAULTLIB:MSVCRT")

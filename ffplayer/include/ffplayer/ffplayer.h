@@ -246,9 +246,6 @@ typedef struct VideoState {
     FFTSample *rdft_data;
     int xpos;
     double last_vis_time;
-    SDL_Texture *vis_texture;
-    SDL_Texture *sub_texture;
-    SDL_Texture *vid_texture;
 
     int subtitle_stream;
     AVStream *subtitle_st;
@@ -261,12 +258,9 @@ typedef struct VideoState {
     AVStream *video_st;
     PacketQueue videoq;
     double max_frame_duration;  // maximum duration of a frame - above this, we consider the jump a timestamp discontinuity
-    struct SwsContext *img_convert_ctx;
-    struct SwsContext *sub_convert_ctx;
     int eof;
 
     char *filename;
-    int width, height, xleft, ytop;
     int step;
 
 #if CONFIG_AVFILTER
@@ -302,11 +296,16 @@ typedef struct FFP_VideoRenderContext_ FFP_VideoRenderContext;
 struct FFP_VideoRenderContext_ {
     bool abort_render;
     struct SwsContext *img_convert_ctx;
+    struct SwsContext *sub_convert_ctx;
     SDL_Renderer *renderer;
+
     SDL_Texture *texture;
+    SDL_Texture *sub_texture;
+
     SDL_Thread *render_tid;
     SDL_mutex *render_mutex;
-    void (*render_callback)(FFP_VideoRenderContext *context, AVFrame *frame);
+    int width, height, xleft, ytop;
+    void (*render_callback)(FFP_VideoRenderContext *context, Frame *frame);
 };
 
 typedef struct CPlayer {
@@ -314,8 +313,6 @@ typedef struct CPlayer {
     int audio_disable;
     int video_disable;
     int subtitle_disable;
-
-    int display_disable;
 
     char *wanted_stream_spec[AVMEDIA_TYPE_NB];
     int seek_by_bytes;
@@ -350,8 +347,7 @@ typedef struct CPlayer {
     int64_t audio_callback_time;
 
     SDL_AudioDeviceID audio_dev;
-    SDL_Renderer *renderer;
-    SDL_RendererInfo renderer_info;
+//    SDL_RendererInfo renderer_info;
 
     void (*on_load_metadata)(void *player);
 
@@ -368,10 +364,6 @@ typedef struct CPlayer {
     SDL_Thread *msg_tid;
     FFPlayerState state;
     int64_t last_io_buffering_ts;
-
-    bool abort_video_render;
-    SDL_Thread *video_render_tid;
-    SDL_mutex *video_render_mutex;
 
     FFP_VideoRenderContext* video_render_ctx;
 
@@ -421,9 +413,12 @@ FFPLAYER_EXPORT int ffp_get_volume(CPlayer *player);
 FFPLAYER_EXPORT int ffp_get_state(CPlayer *player);
 
 FFPLAYER_EXPORT void
-ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int, int64_t, int64_t));
+ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int32_t, int64_t, int64_t));
 
 FFPLAYER_EXPORT void ffp_refresh_texture(CPlayer *player);
+
+FFPLAYER_EXPORT int upload_texture(FFP_VideoRenderContext *video_render_ctx, SDL_Texture **tex, AVFrame *frame,
+                   struct SwsContext **img_convert_ctx);
 
 #ifdef _FLUTTER
 

@@ -34,7 +34,7 @@ static int packet_queue_put_private(PacketQueue *q, AVPacket *pkt) {
     if (q->abort_request)
         return -1;
 
-    pkt1 = av_malloc(sizeof(MyAVPacketList));
+    pkt1 = (MyAVPacketList*)av_malloc(sizeof(MyAVPacketList));
     if (!pkt1)
         return -1;
     pkt1->pkt = *pkt;
