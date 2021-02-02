@@ -120,6 +120,7 @@ static int msg_queue_init(FFPlayerMessageQueue *q) {
     q->mutex = SDL_CreateMutex();
     q->cond = SDL_CreateCond();
     q->abort_request = 1;
+    return 0;
 }
 
 static inline int msg_queue_put_private(FFPlayerMessageQueue *q, FFPlayerMessage *msg) {

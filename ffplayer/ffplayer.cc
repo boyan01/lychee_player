@@ -23,11 +23,11 @@
  * simple media player based on the FFmpeg libraries
  */
 
-#include <inttypes.h>
-#include <limits.h>
-#include <math.h>
-#include <signal.h>
-#include <stdint.h>
+#include <cinttypes>
+#include <climits>
+#include <cmath>
+#include <csignal>
+#include <cstdint>
 
 #if CONFIG_AVFILTER
 #include "libavfilter/avfilter.h"
@@ -54,16 +54,21 @@ static int opt_add_vfilter(void *optctx, const char *opt, const char *arg) {
 #endif
 
 #define CHECK_PLAYER_WITH_RETURN(PLAYER, RETURN)                           \
-if(!PLAYER || !PLAYER->is) {                                               \
+if(!(PLAYER) || !(PLAYER)->is) {                                               \
     av_log(NULL, AV_LOG_ERROR, "check player failed");                     \
     return RETURN;                                                         \
 }                                                                          \
 
 #define CHECK_PLAYER(PLAYER)                                               \
-if (!PLAYER || !PLAYER->is) {                                              \
+if (!(PLAYER) || !(PLAYER)->is) {                                              \
     av_log(NULL, AV_LOG_ERROR, "check player failed");                     \
     return;                                                                \
 }                                                                          \
+
+const char av_error[AV_ERROR_MAX_STRING_SIZE] = {0};
+#define av_err2str(errnum) av_make_error_string(av_error, AV_ERROR_MAX_STRING_SIZE, errnum)
+
+const AVRational av_time_base_q = {1, AV_TIME_BASE};
 
 
 static inline int cmp_audio_fmts(enum AVSampleFormat fmt1, int64_t channel_count1,
@@ -106,7 +111,7 @@ static void change_player_state(CPlayer *player, FFPlayerState state) {
 }
 
 static int message_loop(void *args) {
-    CPlayer *player = args;
+    auto *player = static_cast<CPlayer *>(args);
     while (true) {
         FFPlayerMessage msg = {0};
         if (msg_queue_get(&player->msg_queue, &msg, true) < 0) {
@@ -138,7 +143,7 @@ static int message_loop(void *args) {
 }
 
 static void on_decode_frame_block(void *opacity) {
-    CPlayer *player = opacity;
+    auto *player = static_cast<CPlayer *>(opacity);
     change_player_state(player, FFP_STATE_BUFFERING);
 }
 
@@ -167,7 +172,7 @@ static int decoder_decode_frame(Decoder *d, AVFrame *frame, AVSubtitle *sub, CPl
                     case AVMEDIA_TYPE_AUDIO:
                         ret = avcodec_receive_frame(d->avctx, frame);
                         if (ret >= 0) {
-                            AVRational tb = (AVRational) {1, frame->sample_rate};
+                            AVRational tb = {1, frame->sample_rate};
                             if (frame->pts != AV_NOPTS_VALUE)
                                 frame->pts = av_rescale_q(frame->pts, d->avctx->pkt_timebase, tb);
                             else if (d->next_pts != AV_NOPTS_VALUE)
@@ -806,6 +811,7 @@ bool ffplayer_is_paused(CPlayer *player) {
 }
 
 bool ffplayer_is_playing(CPlayer *player) {
+    return false;
 }
 
 static double compute_target_delay(double delay, VideoState *is) {
@@ -1329,7 +1335,7 @@ end:
 #endif /* CONFIG_AVFILTER */
 
 static int audio_thread(void *arg) {
-    CPlayer *player = arg;
+    auto *player = static_cast<CPlayer *>(arg);
     VideoState *is = player->is;
     AVFrame *frame = av_frame_alloc();
     Frame *af;
@@ -1350,7 +1356,7 @@ static int audio_thread(void *arg) {
             goto the_end;
 
         if (got_frame) {
-            tb = (AVRational) {1, frame->sample_rate};
+            tb = {1, frame->sample_rate};
 
 #if CONFIG_AVFILTER
             dec_channel_layout = get_valid_channel_layout(frame->channel_layout, frame->channels);
@@ -1393,7 +1399,7 @@ static int audio_thread(void *arg) {
             af->pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(tb);
             af->pos = frame->pkt_pos;
             af->serial = is->auddec.pkt_serial;
-            af->duration = av_q2d((AVRational) {frame->nb_samples, frame->sample_rate});
+            af->duration = av_q2d(AVRational{frame->nb_samples, frame->sample_rate});
 
             av_frame_move_ref(af->frame, frame);
             frame_queue_push(&is->sampq);
@@ -1416,7 +1422,7 @@ static int audio_thread(void *arg) {
 }
 
 static int video_render(void *args) {
-    CPlayer *player = args;
+    auto *player = static_cast<CPlayer *>(args);
     VideoState *is = player->is;
     FFP_VideoRenderContext *video_render_ctx = player->video_render_ctx;
     if (!video_render_ctx) {
@@ -1446,7 +1452,7 @@ static int decoder_start(Decoder *d, int (*fn)(void *), const char *thread_name,
 }
 
 static int video_thread(void *arg) {
-    CPlayer *player = arg;
+    auto *player = static_cast<CPlayer *>(arg);
     VideoState *is = player->is;
     AVFrame *frame = av_frame_alloc();
     double pts;
@@ -1527,7 +1533,7 @@ static int video_thread(void *arg) {
                 is->frame_last_filter_delay = 0;
             tb = av_buffersink_get_time_base(filt_out);
 #endif
-        duration = (frame_rate.num && frame_rate.den ? av_q2d((AVRational) {frame_rate.den, frame_rate.num}) : 0);
+        duration = (frame_rate.num && frame_rate.den ? av_q2d(AVRational{frame_rate.den, frame_rate.num}) : 0);
         pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(tb);
         ret = queue_picture(player, frame, pts, duration, frame->pkt_pos, is->viddec.pkt_serial);
         av_frame_unref(frame);
@@ -1549,7 +1555,7 @@ static int video_thread(void *arg) {
 }
 
 static int subtitle_thread(void *arg) {
-    CPlayer *player = arg;
+    auto *player = static_cast<CPlayer *>(arg);
     VideoState *is = player->is;
     Frame *sp;
     int got_subtitle;
@@ -1677,7 +1683,7 @@ static int audio_decode_frame(CPlayer *player) {
 
     data_size = av_samples_get_buffer_size(NULL, af->frame->channels,
                                            af->frame->nb_samples,
-                                           af->frame->format, 1);
+                                           AVSampleFormat(af->frame->format), 1);
 
     dec_channel_layout =
             (af->frame->channel_layout &&
@@ -1692,12 +1698,14 @@ static int audio_decode_frame(CPlayer *player) {
         swr_free(&is->swr_ctx);
         is->swr_ctx = swr_alloc_set_opts(NULL,
                                          is->audio_tgt.channel_layout, is->audio_tgt.fmt, is->audio_tgt.freq,
-                                         dec_channel_layout, af->frame->format, af->frame->sample_rate,
+                                         dec_channel_layout, static_cast<AVSampleFormat>(af->frame->format),
+                                         af->frame->sample_rate,
                                          0, NULL);
         if (!is->swr_ctx || swr_init(is->swr_ctx) < 0) {
             av_log(NULL, AV_LOG_ERROR,
                    "Cannot create sample rate converter for conversion of %d Hz %s %d channels to %d Hz %s %d channels!\n",
-                   af->frame->sample_rate, av_get_sample_fmt_name(af->frame->format), af->frame->channels,
+                   af->frame->sample_rate, av_get_sample_fmt_name(static_cast<AVSampleFormat>(af->frame->format)),
+                   af->frame->channels,
                    is->audio_tgt.freq, av_get_sample_fmt_name(is->audio_tgt.fmt), is->audio_tgt.channels);
             swr_free(&is->swr_ctx);
             return -1;
@@ -1705,11 +1713,11 @@ static int audio_decode_frame(CPlayer *player) {
         is->audio_src.channel_layout = dec_channel_layout;
         is->audio_src.channels = af->frame->channels;
         is->audio_src.freq = af->frame->sample_rate;
-        is->audio_src.fmt = af->frame->format;
+        is->audio_src.fmt = static_cast<AVSampleFormat>(af->frame->format);
     }
 
     if (is->swr_ctx) {
-        const uint8_t **in = (const uint8_t **) af->frame->extended_data;
+        const auto **in = (const uint8_t **) af->frame->extended_data;
         uint8_t **out = &is->audio_buf1;
         int out_count = (int64_t) wanted_nb_samples * is->audio_tgt.freq / af->frame->sample_rate + 256;
         int out_size = av_samples_get_buffer_size(NULL, is->audio_tgt.channels, out_count, is->audio_tgt.fmt, 0);
@@ -1767,7 +1775,7 @@ static int audio_decode_frame(CPlayer *player) {
 
 /* prepare a new audio buffer */
 static void sdl_audio_callback(void *opaque, Uint8 *stream, int len) {
-    CPlayer *player = opaque;
+    auto *player = static_cast<CPlayer *>(opaque);
     VideoState *is = player->is;
     int audio_size, len1;
 
@@ -2061,7 +2069,7 @@ static int stream_component_open(CPlayer *player, int stream_index) {
 }
 
 static int decode_interrupt_cb(void *ctx) {
-    VideoState *is = ctx;
+    auto *is = static_cast<VideoState *>(ctx);
     return is->abort_request;
 }
 
@@ -2157,7 +2165,7 @@ static void check_buffering(CPlayer *player) {
 
 /* this thread gets the stream from the disk or the network */
 static int read_thread(void *arg) {
-    CPlayer *player = arg;
+    CPlayer *player = static_cast<CPlayer *>(arg);
     VideoState *is = player->is;
     AVFormatContext *ic = NULL;
     int err, i, ret;
@@ -2190,7 +2198,7 @@ static int read_thread(void *arg) {
     err = avformat_open_input(&ic, is->filename, is->iformat, NULL);
     if (err < 0) {
         // print_error(is->filename, err);
-        av_log(NULL, AV_LOG_ERROR, "can not open file %s: %s", is->filename, av_err2str(err));
+//        av_log(nullptr, AV_LOG_ERROR, "can not open file %s: %s", is->filename, av_err2str(err));
         ret = -1;
         goto fail;
     }
@@ -2257,7 +2265,7 @@ static int read_thread(void *arg) {
     for (i = 0; i < AVMEDIA_TYPE_NB; i++) {
         if (player->wanted_stream_spec[i] && st_index[i] == -1) {
             av_log(NULL, AV_LOG_ERROR, "Stream specifier %s does not match any %s stream\n",
-                   player->wanted_stream_spec[i], av_get_media_type_string(i));
+                   player->wanted_stream_spec[i], av_get_media_type_string(static_cast<AVMediaType>(i)));
             st_index[i] = INT_MAX;
         }
     }
@@ -2518,7 +2526,7 @@ int ffplayer_get_current_chapter(CPlayer *player) {
     }
     for (int i = 0; i < player->is->ic->nb_chapters; i++) {
         AVChapter *ch = player->is->ic->chapters[i];
-        if (av_compare_ts(pos, AV_TIME_BASE_Q, ch->start, ch->time_base) < 0) {
+        if (av_compare_ts(pos, av_time_base_q, ch->start, ch->time_base) < 0) {
             i--;
             return i;
         }
@@ -2540,11 +2548,11 @@ void ffplayer_seek_to_chapter(CPlayer *player, int chapter) {
         return;
     }
     AVChapter *ac = player->is->ic->chapters[chapter];
-    stream_seek(player, av_rescale_q(ac->start, ac->time_base, AV_TIME_BASE_Q), 0, 0);
+    stream_seek(player, av_rescale_q(ac->start, ac->time_base, av_time_base_q), 0, 0);
 }
 
 static VideoState *alloc_video_state() {
-    VideoState *is = av_mallocz(sizeof(VideoState));
+    auto *is = static_cast<VideoState *>(av_mallocz(sizeof(VideoState)));
     if (!is)
         return NULL;
     is->last_video_stream = is->video_stream = -1;
@@ -2580,7 +2588,7 @@ static VideoState *alloc_video_state() {
 }
 
 static CPlayer *ffplayer_alloc_player() {
-    CPlayer *player = av_mallocz(sizeof(CPlayer));
+    CPlayer *player = static_cast<CPlayer *>(av_mallocz(sizeof(CPlayer)));
     if (!player) {
         return NULL;
     }
@@ -2646,6 +2654,7 @@ static CPlayer *ffplayer_alloc_player() {
 
 int ffplayer_open_file(CPlayer *player, const char *filename) {
     stream_open(player, filename, file_iformat);
+    return 0;
 }
 
 void ffplayer_free_player(CPlayer *player) {
@@ -2727,7 +2736,7 @@ void ffp_set_video_render(CPlayer *player, SDL_Renderer *renderer) {
         av_log(NULL, AV_LOG_FATAL, "do not support update render yet.");
         return;
     }
-    player->video_render_ctx = av_mallocz(sizeof(FFP_VideoRenderContext));
+    player->video_render_ctx = static_cast<FFP_VideoRenderContext *>(av_mallocz(sizeof(FFP_VideoRenderContext)));
     if (!player->video_render_ctx) {
         av_log(NULL, AV_LOG_ERROR, "OutOfMemory: can not malloc render ctx.\n");
         return;
