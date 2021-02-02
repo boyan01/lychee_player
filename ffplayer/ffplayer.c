@@ -44,31 +44,6 @@
 /* options specified by the user */
 static AVInputFormat *file_iformat;
 
-static const struct TextureFormatEntry {
-    enum AVPixelFormat format;
-    int texture_fmt;
-} sdl_texture_format_map[] = {
-        {AV_PIX_FMT_RGB8,           SDL_PIXELFORMAT_RGB332},
-        {AV_PIX_FMT_RGB444,         SDL_PIXELFORMAT_RGB444},
-        {AV_PIX_FMT_RGB555,         SDL_PIXELFORMAT_RGB555},
-        {AV_PIX_FMT_BGR555,         SDL_PIXELFORMAT_BGR555},
-        {AV_PIX_FMT_RGB565,         SDL_PIXELFORMAT_RGB565},
-        {AV_PIX_FMT_BGR565,         SDL_PIXELFORMAT_BGR565},
-        {AV_PIX_FMT_RGB24,          SDL_PIXELFORMAT_RGB24},
-        {AV_PIX_FMT_BGR24,          SDL_PIXELFORMAT_BGR24},
-        {AV_PIX_FMT_0RGB32,         SDL_PIXELFORMAT_RGB888},
-        {AV_PIX_FMT_0BGR32,         SDL_PIXELFORMAT_BGR888},
-        {AV_PIX_FMT_NE(RGB0, 0BGR), SDL_PIXELFORMAT_RGBX8888},
-        {AV_PIX_FMT_NE(BGR0, 0RGB), SDL_PIXELFORMAT_BGRX8888},
-        {AV_PIX_FMT_RGB32,          SDL_PIXELFORMAT_ARGB8888},
-        {AV_PIX_FMT_RGB32_1,        SDL_PIXELFORMAT_RGBA8888},
-        {AV_PIX_FMT_BGR32,          SDL_PIXELFORMAT_ABGR8888},
-        {AV_PIX_FMT_BGR32_1,        SDL_PIXELFORMAT_BGRA8888},
-        {AV_PIX_FMT_YUV420P,        SDL_PIXELFORMAT_IYUV},
-        {AV_PIX_FMT_YUYV422,        SDL_PIXELFORMAT_YUY2},
-        {AV_PIX_FMT_UYVY422,        SDL_PIXELFORMAT_UYVY},
-        {AV_PIX_FMT_NONE,           SDL_PIXELFORMAT_UNKNOWN},
-};
 
 #if CONFIG_AVFILTER
 static int opt_add_vfilter(void *optctx, const char *opt, const char *arg) {
@@ -396,109 +371,6 @@ static void decoder_abort(Decoder *d, FrameQueue *fq) {
     packet_queue_flush(d->queue);
 }
 
-static int
-realloc_texture(SDL_Renderer *renderer, SDL_Texture **texture, Uint32 new_format, int new_width, int new_height,
-                SDL_BlendMode blendmode, int init_texture) {
-    Uint32 format;
-    int access, w, h;
-    if (!*texture || SDL_QueryTexture(*texture, &format, &access, &w, &h) < 0 || new_width != w || new_height != h ||
-        new_format != format) {
-        void *pixels;
-        int pitch;
-        if (*texture)
-            SDL_DestroyTexture(*texture);
-        if (!(*texture = SDL_CreateTexture(renderer, new_format, SDL_TEXTUREACCESS_STREAMING, new_width,
-                                           new_height)))
-            return -1;
-        if (SDL_SetTextureBlendMode(*texture, blendmode) < 0)
-            return -1;
-        if (init_texture) {
-            if (SDL_LockTexture(*texture, NULL, &pixels, &pitch) < 0)
-                return -1;
-            memset(pixels, 0, pitch * new_height);
-            SDL_UnlockTexture(*texture);
-        }
-        av_log(NULL, AV_LOG_VERBOSE, "Created %dx%d texture with %s.\n", new_width, new_height,
-               SDL_GetPixelFormatName(new_format));
-    }
-    return 0;
-}
-
-static void get_sdl_pix_fmt_and_blendmode(int format, Uint32 *sdl_pix_fmt, SDL_BlendMode *sdl_blendmode) {
-    int i;
-    *sdl_blendmode = SDL_BLENDMODE_NONE;
-    *sdl_pix_fmt = SDL_PIXELFORMAT_UNKNOWN;
-    if (format == AV_PIX_FMT_RGB32 ||
-        format == AV_PIX_FMT_RGB32_1 ||
-        format == AV_PIX_FMT_BGR32 ||
-        format == AV_PIX_FMT_BGR32_1)
-        *sdl_blendmode = SDL_BLENDMODE_BLEND;
-    for (i = 0; i < FF_ARRAY_ELEMS(sdl_texture_format_map) - 1; i++) {
-        if (format == sdl_texture_format_map[i].format) {
-            *sdl_pix_fmt = sdl_texture_format_map[i].texture_fmt;
-            return;
-        }
-    }
-}
-
-int upload_texture(FFP_VideoRenderContext *video_render_ctx, SDL_Texture **tex, AVFrame *frame,
-                   struct SwsContext **img_convert_ctx) {
-    int ret = 0;
-    Uint32 sdl_pix_fmt;
-    SDL_BlendMode sdl_blendmode;
-    get_sdl_pix_fmt_and_blendmode(frame->format, &sdl_pix_fmt, &sdl_blendmode);
-    if (realloc_texture(video_render_ctx->renderer, tex,
-                        sdl_pix_fmt == SDL_PIXELFORMAT_UNKNOWN ? SDL_PIXELFORMAT_ARGB8888 : sdl_pix_fmt,
-                        frame->width, frame->height, sdl_blendmode, 0) < 0)
-        return -1;
-    switch (sdl_pix_fmt) {
-        case SDL_PIXELFORMAT_UNKNOWN:
-            /* This should only happen if we are not using avfilter... */
-            *img_convert_ctx = sws_getCachedContext(*img_convert_ctx,
-                                                    frame->width, frame->height, frame->format, frame->width,
-                                                    frame->height,
-                                                    AV_PIX_FMT_BGRA, sws_flags, NULL, NULL, NULL);
-            if (*img_convert_ctx != NULL) {
-                uint8_t *pixels[4];
-                int pitch[4];
-                if (!SDL_LockTexture(*tex, NULL, (void **) pixels, pitch)) {
-                    sws_scale(*img_convert_ctx, (const uint8_t *const *) frame->data, frame->linesize,
-                              0, frame->height, pixels, pitch);
-                    SDL_UnlockTexture(*tex);
-                }
-            } else {
-                av_log(NULL, AV_LOG_FATAL, "Cannot initialize the conversion context\n");
-                ret = -1;
-            }
-            break;
-        case SDL_PIXELFORMAT_IYUV:
-            if (frame->linesize[0] > 0 && frame->linesize[1] > 0 && frame->linesize[2] > 0) {
-                ret = SDL_UpdateYUVTexture(*tex, NULL, frame->data[0], frame->linesize[0],
-                                           frame->data[1], frame->linesize[1],
-                                           frame->data[2], frame->linesize[2]);
-            } else if (frame->linesize[0] < 0 && frame->linesize[1] < 0 && frame->linesize[2] < 0) {
-                ret = SDL_UpdateYUVTexture(*tex, NULL, frame->data[0] + frame->linesize[0] * (frame->height - 1),
-                                           -frame->linesize[0],
-                                           frame->data[1] + frame->linesize[1] * (AV_CEIL_RSHIFT(frame->height, 1) - 1),
-                                           -frame->linesize[1],
-                                           frame->data[2] + frame->linesize[2] * (AV_CEIL_RSHIFT(frame->height, 1) - 1),
-                                           -frame->linesize[2]);
-            } else {
-                av_log(NULL, AV_LOG_ERROR, "Mixed negative and positive linesizes are not supported.\n");
-                return -1;
-            }
-            break;
-        default:
-            if (frame->linesize[0] < 0) {
-                ret = SDL_UpdateTexture(*tex, NULL, frame->data[0] + frame->linesize[0] * (frame->height - 1),
-                                        -frame->linesize[0]);
-            } else {
-                ret = SDL_UpdateTexture(*tex, NULL, frame->data[0], frame->linesize[0]);
-            }
-            break;
-    }
-    return ret;
-}
 
 static void set_sdl_yuv_conversion_mode(AVFrame *frame) {
 #if SDL_VERSION_ATLEAST(2, 0, 8)
@@ -518,11 +390,10 @@ static void set_sdl_yuv_conversion_mode(AVFrame *frame) {
 }
 
 static void
-video_image_display(FFP_VideoRenderContext *video_render_ctx, FrameQueue *pic_queue, FrameQueue *sub_queue) {
+video_image_display(CPlayer *player, FrameQueue *pic_queue, FrameQueue *sub_queue) {
     Frame *vp;
     Frame *sp = NULL;
-    SDL_Rect rect;
-
+    FFP_VideoRenderContext *video_render_ctx = player->video_render_ctx;
     vp = frame_queue_peek_last(pic_queue);
 
 #if 0
@@ -578,33 +449,15 @@ video_image_display(FFP_VideoRenderContext *video_render_ctx, FrameQueue *pic_qu
     }
 #endif
 
-    calculate_display_rect(&rect, video_render_ctx->xleft, video_render_ctx->ytop, video_render_ctx->width,
-                           video_render_ctx->height, vp->width, vp->height, vp->sar);
+    if (video_render_ctx->on_render) {
+        video_render_ctx->on_render(video_render_ctx, vp);
+    }
 
-#if 0
     if (player->first_video_frame_rendered) {
         player->first_video_frame_rendered = true;
-        ffp_send_msg2(player, FFP_MSG_VIDEO_RENDERING_START, rect.w, rect.h);
-    }
-#endif
-
-    if (!vp->uploaded) {
-        if (upload_texture(video_render_ctx, &video_render_ctx->texture, vp->frame,
-                           &video_render_ctx->img_convert_ctx) < 0)
-            return;
-        vp->uploaded = 1;
-        vp->flip_v = vp->frame->linesize[0] < 0;
+        ffp_send_msg2(player, FFP_MSG_VIDEO_RENDERING_START, vp->width, vp->height);
     }
 
-    set_sdl_yuv_conversion_mode(vp->frame);
-    SDL_RenderCopyEx(video_render_ctx->renderer, video_render_ctx->texture, NULL, NULL, 0, NULL,
-                     vp->flip_v ? SDL_FLIP_VERTICAL : SDL_FLIP_NONE);
-    set_sdl_yuv_conversion_mode(NULL);
-
-
-    if (video_render_ctx->render_callback) {
-        video_render_ctx->render_callback(video_render_ctx, vp);
-    }
 #if 0
     if (sp) {
 #if USE_ONEPASS_SUBTITLE_RENDER
@@ -752,9 +605,12 @@ static void video_display(CPlayer *player) {
     FFP_VideoRenderContext *video_render_ctx = player->video_render_ctx;
     SDL_SetRenderDrawColor(video_render_ctx->renderer, 0, 0, 0, 255);
     SDL_RenderClear(video_render_ctx->renderer);
-    if (is->video_st)
-        video_image_display(video_render_ctx, &is->pictq, is->subtitle_st ? &is->subpq : NULL);
-//    SDL_RenderPresent(video_render_ctx->renderer);
+    if (is->video_st) {
+        video_image_display(player, &is->pictq, is->subtitle_st ? &is->subpq : NULL);
+    }
+    if (video_render_ctx->on_texture_updated) {
+        video_render_ctx->on_texture_updated(video_render_ctx);
+    }
 }
 
 static double get_clock(Clock *c) {

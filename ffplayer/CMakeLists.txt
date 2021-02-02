@@ -5,7 +5,7 @@ if (WIN32)
     set(BUILD_SHARED_LIBS TRUE)
     if (!CMAKE_TOOLCHAIN_FILE)
         set(CMAKE_TOOLCHAIN_FILE ${CMAKE_TOOLCHAIN_FILE} "$ENV{VCPKG_ROOT}//scripts//buildsystems//vcpkg.cmake")
-    endif()
+    endif ()
     set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "$ENV{VCPKG_ROOT}//installed//x64-windows")
     set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} "$ENV{VCPKG_ROOT}//installed//x64-windows//lib//manual-link")
     set(CMAKE_SYSTEM_VERSION "10")
@@ -44,8 +44,7 @@ if (WIN32)
     find_library(LIBSWSCALE swscale REQUIRED)
     find_library(LIBSWRESAMPLE swresample REQUIRED)
 
-    target_link_libraries(ffplayer PUBLIC
-            ${LIBAVUTIL}
+    list(APPEND FFP_LIBS ${LIBAVUTIL}
             ${LIBAVCODEC}
             ${LIBAVDEVICE}
             ${LIBAVFORMAT}
@@ -53,6 +52,10 @@ if (WIN32)
             ${LIBSWSCALE}
             ${LIBSWRESAMPLE}
             ${LIBSDL2})
+    if (CMAKE_FLUTTER_WINDOWS)
+        list(APPEND FFP_LIBS flutter flutter_wrapper_plugin)
+    endif ()
+    target_link_libraries(ffplayer PUBLIC ${FFP_LIBS})
 else ()
     target_link_libraries(ffplayer PUBLIC avutil avcodec avdevice avformat avfilter swscale swresample ${LIBSDL2}
             # linux do not have math library.
@@ -63,6 +66,6 @@ add_executable(ffplay_example "ffplay.cc")
 add_dependencies(ffplay_example ffplayer)
 target_include_directories(ffplay_example PUBLIC include)
 target_link_libraries(ffplay_example PUBLIC ffplayer ${LIBSDL2MAIN})
-if(MSVC)
-	set_property(TARGET ffplay_example APPEND PROPERTY LINK_FLAGS "/NODEFAULTLIB:MSVCRT")
-endif()
+if (MSVC)
+    set_property(TARGET ffplay_example APPEND PROPERTY LINK_FLAGS "/NODEFAULTLIB:MSVCRT")
+endif ()

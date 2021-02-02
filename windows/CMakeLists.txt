@@ -6,15 +6,14 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 # not be changed
 set(PLUGIN_NAME "audio_player_plugin")
 
-link_directories("C:/Users/boyan/dev/vcpkg/installed/x64-windows/lib")
-link_directories("C:/Users/boyan/dev/vcpkg/installed/x64-windows/lib/manual-link")
-
 add_library(${PLUGIN_NAME} SHARED
   "audio_player_plugin.cpp" "client_audio_player.cpp"
 )
 apply_standard_settings(${PLUGIN_NAME})
 
+set(CMAKE_FLUTTER_WINDOWS "1")
 add_compile_definitions(_FLUTTER)
+add_compile_definitions(_FLUTTER_WINDOWS)
 add_subdirectory(../ffplayer ffplayer.out)
 
 set_target_properties(${PLUGIN_NAME} PROPERTIES

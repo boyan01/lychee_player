@@ -7,6 +7,7 @@
 extern "C" {
 #include "ffplayer/ffplayer.h"
 #include "ffplayer/utils.h"
+#include "libswscale/swscale.h"
 }
 
 using namespace std;
@@ -35,13 +36,32 @@ static int screen_height = 0;
 static int screen_left = SDL_WINDOWPOS_CENTERED;
 static int screen_top = SDL_WINDOWPOS_CENTERED;
 
-typedef struct DrawEvent_ {
-    FFP_VideoRenderContext_ *context;
-    Frame *frame;
-    int64_t render_time;
 
-    void (*draw)(FFP_VideoRenderContext *c, Frame *f);
-} DrawEvent;
+static const struct TextureFormatEntry {
+    enum AVPixelFormat format;
+    int texture_fmt;
+} sdl_texture_format_map[] = {
+        {AV_PIX_FMT_RGB8,           SDL_PIXELFORMAT_RGB332},
+        {AV_PIX_FMT_RGB444,         SDL_PIXELFORMAT_RGB444},
+        {AV_PIX_FMT_RGB555,         SDL_PIXELFORMAT_RGB555},
+        {AV_PIX_FMT_BGR555,         SDL_PIXELFORMAT_BGR555},
+        {AV_PIX_FMT_RGB565,         SDL_PIXELFORMAT_RGB565},
+        {AV_PIX_FMT_BGR565,         SDL_PIXELFORMAT_BGR565},
+        {AV_PIX_FMT_RGB24,          SDL_PIXELFORMAT_RGB24},
+        {AV_PIX_FMT_BGR24,          SDL_PIXELFORMAT_BGR24},
+        {AV_PIX_FMT_0RGB32,         SDL_PIXELFORMAT_RGB888},
+        {AV_PIX_FMT_0BGR32,         SDL_PIXELFORMAT_BGR888},
+        {AV_PIX_FMT_NE(RGB0, 0BGR), SDL_PIXELFORMAT_RGBX8888},
+        {AV_PIX_FMT_NE(BGR0, 0RGB), SDL_PIXELFORMAT_BGRX8888},
+        {AV_PIX_FMT_RGB32,          SDL_PIXELFORMAT_ARGB8888},
+        {AV_PIX_FMT_RGB32_1,        SDL_PIXELFORMAT_RGBA8888},
+        {AV_PIX_FMT_BGR32,          SDL_PIXELFORMAT_ABGR8888},
+        {AV_PIX_FMT_BGR32_1,        SDL_PIXELFORMAT_BGRA8888},
+        {AV_PIX_FMT_YUV420P,        SDL_PIXELFORMAT_IYUV},
+        {AV_PIX_FMT_YUYV422,        SDL_PIXELFORMAT_YUY2},
+        {AV_PIX_FMT_UYVY422,        SDL_PIXELFORMAT_UYVY},
+        {AV_PIX_FMT_NONE,           SDL_PIXELFORMAT_UNKNOWN},
+};
 
 static void sigterm_handler(int sig) {
     exit(123);
@@ -63,7 +83,7 @@ static void do_exit(CPlayer *player) {
     if (player->show_status)
         printf("\n");
     SDL_Quit();
-    av_log(NULL, AV_LOG_QUIET, "%s", "");
+    av_log(nullptr, AV_LOG_QUIET, "%s", "");
     exit(0);
 }
 
@@ -85,7 +105,7 @@ static void stream_cycle_channel(VideoState *is, int codec_type) {
     int start_index, stream_index;
     int old_index;
     AVStream *st;
-    AVProgram *p = NULL;
+    AVProgram *p = nullptr;
     int nb_streams = is->ic->nb_streams;
 
     if (codec_type == AVMEDIA_TYPE_VIDEO) {
@@ -101,7 +121,7 @@ static void stream_cycle_channel(VideoState *is, int codec_type) {
     stream_index = start_index;
 
     if (codec_type != AVMEDIA_TYPE_VIDEO && is->video_stream != -1) {
-        p = av_find_program_from_stream(ic, NULL, is->video_stream);
+        p = av_find_program_from_stream(ic, nullptr, is->video_stream);
         if (p) {
             nb_streams = p->nb_stream_indexes;
             for (start_index = 0; start_index < nb_streams; start_index++)
@@ -146,7 +166,7 @@ static void stream_cycle_channel(VideoState *is, int codec_type) {
 the_end:
     if (p && stream_index != -1)
         stream_index = p->stream_index[stream_index];
-    av_log(NULL, AV_LOG_INFO, "Switch %s stream from #%d to #%d\n",
+    av_log(nullptr, AV_LOG_INFO, "Switch %s stream from #%d to #%d\n",
            av_get_media_type_string(codec_type),
            old_index,
            stream_index);
@@ -325,12 +345,11 @@ static void event_loop(CPlayer *player) {
                 do_exit(player);
                 break;
             case FF_DRAW_EVENT: {
-                auto *draw_event = static_cast<DrawEvent *>(event.user.data1);
-                draw_event->draw(draw_event->context, draw_event->frame);
+                auto *video_render_ctx = static_cast<FFP_VideoRenderContext *>(event.user.data1);
+                SDL_RenderPresent(video_render_ctx->renderer);
                 cout << "draw delay time: "
-                     << (av_gettime_relative() - draw_event->render_time) / 1000 << " milliseconds"
+                     << (SDL_GetTicks() - event.user.timestamp) << " milliseconds"
                      << endl;
-                delete draw_event;
             }
                 break;
             default:
@@ -360,7 +379,7 @@ static void on_load_metadata(void *op) {
 
 
 static void on_message(CPlayer *player, int what, int64_t arg1, int64_t arg2) {
-//    av_log(NULL, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n", what, arg1, arg2);
+//    av_log(nullptr, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n", what, arg1, arg2);
     switch (what) {
         case FFP_MSG_VIDEO_FRAME_LOADED:
             set_default_window_size(arg1, arg2);
@@ -408,21 +427,8 @@ static void set_sdl_yuv_conversion_mode(AVFrame *frame) {
 #endif
 }
 
-
-static void render_frame(FFP_VideoRenderContext *context, Frame *frame) {
-    static auto callbalc = [](FFP_VideoRenderContext *c, Frame *vp) {
-        SDL_RenderPresent(c->renderer);
-    };
-    auto *draw_event = new DrawEvent();
-    draw_event->draw = callbalc;
-    draw_event->frame = frame;
-    draw_event->context = context;
-    draw_event->render_time = av_gettime_relative();
-    SDL_Event event;
-    event.type = FF_DRAW_EVENT;
-    event.user.data1 = static_cast<void *>(draw_event);
-    SDL_PushEvent(&event);
-}
+static int upload_texture(FFP_VideoRenderContext *video_render_ctx, SDL_Texture **tex, AVFrame *frame,
+                          struct SwsContext **img_convert_ctx);
 
 int main(int argc, char *argv[]) {
     char *input_file = argv[1];
@@ -435,11 +441,11 @@ int main(int argc, char *argv[]) {
         input_file = (char *) input_filename;
     }
     if (!input_file) {
-        av_log(NULL, AV_LOG_FATAL, "An input file must be specified\n");
+        av_log(nullptr, AV_LOG_FATAL, "An input file must be specified\n");
         exit(1);
     }
 
-    ffplayer_global_init(NULL);
+    ffplayer_global_init(nullptr);
 
     signal(SIGINT, sigterm_handler);  /* Interrupt (ANSI).    */
     signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */
@@ -474,8 +480,8 @@ int main(int argc, char *argv[]) {
     if (config.video_disable)
         flags &= ~SDL_INIT_VIDEO;
     if (SDL_Init(flags)) {
-        av_log(NULL, AV_LOG_FATAL, "Could not initialize SDL - %s\n", SDL_GetError());
-        av_log(NULL, AV_LOG_FATAL, "(Did you set the DISPLAY variable?)\n");
+        av_log(nullptr, AV_LOG_FATAL, "Could not initialize SDL - %s\n", SDL_GetError());
+        av_log(nullptr, AV_LOG_FATAL, "(Did you set the DISPLAY variable?)\n");
         exit(1);
     }
     SDL_EventState(SDL_SYSWMEVENT, SDL_IGNORE);
@@ -490,7 +496,7 @@ int main(int argc, char *argv[]) {
 #if SDL_VERSION_ATLEAST(2, 0, 5)
             window_flags |= SDL_WINDOW_ALWAYS_ON_TOP;
 #else
-        av_log(NULL, AV_LOG_WARNING, "Your SDL version doesn't support SDL_WINDOW_ALWAYS_ON_TOP. Feature will be inactive.\n");
+        av_log(nullptr, AV_LOG_WARNING, "Your SDL version doesn't support SDL_WINDOW_ALWAYS_ON_TOP. Feature will be inactive.\n");
 #endif
         if (borderless)
             window_flags |= SDL_WINDOW_BORDERLESS;
@@ -502,29 +508,47 @@ int main(int argc, char *argv[]) {
         if (window) {
             renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
             if (!renderer) {
-                av_log(NULL, AV_LOG_WARNING, "Failed to initialize a hardware accelerated renderer: %s\n",
+                av_log(nullptr, AV_LOG_WARNING, "Failed to initialize a hardware accelerated renderer: %s\n",
                        SDL_GetError());
                 renderer = SDL_CreateRenderer(window, -1, 0);
             }
             if (renderer) {
                 if (!SDL_GetRendererInfo(renderer, &renderer_info))
-                    av_log(NULL, AV_LOG_VERBOSE, "Initialized %s renderer.\n", renderer_info.name);
+                    av_log(nullptr, AV_LOG_VERBOSE, "Initialized %s renderer.\n", renderer_info.name);
             }
         }
         if (!window || !renderer || !renderer_info.num_texture_formats) {
-            av_log(NULL, AV_LOG_FATAL, "Failed to create window or renderer: %s", SDL_GetError());
-            do_exit(NULL);
+            av_log(nullptr, AV_LOG_FATAL, "Failed to create window or renderer: %s", SDL_GetError());
+            do_exit(nullptr);
         }
         ffp_set_video_render(player, renderer);
-        player->video_render_ctx->render_callback = render_frame;
+        player->video_render_ctx->on_render = [](FFP_VideoRenderContext *video_render_ctx, Frame *vp) {
+            if (!vp->uploaded) {
+                if (upload_texture(video_render_ctx, &video_render_ctx->texture, vp->frame,
+                                   &video_render_ctx->img_convert_ctx) < 0)
+                    return;
+                vp->uploaded = 1;
+                vp->flip_v = vp->frame->linesize[0] < 0;
+            }
+            set_sdl_yuv_conversion_mode(vp->frame);
+            SDL_RenderCopyEx(video_render_ctx->renderer, video_render_ctx->texture, nullptr, nullptr, 0, nullptr,
+                             vp->flip_v ? SDL_FLIP_VERTICAL : SDL_FLIP_NONE);
+            set_sdl_yuv_conversion_mode(nullptr);
+        };
+        player->video_render_ctx->on_texture_updated = [](FFP_VideoRenderContext *context) {
+            SDL_Event event;
+            event.type = FF_DRAW_EVENT;
+            event.user.data1 = static_cast<void *>(context);
+            SDL_PushEvent(&event);
+        };
     }
     player->on_load_metadata = on_load_metadata;
     player->on_message = on_message;
 
     ffplayer_open_file(player, input_file);
     if (!player->is) {
-        av_log(NULL, AV_LOG_FATAL, "Failed to initialize VideoState!\n");
-        do_exit(NULL);
+        av_log(nullptr, AV_LOG_FATAL, "Failed to initialize VideoState!\n");
+        do_exit(nullptr);
     }
 
     if (ffplayer_is_paused(player)) {
@@ -534,4 +558,110 @@ int main(int argc, char *argv[]) {
     event_loop(player);
 
     return 0;
+}
+
+static void get_sdl_pix_fmt_and_blendmode(int format, Uint32 *sdl_pix_fmt, SDL_BlendMode *sdl_blendmode) {
+    int i;
+    *sdl_blendmode = SDL_BLENDMODE_NONE;
+    *sdl_pix_fmt = SDL_PIXELFORMAT_UNKNOWN;
+    if (format == AV_PIX_FMT_RGB32 ||
+        format == AV_PIX_FMT_RGB32_1 ||
+        format == AV_PIX_FMT_BGR32 ||
+        format == AV_PIX_FMT_BGR32_1)
+        *sdl_blendmode = SDL_BLENDMODE_BLEND;
+    for (i = 0; i < FF_ARRAY_ELEMS(sdl_texture_format_map) - 1; i++) {
+        if (format == sdl_texture_format_map[i].format) {
+            *sdl_pix_fmt = sdl_texture_format_map[i].texture_fmt;
+            return;
+        }
+    }
+}
+
+static int
+realloc_texture(SDL_Renderer *renderer, SDL_Texture **texture, Uint32 new_format, int new_width, int new_height,
+                SDL_BlendMode blendmode, int init_texture) {
+    Uint32 format;
+    int access, w, h;
+    if (!*texture || SDL_QueryTexture(*texture, &format, &access, &w, &h) < 0 || new_width != w || new_height != h ||
+        new_format != format) {
+        void *pixels;
+        int pitch;
+        if (*texture)
+            SDL_DestroyTexture(*texture);
+        if (!(*texture = SDL_CreateTexture(renderer, new_format, SDL_TEXTUREACCESS_STREAMING, new_width,
+                                           new_height)))
+            return -1;
+        if (SDL_SetTextureBlendMode(*texture, blendmode) < 0)
+            return -1;
+        if (init_texture) {
+            if (SDL_LockTexture(*texture, nullptr, &pixels, &pitch) < 0)
+                return -1;
+            memset(pixels, 0, pitch * new_height);
+            SDL_UnlockTexture(*texture);
+        }
+        av_log(nullptr, AV_LOG_VERBOSE, "Created %dx%d texture with %s.\n", new_width, new_height,
+               SDL_GetPixelFormatName(new_format));
+    }
+    return 0;
+}
+
+
+static int upload_texture(FFP_VideoRenderContext *video_render_ctx, SDL_Texture **tex, AVFrame *frame,
+                          struct SwsContext **img_convert_ctx) {
+    int ret = 0;
+    Uint32 sdl_pix_fmt;
+    SDL_BlendMode sdl_blendmode;
+    get_sdl_pix_fmt_and_blendmode(frame->format, &sdl_pix_fmt, &sdl_blendmode);
+    if (realloc_texture(video_render_ctx->renderer, tex,
+                        sdl_pix_fmt == SDL_PIXELFORMAT_UNKNOWN ? SDL_PIXELFORMAT_ARGB8888 : sdl_pix_fmt,
+                        frame->width, frame->height, sdl_blendmode, 0) < 0)
+        return -1;
+    switch (sdl_pix_fmt) {
+        case SDL_PIXELFORMAT_UNKNOWN:
+            /* This should only happen if we are not using avfilter... */
+            *img_convert_ctx = sws_getCachedContext(*img_convert_ctx,
+                                                    frame->width, frame->height, AVPixelFormat(frame->format),
+                                                    frame->width, frame->height, AVPixelFormat::AV_PIX_FMT_BGRA,
+                                                    sws_flags, nullptr, nullptr, nullptr);
+
+            if (*img_convert_ctx != nullptr) {
+                uint8_t *pixels[4];
+                int pitch[4];
+                if (!SDL_LockTexture(*tex, nullptr, (void **) pixels, pitch)) {
+                    sws_scale(*img_convert_ctx, (const uint8_t *const *) frame->data, frame->linesize,
+                              0, frame->height, pixels, pitch);
+                    SDL_UnlockTexture(*tex);
+                }
+            } else {
+                av_log(nullptr, AV_LOG_FATAL, "Cannot initialize the conversion context\n");
+                ret = -1;
+            }
+            break;
+        case SDL_PIXELFORMAT_IYUV:
+            if (frame->linesize[0] > 0 && frame->linesize[1] > 0 && frame->linesize[2] > 0) {
+                ret = SDL_UpdateYUVTexture(*tex, nullptr, frame->data[0], frame->linesize[0],
+                                           frame->data[1], frame->linesize[1],
+                                           frame->data[2], frame->linesize[2]);
+            } else if (frame->linesize[0] < 0 && frame->linesize[1] < 0 && frame->linesize[2] < 0) {
+                ret = SDL_UpdateYUVTexture(*tex, nullptr, frame->data[0] + frame->linesize[0] * (frame->height - 1),
+                                           -frame->linesize[0],
+                                           frame->data[1] + frame->linesize[1] * (AV_CEIL_RSHIFT(frame->height, 1) - 1),
+                                           -frame->linesize[1],
+                                           frame->data[2] + frame->linesize[2] * (AV_CEIL_RSHIFT(frame->height, 1) - 1),
+                                           -frame->linesize[2]);
+            } else {
+                av_log(nullptr, AV_LOG_ERROR, "Mixed negative and positive linesizes are not supported.\n");
+                return -1;
+            }
+            break;
+        default:
+            if (frame->linesize[0] < 0) {
+                ret = SDL_UpdateTexture(*tex, nullptr, frame->data[0] + frame->linesize[0] * (frame->height - 1),
+                                        -frame->linesize[0]);
+            } else {
+                ret = SDL_UpdateTexture(*tex, nullptr, frame->data[0], frame->linesize[0]);
+            }
+            break;
+    }
+    return ret;
 }

@@ -305,7 +305,10 @@ struct FFP_VideoRenderContext_ {
     SDL_Thread *render_tid;
     SDL_mutex *render_mutex;
     int width, height, xleft, ytop;
-    void (*render_callback)(FFP_VideoRenderContext *context, Frame *frame);
+
+    void (*on_render)(FFP_VideoRenderContext *context, Frame *frame);
+
+    void (*on_texture_updated)(FFP_VideoRenderContext *context);
 };
 
 typedef struct CPlayer {
@@ -365,7 +368,7 @@ typedef struct CPlayer {
     FFPlayerState state;
     int64_t last_io_buffering_ts;
 
-    FFP_VideoRenderContext* video_render_ctx;
+    FFP_VideoRenderContext *video_render_ctx;
 
 #ifdef _FLUTTER
     Dart_Port message_send_port;
@@ -379,7 +382,7 @@ FFPLAYER_EXPORT CPlayer *ffp_create_player(FFPlayerConfiguration *config);
 
 FFPLAYER_EXPORT void ffplayer_free_player(CPlayer *player);
 
-FFPLAYER_EXPORT void ffp_set_video_render(CPlayer *player, SDL_Renderer* renderer);
+FFPLAYER_EXPORT void ffp_set_video_render(CPlayer *player, SDL_Renderer *renderer);
 
 FFPLAYER_EXPORT int ffplayer_open_file(CPlayer *player, const char *filename);
 
@@ -416,9 +419,6 @@ FFPLAYER_EXPORT void
 ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int32_t, int64_t, int64_t));
 
 FFPLAYER_EXPORT void ffp_refresh_texture(CPlayer *player);
-
-FFPLAYER_EXPORT int upload_texture(FFP_VideoRenderContext *video_render_ctx, SDL_Texture **tex, AVFrame *frame,
-                   struct SwsContext **img_convert_ctx);
 
 #ifdef _FLUTTER
 
