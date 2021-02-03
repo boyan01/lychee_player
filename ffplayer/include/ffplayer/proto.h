@@ -9,4 +9,8 @@ struct CPlayer;
 
 typedef struct CPlayer CPlayer;
 
+struct FFP_VideoRenderContext_;
+
+typedef struct FFP_VideoRenderContext_ FFP_VideoRenderContext;
+
 #endif //FFPLAYER_PROTO_H

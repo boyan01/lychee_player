@@ -3,16 +3,15 @@
 #ifndef FFPLAYER_FFPLAYER_H_
 #define FFPLAYER_FFPLAYER_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <thread>
+#include <mutex>
 
-#include <stdbool.h>
-#include <stdint.h>
-
-#include "SDL2/SDL.h"
 #include "ffplayer_msg_queue.h"
 #include "ffplayer_packet_queue.h"
+#include "proto.h"
+
+extern "C" {
+#include "SDL2/SDL.h"
 #include "libavcodec/avfft.h"
 #include "libavdevice/avdevice.h"
 #include "libavformat/avformat.h"
@@ -30,8 +29,7 @@ extern "C" {
 #include "libavutil/time.h"
 #include "libswresample/swresample.h"
 #include "libswscale/swscale.h"
-
-#include "proto.h"
+}
 
 #ifdef _FLUTTER
 #include "third_party/dart/dart_api_dl.h"
@@ -291,25 +289,28 @@ typedef struct FFPlayerConfiguration_ {
     int32_t loop;
 } FFPlayerConfiguration;
 
-struct FFP_VideoRenderContext_;
-typedef struct FFP_VideoRenderContext_ FFP_VideoRenderContext;
+
+typedef struct FFP_VideoRenderCallback_ {
+    void *opacity;
+
+    void (*on_render)(FFP_VideoRenderContext *video_render_ctx, Frame *frame);
+
+    void (*on_texture_updated)(FFP_VideoRenderContext *video_render_ctx);
+
+    void (*on_destroy)(void *opacity);
+} FFP_VideoRenderCallback;
 
 struct FFP_VideoRenderContext_ {
     bool abort_render;
+    bool render_attached;
     struct SwsContext *img_convert_ctx;
     struct SwsContext *sub_convert_ctx;
-    SDL_Renderer *renderer;
 
-    SDL_Texture *texture;
-    SDL_Texture *sub_texture;
 
-    SDL_Thread *render_tid;
-    SDL_mutex *render_mutex;
-    int width, height, xleft, ytop;
+    std::thread *render_thread_;
+    std::mutex *render_mutex_;
 
-    void (*on_render)(FFP_VideoRenderContext *context, Frame *frame);
-
-    void (*on_texture_updated)(FFP_VideoRenderContext *context);
+    FFP_VideoRenderCallback *render_callback_;
 };
 
 struct CPlayer {
@@ -369,7 +370,7 @@ struct CPlayer {
     FFPlayerState state;
     int64_t last_io_buffering_ts;
 
-    FFP_VideoRenderContext *video_render_ctx;
+    FFP_VideoRenderContext video_render_ctx;
 
 #ifdef _FLUTTER
     Dart_Port message_send_port;
@@ -383,7 +384,7 @@ FFPLAYER_EXPORT CPlayer *ffp_create_player(FFPlayerConfiguration *config);
 
 FFPLAYER_EXPORT void ffplayer_free_player(CPlayer *player);
 
-FFPLAYER_EXPORT void ffp_set_video_render(CPlayer *player, SDL_Renderer *renderer);
+FFPLAYER_EXPORT void ffp_attach_video_render(CPlayer *player, FFP_VideoRenderCallback *render_callback);
 
 FFPLAYER_EXPORT int ffplayer_open_file(CPlayer *player, const char *filename);
 
@@ -419,7 +420,7 @@ FFPLAYER_EXPORT int ffp_get_state(CPlayer *player);
 FFPLAYER_EXPORT void
 ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int32_t, int64_t, int64_t));
 
-FFPLAYER_EXPORT void ffp_refresh_texture(CPlayer *player);
+FFPLAYER_EXPORT void ffp_refresh_texture(CPlayer *player, void(*on_locked)(FFP_VideoRenderContext *video_render_ctx));
 
 #ifdef _FLUTTER
 
@@ -447,8 +448,5 @@ static inline void ffp_send_msg(CPlayer *player, int what) {
     ffp_send_msg1(player, what, 0);
 }
 
-#ifdef __cplusplus
-}
-#endif
 
 #endif  // FFPLAYER_FFPLAYER_H_

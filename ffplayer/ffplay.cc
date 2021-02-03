@@ -4,9 +4,10 @@
 #include <csignal>
 #include <iostream>
 
-extern "C" {
 #include "ffplayer/ffplayer.h"
 #include "ffplayer/utils.h"
+
+extern "C" {
 #include "libswscale/swscale.h"
 }
 
@@ -63,6 +64,13 @@ static const struct TextureFormatEntry {
         {AV_PIX_FMT_NONE,           SDL_PIXELFORMAT_UNKNOWN},
 };
 
+typedef struct VideoRenderData_ {
+    SDL_Renderer *renderer;
+    SDL_Texture *texture;
+    SDL_Texture *sub_texture;
+    int width, height, xleft, ytop;
+} VideoRenderData;
+
 static void sigterm_handler(int sig) {
     exit(123);
 }
@@ -71,8 +79,9 @@ static void do_exit(CPlayer *player) {
     if (player->is) {
         ffplayer_free_player(player);
     }
-    if (player->video_render_ctx->renderer)
-        SDL_DestroyRenderer(player->video_render_ctx->renderer);
+    auto render_data = static_cast<VideoRenderData *>(player->video_render_ctx.render_callback_->opacity);
+    if (render_data->renderer)
+        SDL_DestroyRenderer(render_data->renderer);
     if (window)
         SDL_DestroyWindow(window);
     // uninit_opts();
@@ -206,7 +215,8 @@ static void event_loop(CPlayer *player) {
                     break;
                 }
                 // If we don't yet have a window, skip all key events, because read_thread might still be initializing...
-                if (!player->video_render_ctx->width)
+                if (!player->video_render_ctx.render_callback_ ||
+                    static_cast<VideoRenderData *>(player->video_render_ctx.render_callback_->opacity)->width == 0)
                     continue;
                 switch (event.key.keysym.sym) {
                     case SDLK_f:
@@ -327,16 +337,23 @@ static void event_loop(CPlayer *player) {
                     x = event.motion.x;
                 }
                 {
-                    double dest = (x / player->video_render_ctx->width) * ffplayer_get_duration(player);
+                    auto render_data = static_cast<VideoRenderData *>(player->video_render_ctx.render_callback_->opacity);
+                    double dest = (x / render_data->width) * ffplayer_get_duration(player);
                     ffplayer_seek_to_position(player, dest);
                 }
                 break;
             case SDL_WINDOWEVENT:
                 switch (event.window.event) {
-                    case SDL_WINDOWEVENT_SIZE_CHANGED:
-                        screen_width = player->video_render_ctx->width = event.window.data1;
-                        screen_height = player->video_render_ctx->height = event.window.data2;
-                        ffp_refresh_texture(player);
+                    case SDL_WINDOWEVENT_SIZE_CHANGED: {
+                        auto render_data = static_cast<VideoRenderData *>(player->video_render_ctx.render_callback_->opacity);
+                        screen_width = render_data->width = event.window.data1;
+                        screen_height = render_data->height = event.window.data2;
+                        ffp_refresh_texture(player, [](FFP_VideoRenderContext *context) {
+                            auto render_data = static_cast<VideoRenderData *>(context->render_callback_->opacity);
+                            SDL_DestroyTexture(render_data->texture);
+                            render_data->texture = nullptr;
+                        });
+                    }
                     case SDL_WINDOWEVENT_EXPOSED:
                         is->force_refresh = 1;
                 }
@@ -345,7 +362,7 @@ static void event_loop(CPlayer *player) {
                 do_exit(player);
                 break;
             case FF_DRAW_EVENT: {
-                auto *video_render_ctx = static_cast<FFP_VideoRenderContext *>(event.user.data1);
+                auto *video_render_ctx = static_cast<VideoRenderData *>(event.user.data1);
                 SDL_RenderPresent(video_render_ctx->renderer);
                 cout << "draw delay time: "
                      << (SDL_GetTicks() - event.user.timestamp) << " milliseconds"
@@ -521,26 +538,38 @@ int main(int argc, char *argv[]) {
             av_log(nullptr, AV_LOG_FATAL, "Failed to create window or renderer: %s", SDL_GetError());
             do_exit(nullptr);
         }
-        ffp_set_video_render(player, renderer);
-        player->video_render_ctx->on_render = [](FFP_VideoRenderContext *video_render_ctx, Frame *vp) {
+
+        auto render_data = new VideoRenderData{nullptr};
+        render_data->renderer = renderer;
+        auto render_callback = new FFP_VideoRenderCallback;
+        render_callback->on_render = [](FFP_VideoRenderContext *video_render_ctx, Frame *vp) {
+            auto render_data = static_cast<VideoRenderData *>(video_render_ctx->render_callback_->opacity);
+            SDL_SetRenderDrawColor(render_data->renderer, 0, 0, 0, 255);
+            SDL_RenderClear(render_data->renderer);
             if (!vp->uploaded) {
-                if (upload_texture(video_render_ctx, &video_render_ctx->texture, vp->frame,
+                if (upload_texture(video_render_ctx, &render_data->texture, vp->frame,
                                    &video_render_ctx->img_convert_ctx) < 0)
                     return;
                 vp->uploaded = 1;
                 vp->flip_v = vp->frame->linesize[0] < 0;
             }
             set_sdl_yuv_conversion_mode(vp->frame);
-            SDL_RenderCopyEx(video_render_ctx->renderer, video_render_ctx->texture, nullptr, nullptr, 0, nullptr,
+            SDL_RenderCopyEx(render_data->renderer, render_data->texture, nullptr, nullptr, 0, nullptr,
                              vp->flip_v ? SDL_FLIP_VERTICAL : SDL_FLIP_NONE);
             set_sdl_yuv_conversion_mode(nullptr);
         };
-        player->video_render_ctx->on_texture_updated = [](FFP_VideoRenderContext *context) {
+        render_callback->on_texture_updated = [](FFP_VideoRenderContext *context) {
             SDL_Event event;
             event.type = FF_DRAW_EVENT;
-            event.user.data1 = static_cast<void *>(context);
+            event.user.data1 = context->render_callback_->opacity;
             SDL_PushEvent(&event);
         };
+        render_callback->opacity = render_data;
+        render_callback->on_destroy = [](void *opacity) {
+            auto render_data = static_cast<VideoRenderData *>(opacity);
+            delete render_data;
+        };
+        ffp_attach_video_render(player, render_callback);
     }
     player->on_load_metadata = on_load_metadata;
     player->on_message = on_message;
@@ -612,7 +641,8 @@ static int upload_texture(FFP_VideoRenderContext *video_render_ctx, SDL_Texture 
     Uint32 sdl_pix_fmt;
     SDL_BlendMode sdl_blendmode;
     get_sdl_pix_fmt_and_blendmode(frame->format, &sdl_pix_fmt, &sdl_blendmode);
-    if (realloc_texture(video_render_ctx->renderer, tex,
+    auto render_data = static_cast<VideoRenderData *>(video_render_ctx->render_callback_->opacity);
+    if (realloc_texture(render_data->renderer, tex,
                         sdl_pix_fmt == SDL_PIXELFORMAT_UNKNOWN ? SDL_PIXELFORMAT_ARGB8888 : sdl_pix_fmt,
                         frame->width, frame->height, sdl_blendmode, 0) < 0)
         return -1;

@@ -1,9 +1,7 @@
 #ifndef FFPLAYER_UTILS_H_
 #define FFPLAYER_UTILS_H_
 
-#ifdef __cplusplus
 extern "C" {
-#endif
 
 #ifndef FFP_MAX
 #define FFP_MAX(a, b)    ((a) > (b) ? (a) : (b))
@@ -15,6 +13,7 @@ extern "C" {
 
 #include "libavutil/rational.h"
 #include "SDL2/SDL_rect.h"
+}
 
 static void calculate_display_rect(SDL_Rect *rect,
                             int scr_xleft, int scr_ytop, int scr_width, int scr_height,
@@ -41,9 +40,5 @@ static void calculate_display_rect(SDL_Rect *rect,
     rect->w = FFMAX((int) width, 1);
     rect->h = FFMAX((int) height, 1);
 }
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif  // FFPLAYER_UTILS_H_

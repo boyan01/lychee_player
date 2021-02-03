@@ -23,11 +23,6 @@
  * simple media player based on the FFmpeg libraries
  */
 
-#include <cinttypes>
-#include <climits>
-#include <cmath>
-#include <cstdint>
-
 #if CONFIG_AVFILTER
 #include "libavfilter/avfilter.h"
 #include "libavfilter/buffersink.h"
@@ -398,7 +393,7 @@ static void
 video_image_display(CPlayer *player, FrameQueue *pic_queue, FrameQueue *sub_queue) {
     Frame *vp;
     Frame *sp = nullptr;
-    FFP_VideoRenderContext *video_render_ctx = player->video_render_ctx;
+    FFP_VideoRenderContext *video_render_ctx = &player->video_render_ctx;
     vp = frame_queue_peek_last(pic_queue);
 
 #if 0
@@ -415,7 +410,7 @@ video_image_display(CPlayer *player, FrameQueue *pic_queue, FrameQueue *sub_queu
                         sp->width = vp->width;
                         sp->height = vp->height;
                     }
-                    if (realloc_texture(video_render_ctx->renderer, &video_render_ctx->sub_texture,
+                    if (realloc_texture(video_render_ctx.renderer, &video_render_ctx.sub_texture,
                                         SDL_PIXELFORMAT_ARGB8888, sp->width, sp->height,
                                         SDL_BLENDMODE_BLEND, 1) < 0)
                         return;
@@ -428,22 +423,22 @@ video_image_display(CPlayer *player, FrameQueue *pic_queue, FrameQueue *sub_queu
                         sub_rect->w = av_clip(sub_rect->w, 0, sp->width - sub_rect->x);
                         sub_rect->h = av_clip(sub_rect->h, 0, sp->height - sub_rect->y);
 
-                        video_render_ctx->sub_convert_ctx = sws_getCachedContext(video_render_ctx->sub_convert_ctx,
+                        video_render_ctx.sub_convert_ctx = sws_getCachedContext(video_render_ctx.sub_convert_ctx,
                                                                                  sub_rect->w, sub_rect->h,
                                                                                  AV_PIX_FMT_PAL8,
                                                                                  sub_rect->w, sub_rect->h,
                                                                                  AV_PIX_FMT_BGRA,
                                                                                  0, nullptr, nullptr, nullptr);
-                        if (!video_render_ctx->sub_convert_ctx) {
+                        if (!video_render_ctx.sub_convert_ctx) {
                             av_log(nullptr, AV_LOG_FATAL, "Cannot initialize the conversion context\n");
                             return;
                         }
-                        if (!SDL_LockTexture(video_render_ctx->sub_texture, (SDL_Rect *) sub_rect, (void **) pixels,
+                        if (!SDL_LockTexture(video_render_ctx.sub_texture, (SDL_Rect *) sub_rect, (void **) pixels,
                                              pitch)) {
-                            sws_scale(video_render_ctx->sub_convert_ctx, (const uint8_t *const *) sub_rect->data,
+                            sws_scale(video_render_ctx.sub_convert_ctx, (const uint8_t *const *) sub_rect->data,
                                       sub_rect->linesize,
                                       0, sub_rect->h, pixels, pitch);
-                            SDL_UnlockTexture(video_render_ctx->sub_texture);
+                            SDL_UnlockTexture(video_render_ctx.sub_texture);
                         }
                     }
                     sp->uploaded = 1;
@@ -454,8 +449,8 @@ video_image_display(CPlayer *player, FrameQueue *pic_queue, FrameQueue *sub_queu
     }
 #endif
 
-    if (video_render_ctx->on_render) {
-        video_render_ctx->on_render(video_render_ctx, vp);
+    if (video_render_ctx->render_callback_ && video_render_ctx->render_callback_->on_render) {
+        video_render_ctx->render_callback_->on_render(video_render_ctx, vp);
     }
 
     if (player->first_video_frame_rendered) {
@@ -466,7 +461,7 @@ video_image_display(CPlayer *player, FrameQueue *pic_queue, FrameQueue *sub_queu
 #if 0
     if (sp) {
 #if USE_ONEPASS_SUBTITLE_RENDER
-        SDL_RenderCopy(video_render_ctx->renderer, video_render_ctx->sub_texture, nullptr, &rect);
+        SDL_RenderCopy(video_render_ctx.renderer, video_render_ctx.sub_texture, nullptr, &rect);
 #else
         int i;
         double xratio = (double) rect.w / (double) sp->width;
@@ -561,11 +556,9 @@ static void stream_close(CPlayer *player) {
         SDL_WaitThread(player->msg_tid, nullptr);
     }
 
-    if (player->video_render_ctx) {
-        player->video_render_ctx->abort_render = true;
-        if (player->video_render_ctx->render_tid) {
-            SDL_WaitThread(player->video_render_ctx->render_tid, nullptr);
-        }
+    player->video_render_ctx.abort_render = true;
+    if (player->video_render_ctx.render_thread_ && player->video_render_ctx.render_thread_->joinable()) {
+        player->video_render_ctx.render_thread_->join();
     }
 
     avformat_close_input(&is->ic);
@@ -582,12 +575,14 @@ static void stream_close(CPlayer *player) {
     SDL_DestroyCond(is->continue_read_thread);
     av_free(is->filename);
 
-    if (player->video_render_ctx) {
-        sws_freeContext(player->video_render_ctx->img_convert_ctx);
-        if (player->video_render_ctx->texture)
-            SDL_DestroyTexture(player->video_render_ctx->texture);
+    sws_freeContext(player->video_render_ctx.img_convert_ctx);
+    if (player->video_render_ctx.render_callback_ && player->video_render_ctx.render_callback_->opacity) {
+        if (!player->video_render_ctx.render_callback_->on_destroy) {
+            av_log(nullptr, AV_LOG_FATAL, "render_callback_->on_destroy handle is null. it may cause memory leak. \n");
+        } else {
+            player->video_render_ctx.render_callback_->on_destroy(player->video_render_ctx.render_callback_->opacity);
+        }
     }
-
     av_free(is);
     av_free(player);
     change_player_state(player, FFP_STATE_IDLE);
@@ -595,10 +590,6 @@ static void stream_close(CPlayer *player) {
 
 /* display the current picture, if any */
 static void video_display(CPlayer *player) {
-    if (!player->video_render_ctx) {
-        av_log(nullptr, AV_LOG_ERROR, "video_display: failed to display cause video_render_ctx is nullptr\n");
-        return;
-    }
     VideoState *is = player->is;
     // if (!is->width) {
     //     int w = screen_width ? screen_width : default_width;
@@ -607,14 +598,12 @@ static void video_display(CPlayer *player) {
     //         player->on_video_open(player);
     //     }
     // }
-    FFP_VideoRenderContext *video_render_ctx = player->video_render_ctx;
-    SDL_SetRenderDrawColor(video_render_ctx->renderer, 0, 0, 0, 255);
-    SDL_RenderClear(video_render_ctx->renderer);
+    FFP_VideoRenderContext *video_render_ctx = &player->video_render_ctx;
     if (is->video_st) {
         video_image_display(player, &is->pictq, is->subtitle_st ? &is->subpq : nullptr);
     }
-    if (video_render_ctx->on_texture_updated) {
-        video_render_ctx->on_texture_updated(video_render_ctx);
+    if (video_render_ctx->render_callback_ && video_render_ctx->render_callback_->on_texture_updated) {
+        video_render_ctx->render_callback_->on_texture_updated(video_render_ctx);
     }
 }
 
@@ -934,7 +923,7 @@ static double ffp_draw_frame(CPlayer *player) {
                     goto retry;
                 }
             }
-
+#if 0
             if (is->subtitle_st) {
                 while (frame_queue_nb_remaining(&is->subpq) > 0) {
                     sp = frame_queue_peek(&is->subpq);
@@ -954,12 +943,12 @@ static double ffp_draw_frame(CPlayer *player) {
                                 uint8_t *pixels;
                                 int pitch, j;
 
-                                if (!SDL_LockTexture(player->video_render_ctx->sub_texture, (SDL_Rect *) sub_rect,
+                                if (!SDL_LockTexture(player->video_render_ctx.sub_texture, (SDL_Rect *) sub_rect,
                                                      (void **) &pixels,
                                                      &pitch)) {
                                     for (j = 0; j < sub_rect->h; j++, pixels += pitch)
                                         memset(pixels, 0, sub_rect->w << 2);
-                                    SDL_UnlockTexture(player->video_render_ctx->sub_texture);
+                                    SDL_UnlockTexture(player->video_render_ctx.sub_texture);
                                 }
                             }
                         }
@@ -969,7 +958,7 @@ static double ffp_draw_frame(CPlayer *player) {
                     }
                 }
             }
-
+#endif
             frame_queue_next(&is->pictq);
             is->force_refresh = 1;
 
@@ -1420,19 +1409,16 @@ static int audio_thread(void *arg) {
 static int video_render(void *args) {
     auto *player = static_cast<CPlayer *>(args);
     VideoState *is = player->is;
-    FFP_VideoRenderContext *video_render_ctx = player->video_render_ctx;
-    if (!video_render_ctx) {
-        return 0;
-    }
+    FFP_VideoRenderContext *video_render_ctx = &player->video_render_ctx;
     double remaining_time = 0.0;
     while (!video_render_ctx->abort_render) {
         if (remaining_time > 0.0)
             av_usleep((int64_t) (remaining_time * 1000000.0));
         remaining_time = REFRESH_RATE;
         if (is->show_mode != SHOW_MODE_NONE && (!is->paused || is->force_refresh)) {
-            SDL_LockMutex(video_render_ctx->render_mutex);
+            video_render_ctx->render_mutex_->lock();
             remaining_time = ffp_draw_frame(player);
-            SDL_UnlockMutex(video_render_ctx->render_mutex);
+            video_render_ctx->render_mutex_->unlock();
         }
     }
     return 0;
@@ -1897,6 +1883,20 @@ static int audio_open(CPlayer *player, int64_t wanted_channel_layout, int wanted
     return spec.size;
 }
 
+static void start_video_render(CPlayer *player) {
+    player->video_render_ctx.render_mutex_ = new(std::nothrow) std::mutex();
+    if (!player->video_render_ctx.render_mutex_) {
+        av_log(nullptr, AV_LOG_ERROR, "can not create video_render mutex.");
+        return;
+    }
+    player->video_render_ctx.render_thread_ = new(std::nothrow) std::thread(video_render, player);
+    if (!player->video_render_ctx.render_thread_) {
+        av_log(nullptr, AV_LOG_ERROR, "can not create video_render thread.");
+        delete player->video_render_ctx.render_mutex_;
+        return;
+    }
+}
+
 /* open a given stream. Return 0 if OK */
 static int stream_component_open(CPlayer *player, int stream_index) {
     VideoState *is = player->is;
@@ -2041,12 +2041,7 @@ static int stream_component_open(CPlayer *player, int stream_index) {
             if ((ret = decoder_start(&is->viddec, video_thread, "video_decoder", player)) < 0)
                 goto out;
             is->queue_attachments_req = 1;
-            player->video_render_ctx->render_tid = SDL_CreateThread(video_render, "video_render", player);
-            if (!player->video_render_ctx->render_tid) {
-                av_log(nullptr, AV_LOG_ERROR, "can not create video_render thread: %s \n", SDL_GetError());
-                decoder_abort(&is->viddec, &is->pictq);
-                goto out;
-            }
+
             break;
         case AVMEDIA_TYPE_SUBTITLE:
             is->subtitle_stream = stream_index;
@@ -2714,31 +2709,30 @@ CPlayer *ffp_create_player(FFPlayerConfiguration *config) {
     return player;
 }
 
-void ffp_refresh_texture(CPlayer *player) {
+void ffp_refresh_texture(CPlayer *player, void(*on_locked)(FFP_VideoRenderContext *video_render_ctx)) {
     CHECK_PLAYER(player);
-
-    if (player->video_render_ctx) {
-        SDL_LockMutex(player->video_render_ctx->render_mutex);
-        SDL_DestroyTexture(player->video_render_ctx->texture);
-        player->video_render_ctx->texture = nullptr;
-        ffp_draw_frame(player);
-        SDL_UnlockMutex(player->video_render_ctx->render_mutex);
+    auto render_ctx = &player->video_render_ctx;
+    if (!render_ctx->render_callback_) {
+        return;
     }
+    if (!render_ctx->render_mutex_) {
+        return;
+    }
+    render_ctx->render_mutex_->lock();
+    if (on_locked) {
+        on_locked(render_ctx);
+    }
+    ffp_draw_frame(player);
+    render_ctx->render_mutex_->unlock();
 }
 
-void ffp_set_video_render(CPlayer *player, SDL_Renderer *renderer) {
+void ffp_attach_video_render(CPlayer *player, FFP_VideoRenderCallback *render_callback) {
     CHECK_PLAYER(player);
-    if (player->video_render_ctx) {
-        av_log(nullptr, AV_LOG_FATAL, "do not support update render yet.");
-        return;
+    auto render_ctx = &player->video_render_ctx;
+    player->video_render_ctx.render_callback_ = render_callback;
+    if (render_callback && !render_ctx->render_thread_) {
+        start_video_render(player);
+    } else {
+
     }
-    player->video_render_ctx = static_cast<FFP_VideoRenderContext *>(av_mallocz(sizeof(FFP_VideoRenderContext)));
-    if (!player->video_render_ctx) {
-        av_log(nullptr, AV_LOG_ERROR, "OutOfMemory: can not malloc render ctx.\n");
-        return;
-    }
-    player->video_render_ctx->ytop = 0;
-    player->video_render_ctx->xleft = 0;
-    player->video_render_ctx->render_mutex = SDL_CreateMutex();
-    player->video_render_ctx->renderer = renderer;
 }

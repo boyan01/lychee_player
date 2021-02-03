@@ -5,8 +5,10 @@
 #ifndef FFPLAYER_FFPLAYER_PACKET_QUEUE_H
 #define FFPLAYER_FFPLAYER_PACKET_QUEUE_H
 
+extern "C" {
 #include "SDL2/SDL_mutex.h"
 #include "libavcodec/avcodec.h"
+};
 
 typedef struct MyAVPacketList {
     AVPacket pkt;
@@ -34,7 +36,7 @@ static int packet_queue_put_private(PacketQueue *q, AVPacket *pkt) {
     if (q->abort_request)
         return -1;
 
-    pkt1 = (MyAVPacketList*)av_malloc(sizeof(MyAVPacketList));
+    pkt1 = (MyAVPacketList *) av_malloc(sizeof(MyAVPacketList));
     if (!pkt1)
         return -1;
     pkt1->pkt = *pkt;

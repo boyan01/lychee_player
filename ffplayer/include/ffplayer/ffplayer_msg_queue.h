@@ -5,15 +5,10 @@
 #ifndef FFPLAYER_FFPLAYER_MSG_QUEUE_H
 #define FFPLAYER_FFPLAYER_MSG_QUEUE_H
 
-#ifdef __cplusplus
 extern "C" {
-#endif
-
-#include "stdint.h"
-#include "assert.h"
-
 #include "SDL2/SDL_mutex.h"
 #include "libavutil/mem.h"
+}
 
 #define FFP_MSG_FLUSH                       0
 #define FFP_MSG_ERROR                       100     /* arg1 = error */
@@ -258,8 +253,5 @@ void msg_queue_remove(FFPlayerMessageQueue *q, int what) {
 
     SDL_UnlockMutex(q->mutex);
 }
-#ifdef __cplusplus
-}
-#endif
 
 #endif //FFPLAYER_FFPLAYER_MSG_QUEUE_H
