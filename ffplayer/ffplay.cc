@@ -488,7 +488,7 @@ int main(int argc, char *argv[]) {
     SDL_EventState(SDL_USEREVENT, SDL_IGNORE);
 
     SDL_Renderer *renderer;
-    SDL_RendererInfo renderer_info = {0};
+    SDL_RendererInfo renderer_info = {nullptr};
 
     if (!config.video_disable) {
         uint32_t window_flags = SDL_WINDOW_HIDDEN;

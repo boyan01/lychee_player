@@ -31,17 +31,16 @@ extern "C" {
 #include "libswresample/swresample.h"
 #include "libswscale/swscale.h"
 
+#include "proto.h"
+
+#ifdef _FLUTTER
+#include "third_party/dart/dart_api_dl.h"
+#endif
+
 #ifdef _WIN32
 #define FFPLAYER_EXPORT __declspec(dllexport)
 #else
 #define FFPLAYER_EXPORT __attribute__((visibility("default"))) __attribute__((used))
-#endif
-
-#if _FLUTTER
-
-#include "flutter.h"
-#include "third_party/dart/dart_api_dl.h"
-
 #endif
 
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
@@ -313,7 +312,7 @@ struct FFP_VideoRenderContext_ {
     void (*on_texture_updated)(FFP_VideoRenderContext *context);
 };
 
-typedef struct CPlayer {
+struct CPlayer {
     VideoState *is;
     int audio_disable;
     int video_disable;
@@ -376,7 +375,7 @@ typedef struct CPlayer {
     Dart_Port message_send_port;
 #endif
 
-} CPlayer;
+};
 
 FFPLAYER_EXPORT void ffplayer_global_init(void *arg);
 

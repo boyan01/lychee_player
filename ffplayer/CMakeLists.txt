@@ -13,7 +13,7 @@ if (WIN32)
 endif ()
 
 project("ffplayer" "CXX" "C")
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 11)
 
 if (WIN32)
     set(VCPKG_HEADER_DIR "$ENV{VCPKG_ROOT}//installed//x64-windows//include")
@@ -28,7 +28,7 @@ endif ()
 add_library(ffplayer SHARED "ffplayer.cc"
         "include/third_party/dart/dart_api_dl.c"
         "flutter.cpp"
-        )
+        include/ffplayer/proto.h)
 
 find_library(LIBSDL2 SDL2 REQUIRED)
 find_library(LIBSDL2MAIN SDL2main REQUIRED)

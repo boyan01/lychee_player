@@ -6,24 +6,24 @@
 
 #include "ffplayer/flutter.h"
 #include <list>
-#include <iostream>
 
 
-static std::list<void *> players;
+static std::list<CPlayer *> players_;
 
-void flutter_on_post_player_created(void *player) {
-    players.push_back(player);
+void flutter_on_post_player_created(CPlayer *player) {
+    players_.push_back(player);
 }
 
-void flutter_on_pre_player_free(void *player) {
-    players.remove(player);
+
+void flutter_on_pre_player_free(CPlayer *player) {
+    players_.remove(player);
 }
 
-void flutter_free_all_player(void (*free_handle)(void *)) {
-    for (auto player : players) {
+void flutter_free_all_player(void (*free_handle)(CPlayer *)) {
+    for (auto player : players_) {
         free_handle(player);
     }
-    players.clear();
+    players_.clear();
 }
 
 
