@@ -546,6 +546,9 @@ int main(int argc, char *argv[]) {
             auto render_data = static_cast<VideoRenderData *>(video_render_ctx->render_callback_->opacity);
             SDL_SetRenderDrawColor(render_data->renderer, 0, 0, 0, 255);
             SDL_RenderClear(render_data->renderer);
+            SDL_Rect rect{};
+            calculate_display_rect(&rect, render_data->xleft, render_data->ytop, render_data->width,
+                                   render_data->height, vp->width, vp->height, vp->sar);
             if (!vp->uploaded) {
                 if (upload_texture(video_render_ctx, &render_data->texture, vp->frame,
                                    &video_render_ctx->img_convert_ctx) < 0)
@@ -554,7 +557,7 @@ int main(int argc, char *argv[]) {
                 vp->flip_v = vp->frame->linesize[0] < 0;
             }
             set_sdl_yuv_conversion_mode(vp->frame);
-            SDL_RenderCopyEx(render_data->renderer, render_data->texture, nullptr, nullptr, 0, nullptr,
+            SDL_RenderCopyEx(render_data->renderer, render_data->texture, nullptr, &rect, 0, nullptr,
                              vp->flip_v ? SDL_FLIP_VERTICAL : SDL_FLIP_NONE);
             set_sdl_yuv_conversion_mode(nullptr);
         };
