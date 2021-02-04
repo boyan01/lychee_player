@@ -9,6 +9,7 @@
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/standard_method_codec.h>
+#include "ffplayer/flutter.h"
 #include <mfplay.h>
 
 #include <map>
@@ -18,6 +19,7 @@
 using namespace std;
 
 using namespace flutter;
+
 
 namespace {
 
@@ -50,6 +52,8 @@ namespace {
 
         auto plugin = std::make_unique<AudioPlayerPlugin>();
 
+        register_flutter_plugin(registrar);
+
         channel->SetMethodCallHandler(
                 [plugin_pointer = plugin.get()](const auto &call, auto result) {
                     plugin_pointer->HandleMethodCall(call, std::move(result));
@@ -72,30 +76,30 @@ namespace {
     AudioPlayerPlugin::AudioPlayerPlugin() = default;
 
     void debugPrintMethodCall(const MethodCall<EncodableValue> &methodCall) {
-      std::cout << "hand call: " << methodCall.method_name() << " args = ";
-      auto argMap = get_if<EncodableMap>(methodCall.arguments());
-      if (argMap) {
-        for (auto pair : *argMap) {
-          cout << get<string>(pair.first) << ":";
-          if (holds_alternative<string>(pair.second)) {
-            cout << get<string>(pair.second);
-          } else if (holds_alternative<int32_t>(pair.second)) {
-            cout << get<int32_t>(pair.second);
-          } else if (holds_alternative<int64_t>(pair.second)) {
-            cout << get<int64_t>(pair.second);
-          } else if (holds_alternative<double>(pair.second)) {
-            cout << get<double>(pair.second);
-          } else if (holds_alternative<bool>(pair.second)) {
-            cout << get<bool>(pair.second);
-          } else {
-            cout << "CAN NOT PARSE";
-          }
-          cout << " ";
+        std::cout << "hand call: " << methodCall.method_name() << " args = ";
+        auto argMap = get_if<EncodableMap>(methodCall.arguments());
+        if (argMap) {
+            for (auto pair : *argMap) {
+                cout << get<string>(pair.first) << ":";
+                if (holds_alternative<string>(pair.second)) {
+                    cout << get<string>(pair.second);
+                } else if (holds_alternative<int32_t>(pair.second)) {
+                    cout << get<int32_t>(pair.second);
+                } else if (holds_alternative<int64_t>(pair.second)) {
+                    cout << get<int64_t>(pair.second);
+                } else if (holds_alternative<double>(pair.second)) {
+                    cout << get<double>(pair.second);
+                } else if (holds_alternative<bool>(pair.second)) {
+                    cout << get<bool>(pair.second);
+                } else {
+                    cout << "CAN NOT PARSE";
+                }
+                cout << " ";
+            }
+        } else {
+            cout << "nil";
         }
-      } else {
-        cout << "nil";
-      }
-      cout << std::endl;
+        cout << std::endl;
     }
 
     void AudioPlayerPlugin::HandleMethodCall(
@@ -134,7 +138,8 @@ namespace {
                 result->Error("1", "player already created");
             } else {
                 auto url = getArgument<string>(arguments, "url");
-                auto player = new ClientAudioPlayer(wstring(url.begin(), url.end()).c_str(), methodChannel, playerId.c_str());
+                auto player = new ClientAudioPlayer(wstring(url.begin(), url.end()).c_str(), methodChannel,
+                                                    playerId.c_str());
                 printf("create player: %s,  %p \n", playerId.c_str(), player);
                 players[playerId] = player;
                 result->Success();
@@ -149,7 +154,7 @@ namespace {
             });
         } else if (methodCall.method_name() == "seek") {
             answerWithPlayer([arguments](ClientAudioPlayer *player) {
-                auto position = arguments->find(EncodableValue("position")) -> second;
+                auto position = arguments->find(EncodableValue("position"))->second;
                 player->seekTo(position.LongValue());
             });
         } else if (methodCall.method_name() == "dispose") {

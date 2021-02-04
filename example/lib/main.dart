@@ -4,6 +4,8 @@ import 'package:audio_player/audio_player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import 'package:audio_player/src/audio_player_ffi.dart';
+
 import 'widgets/player_components.dart';
 
 void main() {
@@ -13,6 +15,7 @@ void main() {
 enum _Type { file, url, asset }
 
 const Map<String, _Type> urls = {
+  "C:/Users/boyan/Desktop/mojito.mp4": _Type.file,
   "http://music.163.com/song/media/outer/url?id=1451998397.mp3": _Type.url,
   "tracks/rise.mp3": _Type.asset,
   "https://storage.googleapis.com/exoplayer-test-media-0/play.mp3": _Type.url,
@@ -73,6 +76,8 @@ class _MyAppState extends State<MyApp> {
         appBar: AppBar(title: const Text('Plugin example app')),
         body: Column(
           children: [
+            SizedBox(
+                height: 200, width: 355, child: VideoRender(player: player!)),
             Spacer(),
             _PlayerUi(player: player, url: this.url),
             Spacer(),

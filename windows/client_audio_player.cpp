@@ -3,6 +3,8 @@
 #include <mfplay.h>
 
 #include <utility>
+#include <flutter/texture_registrar.h>
+
 
 int64_t system_clock_systemTime() {
     int64_t tick = static_cast<int64_t>(GetTickCount());

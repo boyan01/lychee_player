@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import 'audio_player_common.dart';
 import 'audio_player_io.dart';
@@ -123,7 +124,7 @@ class _PlayerConfiguration extends Struct {
   factory _PlayerConfiguration.allocate() {
     final pointer = allocate<_PlayerConfiguration>();
     return pointer.ref
-      ..video_disable = 1
+      ..video_disable = 0
       ..audio_disable = 0
       ..subtitle_disable = 1
       ..start_time = 0
@@ -184,6 +185,10 @@ final ffplayer_toggle_pause =
     _library.lookupFunction<Void Function(Pointer), void Function(Pointer)>(
         "ffplayer_toggle_pause");
 
+final ffp_attach_video_render_flutter =
+    _library.lookupFunction<Int64 Function(Pointer), int Function(Pointer)>(
+        "ffp_attach_video_render_flutter");
+
 var _inited = false;
 
 void _ensureFfplayerGlobalInited() {
@@ -192,6 +197,37 @@ void _ensureFfplayerGlobalInited() {
   }
   _inited = true;
   ffplayer_init(NativeApi.initializeApiDLData);
+}
+
+class VideoRender extends StatefulWidget {
+  final dynamic player;
+
+  const VideoRender({Key? key, required this.player}) : super(key: key);
+
+  @override
+  _VideoRenderState createState() => _VideoRenderState();
+}
+
+class _VideoRenderState extends State<VideoRender> {
+  late FfiAudioPlayer _player;
+
+  int _textureId = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    _player = widget.player as FfiAudioPlayer;
+    _textureId = ffp_attach_video_render_flutter(_player.player);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_textureId < 0) {
+      return Container();
+    } else {
+      return Texture(textureId: _textureId);
+    }
+  }
 }
 
 class FfiAudioPlayer implements AudioPlayer {

@@ -1407,6 +1407,7 @@ static int audio_thread(void *arg) {
 }
 
 static int video_render(void *args) {
+    av_log(nullptr, AV_LOG_INFO, "video_render start\n");
     auto *player = static_cast<CPlayer *>(args);
     VideoState *is = player->is;
     FFP_VideoRenderContext *video_render_ctx = &player->video_render_ctx;
@@ -2736,3 +2737,13 @@ void ffp_attach_video_render(CPlayer *player, FFP_VideoRenderCallback *render_ca
 
     }
 }
+
+#ifdef _FLUTTER
+
+int64_t ffp_attach_video_render_flutter(CPlayer *player) {
+    int64_t texture_id = flutter_attach_video_render(player);
+    start_video_render(player);
+    return texture_id;
+}
+
+#endif

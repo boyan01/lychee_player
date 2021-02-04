@@ -32,11 +32,13 @@ extern "C" {
 }
 
 #ifdef _FLUTTER
+
 #include "third_party/dart/dart_api_dl.h"
+
 #endif
 
 #ifdef _WIN32
-#define FFPLAYER_EXPORT __declspec(dllexport)
+#define FFPLAYER_EXPORT extern "C" __declspec(dllexport)
 #else
 #define FFPLAYER_EXPORT __attribute__((visibility("default"))) __attribute__((used))
 #endif
@@ -423,12 +425,7 @@ ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int32_t, i
 FFPLAYER_EXPORT void ffp_refresh_texture(CPlayer *player, void(*on_locked)(FFP_VideoRenderContext *video_render_ctx));
 
 #ifdef _FLUTTER
-
-FFPLAYER_EXPORT void
-ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
-    player->message_send_port = send_port;
-}
-
+FFPLAYER_EXPORT int64_t ffp_attach_video_render_flutter(CPlayer *player);
 #endif
 
 static inline void ffp_send_msg2(CPlayer *player, int what, int arg1, int arg2) {

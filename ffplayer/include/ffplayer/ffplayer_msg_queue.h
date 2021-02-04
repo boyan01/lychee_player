@@ -144,7 +144,7 @@ static inline int msg_queue_put_private(FFPlayerMessageQueue *q, FFPlayerMessage
 }
 
 
-int msg_queue_put(FFPlayerMessageQueue *q, FFPlayerMessage *msg) {
+static int msg_queue_put(FFPlayerMessageQueue *q, FFPlayerMessage *msg) {
     int ret;
     SDL_LockMutex(q->mutex);
     ret = msg_queue_put_private(q, msg);
@@ -152,7 +152,7 @@ int msg_queue_put(FFPlayerMessageQueue *q, FFPlayerMessage *msg) {
     return ret;
 }
 
-void msg_queue_flush(FFPlayerMessageQueue *q) {
+static void msg_queue_flush(FFPlayerMessageQueue *q) {
     FFPlayerMessage *msg, *msg1;
 
     SDL_LockMutex(q->mutex);
@@ -166,13 +166,13 @@ void msg_queue_flush(FFPlayerMessageQueue *q) {
     SDL_UnlockMutex(q->mutex);
 }
 
-void msg_queue_destroy(FFPlayerMessageQueue *q) {
+static void msg_queue_destroy(FFPlayerMessageQueue *q) {
     msg_queue_flush(q);
     SDL_DestroyMutex(q->mutex);
     SDL_DestroyCond(q->cond);
 }
 
-void msg_queue_abort(FFPlayerMessageQueue *q) {
+static void msg_queue_abort(FFPlayerMessageQueue *q) {
     SDL_LockMutex(q->mutex);
 
     q->abort_request = 1;
@@ -181,7 +181,7 @@ void msg_queue_abort(FFPlayerMessageQueue *q) {
     SDL_UnlockMutex(q->mutex);
 }
 
-void msg_queue_start(FFPlayerMessageQueue *q) {
+static void msg_queue_start(FFPlayerMessageQueue *q) {
     SDL_LockMutex(q->mutex);
     q->abort_request = 0;
     FFPlayerMessage msg = {0};
@@ -191,7 +191,7 @@ void msg_queue_start(FFPlayerMessageQueue *q) {
 }
 
 /* return < 0 if aborted, 0 if no msg and > 0 if msg.  */
-int msg_queue_get(FFPlayerMessageQueue *q, FFPlayerMessage *msg, int block) {
+static int msg_queue_get(FFPlayerMessageQueue *q, FFPlayerMessage *msg, int block) {
     FFPlayerMessage *msg1;
     int ret;
 
@@ -226,7 +226,7 @@ int msg_queue_get(FFPlayerMessageQueue *q, FFPlayerMessage *msg, int block) {
     return ret;
 }
 
-void msg_queue_remove(FFPlayerMessageQueue *q, int what) {
+static void msg_queue_remove(FFPlayerMessageQueue *q, int what) {
     FFPlayerMessage *p_msg, *msg, *last_msg;
     SDL_LockMutex(q->mutex);
 
