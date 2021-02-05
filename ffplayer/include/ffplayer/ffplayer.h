@@ -425,7 +425,20 @@ ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int32_t, i
 FFPLAYER_EXPORT void ffp_refresh_texture(CPlayer *player, void(*on_locked)(FFP_VideoRenderContext *video_render_ctx));
 
 #ifdef _FLUTTER
+
+/**
+ * Set Message callback for dart. Post message to dart isolate by @param send_port.
+ */
+FFPLAYER_EXPORT void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port);
+
+/**
+ * Attach flutter render texture.
+ *
+ * @return the texture id which attached.
+ */
 FFPLAYER_EXPORT int64_t ffp_attach_video_render_flutter(CPlayer *player);
+
+FFPLAYER_EXPORT void ffp_detach_video_render_flutter(CPlayer *player);
 #endif
 
 static inline void ffp_send_msg2(CPlayer *player, int what, int arg1, int arg2) {
@@ -433,7 +446,7 @@ static inline void ffp_send_msg2(CPlayer *player, int what, int arg1, int arg2) 
     msg.what = what;
     msg.arg1 = arg1;
     msg.arg2 = arg2;
-    msg.next = NULL;
+    msg.next = nullptr;
     msg_queue_put(&player->msg_queue, &msg);
 }
 

@@ -17,6 +17,7 @@ typedef struct VideoRenderData_ {
     FlutterDesktopPixelBuffer *pixel_buffer{nullptr};
     std::unique_ptr<flutter::TextureVariant> texture_;
     std::mutex *mutex{nullptr};
+    struct SwsContext *img_convert_ctx = nullptr;
 } VideoRenderData;
 
 
@@ -24,44 +25,35 @@ static inline VideoRenderData *get_render_data(FFP_VideoRenderContext *render_ct
     return static_cast<VideoRenderData *>(render_ctx->render_callback_->opacity);
 }
 
-std::list<CPlayer *> players_;
-flutter::TextureRegistrar *textures_;
+static std::list<CPlayer *> *players_;
+static flutter::TextureRegistrar *textures_;
 
 void flutter_on_post_player_created(CPlayer *player) {
-    players_.push_back(player);
+    if (!players_) {
+        players_ = new std::list<CPlayer *>;
+    }
+    players_->push_back(player);
 }
 
 void flutter_on_pre_player_free(CPlayer *player) {
-    players_.remove(player);
+    if (!players_) {
+        return;
+    }
+    players_->remove(player);
 }
 
 void flutter_free_all_player(void (*free_handle)(CPlayer *)) {
-    for (auto player : players_) {
+    if (!players_) {
+        return;
+    }
+    for (auto player : *players_) {
         free_handle(player);
     }
-    players_.clear();
+    players_->clear();
 }
 
-static void FillColorBars(FlutterDesktopPixelBuffer *buffer, bool reverse) {
-    const size_t num_bars = 8;
-    const uint32_t bars[num_bars] = {0xFFFFFFFF, 0xFF00C0C0, 0xFFC0C000, 0xFF00C000, 0xFFC000C0, 0xFF0000C0, 0xFFC00000,
-                                     0xFF000000};
 
-    auto *word = (uint32_t *) buffer->buffer;
-
-    auto width = buffer->width;
-    auto height = buffer->height;
-    auto column_width = width / num_bars;
-
-    for (size_t y = 0; y < height; y++) {
-        for (size_t x = 0; x < width; x++) {
-            auto index = x / column_width;
-            *(word++) = reverse ? bars[num_bars - index - 1] : bars[index];
-        }
-    }
-}
-
-static void render_frame(VideoRenderData *render_data, FFP_VideoRenderContext *render_ctx, Frame *frame) {
+void render_frame(VideoRenderData *render_data, FFP_VideoRenderContext *render_ctx, Frame *frame) {
     if (!render_data->pixel_buffer->buffer) {
         std::cout << "render_frame：init" << std::endl;
         render_data->pixel_buffer->height = frame->height;
@@ -69,25 +61,32 @@ static void render_frame(VideoRenderData *render_data, FFP_VideoRenderContext *r
         render_data->pixel_buffer->buffer = new uint8_t[frame->height * frame->width * 4];
     }
     auto pFrame = frame->frame;
-    SwsContext *swsContext;
 
-    swsContext = sws_getContext(pFrame->width, pFrame->height, AVPixelFormat(pFrame->format), pFrame->width,
-                                pFrame->height, AV_PIX_FMT_RGBA,
-                                NULL, nullptr, nullptr, nullptr);
-
+    render_data->img_convert_ctx = sws_getCachedContext(render_data->img_convert_ctx, pFrame->width, pFrame->height,
+                                                        AVPixelFormat(pFrame->format), pFrame->width,
+                                                        pFrame->height, AV_PIX_FMT_RGBA,
+                                                        NULL, nullptr, nullptr, nullptr);
+    if (!render_data->img_convert_ctx) {
+        av_log(nullptr, AV_LOG_FATAL, "Can not initialize the conversion context\n");
+        return;
+    }
     int linesize[4] = {frame->width * 4};
-    int num_bytes = av_image_get_buffer_size(AV_PIX_FMT_ARGB, pFrame->width, pFrame->height, 1);
-    std::cout << "render_frame: size = " << num_bytes << std::endl;
+//    int num_bytes = av_image_get_buffer_size(AV_PIX_FMT_ARGB, pFrame->width, pFrame->height, 1);
     uint8_t *bgr_buffer[8] = {(uint8_t *) render_data->pixel_buffer->buffer};
-    sws_scale(swsContext, pFrame->data, pFrame->linesize, 0, pFrame->height, bgr_buffer, linesize);
+    sws_scale(render_data->img_convert_ctx, pFrame->data, pFrame->linesize, 0, pFrame->height, bgr_buffer, linesize);
+#if 0
     av_log(nullptr, AV_LOG_INFO, "render_frame: render first pixel = 0x%2x%2x%2x%2x \n",
            render_data->pixel_buffer->buffer[0],
            render_data->pixel_buffer->buffer[1], render_data->pixel_buffer->buffer[2],
            render_data->pixel_buffer->buffer[3]);
+#endif
 }
 
 
 int64_t flutter_attach_video_render(CPlayer *player) {
+    if (!textures_) {
+        return -1;
+    }
     std::cout << "ffp_attach_video_render_flutter" << std::endl;
     auto render_data = new VideoRenderData;
     render_data->pixel_buffer = new FlutterDesktopPixelBuffer;
@@ -104,9 +103,13 @@ int64_t flutter_attach_video_render(CPlayer *player) {
     render_data->texture_ = std::move(texture_);
     render_data->mutex = new std::mutex();
     player->video_render_ctx.render_callback_->opacity = render_data;
-    player->video_render_ctx.render_callback_->on_destroy = [](void *opacity) {
-        delete static_cast<VideoRenderData *>(opacity);
-    };
+//    player->video_render_ctx.render_callback_->on_destroy = [](void *opacity) {
+//        auto render_data = static_cast<VideoRenderData *>(opacity);
+//        textures_->UnregisterTexture(render_data->texture_id);
+//        delete render_data->mutex;
+//        delete render_data->pixel_buffer;
+//        delete render_data;
+//    };
     player->video_render_ctx.render_callback_->on_render = [](FFP_VideoRenderContext *video_render_ctx, Frame *frame) {
         auto render_data = get_render_data(video_render_ctx);
         render_frame(render_data, video_render_ctx, frame);
@@ -118,14 +121,35 @@ int64_t flutter_attach_video_render(CPlayer *player) {
     return render_data->texture_id;
 }
 
-void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
-    player->message_send_port = send_port;
-}
 
 void register_flutter_plugin(flutter::PluginRegistrarWindows *registrar) {
     textures_ = registrar->texture_registrar();
     std::cout << "register_flutter_plugin: " << registrar << std::endl;
 }
 
+void flutter_detach_video_render(CPlayer *player) {
+    if (!textures_) {
+        av_log(nullptr, AV_LOG_FATAL, "can not detach flutter texture. textures is empty");
+        return;
+    }
+    auto *render_data = get_render_data(&player->video_render_ctx);
+    textures_->UnregisterTexture(render_data->texture_id);
 
-#endif
+    player->video_render_ctx.render_mutex_->lock();
+    auto render_callback = player->video_render_ctx.render_callback_;
+    player->video_render_ctx.render_callback_ = nullptr;
+    render_callback->opacity = nullptr;
+    render_callback->on_render = nullptr;
+    render_callback->on_destroy = nullptr;
+    delete render_callback;
+    player->video_render_ctx.render_mutex_->unlock();
+
+    delete render_data->pixel_buffer;
+    render_data->texture_ = nullptr;
+    sws_freeContext(render_data->img_convert_ctx);
+    delete render_data->mutex;
+    delete render_data;
+}
+
+
+#endif // _FLUTTER

@@ -551,6 +551,7 @@ static void stream_close(CPlayer *player) {
     if (is->subtitle_stream >= 0)
         stream_component_close(player, is->subtitle_stream);
 
+    change_player_state(player, FFP_STATE_IDLE);
     msg_queue_abort(&player->msg_queue);
     if (player->msg_tid) {
         SDL_WaitThread(player->msg_tid, nullptr);
@@ -585,7 +586,6 @@ static void stream_close(CPlayer *player) {
     }
     av_free(is);
     av_free(player);
-    change_player_state(player, FFP_STATE_IDLE);
 }
 
 /* display the current picture, if any */
@@ -2657,6 +2657,7 @@ int ffplayer_open_file(CPlayer *player, const char *filename) {
 void ffplayer_free_player(CPlayer *player) {
 #ifdef _FLUTTER
     flutter_on_pre_player_free(player);
+    ffp_detach_video_render_flutter(player);
 #endif
     av_log(nullptr, AV_LOG_INFO, "free play, close stream %p \n", player);
     stream_close(player);
@@ -2746,4 +2747,13 @@ int64_t ffp_attach_video_render_flutter(CPlayer *player) {
     return texture_id;
 }
 
-#endif
+void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
+    player->message_send_port = send_port;
+}
+
+void ffp_detach_video_render_flutter(CPlayer* player) {
+    CHECK_PLAYER(player);
+    flutter_detach_video_render(player);
+}
+
+#endif // _FLUTTER

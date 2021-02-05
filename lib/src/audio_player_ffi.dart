@@ -121,15 +121,16 @@ class _PlayerConfiguration extends Struct {
   @Int32()
   external int loop;
 
-  factory _PlayerConfiguration.allocate() {
+  static Pointer<_PlayerConfiguration> alloctConfiguration() {
     final pointer = allocate<_PlayerConfiguration>();
-    return pointer.ref
+    pointer.ref
       ..video_disable = 0
       ..audio_disable = 0
       ..subtitle_disable = 1
       ..start_time = 0
       ..loop = 1
       ..show_status = 0;
+    return pointer;
   }
 }
 
@@ -189,6 +190,10 @@ final ffp_attach_video_render_flutter =
     _library.lookupFunction<Int64 Function(Pointer), int Function(Pointer)>(
         "ffp_attach_video_render_flutter");
 
+final ffp_detach_video_render_flutter =
+    _library.lookupFunction<Void Function(Pointer), void Function(Pointer)>(
+        "ffp_detach_video_render_flutter");
+
 var _inited = false;
 
 void _ensureFfplayerGlobalInited() {
@@ -200,24 +205,34 @@ void _ensureFfplayerGlobalInited() {
 }
 
 class VideoRender extends StatefulWidget {
-  final dynamic player;
+  final FfiAudioPlayer player;
 
-  const VideoRender({Key? key, required this.player}) : super(key: key);
+  const VideoRender({Key? key, required dynamic player})
+      : this.player = player as FfiAudioPlayer,
+        super(key: key);
 
   @override
   _VideoRenderState createState() => _VideoRenderState();
 }
 
 class _VideoRenderState extends State<VideoRender> {
-  late FfiAudioPlayer _player;
-
   int _textureId = -1;
 
   @override
   void initState() {
     super.initState();
-    _player = widget.player as FfiAudioPlayer;
-    _textureId = ffp_attach_video_render_flutter(_player.player);
+    _textureId = ffp_attach_video_render_flutter(widget.player._player);
+  }
+
+  @override
+  void didUpdateWidget(covariant VideoRender oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.player != widget.player) {
+      if (_textureId > 0) {
+        ffp_detach_video_render_flutter(oldWidget.player._player);
+      }
+      _textureId = ffp_attach_video_render_flutter(widget.player._player);
+    }
   }
 
   @override
@@ -235,16 +250,16 @@ class FfiAudioPlayer implements AudioPlayer {
   final _buffred = ValueNotifier<List<DurationRange>>(const []);
   final _error = ValueNotifier(null);
 
-  late Pointer player;
+  late Pointer _player;
 
   late ReceivePort cppInteractPort;
 
   FfiAudioPlayer(String uri, DataSourceType type) {
     _ensureFfplayerGlobalInited();
-    final configuration = _PlayerConfiguration.allocate();
-    player = ffp_create_player(configuration.addressOf);
-    free(configuration.addressOf);
-    if (player == nullptr) {
+    final configuration = _PlayerConfiguration.alloctConfiguration();
+    _player = ffp_create_player(configuration);
+    free(configuration);
+    if (_player == nullptr) {
       throw Exception("memory not enough");
     }
 
@@ -254,9 +269,9 @@ class FfiAudioPlayer implements AudioPlayer {
         final values = Int64List.view(message.buffer);
         _onMessage(values[0], values[1], values[2]);
       });
-    ffp_set_message_callback(player, cppInteractPort.sendPort.nativePort);
-    ffplayer_open_file(player, Utf8.toUtf8(uri));
-    debugPrint("player ${player}");
+    ffp_set_message_callback(_player, cppInteractPort.sendPort.nativePort);
+    ffplayer_open_file(_player, Utf8.toUtf8(uri));
+    debugPrint("player ${_player}");
   }
 
   void _onMessage(int what, int arg1, int arg2) {
@@ -294,13 +309,13 @@ class FfiAudioPlayer implements AudioPlayer {
 
   @override
   set playWhenReady(bool value) {
-    if (player == nullptr) {
+    if (_player == nullptr) {
       return;
     }
     _playWhenReady.value = value;
-    final paused = ffplayer_is_paused(player) != 0;
+    final paused = ffplayer_is_paused(_player) != 0;
     if ((paused && value) || (!paused && !value)) {
-      ffplayer_toggle_pause(player);
+      ffplayer_toggle_pause(_player);
     }
   }
 
@@ -309,11 +324,11 @@ class FfiAudioPlayer implements AudioPlayer {
 
   @override
   Duration get currentTime {
-    if (player == nullptr) {
+    if (_player == nullptr) {
       return const Duration(microseconds: 0);
     }
     return Duration(
-      milliseconds: (ffplayer_get_current_position(player) * 1000).ceil(),
+      milliseconds: (ffplayer_get_current_position(_player) * 1000).ceil(),
     );
   }
 
@@ -325,21 +340,21 @@ class FfiAudioPlayer implements AudioPlayer {
       return;
     }
     _disposed = true;
-    final player = this.player;
-    if (player != nullptr) {
-      this.player = nullptr;
-      ffplayer_free_player(player);
+    _status.value = PlayerStatus.Idle;
+    if (_player != nullptr) {
+      ffplayer_free_player(_player);
+      _player = nullptr;
     }
     cppInteractPort.close();
   }
 
   @override
   Duration get duration {
-    if (player == nullptr) {
+    if (_player == nullptr) {
       return const Duration(microseconds: -1);
     }
     return Duration(
-      milliseconds: (ffplayer_get_duration(player) * 1000).ceil(),
+      milliseconds: (ffplayer_get_duration(_player) * 1000).ceil(),
     );
   }
 
@@ -367,10 +382,10 @@ class FfiAudioPlayer implements AudioPlayer {
 
   @override
   void seek(Duration duration) {
-    if (player == nullptr) {
+    if (_player == nullptr) {
       return;
     }
-    ffplayer_seek_to_position(player, duration.inMilliseconds / 1000);
+    ffplayer_seek_to_position(_player, duration.inMilliseconds / 1000);
   }
 
   @override

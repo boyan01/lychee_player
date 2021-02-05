@@ -27,7 +27,7 @@ endif ()
 
 add_library(ffplayer SHARED "ffplayer.cc"
         "include/third_party/dart/dart_api_dl.c"
-        "flutter.cpp"
+        "flutter.cc"
         include/ffplayer/proto.h)
 
 find_library(LIBSDL2 SDL2 REQUIRED)

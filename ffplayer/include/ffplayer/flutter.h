@@ -21,7 +21,7 @@ void flutter_free_all_player(void (*free_handle)(CPlayer *player));
 
 int64_t flutter_attach_video_render(CPlayer *player);
 
-FFPLAYER_EXPORT void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port);
+void flutter_detach_video_render(CPlayer *player);
 
 FFPLAYER_EXPORT void register_flutter_plugin(flutter::PluginRegistrarWindows *registrar);
 

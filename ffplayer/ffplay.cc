@@ -7,10 +7,6 @@
 #include "ffplayer/ffplayer.h"
 #include "ffplayer/utils.h"
 
-extern "C" {
-#include "libswscale/swscale.h"
-}
-
 using namespace std;
 
 #define FF_DRAW_EVENT    (SDL_USEREVENT + 2)
@@ -272,10 +268,10 @@ static void event_loop(CPlayer *player) {
                         ffplayer_seek_to_chapter(player, ffplayer_get_current_chapter(player) - 1);
                         break;
                     case SDLK_LEFT:
-                        incr = seek_interval ? -seek_interval : -10.0;
+                        incr = -seek_interval;
                         goto do_seek;
                     case SDLK_RIGHT:
-                        incr = seek_interval ? seek_interval : 10.0;
+                        incr = seek_interval;
                         goto do_seek;
                     case SDLK_UP:
                         incr = 60.0;
@@ -283,21 +279,6 @@ static void event_loop(CPlayer *player) {
                     case SDLK_DOWN:
                         incr = -60.0;
                     do_seek:
-                        // if (player->seek_by_bytes) {
-                        //     pos = -1;
-                        //     if (pos < 0 && is->video_stream >= 0)
-                        //         pos = frame_queue_last_pos(&is->pictq);
-                        //     if (pos < 0 && is->audio_stream >= 0)
-                        //         pos = frame_queue_last_pos(&is->sampq);
-                        //     if (pos < 0)
-                        //         pos = avio_tell(is->ic->pb);
-                        //     if (is->ic->bit_rate)
-                        //         incr *= is->ic->bit_rate / 8.0;
-                        //     else
-                        //         incr *= 180000.0;
-                        //     pos += incr;
-                        //     stream_seek(is, pos, incr, 1);
-                        // }
                         printf("ffplayer_seek_to_position from: %0.2f , to: %0.2f .\n",
                                ffplayer_get_current_position(player), ffplayer_get_current_position(player) + incr);
                         ffplayer_seek_to_position(player, ffplayer_get_current_position(player) + incr);
