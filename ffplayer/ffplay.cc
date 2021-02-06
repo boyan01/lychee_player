@@ -60,13 +60,20 @@ static const struct TextureFormatEntry {
         {AV_PIX_FMT_NONE,           SDL_PIXELFORMAT_UNKNOWN},
 };
 
-typedef struct VideoRenderData_ {
+struct VideoRenderData {
     SDL_Renderer *renderer;
-    SDL_Texture *texture;
-    SDL_Texture *sub_texture;
+    SDL_Texture *texture = nullptr;
+    SDL_Texture *sub_texture = nullptr;
     int width, height, xleft, ytop;
-    struct SwsContext *img_convert_ctx;
-} VideoRenderData;
+    struct SwsContext *img_convert_ctx = nullptr;
+public:
+
+    explicit VideoRenderData(SDL_Renderer *render) {
+        renderer = render;
+        width = height = xleft = ytop = 0;
+    }
+
+};
 
 static void sigterm_handler(int sig) {
     exit(123);
@@ -204,7 +211,6 @@ static void event_loop(CPlayer *player) {
     SDL_Event event;
     double incr;
 
-#pragma ide diagnostic ignored "EndlessLoop"
     for (;;) {
         double x;
         refresh_loop_wait_event(&event);
@@ -333,6 +339,7 @@ static void event_loop(CPlayer *player) {
                         auto render_data = static_cast<VideoRenderData *>(player->video_render_ctx.render_callback_->opacity);
                         screen_width = render_data->width = event.window.data1;
                         screen_height = render_data->height = event.window.data2;
+                        printf("SDL_WINDOWEVENT_SIZE_CHANGED: %d, %d \n", event.window.data1, event.window.data2);
                         ffp_refresh_texture(player, [](FFP_VideoRenderContext *context) {
                             auto render_data = static_cast<VideoRenderData *>(context->render_callback_->opacity);
                             SDL_DestroyTexture(render_data->texture);
@@ -345,7 +352,7 @@ static void event_loop(CPlayer *player) {
                 break;
             case SDL_QUIT:
                 do_exit(player);
-                break;
+                return;
             case FF_DRAW_EVENT: {
                 auto *video_render_ctx = static_cast<VideoRenderData *>(event.user.data1);
                 SDL_RenderPresent(video_render_ctx->renderer);
@@ -524,8 +531,7 @@ int main(int argc, char *argv[]) {
             do_exit(nullptr);
         }
 
-        auto render_data = new VideoRenderData{nullptr};
-        render_data->renderer = renderer;
+        auto render_data = new VideoRenderData(renderer);
         auto render_callback = new FFP_VideoRenderCallback;
         render_callback->on_render = [](FFP_VideoRenderContext *video_render_ctx, Frame *vp) {
             auto render_data = static_cast<VideoRenderData *>(video_render_ctx->render_callback_->opacity);

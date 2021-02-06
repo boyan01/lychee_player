@@ -57,7 +57,8 @@ if (WIN32)
             ${LIBAVFILTER}
             ${LIBSWSCALE}
             ${LIBSWRESAMPLE}
-            ${LIBSDL2})
+            ${LIBSDL2}
+            )
     if (CMAKE_FLUTTER_WINDOWS)
         list(APPEND FFP_LIBS flutter flutter_wrapper_plugin)
     endif ()
@@ -71,7 +72,5 @@ endif ()
 add_executable(ffplay_example "ffplay.cc")
 add_dependencies(ffplay_example ffplayer)
 target_include_directories(ffplay_example PUBLIC include)
+
 target_link_libraries(ffplay_example PUBLIC ffplayer ${LIBSDL2MAIN})
-if (MSVC)
-    set_property(TARGET ffplay_example APPEND PROPERTY LINK_FLAGS "/NODEFAULTLIB:MSVCRT")
-endif ()
