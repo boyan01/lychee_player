@@ -25,7 +25,10 @@ if (UNIX)
     include_directories("/usr/include/SDL2")
 endif ()
 
-add_library(ffplayer SHARED "ffplayer.cc"
+add_library(ffplayer SHARED
+        ffp_msg_queue.h
+        ffp_msg_queue.cc
+        "ffplayer.cc"
         "include/third_party/dart/dart_api_dl.c"
         "flutter.cc"
         include/ffplayer/proto.h)

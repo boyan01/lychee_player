@@ -2,13 +2,12 @@
 // Created by boyan on 2021/1/23.
 //
 
-#ifndef FFPLAYER_FFPLAYER_MSG_QUEUE_H
-#define FFPLAYER_FFPLAYER_MSG_QUEUE_H
+#ifndef FFPLAYER_FFP_MSG_QUEUE_H
+#define FFPLAYER_FFP_MSG_QUEUE_H
 
-extern "C" {
-#include "SDL2/SDL_mutex.h"
-#include "libavutil/mem.h"
-}
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 
 #define FFP_MSG_FLUSH                       0
 #define FFP_MSG_ERROR                       100     /* arg1 = error */
@@ -93,165 +92,40 @@ extern "C" {
 #define FFP_PROP_INT64_IMMEDIATE_RECONNECT              20211
 
 
-typedef struct FFPlayerMessage {
+struct FFPlayerMessage {
     int what;
     int64_t arg1;
     int64_t arg2;
     struct FFPlayerMessage *next;
-} FFPlayerMessage;
+};
 
 
-typedef struct FFPlayerMessageQueue {
-    FFPlayerMessage *first, *last;
-    int nb_messages;
-    int abort_request;
-    SDL_mutex *mutex;
-    SDL_cond *cond;
-} FFPlayerMessageQueue;
+struct FFPlayerMessageQueue {
+private:
+    FFPlayerMessage *first_, *last_;
+    int nb_messages_;
+    int abort_request_;
+    std::mutex *mutex_;
+    std::condition_variable_any *cond_;
 
+    int PutPrivate(FFPlayerMessage *msg);
 
-static int msg_queue_init(FFPlayerMessageQueue *q) {
-    memset(q, 0, sizeof(FFPlayerMessageQueue));
-    q->mutex = SDL_CreateMutex();
-    q->cond = SDL_CreateCond();
-    q->abort_request = 1;
-    return 0;
-}
+public:
+    int Init();
 
-static inline int msg_queue_put_private(FFPlayerMessageQueue *q, FFPlayerMessage *msg) {
-    FFPlayerMessage *msg1;
+    int Put(FFPlayerMessage *msg);
 
-    if (q->abort_request)
-        return -1;
+    void Flush();
 
-    msg1 = (FFPlayerMessage*)av_malloc(sizeof(FFPlayerMessage));
-    if (!msg1) {
-        av_log(NULL, AV_LOG_ERROR, "no memory to alloc msg");
-        return -1;
-    }
+    void Destroy();
 
-    *msg1 = *msg;
-    msg1->next = NULL;
+    void Abort();
 
-    if (!q->last) {
-        q->first = msg1;
-    } else {
-        q->last->next = msg1;
-    }
-    q->nb_messages++;
-    SDL_CondSignal(q->cond);
-    return 0;
-}
+    void Start();
 
+    int Get(FFPlayerMessage *msg, int block);
 
-static int msg_queue_put(FFPlayerMessageQueue *q, FFPlayerMessage *msg) {
-    int ret;
-    SDL_LockMutex(q->mutex);
-    ret = msg_queue_put_private(q, msg);
-    SDL_UnlockMutex(q->mutex);
-    return ret;
-}
+    void Remove(int what);
+};
 
-static void msg_queue_flush(FFPlayerMessageQueue *q) {
-    FFPlayerMessage *msg, *msg1;
-
-    SDL_LockMutex(q->mutex);
-    for (msg = q->first; msg; msg = msg1) {
-        msg1 = msg->next;
-        av_freep(&msg);
-    }
-    q->last = NULL;
-    q->first = NULL;
-    q->nb_messages = 0;
-    SDL_UnlockMutex(q->mutex);
-}
-
-static void msg_queue_destroy(FFPlayerMessageQueue *q) {
-    msg_queue_flush(q);
-    SDL_DestroyMutex(q->mutex);
-    SDL_DestroyCond(q->cond);
-}
-
-static void msg_queue_abort(FFPlayerMessageQueue *q) {
-    SDL_LockMutex(q->mutex);
-
-    q->abort_request = 1;
-
-    SDL_CondSignal(q->cond);
-    SDL_UnlockMutex(q->mutex);
-}
-
-static void msg_queue_start(FFPlayerMessageQueue *q) {
-    SDL_LockMutex(q->mutex);
-    q->abort_request = 0;
-    FFPlayerMessage msg = {0};
-    msg.what = FFP_MSG_FLUSH;
-    msg_queue_put_private(q, &msg);
-    SDL_UnlockMutex(q->mutex);
-}
-
-/* return < 0 if aborted, 0 if no msg and > 0 if msg.  */
-static int msg_queue_get(FFPlayerMessageQueue *q, FFPlayerMessage *msg, int block) {
-    FFPlayerMessage *msg1;
-    int ret;
-
-    SDL_LockMutex(q->mutex);
-
-    for (;;) {
-        if (q->abort_request) {
-            ret = -1;
-            break;
-        }
-
-        msg1 = q->first;
-        if (msg1) {
-            q->first = msg1->next;
-            if (!q->first) {
-                q->last = NULL;
-            }
-            q->nb_messages--;
-            *msg = *msg1;
-            av_free(msg1);
-            ret = 1;
-            break;
-        } else if (!block) {
-            ret = 0;
-            break;
-        } else {
-            SDL_CondWait(q->cond, q->mutex);
-        }
-    }
-
-    SDL_UnlockMutex(q->mutex);
-    return ret;
-}
-
-static void msg_queue_remove(FFPlayerMessageQueue *q, int what) {
-    FFPlayerMessage *p_msg, *msg, *last_msg;
-    SDL_LockMutex(q->mutex);
-
-    if (!q->abort_request && q->first) {
-        p_msg = q->first;
-        while (p_msg) {
-            msg = p_msg;
-            if (msg->what == what) {
-                p_msg = msg->next;
-                av_free(msg);
-                q->nb_messages--;
-            } else {
-                last_msg = msg;
-                p_msg = msg->next;
-            }
-        }
-
-        if (q->first) {
-            q->last = last_msg;
-        } else {
-            q->last = NULL;
-        }
-    }
-
-    SDL_UnlockMutex(q->mutex);
-}
-
-#endif //FFPLAYER_FFPLAYER_MSG_QUEUE_H
+#endif //FFPLAYER_FFP_MSG_QUEUE_H

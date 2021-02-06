@@ -6,7 +6,7 @@
 #include <thread>
 #include <mutex>
 
-#include "ffplayer_msg_queue.h"
+#include "../../ffp_msg_queue.h"
 #include "ffplayer_packet_queue.h"
 #include "proto.h"
 
@@ -305,9 +305,6 @@ typedef struct FFP_VideoRenderCallback_ {
 struct FFP_VideoRenderContext_ {
     bool abort_render;
     bool render_attached;
-    struct SwsContext *img_convert_ctx;
-    struct SwsContext *sub_convert_ctx;
-
 
     std::thread *render_thread_;
     std::mutex *render_mutex_;
@@ -447,7 +444,7 @@ static inline void ffp_send_msg2(CPlayer *player, int what, int arg1, int arg2) 
     msg.arg1 = arg1;
     msg.arg2 = arg2;
     msg.next = nullptr;
-    msg_queue_put(&player->msg_queue, &msg);
+    player->msg_queue.Put(&msg);
 }
 
 static inline void ffp_send_msg1(CPlayer *player, int what, int64_t arg1) {

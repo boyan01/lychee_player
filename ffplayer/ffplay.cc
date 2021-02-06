@@ -65,6 +65,7 @@ typedef struct VideoRenderData_ {
     SDL_Texture *texture;
     SDL_Texture *sub_texture;
     int width, height, xleft, ytop;
+    struct SwsContext *img_convert_ctx;
 } VideoRenderData;
 
 static void sigterm_handler(int sig) {
@@ -532,7 +533,7 @@ int main(int argc, char *argv[]) {
                                    render_data->height, vp->width, vp->height, vp->sar);
             if (!vp->uploaded) {
                 if (upload_texture(video_render_ctx, &render_data->texture, vp->frame,
-                                   &video_render_ctx->img_convert_ctx) < 0)
+                                   &render_data->img_convert_ctx) < 0)
                     return;
                 vp->uploaded = 1;
                 vp->flip_v = vp->frame->linesize[0] < 0;
@@ -551,6 +552,8 @@ int main(int argc, char *argv[]) {
         render_callback->opacity = render_data;
         render_callback->on_destroy = [](void *opacity) {
             auto render_data = static_cast<VideoRenderData *>(opacity);
+            sws_freeContext(render_data->img_convert_ctx);
+            SDL_DestroyTexture(render_data->texture);
             delete render_data;
         };
         ffp_attach_video_render(player, render_callback);

@@ -111,7 +111,7 @@ static int message_loop(void *args) {
     auto *player = static_cast<CPlayer *>(args);
     while (true) {
         FFPlayerMessage msg = {0};
-        if (msg_queue_get(&player->msg_queue, &msg, true) < 0) {
+        if (player->msg_queue.Get(&msg, true) < 0) {
             break;
         }
 #ifdef _FLUTTER
@@ -552,7 +552,7 @@ static void stream_close(CPlayer *player) {
         stream_component_close(player, is->subtitle_stream);
 
     change_player_state(player, FFP_STATE_IDLE);
-    msg_queue_abort(&player->msg_queue);
+    player->msg_queue.Abort();
     if (player->msg_tid) {
         SDL_WaitThread(player->msg_tid, nullptr);
     }
@@ -567,7 +567,7 @@ static void stream_close(CPlayer *player) {
     packet_queue_destroy(&is->videoq);
     packet_queue_destroy(&is->audioq);
     packet_queue_destroy(&is->subtitleq);
-    msg_queue_destroy(&player->msg_queue);
+    player->msg_queue.Abort();
 
     /* free all pictures */
     frame_queue_destory(&is->pictq);
@@ -576,7 +576,6 @@ static void stream_close(CPlayer *player) {
     SDL_DestroyCond(is->continue_read_thread);
     av_free(is->filename);
 
-    sws_freeContext(player->video_render_ctx.img_convert_ctx);
     if (player->video_render_ctx.render_callback_ && player->video_render_ctx.render_callback_->opacity) {
         if (!player->video_render_ctx.render_callback_->on_destroy) {
             av_log(nullptr, AV_LOG_FATAL, "render_callback_->on_destroy handle is null. it may cause memory leak. \n");
@@ -2493,7 +2492,7 @@ static void stream_open(CPlayer *player, const char *filename, AVInputFormat *if
         goto fail;
     }
 
-    msg_queue_start(&player->msg_queue);
+    player->msg_queue.Start();
     player->msg_tid = SDL_CreateThread(message_loop, "message_loop", player);
     if (!player->msg_tid) {
         av_log(nullptr, AV_LOG_FATAL, "SDL_CreateThread(): %s\n", SDL_GetError());
@@ -2634,7 +2633,7 @@ static CPlayer *ffplayer_alloc_player() {
 
     player->is = alloc_video_state();
 
-    msg_queue_init(&player->msg_queue);
+    player->msg_queue.Init();
 
     ffplayer_toggle_pause(player);
 
