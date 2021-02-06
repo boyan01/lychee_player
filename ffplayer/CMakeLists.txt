@@ -26,8 +26,11 @@ if (UNIX)
 endif ()
 
 add_library(ffplayer SHARED
+        ffp_player_internal.h
         ffp_msg_queue.h
         ffp_msg_queue.cc
+        ffp_packet_queue.h
+        ffp_packet_queue.cc
         "ffplayer.cc"
         "include/third_party/dart/dart_api_dl.c"
         "flutter.cc"

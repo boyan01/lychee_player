@@ -7,7 +7,7 @@
 #include <mutex>
 
 #include "../../ffp_msg_queue.h"
-#include "ffplayer_packet_queue.h"
+#include "../../ffp_packet_queue.h"
 #include "proto.h"
 
 extern "C" {

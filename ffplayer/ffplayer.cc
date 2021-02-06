@@ -33,6 +33,7 @@
 
 #include "ffplayer/ffplayer.h"
 #include "ffplayer/utils.h"
+#include "ffp_player_internal.h"
 
 #if _FLUTTER
 
@@ -67,6 +68,7 @@ if (!(PLAYER) || !(PLAYER)->is) {                                              \
 
 const AVRational av_time_base_q_ = {1, AV_TIME_BASE};
 
+extern AVPacket *flush_pkt;
 
 static inline int cmp_audio_fmts(enum AVSampleFormat fmt1, int64_t channel_count1,
                                  enum AVSampleFormat fmt2, int64_t channel_count2) {
@@ -198,7 +200,7 @@ static int decoder_decode_frame(Decoder *d, AVFrame *frame, AVSubtitle *sub, CPl
                 av_packet_move_ref(&pkt, &d->pkt);
                 d->packet_pending = 0;
             } else {
-                if (packet_queue_get(d->queue, &pkt, 1, &d->pkt_serial, player, on_decode_frame_block) < 0)
+                if (d->queue->Get(&pkt, 1, &d->pkt_serial, player, on_decode_frame_block) < 0)
                     return -1;
             }
             if (d->queue->serial == d->pkt_serial)
@@ -206,7 +208,7 @@ static int decoder_decode_frame(Decoder *d, AVFrame *frame, AVSubtitle *sub, CPl
             av_packet_unref(&pkt);
         } while (true);
 
-        if (pkt.data == flush_pkt.data) {
+        if (pkt.data == flush_pkt->data) {
             avcodec_flush_buffers(d->avctx);
             d->finished = 0;
             d->next_pts = d->start_pts;
@@ -364,11 +366,11 @@ static int64_t frame_queue_last_pos(FrameQueue *f) {
 }
 
 static void decoder_abort(Decoder *d, FrameQueue *fq) {
-    packet_queue_abort(d->queue);
+    d->queue->Abort();
     frame_queue_signal(fq);
     SDL_WaitThread(d->decoder_tid, nullptr);
     d->decoder_tid = nullptr;
-    packet_queue_flush(d->queue);
+    d->queue->Flush();
 }
 
 
@@ -564,9 +566,9 @@ static void stream_close(CPlayer *player) {
 
     avformat_close_input(&is->ic);
 
-    packet_queue_destroy(&is->videoq);
-    packet_queue_destroy(&is->audioq);
-    packet_queue_destroy(&is->subtitleq);
+    is->videoq.Destroy();
+    is->audioq.Destroy();
+    is->subtitleq.Destroy();
     player->msg_queue.Abort();
 
     /* free all pictures */
@@ -1425,7 +1427,7 @@ static int video_render(void *args) {
 }
 
 static int decoder_start(Decoder *d, int (*fn)(void *), const char *thread_name, void *arg) {
-    packet_queue_start(d->queue);
+    d->queue->Start();
     d->decoder_tid = SDL_CreateThread(fn, thread_name, arg);
     if (!d->decoder_tid) {
         av_log(nullptr, AV_LOG_ERROR, "SDL_CreateThread(): %s\n", SDL_GetError());
@@ -2352,16 +2354,16 @@ static int read_thread(void *arg) {
                        "%s: error while seeking\n", is->ic->url);
             } else {
                 if (is->audio_stream >= 0) {
-                    packet_queue_flush(&is->audioq);
-                    packet_queue_put(&is->audioq, &flush_pkt);
+                    is->audioq.Flush();
+                    is->audioq.Put(flush_pkt);
                 }
                 if (is->subtitle_stream >= 0) {
-                    packet_queue_flush(&is->subtitleq);
-                    packet_queue_put(&is->subtitleq, &flush_pkt);
+                    is->subtitleq.Flush();
+                    is->subtitleq.Put(flush_pkt);
                 }
                 if (is->video_stream >= 0) {
-                    packet_queue_flush(&is->videoq);
-                    packet_queue_put(&is->videoq, &flush_pkt);
+                    is->videoq.Flush();
+                    is->videoq.Put(flush_pkt);
                 }
                 if (is->seek_flags & AVSEEK_FLAG_BYTE) {
                     set_clock(&is->extclk, NAN, 0);
@@ -2383,8 +2385,8 @@ static int read_thread(void *arg) {
                 AVPacket copy;
                 if ((ret = av_packet_ref(&copy, &is->video_st->attached_pic)) < 0)
                     goto fail;
-                packet_queue_put(&is->videoq, &copy);
-                packet_queue_put_nullpacket(&is->videoq, is->video_stream);
+                is->videoq.Put(&copy);
+                is->videoq.PutNullPacket(is->video_stream);
             }
             is->queue_attachments_req = 0;
         }
@@ -2420,11 +2422,11 @@ static int read_thread(void *arg) {
         if (ret < 0) {
             if ((ret == AVERROR_EOF || avio_feof(ic->pb)) && !is->eof) {
                 if (is->video_stream >= 0)
-                    packet_queue_put_nullpacket(&is->videoq, is->video_stream);
+                    is->videoq.PutNullPacket(is->video_stream);
                 if (is->audio_stream >= 0)
-                    packet_queue_put_nullpacket(&is->audioq, is->audio_stream);
+                    is->audioq.PutNullPacket(is->audio_stream);
                 if (is->subtitle_stream >= 0)
-                    packet_queue_put_nullpacket(&is->subtitleq, is->subtitle_stream);
+                    is->subtitleq.PutNullPacket(is->subtitle_stream);
                 is->eof = 1;
                 check_buffering(player);
             }
@@ -2447,12 +2449,12 @@ static int read_thread(void *arg) {
                             ((double) player->duration / 1000000);
 
         if (pkt->stream_index == is->audio_stream && pkt_in_play_range) {
-            packet_queue_put(&is->audioq, pkt);
+            is->audioq.Put(pkt);
         } else if (pkt->stream_index == is->video_stream && pkt_in_play_range &&
                    !(is->video_st->disposition & AV_DISPOSITION_ATTACHED_PIC)) {
-            packet_queue_put(&is->videoq, pkt);
+            is->videoq.Put(pkt);
         } else if (pkt->stream_index == is->subtitle_stream && pkt_in_play_range) {
-            packet_queue_put(&is->subtitleq, pkt);
+            is->subtitleq.Put(pkt);
         } else {
             av_packet_unref(pkt);
         }
@@ -2563,9 +2565,7 @@ static VideoState *alloc_video_state() {
     if (frame_queue_init(&is->sampq, &is->audioq, SAMPLE_QUEUE_SIZE, 1) < 0)
         goto fail;
 
-    if (packet_queue_init(&is->videoq) < 0 ||
-        packet_queue_init(&is->audioq) < 0 ||
-        packet_queue_init(&is->subtitleq) < 0)
+    if (is->videoq.Init() < 0 || is->audioq.Init() < 0 || is->subtitleq.Init() < 0)
         goto fail;
 
     init_clock(&is->vidclk, &is->videoq.serial);
@@ -2676,8 +2676,9 @@ void ffplayer_global_init(void *arg) {
     else
         av_log(nullptr, AV_LOG_DEBUG, "SDL Audio was initialized fine!\n");
 
-    av_init_packet(&flush_pkt);
-    flush_pkt.data = (uint8_t *) &flush_pkt;
+    flush_pkt = new AVPacket;
+    av_init_packet(flush_pkt);
+    flush_pkt->data = (uint8_t *) &flush_pkt;
 
 #ifdef _FLUTTER
     assert(arg);
