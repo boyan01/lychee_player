@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:audio_player/audio_player.dart';
+import 'package:av_player/av_player.dart';
 
 void main() {
   const MethodChannel channel = MethodChannel('audio_player');

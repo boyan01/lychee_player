@@ -6,7 +6,7 @@
 #define FFPLAYER_FFPLAYER_PACKET_QUEUE_H
 
 extern "C" {
-#include "SDL2/SDL_mutex.h"
+#include "SDL2/SDL.h"
 #include "libavcodec/avcodec.h"
 };
 

@@ -1,10 +1,6 @@
-import 'dart:math' as math;
-
-import 'package:audio_player/audio_player.dart';
+import 'package:av_player/av_player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-
-import 'package:audio_player/src/audio_player_ffi.dart';
 
 import 'widgets/player_components.dart';
 

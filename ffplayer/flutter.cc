@@ -103,13 +103,6 @@ int64_t flutter_attach_video_render(CPlayer *player) {
     render_data->texture_ = std::move(texture_);
     render_data->mutex = new std::mutex();
     player->video_render_ctx.render_callback_->opacity = render_data;
-//    player->video_render_ctx.render_callback_->on_destroy = [](void *opacity) {
-//        auto render_data = static_cast<VideoRenderData *>(opacity);
-//        textures_->UnregisterTexture(render_data->texture_id);
-//        delete render_data->mutex;
-//        delete render_data->pixel_buffer;
-//        delete render_data;
-//    };
     player->video_render_ctx.render_callback_->on_render = [](FFP_VideoRenderContext *video_render_ctx, Frame *frame) {
         auto render_data = get_render_data(video_render_ctx);
         render_frame(render_data, video_render_ctx, frame);
@@ -140,7 +133,6 @@ void flutter_detach_video_render(CPlayer *player) {
     player->video_render_ctx.render_callback_ = nullptr;
     render_callback->opacity = nullptr;
     render_callback->on_render = nullptr;
-    render_callback->on_destroy = nullptr;
     delete render_callback;
     player->video_render_ctx.render_mutex_->unlock();
 

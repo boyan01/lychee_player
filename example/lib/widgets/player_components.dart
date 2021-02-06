@@ -1,6 +1,5 @@
-import 'package:audio_player/audio_player.dart';
+import 'package:av_player/av_player.dart';
 import 'package:flutter/material.dart';
-
 
 extension DurationClimp on Duration {
   Duration atMost(Duration duration) {
@@ -42,7 +41,6 @@ class ForwardRewindButton extends StatelessWidget {
     );
   }
 }
-
 
 class PlaybackStatefulButton extends StatelessWidget {
   final AudioPlayer? player;

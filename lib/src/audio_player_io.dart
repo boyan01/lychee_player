@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'audio_player_channel.dart';
-import 'audio_player_ffi.dart';
+import 'ffi_player.dart';
 import 'audio_player_platform.dart' as api;
 
 abstract class AudioPlayer implements api.AudioPlayer {

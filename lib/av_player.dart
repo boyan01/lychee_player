@@ -7,3 +7,4 @@ export 'src/audio_player_common.dart';
 export 'src/audio_player_platform.dart'
     if (dart.library.io) 'src/audio_player_io.dart'
     if (dart.library.html) 'src/audio_player_web.dart';
+export 'src/video_view.dart';

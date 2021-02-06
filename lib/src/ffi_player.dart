@@ -204,47 +204,6 @@ void _ensureFfplayerGlobalInited() {
   ffplayer_init(NativeApi.initializeApiDLData);
 }
 
-class VideoRender extends StatefulWidget {
-  final FfiAudioPlayer player;
-
-  const VideoRender({Key? key, required dynamic player})
-      : this.player = player as FfiAudioPlayer,
-        super(key: key);
-
-  @override
-  _VideoRenderState createState() => _VideoRenderState();
-}
-
-class _VideoRenderState extends State<VideoRender> {
-  int _textureId = -1;
-
-  @override
-  void initState() {
-    super.initState();
-    _textureId = ffp_attach_video_render_flutter(widget.player._player);
-  }
-
-  @override
-  void didUpdateWidget(covariant VideoRender oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.player != widget.player) {
-      if (_textureId > 0) {
-        ffp_detach_video_render_flutter(oldWidget.player._player);
-      }
-      _textureId = ffp_attach_video_render_flutter(widget.player._player);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_textureId < 0) {
-      return Container();
-    } else {
-      return Texture(textureId: _textureId);
-    }
-  }
-}
-
 class FfiAudioPlayer implements AudioPlayer {
   final ValueNotifier<PlayerStatus> _status = ValueNotifier(PlayerStatus.Idle);
   final _buffred = ValueNotifier<List<DurationRange>>(const []);
@@ -390,4 +349,15 @@ class FfiAudioPlayer implements AudioPlayer {
 
   @override
   PlayerStatus get status => _status.value;
+
+  int attachVideoRender() {
+    if (_player == nullptr) {
+      return -1;
+    }
+    return ffp_attach_video_render_flutter(_player);
+  }
+
+  void detachVideoRender() {
+    ffp_detach_video_render_flutter(_player);
+  }
 }

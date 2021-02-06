@@ -37,7 +37,6 @@ add_library(ffplayer SHARED
         include/ffplayer/proto.h)
 
 find_library(LIBSDL2 SDL2 REQUIRED)
-find_library(LIBSDL2MAIN SDL2main REQUIRED)
 
 target_include_directories(ffplayer PUBLIC include)
 
@@ -69,8 +68,14 @@ else ()
             m)
 endif ()
 
+find_library(LIBSDL2MAIN SDL2main REQUIRED)
 add_executable(ffplay_example "ffplay.cc")
 add_dependencies(ffplay_example ffplayer)
 target_include_directories(ffplay_example PUBLIC include)
-
 target_link_libraries(ffplay_example PUBLIC ffplayer ${LIBSDL2MAIN})
+
+if (WIN32)
+    if (CMAKE_FLUTTER_WINDOWS)
+        set_property(TARGET ffplay_example APPEND PROPERTY LINK_FLAGS "/NODEFAULTLIB:MSVCRT")
+    endif ()
+endif ()

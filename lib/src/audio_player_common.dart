@@ -1,6 +1,4 @@
-import 'dart:math' as math;
-
-import 'package:audio_player/audio_player.dart';
+import 'package:av_player/av_player.dart';
 import 'package:flutter/foundation.dart';
 
 enum PlayerStatus {
