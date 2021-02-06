@@ -73,12 +73,15 @@ static void sigterm_handler(int sig) {
 }
 
 static void do_exit(CPlayer *player) {
+    auto render_data = static_cast<VideoRenderData *>(player->video_render_ctx.render_callback_->opacity);
     if (player->is) {
         ffplayer_free_player(player);
     }
-    auto render_data = static_cast<VideoRenderData *>(player->video_render_ctx.render_callback_->opacity);
+    sws_freeContext(render_data->img_convert_ctx);
+    SDL_DestroyTexture(render_data->texture);
     if (render_data->renderer)
         SDL_DestroyRenderer(render_data->renderer);
+    delete render_data;
     if (window)
         SDL_DestroyWindow(window);
     // uninit_opts();
@@ -550,12 +553,6 @@ int main(int argc, char *argv[]) {
             SDL_PushEvent(&event);
         };
         render_callback->opacity = render_data;
-        render_callback->on_destroy = [](void *opacity) {
-            auto render_data = static_cast<VideoRenderData *>(opacity);
-            sws_freeContext(render_data->img_convert_ctx);
-            SDL_DestroyTexture(render_data->texture);
-            delete render_data;
-        };
         ffp_attach_video_render(player, render_callback);
     }
     player->on_load_metadata = on_load_metadata;

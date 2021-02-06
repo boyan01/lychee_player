@@ -578,13 +578,6 @@ static void stream_close(CPlayer *player) {
     SDL_DestroyCond(is->continue_read_thread);
     av_free(is->filename);
 
-    if (player->video_render_ctx.render_callback_ && player->video_render_ctx.render_callback_->opacity) {
-        if (!player->video_render_ctx.render_callback_->on_destroy) {
-            av_log(nullptr, AV_LOG_FATAL, "render_callback_->on_destroy handle is null. it may cause memory leak. \n");
-        } else {
-            player->video_render_ctx.render_callback_->on_destroy(player->video_render_ctx.render_callback_->opacity);
-        }
-    }
     av_free(is);
     av_free(player);
 }

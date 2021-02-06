@@ -293,13 +293,12 @@ typedef struct FFPlayerConfiguration_ {
 
 
 typedef struct FFP_VideoRenderCallback_ {
-    void *opacity;
+    void *opacity = nullptr;
 
-    void (*on_render)(FFP_VideoRenderContext *video_render_ctx, Frame *frame);
+    void (*on_render)(FFP_VideoRenderContext *video_render_ctx, Frame *frame) = nullptr;
 
-    void (*on_texture_updated)(FFP_VideoRenderContext *video_render_ctx);
+    void (*on_texture_updated)(FFP_VideoRenderContext *video_render_ctx) = nullptr;
 
-    void (*on_destroy)(void *opacity);
 } FFP_VideoRenderCallback;
 
 struct FFP_VideoRenderContext_ {
