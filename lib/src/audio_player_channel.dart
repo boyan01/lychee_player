@@ -140,6 +140,10 @@ class ChannelAudioPlayer implements AudioPlayer {
     return "AudioPlayer(id = $_playerId, state = $status, playing = $isPlaying, playWhenReady = $playWhenReady, "
         "duration = $duration, time = (position: $_currentTime, update: $_currentUpdateUptime, computed: $currentTime))";
   }
+
+  // TODO
+  @override
+  int volume = 100;
 }
 
 final _RemotePlayerManager _remotePlayerManager = _RemotePlayerManager()

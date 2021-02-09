@@ -1046,12 +1046,13 @@ static int queue_picture(CPlayer *player, AVFrame *src_frame, double pts, double
     vp->pos = pos;
     vp->serial = serial;
 
-    if (!player->first_video_frame_loaded) {
-        player->first_video_frame_loaded = true;
+    auto render_ctx = &player->video_render_ctx;
+    if (!render_ctx->first_video_frame_loaded) {
+        render_ctx->first_video_frame_loaded = true;
         // https://forum.videohelp.com/threads/323530-please-explain-SAR-DAR-PAR#post2003533
-        int64_t width_d = vp->width * vp->sar.num;
-        int64_t height_d = vp->height * vp->sar.den;
-        ffp_send_msg2(player, FFP_MSG_VIDEO_FRAME_LOADED, vp->width, av_rescale(vp->width, height_d, width_d));
+        render_ctx->frame_width = vp->width;
+        render_ctx->frame_height = av_rescale(vp->width, vp->height * vp->sar.den, vp->width * vp->sar.num);
+        ffp_send_msg2(player, FFP_MSG_VIDEO_FRAME_LOADED, render_ctx->frame_width, render_ctx->frame_height);
     }
 
     av_frame_move_ref(vp->frame, src_frame);
@@ -2616,7 +2617,6 @@ static CPlayer *ffplayer_alloc_player() {
     player->audio_dev = 0;
 
     player->on_load_metadata = nullptr;
-    player->first_video_frame_loaded = false;
     player->first_video_frame_rendered = false;
     player->on_message = nullptr;
 
@@ -2732,11 +2732,27 @@ void ffp_attach_video_render(CPlayer *player, FFP_VideoRenderCallback *render_ca
     }
 }
 
+double ffp_get_video_aspect_ratio(CPlayer *player) {
+    CHECK_PLAYER_WITH_RETURN(player, -1);
+    auto render_ctx = &player->video_render_ctx;
+    if (!render_ctx->first_video_frame_loaded) {
+        return 0;
+    }
+    if (render_ctx->frame_height == 0) {
+        return 0;
+    }
+    return ((double) render_ctx->frame_width) / render_ctx->frame_height;
+}
+
+
 #ifdef _FLUTTER
 
 int64_t ffp_attach_video_render_flutter(CPlayer *player) {
     int64_t texture_id = flutter_attach_video_render(player);
-    start_video_render(player);
+    auto render_ctx = &player->video_render_ctx;
+    if (render_ctx->render_callback_ && !render_ctx->render_thread_) {
+        start_video_render(player);
+    }
     return texture_id;
 }
 
@@ -2744,9 +2760,8 @@ void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
     player->message_send_port = send_port;
 }
 
-void ffp_detach_video_render_flutter(CPlayer* player) {
+void ffp_detach_video_render_flutter(CPlayer *player) {
     CHECK_PLAYER(player);
     flutter_detach_video_render(player);
 }
-
 #endif // _FLUTTER

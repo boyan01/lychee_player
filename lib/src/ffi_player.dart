@@ -9,6 +9,7 @@ import 'package:flutter/widgets.dart';
 
 import 'audio_player_common.dart';
 import 'audio_player_io.dart';
+import 'extension/change_notifier.dart';
 
 const int _FFP_MSG_FLUSH = 0;
 const int _FFP_MSG_ERROR = 100; /* arg1 = error */
@@ -194,6 +195,17 @@ final ffp_detach_video_render_flutter =
     _library.lookupFunction<Void Function(Pointer), void Function(Pointer)>(
         "ffp_detach_video_render_flutter");
 
+final ffp_get_volume =
+    _library.lookupFunction<Int32 Function(Pointer), int Function(Pointer)>(
+        "ffp_get_volume");
+
+final ffp_set_volume = _library.lookupFunction<Void Function(Pointer, Int32),
+    void Function(Pointer, int)>("ffp_set_volume");
+
+final ffp_get_video_aspect_ratio =
+    _library.lookupFunction<Double Function(Pointer), double Function(Pointer)>(
+        "ffp_get_video_aspect_ratio");
+
 var _inited = false;
 
 void _ensureFfplayerGlobalInited() {
@@ -208,6 +220,7 @@ class FfiAudioPlayer implements AudioPlayer {
   final ValueNotifier<PlayerStatus> _status = ValueNotifier(PlayerStatus.Idle);
   final _buffred = ValueNotifier<List<DurationRange>>(const []);
   final _error = ValueNotifier(null);
+  final _videoSize = ValueNotifier(Size.zero);
 
   late Pointer _player;
 
@@ -258,6 +271,9 @@ class FfiAudioPlayer implements AudioPlayer {
           _playWhenReady.value = false;
         }
         break;
+      case _FFP_MSG_VIDEO_FRAME_LOADED:
+        _videoSize.value = Size(arg1.toDouble(), arg2.toDouble());
+        break;
     }
   }
 
@@ -304,6 +320,7 @@ class FfiAudioPlayer implements AudioPlayer {
       ffplayer_free_player(_player);
       _player = nullptr;
     }
+    _renderAttached = 0;
     cppInteractPort.close();
   }
 
@@ -315,6 +332,37 @@ class FfiAudioPlayer implements AudioPlayer {
     return Duration(
       milliseconds: (ffplayer_get_duration(_player) * 1000).ceil(),
     );
+  }
+
+  @override
+  int get volume {
+    if (_player == nullptr) {
+      return 0;
+    }
+    return ffp_get_volume(_player);
+  }
+
+  @override
+  set volume(int volume) {
+    if (_player == nullptr) {
+      return;
+    }
+    ffp_set_volume(_player, volume);
+  }
+
+  ValueNotifier<double>? _aspectRatio;
+
+  ValueNotifier<double> get aspectRatio {
+    assert(_player != nullptr);
+    if (_aspectRatio == null) {
+      _aspectRatio = _videoSize.map((size) {
+        if (size == Size.zero) {
+          return 0.0;
+        }
+        return size.aspectRatio;
+      });
+    }
+    return _aspectRatio!;
   }
 
   @override
@@ -350,14 +398,22 @@ class FfiAudioPlayer implements AudioPlayer {
   @override
   PlayerStatus get status => _status.value;
 
+  int _renderAttached = 0;
+
   int attachVideoRender() {
-    if (_player == nullptr) {
-      return -1;
-    }
+    assert(_player != nullptr);
+    _renderAttached++;
     return ffp_attach_video_render_flutter(_player);
   }
 
   void detachVideoRender() {
-    ffp_detach_video_render_flutter(_player);
+    if (_disposed) {
+      return;
+    }
+    assert(_player != nullptr);
+    _renderAttached--;
+    if (_renderAttached <= 0) {
+      ffp_detach_video_render_flutter(_player);
+    }
   }
 }

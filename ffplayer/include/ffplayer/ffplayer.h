@@ -308,6 +308,9 @@ struct FFP_VideoRenderContext_ {
     std::thread *render_thread_;
     std::mutex *render_mutex_;
 
+    bool first_video_frame_loaded = false;
+    int frame_width = 0;
+    int frame_height = 0;
     FFP_VideoRenderCallback *render_callback_;
 };
 
@@ -354,7 +357,6 @@ struct CPlayer {
 
     void (*on_load_metadata)(void *player);
 
-    bool first_video_frame_loaded;
     bool first_video_frame_rendered;
 
     // buffered position in seconds. -1 if not avalible
@@ -419,6 +421,11 @@ FFPLAYER_EXPORT void
 ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int32_t, int64_t, int64_t));
 
 FFPLAYER_EXPORT void ffp_refresh_texture(CPlayer *player, void(*on_locked)(FFP_VideoRenderContext *video_render_ctx));
+
+/**
+ * @return -1 if player invalid; -2 if render_context invalid; 0 if none picture rendered.
+ */
+FFPLAYER_EXPORT double ffp_get_video_aspect_ratio(CPlayer *player);
 
 #ifdef _FLUTTER
 

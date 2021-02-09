@@ -87,7 +87,15 @@ int64_t flutter_attach_video_render(CPlayer *player) {
     if (!textures_) {
         return -1;
     }
-    std::cout << "ffp_attach_video_render_flutter" << std::endl;
+    av_log(nullptr, AV_LOG_DEBUG, "ffp_attach_video_render_flutter \n");
+
+    if (player->video_render_ctx.render_callback_) {
+        auto render_data = get_render_data(&player->video_render_ctx);
+        av_log(nullptr, AV_LOG_INFO,
+               "player already attached to textures. texture_id = %lld \n", render_data->texture_id);
+        return render_data->texture_id;
+    }
+
     auto render_data = new VideoRenderData;
     render_data->pixel_buffer = new FlutterDesktopPixelBuffer;
     render_data->pixel_buffer->width = 0;
@@ -126,14 +134,20 @@ void flutter_detach_video_render(CPlayer *player) {
         return;
     }
     auto *render_data = get_render_data(&player->video_render_ctx);
+    if (!render_data) {
+        return;
+    }
     textures_->UnregisterTexture(render_data->texture_id);
 
     player->video_render_ctx.render_mutex_->lock();
+
     auto render_callback = player->video_render_ctx.render_callback_;
     player->video_render_ctx.render_callback_ = nullptr;
     render_callback->opacity = nullptr;
     render_callback->on_render = nullptr;
+    render_callback->on_texture_updated = nullptr;
     delete render_callback;
+
     player->video_render_ctx.render_mutex_->unlock();
 
     delete render_data->pixel_buffer;

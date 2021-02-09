@@ -94,6 +94,10 @@ class AudioPlayer implements api.AudioPlayer {
     return AudioPlayer._create(url);
   }
 
+// TODO
+  @override
+  int volume = 0;
+
   void _updateBuffered() {
     final buffered = _audioElement.buffered;
     final ranges = <DurationRange>[];

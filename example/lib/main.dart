@@ -1,3 +1,4 @@
+import 'package:audio_player_example/full_screen_player.dart';
 import 'package:av_player/av_player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -10,14 +11,14 @@ void main() {
 
 enum _Type { file, url, asset }
 
-const Map<String, _Type> urls = {
-  "C:/Users/boyan/Desktop/mojito.mp4": _Type.file,
-  "http://music.163.com/song/media/outer/url?id=1451998397.mp3": _Type.url,
-  "tracks/rise.mp3": _Type.asset,
-  "https://storage.googleapis.com/exoplayer-test-media-0/play.mp3": _Type.url,
-};
-
 class MyApp extends StatefulWidget {
+  final Map<String, _Type> urls = {
+    "C:/Users/boyan/Desktop/mojito.mp4": _Type.file,
+    "http://music.163.com/song/media/outer/url?id=1451998397.mp3": _Type.url,
+    "tracks/rise.mp3": _Type.asset,
+    "https://storage.googleapis.com/exoplayer-test-media-0/play.mp3": _Type.url,
+  };
+
   @override
   _MyAppState createState() => _MyAppState();
 }
@@ -25,6 +26,8 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   AudioPlayer? player;
   String? url;
+
+  Map<String, _Type> get urls => widget.urls;
 
   @override
   void initState() {
@@ -57,6 +60,7 @@ class _MyAppState extends State<MyApp> {
           "state change: ${player!.status} playing: ${player!.isPlaying}");
     });
     player!.playWhenReady = true;
+    player!.volume = 20;
   }
 
   @override
@@ -72,26 +76,50 @@ class _MyAppState extends State<MyApp> {
         appBar: AppBar(title: const Text('Plugin example app')),
         body: Column(
           children: [
-            SizedBox(
-                height: 200, width: 355, child: VideoRender(player: player!)),
-            Spacer(),
+            SmallVideo(player: player),
             _PlayerUi(player: player, url: this.url),
-            Spacer(),
-            for (var item in urls.keys)
-              RadioListTile(
-                value: item,
-                groupValue: url,
-                title: Text(item),
-                onChanged: (dynamic newValue) {
-                  setState(() {
-                    _newPlayer(newValue);
-                  });
-                },
-              ),
-            Spacer(),
+            Expanded(
+                child: ListView(
+              children: [
+                for (var item in urls.keys)
+                  RadioListTile(
+                    value: item,
+                    groupValue: url,
+                    title: Text(item),
+                    onChanged: (dynamic newValue) {
+                      setState(() {
+                        _newPlayer(newValue);
+                      });
+                    },
+                  ),
+              ],
+            )),
           ],
         ),
       ),
+    );
+  }
+}
+
+class SmallVideo extends StatelessWidget {
+  const SmallVideo({
+    Key? key,
+    required this.player,
+  }) : super(key: key);
+
+  final AudioPlayer? player;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (context) => FullScreenPage(player: player!)));
+      },
+      child:
+          SizedBox(height: 200, width: 200, child: VideoView(player: player!)),
     );
   }
 }
