@@ -8,6 +8,8 @@
 
 #include "../../ffp_msg_queue.h"
 #include "../../ffp_packet_queue.h"
+#include "../../ffp_decoder.h"
+#include "../../ffp_frame_queue.h"
 #include "proto.h"
 
 extern "C" {
@@ -91,10 +93,6 @@ typedef enum ffplayer_info_type {
     buffered
 } ffplayer_info_t;
 
-#define VIDEO_PICTURE_QUEUE_SIZE 3
-#define SUBPICTURE_QUEUE_SIZE 16
-#define SAMPLE_QUEUE_SIZE 9
-#define FRAME_QUEUE_SIZE FFMAX(SAMPLE_QUEUE_SIZE, FFMAX(VIDEO_PICTURE_QUEUE_SIZE, SUBPICTURE_QUEUE_SIZE))
 
 typedef enum FFPlayerState_ {
     FFP_STATE_IDLE = 0,
@@ -122,34 +120,6 @@ typedef struct Clock {
     int *queue_serial; /* pointer to the current packet queue serial, used for obsolete clock detection */
 } Clock;
 
-/* Common struct for handling all types of decoded data and allocated render buffers. */
-typedef struct Frame {
-    AVFrame *frame;
-    AVSubtitle sub;
-    int serial;
-    double pts;      /* presentation timestamp for the frame */
-    double duration; /* estimated duration of the frame */
-    int64_t pos;     /* byte position of the frame in the input file */
-    int width;
-    int height;
-    int format;
-    AVRational sar;
-    int uploaded;
-    int flip_v;
-} Frame;
-
-typedef struct FrameQueue {
-    Frame queue[FRAME_QUEUE_SIZE];
-    int rindex;
-    int windex;
-    int size;
-    int max_size;
-    int keep_last;
-    int rindex_shown;
-    SDL_mutex *mutex;
-    SDL_cond *cond;
-    PacketQueue *pktq;
-} FrameQueue;
 
 enum {
     AV_SYNC_AUDIO_MASTER, /* default choice */
@@ -157,20 +127,7 @@ enum {
     AV_SYNC_EXTERNAL_CLOCK, /* synchronize to an external clock */
 };
 
-typedef struct Decoder {
-    AVPacket pkt;
-    PacketQueue *queue;
-    AVCodecContext *avctx;
-    int pkt_serial;
-    int finished;
-    int packet_pending;
-    SDL_cond *empty_queue_cond;
-    int64_t start_pts;
-    AVRational start_pts_tb;
-    int64_t next_pts;
-    AVRational next_pts_tb;
-    SDL_Thread *decoder_tid;
-} Decoder;
+
 
 enum ShowMode {
     SHOW_MODE_NONE = -1,

@@ -556,6 +556,16 @@ int main(int argc, char *argv[]) {
             SDL_Event event;
             event.type = FF_DRAW_EVENT;
             event.user.data1 = context->render_callback_->opacity;
+            {
+                // clean existed scheduled frame.
+                SDL_FilterEvents([](void *data, SDL_Event *event) -> int {
+                    if (event->type == FF_DRAW_EVENT) {
+                        return 0;
+                    } else {
+                        return 1;
+                    }
+                }, nullptr);
+            }
             SDL_PushEvent(&event);
         };
         render_callback->opacity = render_data;

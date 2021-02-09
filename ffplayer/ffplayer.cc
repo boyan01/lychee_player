@@ -92,14 +92,6 @@ static inline void on_buffered_update(CPlayer *player, double position) {
     ffp_send_msg1(player, FFP_MSG_BUFFERING_TIME_UPDATE, mills);
 }
 
-static void decoder_init(Decoder *d, AVCodecContext *avctx, PacketQueue *queue, SDL_cond *empty_queue_cond) {
-    memset(d, 0, sizeof(Decoder));
-    d->avctx = avctx;
-    d->queue = queue;
-    d->empty_queue_cond = empty_queue_cond;
-    d->start_pts = AV_NOPTS_VALUE;
-    d->pkt_serial = -1;
-}
 
 static void change_player_state(CPlayer *player, FFPlayerState state) {
     if (player->state == state) {
@@ -244,130 +236,9 @@ static void decoder_destroy(Decoder *d) {
     avcodec_free_context(&d->avctx);
 }
 
-static void frame_queue_unref_item(Frame *vp) {
-    av_frame_unref(vp->frame);
-    avsubtitle_free(&vp->sub);
-}
-
-static int frame_queue_init(FrameQueue *f, PacketQueue *pktq, int max_size, int keep_last) {
-    int i;
-    memset(f, 0, sizeof(FrameQueue));
-    if (!(f->mutex = SDL_CreateMutex())) {
-        av_log(nullptr, AV_LOG_FATAL, "SDL_CreateMutex(): %s\n", SDL_GetError());
-        return AVERROR(ENOMEM);
-    }
-    if (!(f->cond = SDL_CreateCond())) {
-        av_log(nullptr, AV_LOG_FATAL, "SDL_CreateCond(): %s\n", SDL_GetError());
-        return AVERROR(ENOMEM);
-    }
-    f->pktq = pktq;
-    f->max_size = FFMIN(max_size, FRAME_QUEUE_SIZE);
-    f->keep_last = !!keep_last;
-    for (i = 0; i < f->max_size; i++)
-        if (!(f->queue[i].frame = av_frame_alloc()))
-            return AVERROR(ENOMEM);
-    return 0;
-}
-
-static void frame_queue_destory(FrameQueue *f) {
-    int i;
-    for (i = 0; i < f->max_size; i++) {
-        Frame *vp = &f->queue[i];
-        frame_queue_unref_item(vp);
-        av_frame_free(&vp->frame);
-    }
-    SDL_DestroyMutex(f->mutex);
-    SDL_DestroyCond(f->cond);
-}
-
-static void frame_queue_signal(FrameQueue *f) {
-    SDL_LockMutex(f->mutex);
-    SDL_CondSignal(f->cond);
-    SDL_UnlockMutex(f->mutex);
-}
-
-static Frame *frame_queue_peek(FrameQueue *f) {
-    return &f->queue[(f->rindex + f->rindex_shown) % f->max_size];
-}
-
-static Frame *frame_queue_peek_next(FrameQueue *f) {
-    return &f->queue[(f->rindex + f->rindex_shown + 1) % f->max_size];
-}
-
-static Frame *frame_queue_peek_last(FrameQueue *f) {
-    return &f->queue[f->rindex];
-}
-
-static Frame *frame_queue_peek_writable(FrameQueue *f) {
-    /* wait until we have space to put a new frame */
-    SDL_LockMutex(f->mutex);
-    while (f->size >= f->max_size &&
-           !f->pktq->abort_request) {
-        SDL_CondWait(f->cond, f->mutex);
-    }
-    SDL_UnlockMutex(f->mutex);
-
-    if (f->pktq->abort_request)
-        return nullptr;
-
-    return &f->queue[f->windex];
-}
-
-static Frame *frame_queue_peek_readable(FrameQueue *f) {
-    /* wait until we have a readable a new frame */
-    SDL_LockMutex(f->mutex);
-    while (f->size - f->rindex_shown <= 0 &&
-           !f->pktq->abort_request) {
-        SDL_CondWait(f->cond, f->mutex);
-    }
-    SDL_UnlockMutex(f->mutex);
-
-    if (f->pktq->abort_request)
-        return nullptr;
-
-    return &f->queue[(f->rindex + f->rindex_shown) % f->max_size];
-}
-
-static void frame_queue_push(FrameQueue *f) {
-    if (++f->windex == f->max_size)
-        f->windex = 0;
-    SDL_LockMutex(f->mutex);
-    f->size++;
-    SDL_CondSignal(f->cond);
-    SDL_UnlockMutex(f->mutex);
-}
-
-static void frame_queue_next(FrameQueue *f) {
-    if (f->keep_last && !f->rindex_shown) {
-        f->rindex_shown = 1;
-        return;
-    }
-    frame_queue_unref_item(&f->queue[f->rindex]);
-    if (++f->rindex == f->max_size)
-        f->rindex = 0;
-    SDL_LockMutex(f->mutex);
-    f->size--;
-    SDL_CondSignal(f->cond);
-    SDL_UnlockMutex(f->mutex);
-}
-
-/* return the number of undisplayed frames in the queue */
-static int frame_queue_nb_remaining(FrameQueue *f) {
-    return f->size - f->rindex_shown;
-}
-
-/* return last shown position */
-static int64_t frame_queue_last_pos(FrameQueue *f) {
-    Frame *fp = &f->queue[f->rindex];
-    if (f->rindex_shown && fp->serial == f->pktq->serial)
-        return fp->pos;
-    else
-        return -1;
-}
-
 static void decoder_abort(Decoder *d, FrameQueue *fq) {
     d->queue->Abort();
-    frame_queue_signal(fq);
+    fq->Signal();
     SDL_WaitThread(d->decoder_tid, nullptr);
     d->decoder_tid = nullptr;
     d->queue->Flush();
@@ -396,7 +267,7 @@ video_image_display(CPlayer *player, FrameQueue *pic_queue, FrameQueue *sub_queu
     Frame *vp;
     Frame *sp = nullptr;
     FFP_VideoRenderContext *video_render_ctx = &player->video_render_ctx;
-    vp = frame_queue_peek_last(pic_queue);
+    vp = pic_queue->PeekLast();
 
 #if 0
     if (sub_queue) {
@@ -572,9 +443,9 @@ static void stream_close(CPlayer *player) {
     player->msg_queue.Abort();
 
     /* free all pictures */
-    frame_queue_destory(&is->pictq);
-    frame_queue_destory(&is->sampq);
-    frame_queue_destory(&is->subpq);
+    is->pictq.Destroy();
+    is->sampq.Destroy();
+    is->subpq.Destroy();
     SDL_DestroyCond(is->continue_read_thread);
     av_free(is->filename);
 
@@ -866,18 +737,18 @@ static double ffp_draw_frame(CPlayer *player) {
 
     if (is->video_st) {
         retry:
-        if (frame_queue_nb_remaining(&is->pictq) == 0) {
+        if (is->pictq.NbRemaining() == 0) {
             // nothing to do, no picture to display in the queue
         } else {
             double last_duration, duration, delay;
             Frame *vp, *lastvp;
 
             /* dequeue the picture */
-            lastvp = frame_queue_peek_last(&is->pictq);
-            vp = frame_queue_peek(&is->pictq);
+            lastvp = is->pictq.PeekLast();
+            vp = is->pictq.Peek();
 
             if (vp->serial != is->videoq.serial) {
-                frame_queue_next(&is->pictq);
+                is->pictq.Next();
                 goto retry;
             }
 
@@ -906,14 +777,14 @@ static double ffp_draw_frame(CPlayer *player) {
                 update_video_pts(is, vp->pts, vp->pos, vp->serial);
             SDL_UnlockMutex(is->pictq.mutex);
 
-            if (frame_queue_nb_remaining(&is->pictq) > 1) {
-                Frame *nextvp = frame_queue_peek_next(&is->pictq);
+            if (is->pictq.NbRemaining() > 1) {
+                Frame *nextvp = is->pictq.PeekNext();
                 duration = vp_duration(is, vp, nextvp);
                 if (!is->step && (player->framedrop > 0 ||
                                   (player->framedrop && get_master_sync_type(is) != AV_SYNC_VIDEO_MASTER)) &&
                     time > is->frame_timer + duration) {
                     is->frame_drops_late++;
-                    frame_queue_next(&is->pictq);
+                    is->pictq.Next();
                     goto retry;
                 }
             }
@@ -953,7 +824,7 @@ static double ffp_draw_frame(CPlayer *player) {
                 }
             }
 #endif
-            frame_queue_next(&is->pictq);
+            is->pictq.Next();
             is->force_refresh = 1;
 
             if (is->step && !is->paused)
@@ -1031,7 +902,7 @@ static int queue_picture(CPlayer *player, AVFrame *src_frame, double pts, double
            av_get_picture_type_char(src_frame->pict_type), pts);
 #endif
 
-    if (!(vp = frame_queue_peek_writable(&is->pictq)))
+    if (!(vp = is->pictq.PeekWritable()))
         return -1;
 
     vp->sar = src_frame->sample_aspect_ratio;
@@ -1056,7 +927,7 @@ static int queue_picture(CPlayer *player, AVFrame *src_frame, double pts, double
     }
 
     av_frame_move_ref(vp->frame, src_frame);
-    frame_queue_push(&is->pictq);
+    is->pictq.Push();
     return 0;
 }
 
@@ -1373,7 +1244,7 @@ static int audio_thread(void *arg) {
             while ((ret = av_buffersink_get_frame_flags(is->out_audio_filter, frame, 0)) >= 0) {
                 tb = av_buffersink_get_time_base(is->out_audio_filter);
 #endif
-            if (!(af = frame_queue_peek_writable(&is->sampq)))
+            if (!(af = is->sampq.PeekWritable()))
                 goto the_end;
 
             af->pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(tb);
@@ -1382,7 +1253,7 @@ static int audio_thread(void *arg) {
             af->duration = av_q2d(AVRational{frame->nb_samples, frame->sample_rate});
 
             av_frame_move_ref(af->frame, frame);
-            frame_queue_push(&is->sampq);
+            is->sampq.Push();
 
 #if CONFIG_AVFILTER
             if (is->audioq.serial != is->auddec.pkt_serial)
@@ -1541,7 +1412,7 @@ static int subtitle_thread(void *arg) {
     double pts;
 
     for (;;) {
-        if (!(sp = frame_queue_peek_writable(&is->subpq)))
+        if (!(sp = is->subpq.PeekWritable()))
             return 0;
 
         if ((got_subtitle = decoder_decode_frame(&is->subdec, nullptr, &sp->sub, player)) < 0)
@@ -1559,7 +1430,7 @@ static int subtitle_thread(void *arg) {
             sp->uploaded = 0;
 
             /* now we can update the picture count */
-            frame_queue_push(&is->subpq);
+            is->subpq.Push();
         } else if (got_subtitle) {
             avsubtitle_free(&sp->sub);
         }
@@ -1648,16 +1519,16 @@ static int audio_decode_frame(CPlayer *player) {
 
     do {
 #if defined(_WIN32)
-        while (frame_queue_nb_remaining(&is->sampq) == 0) {
+        while (is->sampq.NbRemaining() == 0) {
             if ((av_gettime_relative() - player->audio_callback_time) >
                 1000000LL * is->audio_hw_buf_size / is->audio_tgt.bytes_per_sec / 2)
                 return -1;
             av_usleep(1000);
         }
 #endif
-        if (!(af = frame_queue_peek_readable(&is->sampq)))
+        if (!(af = is->sampq.PeekReadable()))
             return -1;
-        frame_queue_next(&is->sampq);
+        is->sampq.Next();
     } while (af->serial != is->audioq.serial);
 
     data_size = av_samples_get_buffer_size(nullptr, af->frame->channels,
@@ -2019,7 +1890,7 @@ static int stream_component_open(CPlayer *player, int stream_index) {
             is->audio_stream = stream_index;
             is->audio_st = ic->streams[stream_index];
 
-            decoder_init(&is->auddec, avctx, &is->audioq, is->continue_read_thread);
+            is->auddec.Init(avctx, &is->audioq, is->continue_read_thread);
             if ((is->ic->iformat->flags & (AVFMT_NOBINSEARCH | AVFMT_NOGENSEARCH | AVFMT_NO_BYTE_SEEK)) &&
                 !is->ic->iformat->read_seek) {
                 is->auddec.start_pts = is->audio_st->start_time;
@@ -2033,7 +1904,7 @@ static int stream_component_open(CPlayer *player, int stream_index) {
             is->video_stream = stream_index;
             is->video_st = ic->streams[stream_index];
 
-            decoder_init(&is->viddec, avctx, &is->videoq, is->continue_read_thread);
+            is->viddec.Init(avctx, &is->videoq, is->continue_read_thread);
             if ((ret = decoder_start(&is->viddec, video_thread, "video_decoder", player)) < 0)
                 goto out;
             is->queue_attachments_req = 1;
@@ -2043,7 +1914,7 @@ static int stream_component_open(CPlayer *player, int stream_index) {
             is->subtitle_stream = stream_index;
             is->subtitle_st = ic->streams[stream_index];
 
-            decoder_init(&is->subdec, avctx, &is->subtitleq, is->continue_read_thread);
+            is->subdec.Init(avctx, &is->subtitleq, is->continue_read_thread);
             if ((ret = decoder_start(&is->subdec, subtitle_thread, "subtitle_decoder", player)) < 0)
                 goto out;
             break;
@@ -2399,9 +2270,9 @@ static int read_thread(void *arg) {
         }
         if (!is->paused &&
             (!is->audio_st ||
-             (is->auddec.finished == is->audioq.serial && frame_queue_nb_remaining(&is->sampq) == 0)) &&
+             (is->auddec.finished == is->audioq.serial && is->sampq.NbRemaining() == 0)) &&
             (!is->video_st ||
-             (is->viddec.finished == is->videoq.serial && frame_queue_nb_remaining(&is->pictq) == 0))) {
+             (is->viddec.finished == is->videoq.serial && is->pictq.NbRemaining() == 0))) {
             bool loop = player->loop != 1 && (!player->loop || --player->loop);
             ffp_send_msg1(player, FFP_MSG_COMPLETED, loop);
             if (loop) {
@@ -2552,11 +2423,11 @@ static VideoState *alloc_video_state() {
     is->last_subtitle_stream = is->subtitle_stream = -1;
 
     /* start video display */
-    if (frame_queue_init(&is->pictq, &is->videoq, VIDEO_PICTURE_QUEUE_SIZE, 1) < 0)
+    if (is->pictq.Init(&is->videoq, VIDEO_PICTURE_QUEUE_SIZE, 1) < 0)
         goto fail;
-    if (frame_queue_init(&is->subpq, &is->subtitleq, SUBPICTURE_QUEUE_SIZE, 0) < 0)
+    if (is->subpq.Init(&is->subtitleq, SUBPICTURE_QUEUE_SIZE, 0) < 0)
         goto fail;
-    if (frame_queue_init(&is->sampq, &is->audioq, SAMPLE_QUEUE_SIZE, 1) < 0)
+    if (is->sampq.Init(&is->audioq, SAMPLE_QUEUE_SIZE, 1) < 0)
         goto fail;
 
     if (is->videoq.Init() < 0 || is->audioq.Init() < 0 || is->subtitleq.Init() < 0)
