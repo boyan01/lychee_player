@@ -77,9 +77,6 @@ extern "C" {
 /* we use about AUDIO_DIFF_AVG_NB A-V differences to make the average */
 #define AUDIO_DIFF_AVG_NB 20
 
-/* polls for possible required screen refresh at least this often, should be less than 1/fps */
-#define REFRESH_RATE 0.01
-
 /* NOTE: the size must be big enough to compensate the hardware audio buffersize size */
 /* TODO: We assume that a decoded and resampled frame fits into this buffer */
 #define SAMPLE_ARRAY_SIZE (8 * 65536)
@@ -280,8 +277,6 @@ struct CPlayer {
 //    SDL_RendererInfo renderer_info;
 
     void (*on_load_metadata)(void *player);
-
-    bool first_video_frame_rendered;
 
     // buffered position in seconds. -1 if not avalible
     int64_t buffered_position;
