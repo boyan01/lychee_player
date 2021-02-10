@@ -10,6 +10,8 @@
 #include "../../ffp_packet_queue.h"
 #include "../../ffp_decoder.h"
 #include "../../ffp_frame_queue.h"
+#include "../../ffp_video_render.h"
+#include "../../ffp_clock.h"
 #include "proto.h"
 
 extern "C" {
@@ -62,8 +64,7 @@ extern "C" {
 #define AV_SYNC_THRESHOLD_MAX 0.1
 /* If a frame duration is longer than this, it will not be duplicated to compensate AV sync */
 #define AV_SYNC_FRAMEDUP_THRESHOLD 0.1
-/* no AV correction is done if too big error */
-#define AV_NOSYNC_THRESHOLD 10.0
+
 
 /* maximum audio speed change to get correct sync */
 #define SAMPLE_CORRECTION_PERCENT_MAX 10
@@ -110,24 +111,11 @@ typedef struct AudioParams {
     int bytes_per_sec;
 } AudioParams;
 
-typedef struct Clock {
-    double pts;       /* clock base */
-    double pts_drift; /* clock base minus time at which we updated the clock */
-    double last_updated;
-    double speed;
-    int serial; /* clock is based on a packet with this serial */
-    int paused;
-    int *queue_serial; /* pointer to the current packet queue serial, used for obsolete clock detection */
-} Clock;
-
-
 enum {
     AV_SYNC_AUDIO_MASTER, /* default choice */
     AV_SYNC_VIDEO_MASTER,
     AV_SYNC_EXTERNAL_CLOCK, /* synchronize to an external clock */
 };
-
-
 
 enum ShowMode {
     SHOW_MODE_NONE = -1,
@@ -249,27 +237,6 @@ typedef struct FFPlayerConfiguration_ {
 } FFPlayerConfiguration;
 
 
-typedef struct FFP_VideoRenderCallback_ {
-    void *opacity = nullptr;
-
-    void (*on_render)(FFP_VideoRenderContext *video_render_ctx, Frame *frame) = nullptr;
-
-    void (*on_texture_updated)(FFP_VideoRenderContext *video_render_ctx) = nullptr;
-
-} FFP_VideoRenderCallback;
-
-struct FFP_VideoRenderContext_ {
-    bool abort_render;
-    bool render_attached;
-
-    std::thread *render_thread_;
-    std::mutex *render_mutex_;
-
-    bool first_video_frame_loaded = false;
-    int frame_width = 0;
-    int frame_height = 0;
-    FFP_VideoRenderCallback *render_callback_;
-};
 
 struct CPlayer {
     VideoState *is;

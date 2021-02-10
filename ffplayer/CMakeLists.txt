@@ -35,6 +35,10 @@ add_library(ffplayer SHARED
         ffp_decoder.cc
         ffp_frame_queue.h
         ffp_frame_queue.cc
+        ffp_video_render.h
+        ffp_video_render.cc
+        ffp_clock.h
+        ffp_clock.cc
         "ffplayer.cc"
         "include/third_party/dart/dart_api_dl.c"
         "flutter.cc"
