@@ -136,114 +136,6 @@ static void on_decode_frame_block(void *opacity) {
     change_player_state(player, FFP_STATE_BUFFERING);
 }
 
-static int decoder_decode_frame(Decoder *d, AVFrame *frame, AVSubtitle *sub, CPlayer *player) {
-    int ret = AVERROR(EAGAIN);
-
-    for (;;) {
-        AVPacket pkt;
-
-        if (d->queue->serial == d->pkt_serial) {
-            do {
-                if (d->queue->abort_request)
-                    return -1;
-
-                switch (d->avctx->codec_type) {
-                    case AVMEDIA_TYPE_VIDEO:
-                        ret = avcodec_receive_frame(d->avctx, frame);
-                        if (ret >= 0) {
-                            if (player->decoder_reorder_pts == -1) {
-                                frame->pts = frame->best_effort_timestamp;
-                            } else if (!player->decoder_reorder_pts) {
-                                frame->pts = frame->pkt_dts;
-                            }
-                        }
-                        break;
-                    case AVMEDIA_TYPE_AUDIO:
-                        ret = avcodec_receive_frame(d->avctx, frame);
-                        if (ret >= 0) {
-                            AVRational tb = {1, frame->sample_rate};
-                            if (frame->pts != AV_NOPTS_VALUE)
-                                frame->pts = av_rescale_q(frame->pts, d->avctx->pkt_timebase, tb);
-                            else if (d->next_pts != AV_NOPTS_VALUE)
-                                frame->pts = av_rescale_q(d->next_pts, d->next_pts_tb, tb);
-                            if (frame->pts != AV_NOPTS_VALUE) {
-                                d->next_pts = frame->pts + frame->nb_samples;
-                                d->next_pts_tb = tb;
-                            }
-                        }
-                        break;
-                    default:
-                        break;
-                }
-                if (ret == AVERROR_EOF) {
-                    d->finished = d->pkt_serial;
-                    avcodec_flush_buffers(d->avctx);
-                    return 0;
-                }
-                if (ret >= 0)
-                    return 1;
-            } while (ret != AVERROR(EAGAIN));
-        }
-
-        do {
-            if (d->queue->nb_packets == 0)
-                SDL_CondSignal(d->empty_queue_cond);
-            if (d->packet_pending) {
-                av_packet_move_ref(&pkt, &d->pkt);
-                d->packet_pending = 0;
-            } else {
-                if (d->queue->Get(&pkt, 1, &d->pkt_serial, player, on_decode_frame_block) < 0)
-                    return -1;
-            }
-            if (d->queue->serial == d->pkt_serial)
-                break;
-            av_packet_unref(&pkt);
-        } while (true);
-
-        if (pkt.data == flush_pkt->data) {
-            avcodec_flush_buffers(d->avctx);
-            d->finished = 0;
-            d->next_pts = d->start_pts;
-            d->next_pts_tb = d->start_pts_tb;
-        } else {
-            if (d->avctx->codec_type == AVMEDIA_TYPE_SUBTITLE) {
-                int got_frame = 0;
-                ret = avcodec_decode_subtitle2(d->avctx, sub, &got_frame, &pkt);
-                if (ret < 0) {
-                    ret = AVERROR(EAGAIN);
-                } else {
-                    if (got_frame && !pkt.data) {
-                        d->packet_pending = 1;
-                        av_packet_move_ref(&d->pkt, &pkt);
-                    }
-                    ret = got_frame ? 0 : (pkt.data ? AVERROR(EAGAIN) : AVERROR_EOF);
-                }
-            } else {
-                if (avcodec_send_packet(d->avctx, &pkt) == AVERROR(EAGAIN)) {
-                    av_log(d->avctx, AV_LOG_ERROR,
-                           "Receive_frame and send_packet both returned EAGAIN, which is an API violation.\n");
-                    d->packet_pending = 1;
-                    av_packet_move_ref(&d->pkt, &pkt);
-                }
-            }
-            av_packet_unref(&pkt);
-        }
-    }
-}
-
-static void decoder_destroy(Decoder *d) {
-    av_packet_unref(&d->pkt);
-    avcodec_free_context(&d->avctx);
-}
-
-static void decoder_abort(Decoder *d, FrameQueue *fq) {
-    d->queue->Abort();
-    fq->Signal();
-    SDL_WaitThread(d->decoder_tid, nullptr);
-    d->decoder_tid = nullptr;
-    d->queue->Flush();
-}
-
 
 static void set_sdl_yuv_conversion_mode(AVFrame *frame) {
 #if SDL_VERSION_ATLEAST(2, 0, 8)
@@ -364,9 +256,9 @@ static void stream_component_close(CPlayer *player, int stream_index) {
 
     switch (codecpar->codec_type) {
         case AVMEDIA_TYPE_AUDIO:
-            decoder_abort(&is->auddec, &is->sampq);
+            is->auddec.Abort(&is->sampq);
             SDL_CloseAudioDevice(player->audio_dev);
-            decoder_destroy(&is->auddec);
+            is->auddec.Destroy();
             swr_free(&is->swr_ctx);
             av_freep(&is->audio_buf1);
             is->audio_buf1_size = 0;
@@ -380,12 +272,12 @@ static void stream_component_close(CPlayer *player, int stream_index) {
             }
             break;
         case AVMEDIA_TYPE_VIDEO:
-            decoder_abort(&is->viddec, &is->pictq);
-            decoder_destroy(&is->viddec);
+            is->viddec.Abort(&is->pictq);
+            is->viddec.Destroy();
             break;
         case AVMEDIA_TYPE_SUBTITLE:
-            decoder_abort(&is->subdec, &is->subpq);
-            decoder_destroy(&is->subdec);
+            is->subdec.Abort(&is->subpq);
+            is->subdec.Destroy();
             break;
         default:
             break;
@@ -934,7 +826,7 @@ static int queue_picture(CPlayer *player, AVFrame *src_frame, double pts, double
 static int get_video_frame(CPlayer *player, AVFrame *frame) {
     VideoState *is = player->is;
     int got_picture;
-    if ((got_picture = decoder_decode_frame(&is->viddec, frame, nullptr, player)) < 0)
+    if ((got_picture = decoder_decode_frame(&is->viddec, frame, nullptr)) < 0)
         return -1;
 
     if (got_picture) {
@@ -1203,7 +1095,7 @@ static int audio_thread(void *arg) {
         return AVERROR(ENOMEM);
 
     do {
-        if ((got_frame = decoder_decode_frame(&is->auddec, frame, nullptr, player)) < 0)
+        if ((got_frame = decoder_decode_frame(&is->auddec, frame, nullptr)) < 0)
             goto the_end;
 
         if (got_frame) {
@@ -1291,15 +1183,6 @@ static int video_render(void *args) {
     return 0;
 }
 
-static int decoder_start(Decoder *d, int (*fn)(void *), const char *thread_name, void *arg) {
-    d->queue->Start();
-    d->decoder_tid = SDL_CreateThread(fn, thread_name, arg);
-    if (!d->decoder_tid) {
-        av_log(nullptr, AV_LOG_ERROR, "SDL_CreateThread(): %s\n", SDL_GetError());
-        return AVERROR(ENOMEM);
-    }
-    return 0;
-}
 
 static int video_thread(void *arg) {
     auto *player = static_cast<CPlayer *>(arg);
@@ -1415,7 +1298,7 @@ static int subtitle_thread(void *arg) {
         if (!(sp = is->subpq.PeekWritable()))
             return 0;
 
-        if ((got_subtitle = decoder_decode_frame(&is->subdec, nullptr, &sp->sub, player)) < 0)
+        if ((got_subtitle = decoder_decode_frame(&is->subdec, nullptr, &sp->sub)) < 0)
             break;
 
         pts = 0;
