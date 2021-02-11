@@ -5,13 +5,25 @@
 #ifndef FFPLAYER_FFP_DECODER_H
 #define FFPLAYER_FFP_DECODER_H
 
-#include "functional"
+#include <functional>
+#include <condition_variable>
 
 #include "ffp_packet_queue.h"
 #include "ffp_frame_queue.h"
+#include "ffp_define.h"
+#include "ffp_audio_render.h"
 
 extern "C" {
 #include "libavcodec/avcodec.h"
+#include "libavformat/avformat.h"
+};
+
+
+struct DecodeParams {
+    AVStream *stream = nullptr;
+    PacketQueue *pkt_queue = nullptr;
+    std::condition_variable_any *read_condition = nullptr;
+    bool audio_follow_stream_start_pts;
 };
 
 typedef struct Decoder {
@@ -21,7 +33,7 @@ typedef struct Decoder {
     int pkt_serial = 0;
     int finished = 0;
     int packet_pending = 0;
-    SDL_cond *empty_queue_cond;
+    std::condition_variable_any *empty_queue_cond;
     int64_t start_pts = 0;
     AVRational start_pts_tb{0};
     int64_t next_pts = 0;
@@ -31,7 +43,7 @@ typedef struct Decoder {
     std::function<void()> on_frame_decode_block = nullptr;
 
 public:
-    void Init(AVCodecContext *av_codec_ctx, PacketQueue *_queue, SDL_cond *_empty_queue_cond);
+    void Init(AVCodecContext *av_codec_ctx, PacketQueue *_queue, std::condition_variable_any *_empty_queue_cond);
 
     void Destroy() {
         av_packet_unref(&pkt);
@@ -61,6 +73,30 @@ static int decoder_start(Decoder *d, int (*fn)(void *), const char *thread_name,
     }
     return 0;
 }
+
+class DecoderContext {
+public:
+    /**
+     * low resolution decoding, 1-> 1/2 size, 2->1/4 size
+     */
+    int low_res = 0;
+    bool fast = false;
+    AudioRender *audio_render;
+
+    Decoder *audio_decoder;
+    Decoder *video_decoder;
+    Decoder *subtitle_decoder;
+
+
+private:
+    int StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx, const DecodeParams *decode_params);
+
+    int AudioThread() const;
+
+public:
+    int StartDecoder(const DecodeParams *decode_params);
+
+};
 
 
 #endif //FFPLAYER_FFP_DECODER_H

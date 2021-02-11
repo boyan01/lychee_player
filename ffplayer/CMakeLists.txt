@@ -26,6 +26,7 @@ if (UNIX)
 endif ()
 
 add_library(ffplayer SHARED
+        ffp_define.h
         ffp_player_internal.h
         ffp_msg_queue.h
         ffp_msg_queue.cc
@@ -37,8 +38,12 @@ add_library(ffplayer SHARED
         ffp_frame_queue.cc
         ffp_video_render.h
         ffp_video_render.cc
+        ffp_audio_render.h
+        ffp_audio_render.cc
         ffp_clock.h
         ffp_clock.cc
+        ffp_data_source.h
+        ffp_data_source.cc
         "ffplayer.cc"
         "include/third_party/dart/dart_api_dl.c"
         "flutter.cc"

@@ -12,6 +12,8 @@
 #include "../../ffp_frame_queue.h"
 #include "../../ffp_video_render.h"
 #include "../../ffp_clock.h"
+#include "../../ffp_data_source.h"
+#include "../../ffp_audio_render.h"
 #include "proto.h"
 
 extern "C" {
@@ -99,14 +101,6 @@ typedef enum FFPlayerState_ {
     FFP_STATE_END
 } FFPlayerState;
 
-typedef struct AudioParams {
-    int freq;
-    int channels;
-    int64_t channel_layout;
-    enum AVSampleFormat fmt;
-    int frame_size;
-    int bytes_per_sec;
-} AudioParams;
 
 enum {
     AV_SYNC_AUDIO_MASTER, /* default choice */
@@ -220,23 +214,23 @@ typedef struct VideoState {
     SDL_cond *continue_read_thread;
 } VideoState;
 
-typedef struct FFPlayerConfiguration_ {
-    int32_t audio_disable;
-    int32_t video_disable;
-    int32_t subtitle_disable;
+struct FFPlayerConfiguration {
+    int32_t audio_disable = false;
+    int32_t video_disable = false;
+    int32_t subtitle_disable = false;
 
-    int32_t seek_by_bytes;
+    int32_t seek_by_bytes = false;
 
-    int32_t show_status;
+    int32_t show_status = true;
 
-    int64_t start_time;
-    int32_t loop;
-} FFPlayerConfiguration;
-
+    int64_t start_time = 0;
+    int32_t loop = 1;
+};
 
 
 struct CPlayer {
     VideoState *is;
+    DataSource *dataSource = nullptr;
     int audio_disable;
     int video_disable;
     int subtitle_disable;
@@ -260,6 +254,7 @@ struct CPlayer {
     const char *subtitle_codec_name;
     const char *video_codec_name;
     double rdftspeed;
+
 
 #if CONFIG_AVFILTER
     const char **vfilters_list = NULL;
