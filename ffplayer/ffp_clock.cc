@@ -33,7 +33,7 @@ void Clock::SetSpeed(double speed) {
 void Clock::Sync(Clock *secondary) {
     double clock = GetClock();
     double secondary_clock = secondary->GetClock();
-    if (!isnan(secondary_clock) && (isnan(clock) || fabs(clock - secondary_clock) > AV_NOSYNC_THRESHOLD)) {
+    if (!std::isnan(secondary_clock) && (std::isnan(clock) || fabs(clock - secondary_clock) > AV_NOSYNC_THRESHOLD)) {
         SetClock(secondary_clock, secondary->serial);
     }
 }

@@ -459,15 +459,7 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, sigterm_handler);  /* Interrupt (ANSI).    */
     signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */
 
-    FFPlayerConfiguration config = {
-            0,
-            0,
-            1,
-            -1,
-            1,
-            0,
-            1,
-    };
+    FFPlayerConfiguration config;
 
     CPlayer *player = ffp_create_player(&config);
     if (!player) {
