@@ -31,9 +31,6 @@ static int is_realtime(AVFormatContext *s) {
     return 0;
 }
 
-static int stream_component_open(CPlayer *player, int stream_index) {
-
-}
 
 /* this thread gets the stream from the disk or the network */
 static int read_thread(void *arg) {
@@ -174,18 +171,18 @@ static int read_thread(void *arg) {
 
     /* open the streams */
     if (st_index[AVMEDIA_TYPE_AUDIO] >= 0) {
-        stream_component_open(player, st_index[AVMEDIA_TYPE_AUDIO]);
+//        stream_component_open(player, st_index[AVMEDIA_TYPE_AUDIO]);
     }
 
     ret = -1;
     if (st_index[AVMEDIA_TYPE_VIDEO] >= 0) {
-        ret = stream_component_open(player, st_index[AVMEDIA_TYPE_VIDEO]);
+//        ret = stream_component_open(player, st_index[AVMEDIA_TYPE_VIDEO]);
     }
     if (is->show_mode == SHOW_MODE_NONE)
         is->show_mode = ret >= 0 ? SHOW_MODE_VIDEO : SHOW_MODE_RDFT;
 
     if (st_index[AVMEDIA_TYPE_SUBTITLE] >= 0) {
-        stream_component_open(player, st_index[AVMEDIA_TYPE_SUBTITLE]);
+//        stream_component_open(player, st_index[AVMEDIA_TYPE_SUBTITLE]);
     }
 
     if (is->video_stream < 0 && is->audio_stream < 0) {
@@ -533,6 +530,7 @@ int DataSource::OpenStreams(const int st_index[AVMEDIA_TYPE_NB]) {
         av_log(nullptr, AV_LOG_FATAL, "Failed to open file '%s' or configure filtergraph\n", filename);
         return -1;
     }
+    return 0;
 }
 
 int DataSource::OpenComponentStream(int stream_index, AVMediaType media_type) {

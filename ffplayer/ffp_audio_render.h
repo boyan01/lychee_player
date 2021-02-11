@@ -32,7 +32,7 @@ private:
     /* current context */
     int64_t audio_callback_time;
 
-    SDL_AudioDeviceID audio_dev;
+    SDL_AudioDeviceID audio_dev = 0;
 
     int audio_hw_buf_size;
     uint8_t *audio_buf;
@@ -75,6 +75,13 @@ public:
 private:
     void AudioCallback(Uint8 *stream, int len);
 
+    /**
+     * Decode one audio frame and return its uncompressed size.
+     *
+     * The processed audio frame is decoded, converted if required, and
+     * stored in is->audio_buf, with size in bytes given by the return
+     * value.
+     */
     int AudioDecodeFrame();
 
     int SynchronizeAudio(int nb_samples);

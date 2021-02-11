@@ -3,6 +3,7 @@
 
 #include <csignal>
 #include <iostream>
+#include <cstdint>
 
 #include "ffplayer/ffplayer.h"
 #include "ffplayer/utils.h"
@@ -81,9 +82,7 @@ static void sigterm_handler(int sig) {
 
 static void do_exit(CPlayer *player) {
     auto render_data = static_cast<VideoRenderData *>(player->video_render_ctx.render_callback_->opacity);
-    if (player->is) {
-        ffplayer_free_player(player);
-    }
+    ffplayer_free_player(player);
     sws_freeContext(render_data->img_convert_ctx);
     SDL_DestroyTexture(render_data->texture);
     if (render_data->renderer)
