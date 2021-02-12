@@ -222,6 +222,7 @@ public:
     const std::unique_ptr<AudioRender> audio_render = std::unique_ptr<AudioRender>(new AudioRender);
     const std::unique_ptr<VideoRender> video_render = std::unique_ptr<VideoRender>(new VideoRender);
 
+    const std::shared_ptr<MessageContext> message_context = std::make_shared<MessageContext>();
 
 public:
 
@@ -278,7 +279,7 @@ public:
     // buffered position in seconds. -1 if not avalible
     int64_t buffered_position = -1;
 
-    FFPlayerMessageQueue msg_queue;
+    MessageQueue msg_queue;
 
     void (*on_message)(struct CPlayer *player, int what, int64_t arg1, int64_t arg2) = nullptr;
 
@@ -360,7 +361,7 @@ FFPLAYER_EXPORT void ffp_detach_video_render_flutter(CPlayer *player);
 #endif
 
 static inline void ffp_send_msg2(CPlayer *player, int what, int arg1, int arg2) {
-    FFPlayerMessage msg = {0};
+    Message msg = {0};
     msg.what = what;
     msg.arg1 = arg1;
     msg.arg2 = arg2;

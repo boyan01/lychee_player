@@ -11,6 +11,7 @@
 using namespace std;
 
 #define FF_DRAW_EVENT    (SDL_USEREVENT + 2)
+#define FF_MSG_EVENT    (SDL_USEREVENT + 3)
 /* Step size for volume control*/
 #define SDL_VOLUME_STEP (10)
 
@@ -75,6 +76,16 @@ public:
     }
 
 };
+
+struct MessageData {
+    CPlayer *player = nullptr;
+    int32_t what = 0;
+    int64_t arg1 = 0;
+    int64_t arg2 = 0;
+
+};
+
+static void on_message(CPlayer *player, int what, int64_t arg1, int64_t arg2);
 
 static void sigterm_handler(int sig) {
     exit(123);
@@ -360,6 +371,12 @@ static void event_loop(CPlayer *player) {
 //                     << endl;
             }
                 break;
+            case FF_MSG_EVENT: {
+                auto *msg = static_cast<MessageData *>(event.user.data1);
+                on_message(msg->player, msg->what, msg->arg1, msg->arg2);
+                delete msg;
+            }
+                break;
             default:
                 break;
         }
@@ -633,7 +650,17 @@ int main(int argc, char *argv[]) {
         ffp_attach_video_render(player, render_callback);
     }
     player->on_load_metadata = on_load_metadata;
-    player->on_message = on_message;
+    ffp_set_message_callback(player, [](CPlayer *player, int32_t what, int64_t arg1, int64_t arg2) {
+        SDL_Event event;
+        event.type = FF_MSG_EVENT;
+        auto *data = new MessageData;
+        event.user.data1 = data;
+        data->player = player;
+        data->what = what;
+        data->arg1 = arg1;
+        data->arg2 = arg2;
+        SDL_PushEvent(&event);
+    });
 
     ffplayer_open_file(player, input_file);
     if (!player->is) {

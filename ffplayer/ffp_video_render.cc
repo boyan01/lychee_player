@@ -3,6 +3,7 @@
 //
 
 #include <cmath>
+#include <utility>
 
 #include "ffp_video_render.h"
 #include "ffplayer/ffplayer.h"
@@ -10,24 +11,7 @@
 /* polls for possible required screen refresh at least this often, should be less than 1/fps */
 #define REFRESH_RATE 0.01
 
-static int get_master_sync_type(VideoState *is) {
-    if (is->av_sync_type == AV_SYNC_VIDEO_MASTER) {
-        if (is->video_st)
-            return AV_SYNC_VIDEO_MASTER;
-        else
-            return AV_SYNC_AUDIO_MASTER;
-    } else if (is->av_sync_type == AV_SYNC_AUDIO_MASTER) {
-        if (is->audio_st)
-            return AV_SYNC_AUDIO_MASTER;
-        else
-            return AV_SYNC_EXTERNAL_CLOCK;
-    } else {
-        return AV_SYNC_EXTERNAL_CLOCK;
-    }
-}
-
-
-bool VideoRender::Start(CPlayer *player) {
+bool VideoRender::Start() {
     abort_render = false;
     render_mutex_ = new(std::nothrow) std::mutex();
     if (!render_mutex_) {
@@ -43,7 +27,7 @@ bool VideoRender::Start(CPlayer *player) {
     return true;
 }
 
-void VideoRender::Stop(CPlayer *player) {
+void VideoRender::Stop() {
     abort_render = true;
     if (render_thread_ && render_thread_->joinable()) {
         render_thread_->join();
@@ -167,8 +151,7 @@ int VideoRender::PushFrame(AVFrame *src_frame, double pts, double duration, int 
         // https://forum.videohelp.com/threads/323530-please-explain-SAR-DAR-PAR#post2003533
         frame_width = vp->width;
         frame_height = av_rescale(vp->width, vp->height * vp->sar.den, vp->width * vp->sar.num);
-        // TODO send msg2
-//        ffp_send_msg2(player, FFP_MSG_VIDEO_FRAME_LOADED, render_ctx->frame_width, render_ctx->frame_height);
+        msg_ctx_->NotifyMsg(FFP_MSG_VIDEO_FRAME_LOADED, frame_width, frame_height);
     }
 
     av_frame_move_ref(vp->frame, src_frame);
@@ -184,8 +167,9 @@ VideoRender::~VideoRender() {
     delete picture_queue;
 }
 
-void VideoRender::Init(PacketQueue *video_queue, ClockContext *clock_ctx) {
+void VideoRender::Init(PacketQueue *video_queue, ClockContext *clock_ctx, std::shared_ptr<MessageContext> msg_ctx) {
     clock_context = clock_ctx;
+    msg_ctx_ = std::move(msg_ctx);
     picture_queue->Init(video_queue, VIDEO_PICTURE_QUEUE_SIZE, 1);
 }
 
@@ -252,7 +236,7 @@ void VideoRender::RenderPicture() {
 
     if (first_video_frame_rendered) {
         first_video_frame_rendered = true;
-//        ffp_send_msg2(player, FFP_MSG_VIDEO_RENDERING_START, vp->width, vp->height);
+        msg_ctx_->NotifyMsg(FFP_MSG_VIDEO_RENDERING_START, vp->width, vp->height);
     }
 
     if (render_callback_ && render_callback_->on_texture_updated) {

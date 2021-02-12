@@ -95,7 +95,7 @@ static void change_player_state(CPlayer *player, FFPlayerState state) {
 static int message_loop(void *args) {
     auto *player = static_cast<CPlayer *>(args);
     while (true) {
-        FFPlayerMessage msg = {0};
+        Message msg = {0};
         if (player->msg_queue.Get(&msg, true) < 0) {
             break;
         }
@@ -951,7 +951,10 @@ void ffplayer_global_init(void *arg) {
 
 
 void ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int32_t, int64_t, int64_t)) {
-    player->on_message = callback;
+    CHECK_PLAYER(player);
+    player->message_context->message_callback = [player, callback](int32_t what, int64_t arg1, int64_t arg2) {
+        callback(player, what, arg1, arg2);
+    };
 }
 
 CPlayer *ffp_create_player(FFPlayerConfiguration *config) {
@@ -986,7 +989,7 @@ void ffp_attach_video_render(CPlayer *player, FFP_VideoRenderCallback *render_ca
         return;
     }
     player->video_render->render_callback_ = render_callback;
-    if (player->video_render->Start(player)) {
+    if (player->video_render->Start()) {
         player->video_render->render_attached = true;
     }
 }
@@ -1047,8 +1050,10 @@ CPlayer::CPlayer() {
     });
     memset(wanted_stream_spec, 0, sizeof wanted_stream_spec);
 
+    message_context->Start();
+
     audio_render->Init(audio_pkt_queue.get(), clock_context.get());
-    video_render->Init(video_pkt_queue.get(), clock_context.get());
+    video_render->Init(video_pkt_queue.get(), clock_context.get(), message_context);
     decoder_context->audio_render = audio_render.get();
     decoder_context->video_render = video_render.get();
     decoder_context->clock_ctx = clock_context.get();

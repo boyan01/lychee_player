@@ -9,6 +9,10 @@
 #include <mutex>
 #include <condition_variable>
 
+extern "C" {
+#include "libavutil/log.h"
+};
+
 #define FFP_MSG_FLUSH                       0
 #define FFP_MSG_ERROR                       100     /* arg1 = error */
 #define FFP_MSG_PREPARED                    200
@@ -92,28 +96,28 @@
 #define FFP_PROP_INT64_IMMEDIATE_RECONNECT              20211
 
 
-struct FFPlayerMessage {
+struct Message {
     int what;
     int64_t arg1;
     int64_t arg2;
-    struct FFPlayerMessage *next;
+    struct Message *next;
 };
 
 
-struct FFPlayerMessageQueue {
+struct MessageQueue {
 private:
-    FFPlayerMessage *first_, *last_;
-    int nb_messages_;
-    int abort_request_;
-    std::mutex *mutex_;
-    std::condition_variable_any *cond_;
+    Message *first_, *last_ = nullptr;
+    int nb_messages_ = 0;
+    int abort_request_ = 1;
+    std::mutex *mutex_ = nullptr;
+    std::condition_variable_any *cond_ = nullptr;
 
-    int PutPrivate(FFPlayerMessage *msg);
+    int PutPrivate(Message *msg);
 
 public:
     int Init();
 
-    int Put(FFPlayerMessage *msg);
+    int Put(Message *msg);
 
     void Flush();
 
@@ -123,9 +127,42 @@ public:
 
     void Start();
 
-    int Get(FFPlayerMessage *msg, int block);
+    int Get(Message *msg, int block);
 
     void Remove(int what);
 };
+
+class MessageContext {
+
+public:
+
+    std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback{nullptr};
+
+private:
+    MessageQueue *msg_queue = nullptr;
+    bool started_ = false;
+    std::thread *thread_ = nullptr;
+
+private:
+
+    void MessageThread();
+
+public:
+    MessageContext();
+
+    ~MessageContext();
+
+    void Start();
+
+    void NotifyMsg(int what, int arg1, int arg2);
+
+    void NotifyMsg(int what, int64_t arg1);
+
+    void NotifyMsg(int what);
+
+    void StopAndWait();
+
+};
+
 
 #endif //FFPLAYER_FFP_MSG_QUEUE_H

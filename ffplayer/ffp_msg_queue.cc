@@ -9,15 +9,15 @@ extern "C" {
 }
 
 
-int FFPlayerMessageQueue::Init() {
-    memset(this, 0, sizeof(FFPlayerMessageQueue));
+int MessageQueue::Init() {
+    memset(this, 0, sizeof(MessageQueue));
     mutex_ = new std::mutex;
     cond_ = new std::condition_variable_any;
     abort_request_ = 1;
     return 0;
 }
 
-int FFPlayerMessageQueue::Put(FFPlayerMessage *msg) {
+int MessageQueue::Put(Message *msg) {
     int ret;
     mutex_->lock();
     ret = PutPrivate(msg);
@@ -25,13 +25,13 @@ int FFPlayerMessageQueue::Put(FFPlayerMessage *msg) {
     return ret;
 }
 
-int FFPlayerMessageQueue::PutPrivate(FFPlayerMessage *msg) {
-    FFPlayerMessage *msg1;
+int MessageQueue::PutPrivate(Message *msg) {
+    Message *msg1;
 
     if (abort_request_)
         return -1;
 
-    msg1 = (FFPlayerMessage *) av_malloc(sizeof(FFPlayerMessage));
+    msg1 = (Message *) av_malloc(sizeof(Message));
     if (!msg1) {
         av_log(nullptr, AV_LOG_ERROR, "no memory to alloc msg");
         return -1;
@@ -50,8 +50,8 @@ int FFPlayerMessageQueue::PutPrivate(FFPlayerMessage *msg) {
     return 0;
 }
 
-void FFPlayerMessageQueue::Flush() {
-    FFPlayerMessage *msg, *msg1;
+void MessageQueue::Flush() {
+    Message *msg, *msg1;
 
     mutex_->lock();
     for (msg = first_; msg; msg = msg1) {
@@ -64,13 +64,13 @@ void FFPlayerMessageQueue::Flush() {
     mutex_->unlock();
 }
 
-void FFPlayerMessageQueue::Destroy() {
+void MessageQueue::Destroy() {
     Flush();
     delete mutex_;
     delete cond_;
 }
 
-void FFPlayerMessageQueue::Abort() {
+void MessageQueue::Abort() {
     mutex_->lock();
 
     abort_request_ = 1;
@@ -79,17 +79,17 @@ void FFPlayerMessageQueue::Abort() {
     mutex_->unlock();
 }
 
-void FFPlayerMessageQueue::Start() {
+void MessageQueue::Start() {
     mutex_->lock();
     abort_request_ = 0;
-    FFPlayerMessage msg = {0};
+    Message msg = {0};
     msg.what = FFP_MSG_FLUSH;
     PutPrivate(&msg);
     mutex_->unlock();
 }
 
-int FFPlayerMessageQueue::Get(FFPlayerMessage *msg, int block) {
-    FFPlayerMessage *msg1;
+int MessageQueue::Get(Message *msg, int block) {
+    Message *msg1;
     int ret;
 
     std::unique_lock<std::mutex> lock(*mutex_);
@@ -122,8 +122,8 @@ int FFPlayerMessageQueue::Get(FFPlayerMessage *msg, int block) {
     return ret;
 }
 
-void FFPlayerMessageQueue::Remove(int what) {
-    FFPlayerMessage *p_msg, *msg, *last_msg;
+void MessageQueue::Remove(int what) {
+    Message *p_msg, *msg, *last_msg;
     mutex_->lock();
 
     if (!abort_request_ && first_) {
@@ -148,4 +148,67 @@ void FFPlayerMessageQueue::Remove(int what) {
     }
 
     mutex_->unlock();
+}
+
+void MessageContext::MessageThread() {
+    while (true) {
+        Message msg = {0};
+        if (msg_queue->Get(&msg, true) < 0) {
+            break;
+        }
+        if (message_callback) {
+            message_callback(msg.what, msg.arg1, msg.arg2);
+        }
+    }
+}
+
+MessageContext::MessageContext() {
+    msg_queue = new MessageQueue;
+}
+
+MessageContext::~MessageContext() {
+    delete msg_queue;
+}
+
+void MessageContext::Start() {
+    if (started_) {
+        return;
+    }
+    started_ = true;
+    msg_queue->Init();
+    msg_queue->Start();
+    thread_ = new std::thread(&MessageContext::MessageThread, this);
+}
+
+void MessageContext::NotifyMsg(int what, int arg1, int arg2) {
+    if (!started_) {
+        av_log(nullptr, AV_LOG_WARNING, "failed to notify msg to MessageContext which not started.\n");
+        return;
+    }
+    Message msg = {0};
+    msg.what = what;
+    msg.arg1 = arg1;
+    msg.arg2 = arg2;
+    msg.next = nullptr;
+    msg_queue->Put(&msg);
+}
+
+void MessageContext::NotifyMsg(int what) {
+    NotifyMsg(what, 0);
+}
+
+void MessageContext::NotifyMsg(int what, int64_t arg1) {
+    NotifyMsg(what, arg1, 0);
+}
+
+void MessageContext::StopAndWait() {
+    if (!started_) {
+        return;
+    }
+    started_ = false;
+    msg_queue->Abort();
+    if (thread_ && thread_->joinable()) {
+        thread_->join();
+    }
+    delete thread_;
 }

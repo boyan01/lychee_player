@@ -8,8 +8,10 @@
 #include <thread>
 #include <mutex>
 #include <functional>
+#include <memory>
 
 #include "ffp_clock.h"
+#include "ffp_msg_queue.h"
 #include "ffp_frame_queue.h"
 #include "ffplayer/proto.h"
 
@@ -62,6 +64,7 @@ private:
 
     bool force_refresh_ = false;
 
+    std::shared_ptr<MessageContext> msg_ctx_{};
 
 private:
 
@@ -79,11 +82,11 @@ public:
 
     ~VideoRender();
 
-    void Init(PacketQueue *video_queue, ClockContext *clock_ctx);
+    void Init(PacketQueue *video_queue, ClockContext *clock_ctx, std::shared_ptr<MessageContext> msg_ctx);
 
-    bool Start(CPlayer *player);
+    bool Start();
 
-    void Stop(CPlayer *player);
+    void Stop();
 
     double DrawFrame();
 
