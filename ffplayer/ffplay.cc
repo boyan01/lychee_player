@@ -353,11 +353,11 @@ static void event_loop(CPlayer *player) {
                 do_exit(player);
                 return;
             case FF_DRAW_EVENT: {
-                auto *video_render_ctx = static_cast<VideoRenderData *>(event.user.data1);
-                SDL_RenderPresent(video_render_ctx->renderer);
-                cout << "draw delay time: "
-                     << (SDL_GetTicks() - event.user.timestamp) << " milliseconds"
-                     << endl;
+//                auto *video_render_ctx = static_cast<VideoRenderData *>(event.user.data1);
+//                SDL_RenderPresent(video_render_ctx->renderer);
+//                cout << "draw delay time: "
+//                     << (SDL_GetTicks() - event.user.timestamp) << " milliseconds"
+//                     << endl;
             }
                 break;
             default:
@@ -437,6 +437,68 @@ static void set_sdl_yuv_conversion_mode(AVFrame *frame) {
 
 static int upload_texture(VideoRender *video_render_ctx, SDL_Texture **tex, AVFrame *frame,
                           struct SwsContext **img_convert_ctx);
+
+static void show_status(CPlayer *player) {
+    auto is = player->is;
+    if (player->show_status) {
+        AVBPrint buf;
+        static int64_t last_time;
+        int64_t cur_time;
+        int aqsize, vqsize, sqsize;
+        double av_diff;
+
+        cur_time = av_gettime_relative();
+        if (!last_time || (cur_time - last_time) >= 30000) {
+            aqsize = 0;
+            vqsize = 0;
+            sqsize = 0;
+            if (player->data_source->ContainAudioStream())
+                aqsize = player->audio_pkt_queue->size;
+            if (player->data_source->ContainVideoStream())
+                vqsize = player->video_pkt_queue->size;
+            if (player->data_source->ContainSubtitleStream())
+                sqsize = player->subtitle_pkt_queue->size;
+            av_diff = 0;
+            if (player->data_source->ContainAudioStream() && player->data_source->ContainVideoStream())
+                av_diff = player->clock_context->GetAudioClock()->GetClock() -
+                          player->clock_context->GetVideoClock()->GetClock();
+            else if (is->video_st)
+                av_diff = player->clock_context->GetMasterClock() - player->clock_context->GetVideoClock()->GetClock();
+            else if (is->audio_st)
+                av_diff = player->clock_context->GetMasterClock() - player->clock_context->GetAudioClock()->GetClock();
+
+            av_bprint_init(&buf, 0, AV_BPRINT_SIZE_AUTOMATIC);
+            av_bprintf(&buf,
+                       "%7.2f %s:%7.3f fd=%4d aq=%5dKB vq=%5dKB sq=%5dB f=%"
+                       PRId64
+                       "/%"
+                       PRId64
+                       "   \r",
+                       player->clock_context->GetMasterClock(),
+                       (is->audio_st && is->video_st) ? "A-V" : (is->video_st ? "M-V" : (is->audio_st ? "M-A"
+                                                                                                      : "   ")),
+                       av_diff,
+                       is->frame_drops_early + is->frame_drops_late,
+                       aqsize / 1024,
+                       vqsize / 1024,
+                       sqsize,
+                    /*player->data_source->ContainVideoStream() ? player->decoder_context->.avctx->pts_correction_num_faulty_dts :*/
+                       0ll,
+                    /* is->video_st ? is->viddec.avctx->pts_correction_num_faulty_pts :*/ 0ll);
+
+            if (player->show_status == 1 && AV_LOG_INFO > av_log_get_level())
+                fprintf(stderr, "%s", buf.str);
+            else
+                av_log(nullptr, AV_LOG_INFO, "%s", buf.str);
+
+            fflush(stderr);
+            av_bprint_finalize(&buf, nullptr);
+
+            last_time = cur_time;
+        }
+    }
+}
+
 
 int main(int argc, char *argv[]) {
     char *input_file = argv[1];
@@ -526,7 +588,7 @@ int main(int argc, char *argv[]) {
 
         auto render_data = new VideoRenderData(renderer);
         auto render_callback = new FFP_VideoRenderCallback;
-        render_callback->on_render = [](VideoRender *video_render_ctx, Frame *vp) {
+        render_callback->on_render = [&player](VideoRender *video_render_ctx, Frame *vp) {
             auto render_data = static_cast<VideoRenderData *>(video_render_ctx->render_callback_->opacity);
             SDL_SetRenderDrawColor(render_data->renderer, 0, 0, 0, 255);
             SDL_RenderClear(render_data->renderer);
@@ -544,22 +606,28 @@ int main(int argc, char *argv[]) {
             SDL_RenderCopyEx(render_data->renderer, render_data->texture, nullptr, &rect, 0, nullptr,
                              vp->flip_v ? SDL_FLIP_VERTICAL : SDL_FLIP_NONE);
             set_sdl_yuv_conversion_mode(nullptr);
+
+            {
+                SDL_Event event;
+                event.type = FF_DRAW_EVENT;
+                event.user.data1 = video_render_ctx->render_callback_->opacity;
+//                {
+//                    // clean existed scheduled frame.
+//                    SDL_FilterEvents([](void *data, SDL_Event *event) -> int {
+//                        if (event->type == FF_DRAW_EVENT) {
+//                            return 0;
+//                        } else {
+//                            return 1;
+//                        }
+//                    }, nullptr);
+//                }
+//                SDL_PushEvent(&event);
+                SDL_RenderPresent(render_data->renderer);
+                show_status(player);
+            }
+
         };
         render_callback->on_texture_updated = [](VideoRender *context) {
-            SDL_Event event;
-            event.type = FF_DRAW_EVENT;
-            event.user.data1 = context->render_callback_->opacity;
-            {
-                // clean existed scheduled frame.
-                SDL_FilterEvents([](void *data, SDL_Event *event) -> int {
-                    if (event->type == FF_DRAW_EVENT) {
-                        return 0;
-                    } else {
-                        return 1;
-                    }
-                }, nullptr);
-            }
-            SDL_PushEvent(&event);
         };
         render_callback->opacity = render_data;
         ffp_attach_video_render(player, render_callback);
@@ -571,6 +639,18 @@ int main(int argc, char *argv[]) {
     if (!player->is) {
         av_log(nullptr, AV_LOG_FATAL, "Failed to initialize VideoState!\n");
         do_exit(nullptr);
+    }
+
+    {
+        SDL_SetWindowTitle(window, "window_title");
+
+        int w = default_width, h = default_height;
+        printf("set_default_window_size : %d , %d \n", w, h);
+        SDL_SetWindowSize(window, w, h);
+        SDL_SetWindowPosition(window, screen_left, screen_top);
+        if (is_full_screen)
+            SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+        SDL_ShowWindow(window);
     }
 
     if (ffplayer_is_paused(player)) {

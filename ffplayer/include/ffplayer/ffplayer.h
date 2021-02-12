@@ -123,18 +123,6 @@ typedef struct VideoState {
     AVFormatContext *ic;
     int realtime;
 
-    Clock audclk;
-    Clock vidclk;
-    Clock extclk;
-
-    FrameQueue pictq;
-    FrameQueue subpq;
-    FrameQueue sampq;
-
-    Decoder auddec;
-    Decoder viddec;
-    Decoder subdec;
-
     int audio_stream;
 
     int av_sync_type;
@@ -302,6 +290,7 @@ public:
     Dart_Port message_send_port;
 #endif
 
+    bool paused = false;
 };
 
 FFPLAYER_EXPORT void ffplayer_global_init(void *arg);

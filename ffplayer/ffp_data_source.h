@@ -24,11 +24,6 @@ public:
     bool gen_pts = false;
     bool find_stream_info = true;
     int seek_by_bytes = -1;
-    /**
-     * maximum duration of a frame - above this,
-     * we consider the jump a timestamp discontinuity
-     */
-    double max_frame_duration;
 
     std::function<void()> on_load_metadata = nullptr;
 
@@ -50,6 +45,7 @@ public:
 
     DecoderContext *decoder_ctx;
 
+    int read_pause_return;
 private:
     char *filename;
     AVInputFormat *in_format;
@@ -94,6 +90,8 @@ public:
 
     bool ContainAudioStream();
 
+    bool ContainSubtitleStream();
+
 private:
 
     int PrepareFormatContext();
@@ -123,6 +121,7 @@ private:
     int ProcessReadFrame(AVPacket *pkt, std::mutex *read_mutex);
 
     void ProcessQueuePacket(AVPacket *pkt);
+
 };
 
 #endif //FFPLAYER_FFP_DATA_SOURCE_H

@@ -127,6 +127,7 @@ static void on_decode_frame_block(void *opacity) {
     change_player_state(player, FFP_STATE_BUFFERING);
 }
 
+#if 0
 static void stream_component_close(CPlayer *player, int stream_index) {
     VideoState *is = player->is;
     AVFormatContext *ic = is->ic;
@@ -183,6 +184,7 @@ static void stream_component_close(CPlayer *player, int stream_index) {
             break;
     }
 }
+#endif
 
 static void stream_close(CPlayer *player) {
     VideoState *is = player->is;
@@ -191,12 +193,12 @@ static void stream_close(CPlayer *player) {
     SDL_WaitThread(is->read_tid, nullptr);
 
     /* close each stream */
-    if (is->audio_stream >= 0)
-        stream_component_close(player, is->audio_stream);
-    if (is->video_stream >= 0)
-        stream_component_close(player, is->video_stream);
-    if (is->subtitle_stream >= 0)
-        stream_component_close(player, is->subtitle_stream);
+//    if (is->audio_stream >= 0)
+//        stream_component_close(player, is->audio_stream);
+//    if (is->video_stream >= 0)
+//        stream_component_close(player, is->video_stream);
+//    if (is->subtitle_stream >= 0)
+//        stream_component_close(player, is->subtitle_stream);
 
     change_player_state(player, FFP_STATE_IDLE);
     player->msg_queue.Abort();
@@ -212,49 +214,11 @@ static void stream_close(CPlayer *player) {
     player->msg_queue.Abort();
 
     /* free all pictures */
-    is->pictq.Destroy();
-    is->sampq.Destroy();
-    is->subpq.Destroy();
     SDL_DestroyCond(is->continue_read_thread);
     av_free(is->filename);
 
     av_free(is);
     av_free(player);
-}
-
-
-static int get_master_sync_type(VideoState *is) {
-    if (is->av_sync_type == AV_SYNC_VIDEO_MASTER) {
-        if (is->video_st)
-            return AV_SYNC_VIDEO_MASTER;
-        else
-            return AV_SYNC_AUDIO_MASTER;
-    } else if (is->av_sync_type == AV_SYNC_AUDIO_MASTER) {
-        if (is->audio_st)
-            return AV_SYNC_AUDIO_MASTER;
-        else
-            return AV_SYNC_EXTERNAL_CLOCK;
-    } else {
-        return AV_SYNC_EXTERNAL_CLOCK;
-    }
-}
-
-/* get the current master clock value */
-static double get_master_clock(VideoState *is) {
-    double val;
-
-    switch (get_master_sync_type(is)) {
-        case AV_SYNC_VIDEO_MASTER:
-            val = is->vidclk.GetClock();
-            break;
-        case AV_SYNC_AUDIO_MASTER:
-            val = is->audclk.GetClock();
-            break;
-        default:
-            val = is->extclk.GetClock();
-            break;
-    }
-    return val;
 }
 
 
@@ -301,7 +265,7 @@ double ffplayer_get_current_position(CPlayer *player) {
         av_log(nullptr, AV_LOG_ERROR, "ffplayer_get_current_position: player is not available.\n");
         return 0;
     }
-    double position = get_master_clock(player->is);
+    double position = player->clock_context->GetMasterClock();
     if (isnan(position)) {
         position = (double) player->is->seek_pos / AV_TIME_BASE;
     }
@@ -317,21 +281,21 @@ double ffplayer_get_duration(CPlayer *player) {
 }
 
 /* pause or resume the video */
-static void stream_toggle_pause(VideoState *is) {
-    if (is->paused) {
-        is->frame_timer += av_gettime_relative() / 1000000.0 - is->vidclk.last_updated;
-        if (is->read_pause_return != AVERROR(ENOSYS)) {
-            is->vidclk.paused = 0;
-        }
-        is->vidclk.SetClock(is->vidclk.GetClock(), is->vidclk.serial);
-    }
-    is->extclk.SetClock(is->extclk.GetClock(), is->extclk.serial);
-    is->paused = is->audclk.paused = is->vidclk.paused = is->extclk.paused = !is->paused;
-}
-
 void ffplayer_toggle_pause(CPlayer *player) {
-    stream_toggle_pause(player->is);
-    player->is->step = 0;
+    if (player->paused) {
+        player->video_render->frame_timer +=
+                av_gettime_relative() / 1000000.0 - player->clock_context->GetVideoClock()->last_updated;
+        if (player->data_source->read_pause_return != AVERROR(ENOSYS)) {
+            player->clock_context->GetVideoClock()->paused = 0;
+        }
+        player->clock_context->GetVideoClock()->SetClock(player->clock_context->GetVideoClock()->GetClock(),
+                                                         player->clock_context->GetVideoClock()->serial);
+    }
+    player->clock_context->GetExtClock()->SetClock(player->clock_context->GetExtClock()->GetClock(),
+                                                   player->clock_context->GetExtClock()->serial);
+    player->paused = player->clock_context->GetExtClock()->paused = player->clock_context->GetAudioClock()->paused
+            = player->clock_context->GetVideoClock()->paused = !player->paused;
+    player->video_render->step = false;
 }
 
 bool ffplayer_is_mute(CPlayer *player) {
@@ -358,39 +322,6 @@ int ffp_get_volume(CPlayer *player) {
 bool ffplayer_is_paused(CPlayer *player) {
     CHECK_PLAYER_WITH_RETURN(player, false);
     return player->is->paused;
-}
-
-
-static int get_video_frame(CPlayer *player, AVFrame *frame) {
-    VideoState *is = player->is;
-    int got_picture;
-    if ((got_picture = decoder_decode_frame(&is->viddec, frame, nullptr)) < 0)
-        return -1;
-
-    if (got_picture) {
-        double dpts = NAN;
-
-        if (frame->pts != AV_NOPTS_VALUE)
-            dpts = av_q2d(is->video_st->time_base) * frame->pts;
-
-        frame->sample_aspect_ratio = av_guess_sample_aspect_ratio(is->ic, is->video_st, frame);
-
-        if (player->framedrop > 0 || (player->framedrop && get_master_sync_type(is) != AV_SYNC_VIDEO_MASTER)) {
-            if (frame->pts != AV_NOPTS_VALUE) {
-                double diff = dpts - get_master_clock(is);
-                if (!isnan(diff) && fabs(diff) < AV_NOSYNC_THRESHOLD &&
-                    diff - is->frame_last_filter_delay < 0 &&
-                    is->viddec.pkt_serial == is->vidclk.serial &&
-                    is->videoq.nb_packets) {
-                    is->frame_drops_early++;
-                    av_frame_unref(frame);
-                    got_picture = 0;
-                }
-            }
-        }
-    }
-
-    return got_picture;
 }
 
 #if CONFIG_AVFILTER
@@ -616,40 +547,6 @@ end:
 #endif /* CONFIG_AVFILTER */
 
 
-static int subtitle_thread(void *arg) {
-    auto *player = static_cast<CPlayer *>(arg);
-    VideoState *is = player->is;
-    Frame *sp;
-    int got_subtitle;
-    double pts;
-
-    for (;;) {
-        if (!(sp = is->subpq.PeekWritable()))
-            return 0;
-
-        if ((got_subtitle = decoder_decode_frame(&is->subdec, nullptr, &sp->sub)) < 0)
-            break;
-
-        pts = 0;
-
-        if (got_subtitle && sp->sub.format == 0) {
-            if (sp->sub.pts != AV_NOPTS_VALUE)
-                pts = sp->sub.pts / (double) AV_TIME_BASE;
-            sp->pts = pts;
-            sp->serial = is->subdec.pkt_serial;
-            sp->width = is->subdec.avctx->width;
-            sp->height = is->subdec.avctx->height;
-            sp->uploaded = 0;
-
-            /* now we can update the picture count */
-            is->subpq.Push();
-        } else if (got_subtitle) {
-            avsubtitle_free(&sp->sub);
-        }
-    }
-    return 0;
-}
-
 /* open a given stream. Return 0 if OK */
 static int stream_component_open(CPlayer *player, int stream_index) {
     VideoState *is = player->is;
@@ -746,8 +643,8 @@ static int stream_component_open(CPlayer *player, int stream_index) {
             is->subtitle_st = ic->streams[stream_index];
 
 //            is->subdec.Init(avctx, &is->subtitleq, is->continue_read_thread);
-            if ((ret = decoder_start(&is->subdec, subtitle_thread, "subtitle_decoder", player)) < 0)
-                goto out;
+//            if ((ret = decoder_start(&is->subdec, subtitle_thread, "subtitle_decoder", player)) < 0)
+//                goto out;
             break;
         default:
             break;
@@ -882,7 +779,7 @@ int ffplayer_get_current_chapter(CPlayer *player) {
     if (!player || !player->is->ic) {
         return -1;
     }
-    int64_t pos = get_master_clock(player->is) * AV_TIME_BASE;
+    int64_t pos = player->clock_context->GetMasterClock() * AV_TIME_BASE;
 
     if (!player->is->ic->nb_chapters) {
         return -1;
@@ -922,20 +819,9 @@ static VideoState *alloc_video_state() {
     is->last_audio_stream = is->audio_stream = -1;
     is->last_subtitle_stream = is->subtitle_stream = -1;
 
-    /* start video display */
-    if (is->pictq.Init(&is->videoq, VIDEO_PICTURE_QUEUE_SIZE, 1) < 0)
-        goto fail;
-    if (is->subpq.Init(&is->subtitleq, SUBPICTURE_QUEUE_SIZE, 0) < 0)
-        goto fail;
-    if (is->sampq.Init(&is->audioq, SAMPLE_QUEUE_SIZE, 1) < 0)
-        goto fail;
-
     if (is->videoq.Init() < 0 || is->audioq.Init() < 0 || is->subtitleq.Init() < 0)
         goto fail;
 
-    is->vidclk.Init(&is->videoq.serial);
-    is->audclk.Init(&is->audioq.serial);
-    is->extclk.Init(&is->extclk.serial);
     is->audio_clock_serial = -1;
     is->audio_volume = SDL_MIX_MAXVOLUME;
     is->muted = 0;

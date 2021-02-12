@@ -26,53 +26,6 @@ static int get_master_sync_type(VideoState *is) {
     }
 }
 
-/* get the current master clock value */
-static double get_master_clock(VideoState *is) {
-    double val;
-
-    switch (get_master_sync_type(is)) {
-        case AV_SYNC_VIDEO_MASTER:
-            val = is->vidclk.GetClock();
-            break;
-        case AV_SYNC_AUDIO_MASTER:
-            val = is->audclk.GetClock();
-            break;
-        default:
-            val = is->extclk.GetClock();
-            break;
-    }
-    return val;
-}
-
-static double compute_target_delay(double delay, VideoState *is) {
-    double sync_threshold, diff = 0;
-
-    /* update delay to follow master synchronisation source */
-    if (get_master_sync_type(is) != AV_SYNC_VIDEO_MASTER) {
-        /* if video is slave, we try to correct big delays by
-           duplicating or deleting a frame */
-        diff = is->vidclk.GetClock() - get_master_clock(is);
-
-        /* skip or repeat frame. We take into account the
-           delay to compute the threshold. I still don't know
-           if it is the best guess */
-        sync_threshold = FFMAX(AV_SYNC_THRESHOLD_MIN, FFMIN(AV_SYNC_THRESHOLD_MAX, delay));
-        if (!isnan(diff) && fabs(diff) < is->max_frame_duration) {
-            if (diff <= -sync_threshold)
-                delay = FFMAX(0, delay + diff);
-            else if (diff >= sync_threshold && delay > AV_SYNC_FRAMEDUP_THRESHOLD)
-                delay = delay + diff;
-            else if (diff >= sync_threshold)
-                delay = 2 * delay;
-        }
-    }
-
-    av_log(nullptr, AV_LOG_TRACE, "video: delay=%0.3f A-V=%f\n",
-           delay, -diff);
-
-    return delay;
-}
-
 
 bool VideoRender::Start(CPlayer *player) {
     abort_render = false;
@@ -161,7 +114,8 @@ double VideoRender::DrawFrame() {
         if (picture_queue->NbRemaining() > 1) {
             auto *next_vp = picture_queue->PeekNext();
             duration = VideoPictureDuration(vp, next_vp);
-            if (!step && (framedrop > 0 || (framedrop && clock_context->GetMasterSyncType() != AV_SYNC_VIDEO_MASTER))
+            if (!step
+                && (framedrop > 0 || (framedrop && clock_context->GetMasterSyncType() != AV_SYNC_VIDEO_MASTER))
                 && time > frame_timer + duration) {
                 frame_drop_count++;
                 picture_queue->Next();
@@ -243,7 +197,8 @@ void VideoRender::VideoRenderThread() {
             av_usleep((int64_t) (remaining_time * 1000000.0));
         remaining_time = REFRESH_RATE;
         if ((!paused_ || force_refresh_)) {
-            remaining_time = DrawFrame();
+            DrawFrame();
+            av_log(nullptr, AV_LOG_INFO, "video render remaining_time = %0.2f \n", remaining_time);
         }
     }
 }
@@ -261,8 +216,8 @@ double VideoRender::VideoPictureDuration(Frame *vp, Frame *next_vp) const {
     }
 }
 
-double VideoRender::ComputeTargetDelay(double delay) {
-    double sync_threashold, diff = 0;
+double VideoRender::ComputeTargetDelay(double delay) const {
+    double sync_threshold, diff = 0;
 
     /* update delay to follow master synchronisation source */
     if (clock_context->GetMasterSyncType() != AV_SYNC_VIDEO_MASTER) {
@@ -270,21 +225,20 @@ double VideoRender::ComputeTargetDelay(double delay) {
         diff = clock_context->GetVideoClock()->GetClock() - clock_context->GetMasterClock();
 
         /* skip or repeat frame. We take into account the delay to compute the threshold. I still don't know if it is the best guess */
-        sync_threashold = FFMAX(AV_SYNC_THRESHOLD_MIN, FFMIN(AV_SYNC_THRESHOLD_MAX, delay));
+        sync_threshold = FFMAX(AV_SYNC_THRESHOLD_MIN, FFMIN(AV_SYNC_THRESHOLD_MAX, delay));
         if (!std::isnan(diff) && fabs(diff) < max_frame_duration) {
-            if (diff <= -sync_threashold) {
+            if (diff <= -sync_threshold) {
                 delay = FFMAX(0, delay + diff);
-            } else if (diff >= sync_threashold && delay > AV_SYNC_FRAMEDUP_THRESHOLD) {
+            } else if (diff >= sync_threshold && delay > AV_SYNC_FRAMEDUP_THRESHOLD) {
                 delay = delay + diff;
-            } else if (diff >= sync_threashold) {
+            } else if (diff >= sync_threshold) {
                 delay = 2 * delay;
             }
         }
     }
 
     av_log(nullptr, AV_LOG_TRACE, "video: delay=%0.3f A-V=%f\n", delay, -diff);
-
-    return 0;
+    return delay;
 }
 
 void VideoRender::RenderPicture() {
@@ -306,98 +260,19 @@ void VideoRender::RenderPicture() {
     }
 }
 
-static void check_external_clock_speed(VideoState *is) {
-    if (is->video_stream >= 0 && is->videoq.nb_packets <= EXTERNAL_CLOCK_MIN_FRAMES ||
-        is->audio_stream >= 0 && is->audioq.nb_packets <= EXTERNAL_CLOCK_MIN_FRAMES) {
-        is->extclk.SetSpeed(FFMAX(EXTERNAL_CLOCK_SPEED_MIN, is->extclk.GetSpeed() - EXTERNAL_CLOCK_SPEED_STEP));
-    } else if ((is->video_stream < 0 || is->videoq.nb_packets > EXTERNAL_CLOCK_MAX_FRAMES) &&
-               (is->audio_stream < 0 || is->audioq.nb_packets > EXTERNAL_CLOCK_MAX_FRAMES)) {
-        is->extclk.SetSpeed(FFMIN(EXTERNAL_CLOCK_SPEED_MAX, is->extclk.GetSpeed() + EXTERNAL_CLOCK_SPEED_STEP));
-    } else {
-        double speed = is->extclk.GetSpeed();
-        if (speed != 1.0) {
-            is->extclk.SetSpeed(speed + EXTERNAL_CLOCK_SPEED_STEP * (1.0 - speed) / fabs(1.0 - speed));
-        }
-    }
-}
-
-static double vp_duration(VideoState *is, Frame *vp, Frame *nextvp) {
-    if (vp->serial == nextvp->serial) {
-        double duration = nextvp->pts - vp->pts;
-        if (isnan(duration) || duration <= 0 || duration > is->max_frame_duration)
-            return vp->duration;
-        else
-            return duration;
-    } else {
-        return 0.0;
-    }
-}
-
-static void update_video_pts(VideoState *is, double pts, int64_t pos, int serial) {
-    /* update current video pts */
-    is->vidclk.SetClock(pts, serial);
-    is->extclk.Sync(&is->vidclk);
-}
-
-
-
-static void show_status(CPlayer *player) {
-    auto is = player->is;
-    if (player->show_status) {
-        AVBPrint buf;
-        static int64_t last_time;
-        int64_t cur_time;
-        int aqsize, vqsize, sqsize;
-        double av_diff;
-
-        cur_time = av_gettime_relative();
-        if (!last_time || (cur_time - last_time) >= 30000) {
-            aqsize = 0;
-            vqsize = 0;
-            sqsize = 0;
-            if (is->audio_st)
-                aqsize = is->audioq.size;
-            if (is->video_st)
-                vqsize = is->videoq.size;
-            if (is->subtitle_st)
-                sqsize = is->subtitleq.size;
-            av_diff = 0;
-            if (is->audio_st && is->video_st)
-                av_diff = is->audclk.GetClock() - is->vidclk.GetClock();
-            else if (is->video_st)
-                av_diff = get_master_clock(is) - is->vidclk.GetClock();
-            else if (is->audio_st)
-                av_diff = get_master_clock(is) - is->audclk.GetClock();
-
-            av_bprint_init(&buf, 0, AV_BPRINT_SIZE_AUTOMATIC);
-            av_bprintf(&buf,
-                       "%7.2f %s:%7.3f fd=%4d aq=%5dKB vq=%5dKB sq=%5dB f=%"
-                       PRId64
-                       "/%"
-                       PRId64
-                       "   \r",
-                       get_master_clock(is),
-                       (is->audio_st && is->video_st) ? "A-V" : (is->video_st ? "M-V" : (is->audio_st ? "M-A"
-                                                                                                      : "   ")),
-                       av_diff,
-                       is->frame_drops_early + is->frame_drops_late,
-                       aqsize / 1024,
-                       vqsize / 1024,
-                       sqsize,
-                       is->video_st ? is->viddec.avctx->pts_correction_num_faulty_dts : 0,
-                       is->video_st ? is->viddec.avctx->pts_correction_num_faulty_pts : 0);
-
-            if (player->show_status == 1 && AV_LOG_INFO > av_log_get_level())
-                fprintf(stderr, "%s", buf.str);
-            else
-                av_log(nullptr, AV_LOG_INFO, "%s", buf.str);
-
-            fflush(stderr);
-            av_bprint_finalize(&buf, nullptr);
-
-            last_time = cur_time;
-        }
-    }
+static void check_external_clock_speed() {
+//    if (is->video_stream >= 0 && is->videoq.nb_packets <= EXTERNAL_CLOCK_MIN_FRAMES ||
+//        is->audio_stream >= 0 && is->audioq.nb_packets <= EXTERNAL_CLOCK_MIN_FRAMES) {
+//        is->extclk.SetSpeed(FFMAX(EXTERNAL_CLOCK_SPEED_MIN, is->extclk.GetSpeed() - EXTERNAL_CLOCK_SPEED_STEP));
+//    } else if ((is->video_stream < 0 || is->videoq.nb_packets > EXTERNAL_CLOCK_MAX_FRAMES) &&
+//               (is->audio_stream < 0 || is->audioq.nb_packets > EXTERNAL_CLOCK_MAX_FRAMES)) {
+//        is->extclk.SetSpeed(FFMIN(EXTERNAL_CLOCK_SPEED_MAX, is->extclk.GetSpeed() + EXTERNAL_CLOCK_SPEED_STEP));
+//    } else {
+//        double speed = is->extclk.GetSpeed();
+//        if (speed != 1.0) {
+//            is->extclk.SetSpeed(speed + EXTERNAL_CLOCK_SPEED_STEP * (1.0 - speed) / fabs(1.0 - speed));
+//        }
+//    }
 }
 
 

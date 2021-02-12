@@ -47,7 +47,11 @@ public:
 
     ClockContext *clock_context = nullptr;
 
-    double max_frame_duration;  // maximum duration of a frame - above this, we consider the jump a timestamp discontinuity
+    double max_frame_duration = 3600;  // maximum duration of a frame - above this, we consider the jump a timestamp discontinuity
+
+    double frame_timer = 0;
+
+    bool step = false;
 
 private:
     FrameQueue *picture_queue = nullptr;
@@ -58,9 +62,6 @@ private:
 
     bool force_refresh_ = false;
 
-    bool step = false;
-
-    double frame_timer = 0;
 
 private:
 
@@ -68,7 +69,7 @@ private:
 
     double VideoPictureDuration(Frame *vp, Frame *next_vp) const;
 
-    double ComputeTargetDelay(double delay);
+    double ComputeTargetDelay(double delay) const;
 
     void RenderPicture();
 
