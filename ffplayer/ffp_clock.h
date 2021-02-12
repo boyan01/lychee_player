@@ -63,10 +63,10 @@ public:
 
     ClockContext() : audio_clock_(new Clock), video_clock_(new Clock), ext_clock_(new Clock) {}
 
-    void Init(int *queue_serial, std::function<int(int sync_type)> sync_type_confirm) {
-        audio_clock_->Init(queue_serial);
-        video_clock_->Init(queue_serial);
-        ext_clock_->Init(queue_serial);
+    void Init(int *audio_queue_serial, int *video_queue_serial, std::function<int(int sync_type)> sync_type_confirm) {
+        audio_clock_->Init(audio_queue_serial);
+        video_clock_->Init(video_queue_serial);
+        ext_clock_->Init(&ext_clock_->serial);
         sync_type_confirm_ = sync_type_confirm;
     }
 

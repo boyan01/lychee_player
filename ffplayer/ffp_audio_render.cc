@@ -344,3 +344,20 @@ void AudioRender::Init(PacketQueue *audio_queue, ClockContext *clock_ctx) {
     clock_ctx_ = clock_ctx;
 }
 
+bool AudioRender::IsMute() const { return mute; }
+
+void AudioRender::SetMute(bool _mute) {
+    mute = _mute;
+}
+
+void AudioRender::SetVolume(int _volume) {
+    _volume = av_clip(_volume, 0, 100);
+    _volume = av_clip(SDL_MIX_MAXVOLUME * _volume / 100, 0, SDL_MIX_MAXVOLUME);
+    audio_volume = _volume;
+}
+
+int AudioRender::GetVolume() const {
+    int volume = audio_volume * 100 / SDL_MIX_MAXVOLUME;
+    return av_clip(volume, 0, 100);
+}
+

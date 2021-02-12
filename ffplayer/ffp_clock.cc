@@ -75,8 +75,11 @@ int ClockContext::GetMasterSyncType() const {
 
 double ClockContext::GetMasterClock() {
     switch (GetMasterSyncType()) {
-        case AV_SYNC_AUDIO_MASTER:
-            return audio_clock_->GetClock();
+        case AV_SYNC_AUDIO_MASTER: {
+            auto clock = audio_clock_->GetClock();
+            printf("ClockContext::GetMasterClock(): %0.2f \n", clock);
+            return clock;
+        }
         case AV_SYNC_VIDEO_MASTER:
             return video_clock_->GetClock();
         default:

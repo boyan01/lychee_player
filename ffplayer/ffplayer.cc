@@ -55,13 +55,13 @@ static int opt_add_vfilter(void *optctx, const char *opt, const char *arg) {
 #endif
 
 #define CHECK_PLAYER_WITH_RETURN(PLAYER, RETURN)                               \
-if(!(PLAYER) || !(PLAYER)->is) {                                               \
+if(!(PLAYER)) {                                               \
     av_log(nullptr, AV_LOG_ERROR, "check player failed");                      \
     return RETURN;                                                             \
 }                                                                              \
 
 #define CHECK_PLAYER(PLAYER)                                                   \
-if (!(PLAYER) || !(PLAYER)->is) {                                              \
+if (!(PLAYER)) {                                              \
     av_log(nullptr, AV_LOG_ERROR, "check player failed");                      \
     return;                                                                    \
 }                                                                              \
@@ -187,7 +187,7 @@ static void stream_component_close(CPlayer *player, int stream_index) {
 #endif
 
 static void stream_close(CPlayer *player) {
-    VideoState *is = player->is;
+    VideoState *is = nullptr;
     /* XXX: use a special url_shutdown call to abort parse cleanly */
     is->abort_request = 1;
     SDL_WaitThread(is->read_tid, nullptr);
@@ -222,62 +222,29 @@ static void stream_close(CPlayer *player) {
 }
 
 
-/* seek in the stream */
-static void stream_seek(CPlayer *player, int64_t pos, int64_t rel, int seek_by_bytes) {
-    VideoState *is = player->is;
-    if (!is->seek_req) {
-        is->seek_pos = pos;
-        is->seek_rel = rel;
-        is->seek_flags &= ~AVSEEK_FLAG_BYTE;
-        if (seek_by_bytes)
-            is->seek_flags |= AVSEEK_FLAG_BYTE;
-        is->seek_req = 1;
-        player->buffered_position = -1;
-        change_player_state(player, FFP_STATE_BUFFERING);
-        SDL_CondSignal(is->continue_read_thread);
-        if (!ffplayer_is_paused(player)) {
-            ffplayer_toggle_pause(player);
-        }
-    }
-}
-
 void ffplayer_seek_to_position(CPlayer *player, double position) {
-    if (!player) {
-        av_log(nullptr, AV_LOG_ERROR, "ffplayer_seek_to_position: player is not available");
-        return;
-    }
-    if (player->is->ic->start_time != AV_NOPTS_VALUE) {
-        double start = player->is->ic->start_time / (double) AV_TIME_BASE;
-        if (position < start) {
-            position = start;
-        }
-    }
-    if (position < 0) {
-        av_log(nullptr, AV_LOG_ERROR, "failed to seek to %0.2f.\n", position);
-        return;
-    }
-    av_log(nullptr, AV_LOG_INFO, "ffplayer_seek_to_position to %0.2f \n", position);
-    stream_seek(player, (int64_t) (position * AV_TIME_BASE), 0, 0);
+    CHECK_VALUE(player);
+    CHECK_VALUE(player->data_source);
+    player->data_source->Seek(position);
 }
 
 double ffplayer_get_current_position(CPlayer *player) {
-    if (!player || !player->is) {
-        av_log(nullptr, AV_LOG_ERROR, "ffplayer_get_current_position: player is not available.\n");
-        return 0;
-    }
+    CHECK_VALUE_WITH_RETURN(player, 0);
     double position = player->clock_context->GetMasterClock();
     if (isnan(position)) {
-        position = (double) player->is->seek_pos / AV_TIME_BASE;
+        if (player->data_source) {
+            position = (double) player->data_source->GetSeekPosition() / AV_TIME_BASE;
+        } else {
+            position = 0;
+        }
     }
     return position;
 }
 
 double ffplayer_get_duration(CPlayer *player) {
-    if (!player || !player->is || !player->is->ic) {
-        av_log(nullptr, AV_LOG_ERROR, "ffplayer_get_duration: player is not available. %p \n", player);
-        return -1;
-    }
-    return player->is->ic->duration / (double) AV_TIME_BASE;
+    CHECK_VALUE_WITH_RETURN(player, -1);
+    CHECK_VALUE_WITH_RETURN(player->data_source, -1);
+    return player->data_source->GetDuration();
 }
 
 /* pause or resume the video */
@@ -293,376 +260,47 @@ void ffplayer_toggle_pause(CPlayer *player) {
     }
     player->clock_context->GetExtClock()->SetClock(player->clock_context->GetExtClock()->GetClock(),
                                                    player->clock_context->GetExtClock()->serial);
-    player->paused = player->clock_context->GetExtClock()->paused = player->clock_context->GetAudioClock()->paused
-            = player->clock_context->GetVideoClock()->paused = !player->paused;
+
+    player->paused = !player->paused;
+    player->clock_context->GetExtClock()->paused = player->clock_context->GetAudioClock()->paused
+            = player->clock_context->GetVideoClock()->paused = player->paused;
+    if (player->data_source) {
+        player->data_source->paused = player->paused;
+    }
+    player->audio_render->paused = player->paused;
+    player->video_render->paused_ = player->paused;
     player->video_render->step = false;
 }
 
 bool ffplayer_is_mute(CPlayer *player) {
-    return player->is->muted;
+    CHECK_VALUE_WITH_RETURN(player, false);
+    return player->audio_render->IsMute();
 }
 
 void ffplayer_set_mute(CPlayer *player, bool mute) {
-    player->is->muted = mute;
+    CHECK_VALUE(player);
+    player->audio_render->SetMute(mute);
 }
 
 void ffp_set_volume(CPlayer *player, int volume) {
-    CHECK_PLAYER(player);
-    volume = av_clip(volume, 0, 100);
-    volume = av_clip(SDL_MIX_MAXVOLUME * volume / 100, 0, SDL_MIX_MAXVOLUME);
-    player->is->audio_volume = volume;
+    CHECK_VALUE(player);
+    player->audio_render->SetVolume(volume);
 }
 
 int ffp_get_volume(CPlayer *player) {
-    CHECK_PLAYER_WITH_RETURN(player, 0);
-    int volume = player->is->audio_volume * 100 / SDL_MIX_MAXVOLUME;
-    return av_clip(volume, 0, 100);
+    CHECK_VALUE_WITH_RETURN(player, 0);
+    return player->audio_render->GetVolume();
 }
 
 bool ffplayer_is_paused(CPlayer *player) {
     CHECK_PLAYER_WITH_RETURN(player, false);
-    return player->is->paused;
+    return player->paused;
 }
-
-#if CONFIG_AVFILTER
-static int configure_filtergraph(AVFilterGraph *graph, const char *filtergraph,
-                                 AVFilterContext *source_ctx, AVFilterContext *sink_ctx) {
-    int ret, i;
-    int nb_filters = graph->nb_filters;
-    AVFilterInOut *outputs = nullptr, *inputs = nullptr;
-
-    if (filtergraph) {
-        outputs = avfilter_inout_alloc();
-        inputs = avfilter_inout_alloc();
-        if (!outputs || !inputs) {
-            ret = AVERROR(ENOMEM);
-            goto fail;
-        }
-
-        outputs->name = av_strdup("in");
-        outputs->filter_ctx = source_ctx;
-        outputs->pad_idx = 0;
-        outputs->next = nullptr;
-
-        inputs->name = av_strdup("out");
-        inputs->filter_ctx = sink_ctx;
-        inputs->pad_idx = 0;
-        inputs->next = nullptr;
-
-        if ((ret = avfilter_graph_parse_ptr(graph, filtergraph, &inputs, &outputs, nullptr)) < 0)
-            goto fail;
-    } else {
-        if ((ret = avfilter_link(source_ctx, 0, sink_ctx, 0)) < 0)
-            goto fail;
-    }
-
-    /* Reorder the filters to ensure that inputs of the custom filters are merged first */
-    for (i = 0; i < graph->nb_filters - nb_filters; i++)
-        FFSWAP(AVFilterContext *, graph->filters[i], graph->filters[i + nb_filters]);
-
-    ret = avfilter_graph_config(graph, nullptr);
-fail:
-    avfilter_inout_free(&outputs);
-    avfilter_inout_free(&inputs);
-    return ret;
-}
-
-static int configure_video_filters(AVFilterGraph *graph, VideoState *is, const char *vfilters, AVFrame *frame) {
-    enum AVPixelFormat pix_fmts[FF_ARRAY_ELEMS(sdl_texture_format_map)];
-    char sws_flags_str[512] = "";
-    char buffersrc_args[256];
-    int ret;
-    AVFilterContext *filt_src = nullptr, *filt_out = nullptr, *last_filter = nullptr;
-    AVCodecParameters *codecpar = is->video_st->codecpar;
-    AVRational fr = av_guess_frame_rate(is->ic, is->video_st, nullptr);
-    AVDictionaryEntry *e = nullptr;
-    int nb_pix_fmts = 0;
-    int i, j;
-
-    for (i = 0; i < renderer_info.num_texture_formats; i++) {
-        for (j = 0; j < FF_ARRAY_ELEMS(sdl_texture_format_map) - 1; j++) {
-            if (renderer_info.texture_formats[i] == sdl_texture_format_map[j].texture_fmt) {
-                pix_fmts[nb_pix_fmts++] = sdl_texture_format_map[j].format;
-                break;
-            }
-        }
-    }
-    pix_fmts[nb_pix_fmts] = AV_PIX_FMT_NONE;
-
-    while ((e = av_dict_get(sws_dict, "", e, AV_DICT_IGNORE_SUFFIX))) {
-        if (!strcmp(e->key, "sws_flags")) {
-            av_strlcatf(sws_flags_str, sizeof(sws_flags_str), "%s=%s:", "flags", e->value);
-        } else
-            av_strlcatf(sws_flags_str, sizeof(sws_flags_str), "%s=%s:", e->key, e->value);
-    }
-    if (strlen(sws_flags_str))
-        sws_flags_str[strlen(sws_flags_str) - 1] = '\0';
-
-    graph->scale_sws_opts = av_strdup(sws_flags_str);
-
-    snprintf(buffersrc_args, sizeof(buffersrc_args),
-             "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
-             frame->width, frame->height, frame->format,
-             is->video_st->time_base.num, is->video_st->time_base.den,
-             codecpar->sample_aspect_ratio.num, FFMAX(codecpar->sample_aspect_ratio.den, 1));
-    if (fr.num && fr.den)
-        av_strlcatf(buffersrc_args, sizeof(buffersrc_args), ":frame_rate=%d/%d", fr.num, fr.den);
-
-    if ((ret = avfilter_graph_create_filter(&filt_src,
-                                            avfilter_get_by_name("buffer"),
-                                            "ffplay_buffer", buffersrc_args, nullptr,
-                                            graph)) < 0)
-        goto fail;
-
-    ret = avfilter_graph_create_filter(&filt_out,
-                                       avfilter_get_by_name("buffersink"),
-                                       "ffplay_buffersink", nullptr, nullptr, graph);
-    if (ret < 0)
-        goto fail;
-
-    if ((ret = av_opt_set_int_list(filt_out, "pix_fmts", pix_fmts, AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN)) < 0)
-        goto fail;
-
-    last_filter = filt_out;
-
-/* Note: this macro adds a filter before the lastly added filter, so the
- * processing order of the filters is in reverse */
-#define INSERT_FILT(name, arg)                                                \
-    do {                                                                      \
-        AVFilterContext *filt_ctx;                                            \
-                                                                              \
-        ret = avfilter_graph_create_filter(&filt_ctx,                         \
-                                           avfilter_get_by_name(name),        \
-                                           "ffplay_" name, arg, nullptr, graph); \
-        if (ret < 0)                                                          \
-            goto fail;                                                        \
-                                                                              \
-        ret = avfilter_link(filt_ctx, 0, last_filter, 0);                     \
-        if (ret < 0)                                                          \
-            goto fail;                                                        \
-                                                                              \
-        last_filter = filt_ctx;                                               \
-    } while (0)
-
-    if (autorotate) {
-        double theta = get_rotation(is->video_st);
-
-        if (fabs(theta - 90) < 1.0) {
-            INSERT_FILT("transpose", "clock");
-        } else if (fabs(theta - 180) < 1.0) {
-            INSERT_FILT("hflip", nullptr);
-            INSERT_FILT("vflip", nullptr);
-        } else if (fabs(theta - 270) < 1.0) {
-            INSERT_FILT("transpose", "cclock");
-        } else if (fabs(theta) > 1.0) {
-            char rotate_buf[64];
-            snprintf(rotate_buf, sizeof(rotate_buf), "%f*PI/180", theta);
-            INSERT_FILT("rotate", rotate_buf);
-        }
-    }
-
-    if ((ret = configure_filtergraph(graph, vfilters, filt_src, last_filter)) < 0)
-        goto fail;
-
-    is->in_video_filter = filt_src;
-    is->out_video_filter = filt_out;
-
-fail:
-    return ret;
-}
-
-static int configure_audio_filters(VideoState *is, const char *afilters, int force_output_format) {
-    static const enum AVSampleFormat sample_fmts[] = {AV_SAMPLE_FMT_S16, AV_SAMPLE_FMT_NONE};
-    int sample_rates[2] = {0, -1};
-    int64_t channel_layouts[2] = {0, -1};
-    int channels[2] = {0, -1};
-    AVFilterContext *filt_asrc = nullptr, *filt_asink = nullptr;
-    char aresample_swr_opts[512] = "";
-    AVDictionaryEntry *e = nullptr;
-    char asrc_args[256];
-    int ret;
-
-    avfilter_graph_free(&is->agraph);
-    if (!(is->agraph = avfilter_graph_alloc()))
-        return AVERROR(ENOMEM);
-    is->agraph->nb_threads = filter_nbthreads;
-
-    while ((e = av_dict_get(swr_opts, "", e, AV_DICT_IGNORE_SUFFIX)))
-        av_strlcatf(aresample_swr_opts, sizeof(aresample_swr_opts), "%s=%s:", e->key, e->value);
-    if (strlen(aresample_swr_opts))
-        aresample_swr_opts[strlen(aresample_swr_opts) - 1] = '\0';
-    av_opt_set(is->agraph, "aresample_swr_opts", aresample_swr_opts, 0);
-
-    ret = snprintf(asrc_args, sizeof(asrc_args),
-                   "sample_rate=%d:sample_fmt=%s:channels=%d:time_base=%d/%d",
-                   is->audio_filter_src.freq, av_get_sample_fmt_name(is->audio_filter_src.fmt),
-                   is->audio_filter_src.channels,
-                   1, is->audio_filter_src.freq);
-    if (is->audio_filter_src.channel_layout)
-        snprintf(asrc_args + ret, sizeof(asrc_args) - ret,
-                 ":channel_layout=0x%" PRIx64, is->audio_filter_src.channel_layout);
-
-    ret = avfilter_graph_create_filter(&filt_asrc,
-                                       avfilter_get_by_name("abuffer"), "ffplay_abuffer",
-                                       asrc_args, nullptr, is->agraph);
-    if (ret < 0)
-        goto end;
-
-    ret = avfilter_graph_create_filter(&filt_asink,
-                                       avfilter_get_by_name("abuffersink"), "ffplay_abuffersink",
-                                       nullptr, nullptr, is->agraph);
-    if (ret < 0)
-        goto end;
-
-    if ((ret = av_opt_set_int_list(filt_asink, "sample_fmts", sample_fmts, AV_SAMPLE_FMT_NONE, AV_OPT_SEARCH_CHILDREN)) < 0)
-        goto end;
-    if ((ret = av_opt_set_int(filt_asink, "all_channel_counts", 1, AV_OPT_SEARCH_CHILDREN)) < 0)
-        goto end;
-
-    if (force_output_format) {
-        channel_layouts[0] = is->audio_tgt.channel_layout;
-        channels[0] = is->audio_tgt.channels;
-        sample_rates[0] = is->audio_tgt.freq;
-        if ((ret = av_opt_set_int(filt_asink, "all_channel_counts", 0, AV_OPT_SEARCH_CHILDREN)) < 0)
-            goto end;
-        if ((ret = av_opt_set_int_list(filt_asink, "channel_layouts", channel_layouts, -1, AV_OPT_SEARCH_CHILDREN)) < 0)
-            goto end;
-        if ((ret = av_opt_set_int_list(filt_asink, "channel_counts", channels, -1, AV_OPT_SEARCH_CHILDREN)) < 0)
-            goto end;
-        if ((ret = av_opt_set_int_list(filt_asink, "sample_rates", sample_rates, -1, AV_OPT_SEARCH_CHILDREN)) < 0)
-            goto end;
-    }
-
-    if ((ret = configure_filtergraph(is->agraph, afilters, filt_asrc, filt_asink)) < 0)
-        goto end;
-
-    is->in_audio_filter = filt_asrc;
-    is->out_audio_filter = filt_asink;
-
-end:
-    if (ret < 0)
-        avfilter_graph_free(&is->agraph);
-    return ret;
-}
-#endif /* CONFIG_AVFILTER */
-
-
-/* open a given stream. Return 0 if OK */
-static int stream_component_open(CPlayer *player, int stream_index) {
-    VideoState *is = player->is;
-    AVFormatContext *ic = is->ic;
-    AVCodecContext *avctx;
-    AVCodec *codec;
-    const char *forced_codec_name = nullptr;
-    AVDictionary *opts = nullptr;
-    AVDictionaryEntry *t = nullptr;
-    int sample_rate, nb_channels;
-    int64_t channel_layout;
-    int ret = 0;
-    int stream_lowres = player->lowres;
-
-    if (stream_index < 0 || stream_index >= ic->nb_streams)
-        return -1;
-
-    avctx = avcodec_alloc_context3(nullptr);
-    if (!avctx)
-        return AVERROR(ENOMEM);
-
-    ret = avcodec_parameters_to_context(avctx, ic->streams[stream_index]->codecpar);
-    if (ret < 0)
-        goto fail;
-    avctx->pkt_timebase = ic->streams[stream_index]->time_base;
-
-    codec = avcodec_find_decoder(avctx->codec_id);
-
-    switch (avctx->codec_type) {
-        case AVMEDIA_TYPE_AUDIO:
-            is->last_audio_stream = stream_index;
-            forced_codec_name = player->audio_codec_name;
-            break;
-        case AVMEDIA_TYPE_SUBTITLE:
-            is->last_subtitle_stream = stream_index;
-            forced_codec_name = player->subtitle_codec_name;
-            break;
-        case AVMEDIA_TYPE_VIDEO:
-            is->last_video_stream = stream_index;
-            forced_codec_name = player->video_codec_name;
-            break;
-        default:
-            break;
-    }
-    if (forced_codec_name)
-        codec = avcodec_find_decoder_by_name(forced_codec_name);
-    if (!codec) {
-        if (forced_codec_name)
-            av_log(nullptr, AV_LOG_WARNING,
-                   "No codec could be found with name '%s'\n", forced_codec_name);
-        else
-            av_log(nullptr, AV_LOG_WARNING,
-                   "No decoder could be found for codec %s\n", avcodec_get_name(avctx->codec_id));
-        ret = AVERROR(EINVAL);
-        goto fail;
-    }
-
-    avctx->codec_id = codec->id;
-    if (stream_lowres > codec->max_lowres) {
-        av_log(avctx, AV_LOG_WARNING, "The maximum value for lowres supported by the decoder is %d\n",
-               codec->max_lowres);
-        stream_lowres = codec->max_lowres;
-    }
-    avctx->lowres = stream_lowres;
-
-    if (player->fast)
-        avctx->flags2 |= AV_CODEC_FLAG2_FAST;
-
-    if (!av_dict_get(opts, "threads", nullptr, 0))
-        av_dict_set(&opts, "threads", "auto", 0);
-    if (stream_lowres)
-        av_dict_set_int(&opts, "lowres", stream_lowres, 0);
-    if (avctx->codec_type == AVMEDIA_TYPE_VIDEO || avctx->codec_type == AVMEDIA_TYPE_AUDIO)
-        av_dict_set(&opts, "refcounted_frames", "1", 0);
-    if ((ret = avcodec_open2(avctx, codec, &opts)) < 0) {
-        goto fail;
-    }
-    if ((t = av_dict_get(opts, "", nullptr, AV_DICT_IGNORE_SUFFIX))) {
-        av_log(nullptr, AV_LOG_ERROR, "Option %s not found.\n", t->key);
-        ret = AVERROR_OPTION_NOT_FOUND;
-        goto fail;
-    }
-
-    is->eof = 0;
-    ic->streams[stream_index]->discard = AVDISCARD_DEFAULT;
-    switch (avctx->codec_type) {
-        case AVMEDIA_TYPE_AUDIO:
-            break;
-        case AVMEDIA_TYPE_VIDEO:
-//            is->queue_attachments_req = 1;
-            break;
-        case AVMEDIA_TYPE_SUBTITLE:
-            is->subtitle_stream = stream_index;
-            is->subtitle_st = ic->streams[stream_index];
-
-//            is->subdec.Init(avctx, &is->subtitleq, is->continue_read_thread);
-//            if ((ret = decoder_start(&is->subdec, subtitle_thread, "subtitle_decoder", player)) < 0)
-//                goto out;
-            break;
-        default:
-            break;
-    }
-    goto out;
-
-    fail:
-    avcodec_free_context(&avctx);
-    out:
-    av_dict_free(&opts);
-
-    return ret;
-}
-
 
 #define BUFFERING_CHECK_PER_MILLISECONDS                     (500)
 #define BUFFERING_CHECK_PER_MILLISECONDS_NO_RENDERING        (20)
 
+#if 0
 static void check_buffering(CPlayer *player) {
     VideoState *is = player->is;
     if (is->eof) {
@@ -733,105 +371,26 @@ static void check_buffering(CPlayer *player) {
     }
 
 }
+#endif
 
-
-static void stream_open(CPlayer *player, const char *filename, AVInputFormat *iformat) {
-    change_player_state(player, FFP_STATE_BUFFERING);
-
-    VideoState *is = player->is;
-
-    is->filename = av_strdup(filename);
-    if (!is->filename)
-        goto fail;
-    is->iformat = iformat;
-
-    if (!(is->continue_read_thread = SDL_CreateCond())) {
-        av_log(nullptr, AV_LOG_FATAL, "SDL_CreateCond(): %s\n", SDL_GetError());
-        goto fail;
-    }
-
-//    is->read_tid = SDL_CreateThread(read_thread, "ReadThread", player);
-    if (!is->read_tid) {
-        av_log(nullptr, AV_LOG_FATAL, "SDL_CreateThread(): %s\n", SDL_GetError());
-        goto fail;
-    }
-
-    player->msg_queue.Start();
-    player->msg_tid = SDL_CreateThread(message_loop, "message_loop", player);
-    if (!player->msg_tid) {
-        av_log(nullptr, AV_LOG_FATAL, "SDL_CreateThread(): %s\n", SDL_GetError());
-        goto fail;
-    }
-    return;
-    fail:
-    stream_close(player);
-    player->is = nullptr;
-}
 
 int ffplayer_get_chapter_count(CPlayer *player) {
-    if (!player || !player->is->ic) {
-        return -1;
-    }
-    return (int) player->is->ic->nb_chapters;
+    CHECK_VALUE_WITH_RETURN(player, -1);
+    CHECK_VALUE_WITH_RETURN(player->data_source, -1);
+    return player->data_source->GetChapterCount();
 }
 
 int ffplayer_get_current_chapter(CPlayer *player) {
-    if (!player || !player->is->ic) {
-        return -1;
-    }
-    int64_t pos = player->clock_context->GetMasterClock() * AV_TIME_BASE;
-
-    if (!player->is->ic->nb_chapters) {
-        return -1;
-    }
-    for (int i = 0; i < player->is->ic->nb_chapters; i++) {
-        AVChapter *ch = player->is->ic->chapters[i];
-        if (av_compare_ts(pos, av_time_base_q_, ch->start, ch->time_base) < 0) {
-            i--;
-            return i;
-        }
-    }
-    return -1;
+    CHECK_VALUE_WITH_RETURN(player, -1);
+    CHECK_VALUE_WITH_RETURN(player->data_source, -1);
+    int64_t pos = ffplayer_get_current_position(player) * AV_TIME_BASE;
+    return player->data_source->GetChapterByPosition(pos);
 }
 
 void ffplayer_seek_to_chapter(CPlayer *player, int chapter) {
-    if (!player || !player->is->ic) {
-        av_log(nullptr, AV_LOG_ERROR, "player not prepared");
-        return;
-    }
-    if (!player->is->ic->nb_chapters) {
-        av_log(nullptr, AV_LOG_ERROR, "this video do not contain chapters");
-        return;
-    }
-    if (chapter < 0 || chapter >= player->is->ic->nb_chapters) {
-        av_log(nullptr, AV_LOG_ERROR, "chapter out of range: %d", chapter);
-        return;
-    }
-    AVChapter *ac = player->is->ic->chapters[chapter];
-    stream_seek(player, av_rescale_q(ac->start, ac->time_base, av_time_base_q_), 0, 0);
-}
-
-static VideoState *alloc_video_state() {
-    auto *is = static_cast<VideoState *>(av_mallocz(sizeof(VideoState)));
-    if (!is)
-        return nullptr;
-    is->last_video_stream = is->video_stream = -1;
-    is->last_audio_stream = is->audio_stream = -1;
-    is->last_subtitle_stream = is->subtitle_stream = -1;
-
-    if (is->videoq.Init() < 0 || is->audioq.Init() < 0 || is->subtitleq.Init() < 0)
-        goto fail;
-
-    is->audio_clock_serial = -1;
-    is->audio_volume = SDL_MIX_MAXVOLUME;
-    is->muted = 0;
-    is->av_sync_type = AV_SYNC_AUDIO_MASTER;
-    return is;
-    fail:
-    if (is) {
-        av_free(is);
-    }
-    return nullptr;
+    CHECK_VALUE(player);
+    CHECK_VALUE(player->data_source);
+    player->data_source->SeekToChapter(chapter);
 }
 
 static CPlayer *ffplayer_alloc_player() {
@@ -876,16 +435,10 @@ static CPlayer *ffplayer_alloc_player() {
     player->state = FFP_STATE_IDLE;
     player->last_io_buffering_ts = -1;
 
-    player->is = alloc_video_state();
-
     player->msg_queue.Init();
 
     ffplayer_toggle_pause(player);
 
-    if (!player->is) {
-        av_free(player);
-        return nullptr;
-    }
 #ifdef _FLUTTER
     flutter_on_post_player_created(player);
 #endif
@@ -996,13 +549,19 @@ void ffp_attach_video_render(CPlayer *player, FFP_VideoRenderCallback *render_ca
 
 double ffp_get_video_aspect_ratio(CPlayer *player) {
     CHECK_PLAYER_WITH_RETURN(player, -1);
-    if (!player->video_render->first_video_frame_loaded) {
-        return 0;
-    }
-    if (player->video_render->frame_height == 0) {
-        return 0;
-    }
-    return ((double) player->video_render->frame_width) / player->video_render->frame_height;
+    return player->video_render->GetVideoAspectRatio();
+}
+
+const char *ffp_get_file_name(CPlayer *player) {
+    CHECK_VALUE_WITH_RETURN(player, nullptr);
+    CHECK_VALUE_WITH_RETURN(player->data_source, nullptr);
+    return player->data_source->GetFileName();
+}
+
+const char *ffp_get_metadata_dict(CPlayer *player, const char *key) {
+    CHECK_VALUE_WITH_RETURN(player, nullptr);
+    CHECK_VALUE_WITH_RETURN(player->data_source, nullptr);
+    return player->data_source->GetMetadataDict(key);
 }
 
 
@@ -1028,26 +587,28 @@ void ffp_detach_video_render_flutter(CPlayer *player) {
 #endif // _FLUTTER
 
 CPlayer::CPlayer() {
-    clock_context->Init(&audio_pkt_queue->serial, [this](int av_sync_type) -> int {
-        if (data_source == nullptr) {
-            return av_sync_type;
-        }
-        if (av_sync_type == AV_SYNC_VIDEO_MASTER) {
-            if (data_source->ContainVideoStream()) {
-                return AV_SYNC_VIDEO_MASTER;
-            } else {
-                return AV_SYNC_AUDIO_MASTER;
-            }
-        } else if (av_sync_type == AV_SYNC_AUDIO_MASTER) {
-            if (data_source->ContainAudioStream()) {
-                return AV_SYNC_AUDIO_MASTER;
-            } else {
-                return AV_SYNC_EXTERNAL_CLOCK;
-            }
-        } else {
-            return AV_SYNC_EXTERNAL_CLOCK;
-        }
-    });
+    clock_context->Init(&audio_pkt_queue->serial,
+                        &video_pkt_queue->serial,
+                        [this](int av_sync_type) -> int {
+                            if (data_source == nullptr) {
+                                return av_sync_type;
+                            }
+                            if (av_sync_type == AV_SYNC_VIDEO_MASTER) {
+                                if (data_source->ContainVideoStream()) {
+                                    return AV_SYNC_VIDEO_MASTER;
+                                } else {
+                                    return AV_SYNC_AUDIO_MASTER;
+                                }
+                            } else if (av_sync_type == AV_SYNC_AUDIO_MASTER) {
+                                if (data_source->ContainAudioStream()) {
+                                    return AV_SYNC_AUDIO_MASTER;
+                                } else {
+                                    return AV_SYNC_EXTERNAL_CLOCK;
+                                }
+                            } else {
+                                return AV_SYNC_EXTERNAL_CLOCK;
+                            }
+                        });
     memset(wanted_stream_spec, 0, sizeof wanted_stream_spec);
 
     message_context->Start();

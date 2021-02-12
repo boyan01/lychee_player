@@ -14,6 +14,7 @@ char av_error[AV_ERROR_MAX_STRING_SIZE] = {0};
 
 extern AVPacket *flush_pkt;
 
+static const AVRational av_time_base_q_ = {1, AV_TIME_BASE};
 
 static int stream_has_enough_packets(AVStream *st, int stream_id, PacketQueue *queue) {
     return stream_id < 0 ||
@@ -459,6 +460,70 @@ bool DataSource::ContainAudioStream() {
 
 bool DataSource::ContainSubtitleStream() {
     return subtitle_stream_ != nullptr;
+}
+
+void DataSource::Seek(double position) {
+    if (format_ctx_ != nullptr && format_ctx_->start_time != AV_NOPTS_VALUE) {
+        position = FFMAX(format_ctx_->start_time / (double) AV_TIME_BASE, position);
+    }
+    if (position < 0) {
+        av_log(nullptr, AV_LOG_ERROR, "failed to seek to %0.2f.\n", position);
+        return;
+    }
+    av_log(nullptr, AV_LOG_INFO, "ffplayer_seek_to_position to %0.2f \n", position);
+
+    if (!seek_req_) {
+        seek_position = position * AV_TIME_BASE;
+        seek_req_ = true;
+
+        // TODO update buffered position
+//        player->buffered_position = -1;
+//        change_player_state(player, FFP_STATE_BUFFERING);
+        continue_read_thread_->notify_all();
+    }
+}
+
+double DataSource::GetSeekPosition() const { return seek_position / (double) (AV_TIME_BASE); }
+
+double DataSource::GetDuration() {
+    CHECK_VALUE_WITH_RETURN(format_ctx_, -1);
+    return format_ctx_->duration / (double) AV_TIME_BASE;
+}
+
+int DataSource::GetChapterCount() {
+    CHECK_VALUE_WITH_RETURN(format_ctx_, -1);
+    return (int) format_ctx_->nb_chapters;
+}
+
+int DataSource::GetChapterByPosition(int64_t position) {
+    CHECK_VALUE_WITH_RETURN(format_ctx_, -1);
+    CHECK_VALUE_WITH_RETURN(format_ctx_->nb_chapters, -1);
+    for (int i = 0; i < format_ctx_->nb_chapters; i++) {
+        AVChapter *ch = format_ctx_->chapters[i];
+        if (av_compare_ts(position, av_time_base_q_, ch->start, ch->time_base) < 0) {
+            i--;
+            return i;
+        }
+    }
+    return -1;
+}
+
+void DataSource::SeekToChapter(int chapter) {
+    CHECK_VALUE(format_ctx_);
+    CHECK_VALUE(format_ctx_->nb_chapters);
+    if (chapter < 0 || chapter >= format_ctx_->nb_chapters) {
+        av_log(nullptr, AV_LOG_ERROR, "chapter out of range: %d", chapter);
+        return;
+    }
+    AVChapter *ac = format_ctx_->chapters[chapter];
+    Seek(av_rescale_q(ac->start, ac->time_base, av_time_base_q_));
+}
+
+const char *DataSource::GetFileName() const { return filename; }
+
+const char *DataSource::GetMetadataDict(const char *key) {
+    CHECK_VALUE_WITH_RETURN(format_ctx_, nullptr);
+    return av_dict_get(format_ctx_->metadata, key, nullptr, 0)->value;
 }
 
 

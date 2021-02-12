@@ -48,7 +48,6 @@ private:
     double audio_clock_from_pts = NAN;
     int audio_clock_serial = 0;
 
-    bool paused = false;
 
     AudioParams audio_src{};
     AudioParams audio_tgt{};
@@ -72,6 +71,7 @@ public:
 
     int *audio_queue_serial = nullptr;
 
+    bool paused = false;
 
 private:
     void AudioCallback(Uint8 *stream, int len);
@@ -91,7 +91,7 @@ public:
 
     AudioRender();
 
-    void Init(PacketQueue *audio_queue, ClockContext* clock_ctx);
+    void Init(PacketQueue *audio_queue, ClockContext *clock_ctx);
 
     ~AudioRender();
 
@@ -102,6 +102,20 @@ public:
     void Start() const;
 
     void Pause() const;
+
+    bool IsMute() const;
+
+    void SetMute(bool _mute);
+
+    /**
+     * @param _volume 0 - 100
+     */
+    void SetVolume(int _volume);
+
+    /**
+     * @return 0 - 100
+     */
+    int GetVolume() const;
 
 
 };

@@ -54,13 +54,13 @@ public:
     double frame_timer = 0;
 
     bool step = false;
+    bool paused_ = false;
 
 private:
     FrameQueue *picture_queue = nullptr;
     std::thread *render_thread_ = nullptr;
     std::mutex *render_mutex_ = nullptr;
 
-    bool paused_ = false;
 
     bool force_refresh_ = false;
 
@@ -91,6 +91,8 @@ public:
     double DrawFrame();
 
     int PushFrame(AVFrame *frame, double pts, double duration, int pkt_serial);
+
+    double GetVideoAspectRatio() const;
 
 };
 

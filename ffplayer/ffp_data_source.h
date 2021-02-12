@@ -46,6 +46,21 @@ public:
     DecoderContext *decoder_ctx;
 
     int read_pause_return;
+
+    bool paused = false;
+
+    void Seek(double position);
+
+    double GetDuration();
+
+    int GetChapterCount();
+
+    int GetChapterByPosition(int64_t position);
+
+    void SeekToChapter(int chapter);
+
+    const char *GetMetadataDict(const char *key);
+
 private:
     char *filename;
     AVInputFormat *in_format;
@@ -58,8 +73,6 @@ private:
     int audio_stream_index = -1;
     int video_stream_index = -1;
     int subtitle_stream_index = -1;
-
-    bool paused = false;
 
     // request for seek.
     bool seek_req_ = false;
@@ -91,6 +104,10 @@ public:
     bool ContainAudioStream();
 
     bool ContainSubtitleStream();
+
+    double GetSeekPosition() const;
+
+    const char *GetFileName() const;
 
 private:
 

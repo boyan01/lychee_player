@@ -182,7 +182,6 @@ void VideoRender::VideoRenderThread() {
         remaining_time = REFRESH_RATE;
         if ((!paused_ || force_refresh_)) {
             DrawFrame();
-            av_log(nullptr, AV_LOG_INFO, "video render remaining_time = %0.2f \n", remaining_time);
         }
     }
 }
@@ -242,6 +241,16 @@ void VideoRender::RenderPicture() {
     if (render_callback_ && render_callback_->on_texture_updated) {
         render_callback_->on_texture_updated(this);
     }
+}
+
+double VideoRender::GetVideoAspectRatio() const {
+    if (!first_video_frame_loaded) {
+        return 0;
+    }
+    if (frame_height == 0) {
+        return 0;
+    }
+    return ((double) frame_width) / frame_height;
 }
 
 static void check_external_clock_speed() {
