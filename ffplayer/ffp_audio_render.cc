@@ -6,6 +6,8 @@
 #include "ffp_data_source.h"
 #include <string>
 
+#include <cmath>
+
 extern "C" {
 #include <libswresample/swresample.h>
 }
@@ -17,6 +19,9 @@ extern "C" {
 
 /* we use about AUDIO_DIFF_AVG_NB A-V differences to make the average */
 #define AUDIO_DIFF_AVG_NB 20
+
+/* maximum audio speed change to get correct sync */
+#define SAMPLE_CORRECTION_PERCENT_MAX 10
 
 int AudioRender::Open(int64_t wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate) {
     SDL_AudioSpec wanted_spec, spec;
@@ -165,10 +170,11 @@ void AudioRender::AudioCallback(Uint8 *stream, int len) {
 
     audio_write_buf_size = audio_buf_size - audio_buf_index;
     if (!isnan(audio_clock_from_pts)) {
-        audio_clock->SetClockAt(audio_clock_from_pts - (double) (2 * audio_hw_buf_size + audio_write_buf_size) /
-                                                       audio_tgt.bytes_per_sec, audio_clock_serial,
-                                audio_callback_time / 1000000.0);
-        ext_clock->Sync(audio_clock);
+        clock_ctx_->GetAudioClock()->SetClockAt(
+                audio_clock_from_pts - (double) (2 * audio_hw_buf_size + audio_write_buf_size) /
+                                       audio_tgt.bytes_per_sec, audio_clock_serial,
+                audio_callback_time / 1000000.0);
+        clock_ctx_->GetExtClock()->Sync(clock_ctx_->GetAudioClock());
     }
 }
 
@@ -276,9 +282,9 @@ int AudioRender::AudioDecodeFrame() {
     {
         static double last_clock;
         printf("audio: delay=%0.3f clock=%0.3f clock0=%0.3f\n",
-               is->audio_clock - last_clock,
-               is->audio_clock, audio_clock0);
-        last_clock = is->audio_clock;
+               is->audio_clock_ - last_clock,
+               is->audio_clock_, audio_clock0);
+        last_clock = is->audio_clock_;
     }
 #endif
 
@@ -286,7 +292,35 @@ int AudioRender::AudioDecodeFrame() {
 }
 
 int AudioRender::SynchronizeAudio(int nb_samples) {
-    return nb_samples;
+    int wanted_nb_samples = nb_samples;
+
+    if (clock_ctx_->GetMasterSyncType() != AV_SYNC_AUDIO_MASTER) {
+        auto diff = clock_ctx_->GetAudioClock()->GetClock() - clock_ctx_->GetMasterClock();
+        if (!std::isnan(diff) && fabs(diff) < AV_NOSYNC_THRESHOLD) {
+            audio_diff_cum = diff + audio_diff_avg_coef * audio_diff_cum;
+            if (audio_diff_avg_count < AUDIO_DIFF_AVG_NB) {
+                /* not enough measures to have a correct estimate */
+                audio_diff_avg_count++;
+            } else {
+                /* estimate the A-V difference */
+                auto avg_diff = audio_diff_cum * (1.0 - audio_diff_avg_coef);
+                if (fabs(avg_diff) >= audio_diff_threshold) {
+                    wanted_nb_samples = nb_samples + (int) (diff * audio_src.freq);
+                    auto min_nb_samples = ((nb_samples * (100 - SAMPLE_CORRECTION_PERCENT_MAX) / 100));
+                    auto max_nb_samples = ((nb_samples * (100 + SAMPLE_CORRECTION_PERCENT_MAX) / 100));
+                    wanted_nb_samples = av_clip(wanted_nb_samples, min_nb_samples, max_nb_samples);
+                }
+                av_log(nullptr, AV_LOG_TRACE, "diff=%f adiff=%f sample_diff=%d apts=%0.3f %f\n",
+                       diff, avg_diff, wanted_nb_samples - nb_samples,
+                       audio_clock_from_pts, audio_diff_threshold);
+            }
+        } else {
+            /* too big difference : may be initial PTS errors, so reset A-V filter */
+            audio_diff_avg_count = 0;
+            audio_diff_cum = 0;
+        }
+    }
+    return wanted_nb_samples;
 }
 
 void AudioRender::Start() const {
@@ -295,5 +329,18 @@ void AudioRender::Start() const {
 
 void AudioRender::Pause() const {
     SDL_PauseAudioDevice(audio_dev, 1);
+}
+
+AudioRender::AudioRender() {
+    sample_queue = new FrameQueue;
+}
+
+AudioRender::~AudioRender() {
+    delete sample_queue;
+}
+
+void AudioRender::Init(PacketQueue *audio_queue, ClockContext *clock_ctx) {
+    sample_queue->Init(audio_queue, SAMPLE_QUEUE_SIZE, 1);
+    clock_ctx_ = clock_ctx;
 }
 

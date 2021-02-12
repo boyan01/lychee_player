@@ -68,9 +68,6 @@ extern "C" {
 #define AV_SYNC_FRAMEDUP_THRESHOLD 0.1
 
 
-/* maximum audio speed change to get correct sync */
-#define SAMPLE_CORRECTION_PERCENT_MAX 10
-
 /* external clock speed adjustment constants for realtime sources based on buffer fullness */
 #define EXTERNAL_CLOCK_SPEED_MIN 0.900
 #define EXTERNAL_CLOCK_SPEED_MAX 1.010
@@ -101,12 +98,6 @@ typedef enum FFPlayerState_ {
     FFP_STATE_END
 } FFPlayerState;
 
-
-enum {
-    AV_SYNC_AUDIO_MASTER, /* default choice */
-    AV_SYNC_VIDEO_MASTER,
-    AV_SYNC_EXTERNAL_CLOCK, /* synchronize to an external clock */
-};
 
 enum ShowMode {
     SHOW_MODE_NONE = -1,
@@ -234,13 +225,20 @@ public:
     const std::unique_ptr<PacketQueue> video_pkt_queue = std::unique_ptr<PacketQueue>(new PacketQueue);
     const std::unique_ptr<PacketQueue> subtitle_pkt_queue = std::unique_ptr<PacketQueue>(new PacketQueue);
 
-    const std::unique_ptr<Clock> audio_clock = std::unique_ptr<Clock>(new Clock);
-    const std::unique_ptr<Clock> video_clock = std::unique_ptr<Clock>(new Clock);
-    const std::unique_ptr<Clock> ext_clock = std::unique_ptr<Clock>(new Clock);
+    const std::unique_ptr<ClockContext> clock_context = std::unique_ptr<ClockContext>(new ClockContext);
 
-    DataSource *dataSource = nullptr;
+    DataSource *data_source = nullptr;
+
+    const std::unique_ptr<DecoderContext> decoder_context = std::unique_ptr<DecoderContext>(new DecoderContext);
+
+    const std::unique_ptr<AudioRender> audio_render = std::unique_ptr<AudioRender>(new AudioRender);
+
 
 public:
+
+    CPlayer();
+
+    ~CPlayer();
 
 
 public:
@@ -250,7 +248,7 @@ public:
     int video_disable = 0;
     int subtitle_disable = 0;
 
-    char *wanted_stream_spec[AVMEDIA_TYPE_NB];
+    char *wanted_stream_spec[AVMEDIA_TYPE_NB]{};
     int seek_by_bytes = -1;
 
     int show_status = -1;

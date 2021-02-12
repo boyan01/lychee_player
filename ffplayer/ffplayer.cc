@@ -1100,7 +1100,6 @@ static VideoState *alloc_video_state() {
 
 static CPlayer *ffplayer_alloc_player() {
     auto *player = new CPlayer;
-    memset(player->wanted_stream_spec, 0, sizeof player->wanted_stream_spec);
     player->audio_disable = 0;
     player->video_disable = 0;
     player->subtitle_disable = 0;
@@ -1160,29 +1159,19 @@ static CPlayer *ffplayer_alloc_player() {
 
 int ffplayer_open_file(CPlayer *player, const char *filename) {
 //    stream_open(player, filename, file_iformat);
-    if (player->dataSource) {
+    if (player->data_source) {
         av_log(nullptr, AV_LOG_ERROR, "can not open file multi-times.\n");
         return -1;
     }
 
-    player->dataSource = new DataSource(filename, file_iformat);
-    player->dataSource->Open(player);
-    player->dataSource->audio_queue = &player->is->audioq;
-    player->dataSource->video_queue = &player->is->videoq;
-    player->dataSource->subtitle_queue = &player->is->subtitleq;
-    player->dataSource->ext_clock = &player->is->extclk;
+    player->data_source = new DataSource(filename, file_iformat);
+    player->data_source->audio_queue = player->audio_pkt_queue.get();
+    player->data_source->video_queue = player->video_pkt_queue.get();
+    player->data_source->subtitle_queue = player->subtitle_pkt_queue.get();
+    player->data_source->ext_clock = player->clock_context->GetAudioClock();
+    player->data_source->decoder_ctx = player->decoder_context.get();
 
-    auto decoder_ctx = new DecoderContext;
-    player->dataSource->decoder_ctx = decoder_ctx;
-
-
-    auto audio_render = new AudioRender;
-    audio_render->audio_clock = player->audio_clock.get();
-    audio_render->ext_clock = player->ext_clock.get();
-    audio_render->sample_queue = new FrameQueue;
-    decoder_ctx->audio_decoder = new Decoder;
-    decoder_ctx->audio_render = audio_render;
-    audio_render->sample_queue->Init(&player->is->audioq, SAMPLE_QUEUE_SIZE, 1);
+    player->data_source->Open(player);
 
     return 0;
 }
@@ -1304,3 +1293,34 @@ void ffp_detach_video_render_flutter(CPlayer *player) {
     flutter_detach_video_render(player);
 }
 #endif // _FLUTTER
+
+CPlayer::CPlayer() {
+    clock_context->Init(&audio_pkt_queue->serial, [this](int av_sync_type) -> int {
+        if (data_source == nullptr) {
+            return av_sync_type;
+        }
+        if (av_sync_type == AV_SYNC_VIDEO_MASTER) {
+            if (data_source->ContainVideoStream()) {
+                return AV_SYNC_VIDEO_MASTER;
+            } else {
+                return AV_SYNC_AUDIO_MASTER;
+            }
+        } else if (av_sync_type == AV_SYNC_AUDIO_MASTER) {
+            if (data_source->ContainAudioStream()) {
+                return AV_SYNC_AUDIO_MASTER;
+            } else {
+                return AV_SYNC_EXTERNAL_CLOCK;
+            }
+        } else {
+            return AV_SYNC_EXTERNAL_CLOCK;
+        }
+    });
+    memset(wanted_stream_spec, 0, sizeof wanted_stream_spec);
+
+    audio_render->Init(audio_pkt_queue.get(), clock_context.get());
+    decoder_context->audio_render = audio_render.get();
+}
+
+CPlayer::~CPlayer() {
+
+}

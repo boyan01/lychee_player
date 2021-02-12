@@ -83,6 +83,7 @@ public:
     bool fast = false;
     AudioRender *audio_render;
 
+private:
     Decoder *audio_decoder;
     Decoder *video_decoder;
     Decoder *subtitle_decoder;
@@ -94,6 +95,19 @@ private:
     int AudioThread() const;
 
 public:
+
+    DecoderContext() {
+        audio_decoder = new Decoder;
+        video_decoder = new Decoder;
+        subtitle_decoder = new Decoder;
+    }
+
+    ~DecoderContext() {
+        delete audio_decoder;
+        delete video_decoder;
+        delete subtitle_decoder;
+    }
+
     int StartDecoder(const DecodeParams *decode_params);
 
 };

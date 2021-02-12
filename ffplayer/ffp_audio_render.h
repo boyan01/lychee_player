@@ -30,14 +30,14 @@ class AudioRender {
 
 private:
     /* current context */
-    int64_t audio_callback_time;
+    int64_t audio_callback_time = 0;
 
     SDL_AudioDeviceID audio_dev = 0;
 
-    int audio_hw_buf_size;
-    uint8_t *audio_buf;
+    int audio_hw_buf_size = 0;
+    uint8_t *audio_buf = nullptr;
     // for resample.
-    uint8_t *audio_buf1;
+    uint8_t *audio_buf1 = nullptr;
 
     unsigned int audio_buf1_size = 0;
 
@@ -45,8 +45,8 @@ private:
     bool mute = false;
     int audio_volume = 100;
 
-    double audio_clock_from_pts;
-    int audio_clock_serial;
+    double audio_clock_from_pts = NAN;
+    int audio_clock_serial = 0;
 
     bool paused = false;
 
@@ -54,22 +54,23 @@ private:
     AudioParams audio_tgt{};
     struct SwrContext *swr_ctx = nullptr;
 
-    int audio_write_buf_size;
-    int audio_buf_size;
-    int audio_buf_index;
+    int audio_write_buf_size = 0;
+    int audio_buf_size = 0;
+    int audio_buf_index = 0;
 
-    double audio_diff_avg_coef;
-    int audio_diff_avg_count;
+    double audio_diff_cum = 0; /* used for AV difference average computation */
+    double audio_diff_avg_coef = 0;
+    int audio_diff_avg_count = 0;
 
-    double audio_diff_threshold;
+    double audio_diff_threshold = 0;
+
+    ClockContext *clock_ctx_ = nullptr;
+
+    FrameQueue *sample_queue = nullptr;
 
 public:
-    FrameQueue *sample_queue;
 
-    Clock const* audio_clock;
-    Clock const* ext_clock;
-
-    int *audio_queue_serial;
+    int *audio_queue_serial = nullptr;
 
 
 private:
@@ -87,6 +88,12 @@ private:
     int SynchronizeAudio(int nb_samples);
 
 public:
+
+    AudioRender();
+
+    void Init(PacketQueue *audio_queue, ClockContext* clock_ctx);
+
+    ~AudioRender();
 
     int Open(int64_t wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate);
 

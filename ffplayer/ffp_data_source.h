@@ -48,7 +48,7 @@ public:
 
     Clock *ext_clock;
 
-    DecoderContext* decoder_ctx;
+    DecoderContext *decoder_ctx;
 
 private:
     char *filename;
@@ -74,9 +74,9 @@ private:
 
     bool eof = false;
 
-    AVStream *video_stream_;
-    AVStream *audio_stream_;
-    AVStream *subtitle_stream_;
+    AVStream *video_stream_ = nullptr;
+    AVStream *audio_stream_ = nullptr;
+    AVStream *subtitle_stream_ = nullptr;
 
     int64_t duration = AV_NOPTS_VALUE;
 
@@ -89,6 +89,10 @@ public:
     int Open(CPlayer *player);
 
     void Close();
+
+    bool ContainVideoStream();
+
+    bool ContainAudioStream();
 
 private:
 

@@ -763,3 +763,11 @@ void DataSource::ProcessQueuePacket(AVPacket *pkt) {
     }
 }
 
+bool DataSource::ContainVideoStream() {
+    return video_stream_ != nullptr;
+}
+
+bool DataSource::ContainAudioStream() {
+    return audio_stream_ != nullptr;
+}
+
