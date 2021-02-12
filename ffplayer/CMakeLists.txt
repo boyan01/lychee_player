@@ -25,6 +25,10 @@ if (UNIX)
     include_directories("/usr/include/SDL2")
 endif ()
 
+if (APPLE)
+    include_directories("/usr/local/include")
+endif ()
+
 add_library(ffplayer SHARED
         ffp_define.h
         ffp_player_internal.h
@@ -53,33 +57,33 @@ find_library(LIBSDL2 SDL2 REQUIRED)
 
 target_include_directories(ffplayer PUBLIC include)
 
-if (WIN32)
-    find_library(LIBAVUTIL avutil REQUIRED)
-    find_library(LIBAVCODEC avcodec REQUIRED)
-    find_library(LIBAVDEVICE avdevice REQUIRED)
-    find_library(LIBAVFORMAT avformat REQUIRED)
-    find_library(LIBAVFILTER avfilter REQUIRED)
-    find_library(LIBSWSCALE swscale REQUIRED)
-    find_library(LIBSWRESAMPLE swresample REQUIRED)
+find_library(LIBAVUTIL avutil REQUIRED)
+find_library(LIBAVCODEC avcodec REQUIRED)
+find_library(LIBAVDEVICE avdevice REQUIRED)
+find_library(LIBAVFORMAT avformat REQUIRED)
+find_library(LIBAVFILTER avfilter REQUIRED)
+find_library(LIBSWSCALE swscale REQUIRED)
+find_library(LIBSWRESAMPLE swresample REQUIRED)
 
-    list(APPEND FFP_LIBS ${LIBAVUTIL}
-            ${LIBAVCODEC}
-            ${LIBAVDEVICE}
-            ${LIBAVFORMAT}
-            ${LIBAVFILTER}
-            ${LIBSWSCALE}
-            ${LIBSWRESAMPLE}
-            ${LIBSDL2}
-            )
-    if (CMAKE_FLUTTER_WINDOWS)
-        list(APPEND FFP_LIBS flutter flutter_wrapper_plugin)
-    endif ()
-    target_link_libraries(ffplayer PUBLIC ${FFP_LIBS})
-else ()
-    target_link_libraries(ffplayer PUBLIC avutil avcodec avdevice avformat avfilter swscale swresample ${LIBSDL2}
-            # linux do not have math library.
-            m)
+list(APPEND FFP_LIBS ${LIBAVUTIL}
+        ${LIBAVCODEC}
+        ${LIBAVDEVICE}
+        ${LIBAVFORMAT}
+        ${LIBAVFILTER}
+        ${LIBSWSCALE}
+        ${LIBSWRESAMPLE}
+        ${LIBSDL2}
+        )
+
+if (CMAKE_FLUTTER_WINDOWS)
+    list(APPEND FFP_LIBS flutter flutter_wrapper_plugin)
 endif ()
+
+if (UNIX)
+    # linux do not have math library.
+    list(APPEND FFP_LIBS m)
+endif ()
+target_link_libraries(ffplayer PUBLIC ${FFP_LIBS})
 
 find_library(LIBSDL2MAIN SDL2main REQUIRED)
 add_executable(ffplay_example "ffplay.cc")

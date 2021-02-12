@@ -445,6 +445,8 @@ int main(int argc, char *argv[]) {
         static const char *input_filename = "C:/Users/boyan/Desktop/mojito.mp4";
 #elif __LINUX__
         static const char *input_filename = "/home/boyan/mojito.mp4";
+#else
+        static const char *input_filename = nullptr;
 #endif
         input_file = (char *) input_filename;
     }
