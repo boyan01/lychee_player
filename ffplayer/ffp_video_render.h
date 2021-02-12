@@ -13,7 +13,7 @@
 #include "ffp_frame_queue.h"
 #include "ffplayer/proto.h"
 
-struct FFP_VideoRenderContext;
+struct VideoRender;
 
 struct FFP_VideoRenderCallback {
     void *opacity = nullptr;
@@ -25,13 +25,14 @@ struct FFP_VideoRenderCallback {
      * @param video_render_ctx
      * @param frame
      */
-    std::function<void(FFP_VideoRenderContext *, Frame *)> on_render = nullptr;
+    std::function<void(VideoRender *, Frame *)> on_render = nullptr;
 
-    void (*on_texture_updated)(FFP_VideoRenderContext *video_render_ctx) = nullptr;
+    void (*on_texture_updated)(VideoRender *video_render_ctx) = nullptr;
 
 };
 
-struct FFP_VideoRenderContext {
+class VideoRender {
+public:
     bool abort_render = false;
     bool render_attached = false;
     bool first_video_frame_loaded = false;
@@ -40,15 +41,52 @@ struct FFP_VideoRenderContext {
     int frame_height = 0;
     FFP_VideoRenderCallback *render_callback_ = nullptr;
 
+    int framedrop = -1;
+
+    int frame_drop_count = 0;
+
+    ClockContext *clock_context = nullptr;
+
+    double max_frame_duration;  // maximum duration of a frame - above this, we consider the jump a timestamp discontinuity
+
 private:
-    std::thread *render_thread_;
-    std::mutex *render_mutex_;
+    FrameQueue *picture_queue = nullptr;
+    std::thread *render_thread_ = nullptr;
+    std::mutex *render_mutex_ = nullptr;
+
+    bool paused_ = false;
+
+    bool force_refresh_ = false;
+
+    bool step = false;
+
+    double frame_timer = 0;
+
+private:
+
+    void VideoRenderThread();
+
+    double VideoPictureDuration(Frame *vp, Frame *next_vp) const;
+
+    double ComputeTargetDelay(double delay);
+
+    void RenderPicture();
+
 public:
+
+    VideoRender();
+
+    ~VideoRender();
+
+    void Init(PacketQueue *video_queue, ClockContext *clock_ctx);
+
     bool Start(CPlayer *player);
 
     void Stop(CPlayer *player);
 
-    double DrawFrame(CPlayer *player);
+    double DrawFrame();
+
+    int PushFrame(AVFrame *frame, double pts, double duration, int pkt_serial);
 
 };
 

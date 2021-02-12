@@ -232,6 +232,7 @@ public:
     const std::unique_ptr<DecoderContext> decoder_context = std::unique_ptr<DecoderContext>(new DecoderContext);
 
     const std::unique_ptr<AudioRender> audio_render = std::unique_ptr<AudioRender>(new AudioRender);
+    const std::unique_ptr<VideoRender> video_render = std::unique_ptr<VideoRender>(new VideoRender);
 
 
 public:
@@ -297,8 +298,6 @@ public:
     FFPlayerState state = FFP_STATE_IDLE;
     int64_t last_io_buffering_ts = -1;
 
-    FFP_VideoRenderContext video_render_ctx;
-
 #ifdef _FLUTTER
     Dart_Port message_send_port;
 #endif
@@ -347,7 +346,7 @@ FFPLAYER_EXPORT int ffp_get_state(CPlayer *player);
 FFPLAYER_EXPORT void
 ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int32_t, int64_t, int64_t));
 
-FFPLAYER_EXPORT void ffp_refresh_texture(CPlayer *player, void(*on_locked)(FFP_VideoRenderContext *video_render_ctx));
+FFPLAYER_EXPORT void ffp_refresh_texture(CPlayer *player, void(*on_locked)(VideoRender *video_render_ctx));
 
 /**
  * @return -1 if player invalid; -2 if render_context invalid; 0 if none picture rendered.

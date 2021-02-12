@@ -21,7 +21,7 @@ typedef struct VideoRenderData_ {
 } VideoRenderData;
 
 
-static inline VideoRenderData *get_render_data(FFP_VideoRenderContext *render_ctx) {
+static inline VideoRenderData *get_render_data(VideoRender *render_ctx) {
     return static_cast<VideoRenderData *>(render_ctx->render_callback_->opacity);
 }
 
@@ -53,7 +53,7 @@ void flutter_free_all_player(void (*free_handle)(CPlayer *)) {
 }
 
 
-void render_frame(VideoRenderData *render_data, FFP_VideoRenderContext *render_ctx, Frame *frame) {
+void render_frame(VideoRenderData *render_data, VideoRender *render_ctx, Frame *frame) {
     if (!render_data->pixel_buffer->buffer) {
         std::cout << "render_frame：init" << std::endl;
         render_data->pixel_buffer->height = frame->height;
@@ -111,11 +111,11 @@ int64_t flutter_attach_video_render(CPlayer *player) {
     render_data->texture_ = std::move(texture_);
     render_data->mutex = new std::mutex();
     player->video_render_ctx.render_callback_->opacity = render_data;
-    player->video_render_ctx.render_callback_->on_render = [](FFP_VideoRenderContext *video_render_ctx, Frame *frame) {
+    player->video_render_ctx.render_callback_->on_render = [](VideoRender *video_render_ctx, Frame *frame) {
         auto render_data = get_render_data(video_render_ctx);
         render_frame(render_data, video_render_ctx, frame);
     };
-    player->video_render_ctx.render_callback_->on_texture_updated = [](FFP_VideoRenderContext *video_render_ctx) {
+    player->video_render_ctx.render_callback_->on_texture_updated = [](VideoRender *video_render_ctx) {
         auto render_data = get_render_data(video_render_ctx);
         textures_->MarkTextureFrameAvailable(render_data->texture_id);
     };

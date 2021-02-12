@@ -204,8 +204,6 @@ static void stream_close(CPlayer *player) {
         SDL_WaitThread(player->msg_tid, nullptr);
     }
 
-    player->video_render_ctx.Stop(player);
-
     avformat_close_input(&is->ic);
 
     is->videoq.Destroy();
@@ -362,44 +360,6 @@ bool ffplayer_is_paused(CPlayer *player) {
     return player->is->paused;
 }
 
-
-static int queue_picture(CPlayer *player, AVFrame *src_frame, double pts, double duration, int64_t pos, int serial) {
-    VideoState *is = player->is;
-    Frame *vp;
-
-#if defined(DEBUG_SYNC)
-    printf("frame_type=%c pts=%0.3f\n",
-           av_get_picture_type_char(src_frame->pict_type), pts);
-#endif
-
-    if (!(vp = is->pictq.PeekWritable()))
-        return -1;
-
-    vp->sar = src_frame->sample_aspect_ratio;
-    vp->uploaded = 0;
-
-    vp->width = src_frame->width;
-    vp->height = src_frame->height;
-    vp->format = src_frame->format;
-
-    vp->pts = pts;
-    vp->duration = duration;
-    vp->pos = pos;
-    vp->serial = serial;
-
-    auto render_ctx = &player->video_render_ctx;
-    if (!render_ctx->first_video_frame_loaded) {
-        render_ctx->first_video_frame_loaded = true;
-        // https://forum.videohelp.com/threads/323530-please-explain-SAR-DAR-PAR#post2003533
-        render_ctx->frame_width = vp->width;
-        render_ctx->frame_height = av_rescale(vp->width, vp->height * vp->sar.den, vp->width * vp->sar.num);
-        ffp_send_msg2(player, FFP_MSG_VIDEO_FRAME_LOADED, render_ctx->frame_width, render_ctx->frame_height);
-    }
-
-    av_frame_move_ref(vp->frame, src_frame);
-    is->pictq.Push();
-    return 0;
-}
 
 static int get_video_frame(CPlayer *player, AVFrame *frame) {
     VideoState *is = player->is;
@@ -656,109 +616,6 @@ end:
 #endif /* CONFIG_AVFILTER */
 
 
-static int video_thread(void *arg) {
-    auto *player = static_cast<CPlayer *>(arg);
-    VideoState *is = player->is;
-    AVFrame *frame = av_frame_alloc();
-    double pts;
-    double duration;
-    int ret;
-    AVRational tb = is->video_st->time_base;
-    AVRational frame_rate = av_guess_frame_rate(is->ic, is->video_st, nullptr);
-
-#if CONFIG_AVFILTER
-    AVFilterGraph *graph = nullptr;
-    AVFilterContext *filt_out = nullptr, *filt_in = nullptr;
-    int last_w = 0;
-    int last_h = 0;
-    enum AVPixelFormat last_format = -2;
-    int last_serial = -1;
-    int last_vfilter_idx = 0;
-#endif
-
-    if (!frame)
-        return AVERROR(ENOMEM);
-
-    for (;;) {
-        ret = get_video_frame(player, frame);
-        if (ret < 0)
-            goto the_end;
-        if (!ret)
-            continue;
-
-#if CONFIG_AVFILTER
-        if (last_w != frame->width || last_h != frame->height || last_format != frame->format || last_serial != is->viddec.pkt_serial || last_vfilter_idx != is->vfilter_idx) {
-            av_log(nullptr, AV_LOG_DEBUG,
-                   "Video frame changed from size:%dx%d format:%s serial:%d to size:%dx%d format:%s serial:%d\n",
-                   last_w, last_h,
-                   (const char *)av_x_if_nullptr(av_get_pix_fmt_name(last_format), "none"), last_serial,
-                   frame->width, frame->height,
-                   (const char *)av_x_if_nullptr(av_get_pix_fmt_name(frame->format), "none"), is->viddec.pkt_serial);
-            avfilter_graph_free(&graph);
-            graph = avfilter_graph_alloc();
-            if (!graph) {
-                ret = AVERROR(ENOMEM);
-                goto the_end;
-            }
-            graph->nb_threads = filter_nbthreads;
-            if ((ret = configure_video_filters(graph, is, vfilters_list ? vfilters_list[is->vfilter_idx] : nullptr, frame)) < 0) {
-                SDL_Event event;
-                event.type = FF_QUIT_EVENT;
-                event.user.data1 = is;
-                SDL_PushEvent(&event);
-                goto the_end;
-            }
-            filt_in = is->in_video_filter;
-            filt_out = is->out_video_filter;
-            last_w = frame->width;
-            last_h = frame->height;
-            last_format = frame->format;
-            last_serial = is->viddec.pkt_serial;
-            last_vfilter_idx = is->vfilter_idx;
-            frame_rate = av_buffersink_get_frame_rate(filt_out);
-        }
-
-        ret = av_buffersrc_add_frame(filt_in, frame);
-        if (ret < 0)
-            goto the_end;
-
-        while (ret >= 0) {
-            is->frame_last_returned_time = av_gettime_relative() / 1000000.0;
-
-            ret = av_buffersink_get_frame_flags(filt_out, frame, 0);
-            if (ret < 0) {
-                if (ret == AVERROR_EOF)
-                    is->viddec.finished = is->viddec.pkt_serial;
-                ret = 0;
-                break;
-            }
-
-            is->frame_last_filter_delay = av_gettime_relative() / 1000000.0 - is->frame_last_returned_time;
-            if (fabs(is->frame_last_filter_delay) > AV_NOSYNC_THRESHOLD / 10.0)
-                is->frame_last_filter_delay = 0;
-            tb = av_buffersink_get_time_base(filt_out);
-#endif
-        duration = (frame_rate.num && frame_rate.den ? av_q2d(AVRational{frame_rate.den, frame_rate.num}) : 0);
-        pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(tb);
-        ret = queue_picture(player, frame, pts, duration, frame->pkt_pos, is->viddec.pkt_serial);
-        av_frame_unref(frame);
-#if CONFIG_AVFILTER
-        if (is->videoq.serial != is->viddec.pkt_serial)
-            break;
-    }
-#endif
-
-        if (ret < 0)
-            goto the_end;
-    }
-    the_end:
-#if CONFIG_AVFILTER
-    avfilter_graph_free(&graph);
-#endif
-    av_frame_free(&frame);
-    return 0;
-}
-
 static int subtitle_thread(void *arg) {
     auto *player = static_cast<CPlayer *>(arg);
     VideoState *is = player->is;
@@ -882,14 +739,7 @@ static int stream_component_open(CPlayer *player, int stream_index) {
         case AVMEDIA_TYPE_AUDIO:
             break;
         case AVMEDIA_TYPE_VIDEO:
-            is->video_stream = stream_index;
-            is->video_st = ic->streams[stream_index];
-
-//            is->viddec.Init(avctx, &is->videoq, is->continue_read_thread);
-            if ((ret = decoder_start(&is->viddec, video_thread, "video_decoder", player)) < 0)
-                goto out;
-            is->queue_attachments_req = 1;
-
+//            is->queue_attachments_req = 1;
             break;
         case AVMEDIA_TYPE_SUBTITLE:
             is->subtitle_stream = stream_index;
@@ -1153,7 +1003,7 @@ static CPlayer *ffplayer_alloc_player() {
 #ifdef _FLUTTER
     flutter_on_post_player_created(player);
 #endif
-    av_log(nullptr, AV_LOG_INFO, "malloc player, %p", player);
+    av_log(nullptr, AV_LOG_INFO, "malloc player, %p\n", player);
     return player;
 }
 
@@ -1234,18 +1084,14 @@ CPlayer *ffp_create_player(FFPlayerConfiguration *config) {
     return player;
 }
 
-void ffp_refresh_texture(CPlayer *player, void(*on_locked)(FFP_VideoRenderContext *video_render_ctx)) {
+void ffp_refresh_texture(CPlayer *player, void(*on_locked)(VideoRender *video_render_ctx)) {
     CHECK_PLAYER(player);
-    auto render_ctx = &player->video_render_ctx;
-    if (!render_ctx->render_attached) {
-        return;
-    }
-    render_ctx->DrawFrame(player);
+    player->video_render->DrawFrame();
 }
 
 void ffp_attach_video_render(CPlayer *player, FFP_VideoRenderCallback *render_callback) {
     CHECK_PLAYER(player);
-    if (player->video_render_ctx.render_attached) {
+    if (player->video_render->render_attached) {
         av_log(nullptr, AV_LOG_FATAL, "video_render_already attached.\n");
         return;
     }
@@ -1253,23 +1099,21 @@ void ffp_attach_video_render(CPlayer *player, FFP_VideoRenderCallback *render_ca
         av_log(nullptr, AV_LOG_ERROR, "can not attach null render_callback.\n");
         return;
     }
-    auto render_ctx = &player->video_render_ctx;
-    render_ctx->render_callback_ = render_callback;
-    if (render_ctx->Start(player)) {
-        render_ctx->render_attached = true;
+    player->video_render->render_callback_ = render_callback;
+    if (player->video_render->Start(player)) {
+        player->video_render->render_attached = true;
     }
 }
 
 double ffp_get_video_aspect_ratio(CPlayer *player) {
     CHECK_PLAYER_WITH_RETURN(player, -1);
-    auto render_ctx = &player->video_render_ctx;
-    if (!render_ctx->first_video_frame_loaded) {
+    if (!player->video_render->first_video_frame_loaded) {
         return 0;
     }
-    if (render_ctx->frame_height == 0) {
+    if (player->video_render->frame_height == 0) {
         return 0;
     }
-    return ((double) render_ctx->frame_width) / render_ctx->frame_height;
+    return ((double) player->video_render->frame_width) / player->video_render->frame_height;
 }
 
 
@@ -1318,7 +1162,10 @@ CPlayer::CPlayer() {
     memset(wanted_stream_spec, 0, sizeof wanted_stream_spec);
 
     audio_render->Init(audio_pkt_queue.get(), clock_context.get());
+    video_render->Init(video_pkt_queue.get(), clock_context.get());
     decoder_context->audio_render = audio_render.get();
+    decoder_context->video_render = video_render.get();
+    decoder_context->clock_ctx = clock_context.get();
 }
 
 CPlayer::~CPlayer() {

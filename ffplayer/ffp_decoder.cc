@@ -165,6 +165,7 @@ int DecoderContext::StartDecoder(const DecodeParams *decode_params) {
     stream->discard = AVDISCARD_DEFAULT;
     switch (codec_ctx->codec_type) {
         case AVMEDIA_TYPE_VIDEO:
+            StartVideoDecoder(std::move(codec_ctx), decode_params);
             break;
         case AVMEDIA_TYPE_AUDIO:
             StartAudioDecoder(std::move(codec_ctx), decode_params);
@@ -223,9 +224,6 @@ DecoderContext::StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx, const 
 }
 
 int DecoderContext::AudioThread() const {
-//    unique_ptr_d<AVFrame> frame(av_frame_alloc(), [](AVFrame *ptr) {
-//        av_frame_free(&ptr);
-//    });
     AVFrame *frame = av_frame_alloc();
     if (!frame) {
         return AVERROR(ENOMEM);
@@ -244,4 +242,69 @@ int DecoderContext::AudioThread() const {
     } while (true);
     av_frame_free(&frame);
     return 0;
+}
+
+void DecoderContext::StartVideoDecoder(unique_ptr_d<AVCodecContext> codec_ctx, const DecodeParams *decode_params) {
+    video_decode_params = *decode_params;
+    video_decoder->Init(codec_ctx.release(), decode_params->pkt_queue, decode_params->read_condition);
+    auto ret = decoder_start(video_decoder, [](void *arg) -> int {
+        auto *ctx = static_cast<DecoderContext *>(arg);
+        return ctx->VideoThread();
+    }, "video_decoder", this);
+    if (ret < 0) {
+        av_log(nullptr, AV_LOG_INFO, "start video_decoder failed. reason: %d.\n", ret);
+        return;
+    }
+}
+
+int DecoderContext::VideoThread() {
+    AVFrame *frame = av_frame_alloc();
+    if (!frame) {
+        return AVERROR(ENOMEM);
+    }
+    int ret;
+    AVRational tb = video_decode_params.stream->time_base;
+    AVRational frame_rate = av_guess_frame_rate(video_decode_params.format_ctx, video_decode_params.stream, nullptr);
+    for (;;) {
+        ret = GetVideoFrame(frame);
+        if (ret < 0) {
+            break;
+        }
+        if (!ret) {
+            continue;
+        }
+        auto duration = (frame_rate.num && frame_rate.den ? av_q2d(AVRational{frame_rate.den, frame_rate.num}) : 0);
+        auto pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(tb);
+
+        ret = video_render->PushFrame(frame, pts, duration, video_decoder->pkt_serial);
+        av_frame_unref(frame);
+        if (ret < 0) {
+            break;
+        }
+    }
+    av_frame_free(&frame);
+    return 0;
+}
+
+int DecoderContext::GetVideoFrame(AVFrame *frame) {
+    auto got_picture = decoder_decode_frame(video_decoder, frame, nullptr);
+    if (got_picture < 0) {
+        return -1;
+    }
+    if (got_picture) {
+        if (video_render->framedrop > 0 ||
+            (video_render->framedrop && clock_ctx->GetMasterSyncType() != AV_SYNC_VIDEO_MASTER)) {
+            if (frame->pts != AV_NOPTS_VALUE) {
+                double diff = av_q2d(video_decode_params.stream->time_base) * frame->pts - clock_ctx->GetMasterClock();
+                if (!isnan(diff) && fabs(diff) < AV_NOSYNC_THRESHOLD && diff < 0 &&
+                    video_decoder->pkt_serial == clock_ctx->GetVideoClock()->serial &&
+                    video_decode_params.pkt_queue->nb_packets) {
+                    frame_drop_count++;
+                    av_frame_unref(frame);
+                    got_picture = 0;
+                }
+            }
+        }
+    }
+    return got_picture;
 }

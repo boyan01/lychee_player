@@ -81,7 +81,7 @@ static void sigterm_handler(int sig) {
 }
 
 static void do_exit(CPlayer *player) {
-    auto render_data = static_cast<VideoRenderData *>(player->video_render_ctx.render_callback_->opacity);
+    auto render_data = static_cast<VideoRenderData *>(player->video_render->render_callback_->opacity);
     ffplayer_free_player(player);
     sws_freeContext(render_data->img_convert_ctx);
     SDL_DestroyTexture(render_data->texture);
@@ -220,8 +220,8 @@ static void event_loop(CPlayer *player) {
                     break;
                 }
                 // If we don't yet have a window, skip all key events, because read_thread might still be initializing...
-                if (!player->video_render_ctx.render_callback_ ||
-                    static_cast<VideoRenderData *>(player->video_render_ctx.render_callback_->opacity)->width == 0)
+                if (!player->video_render->render_callback_ ||
+                    static_cast<VideoRenderData *>(player->video_render->render_callback_->opacity)->width == 0)
                     continue;
                 switch (event.key.keysym.sym) {
                     case SDLK_f:
@@ -327,7 +327,7 @@ static void event_loop(CPlayer *player) {
                     x = event.motion.x;
                 }
                 {
-                    auto render_data = static_cast<VideoRenderData *>(player->video_render_ctx.render_callback_->opacity);
+                    auto render_data = static_cast<VideoRenderData *>(player->video_render->render_callback_->opacity);
                     double dest = (x / render_data->width) * ffplayer_get_duration(player);
                     ffplayer_seek_to_position(player, dest);
                 }
@@ -335,11 +335,11 @@ static void event_loop(CPlayer *player) {
             case SDL_WINDOWEVENT:
                 switch (event.window.event) {
                     case SDL_WINDOWEVENT_SIZE_CHANGED: {
-                        auto render_data = static_cast<VideoRenderData *>(player->video_render_ctx.render_callback_->opacity);
+                        auto render_data = static_cast<VideoRenderData *>(player->video_render->render_callback_->opacity);
                         screen_width = render_data->width = event.window.data1;
                         screen_height = render_data->height = event.window.data2;
                         printf("SDL_WINDOWEVENT_SIZE_CHANGED: %d, %d \n", event.window.data1, event.window.data2);
-                        ffp_refresh_texture(player, [](FFP_VideoRenderContext *context) {
+                        ffp_refresh_texture(player, [](VideoRender *context) {
                             auto render_data = static_cast<VideoRenderData *>(context->render_callback_->opacity);
                             SDL_DestroyTexture(render_data->texture);
                             render_data->texture = nullptr;
@@ -435,7 +435,7 @@ static void set_sdl_yuv_conversion_mode(AVFrame *frame) {
 #endif
 }
 
-static int upload_texture(FFP_VideoRenderContext *video_render_ctx, SDL_Texture **tex, AVFrame *frame,
+static int upload_texture(VideoRender *video_render_ctx, SDL_Texture **tex, AVFrame *frame,
                           struct SwsContext **img_convert_ctx);
 
 int main(int argc, char *argv[]) {
@@ -526,7 +526,7 @@ int main(int argc, char *argv[]) {
 
         auto render_data = new VideoRenderData(renderer);
         auto render_callback = new FFP_VideoRenderCallback;
-        render_callback->on_render = [](FFP_VideoRenderContext *video_render_ctx, Frame *vp) {
+        render_callback->on_render = [](VideoRender *video_render_ctx, Frame *vp) {
             auto render_data = static_cast<VideoRenderData *>(video_render_ctx->render_callback_->opacity);
             SDL_SetRenderDrawColor(render_data->renderer, 0, 0, 0, 255);
             SDL_RenderClear(render_data->renderer);
@@ -545,7 +545,7 @@ int main(int argc, char *argv[]) {
                              vp->flip_v ? SDL_FLIP_VERTICAL : SDL_FLIP_NONE);
             set_sdl_yuv_conversion_mode(nullptr);
         };
-        render_callback->on_texture_updated = [](FFP_VideoRenderContext *context) {
+        render_callback->on_texture_updated = [](VideoRender *context) {
             SDL_Event event;
             event.type = FF_DRAW_EVENT;
             event.user.data1 = context->render_callback_->opacity;
@@ -628,7 +628,7 @@ realloc_texture(SDL_Renderer *renderer, SDL_Texture **texture, Uint32 new_format
 }
 
 
-static int upload_texture(FFP_VideoRenderContext *video_render_ctx, SDL_Texture **tex, AVFrame *frame,
+static int upload_texture(VideoRender *video_render_ctx, SDL_Texture **tex, AVFrame *frame,
                           struct SwsContext **img_convert_ctx) {
     int ret = 0;
     Uint32 sdl_pix_fmt;

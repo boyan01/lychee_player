@@ -358,8 +358,8 @@ int DataSource::Open(CPlayer *player) {
     }
     continue_read_thread_ = new std::condition_variable_any();
     read_tid = new std::thread(&DataSource::ReadThread, this);
-    if (read_tid) {
-        av_log(nullptr, AV_LOG_FATAL, "SDL_CreateThread(): %s\n", SDL_GetError());
+    if (!read_tid) {
+        av_log(nullptr, AV_LOG_FATAL, "can not create thread for video render.\n");
         return -1;
     }
     return 0;
@@ -562,6 +562,7 @@ int DataSource::OpenComponentStream(int stream_index, AVMediaType media_type) {
     }
     params.read_condition = this->continue_read_thread_;
     params.stream = stream;
+    params.format_ctx = format_ctx_;
 
     if (decoder_ctx->StartDecoder(&params) >= 0) {
         switch (media_type) {

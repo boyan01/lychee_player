@@ -12,6 +12,7 @@
 #include "ffp_frame_queue.h"
 #include "ffp_define.h"
 #include "ffp_audio_render.h"
+#include "ffp_video_render.h"
 
 extern "C" {
 #include "libavcodec/avcodec.h"
@@ -23,6 +24,7 @@ struct DecodeParams {
     AVStream *stream = nullptr;
     PacketQueue *pkt_queue = nullptr;
     std::condition_variable_any *read_condition = nullptr;
+    AVFormatContext *format_ctx = nullptr;
     bool audio_follow_stream_start_pts;
 };
 
@@ -81,18 +83,29 @@ public:
      */
     int low_res = 0;
     bool fast = false;
-    AudioRender *audio_render;
+    AudioRender *audio_render = nullptr;
+    VideoRender *video_render = nullptr;
+
+    ClockContext *clock_ctx = nullptr;
+
+    int frame_drop_count = 0;
 
 private:
-    Decoder *audio_decoder;
-    Decoder *video_decoder;
-    Decoder *subtitle_decoder;
+    Decoder *audio_decoder = nullptr;
+    Decoder *video_decoder = nullptr;
+    Decoder *subtitle_decoder = nullptr;
 
+    //TODO: pass to video_thread direacty.
+    DecodeParams video_decode_params{};
 
 private:
     int StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx, const DecodeParams *decode_params);
 
     int AudioThread() const;
+
+    void StartVideoDecoder(unique_ptr_d<AVCodecContext> codec_ctx, const DecodeParams *decode_params);
+
+    int VideoThread();
 
 public:
 
@@ -110,6 +123,7 @@ public:
 
     int StartDecoder(const DecodeParams *decode_params);
 
+    int GetVideoFrame(AVFrame *frame);
 };
 
 
