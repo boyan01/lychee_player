@@ -8,7 +8,6 @@
 #include <cstdint>
 
 
-#include "ffplayer/proto.h"
 #include "ffp_clock.h"
 #include "ffp_frame_queue.h"
 

@@ -2,13 +2,16 @@
 // Created by boyan on 2021/2/10.
 //
 
-#include "ffplayer/ffplayer.h"
+#include "ffplayer.h"
 #include "ffp_data_source.h"
 #include "ffp_utils.h"
 
 extern "C" {
 #include "libavutil/rational.h"
 }
+
+#define MIN_FRAMES 25
+#define MAX_QUEUE_SIZE (15 * 1024 * 1024)
 
 char av_error[AV_ERROR_MAX_STRING_SIZE] = {0};
 #define av_err2str(errnum) av_make_error_string(av_error, AV_ERROR_MAX_STRING_SIZE, errnum)

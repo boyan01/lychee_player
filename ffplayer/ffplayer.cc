@@ -1,39 +1,8 @@
-/*
- * Copyright (c) 2003 Fabrice Bellard
- *
- * This file is part of FFmpeg.
- *
- * FFmpeg is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * FFmpeg is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with FFmpeg; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
- */
-
-/**
- * @file
- * simple media player based on the FFmpeg libraries
- */
-
-#if CONFIG_AVFILTER
-#include "libavfilter/avfilter.h"
-#include "libavfilter/buffersink.h"
-#include "libavfilter/buffersrc.h"
-#endif
-
 #include <SDL2/SDL.h>
 
-#include "ffplayer/ffplayer.h"
+#include "ffplayer.h"
 #include "ffp_utils.h"
-#include "ffp_player_internal.h"
+#include "ffp_player.h"
 
 #if _FLUTTER
 
@@ -42,9 +11,10 @@
 
 #endif
 
+#define CACHE_THRESHOLD_MIN_FRAMES 2
+
 /* options specified by the user */
 static AVInputFormat *file_iformat;
-
 
 #if CONFIG_AVFILTER
 static int opt_add_vfilter(void *optctx, const char *opt, const char *arg) {
@@ -66,21 +36,12 @@ if (!(PLAYER)) {                                              \
     return;                                                                    \
 }                                                                              \
 
-const AVRational av_time_base_q_ = {1, AV_TIME_BASE};
-
 extern AVPacket *flush_pkt;
-
-static inline int64_t get_valid_channel_layout(int64_t channel_layout, int channels) {
-    if (channel_layout && av_get_channel_layout_nb_channels(channel_layout) == channels)
-        return channel_layout;
-    else
-        return 0;
-}
 
 static inline void on_buffered_update(CPlayer *player, double position) {
     int64_t mills = position * 1000;
     player->buffered_position = mills;
-    ffp_send_msg1(player, FFP_MSG_BUFFERING_TIME_UPDATE, mills);
+    player->message_context->NotifyMsg(FFP_MSG_BUFFERING_TIME_UPDATE, mills);
 }
 
 
@@ -89,37 +50,7 @@ static void change_player_state(CPlayer *player, FFPlayerState state) {
         return;
     }
     player->state = state;
-    ffp_send_msg1(player, FFP_MSG_PLAYBACK_STATE_CHANGED, state);
-}
-
-static int message_loop(void *args) {
-    auto *player = static_cast<CPlayer *>(args);
-    while (true) {
-        Message msg = {0};
-        if (player->msg_queue.Get(&msg, true) < 0) {
-            break;
-        }
-#ifdef _FLUTTER
-        if (player->message_send_port) {
-            // dart do not support int64_t array yet.
-            // thanks https://github.com/dart-lang/sdk/issues/44384#issuecomment-738708448
-            // so we pass an uint8_t array to dart isolate.
-            int64_t arrays[] = {msg.what, msg.arg1, msg.arg2};
-            Dart_CObject dart_args;
-            dart_args.type = Dart_CObject_kTypedData;
-            dart_args.value.as_typed_data.type = Dart_TypedData_kUint8;
-            dart_args.value.as_typed_data.length = 3 * sizeof(int64_t);
-            dart_args.value.as_typed_data.values = (uint8_t *) arrays;
-            Dart_PostCObject_DL(player->message_send_port, &dart_args);
-        }
-#else
-        if (player->on_message) {
-            player->on_message(player, msg.what, msg.arg1, msg.arg2);
-        }
-#endif
-    }
-
-    return 0;
+    player->message_context->NotifyMsg(FFP_MSG_PLAYBACK_STATE_CHANGED, state);
 }
 
 static void on_decode_frame_block(void *opacity) {
@@ -187,38 +118,7 @@ static void stream_component_close(CPlayer *player, int stream_index) {
 #endif
 
 static void stream_close(CPlayer *player) {
-    VideoState *is = nullptr;
-    /* XXX: use a special url_shutdown call to abort parse cleanly */
-    is->abort_request = 1;
-    SDL_WaitThread(is->read_tid, nullptr);
 
-    /* close each stream */
-//    if (is->audio_stream >= 0)
-//        stream_component_close(player, is->audio_stream);
-//    if (is->video_stream >= 0)
-//        stream_component_close(player, is->video_stream);
-//    if (is->subtitle_stream >= 0)
-//        stream_component_close(player, is->subtitle_stream);
-
-    change_player_state(player, FFP_STATE_IDLE);
-    player->msg_queue.Abort();
-    if (player->msg_tid) {
-        SDL_WaitThread(player->msg_tid, nullptr);
-    }
-
-    avformat_close_input(&is->ic);
-
-    is->videoq.Destroy();
-    is->audioq.Destroy();
-    is->subtitleq.Destroy();
-    player->msg_queue.Abort();
-
-    /* free all pictures */
-    SDL_DestroyCond(is->continue_read_thread);
-    av_free(is->filename);
-
-    av_free(is);
-    av_free(player);
 }
 
 
@@ -395,48 +295,6 @@ void ffplayer_seek_to_chapter(CPlayer *player, int chapter) {
 
 static CPlayer *ffplayer_alloc_player() {
     auto *player = new CPlayer;
-    player->audio_disable = 0;
-    player->video_disable = 0;
-    player->subtitle_disable = 0;
-
-    player->seek_by_bytes = -1;
-
-    player->show_status = -1;
-    player->start_time = AV_NOPTS_VALUE;
-    player->duration = AV_NOPTS_VALUE;
-    player->fast = 0;
-    player->genpts = 0;
-    player->lowres = 0;
-    player->decoder_reorder_pts = -1;
-
-    player->loop = 1;
-    player->framedrop = -1;
-    player->infinite_buffer = -1;
-    player->show_mode = SHOW_MODE_NONE;
-
-    player->audio_codec_name = nullptr;
-    player->subtitle_codec_name = nullptr;
-    player->video_codec_name = nullptr;
-
-    player->rdftspeed = 0.02;
-
-    player->autorotate = 1;
-    player->find_stream_info = 1;
-    player->filter_nbthreads = 0;
-
-    player->audio_callback_time = 0;
-
-    player->audio_dev = 0;
-
-    player->on_load_metadata = nullptr;
-    player->on_message = nullptr;
-
-    player->buffered_position = -1;
-    player->state = FFP_STATE_IDLE;
-    player->last_io_buffering_ts = -1;
-
-    player->msg_queue.Init();
-
     ffplayer_toggle_pause(player);
 
 #ifdef _FLUTTER
@@ -471,7 +329,7 @@ void ffplayer_free_player(CPlayer *player) {
     ffp_detach_video_render_flutter(player);
 #endif
     av_log(nullptr, AV_LOG_INFO, "free play, close stream %p \n", player);
-    stream_close(player);
+    delete player;
 }
 
 void ffplayer_global_init(void *arg) {
@@ -515,18 +373,11 @@ CPlayer *ffp_create_player(FFPlayerConfiguration *config) {
     if (!player) {
         return nullptr;
     }
-    player->audio_disable = config->audio_disable;
-    player->video_disable = config->video_disable;
-    player->subtitle_disable = config->subtitle_disable;
-    player->seek_by_bytes = config->seek_by_bytes;
-    player->show_status = config->show_status;
-    player->start_time = config->start_time;
-    player->loop = config->loop;
-
+    player->start_configuration = *config;
     return player;
 }
 
-void ffp_refresh_texture(CPlayer *player, void(*on_locked)(VideoRender *video_render_ctx)) {
+void ffp_refresh_texture(CPlayer *player) {
     CHECK_PLAYER(player);
     player->video_render->DrawFrame();
 }
@@ -586,40 +437,3 @@ void ffp_detach_video_render_flutter(CPlayer *player) {
 }
 #endif // _FLUTTER
 
-CPlayer::CPlayer() {
-    clock_context->Init(&audio_pkt_queue->serial,
-                        &video_pkt_queue->serial,
-                        [this](int av_sync_type) -> int {
-                            if (data_source == nullptr) {
-                                return av_sync_type;
-                            }
-                            if (av_sync_type == AV_SYNC_VIDEO_MASTER) {
-                                if (data_source->ContainVideoStream()) {
-                                    return AV_SYNC_VIDEO_MASTER;
-                                } else {
-                                    return AV_SYNC_AUDIO_MASTER;
-                                }
-                            } else if (av_sync_type == AV_SYNC_AUDIO_MASTER) {
-                                if (data_source->ContainAudioStream()) {
-                                    return AV_SYNC_AUDIO_MASTER;
-                                } else {
-                                    return AV_SYNC_EXTERNAL_CLOCK;
-                                }
-                            } else {
-                                return AV_SYNC_EXTERNAL_CLOCK;
-                            }
-                        });
-    memset(wanted_stream_spec, 0, sizeof wanted_stream_spec);
-
-    message_context->Start();
-
-    audio_render->Init(audio_pkt_queue.get(), clock_context.get());
-    video_render->Init(video_pkt_queue.get(), clock_context.get(), message_context);
-    decoder_context->audio_render = audio_render.get();
-    decoder_context->video_render = video_render.get();
-    decoder_context->clock_ctx = clock_context.get();
-}
-
-CPlayer::~CPlayer() {
-
-}

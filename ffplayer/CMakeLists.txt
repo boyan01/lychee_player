@@ -31,7 +31,6 @@ endif ()
 
 add_library(ffplayer SHARED
         ffp_define.h
-        ffp_player_internal.h
         ffp_msg_queue.h
         ffp_msg_queue.cc
         ffp_packet_queue.h
@@ -50,14 +49,16 @@ add_library(ffplayer SHARED
         ffp_data_source.cc
         ffp_utils.h
         ffp_utils.cc
-        "ffplayer.cc"
+        ffp_player.h
+        ffp_player.cc
+        ffplayer.h
+        ffplayer.cc
         "include/third_party/dart/dart_api_dl.c"
-        "flutter.cc"
-        include/ffplayer/proto.h)
+        "flutter.cc")
 
 find_library(LIBSDL2 SDL2 REQUIRED)
 
-target_include_directories(ffplayer PUBLIC include)
+target_include_directories(ffplayer PUBLIC ffplayer.h)
 
 find_library(LIBAVUTIL avutil REQUIRED)
 find_library(LIBAVCODEC avcodec REQUIRED)

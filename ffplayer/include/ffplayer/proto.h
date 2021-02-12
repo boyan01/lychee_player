@@ -5,10 +5,6 @@
 #ifndef FFPLAYER_PROTO_H
 #define FFPLAYER_PROTO_H
 
-struct CPlayer;
 
-typedef struct CPlayer CPlayer;
-
-struct VideoState;
 
 #endif //FFPLAYER_PROTO_H

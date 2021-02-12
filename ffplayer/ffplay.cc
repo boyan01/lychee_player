@@ -5,8 +5,19 @@
 #include <iostream>
 #include <cstdint>
 
-#include "ffplayer/ffplayer.h"
+#include "ffplayer.h"
 #include "ffp_utils.h"
+#include "ffp_player.h"
+#include "ffp_frame_queue.h"
+
+extern "C" {
+#include "SDL2/SDL.h"
+#include "libavutil/avutil.h"
+#include "libavutil/time.h"
+#include "libavcodec/avcodec.h"
+#include "libswscale/swscale.h"
+#include "libavutil/avstring.h"
+}
 
 using namespace std;
 
@@ -14,6 +25,8 @@ using namespace std;
 #define FF_MSG_EVENT    (SDL_USEREVENT + 3)
 /* Step size for volume control*/
 #define SDL_VOLUME_STEP (10)
+
+#define CURSOR_HIDE_DELAY 1000000
 
 static SDL_Window *window;
 
@@ -34,6 +47,8 @@ static int screen_width = 0;
 static int screen_height = 0;
 static int screen_left = SDL_WINDOWPOS_CENTERED;
 static int screen_top = SDL_WINDOWPOS_CENTERED;
+
+static unsigned sws_flags = SWS_BICUBIC;
 
 
 static const struct TextureFormatEntry {
@@ -101,13 +116,7 @@ static void do_exit(CPlayer *player) {
     delete render_data;
     if (window)
         SDL_DestroyWindow(window);
-    // uninit_opts();
-#if CONFIG_AVFILTER
-    av_freep(&vfilters_list);
-#endif
-    avformat_network_deinit();
-    if (player->show_status)
-        printf("\n");
+
     SDL_Quit();
     av_log(nullptr, AV_LOG_QUIET, "%s", "");
     exit(0);
@@ -266,11 +275,12 @@ static void event_loop(CPlayer *player) {
                         screen_width = render_data->width = event.window.data1;
                         screen_height = render_data->height = event.window.data2;
                         printf("SDL_WINDOWEVENT_SIZE_CHANGED: %d, %d \n", event.window.data1, event.window.data2);
-                        ffp_refresh_texture(player, [](VideoRender *context) {
-                            auto render_data = static_cast<VideoRenderData *>(context->render_callback_->opacity);
-                            SDL_DestroyTexture(render_data->texture);
-                            render_data->texture = nullptr;
-                        });
+//                        [](VideoRender *context) {
+//                            auto render_data = static_cast<VideoRenderData *>(context->render_callback_->opacity);
+//                            SDL_DestroyTexture(render_data->texture);
+//                            render_data->texture = nullptr;
+//                        }
+                        ffp_refresh_texture(player);
                     }
                     case SDL_WINDOWEVENT_EXPOSED:
 //                        is->force_refresh = 1;
@@ -369,73 +379,73 @@ static void set_sdl_yuv_conversion_mode(AVFrame *frame) {
 #endif
 }
 
-static int upload_texture(VideoRender *video_render_ctx, SDL_Texture **tex, AVFrame *frame,
+static int upload_texture(VideoRenderData *render_data, SDL_Texture **tex, AVFrame *frame,
                           struct SwsContext **img_convert_ctx);
 
-static void show_status(CPlayer *player) {
-    if (player->show_status) {
-        AVBPrint buf;
-        static int64_t last_time;
-        int64_t cur_time;
-        int aqsize, vqsize, sqsize;
-        double av_diff;
-
-        cur_time = av_gettime_relative();
-        if (!last_time || (cur_time - last_time) >= 30000) {
-            aqsize = 0;
-            vqsize = 0;
-            sqsize = 0;
-            if (player->data_source->ContainAudioStream())
-                aqsize = player->audio_pkt_queue->size;
-            if (player->data_source->ContainVideoStream())
-                vqsize = player->video_pkt_queue->size;
-            if (player->data_source->ContainSubtitleStream())
-                sqsize = player->subtitle_pkt_queue->size;
-            av_diff = 0;
-            if (player->data_source->ContainAudioStream() && player->data_source->ContainVideoStream())
-                av_diff = player->clock_context->GetAudioClock()->GetClock() -
-                          player->clock_context->GetVideoClock()->GetClock();
-            else if (player->data_source->ContainVideoStream())
-                av_diff = player->clock_context->GetMasterClock() - player->clock_context->GetVideoClock()->GetClock();
-            else if (player->data_source->ContainAudioStream())
-                av_diff = player->clock_context->GetMasterClock() - player->clock_context->GetAudioClock()->GetClock();
-
-            av_bprint_init(&buf, 0, AV_BPRINT_SIZE_AUTOMATIC);
-            av_bprintf(&buf,
-                       "%7.2f %s:%7.3f fd=%4d aq=%5dKB vq=%5dKB sq=%5dB f=%"
-                       PRId64
-                       "/%"
-                       PRId64
-                       "   \r",
-                       player->clock_context->GetMasterClock(),
-                       (player->data_source->ContainAudioStream()
-                        && player->data_source->ContainAudioStream()) ? "A-V"
-                                                                      : (player->data_source->ContainVideoStream()
-                                                                         ? "M-V"
-                                                                         : (player->data_source->ContainAudioStream()
-                                                                            ? "M-A"
-                                                                            : "   ")),
-                       av_diff,
-                       player->video_render->frame_drop_count + player->decoder_context->frame_drop_count,
-                       aqsize / 1024,
-                       vqsize / 1024,
-                       sqsize,
-                    /*player->data_source->ContainVideoStream() ? player->decoder_context->.avctx->pts_correction_num_faulty_dts :*/
-                       0ll,
-                    /* is->video_st ? is->viddec.avctx->pts_correction_num_faulty_pts :*/ 0ll);
-
-            if (player->show_status == 1 && AV_LOG_INFO > av_log_get_level())
-                fprintf(stderr, "%s", buf.str);
-            else
-                av_log(nullptr, AV_LOG_INFO, "%s", buf.str);
-
-            fflush(stderr);
-            av_bprint_finalize(&buf, nullptr);
-
-            last_time = cur_time;
-        }
-    }
-}
+//static void show_status(CPlayer *player) {
+//    if (player->show_status) {
+//        AVBPrint buf;
+//        static int64_t last_time;
+//        int64_t cur_time;
+//        int aqsize, vqsize, sqsize;
+//        double av_diff;
+//
+//        cur_time = av_gettime_relative();
+//        if (!last_time || (cur_time - last_time) >= 30000) {
+//            aqsize = 0;
+//            vqsize = 0;
+//            sqsize = 0;
+//            if (player->data_source->ContainAudioStream())
+//                aqsize = player->audio_pkt_queue->size;
+//            if (player->data_source->ContainVideoStream())
+//                vqsize = player->video_pkt_queue->size;
+//            if (player->data_source->ContainSubtitleStream())
+//                sqsize = player->subtitle_pkt_queue->size;
+//            av_diff = 0;
+//            if (player->data_source->ContainAudioStream() && player->data_source->ContainVideoStream())
+//                av_diff = player->clock_context->GetAudioClock()->GetClock() -
+//                          player->clock_context->GetVideoClock()->GetClock();
+//            else if (player->data_source->ContainVideoStream())
+//                av_diff = player->clock_context->GetMasterClock() - player->clock_context->GetVideoClock()->GetClock();
+//            else if (player->data_source->ContainAudioStream())
+//                av_diff = player->clock_context->GetMasterClock() - player->clock_context->GetAudioClock()->GetClock();
+//
+//            av_bprint_init(&buf, 0, AV_BPRINT_SIZE_AUTOMATIC);
+//            av_bprintf(&buf,
+//                       "%7.2f %s:%7.3f fd=%4d aq=%5dKB vq=%5dKB sq=%5dB f=%"
+//                       PRId64
+//                       "/%"
+//                       PRId64
+//                       "   \r",
+//                       player->clock_context->GetMasterClock(),
+//                       (player->data_source->ContainAudioStream()
+//                        && player->data_source->ContainAudioStream()) ? "A-V"
+//                                                                      : (player->data_source->ContainVideoStream()
+//                                                                         ? "M-V"
+//                                                                         : (player->data_source->ContainAudioStream()
+//                                                                            ? "M-A"
+//                                                                            : "   ")),
+//                       av_diff,
+//                       player->video_render->frame_drop_count + player->decoder_context->frame_drop_count,
+//                       aqsize / 1024,
+//                       vqsize / 1024,
+//                       sqsize,
+//                    /*player->data_source->ContainVideoStream() ? player->decoder_context->.avctx->pts_correction_num_faulty_dts :*/
+//                       0ll,
+//                    /* is->video_st ? is->viddec.avctx->pts_correction_num_faulty_pts :*/ 0ll);
+//
+//            if (player->show_status == 1 && AV_LOG_INFO > av_log_get_level())
+//                fprintf(stderr, "%s", buf.str);
+//            else
+//                av_log(nullptr, AV_LOG_INFO, "%s", buf.str);
+//
+//            fflush(stderr);
+//            av_bprint_finalize(&buf, nullptr);
+//
+//            last_time = cur_time;
+//        }
+//    }
+//}
 
 
 int main(int argc, char *argv[]) {
@@ -471,7 +481,7 @@ int main(int argc, char *argv[]) {
     ffp_set_volume(player, 100);
 
     uint32_t flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER;
-    if (player->audio_disable)
+    if (config.audio_disable)
         flags &= ~SDL_INIT_AUDIO;
     else {
         /* Try to work around an occasional ALSA buffer underflow issue when the
@@ -526,15 +536,16 @@ int main(int argc, char *argv[]) {
 
         auto render_data = new VideoRenderData(renderer);
         auto render_callback = new FFP_VideoRenderCallback;
-        render_callback->on_render = [&player](VideoRender *video_render_ctx, Frame *vp) {
-            auto render_data = static_cast<VideoRenderData *>(video_render_ctx->render_callback_->opacity);
+        render_callback->on_render = [](void *opacity, void *vp1) {
+            auto render_data = static_cast<VideoRenderData *>(opacity);
+            auto vp = static_cast<Frame *>(vp1);
             SDL_SetRenderDrawColor(render_data->renderer, 0, 0, 0, 255);
             SDL_RenderClear(render_data->renderer);
             SDL_Rect rect{};
             calculate_display_rect(&rect, render_data->xleft, render_data->ytop, render_data->width,
                                    render_data->height, vp->width, vp->height, vp->sar);
             if (!vp->uploaded) {
-                if (upload_texture(video_render_ctx, &render_data->texture, vp->frame,
+                if (upload_texture(render_data, &render_data->texture, vp->frame,
                                    &render_data->img_convert_ctx) < 0)
                     return;
                 vp->uploaded = 1;
@@ -546,9 +557,9 @@ int main(int argc, char *argv[]) {
             set_sdl_yuv_conversion_mode(nullptr);
 
             {
-                SDL_Event event;
-                event.type = FF_DRAW_EVENT;
-                event.user.data1 = video_render_ctx->render_callback_->opacity;
+//                SDL_Event event;
+//                event.type = FF_DRAW_EVENT;
+//                event.user.data1 = video_render_ctx->render_callback_->opacity;
 //                {
 //                    // clean existed scheduled frame.
 //                    SDL_FilterEvents([](void *data, SDL_Event *event) -> int {
@@ -561,11 +572,9 @@ int main(int argc, char *argv[]) {
 //                }
 //                SDL_PushEvent(&event);
                 SDL_RenderPresent(render_data->renderer);
-                show_status(player);
+//                show_status(player);
             }
 
-        };
-        render_callback->on_texture_updated = [](VideoRender *context) {
         };
         render_callback->opacity = render_data;
         ffp_attach_video_render(player, render_callback);
@@ -655,13 +664,12 @@ realloc_texture(SDL_Renderer *renderer, SDL_Texture **texture, Uint32 new_format
 }
 
 
-static int upload_texture(VideoRender *video_render_ctx, SDL_Texture **tex, AVFrame *frame,
+static int upload_texture(VideoRenderData *render_data, SDL_Texture **tex, AVFrame *frame,
                           struct SwsContext **img_convert_ctx) {
     int ret = 0;
     Uint32 sdl_pix_fmt;
     SDL_BlendMode sdl_blendmode;
     get_sdl_pix_fmt_and_blendmode(frame->format, &sdl_pix_fmt, &sdl_blendmode);
-    auto render_data = static_cast<VideoRenderData *>(video_render_ctx->render_callback_->opacity);
     if (realloc_texture(render_data->renderer, tex,
                         sdl_pix_fmt == SDL_PIXELFORMAT_UNKNOWN ? SDL_PIXELFORMAT_ARGB8888 : sdl_pix_fmt,
                         frame->width, frame->height, sdl_blendmode, 0) < 0)

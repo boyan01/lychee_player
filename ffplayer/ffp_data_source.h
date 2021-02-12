@@ -12,7 +12,6 @@
 #include "ffp_packet_queue.h"
 #include "ffp_clock.h"
 #include "ffp_decoder.h"
-#include "ffplayer/proto.h"
 
 extern "C" {
 #include "libavformat/avformat.h"

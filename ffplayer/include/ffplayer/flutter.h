@@ -11,7 +11,7 @@
 
 #endif
 
-#include "ffplayer.h"
+#include "../../ffplayer.h"
 
 void flutter_on_post_player_created(CPlayer *player);
 

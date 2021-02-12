@@ -4,12 +4,27 @@
 
 #include <cmath>
 
-#include "ffplayer/ffplayer.h"
+#include "ffplayer.h"
 #include "ffp_video_render.h"
 #include "ffp_utils.h"
 
 /* polls for possible required screen refresh at least this often, should be less than 1/fps */
 #define REFRESH_RATE 0.01
+
+/* external clock speed adjustment constants for realtime sources based on buffer fullness */
+#define EXTERNAL_CLOCK_SPEED_MIN 0.900
+#define EXTERNAL_CLOCK_SPEED_MAX 1.010
+#define EXTERNAL_CLOCK_SPEED_STEP 0.001
+
+#define EXTERNAL_CLOCK_MIN_FRAMES 2
+#define EXTERNAL_CLOCK_MAX_FRAMES 10
+
+/* no AV sync correction is done if below the minimum AV sync threshold */
+#define AV_SYNC_THRESHOLD_MIN 0.04
+/* AV sync correction is done if above the maximum AV sync threshold */
+#define AV_SYNC_THRESHOLD_MAX 0.1
+/* If a frame duration is longer than this, it will not be duplicated to compensate AV sync */
+#define AV_SYNC_FRAMEDUP_THRESHOLD 0.1
 
 bool VideoRender::Start() {
     abort_render = false;
@@ -231,16 +246,12 @@ void VideoRender::RenderPicture() {
         return;
     }
     if (render_callback_ && render_callback_->on_render) {
-        render_callback_->on_render(this, vp);
+        render_callback_->on_render(render_callback_->opacity, vp);
     }
 
     if (first_video_frame_rendered) {
         first_video_frame_rendered = true;
         msg_ctx_->NotifyMsg(FFP_MSG_VIDEO_RENDERING_START, vp->width, vp->height);
-    }
-
-    if (render_callback_ && render_callback_->on_texture_updated) {
-        render_callback_->on_texture_updated(this);
     }
 }
 

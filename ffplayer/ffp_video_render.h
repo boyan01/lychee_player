@@ -13,25 +13,9 @@
 #include "ffp_clock.h"
 #include "ffp_msg_queue.h"
 #include "ffp_frame_queue.h"
-#include "ffplayer/proto.h"
+#include "ffplayer.h"
 
 struct VideoRender;
-
-struct FFP_VideoRenderCallback {
-    void *opacity = nullptr;
-
-    /**
-     *
-     * called by video render thread.
-     *
-     * @param video_render_ctx
-     * @param frame
-     */
-    std::function<void(VideoRender *, Frame *)> on_render = nullptr;
-
-    void (*on_texture_updated)(VideoRender *video_render_ctx) = nullptr;
-
-};
 
 class VideoRender {
 public:
