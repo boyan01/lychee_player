@@ -14,15 +14,15 @@ extern "C" {
 #define AV_NOSYNC_THRESHOLD 10.0
 
 struct Clock {
-    double last_updated;
-    int serial; /* clock is based on a packet with this serial */
+    double last_updated = 0;
+    int serial = 0; /* clock is based on a packet with this serial */
     int paused = 0;
 
 private:
     double speed_ = 1.0;
     int *queue_serial_; /* pointer to the current packet queue serial, used for obsolete clock detection */
-    double pts_;       /* clock base */
-    double pts_drift_; /* clock base minus time at which we updated the clock */
+    double pts_ = 0;       /* clock base */
+    double pts_drift_ = 0; /* clock base minus time at which we updated the clock */
 
 public:
     void Init(int *queue_serial);

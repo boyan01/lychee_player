@@ -793,68 +793,6 @@ static int subtitle_thread(void *arg) {
     return 0;
 }
 
-// TODO audio sample callback.
-/* copy samples for viewing in editor window */
-static void update_sample_display(VideoState *is, short *samples, int samples_size) {
-    int size, len;
-
-    size = samples_size / (int) sizeof(short);
-    while (size > 0) {
-        len = SAMPLE_ARRAY_SIZE - is->sample_array_index;
-        if (len > size)
-            len = size;
-        memcpy(is->sample_array + is->sample_array_index, samples, len * sizeof(short));
-        samples += len;
-        is->sample_array_index += len;
-        if (is->sample_array_index >= SAMPLE_ARRAY_SIZE)
-            is->sample_array_index = 0;
-        size -= len;
-    }
-}
-
-/* return the wanted number of samples to get better sync if sync_type is video
- * or external master clock */
-static int synchronize_audio(VideoState *is, int nb_samples) {
-    int wanted_nb_samples = nb_samples;
-
-    /* if not master, then we try to remove or add samples to correct the clock */
-    if (get_master_sync_type(is) != AV_SYNC_AUDIO_MASTER) {
-        double diff, avg_diff;
-        int min_nb_samples, max_nb_samples;
-
-        diff = is->audclk.GetClock() - get_master_clock(is);
-
-        if (!isnan(diff) && fabs(diff) < AV_NOSYNC_THRESHOLD) {
-            is->audio_diff_cum = diff + is->audio_diff_avg_coef * is->audio_diff_cum;
-            if (is->audio_diff_avg_count < AUDIO_DIFF_AVG_NB) {
-                /* not enough measures to have a correct estimate */
-                is->audio_diff_avg_count++;
-            } else {
-                /* estimate the A-V difference */
-                avg_diff = is->audio_diff_cum * (1.0 - is->audio_diff_avg_coef);
-
-                if (fabs(avg_diff) >= is->audio_diff_threshold) {
-                    wanted_nb_samples = nb_samples + (int) (diff * is->audio_src.freq);
-                    min_nb_samples = ((nb_samples * (100 - SAMPLE_CORRECTION_PERCENT_MAX) / 100));
-                    max_nb_samples = ((nb_samples * (100 + SAMPLE_CORRECTION_PERCENT_MAX) / 100));
-                    wanted_nb_samples = av_clip(wanted_nb_samples, min_nb_samples, max_nb_samples);
-                }
-                av_log(nullptr, AV_LOG_TRACE, "diff=%f adiff=%f sample_diff=%d apts=%0.3f %f\n",
-                       diff, avg_diff, wanted_nb_samples - nb_samples,
-                       is->audio_clock, is->audio_diff_threshold);
-            }
-        } else {
-            /* too big difference : may be initial PTS errors, so
-               reset A-V filter */
-            is->audio_diff_avg_count = 0;
-            is->audio_diff_cum = 0;
-        }
-    }
-
-    return wanted_nb_samples;
-}
-
-
 /* open a given stream. Return 0 if OK */
 static int stream_component_open(CPlayer *player, int stream_index) {
     VideoState *is = player->is;
@@ -1161,10 +1099,7 @@ static VideoState *alloc_video_state() {
 }
 
 static CPlayer *ffplayer_alloc_player() {
-    auto *player = static_cast<CPlayer *>(av_mallocz(sizeof(CPlayer)));
-    if (!player) {
-        return nullptr;
-    }
+    auto *player = new CPlayer;
     memset(player->wanted_stream_spec, 0, sizeof player->wanted_stream_spec);
     player->audio_disable = 0;
     player->video_disable = 0;
@@ -1229,6 +1164,7 @@ int ffplayer_open_file(CPlayer *player, const char *filename) {
         av_log(nullptr, AV_LOG_ERROR, "can not open file multi-times.\n");
         return -1;
     }
+
     player->dataSource = new DataSource(filename, file_iformat);
     player->dataSource->Open(player);
     player->dataSource->audio_queue = &player->is->audioq;
@@ -1241,8 +1177,8 @@ int ffplayer_open_file(CPlayer *player, const char *filename) {
 
 
     auto audio_render = new AudioRender;
-    audio_render->audio_clock = &player->is->audclk;
-    audio_render->ext_clock = &player->is->extclk;
+    audio_render->audio_clock = player->audio_clock.get();
+    audio_render->ext_clock = player->ext_clock.get();
     audio_render->sample_queue = new FrameQueue;
     decoder_ctx->audio_decoder = new Decoder;
     decoder_ctx->audio_render = audio_render;

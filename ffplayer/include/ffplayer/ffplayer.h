@@ -229,31 +229,46 @@ struct FFPlayerConfiguration {
 
 
 struct CPlayer {
-    VideoState *is;
+public:
+    const std::unique_ptr<PacketQueue> audio_pkt_queue = std::unique_ptr<PacketQueue>(new PacketQueue);
+    const std::unique_ptr<PacketQueue> video_pkt_queue = std::unique_ptr<PacketQueue>(new PacketQueue);
+    const std::unique_ptr<PacketQueue> subtitle_pkt_queue = std::unique_ptr<PacketQueue>(new PacketQueue);
+
+    const std::unique_ptr<Clock> audio_clock = std::unique_ptr<Clock>(new Clock);
+    const std::unique_ptr<Clock> video_clock = std::unique_ptr<Clock>(new Clock);
+    const std::unique_ptr<Clock> ext_clock = std::unique_ptr<Clock>(new Clock);
+
     DataSource *dataSource = nullptr;
-    int audio_disable;
-    int video_disable;
-    int subtitle_disable;
+
+public:
+
+
+public:
+
+    VideoState *is;
+    int audio_disable = 0;
+    int video_disable = 0;
+    int subtitle_disable = 0;
 
     char *wanted_stream_spec[AVMEDIA_TYPE_NB];
-    int seek_by_bytes;
+    int seek_by_bytes = -1;
 
-    int show_status;
-    int64_t start_time;
-    int64_t duration;
-    int fast;
-    int genpts;
-    int lowres;
-    int decoder_reorder_pts;
+    int show_status = -1;
+    int64_t start_time = AV_NOPTS_VALUE;
+    int64_t duration = AV_NOPTS_VALUE;
+    int fast = 0;
+    int genpts = 0;
+    int lowres = 0;
+    int decoder_reorder_pts = -1;
 
-    int loop;
-    int framedrop;
-    int infinite_buffer;
-    enum ShowMode show_mode;
-    const char *audio_codec_name;
-    const char *subtitle_codec_name;
-    const char *video_codec_name;
-    double rdftspeed;
+    int loop = 1;
+    int framedrop = -1;
+    int infinite_buffer = -1;
+    enum ShowMode show_mode = SHOW_MODE_NONE;
+    const char *audio_codec_name = nullptr;
+    const char *subtitle_codec_name = nullptr;
+    const char *video_codec_name = nullptr;
+    double rdftspeed = 0.02;
 
 
 #if CONFIG_AVFILTER
@@ -261,28 +276,28 @@ struct CPlayer {
     int nb_vfilters = 0;
     char *afilters = NULL;
 #endif
-    int autorotate;
-    int find_stream_info;
-    int filter_nbthreads;
+    int autorotate = 1;
+    int find_stream_info = 1;
+    int filter_nbthreads = 0;
 
     /* current context */
-    int64_t audio_callback_time;
+    int64_t audio_callback_time = 0;
 
-    SDL_AudioDeviceID audio_dev;
+    SDL_AudioDeviceID audio_dev = 0;
 //    SDL_RendererInfo renderer_info;
 
-    void (*on_load_metadata)(void *player);
+    void (*on_load_metadata)(void *player) = nullptr;
 
     // buffered position in seconds. -1 if not avalible
-    int64_t buffered_position;
+    int64_t buffered_position = -1;
 
     FFPlayerMessageQueue msg_queue;
 
-    void (*on_message)(struct CPlayer *player, int what, int64_t arg1, int64_t arg2);
+    void (*on_message)(struct CPlayer *player, int what, int64_t arg1, int64_t arg2) = nullptr;
 
-    SDL_Thread *msg_tid;
-    FFPlayerState state;
-    int64_t last_io_buffering_ts;
+    SDL_Thread *msg_tid = nullptr;
+    FFPlayerState state = FFP_STATE_IDLE;
+    int64_t last_io_buffering_ts = -1;
 
     FFP_VideoRenderContext video_render_ctx;
 

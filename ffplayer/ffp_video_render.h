@@ -32,13 +32,13 @@ struct FFP_VideoRenderCallback {
 };
 
 struct FFP_VideoRenderContext {
-    bool abort_render;
-    bool render_attached;
+    bool abort_render = false;
+    bool render_attached = false;
     bool first_video_frame_loaded = false;
     bool first_video_frame_rendered = false;
     int frame_width = 0;
     int frame_height = 0;
-    FFP_VideoRenderCallback *render_callback_;
+    FFP_VideoRenderCallback *render_callback_ = nullptr;
 
 private:
     std::thread *render_thread_;

@@ -66,8 +66,8 @@ private:
 public:
     FrameQueue *sample_queue;
 
-    Clock *audio_clock;
-    Clock *ext_clock;
+    Clock const* audio_clock;
+    Clock const* ext_clock;
 
     int *audio_queue_serial;
 
