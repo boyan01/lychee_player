@@ -3,6 +3,7 @@
 //
 
 #include <cmath>
+#include <utility>
 
 #include "ffp_clock.h"
 
@@ -76,13 +77,20 @@ int ClockContext::GetMasterSyncType() const {
 double ClockContext::GetMasterClock() {
     switch (GetMasterSyncType()) {
         case AV_SYNC_AUDIO_MASTER: {
-            auto clock = audio_clock_->GetClock();
-            printf("ClockContext::GetMasterClock(): %0.2f \n", clock);
-            return clock;
+            return audio_clock_->GetClock();
         }
         case AV_SYNC_VIDEO_MASTER:
             return video_clock_->GetClock();
         default:
             return ext_clock_->GetClock();
     }
+}
+
+ClockContext::ClockContext() = default;
+
+void ClockContext::Init(int *audio_queue_serial, int *video_queue_serial, std::function<int(int)> sync_type_confirm) {
+    audio_clock_->Init(audio_queue_serial);
+    video_clock_->Init(video_queue_serial);
+    ext_clock_->Init(&ext_clock_->serial);
+    sync_type_confirm_ = std::move(sync_type_confirm);
 }

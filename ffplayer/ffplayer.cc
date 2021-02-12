@@ -32,7 +32,7 @@
 #include <SDL2/SDL.h>
 
 #include "ffplayer/ffplayer.h"
-#include "ffplayer/utils.h"
+#include "ffp_utils.h"
 #include "ffp_player_internal.h"
 
 #if _FLUTTER

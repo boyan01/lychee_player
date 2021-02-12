@@ -53,22 +53,17 @@ class ClockContext {
 private:
     int av_sync_type_ = AV_SYNC_AUDIO_MASTER;
 
-    const std::unique_ptr<Clock> audio_clock_;
-    const std::unique_ptr<Clock> video_clock_;
-    const std::unique_ptr<Clock> ext_clock_;
+    const std::unique_ptr<Clock> audio_clock_ = std::unique_ptr<Clock>(new Clock);
+    const std::unique_ptr<Clock> video_clock_ = std::unique_ptr<Clock>(new Clock);
+    const std::unique_ptr<Clock> ext_clock_ = std::unique_ptr<Clock>(new Clock);
 
     std::function<int(int sync_type)> sync_type_confirm_;
 
 public:
 
-    ClockContext() : audio_clock_(new Clock), video_clock_(new Clock), ext_clock_(new Clock) {}
+    ClockContext();
 
-    void Init(int *audio_queue_serial, int *video_queue_serial, std::function<int(int sync_type)> sync_type_confirm) {
-        audio_clock_->Init(audio_queue_serial);
-        video_clock_->Init(video_queue_serial);
-        ext_clock_->Init(&ext_clock_->serial);
-        sync_type_confirm_ = sync_type_confirm;
-    }
+    void Init(int *audio_queue_serial, int *video_queue_serial, std::function<int(int sync_type)> sync_type_confirm);
 
     Clock *GetAudioClock();
 

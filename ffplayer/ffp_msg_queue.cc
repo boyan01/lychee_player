@@ -3,6 +3,7 @@
 //
 
 #include "ffp_msg_queue.h"
+#include "ffp_utils.h"
 
 extern "C" {
 #include "libavutil/common.h"
@@ -151,6 +152,7 @@ void MessageQueue::Remove(int what) {
 }
 
 void MessageContext::MessageThread() {
+    update_thread_name("message_loop");
     while (true) {
         Message msg = {0};
         if (msg_queue->Get(&msg, true) < 0) {

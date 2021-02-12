@@ -137,8 +137,9 @@ int PacketQueue::Put_(AVPacket *pkt) {
         return -1;
     pkt1->pkt = *pkt;
     pkt1->next = nullptr;
-    if (pkt == flush_pkt)
+    if (pkt == flush_pkt) {
         serial++;
+    }
     pkt1->serial = serial;
 
     if (!last_pkt)

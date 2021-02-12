@@ -1,23 +1,16 @@
-#ifndef FFPLAYER_UTILS_H_
-#define FFPLAYER_UTILS_H_
+//
+// Created by yangbin on 2021/2/13.
+//
+
+#include "ffp_utils.h"
+#include "pthread.h"
 
 extern "C" {
-
-#ifndef FFP_MAX
-#define FFP_MAX(a, b)    ((a) > (b) ? (a) : (b))
-#endif
-
-#ifndef FFP_MIN
-#define FFP_MIN(a, b)    ((a) < (b) ? (a) : (b))
-#endif
-
-#include "libavutil/rational.h"
-#include "SDL2/SDL_rect.h"
+#include "libavutil/avutil.h"
 }
 
-static void calculate_display_rect(SDL_Rect *rect,
-                            int scr_xleft, int scr_ytop, int scr_width, int scr_height,
-                            int pic_width, int pic_height, AVRational pic_sar) {
+void calculate_display_rect(SDL_Rect *rect, int scr_xleft, int scr_ytop, int scr_width, int scr_height, int pic_width,
+                            int pic_height, AVRational pic_sar) {
     AVRational aspect_ratio = pic_sar;
     int64_t width, height, x, y;
 
@@ -41,4 +34,6 @@ static void calculate_display_rect(SDL_Rect *rect,
     rect->h = FFMAX((int) height, 1);
 }
 
-#endif  // FFPLAYER_UTILS_H_
+void update_thread_name(const char *name) {
+    pthread_setname_np(name);
+}

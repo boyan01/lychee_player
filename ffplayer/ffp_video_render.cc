@@ -3,10 +3,10 @@
 //
 
 #include <cmath>
-#include <utility>
 
-#include "ffp_video_render.h"
 #include "ffplayer/ffplayer.h"
+#include "ffp_video_render.h"
+#include "ffp_utils.h"
 
 /* polls for possible required screen refresh at least this often, should be less than 1/fps */
 #define REFRESH_RATE 0.01
@@ -174,6 +174,7 @@ void VideoRender::Init(PacketQueue *video_queue, ClockContext *clock_ctx, std::s
 }
 
 void VideoRender::VideoRenderThread() {
+    update_thread_name("video_render");
     av_log(nullptr, AV_LOG_INFO, "video_render start\n");
     double remaining_time = 0.0;
     while (!abort_render) {

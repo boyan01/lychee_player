@@ -4,6 +4,7 @@
 
 #include "ffplayer/ffplayer.h"
 #include "ffp_data_source.h"
+#include "ffp_utils.h"
 
 extern "C" {
 #include "libavutil/rational.h"
@@ -62,6 +63,7 @@ DataSource::~DataSource() {
 }
 
 void DataSource::ReadThread() {
+    update_thread_name("read_datasource");
     av_log(nullptr, AV_LOG_DEBUG, "DataSource Read Start: %s \n", filename);
     int st_index[AVMEDIA_TYPE_NB] = {-1, -1, -1, -1, -1};
     std::mutex wait_mutex;
@@ -463,17 +465,21 @@ bool DataSource::ContainSubtitleStream() {
 }
 
 void DataSource::Seek(double position) {
-    if (format_ctx_ != nullptr && format_ctx_->start_time != AV_NOPTS_VALUE) {
-        position = FFMAX(format_ctx_->start_time / (double) AV_TIME_BASE, position);
-    }
-    if (position < 0) {
-        av_log(nullptr, AV_LOG_ERROR, "failed to seek to %0.2f.\n", position);
+    int64_t target = position * AV_TIME_BASE;
+    if (!format_ctx_) {
+        start_time = FFMAX(0, target);
         return;
     }
-    av_log(nullptr, AV_LOG_INFO, "ffplayer_seek_to_position to %0.2f \n", position);
+
+    if (format_ctx_->start_time != AV_NOPTS_VALUE) {
+        position = FFMAX(format_ctx_->start_time, target);
+    }
+    target = FFMAX(0, target);
+    target = FFMIN(target, format_ctx_->duration);
+    av_log(nullptr, AV_LOG_INFO, "data source seek to %0.2f \n", position);
 
     if (!seek_req_) {
-        seek_position = position * AV_TIME_BASE;
+        seek_position = target;
         seek_req_ = true;
 
         // TODO update buffered position

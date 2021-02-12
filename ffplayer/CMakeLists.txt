@@ -48,6 +48,8 @@ add_library(ffplayer SHARED
         ffp_clock.cc
         ffp_data_source.h
         ffp_data_source.cc
+        ffp_utils.h
+        ffp_utils.cc
         "ffplayer.cc"
         "include/third_party/dart/dart_api_dl.c"
         "flutter.cc"

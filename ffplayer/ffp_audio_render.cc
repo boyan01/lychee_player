@@ -277,6 +277,7 @@ int AudioRender::AudioDecodeFrame() {
     } else {
         audio_clock_from_pts = NAN;
     }
+    audio_clock_serial = af->serial;
 
 #ifdef DEBUG
     {

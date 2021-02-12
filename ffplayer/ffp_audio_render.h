@@ -46,7 +46,7 @@ private:
     int audio_volume = 100;
 
     double audio_clock_from_pts = NAN;
-    int audio_clock_serial = 0;
+    int audio_clock_serial = -1;
 
 
     AudioParams audio_src{};
