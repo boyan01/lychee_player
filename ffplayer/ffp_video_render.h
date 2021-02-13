@@ -13,9 +13,22 @@
 #include "ffp_clock.h"
 #include "ffp_msg_queue.h"
 #include "ffp_frame_queue.h"
-#include "ffplayer.h"
+#include "ffp_define.h"
 
-struct VideoRender;
+struct FFP_VideoRenderCallback {
+
+    void *opacity = nullptr;
+
+    /**
+     *
+     * called by video render thread.
+     *
+     * @param opacity
+     * @param frame
+     */
+    void (*on_render)(void *opacity, void *frame) = nullptr;
+
+};
 
 class VideoRender {
 public:
@@ -25,7 +38,7 @@ public:
     bool first_video_frame_rendered = false;
     int frame_width = 0;
     int frame_height = 0;
-    FFP_VideoRenderCallback *render_callback_ = nullptr;
+    unique_ptr_d<FFP_VideoRenderCallback> render_callback{nullptr, nullptr};
 
     int framedrop = -1;
 

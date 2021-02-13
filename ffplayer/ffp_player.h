@@ -23,7 +23,9 @@ typedef enum FFPlayerState_ {
 } FFPlayerState;
 
 struct CPlayer {
-public:
+
+private:
+
     const std::unique_ptr<PacketQueue> audio_pkt_queue = std::unique_ptr<PacketQueue>(new PacketQueue);
     const std::unique_ptr<PacketQueue> video_pkt_queue = std::unique_ptr<PacketQueue>(new PacketQueue);
     const std::unique_ptr<PacketQueue> subtitle_pkt_queue = std::unique_ptr<PacketQueue>(new PacketQueue);
@@ -39,8 +41,6 @@ public:
 
     const std::shared_ptr<MessageContext> message_context = std::make_shared<MessageContext>();
 
-private:
-
     void DumpStatus();
 
 public:
@@ -53,7 +53,7 @@ public:
 
 
 public:
-    FFPlayerConfiguration start_configuration{};
+    PlayerConfiguration start_configuration{};
 
     int show_status = -1;
 
@@ -67,7 +67,7 @@ public:
 
     void TogglePause();
 
-    int OpenDataSource(const char *_filename);
+    int OpenDataSource(const char *filename);
 
     double GetCurrentPosition();
 
@@ -98,6 +98,10 @@ public:
     const char *GetUrl();
 
     const char *GetMetadataDict(const char *key);
+
+    void SetVideoRender(unique_ptr_d<FFP_VideoRenderCallback> render_callback);
+
+    void DrawFrame();
 };
 
 

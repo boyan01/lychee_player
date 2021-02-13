@@ -98,41 +98,7 @@ extern "C" {
 #define FFP_PROP_INT64_IMMEDIATE_RECONNECT              20211
 
 
-struct Message {
-    int what;
-    int64_t arg1;
-    int64_t arg2;
-    struct Message *next;
-};
-
-
-struct MessageQueue {
-private:
-    Message *first_, *last_ = nullptr;
-    int nb_messages_ = 0;
-    int abort_request_ = 1;
-    std::mutex *mutex_ = nullptr;
-    std::condition_variable_any *cond_ = nullptr;
-
-    int PutPrivate(Message *msg);
-
-public:
-    int Init();
-
-    int Put(Message *msg);
-
-    void Flush();
-
-    void Destroy();
-
-    void Abort();
-
-    void Start();
-
-    int Get(Message *msg, int block);
-
-    void Remove(int what);
-};
+struct MessageQueue;
 
 class MessageContext {
 
@@ -141,7 +107,7 @@ public:
     std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback{nullptr};
 
 private:
-    MessageQueue *msg_queue = nullptr;
+    std::unique_ptr<MessageQueue> msg_queue{};
     bool started_ = false;
     std::thread *thread_ = nullptr;
 
@@ -149,12 +115,14 @@ private:
 
     void MessageThread();
 
+    void StopAndWait();
+
+    void Start();
+
 public:
     MessageContext();
 
     ~MessageContext();
-
-    void Start();
 
     void NotifyMsg(int what, int arg1, int arg2);
 
@@ -162,7 +130,6 @@ public:
 
     void NotifyMsg(int what);
 
-    void StopAndWait();
 
 };
 

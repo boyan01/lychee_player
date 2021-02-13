@@ -13,7 +13,7 @@ if (WIN32)
 endif ()
 
 project("ffplayer" "CXX" "C")
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 14)
 
 if (WIN32)
     set(VCPKG_HEADER_DIR "$ENV{VCPKG_ROOT}//installed//x64-windows//include")

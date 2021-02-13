@@ -12,13 +12,13 @@ using unique_ptr_d = std::unique_ptr<T, void (*)(T *ptr)>;
 
 #define CHECK_VALUE_WITH_RETURN(VALUE, RETURN)\
 if(!(VALUE)) {\
-    av_log(nullptr, AV_LOG_ERROR, "check value failed\n");\
+    av_log(nullptr, AV_LOG_ERROR, "check %s value failed in %s\n", #VALUE, __FUNCTION__);\
     return RETURN;\
 }\
 
 #define CHECK_VALUE(VALUE)\
 if(!(VALUE)) {\
-    av_log(nullptr, AV_LOG_ERROR, "check value failed\n");\
+    av_log(nullptr, AV_LOG_ERROR, "check %s value failed in %s\n", #VALUE, __FUNCTION__);\
     return;\
 }\
 

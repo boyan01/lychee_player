@@ -9,6 +9,41 @@ extern "C" {
 #include "libavutil/common.h"
 }
 
+struct Message {
+    int what;
+    int64_t arg1;
+    int64_t arg2;
+    struct Message *next;
+};
+
+struct MessageQueue {
+private:
+    Message *first_ = nullptr, *last_ = nullptr;
+    int nb_messages_ = 0;
+    int abort_request_ = 1;
+    std::mutex *mutex_ = nullptr;
+    std::condition_variable_any *cond_ = nullptr;
+
+    int PutPrivate(Message *msg);
+
+public:
+    int Init();
+
+    int Put(Message *msg);
+
+    void Flush();
+
+    void Destroy();
+
+    void Abort();
+
+    void Start();
+
+    int Get(Message *msg, int block);
+
+    void Remove(int what);
+};
+
 
 int MessageQueue::Init() {
     memset(this, 0, sizeof(MessageQueue));
@@ -165,11 +200,12 @@ void MessageContext::MessageThread() {
 }
 
 MessageContext::MessageContext() {
-    msg_queue = new MessageQueue;
+    msg_queue = std::make_unique<MessageQueue>();
+    Start();
 }
 
 MessageContext::~MessageContext() {
-    delete msg_queue;
+    StopAndWait();
 }
 
 void MessageContext::Start() {

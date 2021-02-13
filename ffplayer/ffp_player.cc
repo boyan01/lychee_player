@@ -34,8 +34,6 @@ CPlayer::CPlayer() {
                             }
                         });
 
-    message_context->Start();
-
     audio_render->Init(audio_pkt_queue.get(), clock_context.get());
     video_render->Init(video_pkt_queue.get(), clock_context.get(), message_context);
     decoder_context->audio_render = audio_render.get();
@@ -70,13 +68,13 @@ void CPlayer::TogglePause() {
     video_render->step = false;
 }
 
-int CPlayer::OpenDataSource(const char *_filename) {
+int CPlayer::OpenDataSource(const char *filename) {
     if (data_source) {
         av_log(nullptr, AV_LOG_ERROR, "can not open file multi-times.\n");
         return -1;
     }
 
-    data_source = new DataSource(_filename, nullptr);
+    data_source = new DataSource(filename, nullptr);
     data_source->audio_queue = audio_pkt_queue.get();
     data_source->video_queue = video_pkt_queue.get();
     data_source->subtitle_queue = subtitle_pkt_queue.get();
@@ -246,5 +244,17 @@ void CPlayer::GlobalInit() {
     av_init_packet(flush_pkt);
     flush_pkt->data = (uint8_t *) &flush_pkt;
 
+}
+
+void CPlayer::SetVideoRender(unique_ptr_d<FFP_VideoRenderCallback> render_callback) {
+    CHECK_VALUE(render_callback);
+    video_render->render_callback = std::move(render_callback);
+    if (video_render->Start()) {
+        video_render->render_attached = true;
+    }
+}
+
+void CPlayer::DrawFrame() {
+    video_render->DrawFrame();
 }
 

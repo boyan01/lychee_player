@@ -17,23 +17,8 @@ typedef struct CPlayer CPlayer;
 #define FFPLAYER_EXPORT __attribute__((visibility("default"))) __attribute__((used))
 #endif
 
-struct FFP_VideoRenderCallback {
 
-    void *opacity = nullptr;
-
-    /**
-     *
-     * called by video render thread.
-     *
-     * @param opacity
-     * @param frame
-     */
-    void (*on_render)(void *opacity, void *frame) = nullptr;
-
-};
-
-
-typedef struct FFPlayerConfiguration {
+struct PlayerConfiguration {
     int32_t audio_disable = false;
     int32_t video_disable = false;
     int32_t subtitle_disable = false;
@@ -44,7 +29,7 @@ typedef struct FFPlayerConfiguration {
 
     int64_t start_time = 0;
     int32_t loop = 1;
-} FFPlayerConfiguration;
+};
 
 #ifdef __cplusplus
 };
