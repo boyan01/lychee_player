@@ -8,6 +8,8 @@ extern "C" {
 #include "libavutil/bprint.h"
 }
 
+extern AVPacket *flush_pkt;
+
 CPlayer::CPlayer() {
     clock_context->Init(&audio_pkt_queue->serial,
                         &video_pkt_queue->serial,
@@ -224,5 +226,25 @@ const char *CPlayer::GetUrl() {
 const char *CPlayer::GetMetadataDict(const char *key) {
     CHECK_VALUE_WITH_RETURN(data_source, nullptr);
     return data_source->GetMetadataDict(key);
+}
+
+void CPlayer::GlobalInit() {
+    av_log_set_flags(AV_LOG_SKIP_REPEATED);
+    av_log_set_level(AV_LOG_INFO);
+    /* register all codecs, demux and protocols */
+#if CONFIG_AVDEVICE
+    avdevice_register_all();
+#endif
+    avformat_network_init();
+
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0)
+        av_log(nullptr, AV_LOG_ERROR, "SDL fails to initialize audio subsystem!\n%s", SDL_GetError());
+    else
+        av_log(nullptr, AV_LOG_DEBUG, "SDL Audio was initialized fine!\n");
+
+    flush_pkt = new AVPacket;
+    av_init_packet(flush_pkt);
+    flush_pkt->data = (uint8_t *) &flush_pkt;
+
 }
 

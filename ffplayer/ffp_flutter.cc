@@ -247,26 +247,9 @@ void ffplayer_free_player(CPlayer *player) {
 }
 
 
-extern AVPacket *flush_pkt;
 
 void ffplayer_global_init(void *arg) {
     assert(arg);
-    av_log_set_flags(AV_LOG_SKIP_REPEATED);
-    av_log_set_level(AV_LOG_INFO);
-    /* register all codecs, demux and protocols */
-#if CONFIG_AVDEVICE
-    avdevice_register_all();
-#endif
-    avformat_network_init();
-
-    if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0)
-        av_log(nullptr, AV_LOG_ERROR, "SDL fails to initialize audio subsystem!\n%s", SDL_GetError());
-    else
-        av_log(nullptr, AV_LOG_DEBUG, "SDL Audio was initialized fine!\n");
-
-    flush_pkt = new AVPacket;
-    av_init_packet(flush_pkt);
-    flush_pkt->data = (uint8_t *) &flush_pkt;
 
     Dart_InitializeApiDL(arg);
 

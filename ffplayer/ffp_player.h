@@ -49,6 +49,8 @@ public:
 
     ~CPlayer();
 
+    static void GlobalInit();
+
 
 public:
     FFPlayerConfiguration start_configuration{};

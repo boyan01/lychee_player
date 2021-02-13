@@ -107,7 +107,7 @@ static void sigterm_handler(int sig) {
 
 static void do_exit(CPlayer *player) {
     auto render_data = static_cast<VideoRenderData *>(player->video_render->render_callback_->opacity);
-    ffplayer_free_player(player);
+    delete player;
     sws_freeContext(render_data->img_convert_ctx);
     SDL_DestroyTexture(render_data->texture);
     if (render_data->renderer)
@@ -128,8 +128,9 @@ static void toggle_full_screen() {
 
 static void step_to_next_frame(CPlayer *player) {
     /* if the stream is paused unpause it, then step */
-    if (ffplayer_is_paused(player))
-        ffplayer_toggle_pause(player);
+    if (player->IsPaused()) {
+        player->TogglePause();
+    }
 //    player->is->step = 1;
 }
 
@@ -171,18 +172,18 @@ static void event_loop(CPlayer *player) {
                         break;
                     case SDLK_p:
                     case SDLK_SPACE:
-                        ffplayer_toggle_pause(player);
+                        player->TogglePause();
                         break;
                     case SDLK_m:
-                        ffplayer_set_mute(player, !ffplayer_is_mute(player));
+                        player->SetMute(!player->IsMuted());
                         break;
                     case SDLK_KP_MULTIPLY:
                     case SDLK_0:
-                        ffp_set_volume(player, ffp_get_volume(player) + SDL_VOLUME_STEP);
+                        player->SetVolume(player->GetVolume() + SDL_VOLUME_STEP);
                         break;
                     case SDLK_KP_DIVIDE:
                     case SDLK_9:
-                        ffp_set_volume(player, ffp_get_volume(player) - SDL_VOLUME_STEP);
+                        player->SetVolume(player->GetVolume() - SDL_VOLUME_STEP);
                         break;
                     case SDLK_s:  // S: Step to next frame
                         step_to_next_frame(player);
@@ -198,18 +199,18 @@ static void event_loop(CPlayer *player) {
                     case SDLK_w:
                         break;
                     case SDLK_PAGEUP:
-                        if (ffplayer_get_chapter_count(player) <= 1) {
+                        if (player->GetChapterCount() <= 1) {
                             incr = 600.0;
                             goto do_seek;
                         }
-                        ffplayer_seek_to_chapter(player, ffplayer_get_current_chapter(player) + 1);
+                        player->SeekToChapter(player->GetChapterCount() + 1);
                         break;
                     case SDLK_PAGEDOWN:
-                        if (ffplayer_get_chapter_count(player) <= 1) {
+                        if (player->GetChapterCount() <= 1) {
                             incr = -600.0;
                             goto do_seek;
                         }
-                        ffplayer_seek_to_chapter(player, ffplayer_get_current_chapter(player) - 1);
+                        player->SeekToChapter(player->GetChapterCount() - 1);
                         break;
                     case SDLK_LEFT:
                         incr = -seek_interval;
@@ -224,8 +225,8 @@ static void event_loop(CPlayer *player) {
                         incr = -60.0;
                     do_seek:
                         printf("ffplayer_seek_to_position from: %0.2f , to: %0.2f .\n",
-                               ffplayer_get_current_position(player), ffplayer_get_current_position(player) + incr);
-                        ffplayer_seek_to_position(player, ffplayer_get_current_position(player) + incr);
+                               player->GetCurrentPosition(), player->GetCurrentPosition() + incr);
+                        player->Seek(player->GetCurrentPosition() + incr);
                         break;
                     default:
                         break;
@@ -263,8 +264,8 @@ static void event_loop(CPlayer *player) {
                 }
                 {
                     auto render_data = static_cast<VideoRenderData *>(player->video_render->render_callback_->opacity);
-                    double dest = (x / render_data->width) * ffplayer_get_duration(player);
-                    ffplayer_seek_to_position(player, dest);
+                    double dest = (x / render_data->width) * player->GetDuration();
+                    player->Seek(dest);
                 }
                 break;
             case SDL_WINDOWEVENT:
@@ -279,7 +280,7 @@ static void event_loop(CPlayer *player) {
 //                            SDL_DestroyTexture(render_data->texture);
 //                            render_data->texture = nullptr;
 //                        }
-                        ffp_refresh_texture(player);
+                        player->video_render->DrawFrame();
                     }
                     case SDL_WINDOWEVENT_EXPOSED:
 //                        is->force_refresh = 1;
@@ -331,7 +332,7 @@ static void on_message(CPlayer *player, int what, int64_t arg1, int64_t arg2) {
             h = screen_height ? screen_height : default_height;
 
             if (!window_title)
-                window_title = ffp_get_file_name(player);
+                window_title = player->GetUrl();
             SDL_SetWindowTitle(window, window_title);
 
             printf("set_default_window_size : %d , %d \n", w, h);
@@ -345,13 +346,13 @@ static void on_message(CPlayer *player, int what, int64_t arg1, int64_t arg2) {
             printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %ld \n", arg1);
             break;
         case FFP_MSG_BUFFERING_TIME_UPDATE:
-            printf("FFP_MSG_BUFFERING_TIME_UPDATE: %f.  %f:%f \n", arg1 / 1000.0, ffplayer_get_current_position(player),
-                   ffplayer_get_duration(player));
+            printf("FFP_MSG_BUFFERING_TIME_UPDATE: %f.  %f:%f \n", arg1 / 1000.0, player->GetCurrentPosition(),
+                   player->GetDuration());
             break;
         case FFP_MSG_AV_METADATA_LOADED: {
-            const char *title = ffp_get_metadata_dict(player, "title");
+            const char *title = player->GetMetadataDict("title");
             if (!window_title && title)
-                window_title = av_asprintf("%s - %s", title, ffp_get_file_name(player));
+                window_title = av_asprintf("%s - %s", title, player->GetUrl());
             break;
         }
         default:
@@ -396,20 +397,18 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    ffplayer_global_init(nullptr);
+//    ffplayer_global_init(nullptr);
+    CPlayer::GlobalInit();
 
     signal(SIGINT, sigterm_handler);  /* Interrupt (ANSI).    */
     signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */
 
     FFPlayerConfiguration config;
 
-    CPlayer *player = ffp_create_player(&config);
-    if (!player) {
-        printf("failed to alloc player");
-        return -1;
-    }
+    auto *player = new CPlayer;
+    player->start_configuration = config;
     player->show_status = true;
-    ffp_set_volume(player, 100);
+    player->SetVolume(100);
 
     uint32_t flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER;
     if (config.audio_disable)
@@ -508,9 +507,13 @@ int main(int argc, char *argv[]) {
 
         };
         render_callback->opacity = render_data;
-        ffp_attach_video_render(player, render_callback);
+
+        player->video_render->render_callback_ = render_callback;
+        if (player->video_render->Start()) {
+            player->video_render->render_attached = true;
+        }
     }
-    ffp_set_message_callback(player, [](CPlayer *player, int32_t what, int64_t arg1, int64_t arg2) {
+    player->SetMessageHandleCallback([player](int32_t what, int64_t arg1, int64_t arg2) {
         SDL_Event event;
         event.type = FF_MSG_EVENT;
         auto *data = new MessageData;
@@ -522,14 +525,14 @@ int main(int argc, char *argv[]) {
         SDL_PushEvent(&event);
     });
 
-    if (ffplayer_open_file(player, input_file) < 0) {
+    if (player->OpenDataSource(input_file) < 0) {
         av_log(nullptr, AV_LOG_FATAL, "failed to open file\n");
         do_exit(nullptr);
     }
 
-    if (ffplayer_is_paused(player)) {
+    if (player->IsPaused()) {
         // perform play when start.
-        ffplayer_toggle_pause(player);
+        player->TogglePause();
     }
     event_loop(player);
 
