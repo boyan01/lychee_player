@@ -16,26 +16,6 @@
 /* options specified by the user */
 static AVInputFormat *file_iformat;
 
-#if CONFIG_AVFILTER
-static int opt_add_vfilter(void *optctx, const char *opt, const char *arg) {
-    GROW_ARRAY(vfilters_list, nb_vfilters);
-    vfilters_list[nb_vfilters - 1] = arg;
-    return 0;
-}
-#endif
-
-#define CHECK_PLAYER_WITH_RETURN(PLAYER, RETURN)                               \
-if(!(PLAYER)) {                                               \
-    av_log(nullptr, AV_LOG_ERROR, "check player failed");                      \
-    return RETURN;                                                             \
-}                                                                              \
-
-#define CHECK_PLAYER(PLAYER)                                                   \
-if (!(PLAYER)) {                                              \
-    av_log(nullptr, AV_LOG_ERROR, "check player failed");                      \
-    return;                                                                    \
-}                                                                              \
-
 extern AVPacket *flush_pkt;
 
 static inline void on_buffered_update(CPlayer *player, double position) {
@@ -117,84 +97,50 @@ static void stream_component_close(CPlayer *player, int stream_index) {
 }
 #endif
 
-static void stream_close(CPlayer *player) {
-
-}
-
-
 void ffplayer_seek_to_position(CPlayer *player, double position) {
     CHECK_VALUE(player);
-    CHECK_VALUE(player->data_source);
-    player->data_source->Seek(position);
+    player->Seek(position);
 }
 
 double ffplayer_get_current_position(CPlayer *player) {
     CHECK_VALUE_WITH_RETURN(player, 0);
-    double position = player->clock_context->GetMasterClock();
-    if (isnan(position)) {
-        if (player->data_source) {
-            position = (double) player->data_source->GetSeekPosition() / AV_TIME_BASE;
-        } else {
-            position = 0;
-        }
-    }
-    return position;
+    return player->GetCurrentPosition();
 }
 
 double ffplayer_get_duration(CPlayer *player) {
     CHECK_VALUE_WITH_RETURN(player, -1);
-    CHECK_VALUE_WITH_RETURN(player->data_source, -1);
-    return player->data_source->GetDuration();
+    return player->GetDuration();
 }
 
 /* pause or resume the video */
 void ffplayer_toggle_pause(CPlayer *player) {
-    if (player->paused) {
-        player->video_render->frame_timer +=
-                av_gettime_relative() / 1000000.0 - player->clock_context->GetVideoClock()->last_updated;
-        if (player->data_source->read_pause_return != AVERROR(ENOSYS)) {
-            player->clock_context->GetVideoClock()->paused = 0;
-        }
-        player->clock_context->GetVideoClock()->SetClock(player->clock_context->GetVideoClock()->GetClock(),
-                                                         player->clock_context->GetVideoClock()->serial);
-    }
-    player->clock_context->GetExtClock()->SetClock(player->clock_context->GetExtClock()->GetClock(),
-                                                   player->clock_context->GetExtClock()->serial);
-
-    player->paused = !player->paused;
-    player->clock_context->GetExtClock()->paused = player->clock_context->GetAudioClock()->paused
-            = player->clock_context->GetVideoClock()->paused = player->paused;
-    if (player->data_source) {
-        player->data_source->paused = player->paused;
-    }
-    player->audio_render->paused = player->paused;
-    player->video_render->paused_ = player->paused;
-    player->video_render->step = false;
+    CHECK_VALUE(player);
+    player->TogglePause();
 }
 
 bool ffplayer_is_mute(CPlayer *player) {
     CHECK_VALUE_WITH_RETURN(player, false);
-    return player->audio_render->IsMute();
+    return player->IsMuted();
 }
 
 void ffplayer_set_mute(CPlayer *player, bool mute) {
     CHECK_VALUE(player);
-    player->audio_render->SetMute(mute);
+    player->SetMute(mute);
 }
 
 void ffp_set_volume(CPlayer *player, int volume) {
     CHECK_VALUE(player);
-    player->audio_render->SetVolume(volume);
+    player->SetVolume(volume);
 }
 
 int ffp_get_volume(CPlayer *player) {
     CHECK_VALUE_WITH_RETURN(player, 0);
-    return player->audio_render->GetVolume();
+    return player->GetVolume();
 }
 
 bool ffplayer_is_paused(CPlayer *player) {
-    CHECK_PLAYER_WITH_RETURN(player, false);
-    return player->paused;
+    CHECK_VALUE_WITH_RETURN(player, false);
+    return player->IsPaused();
 }
 
 #define BUFFERING_CHECK_PER_MILLISECONDS                     (500)
@@ -276,51 +222,24 @@ static void check_buffering(CPlayer *player) {
 
 int ffplayer_get_chapter_count(CPlayer *player) {
     CHECK_VALUE_WITH_RETURN(player, -1);
-    CHECK_VALUE_WITH_RETURN(player->data_source, -1);
-    return player->data_source->GetChapterCount();
+    return player->GetChapterCount();
 }
 
 int ffplayer_get_current_chapter(CPlayer *player) {
     CHECK_VALUE_WITH_RETURN(player, -1);
-    CHECK_VALUE_WITH_RETURN(player->data_source, -1);
-    int64_t pos = ffplayer_get_current_position(player) * AV_TIME_BASE;
-    return player->data_source->GetChapterByPosition(pos);
+    return player->GetCurrentChapter();
+
 }
 
 void ffplayer_seek_to_chapter(CPlayer *player, int chapter) {
     CHECK_VALUE(player);
-    CHECK_VALUE(player->data_source);
-    player->data_source->SeekToChapter(chapter);
-}
-
-static CPlayer *ffplayer_alloc_player() {
-    auto *player = new CPlayer;
-    ffplayer_toggle_pause(player);
-
-#ifdef _FLUTTER
-    flutter_on_post_player_created(player);
-#endif
-    av_log(nullptr, AV_LOG_INFO, "malloc player, %p\n", player);
-    return player;
+    player->SeekToChapter(chapter);
 }
 
 int ffplayer_open_file(CPlayer *player, const char *filename) {
-//    stream_open(player, filename, file_iformat);
-    if (player->data_source) {
-        av_log(nullptr, AV_LOG_ERROR, "can not open file multi-times.\n");
-        return -1;
-    }
-
-    player->data_source = new DataSource(filename, file_iformat);
-    player->data_source->audio_queue = player->audio_pkt_queue.get();
-    player->data_source->video_queue = player->video_pkt_queue.get();
-    player->data_source->subtitle_queue = player->subtitle_pkt_queue.get();
-    player->data_source->ext_clock = player->clock_context->GetAudioClock();
-    player->data_source->decoder_ctx = player->decoder_context.get();
-
-    player->data_source->Open(player);
-
-    return 0;
+    CHECK_VALUE_WITH_RETURN(player, -1);
+    CHECK_VALUE_WITH_RETURN(filename, -1);
+    return player->OpenDataSource(filename);
 }
 
 void ffplayer_free_player(CPlayer *player) {
@@ -362,28 +281,31 @@ void ffplayer_global_init(void *arg) {
 
 
 void ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int32_t, int64_t, int64_t)) {
-    CHECK_PLAYER(player);
-    player->message_context->message_callback = [player, callback](int32_t what, int64_t arg1, int64_t arg2) {
+    CHECK_VALUE(player);
+    player->SetMessageHandleCallback([player, callback](int32_t what, int64_t arg1, int64_t arg2) {
         callback(player, what, arg1, arg2);
-    };
+    });
 }
 
 CPlayer *ffp_create_player(FFPlayerConfiguration *config) {
-    CPlayer *player = ffplayer_alloc_player();
-    if (!player) {
-        return nullptr;
-    }
+    auto *player = new CPlayer;
+    player->TogglePause();
+
+#ifdef _FLUTTER
+    flutter_on_post_player_created(player);
+#endif
+    av_log(nullptr, AV_LOG_INFO, "malloc player, %p\n", player);
     player->start_configuration = *config;
     return player;
 }
 
 void ffp_refresh_texture(CPlayer *player) {
-    CHECK_PLAYER(player);
+    CHECK_VALUE(player);
     player->video_render->DrawFrame();
 }
 
 void ffp_attach_video_render(CPlayer *player, FFP_VideoRenderCallback *render_callback) {
-    CHECK_PLAYER(player);
+    CHECK_VALUE(player);
     if (player->video_render->render_attached) {
         av_log(nullptr, AV_LOG_FATAL, "video_render_already attached.\n");
         return;
@@ -399,20 +321,18 @@ void ffp_attach_video_render(CPlayer *player, FFP_VideoRenderCallback *render_ca
 }
 
 double ffp_get_video_aspect_ratio(CPlayer *player) {
-    CHECK_PLAYER_WITH_RETURN(player, -1);
-    return player->video_render->GetVideoAspectRatio();
+    CHECK_VALUE_WITH_RETURN(player, -1);
+    return player->GetVideoAspectRatio();
 }
 
 const char *ffp_get_file_name(CPlayer *player) {
     CHECK_VALUE_WITH_RETURN(player, nullptr);
-    CHECK_VALUE_WITH_RETURN(player->data_source, nullptr);
-    return player->data_source->GetFileName();
+    return player->GetUrl();
 }
 
 const char *ffp_get_metadata_dict(CPlayer *player, const char *key) {
     CHECK_VALUE_WITH_RETURN(player, nullptr);
-    CHECK_VALUE_WITH_RETURN(player->data_source, nullptr);
-    return player->data_source->GetMetadataDict(key);
+    return player->GetMetadataDict(key);
 }
 
 

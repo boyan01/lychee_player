@@ -163,10 +163,7 @@ int VideoRender::PushFrame(AVFrame *src_frame, double pts, double duration, int 
 
     if (!first_video_frame_loaded) {
         first_video_frame_loaded = true;
-        // https://forum.videohelp.com/threads/323530-please-explain-SAR-DAR-PAR#post2003533
-        frame_width = vp->width;
-        frame_height = av_rescale(vp->width, vp->height * vp->sar.den, vp->width * vp->sar.num);
-        msg_ctx_->NotifyMsg(FFP_MSG_VIDEO_FRAME_LOADED, frame_width, frame_height);
+        msg_ctx_->NotifyMsg(FFP_MSG_VIDEO_FRAME_LOADED, vp->width, vp->height);
     }
 
     av_frame_move_ref(vp->frame, src_frame);

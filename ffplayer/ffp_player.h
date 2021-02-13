@@ -38,6 +38,10 @@ public:
 
     const std::shared_ptr<MessageContext> message_context = std::make_shared<MessageContext>();
 
+private:
+
+    void DumpStatus();
+
 public:
 
     CPlayer();
@@ -50,8 +54,6 @@ public:
 
     int show_status = -1;
 
-    void (*on_load_metadata)(void *player) = nullptr;
-
     // buffered position in seconds. -1 if not avalible
     int64_t buffered_position = -1;
 
@@ -63,6 +65,40 @@ public:
 #endif
 
     bool paused = false;
+
+    void TogglePause();
+
+    int OpenDataSource(const char *_filename);
+
+    double GetCurrentPosition();
+
+    bool IsPaused() const;
+
+    int GetVolume();
+
+    void SetVolume(int volume);
+
+    void SetMute(bool mute);
+
+    bool IsMuted();
+
+    double GetDuration();
+
+    void Seek(double position);
+
+    void SeekToChapter(int chapter);
+
+    int GetCurrentChapter();
+
+    int GetChapterCount();
+
+    void SetMessageHandleCallback(std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback);
+
+    double GetVideoAspectRatio();
+
+    const char *GetUrl();
+
+    const char *GetMetadataDict(const char *key);
 };
 
 

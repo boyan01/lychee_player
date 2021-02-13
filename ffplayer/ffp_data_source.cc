@@ -42,7 +42,7 @@ DataSource::DataSource(const char *filename, AVInputFormat *format) : in_format(
     this->filename = av_strdup(filename);
 }
 
-int DataSource::Open(CPlayer *player) {
+int DataSource::Open() {
     if (!filename) {
         return -1;
     }
@@ -53,8 +53,6 @@ int DataSource::Open(CPlayer *player) {
         return -1;
     }
     return 0;
-    fail:
-    return -1;
 }
 
 void DataSource::Close() {
@@ -66,7 +64,7 @@ DataSource::~DataSource() {
 }
 
 void DataSource::ReadThread() {
-    update_thread_name("read_datasource");
+    update_thread_name("read_source");
     av_log(nullptr, AV_LOG_DEBUG, "DataSource Read Start: %s \n", filename);
     int st_index[AVMEDIA_TYPE_NB] = {-1, -1, -1, -1, -1};
     std::mutex wait_mutex;
@@ -126,9 +124,7 @@ int DataSource::PrepareFormatContext() {
 
 
 void DataSource::OnFormatContextOpen() {
-    if (on_load_metadata != nullptr) {
-        on_load_metadata();
-    }
+    msg_ctx->NotifyMsg(FFP_MSG_AV_METADATA_LOADED);
 
     /* if seeking requested, we execute it */
     if (start_time != AV_NOPTS_VALUE) {
@@ -532,7 +528,11 @@ const char *DataSource::GetFileName() const { return filename; }
 
 const char *DataSource::GetMetadataDict(const char *key) {
     CHECK_VALUE_WITH_RETURN(format_ctx_, nullptr);
-    return av_dict_get(format_ctx_->metadata, key, nullptr, 0)->value;
+    auto *entry = av_dict_get(format_ctx_->metadata, key, nullptr, 0);
+    if (entry) {
+        return entry->value;
+    }
+    return nullptr;
 }
 
 

@@ -5,7 +5,6 @@
 #include <iostream>
 #include <cstdint>
 
-#include "ffplayer.h"
 #include "ffp_utils.h"
 #include "ffp_player.h"
 #include "ffp_frame_queue.h"
@@ -322,14 +321,6 @@ static void set_default_window_size(int width, int height) {
     default_height = rect.h;
 }
 
-static void on_load_metadata(void *op) {
-    auto *player = static_cast<CPlayer *>(op);
-    const char *title = ffp_get_metadata_dict(player, "title");
-    if (!window_title && title)
-        window_title = av_asprintf("%s - %s", title, ffp_get_file_name(player));
-}
-
-
 static void on_message(CPlayer *player, int what, int64_t arg1, int64_t arg2) {
 //    av_log(nullptr, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n", what, arg1, arg2);
     switch (what) {
@@ -351,12 +342,18 @@ static void on_message(CPlayer *player, int what, int64_t arg1, int64_t arg2) {
             SDL_ShowWindow(window);
             break;
         case FFP_MSG_PLAYBACK_STATE_CHANGED:
-            printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %lld \n", arg1);
+            printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %ld \n", arg1);
             break;
         case FFP_MSG_BUFFERING_TIME_UPDATE:
             printf("FFP_MSG_BUFFERING_TIME_UPDATE: %f.  %f:%f \n", arg1 / 1000.0, ffplayer_get_current_position(player),
                    ffplayer_get_duration(player));
             break;
+        case FFP_MSG_AV_METADATA_LOADED: {
+            const char *title = ffp_get_metadata_dict(player, "title");
+            if (!window_title && title)
+                window_title = av_asprintf("%s - %s", title, ffp_get_file_name(player));
+            break;
+        }
         default:
             break;
     }
@@ -381,72 +378,6 @@ static void set_sdl_yuv_conversion_mode(AVFrame *frame) {
 
 static int upload_texture(VideoRenderData *render_data, SDL_Texture **tex, AVFrame *frame,
                           struct SwsContext **img_convert_ctx);
-
-//static void show_status(CPlayer *player) {
-//    if (player->show_status) {
-//        AVBPrint buf;
-//        static int64_t last_time;
-//        int64_t cur_time;
-//        int aqsize, vqsize, sqsize;
-//        double av_diff;
-//
-//        cur_time = av_gettime_relative();
-//        if (!last_time || (cur_time - last_time) >= 30000) {
-//            aqsize = 0;
-//            vqsize = 0;
-//            sqsize = 0;
-//            if (player->data_source->ContainAudioStream())
-//                aqsize = player->audio_pkt_queue->size;
-//            if (player->data_source->ContainVideoStream())
-//                vqsize = player->video_pkt_queue->size;
-//            if (player->data_source->ContainSubtitleStream())
-//                sqsize = player->subtitle_pkt_queue->size;
-//            av_diff = 0;
-//            if (player->data_source->ContainAudioStream() && player->data_source->ContainVideoStream())
-//                av_diff = player->clock_context->GetAudioClock()->GetClock() -
-//                          player->clock_context->GetVideoClock()->GetClock();
-//            else if (player->data_source->ContainVideoStream())
-//                av_diff = player->clock_context->GetMasterClock() - player->clock_context->GetVideoClock()->GetClock();
-//            else if (player->data_source->ContainAudioStream())
-//                av_diff = player->clock_context->GetMasterClock() - player->clock_context->GetAudioClock()->GetClock();
-//
-//            av_bprint_init(&buf, 0, AV_BPRINT_SIZE_AUTOMATIC);
-//            av_bprintf(&buf,
-//                       "%7.2f %s:%7.3f fd=%4d aq=%5dKB vq=%5dKB sq=%5dB f=%"
-//                       PRId64
-//                       "/%"
-//                       PRId64
-//                       "   \r",
-//                       player->clock_context->GetMasterClock(),
-//                       (player->data_source->ContainAudioStream()
-//                        && player->data_source->ContainAudioStream()) ? "A-V"
-//                                                                      : (player->data_source->ContainVideoStream()
-//                                                                         ? "M-V"
-//                                                                         : (player->data_source->ContainAudioStream()
-//                                                                            ? "M-A"
-//                                                                            : "   ")),
-//                       av_diff,
-//                       player->video_render->frame_drop_count + player->decoder_context->frame_drop_count,
-//                       aqsize / 1024,
-//                       vqsize / 1024,
-//                       sqsize,
-//                    /*player->data_source->ContainVideoStream() ? player->decoder_context->.avctx->pts_correction_num_faulty_dts :*/
-//                       0ll,
-//                    /* is->video_st ? is->viddec.avctx->pts_correction_num_faulty_pts :*/ 0ll);
-//
-//            if (player->show_status == 1 && AV_LOG_INFO > av_log_get_level())
-//                fprintf(stderr, "%s", buf.str);
-//            else
-//                av_log(nullptr, AV_LOG_INFO, "%s", buf.str);
-//
-//            fflush(stderr);
-//            av_bprint_finalize(&buf, nullptr);
-//
-//            last_time = cur_time;
-//        }
-//    }
-//}
-
 
 int main(int argc, char *argv[]) {
     char *input_file = argv[1];
@@ -579,7 +510,6 @@ int main(int argc, char *argv[]) {
         render_callback->opacity = render_data;
         ffp_attach_video_render(player, render_callback);
     }
-    player->on_load_metadata = on_load_metadata;
     ffp_set_message_callback(player, [](CPlayer *player, int32_t what, int64_t arg1, int64_t arg2) {
         SDL_Event event;
         event.type = FF_MSG_EVENT;
@@ -595,18 +525,6 @@ int main(int argc, char *argv[]) {
     if (ffplayer_open_file(player, input_file) < 0) {
         av_log(nullptr, AV_LOG_FATAL, "failed to open file\n");
         do_exit(nullptr);
-    }
-
-    {
-        SDL_SetWindowTitle(window, "window_title");
-
-        int w = default_width, h = default_height;
-        printf("set_default_window_size : %d , %d \n", w, h);
-        SDL_SetWindowSize(window, w, h);
-        SDL_SetWindowPosition(window, screen_left, screen_top);
-        if (is_full_screen)
-            SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-        SDL_ShowWindow(window);
     }
 
     if (ffplayer_is_paused(player)) {

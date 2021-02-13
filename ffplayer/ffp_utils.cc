@@ -35,5 +35,10 @@ void calculate_display_rect(SDL_Rect *rect, int scr_xleft, int scr_ytop, int scr
 }
 
 void update_thread_name(const char *name) {
+#if __LINUX__
+    pthread_setname_np(pthread_self(), name);
+#else
     pthread_setname_np(name);
+#endif
+
 }

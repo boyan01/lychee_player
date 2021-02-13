@@ -24,8 +24,6 @@ public:
     bool find_stream_info = true;
     int seek_by_bytes = -1;
 
-    std::function<void()> on_load_metadata = nullptr;
-
     int64_t start_time = AV_NOPTS_VALUE;
 
     bool show_status = false;
@@ -39,6 +37,8 @@ public:
     PacketQueue *audio_queue;
     PacketQueue *video_queue;
     PacketQueue *subtitle_queue;
+
+    MessageContext *msg_ctx;
 
     Clock *ext_clock;
 
@@ -94,7 +94,7 @@ public:
 
     ~DataSource();
 
-    int Open(CPlayer *player);
+    int Open();
 
     void Close();
 
