@@ -1,22 +1,17 @@
-#include <SDL2/SDL.h>
+
+#ifdef _FLUTTER
+
+#include <list>
 
 #include "ffplayer.h"
 #include "ffp_utils.h"
 #include "ffp_player.h"
 
-#if _FLUTTER
+#include "ffp_flutter.h"
+#include "include/third_party/dart/dart_api_dl.h"
 
-#include "ffplayer/flutter.h"
-#include "third_party/dart/dart_api_dl.h"
-
-#endif
-
-#define CACHE_THRESHOLD_MIN_FRAMES 2
-
-/* options specified by the user */
-static AVInputFormat *file_iformat;
-
-extern AVPacket *flush_pkt;
+// hold all player instance. destroy all play when flutter app hot reloaded.
+static std::list<CPlayer *> *players_;
 
 static inline void on_buffered_update(CPlayer *player, double position) {
     int64_t mills = position * 1000;
@@ -243,15 +238,19 @@ int ffplayer_open_file(CPlayer *player, const char *filename) {
 }
 
 void ffplayer_free_player(CPlayer *player) {
-#ifdef _FLUTTER
-    flutter_on_pre_player_free(player);
+    if (players_) {
+        players_->remove(player);
+    }
     ffp_detach_video_render_flutter(player);
-#endif
     av_log(nullptr, AV_LOG_INFO, "free play, close stream %p \n", player);
     delete player;
 }
 
+
+extern AVPacket *flush_pkt;
+
 void ffplayer_global_init(void *arg) {
+    assert(arg);
     av_log_set_flags(AV_LOG_SKIP_REPEATED);
     av_log_set_level(AV_LOG_INFO);
     /* register all codecs, demux and protocols */
@@ -269,14 +268,15 @@ void ffplayer_global_init(void *arg) {
     av_init_packet(flush_pkt);
     flush_pkt->data = (uint8_t *) &flush_pkt;
 
-#ifdef _FLUTTER
-    assert(arg);
     Dart_InitializeApiDL(arg);
-    flutter_free_all_player([](CPlayer *player) {
-        av_log(nullptr, AV_LOG_INFO, "free play, close stream %p by flutter global \n", player);
-        stream_close(player);
-    });
-#endif
+
+    if (players_) {
+        for (auto player : *players_) {
+            av_log(nullptr, AV_LOG_INFO, "free play, close stream %p by flutter global \n", player);
+            ffplayer_free_player(player);
+        }
+        players_->clear();
+    }
 }
 
 
@@ -290,12 +290,14 @@ void ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int32
 CPlayer *ffp_create_player(FFPlayerConfiguration *config) {
     auto *player = new CPlayer;
     player->TogglePause();
-
-#ifdef _FLUTTER
-    flutter_on_post_player_created(player);
-#endif
     av_log(nullptr, AV_LOG_INFO, "malloc player, %p\n", player);
     player->start_configuration = *config;
+
+    if (!players_) {
+        players_ = new std::list<CPlayer *>;
+    }
+    players_->push_back(player);
+
     return player;
 }
 
@@ -339,21 +341,43 @@ const char *ffp_get_metadata_dict(CPlayer *player, const char *key) {
 #ifdef _FLUTTER
 
 int64_t ffp_attach_video_render_flutter(CPlayer *player) {
+#ifdef _FLUTTER_WINDOWS
     int64_t texture_id = flutter_attach_video_render(player);
     auto render_ctx = &player->video_render_ctx;
     if (render_ctx->render_callback_ && !render_ctx->render_thread_) {
         start_video_render(player);
     }
     return texture_id;
+#elif _FLUTTER_LINUX
+    return -1;
+#endif
 }
 
 void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
-    player->message_send_port = send_port;
+    player->SetMessageHandleCallback([send_port](int32_t what, int64_t arg1, int64_t arg2) {
+        // dart do not support int64_t array yet.
+        // thanks https://github.com/dart-lang/sdk/issues/44384#issuecomment-738708448
+        // so we pass an uint8_t array to dart isolate.
+        int64_t arrays[] = {arg1, arg1, arg2};
+        Dart_CObject dart_args = {};
+        memset(&dart_args, 0, sizeof(Dart_CObject));
+
+        dart_args.type = Dart_CObject_kTypedData;
+        dart_args.value.as_typed_data = {
+                .type = Dart_TypedData_kUint8,
+                .length = 3 * sizeof(int64_t),
+                .values = (uint8_t *) arrays};
+        Dart_PostCObject_DL(send_port, &dart_args);
+    });
 }
 
 void ffp_detach_video_render_flutter(CPlayer *player) {
-    CHECK_PLAYER(player);
+    CHECK_VALUE(player);
+#ifdef _FLUTTER_WINDOWS
     flutter_detach_video_render(player);
+#endif
 }
+
 #endif // _FLUTTER
 
+#endif // _FLUTTER

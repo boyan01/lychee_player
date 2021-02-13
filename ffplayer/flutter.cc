@@ -2,7 +2,7 @@
 // Created by boyan on 2021/1/24.
 //
 
-#ifdef _FLUTTER
+#if _FLUTTER && _FLUTTER_WINDOWS
 
 #include <list>
 #include <iostream>
@@ -25,32 +25,8 @@ static inline VideoRenderData *get_render_data(VideoRender *render_ctx) {
     return static_cast<VideoRenderData *>(render_ctx->render_callback_->opacity);
 }
 
-static std::list<CPlayer *> *players_;
 static flutter::TextureRegistrar *textures_;
 
-void flutter_on_post_player_created(CPlayer *player) {
-    if (!players_) {
-        players_ = new std::list<CPlayer *>;
-    }
-    players_->push_back(player);
-}
-
-void flutter_on_pre_player_free(CPlayer *player) {
-    if (!players_) {
-        return;
-    }
-    players_->remove(player);
-}
-
-void flutter_free_all_player(void (*free_handle)(CPlayer *)) {
-    if (!players_) {
-        return;
-    }
-    for (auto player : *players_) {
-        free_handle(player);
-    }
-    players_->clear();
-}
 
 
 void render_frame(VideoRenderData *render_data, VideoRender *render_ctx, Frame *frame) {

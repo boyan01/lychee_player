@@ -6,6 +6,7 @@
 #define FFPLAYER_FFP_PLAYER_H
 
 #include <memory>
+#include <functional>
 
 #include "ffplayer.h"
 #include "ffp_packet_queue.h"
@@ -59,10 +60,6 @@ public:
 
     SDL_Thread *msg_tid = nullptr;
     FFPlayerState state = FFP_STATE_IDLE;
-
-#ifdef _FLUTTER
-    Dart_Port message_send_port;
-#endif
 
     bool paused = false;
 

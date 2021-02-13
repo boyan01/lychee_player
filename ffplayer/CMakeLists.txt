@@ -51,14 +51,13 @@ add_library(ffplayer SHARED
         ffp_utils.cc
         ffp_player.h
         ffp_player.cc
+        ffp_flutter.h
+        ffp_flutter.cc
         ffplayer.h
-        ffplayer.cc
         "include/third_party/dart/dart_api_dl.c"
         "flutter.cc")
 
 find_library(LIBSDL2 SDL2 REQUIRED)
-
-target_include_directories(ffplayer PUBLIC ffplayer.h)
 
 find_library(LIBAVUTIL avutil REQUIRED)
 find_library(LIBAVCODEC avcodec REQUIRED)
@@ -77,9 +76,12 @@ list(APPEND FFP_LIBS ${LIBAVUTIL}
         ${LIBSWRESAMPLE}
         ${LIBSDL2}
         )
+if (FLUTTER)
+    list(APPEND FFP_LIBS flutter)
+endif ()
 
 if (CMAKE_FLUTTER_WINDOWS)
-    list(APPEND FFP_LIBS flutter flutter_wrapper_plugin)
+    list(APPEND FFP_LIBS flutter_wrapper_plugin)
 endif ()
 
 if (UNIX)
@@ -88,14 +90,16 @@ if (UNIX)
 endif ()
 target_link_libraries(ffplayer PUBLIC ${FFP_LIBS})
 
-find_library(LIBSDL2MAIN SDL2main REQUIRED)
-add_executable(ffplay_example "ffplay.cc")
-add_dependencies(ffplay_example ffplayer)
-target_include_directories(ffplay_example PUBLIC include)
-target_link_libraries(ffplay_example PUBLIC ffplayer ${LIBSDL2MAIN})
+if (!FLUTTER)
+    find_library(LIBSDL2MAIN SDL2main REQUIRED)
+    add_executable(ffplay_example "ffplay.cc")
+    add_dependencies(ffplay_example ffplayer)
+    target_include_directories(ffplay_example PUBLIC include)
+    target_link_libraries(ffplay_example PUBLIC ffplayer ${LIBSDL2MAIN})
 
-if (WIN32)
-    if (CMAKE_FLUTTER_WINDOWS)
-        set_property(TARGET ffplay_example APPEND PROPERTY LINK_FLAGS "/NODEFAULTLIB:MSVCRT")
+    if (WIN32)
+        if (CMAKE_FLUTTER_WINDOWS)
+            set_property(TARGET ffplay_example APPEND PROPERTY LINK_FLAGS "/NODEFAULTLIB:MSVCRT")
+        endif ()
     endif ()
 endif ()

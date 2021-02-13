@@ -1,15 +1,18 @@
 cmake_minimum_required(VERSION 3.10)
-set(PROJECT_NAME "audio_player")
+set(PROJECT_NAME "av_player")
 project(${PROJECT_NAME} LANGUAGES CXX)
 
 # This value is used when generating builds using this plugin, so it must
 # not be changed
-set(PLUGIN_NAME "audio_player_plugin")
+set(PLUGIN_NAME "${PROJECT_NAME}_plugin")
 
 add_library(${PLUGIN_NAME} SHARED
-        "audio_player_plugin.cc"
+        "av_player_plugin.cc"
         )
+
+set(FLUTTER "1")
 add_compile_definitions(_FLUTTER)
+add_compile_definitions(_FLUTTER_LINUX)
 add_subdirectory(../ffplayer ffplayer.out)
 
 set_target_properties(ffplayer
@@ -32,7 +35,7 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE ffplayer)
 add_dependencies(${PLUGIN_NAME} ffplayer)
 
 # List of absolute paths to libraries that should be bundled with the plugin
-set(audio_player_bundled_libraries
+set(${PROJECT_NAME}_bundled_libraries
         "$<TARGET_FILE:ffplayer>"
         PARENT_SCOPE
         )

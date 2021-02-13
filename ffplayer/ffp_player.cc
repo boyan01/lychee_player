@@ -4,8 +4,6 @@
 
 #include "ffp_player.h"
 
-#include <utility>
-
 extern "C" {
 #include "libavutil/bprint.h"
 }
@@ -44,7 +42,6 @@ CPlayer::CPlayer() {
 }
 
 CPlayer::~CPlayer() {
-
 }
 
 void CPlayer::TogglePause() {
@@ -228,3 +225,4 @@ const char *CPlayer::GetMetadataDict(const char *key) {
     CHECK_VALUE_WITH_RETURN(data_source, nullptr);
     return data_source->GetMetadataDict(key);
 }
+

@@ -11,7 +11,7 @@ G_BEGIN_DECLS
 #define FLUTTER_PLUGIN_EXPORT
 #endif
 
-FLUTTER_PLUGIN_EXPORT void audio_player_plugin_register_with_registrar(
+FLUTTER_PLUGIN_EXPORT void av_player_plugin_register_with_registrar(
     FlPluginRegistrar* registrar);
 
 G_END_DECLS
