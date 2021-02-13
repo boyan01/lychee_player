@@ -86,11 +86,9 @@ double ClockContext::GetMasterClock() {
     }
 }
 
-ClockContext::ClockContext() = default;
-
-void ClockContext::Init(int *audio_queue_serial, int *video_queue_serial, std::function<int(int)> sync_type_confirm) {
+ClockContext::ClockContext(int *audio_queue_serial, int *video_queue_serial, std::function<int(int)> sync_type_confirm)
+        : sync_type_confirm_(std::move(sync_type_confirm)) {
     audio_clock_->Init(audio_queue_serial);
     video_clock_->Init(video_queue_serial);
     ext_clock_->Init(&ext_clock_->serial);
-    sync_type_confirm_ = std::move(sync_type_confirm);
 }

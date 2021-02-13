@@ -3,6 +3,8 @@
 //
 
 #include "ffp_decoder.h"
+
+#include <utility>
 #include "ffp_define.h"
 
 extern "C" {
@@ -307,4 +309,19 @@ int DecoderContext::GetVideoFrame(AVFrame *frame) {
         }
     }
     return got_picture;
+}
+
+DecoderContext::DecoderContext(std::shared_ptr<AudioRender> audio_render_, std::shared_ptr<VideoRender> video_render_,
+                               std::shared_ptr<ClockContext> clock_ctx_)
+        : audio_render(std::move(audio_render_)), video_render(std::move(video_render_)),
+          clock_ctx(std::move(clock_ctx_)) {
+    audio_decoder = new Decoder;
+    video_decoder = new Decoder;
+    subtitle_decoder = new Decoder;
+}
+
+DecoderContext::~DecoderContext() {
+    delete audio_decoder;
+    delete video_decoder;
+    delete subtitle_decoder;
 }

@@ -62,9 +62,9 @@ private:
 
     double audio_diff_threshold = 0;
 
-    ClockContext *clock_ctx_ = nullptr;
+    std::shared_ptr<ClockContext> clock_ctx_;
 
-    FrameQueue *sample_queue = nullptr;
+    std::unique_ptr<FrameQueue> sample_queue;
 
 public:
 
@@ -88,9 +88,7 @@ private:
 
 public:
 
-    AudioRender();
-
-    void Init(PacketQueue *audio_queue, ClockContext *clock_ctx);
+    AudioRender(const std::shared_ptr<PacketQueue>& audio_queue, std::shared_ptr<ClockContext> clock_ctx);
 
     ~AudioRender();
 

@@ -83,10 +83,6 @@ public:
      */
     int low_res = 0;
     bool fast = false;
-    AudioRender *audio_render = nullptr;
-    VideoRender *video_render = nullptr;
-
-    ClockContext *clock_ctx = nullptr;
 
     int frame_drop_count = 0;
 
@@ -97,6 +93,12 @@ private:
 
     //TODO: pass to video_thread direacty.
     DecodeParams video_decode_params{};
+
+
+    std::shared_ptr<AudioRender> audio_render;
+    std::shared_ptr<VideoRender> video_render;
+
+    std::shared_ptr<ClockContext> clock_ctx;
 
 private:
     int StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx, const DecodeParams *decode_params);
@@ -109,17 +111,10 @@ private:
 
 public:
 
-    DecoderContext() {
-        audio_decoder = new Decoder;
-        video_decoder = new Decoder;
-        subtitle_decoder = new Decoder;
-    }
+    DecoderContext(std::shared_ptr<AudioRender> audio_render_, std::shared_ptr<VideoRender> video_render_,
+                   std::shared_ptr<ClockContext> clock_ctx_);
 
-    ~DecoderContext() {
-        delete audio_decoder;
-        delete video_decoder;
-        delete subtitle_decoder;
-    }
+    ~DecoderContext();
 
     int StartDecoder(const DecodeParams *decode_params);
 

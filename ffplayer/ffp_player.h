@@ -15,31 +15,31 @@
 #include "ffp_audio_render.h"
 #include "ffp_video_render.h"
 
-typedef enum FFPlayerState_ {
+enum FFPlayerState {
     FFP_STATE_IDLE = 0,
     FFP_STATE_READY,
     FFP_STATE_BUFFERING,
     FFP_STATE_END
-} FFPlayerState;
+};
 
 struct CPlayer {
 
 private:
 
-    const std::unique_ptr<PacketQueue> audio_pkt_queue = std::unique_ptr<PacketQueue>(new PacketQueue);
-    const std::unique_ptr<PacketQueue> video_pkt_queue = std::unique_ptr<PacketQueue>(new PacketQueue);
-    const std::unique_ptr<PacketQueue> subtitle_pkt_queue = std::unique_ptr<PacketQueue>(new PacketQueue);
+    std::shared_ptr<PacketQueue> audio_pkt_queue;
+    std::shared_ptr<PacketQueue> video_pkt_queue;
+    std::shared_ptr<PacketQueue> subtitle_pkt_queue;
 
-    const std::unique_ptr<ClockContext> clock_context = std::unique_ptr<ClockContext>(new ClockContext);
+    std::shared_ptr<ClockContext> clock_context;
 
-    DataSource *data_source = nullptr;
+    std::unique_ptr<DataSource> data_source;
 
-    const std::unique_ptr<DecoderContext> decoder_context = std::unique_ptr<DecoderContext>(new DecoderContext);
+    std::unique_ptr<DecoderContext> decoder_context;
 
-    const std::unique_ptr<AudioRender> audio_render = std::unique_ptr<AudioRender>(new AudioRender);
-    const std::unique_ptr<VideoRender> video_render = std::unique_ptr<VideoRender>(new VideoRender);
+    std::shared_ptr<AudioRender> audio_render;
+    std::shared_ptr<VideoRender> video_render;
 
-    const std::shared_ptr<MessageContext> message_context = std::make_shared<MessageContext>();
+    std::shared_ptr<MessageContext> message_context;
 
     void DumpStatus();
 

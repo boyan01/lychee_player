@@ -3,6 +3,7 @@
 //
 
 #include <cmath>
+#include <utility>
 
 #include "ffplayer.h"
 #include "ffp_video_render.h"
@@ -42,14 +43,6 @@ bool VideoRender::Start() {
     return true;
 }
 
-void VideoRender::Stop() {
-    abort_render = true;
-    if (render_thread_ && render_thread_->joinable()) {
-        render_thread_->join();
-    }
-    delete render_thread_;
-    delete render_mutex_;
-}
 
 /**
  * called to display each frame
@@ -171,18 +164,21 @@ int VideoRender::PushFrame(AVFrame *src_frame, double pts, double duration, int 
     return 0;
 }
 
-VideoRender::VideoRender() {
-    picture_queue = new FrameQueue;
+
+VideoRender::VideoRender(const std::shared_ptr<PacketQueue> &video_queue, std::shared_ptr<ClockContext> clock_ctx,
+                         std::shared_ptr<MessageContext> msg_ctx)
+        : clock_context(std::move(clock_ctx)), msg_ctx_(std::move(msg_ctx)) {
+    picture_queue = std::make_unique<FrameQueue>();
+    picture_queue->Init(video_queue.get(), VIDEO_PICTURE_QUEUE_SIZE, 1);
 }
 
 VideoRender::~VideoRender() {
-    delete picture_queue;
-}
-
-void VideoRender::Init(PacketQueue *video_queue, ClockContext *clock_ctx, std::shared_ptr<MessageContext> msg_ctx) {
-    clock_context = clock_ctx;
-    msg_ctx_ = std::move(msg_ctx);
-    picture_queue->Init(video_queue, VIDEO_PICTURE_QUEUE_SIZE, 1);
+    abort_render = true;
+    if (render_thread_ && render_thread_->joinable()) {
+        render_thread_->join();
+    }
+    delete render_thread_;
+    delete render_mutex_;
 }
 
 void VideoRender::VideoRenderThread() {

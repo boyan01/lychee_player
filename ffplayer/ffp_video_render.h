@@ -44,7 +44,7 @@ public:
 
     int frame_drop_count = 0;
 
-    ClockContext *clock_context = nullptr;
+    std::shared_ptr<ClockContext> clock_context;
 
     double max_frame_duration = 3600;  // maximum duration of a frame - above this, we consider the jump a timestamp discontinuity
 
@@ -54,14 +54,14 @@ public:
     bool paused_ = false;
 
 private:
-    FrameQueue *picture_queue = nullptr;
+    std::unique_ptr<FrameQueue> picture_queue;
     std::thread *render_thread_ = nullptr;
     std::mutex *render_mutex_ = nullptr;
 
 
     bool force_refresh_ = false;
 
-    std::shared_ptr<MessageContext> msg_ctx_{};
+    std::shared_ptr<MessageContext> msg_ctx_;
 
 private:
 
@@ -75,15 +75,12 @@ private:
 
 public:
 
-    VideoRender();
+    VideoRender(const std::shared_ptr<PacketQueue>& video_queue, std::shared_ptr<ClockContext> clock_ctx,
+                std::shared_ptr<MessageContext> msg_ctx);
 
     ~VideoRender();
 
-    void Init(PacketQueue *video_queue, ClockContext *clock_ctx, std::shared_ptr<MessageContext> msg_ctx);
-
     bool Start();
-
-    void Stop();
 
     double DrawFrame();
 

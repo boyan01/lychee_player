@@ -55,12 +55,16 @@ int DataSource::Open() {
     return 0;
 }
 
-void DataSource::Close() {
-
-}
 
 DataSource::~DataSource() {
     av_free(filename);
+    if (read_tid) {
+        abort_request = true;
+        read_tid->join();
+    }
+    if (format_ctx_) {
+        avformat_free_context(format_ctx_);
+    }
 }
 
 void DataSource::ReadThread() {

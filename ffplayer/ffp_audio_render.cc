@@ -7,6 +7,7 @@
 #include <string>
 
 #include <cmath>
+#include <utility>
 
 extern "C" {
 #include <libswresample/swresample.h>
@@ -341,17 +342,16 @@ void AudioRender::Pause() const {
     SDL_PauseAudioDevice(audio_dev, 1);
 }
 
-AudioRender::AudioRender() {
-    sample_queue = new FrameQueue;
+AudioRender::AudioRender(const std::shared_ptr<PacketQueue> &audio_queue, std::shared_ptr<ClockContext> clock_ctx)
+        : clock_ctx_(std::move(clock_ctx)) {
+    sample_queue = std::make_unique<FrameQueue>();
+    sample_queue->Init(audio_queue.get(), SAMPLE_QUEUE_SIZE, 1);
 }
 
 AudioRender::~AudioRender() {
-    delete sample_queue;
-}
-
-void AudioRender::Init(PacketQueue *audio_queue, ClockContext *clock_ctx) {
-    sample_queue->Init(audio_queue, SAMPLE_QUEUE_SIZE, 1);
-    clock_ctx_ = clock_ctx;
+    SDL_CloseAudioDevice(audio_dev);
+    swr_free(&swr_ctx);
+    av_freep(&audio_buf1);
 }
 
 bool AudioRender::IsMute() const { return mute; }

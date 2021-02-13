@@ -87,21 +87,27 @@ int PacketQueue::PutNullPacket(int stream_index) {
     return Put(pkt);
 }
 
-int PacketQueue::Init() {
-    memset(this, 0, sizeof(PacketQueue));
+
+PacketQueue::PacketQueue() {
     mutex = SDL_CreateMutex();
     if (!mutex) {
         av_log(nullptr, AV_LOG_FATAL, "SDL_CreateMutex(): %s\n", SDL_GetError());
-        return AVERROR(ENOMEM);
     }
     cond = SDL_CreateCond();
     if (!cond) {
         av_log(nullptr, AV_LOG_FATAL, "SDL_CreateCond(): %s\n", SDL_GetError());
-        return AVERROR(ENOMEM);
     }
     abort_request = 1;
-    return 0;
 }
+
+
+PacketQueue::~PacketQueue() {
+    Flush();
+    Abort();
+    SDL_DestroyMutex(mutex);
+    SDL_DestroyCond(cond);
+}
+
 
 void PacketQueue::Flush() {
     MyAVPacketList *pkt, *pkt1;
@@ -118,12 +124,6 @@ void PacketQueue::Flush() {
     size = 0;
     duration = 0;
     SDL_UnlockMutex(mutex);
-}
-
-void PacketQueue::Destroy() {
-    Flush();
-    SDL_DestroyMutex(mutex);
-    SDL_DestroyCond(cond);
 }
 
 int PacketQueue::Put_(AVPacket *pkt) {

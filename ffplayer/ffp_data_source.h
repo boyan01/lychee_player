@@ -96,8 +96,6 @@ public:
 
     int Open();
 
-    void Close();
-
     bool ContainVideoStream();
 
     bool ContainAudioStream();

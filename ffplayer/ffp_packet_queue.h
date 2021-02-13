@@ -2,8 +2,8 @@
 // Created by boyan on 2021/1/23.
 //
 
-#ifndef FFPLAYER_FFPLAYER_PACKET_QUEUE_H
-#define FFPLAYER_FFPLAYER_PACKET_QUEUE_H
+#ifndef FFP_PACKET_QUEUE_H
+#define FFP_PACKET_QUEUE_H
 
 extern "C" {
 #include "SDL2/SDL.h"
@@ -17,7 +17,7 @@ typedef struct MyAVPacketList {
 } MyAVPacketList;
 
 typedef struct PacketQueue {
-    MyAVPacketList *first_pkt, *last_pkt = nullptr;
+    MyAVPacketList *first_pkt = nullptr, *last_pkt = nullptr;
     int nb_packets = 0;
     int size = 0;
     int64_t duration = 0;
@@ -30,15 +30,15 @@ private:
 
 public:
 
+    PacketQueue();
+
+    ~PacketQueue();
+
     int Put(AVPacket *pkt);
 
     int PutNullPacket(int stream_index);
 
-    int Init();
-
     void Flush();
-
-    void Destroy();
 
     void Abort();
 
@@ -49,4 +49,4 @@ public:
 } PacketQueue;
 
 
-#endif //FFPLAYER_FFPLAYER_PACKET_QUEUE_H
+#endif //FFP_PACKET_QUEUE_H
