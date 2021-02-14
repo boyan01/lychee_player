@@ -30,33 +30,34 @@ if (APPLE)
 endif ()
 
 add_library(ffplayer SHARED
-        ffp_define.h
-        ffp_msg_queue.h
-        ffp_msg_queue.cc
-        ffp_packet_queue.h
-        ffp_packet_queue.cc
-        ffp_decoder.h
-        ffp_decoder.cc
-        render_base.h
-        ffp_frame_queue.h
-        ffp_frame_queue.cc
-        ffp_video_render.h
-        ffp_video_render.cc
-        ffp_audio_render.h
-        ffp_audio_render.cc
-        ffp_clock.h
-        ffp_clock.cc
-        ffp_data_source.h
-        ffp_data_source.cc
-        ffp_utils.h
-        ffp_utils.cc
-        ffp_player.h
-        ffp_player.cc
-        ffp_flutter.h
-        ffp_flutter.cc
-        ffplayer.h
-        "include/third_party/dart/dart_api_dl.c"
-        "flutter.cc")
+        src/ffp_define.h
+        src/ffp_msg_queue.h
+        src/ffp_msg_queue.cc
+        src/ffp_packet_queue.h
+        src/ffp_packet_queue.cc
+        src/ffp_decoder.h
+        src/ffp_decoder.cc
+        src/render_base.h
+        src/ffp_frame_queue.h
+        src/ffp_frame_queue.cc
+        src/ffp_video_render.h
+        src/ffp_video_render.cc
+        src/ffp_audio_render.h
+        src/ffp_audio_render.cc
+        src/ffp_clock.h
+        src/ffp_clock.cc
+        src/ffp_data_source.h
+        src/ffp_data_source.cc
+        src/ffp_utils.h
+        src/ffp_utils.cc
+        src/ffp_player.h
+        src/ffp_player.cc
+        src/ffp_flutter.h
+        src/ffp_flutter.cc
+        src/ffplayer.h
+        src/flutter.cc
+        "third_party/dart/dart_api_dl.c"
+        )
 
 find_library(LIBSDL2 SDL2 REQUIRED)
 
@@ -94,7 +95,7 @@ target_link_libraries(ffplayer PUBLIC ${FFP_LIBS})
 if (FLUTTER)
 else ()
     find_library(LIBSDL2MAIN SDL2main REQUIRED)
-    add_executable(ffplay_example "ffplay.cc")
+    add_executable(ffplay_example "src/ffplay.cc")
     add_dependencies(ffplay_example ffplayer)
     target_include_directories(ffplay_example PUBLIC include)
     target_link_libraries(ffplay_example PUBLIC ffplayer ${LIBSDL2MAIN})
