@@ -12,7 +12,7 @@ if (WIN32)
     set(CMAKE_SYSTEM_NAME "WindowsStore")
 endif ()
 
-project("ffplayer" "CXX" "C")
+project("ffp" "CXX")
 set(CMAKE_CXX_STANDARD 14)
 
 if (WIN32)
@@ -56,6 +56,12 @@ add_library(ffplayer SHARED
         src/ffp_flutter.cc
         src/ffplayer.h
         src/flutter.cc
+        src/decoder_base.h
+        src/decoder_base.cc
+        src/decoder_audio.h
+        src/decoder_audio.cc
+        src/decoder_video.h
+        src/decoder_video.cc
         "third_party/dart/dart_api_dl.c"
         )
 

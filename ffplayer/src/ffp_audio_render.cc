@@ -372,6 +372,6 @@ int AudioRender::GetVolume() const {
 }
 
 void AudioRender::Abort() {
-
+    sample_queue->Signal();
 }
 

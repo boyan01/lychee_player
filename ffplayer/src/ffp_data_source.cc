@@ -58,8 +58,9 @@ int DataSource::Open() {
 
 DataSource::~DataSource() {
     av_free(filename);
-    if (read_tid) {
+    if (read_tid && read_tid->joinable()) {
         abort_request = true;
+        continue_read_thread_->notify_all();
         read_tid->join();
     }
     if (format_ctx_) {
@@ -87,6 +88,8 @@ void DataSource::ReadThread() {
         return;
     }
     ReadStreams(&wait_mutex);
+
+    av_log(nullptr, AV_LOG_INFO, "thread: read_source done.\n");
 }
 
 int DataSource::PrepareFormatContext() {

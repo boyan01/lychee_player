@@ -272,7 +272,7 @@ double VideoRender::GetVideoAspectRatio() const {
 }
 
 void VideoRender::Abort() {
-
+    picture_queue->Signal();
 }
 
 static void check_external_clock_speed() {
