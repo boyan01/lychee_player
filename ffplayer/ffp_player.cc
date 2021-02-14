@@ -80,9 +80,9 @@ int CPlayer::OpenDataSource(const char *filename) {
     }
 
     data_source = std::make_unique<DataSource>(filename, nullptr);
-    data_source->audio_queue = audio_pkt_queue.get();
-    data_source->video_queue = video_pkt_queue.get();
-    data_source->subtitle_queue = subtitle_pkt_queue.get();
+    data_source->audio_queue = audio_pkt_queue;
+    data_source->video_queue = video_pkt_queue;
+    data_source->subtitle_queue = subtitle_pkt_queue;
     data_source->ext_clock = clock_context->GetAudioClock();
     data_source->decoder_ctx = decoder_context.get();
     data_source->msg_ctx = message_context.get();

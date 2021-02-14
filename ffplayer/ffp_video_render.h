@@ -14,6 +14,7 @@
 #include "ffp_msg_queue.h"
 #include "ffp_frame_queue.h"
 #include "ffp_define.h"
+#include "render_base.h"
 
 struct FFP_VideoRenderCallback {
 
@@ -30,7 +31,7 @@ struct FFP_VideoRenderCallback {
 
 };
 
-class VideoRender {
+class VideoRender : public BaseRender {
 public:
     bool abort_render = false;
     bool render_attached = false;
@@ -43,6 +44,7 @@ public:
     int framedrop = -1;
 
     int frame_drop_count = 0;
+    int frame_drop_count_pre = 0;
 
     std::shared_ptr<ClockContext> clock_context;
 
@@ -75,12 +77,14 @@ private:
 
 public:
 
-    VideoRender(const std::shared_ptr<PacketQueue>& video_queue, std::shared_ptr<ClockContext> clock_ctx,
+    VideoRender(const std::shared_ptr<PacketQueue> &video_queue, std::shared_ptr<ClockContext> clock_ctx,
                 std::shared_ptr<MessageContext> msg_ctx);
 
     ~VideoRender();
 
     bool Start();
+
+    void Abort() override;
 
     double DrawFrame();
 

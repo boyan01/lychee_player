@@ -133,6 +133,19 @@ double VideoRender::DrawFrame() {
 }
 
 int VideoRender::PushFrame(AVFrame *src_frame, double pts, double duration, int pkt_serial) {
+
+    if (framedrop > 0 || (framedrop && clock_context->GetMasterSyncType() != AV_SYNC_VIDEO_MASTER)) {
+        if (src_frame->pts != AV_NOPTS_VALUE) {
+            double diff = pts - clock_context->GetMasterClock();
+            if (!isnan(diff) && fabs(diff) < AV_NOSYNC_THRESHOLD && diff < 0 &&
+                pkt_serial == clock_context->GetVideoClock()->serial &&
+                picture_queue->pktq->nb_packets) {
+                frame_drop_count_pre++;
+                return 0;
+            }
+        }
+    }
+
     auto *vp = picture_queue->PeekWritable();
     if (!vp) {
         return -1;
@@ -256,6 +269,10 @@ double VideoRender::GetVideoAspectRatio() const {
         return 0;
     }
     return ((double) frame_width) / frame_height;
+}
+
+void VideoRender::Abort() {
+
 }
 
 static void check_external_clock_speed() {

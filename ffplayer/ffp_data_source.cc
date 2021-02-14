@@ -20,7 +20,7 @@ extern AVPacket *flush_pkt;
 
 static const AVRational av_time_base_q_ = {1, AV_TIME_BASE};
 
-static int stream_has_enough_packets(AVStream *st, int stream_id, PacketQueue *queue) {
+static inline int stream_has_enough_packets(AVStream *st, int stream_id, const std::shared_ptr<PacketQueue> &queue) {
     return stream_id < 0 ||
            queue->abort_request ||
            (st->disposition & AV_DISPOSITION_ATTACHED_PIC) ||
@@ -40,13 +40,13 @@ static int is_realtime(AVFormatContext *s) {
 DataSource::DataSource(const char *filename, AVInputFormat *format) : in_format(format) {
     memset(wanted_stream_spec, 0, sizeof wanted_stream_spec);
     this->filename = av_strdup(filename);
+    continue_read_thread_ = std::make_shared<std::condition_variable_any>();
 }
 
 int DataSource::Open() {
     if (!filename) {
         return -1;
     }
-    continue_read_thread_ = new std::condition_variable_any();
     read_tid = new std::thread(&DataSource::ReadThread, this);
     if (!read_tid) {
         av_log(nullptr, AV_LOG_FATAL, "can not create thread for video render.\n");
@@ -64,6 +64,7 @@ DataSource::~DataSource() {
     }
     if (format_ctx_) {
         avformat_free_context(format_ctx_);
+        format_ctx_ = nullptr;
     }
 }
 
@@ -102,7 +103,6 @@ int DataSource::PrepareFormatContext() {
     auto err = avformat_open_input(&format_ctx_, filename, in_format, nullptr);
     if (err < 0) {
         av_log(nullptr, AV_LOG_ERROR, "can not open file %s: %s", filename, av_err2str(err));
-        avformat_free_context(format_ctx_);
         return -1;
     }
 
@@ -234,28 +234,25 @@ int DataSource::OpenComponentStream(int stream_index, AVMediaType media_type) {
     }
     auto stream = format_ctx_->streams[stream_index];
 
-    DecodeParams params;
+    std::unique_ptr<DecodeParams> params;
     switch (media_type) {
         case AVMEDIA_TYPE_VIDEO:
-            params.pkt_queue = video_queue;
+            params = std::make_unique<DecodeParams>(video_queue, continue_read_thread_, &format_ctx_, stream_index);
             break;
         case AVMEDIA_TYPE_AUDIO:
-            params.pkt_queue = audio_queue;
-            params.audio_follow_stream_start_pts =
+            params = std::make_unique<DecodeParams>(audio_queue, continue_read_thread_, &format_ctx_, stream_index);
+            params->audio_follow_stream_start_pts =
                     (format_ctx_->iformat->flags & (AVFMT_NOBINSEARCH | AVFMT_NOGENSEARCH | AVFMT_NO_BYTE_SEEK))
                     && format_ctx_->iformat->read_seek;
             break;
         case AVMEDIA_TYPE_SUBTITLE:
-            params.pkt_queue = subtitle_queue;
+            params = std::make_unique<DecodeParams>(subtitle_queue, continue_read_thread_, &format_ctx_, stream_index);
             break;
         default:
             return -1;
     }
-    params.read_condition = this->continue_read_thread_;
-    params.stream = stream;
-    params.format_ctx = format_ctx_;
 
-    if (decoder_ctx->StartDecoder(&params) >= 0) {
+    if (decoder_ctx->StartDecoder(std::move(params)) >= 0) {
         switch (media_type) {
             case AVMEDIA_TYPE_VIDEO:
                 video_stream_index = stream_index;

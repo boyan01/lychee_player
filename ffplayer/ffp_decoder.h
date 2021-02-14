@@ -13,6 +13,7 @@
 #include "ffp_define.h"
 #include "ffp_audio_render.h"
 #include "ffp_video_render.h"
+#include "render_base.h"
 
 extern "C" {
 #include "libavcodec/avcodec.h"
@@ -21,35 +22,100 @@ extern "C" {
 
 
 struct DecodeParams {
-    AVStream *stream = nullptr;
-    PacketQueue *pkt_queue = nullptr;
-    std::condition_variable_any *read_condition = nullptr;
-    AVFormatContext *format_ctx = nullptr;
+    std::shared_ptr<PacketQueue> pkt_queue;
+    std::shared_ptr<std::condition_variable_any> read_condition;
+    AVFormatContext *const *format_ctx;
+    int stream_index = -1;
     bool audio_follow_stream_start_pts;
+public:
+    DecodeParams(std::shared_ptr<PacketQueue> pkt_queue_,
+                 std::shared_ptr<std::condition_variable_any> read_condition_,
+                 AVFormatContext *const *format_ctx_,
+                 int stream_index_
+    ) : pkt_queue(std::move(pkt_queue_)),
+        read_condition(read_condition_),
+        format_ctx(format_ctx_),
+        stream_index(stream_index_) {
+    }
+
+    AVStream *stream() {
+        if (!*format_ctx) {
+            return nullptr;
+        } else {
+            return (*format_ctx)->streams[stream_index];
+        }
+    }
+
 };
 
-typedef struct Decoder {
+template<class T>
+class Decoder {
+    static_assert(std::is_base_of<BaseRender, T>::value, "T must inherit from BaseRender");
+public:
     AVPacket pkt{0};
-    PacketQueue *queue = nullptr;
-    AVCodecContext *avctx = nullptr;
-    int pkt_serial = 0;
+    unique_ptr_d<AVCodecContext> avctx;
+    int pkt_serial = -1;
     int finished = 0;
     int packet_pending = 0;
-    std::condition_variable_any *empty_queue_cond;
-    int64_t start_pts = 0;
+    int64_t start_pts = AV_NOPTS_VALUE;
     AVRational start_pts_tb{0};
     int64_t next_pts = 0;
     AVRational next_pts_tb;
     SDL_Thread *decoder_tid = nullptr;
     int decoder_reorder_pts = -1;
     std::function<void()> on_frame_decode_block = nullptr;
+    std::shared_ptr<T> render;
+    std::unique_ptr<DecodeParams> decode_params;
+
+private:
+
+    int Start(int (*fn)(void *), void *arg) {
+        decode_params->pkt_queue->Start();
+        decoder_tid = SDL_CreateThread(fn, debug_label(), arg);
+        if (!decoder_tid) {
+            av_log(nullptr, AV_LOG_ERROR, "SDL_CreateThread(): %s\n", SDL_GetError());
+            return AVERROR(ENOMEM);
+        }
+        return 0;
+    }
+
+protected:
+
+    const std::shared_ptr<PacketQueue> &queue() {
+        return decode_params->pkt_queue;
+    }
+
+    const std::shared_ptr<std::condition_variable_any> &empty_queue_cond() {
+        return decode_params->read_condition;
+    }
+
+    int DecodeFrame(AVFrame *frame, AVSubtitle *sub);
+
+    virtual const char *debug_label() = 0;
+
+    virtual int DecodeThread() = 0;
+
+    void Start() {
+        Start([](void *arg) {
+            auto *decoder = static_cast<Decoder<T> *>(arg);
+            return decoder->DecodeThread();
+        }, this);
+    }
 
 public:
-    void Init(AVCodecContext *av_codec_ctx, PacketQueue *_queue, std::condition_variable_any *_empty_queue_cond);
 
-    void Destroy() {
-        av_packet_unref(&pkt);
-        avcodec_free_context(&avctx);
+    Decoder(unique_ptr_d<AVCodecContext> codec_context,
+            std::unique_ptr<DecodeParams> decode_params_,
+            std::shared_ptr<T> render_)
+            : decode_params(std::move(decode_params_)), avctx(std::move(codec_context)),
+              render(std::move(render_)) {
+    }
+
+    ~Decoder() {
+        queue()->Abort();
+        render->Abort();
+        SDL_WaitThread(decoder_tid, nullptr);
+        queue()->Flush();
     }
 
     void Abort(FrameQueue *fq) {
@@ -61,20 +127,8 @@ public:
         d->queue->Flush();
     }
 
-} Decoder;
+};
 
-
-int decoder_decode_frame(Decoder *d, AVFrame *frame, AVSubtitle *sub);
-
-static int decoder_start(Decoder *d, int (*fn)(void *), const char *thread_name, void *arg) {
-    d->queue->Start();
-    d->decoder_tid = SDL_CreateThread(fn, thread_name, arg);
-    if (!d->decoder_tid) {
-        av_log(nullptr, AV_LOG_ERROR, "SDL_CreateThread(): %s\n", SDL_GetError());
-        return AVERROR(ENOMEM);
-    }
-    return 0;
-}
 
 class DecoderContext {
 public:
@@ -87,13 +141,9 @@ public:
     int frame_drop_count = 0;
 
 private:
-    Decoder *audio_decoder = nullptr;
-    Decoder *video_decoder = nullptr;
-    Decoder *subtitle_decoder = nullptr;
-
-    //TODO: pass to video_thread direacty.
-    DecodeParams video_decode_params{};
-
+    std::unique_ptr<Decoder<AudioRender>> audio_decoder;
+    std::unique_ptr<Decoder<VideoRender>> video_decoder;
+//    Decoder<void> *subtitle_decoder = nullptr;
 
     std::shared_ptr<AudioRender> audio_render;
     std::shared_ptr<VideoRender> video_render;
@@ -101,13 +151,7 @@ private:
     std::shared_ptr<ClockContext> clock_ctx;
 
 private:
-    int StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx, const DecodeParams *decode_params);
-
-    int AudioThread() const;
-
-    void StartVideoDecoder(unique_ptr_d<AVCodecContext> codec_ctx, const DecodeParams *decode_params);
-
-    int VideoThread();
+    int StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx, std::unique_ptr<DecodeParams> decode_params);
 
 public:
 
@@ -116,9 +160,8 @@ public:
 
     ~DecoderContext();
 
-    int StartDecoder(const DecodeParams *decode_params);
+    int StartDecoder(std::unique_ptr<DecodeParams> decode_params);
 
-    int GetVideoFrame(AVFrame *frame);
 };
 
 

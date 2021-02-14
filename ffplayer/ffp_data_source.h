@@ -34,9 +34,9 @@ public:
     bool subtitle_disable = false;
     bool infinite_buffer = false;
 
-    PacketQueue *audio_queue;
-    PacketQueue *video_queue;
-    PacketQueue *subtitle_queue;
+    std::shared_ptr<PacketQueue> audio_queue;
+    std::shared_ptr<PacketQueue> video_queue;
+    std::shared_ptr<PacketQueue> subtitle_queue;
 
     MessageContext *msg_ctx;
 
@@ -63,10 +63,10 @@ public:
 private:
     char *filename;
     AVInputFormat *in_format;
-    std::condition_variable_any *continue_read_thread_ = nullptr;
+    std::shared_ptr<std::condition_variable_any> continue_read_thread_;
     std::thread *read_tid = nullptr;
     bool abort_request = false;
-    AVFormatContext *format_ctx_ = nullptr;
+    AVFormatContext *format_ctx_;
     bool realtime_ = false;
 
     int audio_stream_index = -1;

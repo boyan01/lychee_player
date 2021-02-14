@@ -8,11 +8,11 @@
 #include <cstdint>
 
 
+#include "render_base.h"
 #include "ffp_clock.h"
 #include "ffp_frame_queue.h"
 
 extern "C" {
-#include "libavutil/frame.h"
 #include "SDL2/SDL.h"
 };
 
@@ -25,7 +25,7 @@ typedef struct AudioParams {
     int bytes_per_sec;
 } AudioParams;
 
-class AudioRender {
+class AudioRender : public BaseRender {
 
 private:
     /* current context */
@@ -88,17 +88,19 @@ private:
 
 public:
 
-    AudioRender(const std::shared_ptr<PacketQueue>& audio_queue, std::shared_ptr<ClockContext> clock_ctx);
+    AudioRender(const std::shared_ptr<PacketQueue> &audio_queue, std::shared_ptr<ClockContext> clock_ctx);
 
     ~AudioRender();
 
     int Open(int64_t wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate);
 
-    int PushFrame(AVFrame *frame, int pkt_serial) const;
+    int PushFrame(AVFrame *frame, int pkt_serial);
 
     void Start() const;
 
     void Pause() const;
+
+    void Abort() override;
 
     bool IsMute() const;
 

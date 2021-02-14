@@ -130,7 +130,7 @@ we correct audio sync only if larger than this threshold */
     return spec.size;
 }
 
-int AudioRender::PushFrame(AVFrame *frame, int pkt_serial) const {
+int AudioRender::PushFrame(AVFrame *frame, int pkt_serial) {
     auto *af = sample_queue->PeekWritable();
     if (!af) {
         return -1;
@@ -369,5 +369,9 @@ void AudioRender::SetVolume(int _volume) {
 int AudioRender::GetVolume() const {
     int volume = audio_volume * 100 / SDL_MIX_MAXVOLUME;
     return av_clip(volume, 0, 100);
+}
+
+void AudioRender::Abort() {
+
 }
 
