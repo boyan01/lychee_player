@@ -251,8 +251,9 @@ void VideoRender::RenderPicture() {
     if (!vp) {
         return;
     }
-    if (render_callback && render_callback->on_render) {
-        render_callback->on_render(render_callback->opacity, vp);
+
+    if (render_callback) {
+        render_callback(vp);
     }
 
     if (first_video_frame_rendered) {

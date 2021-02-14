@@ -251,7 +251,7 @@ void CPlayer::GlobalInit() {
 
 }
 
-void CPlayer::SetVideoRender(unique_ptr_d<FFP_VideoRenderCallback> render_callback) {
+void CPlayer::SetVideoRender(std::function<void(Frame *frame)> render_callback) {
     CHECK_VALUE(render_callback);
     video_render->render_callback = std::move(render_callback);
     if (video_render->Start()) {

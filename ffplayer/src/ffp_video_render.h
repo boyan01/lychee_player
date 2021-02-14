@@ -16,21 +16,6 @@
 #include "ffp_define.h"
 #include "render_base.h"
 
-struct FFP_VideoRenderCallback {
-
-    void *opacity = nullptr;
-
-    /**
-     *
-     * called by video render thread.
-     *
-     * @param opacity
-     * @param frame
-     */
-    void (*on_render)(void *opacity, void *frame) = nullptr;
-
-};
-
 class VideoRender : public BaseRender {
 public:
     bool abort_render = false;
@@ -39,7 +24,14 @@ public:
     bool first_video_frame_rendered = false;
     int frame_width = 0;
     int frame_height = 0;
-    unique_ptr_d<FFP_VideoRenderCallback> render_callback{nullptr, nullptr};
+
+    /**
+    *
+    * called by video render thread.
+    *
+    * @param frame : video frame which should be display.
+    */
+    std::function<void(Frame *frame)> render_callback;
 
     int framedrop = -1;
 

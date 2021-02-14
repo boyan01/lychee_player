@@ -20,6 +20,12 @@ if(!(VALUE)) {\
 if(!(VALUE)) {\
     av_log(nullptr, AV_LOG_ERROR, "check %s value failed in %s\n", #VALUE, __FUNCTION__);\
     return;\
-}\
+}                         \
+
+#ifdef _WIN32
+#define FFPLAYER_EXPORT extern "C"  __declspec(dllexport)
+#else
+#define FFPLAYER_EXPORT extern "C" __attribute__((visibility("default"))) __attribute__((used))
+#endif
 
 #endif //FFPLAYER_FFP_DEFINE_H

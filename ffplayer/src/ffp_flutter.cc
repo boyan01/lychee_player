@@ -8,7 +8,11 @@
 #include "ffp_player.h"
 
 #include "ffp_flutter.h"
-#include "include/third_party/dart/dart_api_dl.h"
+#include "dart/dart_api_dl.h"
+
+#if defined(_FLUTTER_WINDOWS)
+#include "ffp_flutter_windows.h"
+#endif
 
 // hold all player instance. destroy all play when flutter app hot reloaded.
 static std::list<CPlayer *> *players_;
@@ -16,7 +20,7 @@ static std::list<CPlayer *> *players_;
 static inline void on_buffered_update(CPlayer *player, double position) {
     int64_t mills = position * 1000;
     player->buffered_position = mills;
-    player->message_context->NotifyMsg(FFP_MSG_BUFFERING_TIME_UPDATE, mills);
+//    player->message_context->NotifyMsg(FFP_MSG_BUFFERING_TIME_UPDATE, mills);
 }
 
 
@@ -25,7 +29,7 @@ static void change_player_state(CPlayer *player, FFPlayerState state) {
         return;
     }
     player->state = state;
-    player->message_context->NotifyMsg(FFP_MSG_PLAYBACK_STATE_CHANGED, state);
+//    player->message_context->NotifyMsg(FFP_MSG_PLAYBACK_STATE_CHANGED, state);
 }
 
 static void on_decode_frame_block(void *opacity) {
@@ -250,7 +254,7 @@ void ffplayer_free_player(CPlayer *player) {
 
 void ffplayer_global_init(void *arg) {
     assert(arg);
-
+    CPlayer::GlobalInit();
     Dart_InitializeApiDL(arg);
 
     if (players_) {
@@ -270,7 +274,7 @@ void ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int32
     });
 }
 
-CPlayer *ffp_create_player(FFPlayerConfiguration *config) {
+CPlayer *ffp_create_player(PlayerConfiguration *config) {
     auto *player = new CPlayer;
     player->TogglePause();
     av_log(nullptr, AV_LOG_INFO, "malloc player, %p\n", player);
@@ -286,23 +290,7 @@ CPlayer *ffp_create_player(FFPlayerConfiguration *config) {
 
 void ffp_refresh_texture(CPlayer *player) {
     CHECK_VALUE(player);
-    player->video_render->DrawFrame();
-}
-
-void ffp_attach_video_render(CPlayer *player, FFP_VideoRenderCallback *render_callback) {
-    CHECK_VALUE(player);
-    if (player->video_render->render_attached) {
-        av_log(nullptr, AV_LOG_FATAL, "video_render_already attached.\n");
-        return;
-    }
-    if (render_callback == nullptr) {
-        av_log(nullptr, AV_LOG_ERROR, "can not attach null render_callback.\n");
-        return;
-    }
-    player->video_render->render_callback_ = render_callback;
-    if (player->video_render->Start()) {
-        player->video_render->render_attached = true;
-    }
+    player->DrawFrame();
 }
 
 double ffp_get_video_aspect_ratio(CPlayer *player) {
@@ -321,16 +309,10 @@ const char *ffp_get_metadata_dict(CPlayer *player, const char *key) {
 }
 
 
-#ifdef _FLUTTER
 
 int64_t ffp_attach_video_render_flutter(CPlayer *player) {
 #ifdef _FLUTTER_WINDOWS
-    int64_t texture_id = flutter_attach_video_render(player);
-    auto render_ctx = &player->video_render_ctx;
-    if (render_ctx->render_callback_ && !render_ctx->render_thread_) {
-        start_video_render(player);
-    }
-    return texture_id;
+    return flutter_attach_video_render(player);
 #elif _FLUTTER_LINUX
     return -1;
 #endif
@@ -346,10 +328,9 @@ void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
         memset(&dart_args, 0, sizeof(Dart_CObject));
 
         dart_args.type = Dart_CObject_kTypedData;
-        dart_args.value.as_typed_data = {
-                .type = Dart_TypedData_kUint8,
-                .length = 3 * sizeof(int64_t),
-                .values = (uint8_t *) arrays};
+        dart_args.value.as_typed_data.type = Dart_TypedData_kUint8;
+        dart_args.value.as_typed_data.length = 3 * sizeof(int64_t);
+        dart_args.value.as_typed_data.values = (uint8_t *) arrays;
         Dart_PostCObject_DL(send_port, &dart_args);
     });
 }
@@ -361,6 +342,5 @@ void ffp_detach_video_render_flutter(CPlayer *player) {
 #endif
 }
 
-#endif // _FLUTTER
 
 #endif // _FLUTTER

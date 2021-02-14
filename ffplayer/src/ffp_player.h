@@ -99,7 +99,7 @@ public:
 
     const char *GetMetadataDict(const char *key);
 
-    void SetVideoRender(unique_ptr_d<FFP_VideoRenderCallback> render_callback);
+    void SetVideoRender(std::function<void(Frame *frame)> render_callback);
 
     void DrawFrame();
 };

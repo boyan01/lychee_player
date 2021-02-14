@@ -11,6 +11,7 @@ add_library(${PLUGIN_NAME} SHARED
 )
 apply_standard_settings(${PLUGIN_NAME})
 
+set(FLUTTER "1")
 set(CMAKE_FLUTTER_WINDOWS "1")
 add_compile_definitions(_FLUTTER)
 add_compile_definitions(_FLUTTER_WINDOWS)

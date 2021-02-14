@@ -474,10 +474,7 @@ int main(int argc, char *argv[]) {
         }
 
         auto render_data = new VideoRenderData(renderer);
-        auto render_callback = new FFP_VideoRenderCallback;
-        render_callback->on_render = [](void *opacity, void *vp1) {
-            auto render_data = static_cast<VideoRenderData *>(opacity);
-            auto vp = static_cast<Frame *>(vp1);
+        player->SetVideoRender([&render_data](Frame *vp) {
             SDL_SetRenderDrawColor(render_data->renderer.get(), 0, 0, 0, 255);
             SDL_RenderClear(render_data->renderer.get());
             SDL_Rect rect{};
@@ -514,14 +511,7 @@ int main(int argc, char *argv[]) {
 //                show_status(player);
             }
 
-        };
-        render_callback->opacity = render_data;
-
-        unique_ptr_d<FFP_VideoRenderCallback> tr(render_callback, [](FFP_VideoRenderCallback *ptr) {
-            delete static_cast<VideoRenderData *>(ptr->opacity);
-            delete ptr;
         });
-        player->SetVideoRender(std::move(tr));
     }
     player->SetMessageHandleCallback([player](int32_t what, int64_t arg1, int64_t arg2) {
         SDL_Event event;

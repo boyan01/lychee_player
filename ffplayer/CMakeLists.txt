@@ -12,7 +12,7 @@ if (WIN32)
     set(CMAKE_SYSTEM_NAME "WindowsStore")
 endif ()
 
-project("ffp" "CXX")
+project("ffp" "CXX" "C")
 set(CMAKE_CXX_STANDARD 14)
 
 if (WIN32)
@@ -28,6 +28,7 @@ endif ()
 if (APPLE)
     include_directories("/usr/local/include")
 endif ()
+
 
 add_library(ffplayer SHARED
         src/ffp_define.h
@@ -54,8 +55,9 @@ add_library(ffplayer SHARED
         src/ffp_player.cc
         src/ffp_flutter.h
         src/ffp_flutter.cc
+        src/ffp_flutter_windows.h
+        src/ffp_flutter_windows.cc
         src/ffplayer.h
-        src/flutter.cc
         src/decoder_base.h
         src/decoder_base.cc
         src/decoder_audio.h
@@ -64,6 +66,8 @@ add_library(ffplayer SHARED
         src/decoder_video.cc
         "third_party/dart/dart_api_dl.c"
         )
+
+target_include_directories(ffplayer PRIVATE third_party)
 
 find_library(LIBSDL2 SDL2 REQUIRED)
 
@@ -99,6 +103,7 @@ endif ()
 target_link_libraries(ffplayer PUBLIC ${FFP_LIBS})
 
 if (FLUTTER)
+    # ignore example when if we build for flutter
 else ()
     find_library(LIBSDL2MAIN SDL2main REQUIRED)
     add_executable(ffplay_example "src/ffplay.cc")
