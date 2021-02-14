@@ -2,6 +2,8 @@
 
 A simple audio/video player example for flutter. based on [ffplay](http://ffmpeg.org/).
 
+![img](.preview/preview.png)
+
 This is my training project when I was learning C++.
 
 * audio/video demux by ffmpeg.
