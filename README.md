@@ -1,8 +1,8 @@
 # av_player
 
-A simple audio/video player example for flutter.
+A simple audio/video player example for flutter. based on [ffplay](http://ffmpeg.org/).
 
-This is my training project when I was learning C++
+This is my training project when I was learning C++.
 
 * audio/video demux by ffmpeg.
 
@@ -10,19 +10,19 @@ This is my training project when I was learning C++
 
 * video render by SDL2(example) / `TextureWidget`(flutter).
 
-| platform | status         |
-| -------- | -------------- |
-| windows  | [x]            |
-| linux    | [ ] audio only |
-| macOS    | [ ] audio only |
-| Android  | [ ] audio only |
-| iOS      | [ ] audio only |
+| platform | status       |
+| -------- | ------------ |
+| Windows  | ✅            |
+| Linux    | ⭕ audio only |
+| macOS    | ⭕ audio only |
+| Android  | ⭕ audio only |
+| iOS      | ⭕ audio only |
 
 ## Getting Started
 
 ### How to Build Projext?
 
-1. set up your enviorenment. see [ffplayer](ffplayer/README.md)
+1. set up your enviorenment. see more [ffplayer](ffplayer/README.md)
 2. install flutter.
 3. `cd example & flutter run`
 
