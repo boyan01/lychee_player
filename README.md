@@ -60,4 +60,4 @@ flutter run -d windows
 
 # LICENSE
 
-[GNU LESSER GENERAL PUBLIC LICENSE](LICENSE)
+[MIT](LICENSE)
