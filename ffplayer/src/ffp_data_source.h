@@ -12,6 +12,7 @@
 #include "ffp_packet_queue.h"
 #include "ffp_clock.h"
 #include "ffp_decoder.h"
+#include "ffplayer.h"
 
 extern "C" {
 #include "libavformat/avformat.h"
@@ -26,13 +27,9 @@ public:
 
     int64_t start_time = AV_NOPTS_VALUE;
 
-    bool show_status = false;
     char *wanted_stream_spec[AVMEDIA_TYPE_NB];
 
-    bool video_disable = false;
-    bool audio_disable = false;
-    bool subtitle_disable = false;
-    bool infinite_buffer = false;
+    PlayerConfiguration configuration;
 
     std::shared_ptr<PacketQueue> audio_queue;
     std::shared_ptr<PacketQueue> video_queue;
@@ -88,6 +85,8 @@ private:
 
     int64_t duration = AV_NOPTS_VALUE;
 
+    // buffer infinite.
+    bool infinite_buffer = false;
 public:
 
     DataSource(const char *filename, AVInputFormat *format);

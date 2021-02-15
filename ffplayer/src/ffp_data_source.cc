@@ -6,10 +6,6 @@
 #include "ffp_data_source.h"
 #include "ffp_utils.h"
 
-extern "C" {
-#include "libavutil/rational.h"
-}
-
 #define MIN_FRAMES 25
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
 
@@ -115,6 +111,13 @@ int DataSource::PrepareFormatContext() {
 
     av_format_inject_global_side_data(format_ctx_);
 
+    // find stream info for av file. this is useful for formats with no headers such as MPEG.
+    if (find_stream_info && avformat_find_stream_info(format_ctx_, nullptr) < 0) {
+        avformat_free_context(format_ctx_);
+        format_ctx_ = nullptr;
+        return -1;
+    }
+
     if (format_ctx_->pb) {
         format_ctx_->pb->eof_reached = 0; // FIXME hack, ffplay maybe should not use avio_feof() to test for the end
     }
@@ -151,7 +154,7 @@ void DataSource::OnFormatContextOpen() {
         infinite_buffer = true;
     }
 
-    if (show_status) {
+    if (configuration.show_status) {
         av_dump_format(format_ctx_, 0, filename, 0);
     }
 }
@@ -176,18 +179,18 @@ int DataSource::ReadStreamInfo(int st_index[AVMEDIA_TYPE_NB]) {
         }
     }
 
-    if (!video_disable) {
+    if (!configuration.video_disable) {
         st_index[AVMEDIA_TYPE_VIDEO] = av_find_best_stream(format_ctx_, AVMEDIA_TYPE_VIDEO,
                                                            st_index[AVMEDIA_TYPE_VIDEO], -1,
                                                            nullptr, 0);
     }
-    if (!audio_disable) {
+    if (!configuration.audio_disable) {
         st_index[AVMEDIA_TYPE_AUDIO] = av_find_best_stream(format_ctx_, AVMEDIA_TYPE_AUDIO,
                                                            st_index[AVMEDIA_TYPE_AUDIO],
                                                            st_index[AVMEDIA_TYPE_VIDEO],
                                                            nullptr, 0);
     }
-    if (!video_disable && !subtitle_disable) {
+    if (!configuration.video_disable && !configuration.subtitle_disable) {
         st_index[AVMEDIA_TYPE_SUBTITLE] = av_find_best_stream(format_ctx_, AVMEDIA_TYPE_SUBTITLE,
                                                               st_index[AVMEDIA_TYPE_SUBTITLE],
                                                               (st_index[AVMEDIA_TYPE_AUDIO] >= 0

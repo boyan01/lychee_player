@@ -80,6 +80,7 @@ int CPlayer::OpenDataSource(const char *filename) {
     }
 
     data_source = std::make_unique<DataSource>(filename, nullptr);
+    data_source->configuration = start_configuration;
     data_source->audio_queue = audio_pkt_queue;
     data_source->video_queue = video_pkt_queue;
     data_source->subtitle_queue = subtitle_pkt_queue;
