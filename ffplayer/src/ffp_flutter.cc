@@ -262,13 +262,6 @@ void ffplayer_global_init(void *arg) {
   }
 }
 
-void ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int32_t, int64_t, int64_t)) {
-  CHECK_VALUE(player);
-  player->SetMessageHandleCallback([player, callback](int32_t what, int64_t arg1, int64_t arg2) {
-    callback(player, what, arg1, arg2);
-  });
-}
-
 CPlayer *ffp_create_player(PlayerConfiguration *config) {
   auto *player = new CPlayer;
   player->TogglePause();
@@ -316,7 +309,7 @@ void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
     // dart do not support int64_t array yet.
     // thanks https://github.com/dart-lang/sdk/issues/44384#issuecomment-738708448
     // so we pass an uint8_t array to dart isolate.
-    int64_t arrays[] = {arg1, arg1, arg2};
+    int64_t arrays[] = {what, arg1, arg2};
     Dart_CObject dart_args = {};
     memset(&dart_args, 0, sizeof(Dart_CObject));
 

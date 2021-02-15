@@ -51,9 +51,6 @@ FFPLAYER_EXPORT int ffp_get_volume(CPlayer *player);
 
 FFPLAYER_EXPORT int ffp_get_state(CPlayer *player);
 
-FFPLAYER_EXPORT void
-ffp_set_message_callback(CPlayer *player, void (*callback)(CPlayer *, int32_t, int64_t, int64_t));
-
 FFPLAYER_EXPORT void ffp_refresh_texture(CPlayer *player);
 
 /**

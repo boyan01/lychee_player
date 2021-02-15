@@ -31,6 +31,11 @@ endif ()
 
 
 aux_source_directory(src FFP_SOURCE_FILES)
+
+if (FLUTTER)
+    list(APPEND FFP_SOURCE_FILES third_party/dart/dart_api_dl.c)
+endif ()
+
 add_library(ffplayer SHARED ${FFP_SOURCE_FILES})
 
 target_include_directories(ffplayer PRIVATE third_party)
