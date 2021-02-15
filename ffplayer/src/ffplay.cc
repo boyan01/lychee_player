@@ -363,16 +363,6 @@ static int upload_texture(VideoRenderData *render_data, SDL_Texture **tex, AVFra
 int main(int argc, char *argv[]) {
   char *input_file = argv[1];
   if (!input_file) {
-#ifdef _WIN32
-    static const char *input_filename = "C:/Users/boyan/Desktop/mojito.mp4";
-#elif __LINUX__
-    static const char *input_filename = "/home/boyan/mojito.mp4";
-#else
-    static const char *input_filename = nullptr;
-#endif
-    input_file = (char *) input_filename;
-  }
-  if (!input_file) {
     av_log(nullptr, AV_LOG_FATAL, "An input file must be specified\n");
     exit(1);
   }
@@ -510,6 +500,7 @@ int main(int argc, char *argv[]) {
     // perform play when start.
     player->TogglePause();
   }
+  player->SetVolume(20);
   event_loop(player);
 
   return 0;
