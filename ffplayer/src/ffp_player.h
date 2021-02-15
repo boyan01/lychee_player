@@ -34,7 +34,7 @@ struct CPlayer {
 
   std::unique_ptr<DataSource> data_source;
 
-  std::unique_ptr<DecoderContext> decoder_context;
+  std::shared_ptr<DecoderContext> decoder_context;
 
   std::shared_ptr<AudioRender> audio_render;
   std::shared_ptr<VideoRender> video_render;
@@ -53,8 +53,6 @@ struct CPlayer {
 
  public:
   PlayerConfiguration start_configuration{};
-
-  int show_status = -1;
 
   // buffered position in seconds. -1 if not avalible
   int64_t buffered_position = -1;

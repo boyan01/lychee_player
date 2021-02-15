@@ -35,11 +35,11 @@ class DataSource {
   std::shared_ptr<PacketQueue> video_queue;
   std::shared_ptr<PacketQueue> subtitle_queue;
 
-  MessageContext *msg_ctx;
+  std::shared_ptr<MessageContext> msg_ctx;
 
   Clock *ext_clock;
 
-  DecoderContext *decoder_ctx;
+  std::shared_ptr<DecoderContext> decoder_ctx;
 
   int read_pause_return;
 
@@ -63,7 +63,7 @@ class DataSource {
   std::shared_ptr<std::condition_variable_any> continue_read_thread_;
   std::thread *read_tid = nullptr;
   bool abort_request = false;
-  AVFormatContext *format_ctx_;
+  AVFormatContext *format_ctx_ = nullptr;
   bool realtime_ = false;
 
   int audio_stream_index = -1;

@@ -42,8 +42,13 @@ CPlayer::CPlayer() {
 
   audio_render = std::make_shared<AudioRender>(audio_pkt_queue, clock_context);
   video_render = std::make_shared<VideoRender>(video_pkt_queue, clock_context, message_context);
+  if (start_configuration.show_status) {
+    video_render->on_post_draw_frame = [this]() {
+      DumpStatus();
+    };
+  }
 
-  decoder_context = std::make_unique<DecoderContext>(audio_render, video_render, clock_context);
+  decoder_context = std::make_shared<DecoderContext>(audio_render, video_render, clock_context);
 }
 
 CPlayer::~CPlayer() {
@@ -85,8 +90,8 @@ int CPlayer::OpenDataSource(const char *filename) {
   data_source->video_queue = video_pkt_queue;
   data_source->subtitle_queue = subtitle_pkt_queue;
   data_source->ext_clock = clock_context->GetAudioClock();
-  data_source->decoder_ctx = decoder_context.get();
-  data_source->msg_ctx = message_context.get();
+  data_source->decoder_ctx = decoder_context;
+  data_source->msg_ctx = message_context;
 
   data_source->Open();
   return 0;
@@ -121,12 +126,12 @@ void CPlayer::DumpStatus() {
 
     av_bprint_init(&buf, 0, AV_BPRINT_SIZE_AUTOMATIC);
     av_bprintf(&buf,
-               "%7.2f %s:%7.3f fd=%4d aq=%5dKB vq=%5dKB sq=%5dB f=%"
+               "%7.2f/%7.2f %s:%7.3f fd=%4d aq=%5dKB vq=%5dKB sq=%5dB f=%"
                PRId64
                "/%"
                PRId64
                "   \r",
-               clock_context->GetMasterClock(),
+               GetCurrentPosition(), GetDuration(),
                (data_source->ContainAudioStream()
                    && data_source->ContainAudioStream()) ? "A-V"
                                                          : (data_source->ContainVideoStream()
@@ -135,7 +140,7 @@ void CPlayer::DumpStatus() {
                                                                ? "M-A"
                                                                : "   ")),
                av_diff,
-               video_render->frame_drop_count + decoder_context->frame_drop_count,
+               video_render->frame_drop_count + video_render->frame_drop_count_pre,
                aqsize / 1024,
                vqsize / 1024,
                sqsize,
@@ -143,7 +148,7 @@ void CPlayer::DumpStatus() {
                0ll,
         /* is->video_st ? is->viddec.avctx->pts_correction_num_faulty_pts :*/ 0ll);
 
-    if (show_status == 1 && AV_LOG_INFO > av_log_get_level())
+    if (start_configuration.show_status == 1 && AV_LOG_INFO > av_log_get_level())
       fprintf(stderr, "%s", buf.str);
     else
       av_log(nullptr, AV_LOG_INFO, "%s", buf.str);

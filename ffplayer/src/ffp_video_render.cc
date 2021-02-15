@@ -127,7 +127,9 @@ double VideoRender::DrawFrame() {
   }
 
   force_refresh_ = false;
-//        show_status(player);
+  if (on_post_draw_frame) {
+    on_post_draw_frame();
+  }
   return remaining_time;
 }
 

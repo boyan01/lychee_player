@@ -387,7 +387,6 @@ int main(int argc, char *argv[]) {
 
   auto *player = new CPlayer;
   player->start_configuration = config;
-  player->show_status = true;
   player->SetVolume(100);
 
   uint32_t flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER;

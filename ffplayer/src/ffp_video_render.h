@@ -48,6 +48,8 @@ class VideoRender : public BaseRender {
   bool step = false;
   bool paused_ = false;
 
+  std::function<void()> on_post_draw_frame;
+
  private:
   std::unique_ptr<FrameQueue> picture_queue;
   std::thread *render_thread_ = nullptr;

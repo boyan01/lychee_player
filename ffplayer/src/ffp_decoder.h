@@ -28,8 +28,6 @@ class DecoderContext {
   int low_res = 0;
   bool fast = false;
 
-  int frame_drop_count = 0;
-
  private:
   AudioDecoder *audio_decoder = nullptr;
   VideoDecoder *video_decoder = nullptr;
