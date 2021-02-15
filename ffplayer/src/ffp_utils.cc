@@ -63,3 +63,8 @@ void update_thread_name(const char *name) {
 #endif
 
 }
+
+const char *av_err_to_str(int errnum) {
+  static char av_error[AV_ERROR_MAX_STRING_SIZE] = {0};
+  return av_make_error_string(av_error, AV_ERROR_MAX_STRING_SIZE, errnum);
+}

@@ -9,11 +9,6 @@
 #define MIN_FRAMES 25
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
 
-char av_error[AV_ERROR_MAX_STRING_SIZE] = {0};
-#define av_err2str(errnum) av_make_error_string(av_error, AV_ERROR_MAX_STRING_SIZE, errnum)
-
-extern AVPacket *flush_pkt;
-
 static const AVRational av_time_base_q_ = {1, AV_TIME_BASE};
 
 static inline int stream_has_enough_packets(AVStream *st, int stream_id, const std::shared_ptr<PacketQueue> &queue) {
@@ -99,7 +94,7 @@ int DataSource::PrepareFormatContext() {
   };
   auto err = avformat_open_input(&format_ctx_, filename, in_format, nullptr);
   if (err < 0) {
-    av_log(nullptr, AV_LOG_ERROR, "can not open file %s: %s \n", filename, av_err2str(err));
+    av_log(nullptr, AV_LOG_ERROR, "can not open file %s: %s \n", filename, av_err_to_str(err));
     return -1;
   }
 
@@ -142,7 +137,7 @@ void DataSource::OnFormatContextOpen() {
     auto ret = avformat_seek_file(format_ctx_, -1, INT16_MIN, timestamp, INT64_MAX, 0);
     if (ret < 0) {
       av_log(nullptr, AV_LOG_WARNING, "%s: could not seek to position %0.3f. err = %s\n",
-             filename, (double) timestamp / AV_TIME_BASE, av_err2str(ret));
+             filename, (double) timestamp / AV_TIME_BASE, av_err_to_str(ret));
     }
   }
 
@@ -343,7 +338,7 @@ void DataSource::ProcessSeekRequest() {
   auto seek_target = seek_position;
   auto ret = avformat_seek_file(format_ctx_, -1, INT64_MIN, seek_target, INT64_MAX, 0);
   if (ret < 0) {
-    av_log(nullptr, AV_LOG_ERROR, "%s: error while seeking, error: %s\n", filename, av_err2str(ret));
+    av_log(nullptr, AV_LOG_ERROR, "%s: error while seeking, error: %s\n", filename, av_err_to_str(ret));
   } else {
     if (audio_stream_index >= 0 && audio_queue) {
       audio_queue->Flush();
@@ -376,7 +371,7 @@ void DataSource::ProcessAttachedPicture() {
     AVPacket copy;
     auto ret = av_packet_ref(&copy, &video_stream_->attached_pic);
     if (ret < 0) {
-      av_log(nullptr, AV_LOG_ERROR, "%s: error to read attached pic. error: %s", filename, av_err2str(ret));
+      av_log(nullptr, AV_LOG_ERROR, "%s: error to read attached pic. error: %s", filename, av_err_to_str(ret));
     } else {
       video_queue->Put(&copy);
       video_queue->PutNullPacket(video_stream_index);
@@ -471,14 +466,14 @@ bool DataSource::ContainSubtitleStream() {
 }
 
 void DataSource::Seek(double position) {
-  int64_t target = position * AV_TIME_BASE;
+  int64_t target = (int64_t) (position * AV_TIME_BASE);
   if (!format_ctx_) {
     start_time = FFMAX(0, target);
     return;
   }
 
   if (format_ctx_->start_time != AV_NOPTS_VALUE) {
-    position = FFMAX(format_ctx_->start_time, target);
+    position = (double) FFMAX(format_ctx_->start_time, target);
   }
   target = FFMAX(0, target);
   target = FFMIN(target, format_ctx_->duration);
