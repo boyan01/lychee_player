@@ -11,9 +11,9 @@ extern "C" {
 
 class BaseRender {
 
-public:
+ public:
 
-    virtual void Abort() = 0;
+  virtual void Abort() = 0;
 
 };
 

@@ -16,93 +16,91 @@
 #include "ffp_video_render.h"
 
 enum FFPlayerState {
-    FFP_STATE_IDLE = 0,
-    FFP_STATE_READY,
-    FFP_STATE_BUFFERING,
-    FFP_STATE_END
+  FFP_STATE_IDLE = 0,
+  FFP_STATE_READY,
+  FFP_STATE_BUFFERING,
+  FFP_STATE_END
 };
 
 struct CPlayer {
 
-private:
+ private:
 
-    std::shared_ptr<PacketQueue> audio_pkt_queue;
-    std::shared_ptr<PacketQueue> video_pkt_queue;
-    std::shared_ptr<PacketQueue> subtitle_pkt_queue;
+  std::shared_ptr<PacketQueue> audio_pkt_queue;
+  std::shared_ptr<PacketQueue> video_pkt_queue;
+  std::shared_ptr<PacketQueue> subtitle_pkt_queue;
 
-    std::shared_ptr<ClockContext> clock_context;
+  std::shared_ptr<ClockContext> clock_context;
 
-    std::unique_ptr<DataSource> data_source;
+  std::unique_ptr<DataSource> data_source;
 
-    std::unique_ptr<DecoderContext> decoder_context;
+  std::unique_ptr<DecoderContext> decoder_context;
 
-    std::shared_ptr<AudioRender> audio_render;
-    std::shared_ptr<VideoRender> video_render;
+  std::shared_ptr<AudioRender> audio_render;
+  std::shared_ptr<VideoRender> video_render;
 
-    std::shared_ptr<MessageContext> message_context;
+  std::shared_ptr<MessageContext> message_context;
 
-    void DumpStatus();
+  void DumpStatus();
 
-public:
+ public:
 
-    CPlayer();
+  CPlayer();
 
-    ~CPlayer();
+  ~CPlayer();
 
-    static void GlobalInit();
+  static void GlobalInit();
 
+ public:
+  PlayerConfiguration start_configuration{};
 
-public:
-    PlayerConfiguration start_configuration{};
+  int show_status = -1;
 
-    int show_status = -1;
+  // buffered position in seconds. -1 if not avalible
+  int64_t buffered_position = -1;
 
-    // buffered position in seconds. -1 if not avalible
-    int64_t buffered_position = -1;
+  SDL_Thread *msg_tid = nullptr;
+  FFPlayerState state = FFP_STATE_IDLE;
 
-    SDL_Thread *msg_tid = nullptr;
-    FFPlayerState state = FFP_STATE_IDLE;
+  bool paused = false;
 
-    bool paused = false;
+  void TogglePause();
 
-    void TogglePause();
+  int OpenDataSource(const char *filename);
 
-    int OpenDataSource(const char *filename);
+  double GetCurrentPosition();
 
-    double GetCurrentPosition();
+  bool IsPaused() const;
 
-    bool IsPaused() const;
+  int GetVolume();
 
-    int GetVolume();
+  void SetVolume(int volume);
 
-    void SetVolume(int volume);
+  void SetMute(bool mute);
 
-    void SetMute(bool mute);
+  bool IsMuted();
 
-    bool IsMuted();
+  double GetDuration();
 
-    double GetDuration();
+  void Seek(double position);
 
-    void Seek(double position);
+  void SeekToChapter(int chapter);
 
-    void SeekToChapter(int chapter);
+  int GetCurrentChapter();
 
-    int GetCurrentChapter();
+  int GetChapterCount();
 
-    int GetChapterCount();
+  void SetMessageHandleCallback(std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback);
 
-    void SetMessageHandleCallback(std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback);
+  double GetVideoAspectRatio();
 
-    double GetVideoAspectRatio();
+  const char *GetUrl();
 
-    const char *GetUrl();
+  const char *GetMetadataDict(const char *key);
 
-    const char *GetMetadataDict(const char *key);
+  void SetVideoRender(std::function<void(Frame *frame)> render_callback);
 
-    void SetVideoRender(std::function<void(Frame *frame)> render_callback);
-
-    void DrawFrame();
+  void DrawFrame();
 };
-
 
 #endif //FFPLAYER_FFP_PLAYER_H

@@ -20,120 +20,120 @@ extern "C" {
 };
 
 class DataSource {
-public:
-    bool gen_pts = false;
-    bool find_stream_info = true;
-    int seek_by_bytes = -1;
+ public:
+  bool gen_pts = false;
+  bool find_stream_info = true;
+  int seek_by_bytes = -1;
 
-    int64_t start_time = AV_NOPTS_VALUE;
+  int64_t start_time = AV_NOPTS_VALUE;
 
-    char *wanted_stream_spec[AVMEDIA_TYPE_NB];
+  char *wanted_stream_spec[AVMEDIA_TYPE_NB];
 
-    PlayerConfiguration configuration;
+  PlayerConfiguration configuration;
 
-    std::shared_ptr<PacketQueue> audio_queue;
-    std::shared_ptr<PacketQueue> video_queue;
-    std::shared_ptr<PacketQueue> subtitle_queue;
+  std::shared_ptr<PacketQueue> audio_queue;
+  std::shared_ptr<PacketQueue> video_queue;
+  std::shared_ptr<PacketQueue> subtitle_queue;
 
-    MessageContext *msg_ctx;
+  MessageContext *msg_ctx;
 
-    Clock *ext_clock;
+  Clock *ext_clock;
 
-    DecoderContext *decoder_ctx;
+  DecoderContext *decoder_ctx;
 
-    int read_pause_return;
+  int read_pause_return;
 
-    bool paused = false;
+  bool paused = false;
 
-    void Seek(double position);
+  void Seek(double position);
 
-    double GetDuration();
+  double GetDuration();
 
-    int GetChapterCount();
+  int GetChapterCount();
 
-    int GetChapterByPosition(int64_t position);
+  int GetChapterByPosition(int64_t position);
 
-    void SeekToChapter(int chapter);
+  void SeekToChapter(int chapter);
 
-    const char *GetMetadataDict(const char *key);
+  const char *GetMetadataDict(const char *key);
 
-private:
-    char *filename;
-    AVInputFormat *in_format;
-    std::shared_ptr<std::condition_variable_any> continue_read_thread_;
-    std::thread *read_tid = nullptr;
-    bool abort_request = false;
-    AVFormatContext *format_ctx_;
-    bool realtime_ = false;
+ private:
+  char *filename;
+  AVInputFormat *in_format;
+  std::shared_ptr<std::condition_variable_any> continue_read_thread_;
+  std::thread *read_tid = nullptr;
+  bool abort_request = false;
+  AVFormatContext *format_ctx_;
+  bool realtime_ = false;
 
-    int audio_stream_index = -1;
-    int video_stream_index = -1;
-    int subtitle_stream_index = -1;
+  int audio_stream_index = -1;
+  int video_stream_index = -1;
+  int subtitle_stream_index = -1;
 
-    // request for seek.
-    bool seek_req_ = false;
-    int64_t seek_position = 0;
+  // request for seek.
+  bool seek_req_ = false;
+  int64_t seek_position = 0;
 
-    // request for attached_pic.
-    bool queue_attachments_req_ = false;
+  // request for attached_pic.
+  bool queue_attachments_req_ = false;
 
-    bool eof = false;
+  bool eof = false;
 
-    AVStream *video_stream_ = nullptr;
-    AVStream *audio_stream_ = nullptr;
-    AVStream *subtitle_stream_ = nullptr;
+  AVStream *video_stream_ = nullptr;
+  AVStream *audio_stream_ = nullptr;
+  AVStream *subtitle_stream_ = nullptr;
 
-    int64_t duration = AV_NOPTS_VALUE;
+  int64_t duration = AV_NOPTS_VALUE;
 
-    // buffer infinite.
-    bool infinite_buffer = false;
-public:
+  // buffer infinite.
+  bool infinite_buffer = false;
+ public:
 
-    DataSource(const char *filename, AVInputFormat *format);
+  DataSource(const char *filename, AVInputFormat *format);
 
-    ~DataSource();
+  ~DataSource();
 
-    int Open();
+  int Open();
 
-    bool ContainVideoStream();
+  bool ContainVideoStream();
 
-    bool ContainAudioStream();
+  bool ContainAudioStream();
 
-    bool ContainSubtitleStream();
+  bool ContainSubtitleStream();
 
-    double GetSeekPosition() const;
+  double GetSeekPosition() const;
 
-    const char *GetFileName() const;
+  const char *GetFileName() const;
 
-private:
+ private:
 
-    int PrepareFormatContext();
+  int PrepareFormatContext();
 
-    void OnFormatContextOpen();
+  void OnFormatContextOpen();
 
-    int ReadStreamInfo(int st_index[AVMEDIA_TYPE_NB]);
+  int ReadStreamInfo(int st_index[AVMEDIA_TYPE_NB]);
 
-    void ReadThread();
+  void ReadThread();
 
-    void OnStreamInfoLoad(const int st_index[AVMEDIA_TYPE_NB]);
+  void OnStreamInfoLoad(const int st_index[AVMEDIA_TYPE_NB]);
 
-    int OpenStreams(const int st_index[AVMEDIA_TYPE_NB]);
+  int OpenStreams(const int st_index[AVMEDIA_TYPE_NB]);
 
-    int OpenComponentStream(int stream_index, AVMediaType media_type);
+  int OpenComponentStream(int stream_index, AVMediaType media_type);
 
-    void ReadStreams(std::mutex *read_mutex);
+  void ReadStreams(std::mutex *read_mutex);
 
-    void ProcessSeekRequest();
+  void ProcessSeekRequest();
 
-    void ProcessAttachedPicture();
+  void ProcessAttachedPicture();
 
-    bool isNeedReadMore();
+  bool isNeedReadMore();
 
-    bool IsReadComplete() const;
+  bool IsReadComplete() const;
 
-    int ProcessReadFrame(AVPacket *pkt, std::mutex *read_mutex);
+  int ProcessReadFrame(AVPacket *pkt, std::mutex *read_mutex);
 
-    void ProcessQueuePacket(AVPacket *pkt);
+  void ProcessQueuePacket(AVPacket *pkt);
 
 };
 

@@ -5,10 +5,8 @@
 #if !defined(FF_PLAYER_FLUTTER_H) && defined(_FLUTTER)
 #define FF_PLAYER_FLUTTER_H
 
-
 #include "ffplayer.h"
 #include "ffp_define.h"
-
 
 #include "dart/dart_api_dl.h"
 
@@ -77,6 +75,5 @@ FFPLAYER_EXPORT void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL
 FFPLAYER_EXPORT int64_t ffp_attach_video_render_flutter(CPlayer *player);
 
 FFPLAYER_EXPORT void ffp_detach_video_render_flutter(CPlayer *player);
-
 
 #endif // FF_PLAYER_FLUTTER_H _FLUTTER

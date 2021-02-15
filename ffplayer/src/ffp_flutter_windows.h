@@ -11,7 +11,6 @@
 #include "ffp_define.h"
 #include "ffp_player.h"
 
-
 FFPLAYER_EXPORT void register_flutter_plugin(flutter::PluginRegistrarWindows *registrar);
 
 FFPLAYER_EXPORT int64_t flutter_attach_video_render(CPlayer *player);

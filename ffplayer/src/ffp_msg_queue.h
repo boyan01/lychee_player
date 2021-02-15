@@ -97,41 +97,38 @@ extern "C" {
 #define FFP_PROP_INT64_SHARE_CACHE_DATA                 20210
 #define FFP_PROP_INT64_IMMEDIATE_RECONNECT              20211
 
-
 struct MessageQueue;
 
 class MessageContext {
 
-public:
+ public:
 
-    std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback{nullptr};
+  std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback{nullptr};
 
-private:
-    std::unique_ptr<MessageQueue> msg_queue{};
-    bool started_ = false;
-    std::thread *thread_ = nullptr;
+ private:
+  std::unique_ptr<MessageQueue> msg_queue{};
+  bool started_ = false;
+  std::thread *thread_ = nullptr;
 
-private:
+ private:
 
-    void MessageThread();
+  void MessageThread();
 
-    void StopAndWait();
+  void StopAndWait();
 
-    void Start();
+  void Start();
 
-public:
-    MessageContext();
+ public:
+  MessageContext();
 
-    ~MessageContext();
+  ~MessageContext();
 
-    void NotifyMsg(int what, int arg1, int arg2);
+  void NotifyMsg(int what, int arg1, int arg2);
 
-    void NotifyMsg(int what, int64_t arg1);
+  void NotifyMsg(int what, int64_t arg1);
 
-    void NotifyMsg(int what);
-
+  void NotifyMsg(int what);
 
 };
-
 
 #endif //FFPLAYER_FFP_MSG_QUEUE_H

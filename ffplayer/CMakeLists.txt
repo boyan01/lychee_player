@@ -30,42 +30,8 @@ if (APPLE)
 endif ()
 
 
-add_library(ffplayer SHARED
-        src/ffp_define.h
-        src/ffp_msg_queue.h
-        src/ffp_msg_queue.cc
-        src/ffp_packet_queue.h
-        src/ffp_packet_queue.cc
-        src/ffp_decoder.h
-        src/ffp_decoder.cc
-        src/render_base.h
-        src/ffp_frame_queue.h
-        src/ffp_frame_queue.cc
-        src/ffp_video_render.h
-        src/ffp_video_render.cc
-        src/ffp_audio_render.h
-        src/ffp_audio_render.cc
-        src/ffp_clock.h
-        src/ffp_clock.cc
-        src/ffp_data_source.h
-        src/ffp_data_source.cc
-        src/ffp_utils.h
-        src/ffp_utils.cc
-        src/ffp_player.h
-        src/ffp_player.cc
-        src/ffp_flutter.h
-        src/ffp_flutter.cc
-        src/ffp_flutter_windows.h
-        src/ffp_flutter_windows.cc
-        src/ffplayer.h
-        src/decoder_base.h
-        src/decoder_base.cc
-        src/decoder_audio.h
-        src/decoder_audio.cc
-        src/decoder_video.h
-        src/decoder_video.cc
-        "third_party/dart/dart_api_dl.c"
-        )
+aux_source_directory(src FFP_SOURCE_FILES)
+add_library(ffplayer SHARED ${FFP_SOURCE_FILES})
 
 target_include_directories(ffplayer PRIVATE third_party)
 

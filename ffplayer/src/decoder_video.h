@@ -10,21 +10,20 @@
 
 class VideoDecoder : public Decoder<VideoRender> {
 
-private:
+ private:
 
-    int GetVideoFrame(AVFrame *frame);
+  int GetVideoFrame(AVFrame *frame);
 
-protected:
+ protected:
 
-    const char *debug_label() override;
+  const char *debug_label() override;
 
-    int DecodeThread() override;
+  int DecodeThread() override;
 
-public:
-    VideoDecoder(unique_ptr_d<AVCodecContext> codecContext,
-                 std::unique_ptr<DecodeParams> decodeParams,
-                 std::shared_ptr<VideoRender> render);
+ public:
+  VideoDecoder(unique_ptr_d<AVCodecContext> codecContext,
+               std::unique_ptr<DecodeParams> decodeParams,
+               std::shared_ptr<VideoRender> render);
 };
-
 
 #endif //FFP_DECODER_VIDEO_H
