@@ -16,106 +16,80 @@ extern "C" {
 
 #include "ffp_flutter_windows.h"
 
-static flutter::TextureRegistrar *textures_;
+static flutter::TextureRegistrar *texture_registrar;
 
-struct VideoRenderData {
-  int64_t texture_id = -1;
-  FlutterDesktopPixelBuffer *pixel_buffer{nullptr};
-  std::unique_ptr<flutter::TextureVariant> texture_;
-  struct SwsContext *img_convert_ctx = nullptr;
+void register_flutter_plugin(flutter::PluginRegistrarWindows *registrar) {
+    texture_registrar = registrar->texture_registrar();
+    std::cout << "register_flutter_plugin: " << registrar << std::endl;
+}
 
- public:
-  ~VideoRenderData() {
-    if (texture_id != -1) {
-      textures_->UnregisterTexture(texture_id);
+void FlutterWindowsVideoRender::RenderPicture(Frame &frame) {
+    if (!pixel_buffer->buffer) {
+        std::cout << "render_frame：init" << std::endl;
+        pixel_buffer->height = frame.height;
+        pixel_buffer->width = frame.width;
+        pixel_buffer->buffer = new uint8_t[frame.height * frame.width * 4];
     }
+    auto pFrame = frame.frame;
+
+    img_convert_ctx = sws_getCachedContext(img_convert_ctx, pFrame->width, pFrame->height,
+                                           AVPixelFormat(pFrame->format), pFrame->width,
+                                           pFrame->height, AV_PIX_FMT_RGBA,
+                                           NULL, nullptr, nullptr, nullptr);
+    if (!img_convert_ctx) {
+        av_log(nullptr, AV_LOG_FATAL, "Can not initialize the conversion context\n");
+        return;
+    }
+    int linesize[4] = {frame.width * 4};
+//    int num_bytes = av_image_get_buffer_size(AV_PIX_FMT_ARGB, pFrame->width, pFrame->height, 1);
+    uint8_t *bgr_buffer[8] = {(uint8_t *) pixel_buffer->buffer};
+    sws_scale(img_convert_ctx, pFrame->data, pFrame->linesize, 0, pFrame->height, bgr_buffer, linesize);
+#if 1
+    av_log(nullptr, AV_LOG_INFO, "render_frame(%lld, %p): render first pixel = 0x%2x%2x%2x%2x \n",
+           texture_id, texture_.get(),
+           pixel_buffer->buffer[3], pixel_buffer->buffer[0], pixel_buffer->buffer[1], pixel_buffer->buffer[2]);
+#endif
+    texture_registrar->MarkTextureFrameAvailable(texture_id);
+}
+
+FlutterWindowsVideoRender::~FlutterWindowsVideoRender() {
+    Detach();
+}
+
+int FlutterWindowsVideoRender::Attach() {
+    CHECK_VALUE_WITH_RETURN(texture_id < 0, -1);
+    CHECK_VALUE_WITH_RETURN(texture_registrar, -1);
+    {
+        pixel_buffer = new FlutterDesktopPixelBuffer;
+        pixel_buffer->width = 0;
+        pixel_buffer->height = 0;
+        pixel_buffer->buffer = nullptr;
+    }
+
+    auto texture_variant = std::make_unique<flutter::TextureVariant>(flutter::PixelBufferTexture(
+            [this](size_t width, size_t height) -> const FlutterDesktopPixelBuffer * {
+              av_log(nullptr, AV_LOG_WARNING, "copy buffer %p \n", pixel_buffer);
+              return pixel_buffer;
+            }));
+
+    texture_id = texture_registrar->RegisterTexture(texture_variant.get());
+    if (texture_id < 0) {
+        texture_registrar->UnregisterTexture(texture_id);
+        return -1;
+    }
+    texture_ = std::move(texture_variant);
+    StartRenderThread();
+    return texture_id;
+}
+
+void FlutterWindowsVideoRender::Detach() {
+    CHECK_VALUE(texture_id >= 0);
+    StopRenderThread();
+    texture_registrar->UnregisterTexture(texture_id);
+    texture_id = -1;
     delete pixel_buffer->buffer;
     delete pixel_buffer;
     sws_freeContext(img_convert_ctx);
-  }
-};
-
-void render_frame(const std::shared_ptr<VideoRenderData> &render_data, Frame *frame) {
-  if (!render_data->pixel_buffer->buffer) {
-    std::cout << "render_frame：init" << std::endl;
-    render_data->pixel_buffer->height = frame->height;
-    render_data->pixel_buffer->width = frame->width;
-    render_data->pixel_buffer->buffer = new uint8_t[frame->height * frame->width * 4];
-  }
-  auto pFrame = frame->frame;
-
-  render_data->img_convert_ctx = sws_getCachedContext(render_data->img_convert_ctx, pFrame->width, pFrame->height,
-                                                      AVPixelFormat(pFrame->format), pFrame->width,
-                                                      pFrame->height, AV_PIX_FMT_RGBA,
-                                                      NULL, nullptr, nullptr, nullptr);
-  if (!render_data->img_convert_ctx) {
-    av_log(nullptr, AV_LOG_FATAL, "Can not initialize the conversion context\n");
-    return;
-  }
-  int linesize[4] = {frame->width * 4};
-//    int num_bytes = av_image_get_buffer_size(AV_PIX_FMT_ARGB, pFrame->width, pFrame->height, 1);
-  uint8_t *bgr_buffer[8] = {(uint8_t *) render_data->pixel_buffer->buffer};
-  sws_scale(render_data->img_convert_ctx, pFrame->data, pFrame->linesize, 0, pFrame->height, bgr_buffer, linesize);
-#if 0
-  av_log(nullptr, AV_LOG_INFO, "render_frame: render first pixel = 0x%2x%2x%2x%2x \n",
-         render_data->pixel_buffer->buffer[0],
-         render_data->pixel_buffer->buffer[1], render_data->pixel_buffer->buffer[2],
-         render_data->pixel_buffer->buffer[3]);
-#endif
-}
-
-int64_t flutter_attach_video_render(CPlayer *player) {
-  if (!textures_) {
-    return -1;
-  }
-  av_log(nullptr, AV_LOG_DEBUG, "ffp_attach_video_render_flutter \n");
-
-
-//    if (player->video_render_ctx.render_callback_) {
-//        auto render_data = get_render_data(&player->video_render_ctx);
-//        av_log(nullptr, AV_LOG_INFO,
-//               "player already attached to textures. texture_id = %lld \n", render_data->texture_id);
-//        return render_data->texture_id;
-//    }
-
-  auto render_data = std::make_shared<VideoRenderData>();
-
-  {
-    auto *pixel_buffer = new FlutterDesktopPixelBuffer;
-    pixel_buffer->width = 0;
-    pixel_buffer->height = 0;
-    pixel_buffer->buffer = nullptr;
-    render_data->pixel_buffer = pixel_buffer;
-  }
-
-  auto texture_variant = std::make_unique<flutter::TextureVariant>(flutter::PixelBufferTexture(
-      [render_data](size_t width, size_t height) -> const FlutterDesktopPixelBuffer * {
-        return render_data->pixel_buffer;
-      }));
-
-  render_data->texture_id = textures_->RegisterTexture(texture_variant.get());
-  render_data->texture_ = std::move(texture_variant);
-
-  player->SetVideoRender([render_data](Frame *frame) {
-    render_frame(render_data, frame);
-    textures_->MarkTextureFrameAvailable(render_data->texture_id);
-  });
-
-  return render_data->texture_id;
-}
-
-void register_flutter_plugin(flutter::PluginRegistrarWindows *registrar) {
-  textures_ = registrar->texture_registrar();
-  std::cout << "register_flutter_plugin: " << registrar << std::endl;
-}
-
-void flutter_detach_video_render(CPlayer *player) {
-  if (!textures_) {
-    av_log(nullptr, AV_LOG_FATAL, "can not detach flutter texture. textures is empty");
-    return;
-  }
-
-  player->SetVideoRender(nullptr);
 }
 
 #endif // _FLUTTER

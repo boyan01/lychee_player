@@ -45,7 +45,7 @@ struct CPlayer {
 
  public:
 
-  CPlayer(std::shared_ptr<VideoRenderBase> video_render);
+  explicit CPlayer(std::shared_ptr<VideoRenderBase> video_render);
 
   ~CPlayer();
 

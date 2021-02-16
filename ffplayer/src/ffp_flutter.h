@@ -51,8 +51,6 @@ FFPLAYER_EXPORT int ffp_get_volume(CPlayer *player);
 
 FFPLAYER_EXPORT int ffp_get_state(CPlayer *player);
 
-FFPLAYER_EXPORT void ffp_refresh_texture(CPlayer *player);
-
 /**
  * @return -1 if player invalid; -2 if render_context invalid; 0 if none picture rendered.
  */

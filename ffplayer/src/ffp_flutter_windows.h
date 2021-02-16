@@ -10,11 +10,32 @@
 
 #include "ffp_define.h"
 #include "ffp_player.h"
+#include "render_video_flutter.h"
 
+class FlutterWindowsVideoRender : public FlutterVideoRender {
+
+ private:
+
+  int64_t texture_id = -1;
+  FlutterDesktopPixelBuffer *pixel_buffer = nullptr;
+  std::unique_ptr<flutter::TextureVariant> texture_;
+  struct SwsContext *img_convert_ctx = nullptr;
+
+ public:
+
+  void RenderPicture(Frame &frame) override;
+
+  int Attach();
+
+  void Detach();
+
+  ~FlutterWindowsVideoRender();
+};
+
+
+/**
+ * Register windows flutter plugin.
+ */
 FFPLAYER_EXPORT void register_flutter_plugin(flutter::PluginRegistrarWindows *registrar);
-
-FFPLAYER_EXPORT int64_t flutter_attach_video_render(CPlayer *player);
-
-FFPLAYER_EXPORT void flutter_detach_video_render(CPlayer *player);
 
 #endif //AUDIO_PLAYER_EXAMPLE_FFP_FLUTTER_WINDOWS_H
