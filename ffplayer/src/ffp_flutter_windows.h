@@ -5,6 +5,8 @@
 #if !defined(AUDIO_PLAYER_EXAMPLE_FFP_FLUTTER_WINDOWS_H) && defined(_FLUTTER_WINDOWS)
 #define AUDIO_PLAYER_EXAMPLE_FFP_FLUTTER_WINDOWS_H
 
+#include <cstdint>
+
 #include "flutter/texture_registrar.h"
 #include "flutter/plugin_registrar_windows.h"
 
@@ -16,16 +18,16 @@ class FlutterWindowsVideoRender : public FlutterVideoRender {
 
  private:
 
-  int64_t texture_id = -1;
-  FlutterDesktopPixelBuffer *pixel_buffer = nullptr;
+  int64_t texture_id_ = -1;
+  FlutterDesktopPixelBuffer *pixel_buffer_ = nullptr;
   std::unique_ptr<flutter::TextureVariant> texture_;
-  struct SwsContext *img_convert_ctx = nullptr;
+  struct SwsContext *img_convert_ctx_ = nullptr;
 
  public:
 
   void RenderPicture(Frame &frame) override;
 
-  int Attach();
+  int64_t Attach();
 
   void Detach();
 

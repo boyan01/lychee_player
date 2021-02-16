@@ -134,10 +134,14 @@ double VideoRenderBase::GetVideoAspectRatio() const {
 /**
  * called to display each frame
  *
- * \return time for next frame should be schudled.
+ * \return time for next frame should be scheduled.
  */
 double VideoRenderBase::DrawFrame() {
   double remaining_time = REFRESH_RATE;
+
+  if (paused_ && !force_refresh_) {
+    return remaining_time;
+  }
 
 #if 0
   bool realtime = false; // TODO check is realtime
