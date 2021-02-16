@@ -6,9 +6,9 @@
 #define FFP_DECODER_VIDEO_H
 
 #include "decoder_base.h"
-#include "ffp_video_render.h"
+#include "render_video_base.h"
 
-class VideoDecoder : public Decoder<VideoRender> {
+class VideoDecoder : public Decoder<VideoRenderBase> {
 
  private:
 
@@ -23,7 +23,7 @@ class VideoDecoder : public Decoder<VideoRender> {
  public:
   VideoDecoder(unique_ptr_d<AVCodecContext> codecContext,
                std::unique_ptr<DecodeParams> decodeParams,
-               std::shared_ptr<VideoRender> render);
+               std::shared_ptr<VideoRenderBase> render);
 };
 
 #endif //FFP_DECODER_VIDEO_H

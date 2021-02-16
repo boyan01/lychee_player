@@ -13,7 +13,7 @@
 #include "ffp_clock.h"
 #include "ffp_data_source.h"
 #include "ffp_audio_render.h"
-#include "ffp_video_render.h"
+#include "render_video_base.h"
 
 enum FFPlayerState {
   FFP_STATE_IDLE = 0,
@@ -32,12 +32,12 @@ struct CPlayer {
 
   std::shared_ptr<ClockContext> clock_context;
 
-  std::unique_ptr<DataSource> data_source;
+  std::unique_ptr<DataSource> data_source{nullptr};
 
   std::shared_ptr<DecoderContext> decoder_context;
 
   std::shared_ptr<AudioRender> audio_render;
-  std::shared_ptr<VideoRender> video_render;
+  std::shared_ptr<VideoRenderBase> video_render_{nullptr};
 
   std::shared_ptr<MessageContext> message_context;
 
@@ -45,7 +45,7 @@ struct CPlayer {
 
  public:
 
-  CPlayer();
+  CPlayer(std::shared_ptr<VideoRenderBase> video_render);
 
   ~CPlayer();
 
@@ -96,9 +96,7 @@ struct CPlayer {
 
   const char *GetMetadataDict(const char *key);
 
-  void SetVideoRender(std::function<void(Frame *frame)> render_callback);
-
-  void DrawFrame();
+  VideoRenderBase *GetVideoRender();
 };
 
 #endif //FFPLAYER_FFP_PLAYER_H

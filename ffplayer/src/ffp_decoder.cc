@@ -103,10 +103,12 @@ int DecoderContext::StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx,
   return 0;
 }
 
-DecoderContext::DecoderContext(std::shared_ptr<AudioRender> audio_render_, std::shared_ptr<VideoRender> video_render_,
-                               std::shared_ptr<ClockContext> clock_ctx_)
-    : audio_render(std::move(audio_render_)), video_render(std::move(video_render_)),
-      clock_ctx(std::move(clock_ctx_)) {
+DecoderContext::DecoderContext(
+    std::shared_ptr<AudioRender> audio_render_,
+    std::shared_ptr<VideoRenderBase> video_render_,
+    std::shared_ptr<ClockContext> clock_ctx_
+) : audio_render(std::move(audio_render_)), video_render(std::move(video_render_)),
+    clock_ctx(std::move(clock_ctx_)) {
 
 }
 

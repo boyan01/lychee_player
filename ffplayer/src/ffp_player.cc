@@ -8,9 +8,7 @@ extern "C" {
 #include "libavutil/bprint.h"
 }
 
-extern AVPacket *flush_pkt;
-
-CPlayer::CPlayer() {
+CPlayer::CPlayer(std::shared_ptr<VideoRenderBase> video_render) : video_render_(std::move(video_render)) {
   message_context = std::make_shared<MessageContext>();
 
   audio_pkt_queue = std::make_shared<PacketQueue>();
@@ -41,22 +39,23 @@ CPlayer::CPlayer() {
                                                  sync_type_confirm);
 
   audio_render = std::make_shared<AudioRender>(audio_pkt_queue, clock_context);
-  video_render = std::make_shared<VideoRender>(video_pkt_queue, clock_context, message_context);
+
+  video_render_->Init(video_pkt_queue, clock_context, message_context);
+
   if (start_configuration.show_status) {
-    video_render->on_post_draw_frame = [this]() {
+    video_render_->on_post_draw_frame = [this]() {
       DumpStatus();
     };
   }
 
-  decoder_context = std::make_shared<DecoderContext>(audio_render, video_render, clock_context);
+  decoder_context = std::make_shared<DecoderContext>(audio_render, video_render_, clock_context);
 }
 
-CPlayer::~CPlayer() {
-}
+CPlayer::~CPlayer() = default;
 
 void CPlayer::TogglePause() {
   if (paused) {
-    video_render->frame_timer +=
+    video_render_->frame_timer +=
         av_gettime_relative() / 1000000.0 - clock_context->GetVideoClock()->last_updated;
     if (data_source->read_pause_return != AVERROR(ENOSYS)) {
       clock_context->GetVideoClock()->paused = 0;
@@ -74,8 +73,8 @@ void CPlayer::TogglePause() {
     data_source->paused = paused;
   }
   audio_render->paused = paused;
-  video_render->paused_ = paused;
-  video_render->step = false;
+  video_render_->paused_ = paused;
+  video_render_->step = false;
 }
 
 int CPlayer::OpenDataSource(const char *filename) {
@@ -140,7 +139,7 @@ void CPlayer::DumpStatus() {
                                                                ? "M-A"
                                                                : "   ")),
                av_diff,
-               video_render->frame_drop_count + video_render->frame_drop_count_pre,
+        /*video_render->frame_drop_count + video_render->frame_drop_count_pre*/ 0,
                aqsize / 1024,
                vqsize / 1024,
                sqsize,
@@ -224,7 +223,7 @@ void CPlayer::SetMessageHandleCallback(std::function<void(int what, int64_t arg1
 }
 
 double CPlayer::GetVideoAspectRatio() {
-  return video_render->GetVideoAspectRatio();
+  return video_render_->GetVideoAspectRatio();
 }
 
 const char *CPlayer::GetUrl() {
@@ -254,18 +253,10 @@ void CPlayer::GlobalInit() {
   flush_pkt = new AVPacket;
   av_init_packet(flush_pkt);
   flush_pkt->data = (uint8_t *) &flush_pkt;
-
 }
 
-void CPlayer::SetVideoRender(std::function<void(Frame *frame)> render_callback) {
-  CHECK_VALUE(render_callback);
-  video_render->render_callback = std::move(render_callback);
-  if (video_render->Start()) {
-    video_render->render_attached = true;
-  }
+VideoRenderBase *CPlayer::GetVideoRender() {
+  return video_render_.get();
 }
 
-void CPlayer::DrawFrame() {
-  video_render->DrawFrame();
-}
 

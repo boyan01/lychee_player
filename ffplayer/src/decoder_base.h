@@ -21,7 +21,6 @@ extern "C" {
 
 #include "render_base.h"
 #include "ffp_audio_render.h"
-#include "ffp_video_render.h"
 
 struct DecodeParams {
   std::shared_ptr<PacketQueue> pkt_queue;
