@@ -259,15 +259,21 @@ int DataSource::OpenComponentStream(int stream_index, AVMediaType media_type) {
 
   if (decoder_ctx->StartDecoder(std::move(params)) >= 0) {
     switch (media_type) {
-      case AVMEDIA_TYPE_VIDEO:video_stream_index = stream_index;
+      case AVMEDIA_TYPE_VIDEO: {
+        video_stream_index = stream_index;
         video_stream_ = stream;
         break;
-      case AVMEDIA_TYPE_AUDIO:audio_stream_index = stream_index;
+      }
+      case AVMEDIA_TYPE_AUDIO: {
+        audio_stream_index = stream_index;
         audio_stream_ = stream;
         break;
-      case AVMEDIA_TYPE_SUBTITLE:subtitle_stream_index = stream_index;
+      }
+      case AVMEDIA_TYPE_SUBTITLE: {
+        subtitle_stream_index = stream_index;
         subtitle_stream_ = stream;
         break;
+      }
       default:break;
     }
   }

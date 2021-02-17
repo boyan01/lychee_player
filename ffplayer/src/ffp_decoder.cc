@@ -56,8 +56,9 @@ int DecoderContext::StartDecoder(std::unique_ptr<DecodeParams> decode_params) {
       video_decoder = new VideoDecoder(std::move(codec_ctx), std::move(decode_params),
                                        video_render);
       break;
-    case AVMEDIA_TYPE_AUDIO:StartAudioDecoder(std::move(codec_ctx), std::move(decode_params));
-      break;
+    case AVMEDIA_TYPE_AUDIO: {
+      return StartAudioDecoder(std::move(codec_ctx), std::move(decode_params));
+    }
     case AVMEDIA_TYPE_SUBTITLE:
       av_log(nullptr,
              AV_LOG_WARNING,
@@ -70,6 +71,7 @@ int DecoderContext::StartDecoder(std::unique_ptr<DecodeParams> decode_params) {
 
 int DecoderContext::StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx,
                                       std::unique_ptr<DecodeParams> decode_params) {
+  CHECK_VALUE_WITH_RETURN(audio_render, -1);
   int sample_rate, nb_channels;
   int64_t channel_layout;
 #if CONFIG_AVFILTER
@@ -104,7 +106,7 @@ int DecoderContext::StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx,
 }
 
 DecoderContext::DecoderContext(
-    std::shared_ptr<AudioRender> audio_render_,
+    std::shared_ptr<AudioRenderBase> audio_render_,
     std::shared_ptr<VideoRenderBase> video_render_,
     std::shared_ptr<ClockContext> clock_ctx_
 ) : audio_render(std::move(audio_render_)), video_render(std::move(video_render_)),

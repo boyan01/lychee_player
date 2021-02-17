@@ -32,7 +32,7 @@ int AudioDecoder::DecodeThread() {
 }
 
 AudioDecoder::AudioDecoder(unique_ptr_d<AVCodecContext> codec_context_, std::unique_ptr<DecodeParams> decode_params_,
-                           std::shared_ptr<AudioRender> render_)
+                           std::shared_ptr<AudioRenderBase> render_)
     : Decoder(std::move(codec_context_),
               std::move(decode_params_),
               std::move(render_)) {

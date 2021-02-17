@@ -20,7 +20,6 @@ extern "C" {
 #include "ffp_define.h"
 
 #include "render_base.h"
-#include "ffp_audio_render.h"
 
 struct DecodeParams {
   std::shared_ptr<PacketQueue> pkt_queue;
@@ -185,6 +184,7 @@ class Decoder {
         av_packet_unref(&temp_pkt);
       }
     }
+    return 0;
   }
 
   virtual const char *debug_label() = 0;

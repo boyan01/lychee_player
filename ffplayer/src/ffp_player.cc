@@ -4,6 +4,8 @@
 
 #include "ffp_player.h"
 
+#include "render_audio_sdl.h"
+
 extern "C" {
 #include "libavutil/bprint.h"
 }
@@ -38,7 +40,7 @@ CPlayer::CPlayer(std::shared_ptr<VideoRenderBase> video_render) : video_render_(
   clock_context = std::make_shared<ClockContext>(&audio_pkt_queue->serial, &video_pkt_queue->serial,
                                                  sync_type_confirm);
 
-  audio_render = std::make_shared<AudioRender>(audio_pkt_queue, clock_context);
+  audio_render = std::make_shared<SdlAudioRender>(audio_pkt_queue, clock_context);
 
   video_render_->Init(video_pkt_queue, clock_context, message_context);
 

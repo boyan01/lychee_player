@@ -12,7 +12,7 @@
 #include "ffp_packet_queue.h"
 #include "ffp_clock.h"
 #include "ffp_data_source.h"
-#include "ffp_audio_render.h"
+#include "render_audio_base.h"
 #include "render_video_base.h"
 
 enum FFPlayerState {
@@ -36,7 +36,7 @@ struct CPlayer {
 
   std::shared_ptr<DecoderContext> decoder_context;
 
-  std::shared_ptr<AudioRender> audio_render;
+  std::shared_ptr<AudioRenderBase> audio_render;
   std::shared_ptr<VideoRenderBase> video_render_{nullptr};
 
   std::shared_ptr<MessageContext> message_context;

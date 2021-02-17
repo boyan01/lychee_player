@@ -6,10 +6,10 @@
 #define FFP_DECODER_AUDIO_H
 
 #include "decoder_base.h"
-#include "ffp_audio_render.h"
+#include "render_audio_base.h"
 #include "ffp_define.h"
 
-class AudioDecoder : public Decoder<AudioRender> {
+class AudioDecoder : public Decoder<AudioRenderBase> {
 
  protected:
 
@@ -20,7 +20,7 @@ class AudioDecoder : public Decoder<AudioRender> {
  public:
   AudioDecoder(unique_ptr_d<AVCodecContext> codec_context_,
                std::unique_ptr<DecodeParams> decode_params_,
-               std::shared_ptr<AudioRender> render_);
+               std::shared_ptr<AudioRenderBase> render_);
 };
 
 #endif //FFP_DECODER_AUDIO_H
