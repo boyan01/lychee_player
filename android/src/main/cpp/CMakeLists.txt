@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 
 project("av_player" "CXX" "C")
 
+add_subdirectory(SDL)
 
 add_library(av_player SHARED
         av_player_plugin.h
@@ -29,9 +30,6 @@ list(APPEND FFP_LIBS
         avfilter
         swscale
         swresample
-        SDL2
-        hidapi
-        cpufeatures
         c++_shared
         )
 
@@ -41,9 +39,12 @@ foreach (LIB IN LISTS FFP_LIBS)
     set_target_properties(${LIB} PROPERTIES IMPORTED_LOCATION "${FFP_ANDROID_LIBS}/lib${LIB}.so")
 endforeach ()
 
-list(APPEND FFP_LIBS log)
+add_library(cpufeatures_shared SHARED IMPORTED)
+set_target_properties(cpufeatures_shared PROPERTIES IMPORTED_LOCATION "${FFP_ANDROID_LIBS}/libcpufeatures.so")
 
-add_subdirectory(../../../../ffplayer ffplayer.out)
+list(APPEND FFP_LIBS log SDL2 cpufeatures_shared)
+
+add_subdirectory(ffplayer ffplayer.out)
 
 target_link_libraries(
         av_player

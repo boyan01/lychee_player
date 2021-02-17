@@ -44,39 +44,40 @@ add_library(ffplayer SHARED ${FFP_SOURCE_FILES})
 
 target_include_directories(ffplayer PUBLIC third_party)
 
-message("CMAKE_LIBRARY_PATH = ${CMAKE_LIBRARY_PATH}")
+if (NOT DEFINED FFP_LIBS)
+    find_library(LIBAVUTIL avutil REQUIRED)
+    find_library(LIBAVCODEC avcodec REQUIRED)
+    find_library(LIBAVDEVICE avdevice REQUIRED)
+    find_library(LIBAVFORMAT avformat REQUIRED)
+    find_library(LIBAVFILTER avfilter REQUIRED)
+    find_library(LIBSWSCALE swscale REQUIRED)
+    find_library(LIBSWRESAMPLE swresample REQUIRED)
 
-#find_library(LIBAVUTIL avutil REQUIRED)
-#find_library(LIBAVCODEC avcodec REQUIRED)
-#find_library(LIBAVDEVICE avdevice REQUIRED)
-#find_library(LIBAVFORMAT avformat REQUIRED)
-#find_library(LIBAVFILTER avfilter REQUIRED)
-#find_library(LIBSWSCALE swscale REQUIRED)
-#find_library(LIBSWRESAMPLE swresample REQUIRED)
+    find_library(LIBSDL2 SDL2 REQUIRED)
 
-#find_library(LIBSDL2 SDL2 REQUIRED)
+    list(APPEND FFP_LIBS ${LIBAVUTIL}
+            ${LIBAVCODEC}
+            ${LIBAVDEVICE}
+            ${LIBAVFORMAT}
+            ${LIBAVFILTER}
+            ${LIBSWSCALE}
+            ${LIBSWRESAMPLE}
+            ${LIBSDL2}
+            )
+    if (FLUTTER)
+        list(APPEND FFP_LIBS flutter)
+    endif ()
 
-#list(APPEND FFP_LIBS ${LIBAVUTIL}
-#        ${LIBAVCODEC}
-#        ${LIBAVDEVICE}
-#        ${LIBAVFORMAT}
-#        ${LIBAVFILTER}
-#        ${LIBSWSCALE}
-#        ${LIBSWRESAMPLE}
-#        ${LIBSDL2}
-#        )
-if (FLUTTER)
-    #    list(APPEND FFP_LIBS flutter)
+    if (CMAKE_FLUTTER_WINDOWS)
+        list(APPEND FFP_LIBS flutter_wrapper_plugin)
+    endif ()
+
+    if (UNIX)
+        # linux do not have math library.
+        list(APPEND FFP_LIBS m)
+    endif ()
 endif ()
 
-if (CMAKE_FLUTTER_WINDOWS)
-    list(APPEND FFP_LIBS flutter_wrapper_plugin)
-endif ()
-
-if (UNIX)
-    # linux do not have math library.
-    list(APPEND FFP_LIBS m)
-endif ()
 target_link_libraries(ffplayer PUBLIC ${FFP_LIBS})
 
 if (FLUTTER)
