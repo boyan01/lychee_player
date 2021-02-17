@@ -1,6 +1,7 @@
 ﻿cmake_minimum_required(VERSION 3.10)
 
 if (WIN32)
+    message("WIND32")
     set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
     set(BUILD_SHARED_LIBS TRUE)
     if (!CMAKE_TOOLCHAIN_FILE)
@@ -12,17 +13,20 @@ if (WIN32)
     set(CMAKE_SYSTEM_NAME "WindowsStore")
 endif ()
 
+
 project("ffp" "CXX" "C")
 set(CMAKE_CXX_STANDARD 14)
 
+message("${PROJECT_NAME} ANDROID_UNIFIED_HEADERS = ${ANDROID_UNIFIED_HEADERS}")
+
 if (WIN32)
-    set(VCPKG_HEADER_DIR "$ENV{VCPKG_ROOT}//installed//x64-windows//include")
-    include_directories("${VCPKG_HEADER_DIR}")
+    #    set(VCPKG_HEADER_DIR "$ENV{VCPKG_ROOT}//installed//x64-windows//include")
+    #    include_directories("${VCPKG_HEADER_DIR}")
 endif (WIN32)
 
 if (UNIX)
     # https://bugs.launchpad.net/ubuntu/+source/libsdl2-ttf/+bug/1872023
-    include_directories("/usr/include/SDL2")
+    #    include_directories("/usr/include/SDL2")
 endif ()
 
 if (APPLE)
@@ -38,29 +42,31 @@ endif ()
 
 add_library(ffplayer SHARED ${FFP_SOURCE_FILES})
 
-target_include_directories(ffplayer PRIVATE third_party)
+target_include_directories(ffplayer PUBLIC third_party)
 
-find_library(LIBSDL2 SDL2 REQUIRED)
+message("CMAKE_LIBRARY_PATH = ${CMAKE_LIBRARY_PATH}")
 
-find_library(LIBAVUTIL avutil REQUIRED)
-find_library(LIBAVCODEC avcodec REQUIRED)
-find_library(LIBAVDEVICE avdevice REQUIRED)
-find_library(LIBAVFORMAT avformat REQUIRED)
-find_library(LIBAVFILTER avfilter REQUIRED)
-find_library(LIBSWSCALE swscale REQUIRED)
-find_library(LIBSWRESAMPLE swresample REQUIRED)
+#find_library(LIBAVUTIL avutil REQUIRED)
+#find_library(LIBAVCODEC avcodec REQUIRED)
+#find_library(LIBAVDEVICE avdevice REQUIRED)
+#find_library(LIBAVFORMAT avformat REQUIRED)
+#find_library(LIBAVFILTER avfilter REQUIRED)
+#find_library(LIBSWSCALE swscale REQUIRED)
+#find_library(LIBSWRESAMPLE swresample REQUIRED)
 
-list(APPEND FFP_LIBS ${LIBAVUTIL}
-        ${LIBAVCODEC}
-        ${LIBAVDEVICE}
-        ${LIBAVFORMAT}
-        ${LIBAVFILTER}
-        ${LIBSWSCALE}
-        ${LIBSWRESAMPLE}
-        ${LIBSDL2}
-        )
+#find_library(LIBSDL2 SDL2 REQUIRED)
+
+#list(APPEND FFP_LIBS ${LIBAVUTIL}
+#        ${LIBAVCODEC}
+#        ${LIBAVDEVICE}
+#        ${LIBAVFORMAT}
+#        ${LIBAVFILTER}
+#        ${LIBSWSCALE}
+#        ${LIBSWRESAMPLE}
+#        ${LIBSDL2}
+#        )
 if (FLUTTER)
-    list(APPEND FFP_LIBS flutter)
+    #    list(APPEND FFP_LIBS flutter)
 endif ()
 
 if (CMAKE_FLUTTER_WINDOWS)

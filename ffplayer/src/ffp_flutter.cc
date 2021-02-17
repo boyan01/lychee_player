@@ -12,6 +12,8 @@
 
 #if defined(_FLUTTER_WINDOWS)
 #include "ffp_flutter_windows.h"
+#elif defined(_FLUTTER_ANDROID)
+#include "ffp_flutter_android.h"
 #endif
 
 // hold all player instance. destroy all play when flutter app hot reloaded.
@@ -250,6 +252,19 @@ void ffplayer_free_player(CPlayer *player) {
 
 void ffplayer_global_init(void *arg) {
     assert(arg);
+#if __ANDROID__
+    av_log_set_callback([](void *ptr, int level, const char *format, va_list v_args) {
+      va_list vl2;
+      char *line = static_cast<char *>(malloc(128 * sizeof(char)));
+      static int print_prefix = 1;
+      va_copy(vl2, v_args);
+      av_log_format_line(ptr, level, format, vl2, line, 128, &print_prefix);
+      va_end(vl2);
+      line[127] = '\0';
+      __android_log_print(ANDROID_LOG_ERROR, "FF_PLAYER", "%s", line);
+      free(line);
+    });
+#endif
     CPlayer::GlobalInit();
     Dart_InitializeApiDL(arg);
 
@@ -266,6 +281,8 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
     std::shared_ptr<VideoRenderBase> video_render;
 #ifdef _FLUTTER_WINDOWS
     video_render = std::make_shared<FlutterWindowsVideoRender>();
+#elif _FLUTTER_ANDROID
+    video_render = std::make_shared<FlutterAndroidVideoRender>();
 #endif
     auto *player = new CPlayer(video_render);
     player->TogglePause();
@@ -303,6 +320,7 @@ int64_t ffp_attach_video_render_flutter(CPlayer *player) {
 #elif _FLUTTER_LINUX
     return -1;
 #endif
+    return -1;
 }
 
 void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {

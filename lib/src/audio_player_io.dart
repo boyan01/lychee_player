@@ -1,6 +1,3 @@
-import 'dart:io';
-
-import 'audio_player_channel.dart';
 import 'ffi_player.dart';
 import 'audio_player_platform.dart' as api;
 
@@ -18,10 +15,7 @@ abstract class AudioPlayer implements api.AudioPlayer {
   }
 
   factory AudioPlayer._create(String uri, DataSourceType type) {
-    if (Platform.isLinux || Platform.isWindows) {
-      return FfiAudioPlayer(uri, type);
-    }
-    return ChannelAudioPlayer.create(uri, type);
+    return FfiAudioPlayer(uri, type);
   }
 }
 

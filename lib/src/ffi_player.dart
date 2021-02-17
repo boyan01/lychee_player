@@ -136,7 +136,7 @@ class _PlayerConfiguration extends Struct {
 }
 
 DynamicLibrary _openLibrary() {
-  if (Platform.isLinux) {
+  if (Platform.isLinux || Platform.isAndroid) {
     return DynamicLibrary.open("libffplayer.so");
   }
   if (Platform.isWindows) {

@@ -44,7 +44,7 @@ void calculate_display_rect(SDL_Rect *rect, int scr_xleft, int scr_ytop, int scr
 }
 
 void update_thread_name(const char *name) {
-#if __LINUX__
+#if __LINUX__ || __ANDROID__
   pthread_setname_np(pthread_self(), name);
 #elif WIN32
   int ret = MultiByteToWideChar(CP_UTF8, 0, name, strlen(name), nullptr, 0);
