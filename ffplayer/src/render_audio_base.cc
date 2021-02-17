@@ -15,8 +15,6 @@ extern "C" {
 /* maximum audio speed change to get correct sync */
 #define SAMPLE_CORRECTION_PERCENT_MAX 10
 
-
-
 AudioRenderBase::AudioRenderBase(const std::shared_ptr<PacketQueue> &audio_queue,
                                  std::shared_ptr<ClockContext> clock_ctx) : clock_ctx_(std::move(clock_ctx)) {
   sample_queue = std::make_unique<FrameQueue>();
@@ -81,14 +79,9 @@ int AudioRenderBase::AudioDecodeFrame() {
   Frame *af;
   int resampled_data_size;
   do {
-#if defined(_WIN32)
-    while (sample_queue->NbRemaining() == 0) {
-    if ((av_gettime_relative() - audio_callback_time) >
-        1000000LL * audio_hw_buf_size / audio_tgt.bytes_per_sec / 2)
+    if (OnBeforeDecodeFrame() < 0) {
       return -1;
-    av_usleep(1000);
-  }
-#endif
+    }
     if (!(af = sample_queue->PeekReadable())) {
       return -1;
     }
@@ -194,4 +187,8 @@ int AudioRenderBase::AudioDecodeFrame() {
 
 void AudioRenderBase::Abort() {
   sample_queue->Signal();
+}
+
+int AudioRenderBase::OnBeforeDecodeFrame() {
+  return 0;
 }

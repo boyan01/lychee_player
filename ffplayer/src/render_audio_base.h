@@ -71,6 +71,8 @@ class AudioRenderBase : public BaseRender {
   */
   int AudioDecodeFrame();
 
+  virtual int OnBeforeDecodeFrame();
+
   int SynchronizeAudio(int nb_samples);
 
  public:

@@ -191,3 +191,15 @@ void SdlAudioRender::AudioCallback(Uint8 *stream, int len) {
   }
 }
 
+int SdlAudioRender::OnBeforeDecodeFrame() {
+#if defined(_WIN32)
+  while (sample_queue->NbRemaining() == 0) {
+    if ((av_gettime_relative() - audio_callback_time) >
+        1000000LL * audio_hw_buf_size / audio_tgt.bytes_per_sec / 2)
+      return -1;
+    av_usleep(1000);
+  }
+#endif
+  return 0;
+}
+

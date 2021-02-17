@@ -23,6 +23,8 @@ class SdlAudioRender : public AudioRenderBase {
  private:
   void AudioCallback(Uint8 *stream, int len);
 
+ protected:
+  int OnBeforeDecodeFrame() override;
  public:
 
   SdlAudioRender(const std::shared_ptr<PacketQueue> &audio_queue, const std::shared_ptr<ClockContext> &clock_ctx);
