@@ -53,6 +53,26 @@ android {
     }
 }
 
+configurations {
+    nativeDeps
+}
+
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    nativeDeps 'com.arthenica:mobile-ffmpeg-full:4.3.1.LTS'
+}
+
+
+// COPY prebuilt ffmpeg libs to cpp/lib/
+afterEvaluate {
+    def libPath = projectDir.absolutePath + "/src/main/cpp/lib"
+    def tempPath = buildDir.absolutePath + "/nativeDeps/ffmpeg"
+    copy {
+        from(zipTree(configurations.nativeDeps.files.first()))
+        into(tempPath)
+    }
+    copy {
+        from(tempPath + "/jni/")
+        into(libPath)
+    }
 }
