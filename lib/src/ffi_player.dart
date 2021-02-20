@@ -273,6 +273,7 @@ class FfiAudioPlayer implements AudioPlayer {
         break;
       case _FFP_MSG_VIDEO_FRAME_LOADED:
         _videoSize.value = Size(arg1.toDouble(), arg2.toDouble());
+        debugPrint("_FFP_MSG_VIDEO_FRAME_LOADED: size = ${_videoSize.value}");
         break;
     }
   }

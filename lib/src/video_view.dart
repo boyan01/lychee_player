@@ -44,11 +44,12 @@ class _VideoViewState extends State<VideoView> {
   @override
   Widget build(BuildContext context) {
     Widget? texture;
-    if (_textureId > 0) {
+    if (_textureId >= 0 /* Android Start from 0 */) {
       texture = AnimatedBuilder(
         animation: widget.player.aspectRatio,
         builder: (context, child) {
           final aspectRatio = widget.player.aspectRatio.value;
+          debugPrint("aspectRatio = ${aspectRatio}");
           if (aspectRatio.isInfinite || aspectRatio <= 0) {
             return Center(child: child);
           }

@@ -42,7 +42,7 @@ endforeach ()
 add_library(cpufeatures_shared SHARED IMPORTED)
 set_target_properties(cpufeatures_shared PROPERTIES IMPORTED_LOCATION "${FFP_ANDROID_LIBS}/libcpufeatures.so")
 
-list(APPEND FFP_LIBS log SDL2 cpufeatures_shared)
+list(APPEND FFP_LIBS log SDL2 cpufeatures_shared android)
 
 add_subdirectory(ffplayer ffplayer.out)
 

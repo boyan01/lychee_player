@@ -16,7 +16,7 @@ class AvPlayerPlugin : FlutterPlugin, MethodCallHandler {
         SDL.loadLibrary("SDL2")
         SDL.setupJNI()
         System.loadLibrary("av_player")
-
+        MediaPlayerBridge.onAttached(flutterPluginBinding.textureRegistry)
     }
 
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {

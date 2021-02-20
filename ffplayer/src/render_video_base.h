@@ -59,7 +59,7 @@ class VideoRenderBase : public BaseRender {
 
   VideoRenderBase();
 
-  ~VideoRenderBase();
+  virtual ~VideoRenderBase();
 
   void Init(const std::shared_ptr<PacketQueue> &video_queue, std::shared_ptr<ClockContext> clock_ctx,
             std::shared_ptr<MessageContext> msg_ctx);

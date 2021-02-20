@@ -5,10 +5,6 @@
 #ifndef ANDROID_AV_PLAYER_PLUGIN_H
 #define ANDROID_AV_PLAYER_PLUGIN_H
 
-
-class av_player_plugin {
-
-};
-
+#include "jni.h"
 
 #endif //ANDROID_AV_PLAYER_PLUGIN_H

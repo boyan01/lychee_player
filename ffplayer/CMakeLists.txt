@@ -41,8 +41,7 @@ if (FLUTTER)
 endif ()
 
 add_library(ffplayer SHARED ${FFP_SOURCE_FILES})
-
-target_include_directories(ffplayer PUBLIC third_party)
+target_include_directories(ffplayer PUBLIC third_party src)
 
 if (NOT DEFINED FFP_LIBS)
     find_library(LIBAVUTIL avutil REQUIRED)
