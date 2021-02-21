@@ -37,7 +37,7 @@ if (NOT DEFINED FFP_LIBS)
             )
     if (UNIX)
         # linux do not have math library.
-        list(APPEND FFP_LIBS m)
+        list(APPEND FFP_LIBS m pthread)
     endif ()
 endif ()
 

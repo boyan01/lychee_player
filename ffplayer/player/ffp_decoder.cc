@@ -121,6 +121,9 @@ DecoderContext::~DecoderContext() {
   if (video_decoder) {
     video_decoder->Abort(nullptr);
   }
+  if (video_render) {
+    video_render->Abort();
+  }
   if (audio_decoder) {
     audio_decoder->Join();
     delete audio_decoder;
