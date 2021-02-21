@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
 
-project("av_player" "CXX" "C")
+project("media_player" "CXX" "C")
 
 add_subdirectory(SDL)
 
-add_library(av_player SHARED
+add_library(media_player_android SHARED
         av_player_plugin.h
         av_player_plugin.cpp)
 
@@ -13,9 +13,11 @@ message(" CMAKE_FIND_ROOT_PATH  = ${CMAKE_FIND_ROOT_PATH}")
 
 find_library(LOG_LIB log REQUIRED)
 
-set(FLUTTER "1")
-add_compile_definitions(_FLUTTER)
-add_compile_definitions(_FLUTTER_ANDROID)
+set(CMAKE_FLUTTER_MEDIA "1")
+set(CMAKE_FLUTTER_MEDIA_ANDROID "1")
+
+add_compile_definitions(_FLUTTER_MEDIA_)
+add_compile_definitions(_FLUTTER_MEDIA_ANDROID)
 
 message("ANDROID_ABI = ${ANDROID_ABI}, CMAKE_SOURCE_DIR = ")
 
@@ -47,7 +49,7 @@ list(APPEND FFP_LIBS log SDL2 cpufeatures_shared android)
 add_subdirectory(ffplayer ffplayer.out)
 
 target_link_libraries(
-        av_player
+        media_player_android
         ${log-lib}
-        ffplayer
+        media_flutter
 )

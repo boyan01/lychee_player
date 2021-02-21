@@ -1,6 +1,3 @@
-
-#ifdef _FLUTTER
-
 #include <list>
 
 #include "ffplayer.h"
@@ -12,9 +9,9 @@
 
 #include "render_audio_sdl.h"
 
-#if defined(_FLUTTER_WINDOWS)
+#if defined(_FLUTTER_MEDIA_WINDOWS)
 #include "ffp_flutter_windows.h"
-#elif defined(_FLUTTER_ANDROID)
+#elif defined(_FLUTTER_MEDIA_ANDROID)
 #include "ffp_flutter_android.h"
 #endif
 
@@ -282,10 +279,10 @@ void ffplayer_global_init(void *arg) {
 CPlayer *ffp_create_player(PlayerConfiguration *config) {
   std::shared_ptr<VideoRenderBase> video_render;
   std::shared_ptr<AudioRenderBase> audio_render;
-#ifdef _FLUTTER_WINDOWS
+#ifdef _FLUTTER_MEDIA_WINDOWS
   video_render = std::make_shared<FlutterWindowsVideoRender>();
   audio_render = std::make_shared<SdlAudioRender>();
-#elif _FLUTTER_ANDROID
+#elif _FLUTTER_MEDIA_ANDROID
   video_render = std::make_shared<media::FlutterAndroidVideoRender>();
   audio_render = std::make_shared<SdlAudioRender>();
 #endif
@@ -319,13 +316,13 @@ const char *ffp_get_metadata_dict(CPlayer *player, const char *key) {
 
 int64_t ffp_attach_video_render_flutter(CPlayer *player) {
   int64_t texture_id = -1;
-#ifdef _FLUTTER_WINDOWS
+#ifdef _FLUTTER_MEDIA_WINDOWS
   auto *video_render = dynamic_cast<FlutterWindowsVideoRender *>(player->GetVideoRender());
   texture_id = video_render->Attach();
-#elif _FLUTTER_ANDROID
+#elif _FLUTTER_MEDIA_ANDROID
   auto *video_render = dynamic_cast<media::FlutterAndroidVideoRender *>(player->GetVideoRender());
   texture_id = video_render->Attach();
-#elif _FLUTTER_LINUX
+#elif _FLUTTER_MEDIA_LINUX
 
 #endif
   av_log(nullptr, AV_LOG_INFO, "ffp_attach_video_render_flutter: id = %lld\n", texture_id);
@@ -351,13 +348,11 @@ void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
 
 void ffp_detach_video_render_flutter(CPlayer *player) {
   CHECK_VALUE(player);
-#ifdef _FLUTTER_WINDOWS
+#ifdef _FLUTTER_MEDIA_WINDOWS
   auto *video_render = dynamic_cast<FlutterWindowsVideoRender *>(player->GetVideoRender());
   video_render->Detach();
-#elif _FLUTTER_ANDROID
+#elif _FLUTTER_MEDIA_ANDROID
   auto *video_render = dynamic_cast<media::FlutterAndroidVideoRender *>(player->GetVideoRender());
   video_render->Detach();
 #endif
 }
-
-#endif // _FLUTTER

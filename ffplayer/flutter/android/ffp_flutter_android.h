@@ -5,9 +5,7 @@
 #ifndef ANDROID_FFP_FLUTTER_ANDROID_H
 #define ANDROID_FFP_FLUTTER_ANDROID_H
 
-#ifdef _FLUTTER_ANDROID
-
-#include "render_video_flutter.h"
+#include "../base/render_video_flutter.h"
 #include "render_audio_android.h"
 
 #include <android/log.h>
@@ -78,6 +76,5 @@ class FlutterAndroidVideoRender : public FlutterVideoRender {
 
 }
 
-#endif //_FLUTTER_ANDROID
 
 #endif //ANDROID_FFP_FLUTTER_ANDROID_H

@@ -7,25 +7,27 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 set(PLUGIN_NAME "av_player_plugin")
 
 add_library(${PLUGIN_NAME} SHARED
-  "av_player_plugin.cpp"
-)
+        "av_player_plugin.cpp"
+        )
 apply_standard_settings(${PLUGIN_NAME})
 
-set(FLUTTER "1")
-set(CMAKE_FLUTTER_WINDOWS "1")
-add_compile_definitions(_FLUTTER)
-add_compile_definitions(_FLUTTER_WINDOWS)
+set(CMAKE_FLUTTER_MEDIA "1")
+set(CMAKE_FLUTTER_MEDIA_WINDOWS "1")
+
+add_compile_definitions(_FLUTTER_MEDIA_)
+add_compile_definitions(_FLUTTER_MEDIA_WINDOWS)
+
 add_subdirectory(../ffplayer ffplayer.out)
 
 set_target_properties(${PLUGIN_NAME} PROPERTIES
-  CXX_VISIBILITY_PRESET hidden)
+        CXX_VISIBILITY_PRESET hidden)
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
 target_include_directories(${PLUGIN_NAME} INTERFACE
-  "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin ffplayer)
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin media_flutter)
 
 # List of absolute paths to libraries that should be bundled with the plugin
 set(${PROJECT_NAME}_bundled_libraries
-  "$<TARGET_FILE:ffplayer>"
-  PARENT_SCOPE
-)
+        "$<TARGET_FILE:media_flutter>"
+        PARENT_SCOPE
+        )

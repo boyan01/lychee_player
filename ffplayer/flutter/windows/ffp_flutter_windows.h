@@ -2,7 +2,7 @@
 // Created by boyan on 2021/2/14.
 //
 
-#if !defined(AUDIO_PLAYER_EXAMPLE_FFP_FLUTTER_WINDOWS_H) && defined(_FLUTTER_WINDOWS)
+#if !defined(AUDIO_PLAYER_EXAMPLE_FFP_FLUTTER_WINDOWS_H)
 #define AUDIO_PLAYER_EXAMPLE_FFP_FLUTTER_WINDOWS_H
 
 #include <cstdint>
