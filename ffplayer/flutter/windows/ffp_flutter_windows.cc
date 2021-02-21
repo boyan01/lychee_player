@@ -2,8 +2,6 @@
 // Created by boyan on 2021/1/24.
 //
 
-#if defined(_FLUTTER) && defined(_FLUTTER_WINDOWS)
-
 #include <list>
 #include <iostream>
 #include <memory>
@@ -89,5 +87,3 @@ void FlutterWindowsVideoRender::Detach() {
   delete pixel_buffer_;
   sws_freeContext(img_convert_ctx_);
 }
-
-#endif // _FLUTTER

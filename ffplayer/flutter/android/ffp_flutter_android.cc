@@ -1,8 +1,6 @@
 //
 // Created by boyan on 2021/2/17.
 //
-#ifdef _FLUTTER_ANDROID
-
 #include <android/native_window_jni.h>
 #include "ffp_flutter_android.h"
 
@@ -110,5 +108,3 @@ void FlutterTextureEntry::Release() {
 }
 
 }
-
-#endif

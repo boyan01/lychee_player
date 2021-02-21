@@ -13,8 +13,6 @@ enum _Type { file, url, asset }
 
 class MyApp extends StatefulWidget {
   final Map<String, _Type> urls = {
-    "sdcard/Movies/mojito.mp4": _Type.file,
-    "sdcard/Movies/mojito1.mp4": _Type.file,
     "http://music.163.com/song/media/outer/url?id=1451998397.mp3": _Type.url,
     "tracks/rise.mp3": _Type.asset,
     "https://storage.googleapis.com/exoplayer-test-media-0/play.mp3": _Type.url,

@@ -37,9 +37,9 @@ class SdlVideoRender : public VideoRenderBase {
 
  public:
 
-  SdlVideoRender(std::shared_ptr<SDL_Renderer> renderer);
+  explicit SdlVideoRender(std::shared_ptr<SDL_Renderer> renderer);
 
-  ~SdlVideoRender();
+  ~SdlVideoRender() override;
 
   void RenderPicture(Frame &frame) override;
 

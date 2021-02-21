@@ -137,10 +137,10 @@ class _PlayerConfiguration extends Struct {
 
 DynamicLibrary _openLibrary() {
   if (Platform.isLinux || Platform.isAndroid) {
-    return DynamicLibrary.open("libffplayer.so");
+    return DynamicLibrary.open("libmedia_flutter.so");
   }
   if (Platform.isWindows) {
-    return DynamicLibrary.open("ffplayer.dll");
+    return DynamicLibrary.open("media_flutter.dll");
   }
   throw UnimplementedError(
       "can not load for this library: ${Platform.localeName}");

@@ -2,7 +2,7 @@
 // Created by boyan on 2021/1/24.
 //
 
-#if !defined(FF_PLAYER_FLUTTER_H) && defined(_FLUTTER)
+#if !defined(FF_PLAYER_FLUTTER_H)
 #define FF_PLAYER_FLUTTER_H
 
 #include "ffplayer.h"
@@ -71,4 +71,4 @@ FFPLAYER_EXPORT int64_t ffp_attach_video_render_flutter(CPlayer *player);
 
 FFPLAYER_EXPORT void ffp_detach_video_render_flutter(CPlayer *player);
 
-#endif // FF_PLAYER_FLUTTER_H _FLUTTER
+#endif // FF_PLAYER_FLUTTER_H

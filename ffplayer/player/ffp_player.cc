@@ -41,10 +41,14 @@ CPlayer::CPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<
   clock_context = std::make_shared<ClockContext>(&audio_pkt_queue->serial, &video_pkt_queue->serial,
                                                  sync_type_confirm);
 
-  audio_render_->Init(audio_pkt_queue, clock_context);
-  video_render_->Init(video_pkt_queue, clock_context, message_context);
+  if (audio_render_) {
+    audio_render_->Init(audio_pkt_queue, clock_context);
+  }
+  if (video_render_) {
+    video_render_->Init(video_pkt_queue, clock_context, message_context);
+  }
 
-  if (start_configuration.show_status) {
+  if (start_configuration.show_status && video_render_) {
     video_render_->on_post_draw_frame = [this]() {
       DumpStatus();
     };
@@ -57,8 +61,10 @@ CPlayer::~CPlayer() = default;
 
 void CPlayer::TogglePause() {
   if (paused) {
-    video_render_->frame_timer +=
-        av_gettime_relative() / 1000000.0 - clock_context->GetVideoClock()->last_updated;
+    if (video_render_) {
+      video_render_->frame_timer +=
+          av_gettime_relative() / 1000000.0 - clock_context->GetVideoClock()->last_updated;
+    }
     if (data_source->read_pause_return != AVERROR(ENOSYS)) {
       clock_context->GetVideoClock()->paused = 0;
     }
@@ -74,9 +80,13 @@ void CPlayer::TogglePause() {
   if (data_source) {
     data_source->paused = paused;
   }
-  audio_render_->paused = paused;
-  video_render_->paused_ = paused;
-  video_render_->step = false;
+  if (audio_render_) {
+    audio_render_->paused = paused;
+  }
+  if (video_render_) {
+    video_render_->paused_ = paused;
+    video_render_->step = false;
+  }
 }
 
 int CPlayer::OpenDataSource(const char *filename) {
@@ -179,18 +189,22 @@ bool CPlayer::IsPaused() const {
 }
 
 int CPlayer::GetVolume() {
+  CHECK_VALUE_WITH_RETURN(audio_render_, 0);
   return audio_render_->GetVolume();
 }
 
 void CPlayer::SetVolume(int volume) {
+  CHECK_VALUE(audio_render_);
   audio_render_->SetVolume(volume);
 }
 
 void CPlayer::SetMute(bool mute) {
+  CHECK_VALUE(audio_render_);
   audio_render_->SetMute(mute);
 }
 
 bool CPlayer::IsMuted() {
+  CHECK_VALUE_WITH_RETURN(audio_render_, true);
   return audio_render_->IsMute();
 }
 
@@ -225,6 +239,7 @@ void CPlayer::SetMessageHandleCallback(std::function<void(int what, int64_t arg1
 }
 
 double CPlayer::GetVideoAspectRatio() {
+  CHECK_VALUE_WITH_RETURN(video_render_, 0);
   return video_render_->GetVideoAspectRatio();
 }
 
@@ -258,6 +273,7 @@ void CPlayer::GlobalInit() {
 }
 
 VideoRenderBase *CPlayer::GetVideoRender() {
+  CHECK_VALUE_WITH_RETURN(video_render_, nullptr);
   return video_render_.get();
 }
 
