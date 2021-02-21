@@ -16,9 +16,9 @@ This is my training project when I was learning C++.
 | -------- | ------------ |
 | Windows  | ✅            |
 | Linux    | ⭕ audio only |
-| macOS    | ⭕ audio only |
-| Android  | ⭕ audio only |
-| iOS      | ⭕ audio only |
+| macOS    | ⭕            |
+| Android  | ✅            |
+| iOS      | ⭕            |
 
 ## Getting Started
 
