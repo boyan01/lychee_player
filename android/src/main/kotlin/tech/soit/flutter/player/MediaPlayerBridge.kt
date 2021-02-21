@@ -23,6 +23,7 @@ object MediaPlayerBridge {
 
 
     @Keep
+    @JvmStatic
     fun register(): FlutterTexture? {
         val countDownLatch = CountDownLatch(1)
 
@@ -39,6 +40,14 @@ object MediaPlayerBridge {
 
 
     @Keep
+    @JvmStatic
+    fun openAudioDevice() {
+        // TODO add audio player.
+    }
+
+
+    @Keep
+    @JvmStatic
     private external fun setupJNI();
 
 

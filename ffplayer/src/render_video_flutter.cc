@@ -21,8 +21,13 @@ void FlutterVideoRender::RenderThread() {
   while (!abort_render_) {
     if (remaining_time > 0.0)
       av_usleep((int64_t) (remaining_time * 1000000.0));
+    if (abort_render_) {
+      break;
+    }
     remaining_time = DrawFrame();
   }
+
+  av_log(nullptr, AV_LOG_INFO, "flutter_video_render_thread done.\n");
 }
 void FlutterVideoRender::Abort() {
   VideoRenderBase::Abort();
@@ -32,6 +37,7 @@ void FlutterVideoRender::Abort() {
 void FlutterVideoRender::StopRenderThread() {
   CHECK_VALUE(render_started_);
   abort_render_ = true;
+  picture_queue->Signal();
   if (thread_->joinable()) {
     thread_->join();
   }

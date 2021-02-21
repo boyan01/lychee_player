@@ -3,39 +3,46 @@
 //
 
 #include <iostream>
+#include <exception>
 
 #include "ffp_flutter_android.h"
 
 #include "av_player_plugin.h"
 
-JavaVM *g_vm;
+static JavaVM *g_vm;
+
+jint JNI_OnLoad(JavaVM *vm, void * /*reserved*/) {
+  g_vm = vm;
+  return JNI_VERSION_1_4;
+}
+
+void JNI_OnUnload(JavaVM *vm, void * /*reserved*/) {
+  g_vm = nullptr;
+}
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_tech_soit_flutter_player_MediaPlayerBridge_setupJNI(JNIEnv *env, jobject thiz) {
-
-  env->GetJavaVM(&g_vm);
-
-  jclass clazz = env->FindClass("tech/soit/flutter/player/MediaPlayerBridge");
-  jmethodID register_method_id = env->GetMethodID(clazz, "register",
-                                                  "()Ltech/soit/flutter/player/FlutterTexture;");
-  auto *media_player_bridge = env->NewGlobalRef(thiz);
-
+Java_tech_soit_flutter_player_MediaPlayerBridge_setupJNI(JNIEnv *env, jclass clazz) {
+  auto bridge_class = reinterpret_cast<jclass>(env->NewGlobalRef(clazz));
   media::flutter_texture_registry =
-      [media_player_bridge, register_method_id]() -> std::unique_ptr<media::FlutterTextureEntry> {
+      [bridge_class]() -> std::unique_ptr<media::FlutterTextureEntry> {
         JNIEnv *g_env;
-        int getEnvStat = g_vm->GetEnv(reinterpret_cast<void **>(&g_env), JNI_VERSION_1_6);
-        if (getEnvStat == JNI_EDETACHED) {
-          std::cout << "GetEnv: not attached" << std::endl;
-          if (g_vm->AttachCurrentThread(&g_env, nullptr) != 0) {
-            std::cout << "Failed to attach" << std::endl;
-          }
-        } else if (getEnvStat == JNI_OK) {
-          //
-        } else if (getEnvStat == JNI_EVERSION) {
-          std::cout << "GetEnv: version not supported" << std::endl;
+        if (g_vm->AttachCurrentThread(&g_env, nullptr) != 0) {
+          std::cout << "Failed to attach" << std::endl;
         }
-        jobject data = g_env->CallObjectMethod(media_player_bridge, register_method_id);
-        return std::make_unique<media::FlutterTextureEntry>(g_env, data);
+//        int getEnvStat = g_vm->GetEnv(reinterpret_cast<void **>(&g_env), JNI_VERSION_1_6);
+//        if (getEnvStat == JNI_EDETACHED) {
+//          std::cout << "GetEnv: not attached" << std::endl;
+//
+//        } else if (getEnvStat == JNI_OK) {
+//          //
+//        } else if (getEnvStat == JNI_EVERSION) {
+//          std::cout << "GetEnv: version not supported" << std::endl;
+//        }
+        jmethodID register_method_id = g_env->GetStaticMethodID(bridge_class,
+                                                                "register",
+                                                                "()Ltech/soit/flutter/player/FlutterTexture;");
+        jobject data = g_env->CallStaticObjectMethod(bridge_class, register_method_id);
+        return std::make_unique<media::FlutterTextureEntry>(g_env, g_env->NewGlobalRef(data));
       };
 }

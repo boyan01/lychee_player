@@ -10,7 +10,8 @@ extern "C" {
 #include "libavutil/bprint.h"
 }
 
-CPlayer::CPlayer(std::shared_ptr<VideoRenderBase> video_render) : video_render_(std::move(video_render)) {
+CPlayer::CPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<AudioRenderBase> audio_render)
+    : video_render_(std::move(video_render)), audio_render_(std::move(audio_render)) {
   message_context = std::make_shared<MessageContext>();
 
   audio_pkt_queue = std::make_shared<PacketQueue>();
@@ -40,8 +41,7 @@ CPlayer::CPlayer(std::shared_ptr<VideoRenderBase> video_render) : video_render_(
   clock_context = std::make_shared<ClockContext>(&audio_pkt_queue->serial, &video_pkt_queue->serial,
                                                  sync_type_confirm);
 
-  audio_render = std::make_shared<SdlAudioRender>(audio_pkt_queue, clock_context);
-
+  audio_render_->Init(audio_pkt_queue, clock_context);
   video_render_->Init(video_pkt_queue, clock_context, message_context);
 
   if (start_configuration.show_status) {
@@ -50,7 +50,7 @@ CPlayer::CPlayer(std::shared_ptr<VideoRenderBase> video_render) : video_render_(
     };
   }
 
-  decoder_context = std::make_shared<DecoderContext>(audio_render, video_render_, clock_context);
+  decoder_context = std::make_shared<DecoderContext>(audio_render_, video_render_, clock_context);
 }
 
 CPlayer::~CPlayer() = default;
@@ -74,7 +74,7 @@ void CPlayer::TogglePause() {
   if (data_source) {
     data_source->paused = paused;
   }
-  audio_render->paused = paused;
+  audio_render_->paused = paused;
   video_render_->paused_ = paused;
   video_render_->step = false;
 }
@@ -179,19 +179,19 @@ bool CPlayer::IsPaused() const {
 }
 
 int CPlayer::GetVolume() {
-  return audio_render->GetVolume();
+  return audio_render_->GetVolume();
 }
 
 void CPlayer::SetVolume(int volume) {
-  audio_render->SetVolume(volume);
+  audio_render_->SetVolume(volume);
 }
 
 void CPlayer::SetMute(bool mute) {
-  audio_render->SetMute(mute);
+  audio_render_->SetMute(mute);
 }
 
 bool CPlayer::IsMuted() {
-  return audio_render->IsMute();
+  return audio_render_->IsMute();
 }
 
 double CPlayer::GetDuration() {

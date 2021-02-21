@@ -40,7 +40,11 @@ public class SDLAudioManager
         int sampleSize;
         int frameSize;
 
-        Log.v(TAG, "Opening " + (isCapture ? "capture" : "playback") + ", requested " + desiredFrames + " frames of " + desiredChannels + " channel " + getAudioFormatString(audioFormat) + " audio at " + sampleRate + " Hz");
+        String msg = "Opening " + (isCapture ? "capture" : "playback") + ", requested " + desiredFrames + " frames of " + desiredChannels + " channel " + getAudioFormatString(audioFormat) + " audio at " + sampleRate + " Hz";
+        Log.i(TAG, msg);
+        if (true) {
+            throw new RuntimeException(msg);
+        }
 
         /* On older devices let's use known good settings */
         if (Build.VERSION.SDK_INT < 21) {
@@ -229,7 +233,7 @@ public class SDLAudioManager
         }
         results[3] = desiredFrames;
 
-        Log.v(TAG, "Opening " + (isCapture ? "capture" : "playback") + ", got " + results[3] + " frames of " + results[2] + " channel " + getAudioFormatString(results[1]) + " audio at " + results[0] + " Hz");
+        Log.i(TAG, "Opening " + (isCapture ? "capture" : "playback") + ", got " + results[3] + " frames of " + results[2] + " channel " + getAudioFormatString(results[1]) + " audio at " + results[0] + " Hz");
 
         return results;
     }

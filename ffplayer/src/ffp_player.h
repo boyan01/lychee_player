@@ -36,8 +36,8 @@ struct CPlayer {
 
   std::shared_ptr<DecoderContext> decoder_context;
 
-  std::shared_ptr<AudioRenderBase> audio_render;
-  std::shared_ptr<VideoRenderBase> video_render_{nullptr};
+  std::shared_ptr<AudioRenderBase> audio_render_;
+  std::shared_ptr<VideoRenderBase> video_render_;
 
   std::shared_ptr<MessageContext> message_context;
 
@@ -45,7 +45,7 @@ struct CPlayer {
 
  public:
 
-  explicit CPlayer(std::shared_ptr<VideoRenderBase> video_render);
+  CPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<AudioRenderBase> audio_render);
 
   ~CPlayer();
 

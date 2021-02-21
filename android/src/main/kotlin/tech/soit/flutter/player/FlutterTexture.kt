@@ -1,5 +1,7 @@
 package tech.soit.flutter.player
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Surface
 import androidx.annotation.Keep
@@ -30,7 +32,9 @@ class FlutterTexture(
 
     fun release() {
         surface.release()
-        texture.release()
+        Handler(Looper.getMainLooper()).post {
+            texture.release()
+        }
     }
 
 }

@@ -10,6 +10,8 @@
 #include "ffp_flutter.h"
 #include "dart/dart_api_dl.h"
 
+#include "render_audio_sdl.h"
+
 #if defined(_FLUTTER_WINDOWS)
 #include "ffp_flutter_windows.h"
 #elif defined(_FLUTTER_ANDROID)
@@ -279,12 +281,15 @@ void ffplayer_global_init(void *arg) {
 
 CPlayer *ffp_create_player(PlayerConfiguration *config) {
   std::shared_ptr<VideoRenderBase> video_render;
+  std::shared_ptr<AudioRenderBase> audio_render;
 #ifdef _FLUTTER_WINDOWS
   video_render = std::make_shared<FlutterWindowsVideoRender>();
+  audio_render = std::make_shared<SdlAudioRender>();
 #elif _FLUTTER_ANDROID
   video_render = std::make_shared<media::FlutterAndroidVideoRender>();
+  audio_render = std::make_shared<SdlAudioRender>();
 #endif
-  auto *player = new CPlayer(video_render);
+  auto *player = new CPlayer(video_render, audio_render);
   player->TogglePause();
   av_log(nullptr, AV_LOG_INFO, "malloc player, %p\n", player);
   player->start_configuration = *config;

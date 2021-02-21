@@ -10,6 +10,7 @@
 #include "ffp_player.h"
 #include "ffp_frame_queue.h"
 #include "render_video_sdl.h"
+#include "render_audio_sdl.h"
 
 extern "C" {
 #include "SDL2/SDL.h"
@@ -386,7 +387,8 @@ int main(int argc, char *argv[]) {
   }
 
   auto video_render = std::make_shared<SdlVideoRender>(std::move(renderer));
-  auto *player = new CPlayer(std::move(video_render));
+  auto audio_render = std::make_shared<SdlAudioRender>();
+  auto *player = new CPlayer(std::move(video_render), std::move(audio_render));
   player->start_configuration = config;
   player->SetVolume(20);
 

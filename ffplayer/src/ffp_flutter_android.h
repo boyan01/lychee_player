@@ -8,6 +8,8 @@
 #ifdef _FLUTTER_ANDROID
 
 #include "render_video_flutter.h"
+#include "render_audio_android.h"
+
 #include <android/log.h>
 #include "jni.h"
 #include <android/native_window.h>
@@ -65,7 +67,7 @@ class FlutterAndroidVideoRender : public FlutterVideoRender {
 
   FlutterAndroidVideoRender();
 
-  virtual ~FlutterAndroidVideoRender();
+  ~FlutterAndroidVideoRender();
 
   void RenderPicture(Frame &frame) override;
 

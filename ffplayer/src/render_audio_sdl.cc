@@ -16,11 +16,10 @@
 /* Calculate actual buffer size keeping in mind not cause too frequent audio callbacks */
 #define SDL_AUDIO_MAX_CALLBACKS_PER_SEC 30
 
-SdlAudioRender::SdlAudioRender(
-    const std::shared_ptr<PacketQueue> &audio_queue,
-    const std::shared_ptr<ClockContext> &clock_ctx
-) : AudioRenderBase(audio_queue, clock_ctx) {
+SdlAudioRender::SdlAudioRender() = default;
 
+void SdlAudioRender::Init(const std::shared_ptr<PacketQueue> &audio_queue, std::shared_ptr<ClockContext> clock_ctx) {
+  AudioRenderBase::Init(audio_queue, clock_ctx);
 }
 
 int SdlAudioRender::Open(int64_t wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate) {

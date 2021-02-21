@@ -20,6 +20,7 @@ FlutterAndroidVideoRender::FlutterAndroidVideoRender()
 
 FlutterAndroidVideoRender::~FlutterAndroidVideoRender() {
   sws_freeContext(img_convert_ctx_);
+  Detach();
 }
 
 void FlutterAndroidVideoRender::RenderPicture(Frame &frame) {
@@ -62,19 +63,15 @@ void FlutterAndroidVideoRender::RenderPicture(Frame &frame) {
 }
 
 int64_t FlutterAndroidVideoRender::Attach() {
-  if (!flutter_texture_registry || texture_) {
-    return -1;
-  }
-  auto texture = flutter_texture_registry();
-  this->texture_ = std::move(texture);
+  CHECK_VALUE_WITH_RETURN(!texture_, -1);
+  CHECK_VALUE_WITH_RETURN(flutter_texture_registry, -1);
+  this->texture_ = flutter_texture_registry();
   StartRenderThread();
   return this->texture_->id();
 }
 
 void FlutterAndroidVideoRender::Detach() {
-  if (!texture_) {
-    return;
-  }
+  CHECK_VALUE(texture_);
   StopRenderThread();
   texture_->Release();
   texture_.reset(nullptr);

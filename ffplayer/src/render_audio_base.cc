@@ -15,8 +15,10 @@ extern "C" {
 /* maximum audio speed change to get correct sync */
 #define SAMPLE_CORRECTION_PERCENT_MAX 10
 
-AudioRenderBase::AudioRenderBase(const std::shared_ptr<PacketQueue> &audio_queue,
-                                 std::shared_ptr<ClockContext> clock_ctx) : clock_ctx_(std::move(clock_ctx)) {
+AudioRenderBase::AudioRenderBase() = default;
+
+void AudioRenderBase::Init(const std::shared_ptr<PacketQueue> &audio_queue, std::shared_ptr<ClockContext> clock_ctx) {
+  clock_ctx_ = std::move(clock_ctx);
   sample_queue = std::make_unique<FrameQueue>();
   sample_queue->Init(audio_queue.get(), SAMPLE_QUEUE_SIZE, 1);
 }

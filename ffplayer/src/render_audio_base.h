@@ -77,9 +77,11 @@ class AudioRenderBase : public BaseRender {
 
  public:
 
-  AudioRenderBase(const std::shared_ptr<PacketQueue> &audio_queue, std::shared_ptr<ClockContext> clock_ctx);
+  AudioRenderBase();
 
-  ~AudioRenderBase();
+  virtual void Init(const std::shared_ptr<PacketQueue> &audio_queue, std::shared_ptr<ClockContext> clock_ctx);
+
+  virtual ~AudioRenderBase();
 
   virtual int Open(int64_t wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate) = 0;
 
