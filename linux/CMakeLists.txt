@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
 set(PROJECT_NAME "av_player")
+
+set(CMAKE_CXX_FLAGS  "-fPIC ${CMAKE_CXX_FLAGS}")
+
+message("CMAKE_CXX_FLAGS = ${CMAKE_CXX_FLAGS}")
+
 project(${PROJECT_NAME} LANGUAGES CXX)
 
 # This value is used when generating builds using this plugin, so it must
@@ -10,17 +15,13 @@ add_library(${PLUGIN_NAME} SHARED
         "av_player_plugin.cc"
         )
 
-set(FLUTTER "1")
-add_compile_definitions(_FLUTTER)
-add_compile_definitions(_FLUTTER_LINUX)
-add_subdirectory(../ffplayer ffplayer.out)
+set(CMAKE_FLUTTER_MEDIA "1")
+set(CMAKE_FLUTTER_MEDIA_LINUX "1")
 
-set_target_properties(ffplayer
-        PROPERTIES
-        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
-        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
-        )
+add_compile_definitions(_FLUTTER_MEDIA_)
+add_compile_definitions(_FLUTTER_MEDIA_LINUX)
+
+add_subdirectory(../ffplayer ffplayer.out)
 
 apply_standard_settings(${PLUGIN_NAME})
 set_target_properties(${PLUGIN_NAME} PROPERTIES
@@ -30,12 +31,10 @@ target_include_directories(${PLUGIN_NAME} INTERFACE
         "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
-target_link_libraries(${PLUGIN_NAME} PRIVATE ffplayer)
-
-add_dependencies(${PLUGIN_NAME} ffplayer)
+target_link_libraries(${PLUGIN_NAME} PRIVATE media_flutter)
 
 # List of absolute paths to libraries that should be bundled with the plugin
 set(${PROJECT_NAME}_bundled_libraries
-        "$<TARGET_FILE:ffplayer>"
+        "$<TARGET_FILE:media_flutter>"
         PARENT_SCOPE
         )

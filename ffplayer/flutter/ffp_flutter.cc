@@ -285,6 +285,9 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
 #elif _FLUTTER_MEDIA_ANDROID
   video_render = std::make_shared<media::FlutterAndroidVideoRender>();
   audio_render = std::make_shared<SdlAudioRender>();
+#else
+  video_render = nullptr;
+  audio_render = std::make_shared<SdlAudioRender>();
 #endif
   auto *player = new CPlayer(video_render, audio_render);
   player->TogglePause();
