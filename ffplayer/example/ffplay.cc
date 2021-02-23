@@ -13,7 +13,7 @@
 #include "render_audio_sdl.h"
 
 extern "C" {
-#include "SDL2/SDL.h"
+#include "SDL.h"
 #include "libavutil/avutil.h"
 #include "libavutil/time.h"
 #include "libavcodec/avcodec.h"

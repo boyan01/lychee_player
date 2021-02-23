@@ -3,7 +3,7 @@
 
 extern "C" {
 #include "libavutil/rational.h"
-#include "SDL2/SDL_rect.h"
+#include "SDL_rect.h"
 #include "libavutil/error.h"
 }
 

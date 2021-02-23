@@ -16,7 +16,7 @@
 
 extern "C" {
 #include "libavformat/avformat.h"
-#include "SDL2/SDL.h"
+#include "SDL.h"
 };
 
 class DataSource {

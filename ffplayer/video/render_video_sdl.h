@@ -8,7 +8,7 @@
 #include "render_video_base.h"
 
 extern "C" {
-#include "SDL2/SDL.h"
+#include "SDL.h"
 #include "libswscale/swscale.h"
 };
 

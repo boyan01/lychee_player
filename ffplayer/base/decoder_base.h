@@ -12,7 +12,7 @@
 extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
-#include "SDL2/SDL.h"
+#include "SDL.h"
 };
 
 #include "ffp_packet_queue.h"

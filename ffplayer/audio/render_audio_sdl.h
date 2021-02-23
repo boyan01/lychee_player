@@ -7,7 +7,7 @@
 
 #include "render_audio_base.h"
 extern "C" {
-#include "SDL2/SDL.h"
+#include "SDL.h"
 };
 
 class SdlAudioRender : public AudioRenderBase {

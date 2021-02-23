@@ -6,7 +6,7 @@
 #define FFP_PACKET_QUEUE_H
 
 extern "C" {
-#include "SDL2/SDL.h"
+#include "SDL.h"
 #include "libavcodec/avcodec.h"
 };
 
