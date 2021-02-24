@@ -255,28 +255,46 @@ static void set_default_window_size(int width, int height) {
   default_height = rect.h;
 }
 
+/// limit max show size to half of screen.
+void check_screen_size(int64_t &width, int64_t &height) {
+  SDL_DisplayMode display_mode;
+
+  int window_index = 0;
+  if (window) {
+    window_index = SDL_GetWindowDisplayIndex(window);
+  }
+  SDL_GetCurrentDisplayMode(window_index, &display_mode);
+
+  auto scale_w = double(width) / display_mode.w;
+  auto scale_h = double(height) / display_mode.h;
+  auto scale = min(min(scale_h, scale_w), 0.5);
+  width = display_mode.w * scale;
+  height = display_mode.h * scale;
+}
+
 static void on_message(CPlayer *player, int what, int64_t arg1, int64_t arg2) {
 //    av_log(nullptr, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n", what, arg1, arg2);
   switch (what) {
-    case FFP_MSG_VIDEO_FRAME_LOADED:set_default_window_size(arg1, arg2);
-      {
-        std::cout << "FFP_MSG_VIDEO_FRAME_LOADED: width = " << arg1 << "height = " << arg2 << endl;
-        int w, h;
-        w = screen_width ? screen_width : default_width;
-        h = screen_height ? screen_height : default_height;
+    case FFP_MSG_VIDEO_FRAME_LOADED: {
+      check_screen_size(arg1, arg2);
+      set_default_window_size(arg1, arg2);
+      std::cout << "FFP_MSG_VIDEO_FRAME_LOADED: width = " << arg1 << "height = " << arg2 << endl;
+      int w, h;
+      w = screen_width ? screen_width : default_width;
+      h = screen_height ? screen_height : default_height;
 
-        if (!window_title)
-          window_title = player->GetUrl();
-        SDL_SetWindowTitle(window, window_title);
+      if (!window_title)
+        window_title = player->GetUrl();
+      SDL_SetWindowTitle(window, window_title);
 
-        printf("set_default_window_size : %d , %d \n", w, h);
-        SDL_SetWindowSize(window, w, h);
-        SDL_SetWindowPosition(window, screen_left, screen_top);
-        if (is_full_screen)
-          SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-        SDL_ShowWindow(window);
-      }
+      printf("set_default_window_size : %d , %d \n", w, h);
+      SDL_SetWindowSize(window, w, h);
+      SDL_SetWindowPosition(window, screen_left, screen_top);
+      if (is_full_screen)
+        SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+      SDL_ShowWindow(window);
       break;
+    }
     case FFP_MSG_PLAYBACK_STATE_CHANGED:printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %ld \n", arg1);
       break;
     case FFP_MSG_BUFFERING_TIME_UPDATE:
