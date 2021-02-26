@@ -4,7 +4,7 @@
 
 #include <utility>
 
-#include "ffp_decoder.h"
+#include "decoder_ctx.h"
 
 int DecoderContext::StartDecoder(std::unique_ptr<DecodeParams> decode_params) {
   unique_ptr_d<AVCodecContext> codec_ctx(avcodec_alloc_context3(nullptr),

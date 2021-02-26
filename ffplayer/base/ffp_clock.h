@@ -9,7 +9,7 @@
 #include <functional>
 
 extern "C" {
-#include <libavutil/time.h>
+#include <libavutil/time.h> // NOLINT(modernize-deprecated-headers)
 };
 
 /* no AV correction is done if too big error */
@@ -53,9 +53,9 @@ class ClockContext {
  private:
   int av_sync_type_ = AV_SYNC_AUDIO_MASTER;
 
-  std::unique_ptr<Clock> audio_clock_ = std::unique_ptr<Clock>(new Clock);
-  std::unique_ptr<Clock> video_clock_ = std::unique_ptr<Clock>(new Clock);
-  std::unique_ptr<Clock> ext_clock_ = std::unique_ptr<Clock>(new Clock);
+  std::unique_ptr<Clock> audio_clock_ = std::make_unique<Clock>();
+  std::unique_ptr<Clock> video_clock_ = std::make_unique<Clock>();
+  std::unique_ptr<Clock> ext_clock_ = std::make_unique<Clock>();
 
   std::function<int(int sync_type)> sync_type_confirm_;
 
