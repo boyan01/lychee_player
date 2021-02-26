@@ -18,4 +18,9 @@ if (WIN32)
     if (CMAKE_FLUTTER_WINDOWS)
         set_property(TARGET ${EXAMPLE_BIN_NAME} APPEND PROPERTY LINK_FLAGS "/NODEFAULTLIB:MSVCRT")
     endif ()
+    # Copy vcpkg ffmpeg libs to executable directory.
+    add_custom_command(TARGET ${EXAMPLE_BIN_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "$ENV{VCPKG_ROOT}/installed/x64-windows/bin"
+            $<TARGET_FILE_DIR:${EXAMPLE_BIN_NAME}>)
 endif ()
