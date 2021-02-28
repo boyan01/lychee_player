@@ -17,6 +17,10 @@ Clock::Clock(int *queue_serial)
   SetClock(NAN, -1);
 }
 
+Clock::Clock() : Clock(&serial) {
+
+}
+
 void Clock::SetClockAt(double pts, int _serial, double time) {
   pts = pts;
   last_updated = time;
@@ -94,5 +98,5 @@ MediaClock::MediaClock(
 ) : sync_type_confirm_(std::move(sync_type_confirm)),
     audio_clock_(std::make_unique<Clock>(audio_queue_serial)),
     video_clock_(std::make_unique<Clock>(video_queue_serial)),
-    ext_clock_(std::make_unique<Clock>(nullptr)) {
+    ext_clock_(std::make_unique<Clock>()) {
 }

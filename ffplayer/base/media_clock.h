@@ -42,6 +42,8 @@ struct Clock {
 
   explicit Clock(int *queue_serial);
 
+  explicit Clock();
+
   double GetClock();
 
   void SetClockAt(double pts, int serial, double time);

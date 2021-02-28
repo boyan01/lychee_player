@@ -46,7 +46,7 @@ set_target_properties(cpufeatures_shared PROPERTIES IMPORTED_LOCATION "${FFP_AND
 
 list(APPEND FFP_LIBS log SDL2 cpufeatures_shared android)
 
-add_subdirectory(ffplayer ffplayer.out)
+add_subdirectory(../../../../ffplayer ffplayer.out)
 
 target_link_libraries(
         media_player_android
