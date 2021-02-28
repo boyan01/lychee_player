@@ -7,13 +7,14 @@ import androidx.annotation.Keep
 import io.flutter.view.TextureRegistry
 import java.util.concurrent.CountDownLatch
 
+@Keep
 object MediaPlayerBridge {
 
     private const val TAG = "MediaPlayerBridge"
 
     private var textureRegistry: TextureRegistry? = null
 
-    fun onAttached(textureRegistry: TextureRegistry) {
+    internal fun onAttached(textureRegistry: TextureRegistry) {
         if (this.textureRegistry != null) {
             throw RuntimeException("texture registry already registered.")
         }

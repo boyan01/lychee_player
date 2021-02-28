@@ -10,7 +10,7 @@ extern "C" {
 
 namespace media {
 
-TextureRegistry flutter_texture_registry;
+FlutterAndroidVideoRender::TextureRegistry FlutterAndroidVideoRender::flutter_texture_registry;
 
 FlutterAndroidVideoRender::FlutterAndroidVideoRender()
     : window_buffer_(), img_convert_ctx_(nullptr) {

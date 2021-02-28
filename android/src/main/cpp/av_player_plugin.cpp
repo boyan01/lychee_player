@@ -5,6 +5,8 @@
 #include <iostream>
 #include <exception>
 
+#include <android/log.h>
+
 #include "ffp_flutter_android.h"
 
 #include "av_player_plugin.h"
@@ -23,8 +25,9 @@ void JNI_OnUnload(JavaVM *vm, void * /*reserved*/) {
 extern "C"
 JNIEXPORT void JNICALL
 Java_tech_soit_flutter_player_MediaPlayerBridge_setupJNI(JNIEnv *env, jclass clazz) {
+  __android_log_print(ANDROID_LOG_INFO, "MediaPlayerPlugin", "MediaPlayerBridge_SetupJNI");
   auto bridge_class = reinterpret_cast<jclass>(env->NewGlobalRef(clazz));
-  media::flutter_texture_registry =
+  media::FlutterAndroidVideoRender::flutter_texture_registry =
       [bridge_class]() -> std::unique_ptr<media::FlutterTextureEntry> {
         JNIEnv *g_env;
         if (g_vm->AttachCurrentThread(&g_env, nullptr) != 0) {

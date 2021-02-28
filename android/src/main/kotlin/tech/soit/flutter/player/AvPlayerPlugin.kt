@@ -15,7 +15,7 @@ class AvPlayerPlugin : FlutterPlugin, MethodCallHandler {
         SDL.setContext(flutterPluginBinding.applicationContext);
         SDL.loadLibrary("SDL2")
         SDL.setupJNI()
-        System.loadLibrary("av_player")
+        System.loadLibrary("media_player_android")
         MediaPlayerBridge.onAttached(flutterPluginBinding.textureRegistry)
     }
 

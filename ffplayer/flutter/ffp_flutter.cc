@@ -253,6 +253,24 @@ void ffplayer_global_init(void *arg) {
   assert(arg);
 #if __ANDROID__
   av_log_set_callback([](void *ptr, int level, const char *format, va_list v_args) {
+    int prio;
+    switch (level) {
+      case AV_LOG_VERBOSE:prio = ANDROID_LOG_VERBOSE;
+        break;
+      case AV_LOG_DEBUG:prio = ANDROID_LOG_DEBUG;
+        break;
+      case AV_LOG_INFO:prio = ANDROID_LOG_INFO;
+        break;
+      case AV_LOG_WARNING:prio = ANDROID_LOG_WARN;
+        break;
+      case AV_LOG_ERROR:prio = ANDROID_LOG_ERROR;
+        break;
+      case AV_LOG_FATAL:prio = ANDROID_LOG_FATAL;
+        break;
+      default:prio = ANDROID_LOG_UNKNOWN;
+        break;
+    }
+
     va_list vl2;
     char *line = static_cast<char *>(malloc(128 * sizeof(char)));
     static int print_prefix = 1;
@@ -260,7 +278,7 @@ void ffplayer_global_init(void *arg) {
     av_log_format_line(ptr, level, format, vl2, line, 128, &print_prefix);
     va_end(vl2);
     line[127] = '\0';
-    __android_log_print(ANDROID_LOG_ERROR, "FF_PLAYER", "%s", line);
+    __android_log_print(prio, "FF_PLAYER", "%s", line);
     free(line);
   });
 #endif

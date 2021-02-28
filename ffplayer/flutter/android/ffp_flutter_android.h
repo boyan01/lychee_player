@@ -49,11 +49,11 @@ class FlutterTextureEntry {
 
 };
 
-typedef std::function<std::unique_ptr<FlutterTextureEntry>()> TextureRegistry;
-
-extern TextureRegistry flutter_texture_registry;
-
 class FlutterAndroidVideoRender : public FlutterVideoRender {
+
+ public:
+  typedef std::function<std::unique_ptr<FlutterTextureEntry>()> TextureRegistry;
+  static TextureRegistry flutter_texture_registry;
 
  private:
   ANativeWindow_Buffer window_buffer_;
@@ -75,6 +75,5 @@ class FlutterAndroidVideoRender : public FlutterVideoRender {
 };
 
 }
-
 
 #endif //ANDROID_FFP_FLUTTER_ANDROID_H
