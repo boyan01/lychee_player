@@ -6,7 +6,7 @@
 #define ANDROID_RENDER_AUDIO_BASE_H
 
 #include "render_base.h"
-#include "ffp_clock.h"
+#include "media_clock.h"
 #include "ffp_frame_queue.h"
 
 /* we use about AUDIO_DIFF_AVG_NB A-V differences to make the average */
@@ -49,7 +49,7 @@ class AudioRenderBase : public BaseRender {
 
   double audio_diff_threshold = 0;
 
-  std::shared_ptr<ClockContext> clock_ctx_;
+  std::shared_ptr<MediaClock> clock_ctx_;
 
   std::unique_ptr<FrameQueue> sample_queue;
 
@@ -79,7 +79,7 @@ class AudioRenderBase : public BaseRender {
 
   AudioRenderBase();
 
-  virtual void Init(const std::shared_ptr<PacketQueue> &audio_queue, std::shared_ptr<ClockContext> clock_ctx);
+  virtual void Init(const std::shared_ptr<PacketQueue> &audio_queue, std::shared_ptr<MediaClock> clock_ctx);
 
   virtual ~AudioRenderBase();
 

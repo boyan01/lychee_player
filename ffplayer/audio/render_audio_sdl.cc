@@ -18,7 +18,7 @@
 
 SdlAudioRender::SdlAudioRender() = default;
 
-void SdlAudioRender::Init(const std::shared_ptr<PacketQueue> &audio_queue, std::shared_ptr<ClockContext> clock_ctx) {
+void SdlAudioRender::Init(const std::shared_ptr<PacketQueue> &audio_queue, std::shared_ptr<MediaClock> clock_ctx) {
   AudioRenderBase::Init(audio_queue, clock_ctx);
 }
 

@@ -9,7 +9,7 @@
 
 #include "render_base.h"
 #include "ffp_frame_queue.h"
-#include "ffp_clock.h"
+#include "media_clock.h"
 #include "ffp_msg_queue.h"
 
 class VideoRenderBase : public BaseRender {
@@ -52,7 +52,7 @@ class VideoRenderBase : public BaseRender {
   std::unique_ptr<FrameQueue> picture_queue;
   int framedrop = -1;
 
-  std::shared_ptr<ClockContext> clock_context;
+  std::shared_ptr<MediaClock> clock_context;
   std::shared_ptr<MessageContext> msg_ctx_;
 
  public:
@@ -61,7 +61,7 @@ class VideoRenderBase : public BaseRender {
 
   virtual ~VideoRenderBase();
 
-  void Init(const std::shared_ptr<PacketQueue> &video_queue, std::shared_ptr<ClockContext> clock_ctx,
+  void Init(const std::shared_ptr<PacketQueue> &video_queue, std::shared_ptr<MediaClock> clock_ctx,
             std::shared_ptr<MessageContext> msg_ctx);
 
   /**

@@ -2,8 +2,8 @@
 // Created by boyan on 2021/2/10.
 //
 
-#ifndef FFPLAYER_FFP_CLOCK_H
-#define FFPLAYER_FFP_CLOCK_H
+#ifndef BASE_MEDIA_CLOCK_H
+#define BASE_MEDIA_CLOCK_H
 
 #include <memory>
 #include <functional>
@@ -28,12 +28,19 @@ struct Clock {
 
  private:
   double speed_ = 1.0;
-  int *queue_serial_; /* pointer to the current packet queue serial, used for obsolete clock detection */
-  double pts_ = 0;       /* clock base */
-  double pts_drift_ = 0; /* clock base minus time at which we updated the clock */
+
+  /* pointer to the current packet queue serial, used for obsolete clock detection */
+  int *queue_serial_;
+
+  /* clock base */
+  double pts_;
+
+  /* clock base minus time at which we updated the clock */
+  double pts_drift_;
 
  public:
-  void Init(int *queue_serial);
+
+  explicit Clock(int *queue_serial);
 
   double GetClock();
 
@@ -49,19 +56,19 @@ struct Clock {
 
 };
 
-class ClockContext {
+class MediaClock {
  private:
   int av_sync_type_ = AV_SYNC_AUDIO_MASTER;
 
-  std::unique_ptr<Clock> audio_clock_ = std::make_unique<Clock>();
-  std::unique_ptr<Clock> video_clock_ = std::make_unique<Clock>();
-  std::unique_ptr<Clock> ext_clock_ = std::make_unique<Clock>();
+  std::unique_ptr<Clock> audio_clock_;
+  std::unique_ptr<Clock> video_clock_;
+  std::unique_ptr<Clock> ext_clock_;
 
   std::function<int(int sync_type)> sync_type_confirm_;
 
  public:
 
-  ClockContext(int *audio_queue_serial, int *video_queue_serial, std::function<int(int)> sync_type_confirm);
+  MediaClock(int *audio_queue_serial, int *video_queue_serial, std::function<int(int)> sync_type_confirm);
 
   Clock *GetAudioClock();
 
@@ -75,4 +82,4 @@ class ClockContext {
 
 };
 
-#endif //FFPLAYER_FFP_CLOCK_H
+#endif //BASE_MEDIA_CLOCK_H

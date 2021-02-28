@@ -5,12 +5,15 @@
 #include <cmath>
 #include <utility>
 
-#include "ffp_clock.h"
+#include "media_clock.h"
 
-void Clock::Init(int *queue_serial) {
-  speed_ = 1.0;
-  paused = 0;
-  queue_serial_ = queue_serial;
+Clock::Clock(int *queue_serial)
+    : queue_serial_(queue_serial),
+      speed_(1.0),
+      paused(0),
+      pts_(NAN),
+      pts_drift_(0),
+      serial(-1) {
   SetClock(NAN, -1);
 }
 
@@ -54,19 +57,19 @@ double Clock::GetSpeed() const {
   return speed_;
 }
 
-Clock *ClockContext::GetVideoClock() {
+Clock *MediaClock::GetVideoClock() {
   return video_clock_.get();
 }
 
-Clock *ClockContext::GetAudioClock() {
+Clock *MediaClock::GetAudioClock() {
   return audio_clock_.get();
 }
 
-Clock *ClockContext::GetExtClock() {
+Clock *MediaClock::GetExtClock() {
   return ext_clock_.get();
 }
 
-int ClockContext::GetMasterSyncType() const {
+int MediaClock::GetMasterSyncType() const {
   if (sync_type_confirm_) {
     return sync_type_confirm_(av_sync_type_);
   } else {
@@ -74,7 +77,7 @@ int ClockContext::GetMasterSyncType() const {
   }
 }
 
-double ClockContext::GetMasterClock() {
+double MediaClock::GetMasterClock() {
   switch (GetMasterSyncType()) {
     case AV_SYNC_AUDIO_MASTER: {
       return audio_clock_->GetClock();
@@ -84,9 +87,12 @@ double ClockContext::GetMasterClock() {
   }
 }
 
-ClockContext::ClockContext(int *audio_queue_serial, int *video_queue_serial, std::function<int(int)> sync_type_confirm)
-    : sync_type_confirm_(std::move(sync_type_confirm)) {
-  audio_clock_->Init(audio_queue_serial);
-  video_clock_->Init(video_queue_serial);
-  ext_clock_->Init(&ext_clock_->serial);
+MediaClock::MediaClock(
+    int *audio_queue_serial,
+    int *video_queue_serial,
+    std::function<int(int)> sync_type_confirm
+) : sync_type_confirm_(std::move(sync_type_confirm)),
+    audio_clock_(std::make_unique<Clock>(audio_queue_serial)),
+    video_clock_(std::make_unique<Clock>(video_queue_serial)),
+    ext_clock_(std::make_unique<Clock>(nullptr)) {
 }

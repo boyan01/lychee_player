@@ -38,8 +38,8 @@ CPlayer::CPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<
       return AV_SYNC_EXTERNAL_CLOCK;
     }
   };
-  clock_context = std::make_shared<ClockContext>(&audio_pkt_queue->serial, &video_pkt_queue->serial,
-                                                 sync_type_confirm);
+  clock_context = std::make_shared<MediaClock>(&audio_pkt_queue->serial, &video_pkt_queue->serial,
+                                               sync_type_confirm);
 
   if (audio_render_) {
     audio_render_->Init(audio_pkt_queue, clock_context);

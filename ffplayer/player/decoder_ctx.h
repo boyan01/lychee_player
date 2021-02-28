@@ -36,7 +36,7 @@ class DecoderContext {
   std::shared_ptr<AudioRenderBase> audio_render;
   std::shared_ptr<VideoRenderBase> video_render;
 
-  std::shared_ptr<ClockContext> clock_ctx;
+  std::shared_ptr<MediaClock> clock_ctx;
 
  private:
   int StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx, std::unique_ptr<DecodeParams> decode_params);
@@ -44,7 +44,7 @@ class DecoderContext {
  public:
 
   DecoderContext(std::shared_ptr<AudioRenderBase> audio_render_, std::shared_ptr<VideoRenderBase> video_render_,
-                 std::shared_ptr<ClockContext> clock_ctx_);
+                 std::shared_ptr<MediaClock> clock_ctx_);
 
   ~DecoderContext();
 

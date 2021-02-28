@@ -10,7 +10,7 @@
 
 #include "ffplayer.h"
 #include "ffp_packet_queue.h"
-#include "ffp_clock.h"
+#include "media_clock.h"
 #include "data_source.h"
 #include "render_audio_base.h"
 #include "render_video_base.h"
@@ -30,7 +30,7 @@ struct CPlayer {
   std::shared_ptr<PacketQueue> video_pkt_queue;
   std::shared_ptr<PacketQueue> subtitle_pkt_queue;
 
-  std::shared_ptr<ClockContext> clock_context;
+  std::shared_ptr<MediaClock> clock_context;
 
   std::unique_ptr<DataSource> data_source{nullptr};
 

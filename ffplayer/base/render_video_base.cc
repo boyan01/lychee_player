@@ -30,7 +30,7 @@ VideoRenderBase::VideoRenderBase() {
 }
 
 void VideoRenderBase::Init(const std::shared_ptr<PacketQueue> &video_queue,
-                           std::shared_ptr<ClockContext> clock_ctx,
+                           std::shared_ptr<MediaClock> clock_ctx,
                            std::shared_ptr<MessageContext> msg_ctx) {
   clock_context = std::move(clock_ctx);
   msg_ctx_ = std::move(msg_ctx);
@@ -78,6 +78,7 @@ double VideoRenderBase::ComputeTargetDelay(double delay) const {
 }
 
 int VideoRenderBase::PushFrame(AVFrame *src_frame, double pts, double duration, int pkt_serial) {
+  // check video frame pts if needed.
   if (framedrop > 0 || (framedrop && clock_context->GetMasterSyncType() != AV_SYNC_VIDEO_MASTER)) {
     if (src_frame->pts != AV_NOPTS_VALUE) {
       double diff = pts - clock_context->GetMasterClock();
