@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
-project(audio_player_example LANGUAGES CXX)
+project(media_player_example LANGUAGES CXX)
 
-set(BINARY_NAME "audio_player_example")
+set(BINARY_NAME "media_player_example")
 
 cmake_policy(SET CMP0063 NEW)
 
@@ -32,7 +32,7 @@ add_definitions(-DUNICODE -D_UNICODE)
 # Compilation settings that should be applied to most targets.
 function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_17)
-  target_compile_options(${TARGET} PRIVATE /W4 /WX-)
+  target_compile_options(${TARGET} PRIVATE /W4 /WX /wd"4100")
   target_compile_options(${TARGET} PRIVATE /EHsc)
   target_compile_definitions(${TARGET} PRIVATE "_HAS_EXCEPTIONS=0")
   target_compile_definitions(${TARGET} PRIVATE "$<$<CONFIG:Debug>:_DEBUG>")
