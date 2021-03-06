@@ -45,14 +45,6 @@ if (NOT DEFINED FFP_LIBS)
 
     endif ()
 
-    find_library(LIBAVUTIL avutil REQUIRED)
-    find_library(LIBAVCODEC avcodec REQUIRED)
-    find_library(LIBAVFORMAT avformat REQUIRED)
-    find_library(LIBSWSCALE swscale REQUIRED)
-    find_library(LIBSWRESAMPLE swresample REQUIRED)
-
-    find_library(LIBSDL2 SDL2 REQUIRED)
-
     list(APPEND FFP_LIBS ${MEDIA_THIRD_PARTY_LIBS})
     if (UNIX)
         # linux do not have math library.
