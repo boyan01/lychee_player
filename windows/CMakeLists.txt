@@ -30,5 +30,11 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin medi
 # List of absolute paths to libraries that should be bundled with the plugin
 set(${PROJECT_NAME}_bundled_libraries
         "$<TARGET_FILE:media_flutter>"
+        "$<TARGET_FILE:SDL2>"
+        "$<TARGET_FILE:avutil>"
+        "$<TARGET_FILE:avcodec>"
+        "$<TARGET_FILE:avformat>"
+        "$<TARGET_FILE:swresample>"
+        "$<TARGET_FILE:swscale>"
         PARENT_SCOPE
         )

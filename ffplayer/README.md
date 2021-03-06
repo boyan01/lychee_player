@@ -6,20 +6,6 @@ player wrapper for ffmpeg.
 
 ### Windows 10
 
-1. install vcpkg. https://github.com/microsoft/vcpkg#quick-start-windows
-2. vcpkg install `ffmpeg` and `sdl2`.
-
-```shell
-vcpkg install ffmpeg:x64-windows
-vcpkg install sdl2:x64-windows
-```
-
-3. add VCPKG_ROOT env variable.
-
-```shell
-$env:VCPKG_ROOT="Your vcpkg path"
-```
-
 * if you use Clion as your IDEA, you should config toolchains architecture to `amd64`
 
 ### Linux (Ubuntu 20.04)

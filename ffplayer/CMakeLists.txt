@@ -3,9 +3,6 @@
 if (WIN32)
     set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
     #    set(BUILD_SHARED_LIBS TRUE)
-    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
-    set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "$ENV{VCPKG_ROOT}//installed//x64-windows")
-    set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} "$ENV{VCPKG_ROOT}//installed//x64-windows//lib//manual-link")
     set(CMAKE_SYSTEM_VERSION "10")
     set(CMAKE_SYSTEM_NAME "WindowsStore")
 endif ()
@@ -18,25 +15,45 @@ project("media" "CXX" "C")
 set(CMAKE_CXX_STANDARD 14)
 
 if (NOT DEFINED FFP_LIBS)
+    list(APPEND MEDIA_THIRD_PARTY_LIBS
+            avutil
+            avcodec
+            avformat
+            swscale
+            swresample
+            SDL2
+            )
+    if (WIN32)
+        set(WINDOWS_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libs/windows")
+
+        function(add_windows_lib NAME)
+            add_library(${NAME} SHARED IMPORTED GLOBAL)
+            SET_PROPERTY(TARGET ${NAME} PROPERTY IMPORTED_IMPLIB ${WINDOWS_LIB_PATH}/lib/${NAME}.lib)
+            if (DEFINED ARGV1)
+                SET_PROPERTY(TARGET ${NAME} PROPERTY IMPORTED_LOCATION ${WINDOWS_LIB_PATH}/bin/${NAME}-${ARGV1}.dll)
+            else ()
+                SET_PROPERTY(TARGET ${NAME} PROPERTY IMPORTED_LOCATION ${WINDOWS_LIB_PATH}/bin/${NAME}.dll)
+            endif ()
+        endfunction()
+
+        add_windows_lib(avutil 56)
+        add_windows_lib(avcodec 58)
+        add_windows_lib(avformat 58)
+        add_windows_lib(swscale 5)
+        add_windows_lib(swresample 3)
+        add_windows_lib(SDL2)
+
+    endif ()
+
     find_library(LIBAVUTIL avutil REQUIRED)
     find_library(LIBAVCODEC avcodec REQUIRED)
-    find_library(LIBAVDEVICE avdevice REQUIRED)
     find_library(LIBAVFORMAT avformat REQUIRED)
-    find_library(LIBAVFILTER avfilter REQUIRED)
     find_library(LIBSWSCALE swscale REQUIRED)
     find_library(LIBSWRESAMPLE swresample REQUIRED)
 
     find_library(LIBSDL2 SDL2 REQUIRED)
 
-    list(APPEND FFP_LIBS ${LIBAVUTIL}
-            ${LIBAVCODEC}
-            ${LIBAVDEVICE}
-            ${LIBAVFORMAT}
-            ${LIBAVFILTER}
-            ${LIBSWSCALE}
-            ${LIBSWRESAMPLE}
-            ${LIBSDL2}
-            )
+    list(APPEND FFP_LIBS ${MEDIA_THIRD_PARTY_LIBS})
     if (UNIX)
         # linux do not have math library.
         list(APPEND FFP_LIBS m pthread)
