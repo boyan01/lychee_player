@@ -7,6 +7,10 @@
 
 #include "audio_render_basic.h"
 
+extern "C" {
+#include "SDL.h"
+};
+
 class AudioRenderSdl2 : public BasicAudioRender {
 
  private:

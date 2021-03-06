@@ -3,7 +3,7 @@
 //
 
 #include "render_video_sdl.h"
-#include "ffp_utils.h"
+#include "sdl_utils.h"
 
 SdlVideoRender::SdlVideoRender(std::shared_ptr<SDL_Renderer> renderer)
     : VideoRenderBase(), renderer_(std::move(renderer)) {
@@ -14,8 +14,8 @@ void SdlVideoRender::RenderPicture(Frame &frame) {
   SDL_SetRenderDrawColor(renderer_.get(), 0, 0, 0, 255);
   SDL_RenderClear(renderer_.get());
   SDL_Rect rect{};
-  calculate_display_rect(&rect, 0, 0, screen_width,
-                         screen_height, frame.width, frame.height, frame.sar);
+  media::sdl::calculate_display_rect(&rect, 0, 0, screen_width,
+                                     screen_height, frame.width, frame.height, frame.sar);
   if (!frame.uploaded) {
     if (UploadTexture(frame.frame) < 0) {
       return;

@@ -50,5 +50,9 @@ else ()
     add_subdirectory(example)
 endif ()
 
+if (MEDIA_USE_SDL OR NOT CMAKE_FLUTTER_MEDIA)
+    add_subdirectory(sdl)
+endif ()
+
 message("VCPKG_APPLOCAL_DEPS = ${VCPKG_APPLOCAL_DEPS}")
 message("VCPKG_APPINSTALL_DEPS  = ${VCPKG_APPINSTALL_DEPS}")

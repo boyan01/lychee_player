@@ -10,7 +10,7 @@ int PacketQueue::Get(AVPacket *pkt, int block, int *pkt_serial, void *opacity, v
   MyAVPacketList *pkt1;
   int ret;
 
-  SDL_LockMutex(mutex);
+  std::unique_lock<std::mutex> lock(mutex);
 
   for (;;) {
     if (abort_request) {
@@ -39,37 +39,28 @@ int PacketQueue::Get(AVPacket *pkt, int block, int *pkt_serial, void *opacity, v
       if (on_block) {
         on_block(opacity);
       }
-      SDL_CondWait(cond, mutex);
+      cond.wait(lock);
     }
   }
-  SDL_UnlockMutex(mutex);
   return ret;
 }
 
 void PacketQueue::Start() {
-  SDL_LockMutex(mutex);
-
   abort_request = 0;
   Put_(flush_pkt);
-  SDL_UnlockMutex(mutex);
 }
 
 void PacketQueue::Abort() {
-  SDL_LockMutex(mutex);
+  std::lock_guard<std::mutex> lock(mutex);
 
   abort_request = 1;
-
-  SDL_CondSignal(cond);
-
-  SDL_UnlockMutex(mutex);
+  cond.notify_all();
 }
 
 int PacketQueue::Put(AVPacket *pkt) {
   int ret;
 
-  SDL_LockMutex(mutex);
   ret = Put_(pkt);
-  SDL_UnlockMutex(mutex);
 
   if (pkt != flush_pkt && ret < 0)
     av_packet_unref(pkt);
@@ -87,28 +78,19 @@ int PacketQueue::PutNullPacket(int stream_index) {
 }
 
 PacketQueue::PacketQueue() {
-  mutex = SDL_CreateMutex();
-  if (!mutex) {
-    av_log(nullptr, AV_LOG_FATAL, "SDL_CreateMutex(): %s\n", SDL_GetError());
-  }
-  cond = SDL_CreateCond();
-  if (!cond) {
-    av_log(nullptr, AV_LOG_FATAL, "SDL_CreateCond(): %s\n", SDL_GetError());
-  }
   abort_request = 1;
 }
 
 PacketQueue::~PacketQueue() {
   Flush();
   Abort();
-  SDL_DestroyMutex(mutex);
-  SDL_DestroyCond(cond);
 }
 
 void PacketQueue::Flush() {
+  std::lock_guard<std::mutex> lock(mutex);
+
   MyAVPacketList *pkt, *pkt1;
 
-  SDL_LockMutex(mutex);
   for (pkt = first_pkt; pkt; pkt = pkt1) {
     pkt1 = pkt->next;
     av_packet_unref(&pkt->pkt);
@@ -119,10 +101,11 @@ void PacketQueue::Flush() {
   nb_packets = 0;
   size = 0;
   duration = 0;
-  SDL_UnlockMutex(mutex);
 }
 
 int PacketQueue::Put_(AVPacket *pkt) {
+  std::lock_guard<std::mutex> lock(mutex);
+
   MyAVPacketList *pkt1;
 
   if (abort_request)
@@ -147,6 +130,6 @@ int PacketQueue::Put_(AVPacket *pkt) {
   size += pkt1->pkt.size + (int) sizeof(*pkt1);
   duration += pkt1->pkt.duration;
   /* XXX: should duplicate packet data in DV case */
-  SDL_CondSignal(cond);
+  cond.notify_all();
   return 0;
 }

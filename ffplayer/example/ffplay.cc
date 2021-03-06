@@ -5,20 +5,15 @@
 #include <iostream>
 #include <cstdint>
 #include <utility>
-#include <audio_render_sdl_2.h>
 
 #include "ffp_utils.h"
 #include "ffp_player.h"
-#include "ffp_frame_queue.h"
+#include "sdl_utils.h"
+#include "audio_render_sdl_2.h"
 #include "render_video_sdl.h"
-#include "render_audio_sdl.h"
 
 extern "C" {
 #include "SDL.h"
-#include "libavutil/avutil.h"
-#include "libavutil/time.h"
-#include "libavcodec/avcodec.h"
-#include "libswscale/swscale.h"
 #include "libavutil/avstring.h"
 }
 
@@ -251,7 +246,7 @@ static void set_default_window_size(int width, int height) {
   if (max_width == INT_MAX && max_height == INT_MAX)
     max_height = height;
   AVRational rational = {1, 1};
-  calculate_display_rect(&rect, 0, 0, max_width, max_height, width, height, rational);
+  media::sdl::calculate_display_rect(&rect, 0, 0, max_width, max_height, width, height, rational);
   default_width = rect.w;
   default_height = rect.h;
 }
@@ -409,7 +404,7 @@ int main(int argc, char *argv[]) {
   auto audio_render = std::make_shared<AudioRenderSdl2>();
   auto *player = new CPlayer(std::move(video_render), std::move(audio_render));
   player->start_configuration = config;
-  player->SetVolume(20);
+  player->SetVolume(100);
 
   player->SetMessageHandleCallback([player](int32_t what, int64_t arg1, int64_t arg2) {
     SDL_Event event;

@@ -9,10 +9,11 @@
 #include <condition_variable>
 #include <memory>
 
+#include "ffp_utils.h"
+
 extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
-#include "SDL.h"
 };
 
 #include "ffp_packet_queue.h"
@@ -58,23 +59,11 @@ class Decoder {
   AVRational start_pts_tb{0};
   int64_t next_pts = 0;
   AVRational next_pts_tb;
-  SDL_Thread *decoder_tid = nullptr;
+  std::thread *decoder_tid = nullptr;
   int decoder_reorder_pts = -1;
   std::function<void()> on_frame_decode_block = nullptr;
   std::shared_ptr<T> render;
   std::unique_ptr<DecodeParams> decode_params;
-
- private:
-
-  int Start(int (*fn)(void *), void *arg) {
-    decode_params->pkt_queue->Start();
-    decoder_tid = SDL_CreateThread(fn, debug_label(), arg);
-    if (!decoder_tid) {
-      av_log(nullptr, AV_LOG_ERROR, "SDL_CreateThread(): %s\n", SDL_GetError());
-      return AVERROR(ENOMEM);
-    }
-    return 0;
-  }
 
  protected:
 
@@ -192,12 +181,13 @@ class Decoder {
   virtual int DecodeThread() = 0;
 
   void Start() {
-    Start([](void *arg) {
-      auto *decoder = static_cast<Decoder<T> *>(arg);
-      int ret = decoder->DecodeThread();
-      av_log(nullptr, AV_LOG_INFO, "thread: %s done. \n", decoder->debug_label());
-      return ret;
-    }, this);
+    decode_params->pkt_queue->Start();
+    decoder_tid = new std::thread([this]() {
+      update_thread_name(debug_label());
+      av_log(nullptr, AV_LOG_INFO, "start decoder thread: %s.\n", debug_label());
+      int ret = DecodeThread();
+      av_log(nullptr, AV_LOG_INFO, "thread: %s done. ret = %d\n", debug_label(), ret);
+    });
   }
 
  public:
@@ -226,8 +216,8 @@ class Decoder {
   }
 
   void Join() {
-    if (decoder_tid) {
-      SDL_WaitThread(decoder_tid, nullptr);
+    if (decoder_tid && decoder_tid->joinable()) {
+      decoder_tid->join();
       decoder_tid = nullptr;
     }
   }

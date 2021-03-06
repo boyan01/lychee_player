@@ -33,7 +33,7 @@ class BasicAudioRender : public AudioRenderBase {
                               AudioParams &device_output) = 0;
 
   // callback to get more audio frame data.
-  void FetchAudioStream(Uint8 *stream, int len);
+  void FetchAudioStream(uint8_t *stream, int len);
 
   int OnBeforeDecodeFrame() override;
 

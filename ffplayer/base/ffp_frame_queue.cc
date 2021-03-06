@@ -10,20 +10,10 @@ void Frame::Unref() {
 }
 
 int FrameQueue::Init(PacketQueue *_pktq, int _max_size, int _keep_last) {
-  int i;
-  memset(this, 0, sizeof(FrameQueue));
-  if (!(this->mutex = SDL_CreateMutex())) {
-    av_log(nullptr, AV_LOG_FATAL, "SDL_CreateMutex(): %s\n", SDL_GetError());
-    return AVERROR(ENOMEM);
-  }
-  if (!(this->cond = SDL_CreateCond())) {
-    av_log(nullptr, AV_LOG_FATAL, "SDL_CreateCond(): %s\n", SDL_GetError());
-    return AVERROR(ENOMEM);
-  }
   this->pktq = _pktq;
   this->max_size = FFMIN(_max_size, FRAME_QUEUE_SIZE);
   this->keep_last = !!_keep_last;
-  for (i = 0; i < this->max_size; i++)
+  for (int i = 0; i < this->max_size; i++)
     if (!(this->queue[i].frame = av_frame_alloc()))
       return AVERROR(ENOMEM);
   return 0;
@@ -37,15 +27,10 @@ void FrameQueue::Destroy() {
     vp->Unref();
     av_frame_free(&vp->frame);
   }
-  SDL_DestroyMutex(f->mutex);
-  SDL_DestroyCond(f->cond);
 }
 
 void FrameQueue::Signal() {
-  auto f = this;
-  SDL_LockMutex(f->mutex);
-  SDL_CondSignal(f->cond);
-  SDL_UnlockMutex(f->mutex);
+  cond.notify_all();
 }
 
 Frame *FrameQueue::Peek() {
@@ -66,12 +51,11 @@ Frame *FrameQueue::PeekLast() {
 Frame *FrameQueue::PeekWritable() {
   auto f = this;
   /* wait until we have space to put a new frame */
-  SDL_LockMutex(f->mutex);
+  std::unique_lock<std::recursive_mutex> lock(mutex);
   while (f->size >= f->max_size &&
       !f->pktq->abort_request) {
-    SDL_CondWait(f->cond, f->mutex);
+    cond.wait(lock);
   }
-  SDL_UnlockMutex(f->mutex);
 
   if (f->pktq->abort_request)
     return nullptr;
@@ -82,12 +66,11 @@ Frame *FrameQueue::PeekWritable() {
 Frame *FrameQueue::PeekReadable() {
   auto f = this;
   /* wait until we have a readable a new frame */
-  SDL_LockMutex(f->mutex);
+  std::unique_lock<std::recursive_mutex> lock(mutex);
   while (f->size - f->rindex_shown <= 0 &&
       !f->pktq->abort_request) {
-    SDL_CondWait(f->cond, f->mutex);
+    cond.wait(lock);
   }
-  SDL_UnlockMutex(f->mutex);
 
   if (f->pktq->abort_request)
     return nullptr;
@@ -99,10 +82,11 @@ void FrameQueue::Push() {
   auto f = this;
   if (++f->windex == f->max_size)
     f->windex = 0;
-  SDL_LockMutex(f->mutex);
-  f->size++;
-  SDL_CondSignal(f->cond);
-  SDL_UnlockMutex(f->mutex);
+  {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    f->size++;
+  }
+  cond.notify_all();
 }
 
 void FrameQueue::Next() {
@@ -114,10 +98,11 @@ void FrameQueue::Next() {
   f->queue[f->rindex].Unref();
   if (++f->rindex == f->max_size)
     f->rindex = 0;
-  SDL_LockMutex(f->mutex);
-  f->size--;
-  SDL_CondSignal(f->cond);
-  SDL_UnlockMutex(f->mutex);
+  {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    f->size--;
+  }
+  cond.notify_all();
 }
 
 int FrameQueue::NbRemaining() {

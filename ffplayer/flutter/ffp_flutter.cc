@@ -7,7 +7,7 @@
 #include "ffp_flutter.h"
 #include "dart/dart_api_dl.h"
 
-#include "render_audio_sdl.h"
+#include "../sdl/render_audio_sdl.h"
 
 #if defined(_FLUTTER_MEDIA_WINDOWS)
 #include "ffp_flutter_windows.h"

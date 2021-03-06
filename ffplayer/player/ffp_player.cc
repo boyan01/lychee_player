@@ -4,7 +4,7 @@
 
 #include "ffp_player.h"
 
-#include "render_audio_sdl.h"
+#include "../sdl/render_audio_sdl.h"
 
 extern "C" {
 #include "libavutil/bprint.h"
