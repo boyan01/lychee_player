@@ -4,8 +4,6 @@ project("media_player" "CXX" "C")
 
 message("ANDROID_STL = ${ANDROID_STL}")
 
-add_subdirectory(SDL)
-
 add_library(media_player_android SHARED
         av_player_plugin.h
         av_player_plugin.cpp)
@@ -42,7 +40,7 @@ set_target_properties(cpufeatures_shared PROPERTIES IMPORTED_LOCATION "${FFP_AND
 
 find_package (oboe REQUIRED CONFIG)
 
-list(APPEND FFP_LIBS log SDL2 cpufeatures_shared android oboe::oboe)
+list(APPEND FFP_LIBS log cpufeatures_shared android oboe::oboe)
 
 add_subdirectory(../../../../ffplayer ffplayer.out)
 

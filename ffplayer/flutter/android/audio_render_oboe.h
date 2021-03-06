@@ -13,27 +13,10 @@
 
 namespace media {
 
-class AudioCallback : public oboe::AudioStreamDataCallback {
- private:
-  std::function<oboe::DataCallbackResult(oboe::AudioStream *audioStream, void *audioData, int32_t numFrames)> callback_;
-
- public:
-
-  AudioCallback(const std::function<oboe::DataCallbackResult(oboe::AudioStream *, void *, int32_t)> &callback)
-      : callback_(callback) {}
-
-  oboe::DataCallbackResult onAudioReady(oboe::AudioStream *audioStream, void *audioData, int32_t numFrames) override {
-    return callback_(audioStream, audioData, numFrames);
-  }
-};
-
-class AudioRenderOboe : public BasicAudioRender {
+class AudioRenderOboe : public BasicAudioRender, public oboe::AudioStreamDataCallback {
 
  private:
   std::shared_ptr<oboe::AudioStream> audio_stream_;
-  AudioCallback *audio_callback_;
-
-  oboe::DataCallbackResult onAudioReady(oboe::AudioStream *audioStream, void *audioData, int32_t numFrames);
 
  public:
 
@@ -44,6 +27,8 @@ class AudioRenderOboe : public BasicAudioRender {
   void Start() const override;
 
   void Pause() const override;
+
+  oboe::DataCallbackResult onAudioReady(oboe::AudioStream *audioStream, void *audioData, int32_t numFrames) override;
 
  protected:
 

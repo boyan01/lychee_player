@@ -23,7 +23,7 @@ int AudioRenderOboe::OpenAudioDevice(int64_t wanted_channel_layout,
       ->setDirection(oboe::Direction::Output)
       ->setSampleRate(wanted_sample_rate)
       ->setFormat(oboe::AudioFormat::I16)
-      ->setDataCallback(audio_callback_)
+      ->setDataCallback(this)
       ->setUsage(oboe::Usage::Media)
       ->setContentType(oboe::ContentType::Music)
       ->setPerformanceMode(oboe::PerformanceMode::PowerSaving)
@@ -41,16 +41,11 @@ int AudioRenderOboe::OpenAudioDevice(int64_t wanted_channel_layout,
   return audio_stream_->getBufferSizeInFrames();
 }
 
-AudioRenderOboe::AudioRenderOboe() {
-  audio_callback_ = new AudioCallback([this](oboe::AudioStream *audioStream,
-                                             void *audioData,
-                                             int32_t numFrames) -> oboe::DataCallbackResult {
-    return onAudioReady(audioStream, audioData, numFrames);
-  });
-}
+AudioRenderOboe::AudioRenderOboe() = default;
 
 AudioRenderOboe::~AudioRenderOboe() {
-  free(audio_callback_);
+  audio_stream_->stop();
+  audio_stream_->close();
 }
 
 oboe::DataCallbackResult AudioRenderOboe::onAudioReady(

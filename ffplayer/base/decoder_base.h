@@ -6,6 +6,7 @@
 #define FFP_DECODER_BASE_H
 
 #include <functional>
+#include <thread>
 #include <condition_variable>
 #include <memory>
 
