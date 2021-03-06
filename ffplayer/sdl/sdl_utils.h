@@ -6,7 +6,7 @@
 #define MEDIA_SDL_SDL_UTILS_H_
 
 extern "C" {
-#include "SDL_rect.h"
+#include "SDL2/SDL_rect.h"
 #include "libavutil/rational.h"
 };
 

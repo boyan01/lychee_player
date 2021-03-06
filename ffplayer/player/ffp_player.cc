@@ -9,7 +9,7 @@
 #endif
 
 #ifdef MEDIA_SDL_ENABLE
-#include <SDL.h>
+#include <SDL2/SDL.h>
 #endif
 
 extern "C" {

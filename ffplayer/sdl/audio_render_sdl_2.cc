@@ -14,6 +14,10 @@
 /* Calculate actual buffer size keeping in mind not cause too frequent audio callbacks */
 #define SDL_AUDIO_MAX_CALLBACKS_PER_SEC 30
 
+AudioRenderSdl2::~AudioRenderSdl2() {
+  SDL_CloseAudioDevice(audio_device_id_);
+}
+
 void AudioRenderSdl2::Start() const {
   SDL_PauseAudioDevice(audio_device_id_, 0);
 }
@@ -96,10 +100,11 @@ int AudioRenderSdl2::OpenAudioDevice(int64_t wanted_channel_layout,
   device_output.channels = spec.channels;
   device_output.frame_size = av_samples_get_buffer_size(nullptr, device_output.channels, 1,
                                                         device_output.fmt,
-                                                    1);
+                                                        1);
   device_output.bytes_per_sec = av_samples_get_buffer_size(nullptr, device_output.channels,
                                                            device_output.freq,
                                                            device_output.fmt, 1);
 
   return spec.size;
 }
+

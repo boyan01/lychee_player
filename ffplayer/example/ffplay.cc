@@ -13,7 +13,6 @@
 #include "render_video_sdl.h"
 
 extern "C" {
-#include "SDL.h"
 #include "libavutil/avstring.h"
 }
 

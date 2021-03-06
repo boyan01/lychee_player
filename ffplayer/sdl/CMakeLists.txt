@@ -6,6 +6,6 @@ aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} SDL_SOURCES)
 
 add_library(media_sdl ${SDL_SOURCES})
 
-target_include_directories(media_sdl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(media_sdl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} include)
 
 target_link_libraries(media_sdl PUBLIC media_base media_audio media_video)

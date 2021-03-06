@@ -42,16 +42,17 @@ endif ()
 add_subdirectory(base)
 add_subdirectory(audio)
 add_subdirectory(video)
+
+if (MEDIA_USE_SDL OR NOT CMAKE_FLUTTER_MEDIA)
+    add_subdirectory(sdl)
+endif ()
+
 add_subdirectory(player)
 
 if (CMAKE_FLUTTER_MEDIA)
     add_subdirectory(flutter)
 else ()
     add_subdirectory(example)
-endif ()
-
-if (MEDIA_USE_SDL OR NOT CMAKE_FLUTTER_MEDIA)
-    add_subdirectory(sdl)
 endif ()
 
 message("VCPKG_APPLOCAL_DEPS = ${VCPKG_APPLOCAL_DEPS}")

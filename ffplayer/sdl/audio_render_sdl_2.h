@@ -8,7 +8,7 @@
 #include "audio_render_basic.h"
 
 extern "C" {
-#include "SDL.h"
+#include "SDL2/SDL.h"
 };
 
 class AudioRenderSdl2 : public BasicAudioRender {
@@ -16,6 +16,8 @@ class AudioRenderSdl2 : public BasicAudioRender {
  private:
   SDL_AudioDeviceID audio_device_id_ = -1;
  public:
+
+  ~AudioRenderSdl2() override;
 
   void Start() const override;
 
