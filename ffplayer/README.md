@@ -10,11 +10,17 @@ player wrapper for ffmpeg.
 2. vcpkg install `ffmpeg` and `sdl2`.
 
 ```shell
-vcpkg install ffmpeg
+vcpkg install ffmpeg:x64-windows
 vcpkg install sdl2:x64-windows
 ```
 
-* clion should config architecture to `x86_amd64`
+3. add VCPKG_ROOT env variable.
+
+```shell
+$env:VCPKG_ROOT="Your vcpkg path"
+```
+
+* if you use Clion as your IDEA, you should config toolchains architecture to `amd64`
 
 ### Linux (Ubuntu 20.04)
 

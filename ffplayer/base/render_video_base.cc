@@ -186,13 +186,14 @@ double VideoRenderBase::DrawFrame() {
       frame_timer = time;
     }
 
-    SDL_LockMutex(picture_queue->mutex);
-    if (!isnan(vp->pts)) {
-      // update_video_pts
-      clock_context->GetVideoClock()->SetClock(vp->pts, vp->serial);
-      clock_context->GetExtClock()->Sync(clock_context->GetVideoClock());
+    {
+      std::lock_guard<std::recursive_mutex> lock(picture_queue->mutex);
+      if (!isnan(vp->pts)) {
+        // update_video_pts
+        clock_context->GetVideoClock()->SetClock(vp->pts, vp->serial);
+        clock_context->GetExtClock()->Sync(clock_context->GetVideoClock());
+      }
     }
-    SDL_UnlockMutex(picture_queue->mutex);
 
     if (picture_queue->NbRemaining() > 1) {
       auto *next_vp = picture_queue->PeekNext();

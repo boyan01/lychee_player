@@ -12,7 +12,7 @@ add_executable(${EXAMPLE_BIN_NAME} ${EXAMPLE_SOURCES})
 
 target_include_directories(${EXAMPLE_BIN_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(${EXAMPLE_BIN_NAME} PUBLIC media_player ${LIBSDL2MAIN})
+target_link_libraries(${EXAMPLE_BIN_NAME} PUBLIC media_player media_sdl ${LIBSDL2MAIN})
 
 if (WIN32)
     if (CMAKE_FLUTTER_WINDOWS)

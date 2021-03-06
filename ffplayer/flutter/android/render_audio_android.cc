@@ -1,8 +1,6 @@
 //
 // Created by boyan on 2021/2/21.
 //
-#ifdef _FLUTTER_ANDROID
-
 #include "render_audio_android.h"
 
 namespace media {
@@ -20,7 +18,6 @@ void AndroidAudioRender::Start() const {
 }
 
 void AndroidAudioRender::Pause() const {
-
 }
 
 bool AndroidAudioRender::IsMute() const {
@@ -40,7 +37,7 @@ int AndroidAudioRender::GetVolume() const {
 }
 
 void AndroidAudioRender::Init(const std::shared_ptr<PacketQueue> &audio_queue,
-                              std::shared_ptr<ClockContext> clock_ctx) {
+                              std::shared_ptr<MediaClock> clock_ctx) {
   AudioRenderBase::Init(audio_queue, clock_ctx);
 }
 
@@ -53,5 +50,3 @@ int AndroidAudioRender::OnBeforeDecodeFrame() {
 }
 
 }
-
-#endif // _FLUTTER_ANDROID

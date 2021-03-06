@@ -11,7 +11,6 @@ add_library(${MEDIA_BASE_LIB_NAME} ${BASE_SOURCES})
 target_include_directories(${MEDIA_BASE_LIB_NAME} PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ../third_party
-        ../../thirdparty/SDL/include
         )
 
 target_link_libraries(${MEDIA_BASE_LIB_NAME} PUBLIC ${FFP_LIBS})

@@ -57,7 +57,6 @@ struct CPlayer {
   // buffered position in seconds. -1 if not avalible
   int64_t buffered_position = -1;
 
-  SDL_Thread *msg_tid = nullptr;
   FFPlayerState state = FFP_STATE_IDLE;
 
   bool paused = false;

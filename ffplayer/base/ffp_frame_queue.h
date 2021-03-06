@@ -5,6 +5,9 @@
 #ifndef FFPLAYER_FFP_FRAME_QUEUE_H
 #define FFPLAYER_FFP_FRAME_QUEUE_H
 
+#include <condition_variable>
+#include <mutex>
+
 #include "ffp_packet_queue.h"
 
 extern "C" {
@@ -35,17 +38,18 @@ struct Frame {
   void Unref();
 };
 
-struct FrameQueue {
+class FrameQueue {
+ public:
   Frame queue[FRAME_QUEUE_SIZE];
-  int rindex;
-  int windex;
-  int size;
-  int max_size;
-  int keep_last;
-  int rindex_shown;
-  SDL_mutex *mutex;
-  SDL_cond *cond;
-  PacketQueue *pktq;
+  int rindex = 0;
+  int windex = 0;
+  int size = 0;
+  int max_size = 0;
+  int keep_last = 0;
+  int rindex_shown = 0;
+  std::recursive_mutex mutex;
+  std::condition_variable_any cond;
+  PacketQueue *pktq = nullptr;
 
  public:
   int Init(PacketQueue *_pktq, int _max_size, int _keep_last);

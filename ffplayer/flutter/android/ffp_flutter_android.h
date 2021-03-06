@@ -13,6 +13,8 @@
 #include <android/native_window.h>
 #include "ffp_define.h"
 
+#include "audio_render_oboe.h"
+
 extern "C" {
 #include "libswscale/swscale.h"
 };

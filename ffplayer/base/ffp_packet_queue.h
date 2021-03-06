@@ -5,8 +5,10 @@
 #ifndef FFP_PACKET_QUEUE_H
 #define FFP_PACKET_QUEUE_H
 
+#include <mutex>
+#include <condition_variable>
+
 extern "C" {
-#include "SDL.h"
 #include "libavcodec/avcodec.h"
 };
 
@@ -23,8 +25,8 @@ typedef struct PacketQueue {
   int64_t duration = 0;
   int abort_request = true;
   int serial = 0;
-  SDL_mutex *mutex = nullptr;
-  SDL_cond *cond = nullptr;
+  std::mutex mutex;
+  std::condition_variable_any cond;
  private:
   int Put_(AVPacket *pkt);
 

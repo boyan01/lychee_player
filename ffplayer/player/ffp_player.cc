@@ -4,7 +4,13 @@
 
 #include "ffp_player.h"
 
-#include "render_audio_sdl.h"
+#ifndef _FLUTTER_MEDIA_ANDROID
+#define MEDIA_SDL_ENABLE
+#endif
+
+#ifdef MEDIA_SDL_ENABLE
+#include <SDL2/SDL.h>
+#endif
 
 extern "C" {
 #include "libavutil/bprint.h"
@@ -262,10 +268,12 @@ void CPlayer::GlobalInit() {
 #endif
   avformat_network_init();
 
+#ifdef MEDIA_SDL_ENABLE
   if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0)
     av_log(nullptr, AV_LOG_ERROR, "SDL fails to initialize audio subsystem!\n%s", SDL_GetError());
   else
     av_log(nullptr, AV_LOG_DEBUG, "SDL Audio was initialized fine!\n");
+#endif
 
   flush_pkt = new AVPacket;
   av_init_packet(flush_pkt);
