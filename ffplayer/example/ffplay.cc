@@ -5,6 +5,7 @@
 #include <iostream>
 #include <cstdint>
 #include <utility>
+#include <audio_render_sdl_2.h>
 
 #include "ffp_utils.h"
 #include "ffp_player.h"
@@ -405,7 +406,7 @@ int main(int argc, char *argv[]) {
   }
 
   auto video_render = std::make_shared<SdlVideoRender>(std::move(renderer));
-  auto audio_render = std::make_shared<SdlAudioRender>();
+  auto audio_render = std::make_shared<AudioRenderSdl2>();
   auto *player = new CPlayer(std::move(video_render), std::move(audio_render));
   player->start_configuration = config;
   player->SetVolume(20);

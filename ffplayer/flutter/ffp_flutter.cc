@@ -302,7 +302,7 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
   audio_render = std::make_shared<SdlAudioRender>();
 #elif _FLUTTER_MEDIA_ANDROID
   video_render = std::make_shared<media::FlutterAndroidVideoRender>();
-  audio_render = std::make_shared<SdlAudioRender>();
+  audio_render = std::make_shared<media::AudioRenderOboe>();
 #else
   video_render = nullptr;
   audio_render = std::make_shared<SdlAudioRender>();

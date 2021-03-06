@@ -2,14 +2,13 @@ cmake_minimum_required(VERSION 3.10)
 
 project("media_player" "CXX" "C")
 
+message("ANDROID_STL = ${ANDROID_STL}")
+
 add_subdirectory(SDL)
 
 add_library(media_player_android SHARED
         av_player_plugin.h
         av_player_plugin.cpp)
-
-message("${PROJECT_NAME} ANDROID_UNIFIED_HEADERS = ${ANDROID_UNIFIED_HEADERS}")
-message(" CMAKE_FIND_ROOT_PATH  = ${CMAKE_FIND_ROOT_PATH}")
 
 find_library(LOG_LIB log REQUIRED)
 
@@ -19,10 +18,7 @@ set(CMAKE_FLUTTER_MEDIA_ANDROID "1")
 add_compile_definitions(_FLUTTER_MEDIA_)
 add_compile_definitions(_FLUTTER_MEDIA_ANDROID)
 
-message("ANDROID_ABI = ${ANDROID_ABI}, CMAKE_SOURCE_DIR = ")
-
 set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} "${CMAKE_SOURCE_DIR}/lib/${CMAKE_ANDROID_ARCH}")
-set(CMAKE_FLUTTER_ANDROID_LINK_PATH "${CMAKE_SOURCE_DIR}/lib/${CMAKE_ANDROID_ARCH}")
 
 list(APPEND FFP_LIBS
         avutil
@@ -44,7 +40,9 @@ endforeach ()
 add_library(cpufeatures_shared SHARED IMPORTED)
 set_target_properties(cpufeatures_shared PROPERTIES IMPORTED_LOCATION "${FFP_ANDROID_LIBS}/libcpufeatures.so")
 
-list(APPEND FFP_LIBS log SDL2 cpufeatures_shared android)
+find_package (oboe REQUIRED CONFIG)
+
+list(APPEND FFP_LIBS log SDL2 cpufeatures_shared android oboe::oboe)
 
 add_subdirectory(../../../../ffplayer ffplayer.out)
 
