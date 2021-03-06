@@ -10,7 +10,7 @@ target_include_directories(media_player PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(media_player PUBLIC media_base media_audio media_video)
 
-if (TARGET media_sdl)
+if (MEDIA_USE_SDL)
     target_link_libraries(media_player PUBLIC media_sdl)
 endif ()
 

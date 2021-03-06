@@ -10,6 +10,10 @@ if (WIN32)
     set(CMAKE_SYSTEM_NAME "WindowsStore")
 endif ()
 
+if (NOT MEDIA_USE_SDL AND NOT CMAKE_FLUTTER_MEDIA)
+    set(MEDIA_USE_SDL "1")
+endif ()
+
 project("media" "CXX" "C")
 set(CMAKE_CXX_STANDARD 14)
 
@@ -43,7 +47,7 @@ add_subdirectory(base)
 add_subdirectory(audio)
 add_subdirectory(video)
 
-if (MEDIA_USE_SDL OR NOT CMAKE_FLUTTER_MEDIA)
+if (MEDIA_USE_SDL)
     add_subdirectory(sdl)
 endif ()
 
@@ -54,6 +58,3 @@ if (CMAKE_FLUTTER_MEDIA)
 else ()
     add_subdirectory(example)
 endif ()
-
-message("VCPKG_APPLOCAL_DEPS = ${VCPKG_APPLOCAL_DEPS}")
-message("VCPKG_APPINSTALL_DEPS  = ${VCPKG_APPINSTALL_DEPS}")
