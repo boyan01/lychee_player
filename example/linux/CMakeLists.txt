@@ -4,6 +4,9 @@ project(runner LANGUAGES CXX)
 set(BINARY_NAME "audio_player_example")
 set(APPLICATION_ID "tech.soit.flutter.audio_player")
 
+set("CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES" "")
+set("CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES" "")
+
 cmake_policy(SET CMP0063 NEW)
 
 set(CMAKE_INSTALL_RPATH "$ORIGIN/lib")

@@ -12,7 +12,7 @@ dependencies:
   flutter:
     sdk: flutter
   system_clock: ^1.2.0-nullsafety.1
-  ffi: ^0.2.0-nullsafety.1
+  ffi: ^1.0.0
 
 dev_dependencies:
   flutter_test:

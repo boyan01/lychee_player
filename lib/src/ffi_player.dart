@@ -123,7 +123,7 @@ class _PlayerConfiguration extends Struct {
   external int loop;
 
   static Pointer<_PlayerConfiguration> alloctConfiguration() {
-    final pointer = allocate<_PlayerConfiguration>();
+    final pointer = calloc<_PlayerConfiguration>();
     pointer.ref
       ..video_disable = 0
       ..audio_disable = 0
@@ -230,7 +230,6 @@ class FfiAudioPlayer implements AudioPlayer {
     _ensureFfplayerGlobalInited();
     final configuration = _PlayerConfiguration.alloctConfiguration();
     _player = ffp_create_player(configuration);
-    free(configuration);
     if (_player == nullptr) {
       throw Exception("memory not enough");
     }
@@ -242,7 +241,7 @@ class FfiAudioPlayer implements AudioPlayer {
         _onMessage(values[0], values[1], values[2]);
       });
     ffp_set_message_callback(_player, cppInteractPort.sendPort.nativePort);
-    ffplayer_open_file(_player, Utf8.toUtf8(uri));
+    ffplayer_open_file(_player, uri.toNativeUtf8());
     debugPrint("player ${_player}");
   }
 
