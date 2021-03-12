@@ -83,6 +83,27 @@ class _MyAppState extends State<MyApp> {
     player?.dispose();
   }
 
+  Widget buildListTile(BuildContext context, String item) {
+    return RadioListTile(
+      value: item,
+      groupValue: url,
+      title: Text(item),
+      secondary: IconButton(
+          icon: Icon(Icons.delete_outline),
+          onPressed: () {
+            setState(() {
+              urls.remove(item);
+              UrlStores.instance.remove(item);
+            });
+          }),
+      onChanged: (dynamic newValue) {
+        setState(() {
+          _newPlayer(newValue);
+        });
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -100,17 +121,7 @@ class _MyAppState extends State<MyApp> {
             Expanded(
                 child: ListView(
               children: [
-                for (var item in urls.keys)
-                  RadioListTile(
-                    value: item,
-                    groupValue: url,
-                    title: Text(item),
-                    onChanged: (dynamic newValue) {
-                      setState(() {
-                        _newPlayer(newValue);
-                      });
-                    },
-                  ),
+                for (var item in urls.keys) buildListTile(context, item)
               ],
             )),
           ],

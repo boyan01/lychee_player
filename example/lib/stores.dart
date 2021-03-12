@@ -44,4 +44,12 @@ class UrlStores {
         .record("data")
         .put(db, _urls.map((key, value) => MapEntry(key, value.index)));
   }
+
+  Future<void> remove(String url) async {
+    _urls.remove(url);
+    final db = await _openDb();
+    await StoreRef<String, Map<String, Object?>>.main()
+        .record("data")
+        .put(db, _urls.map((key, value) => MapEntry(key, value.index)));
+  }
 }
