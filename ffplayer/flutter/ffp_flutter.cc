@@ -13,7 +13,7 @@
 #elif defined(_FLUTTER_MEDIA_ANDROID)
 #include "ffp_flutter_android.h"
 #elif defined(_FLUTTER_MEDIA_LINUX)
-#include "audio_render_sdl_2.h"
+#include "audio_render_sdl.h"
 #endif
 
 // hold all player instance. destroy all play when flutter app hot reloaded.
@@ -304,13 +304,13 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
   std::shared_ptr<AudioRenderBase> audio_render;
 #ifdef _FLUTTER_MEDIA_WINDOWS
   video_render = std::make_shared<FlutterWindowsVideoRender>();
-  audio_render = std::make_shared<AudioRenderSdl2>();
+  audio_render = std::make_shared<AudioRenderSdl>();
 #elif _FLUTTER_MEDIA_ANDROID
   video_render = std::make_shared<media::FlutterAndroidVideoRender>();
   audio_render = std::make_shared<media::AudioRenderOboe>();
 #else
   video_render = nullptr;
-  audio_render = std::make_shared<AudioRenderSdl2>();
+  audio_render = std::make_shared<AudioRenderSdl>();
 #endif
   auto *player = new CPlayer(video_render, audio_render);
   player->TogglePause();

@@ -11,13 +11,13 @@ extern "C" {
 #include "SDL2/SDL.h"
 };
 
-class AudioRenderSdl2 : public BasicAudioRender {
+class AudioRenderSdl : public BasicAudioRender {
 
  private:
   SDL_AudioDeviceID audio_device_id_ = -1;
  public:
 
-  ~AudioRenderSdl2() override;
+  ~AudioRenderSdl() override;
 
   void Start() const override;
 
