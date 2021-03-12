@@ -4,20 +4,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'widgets/player_components.dart';
+import 'stores.dart';
 
-void main() {
-  runApp(MyApp());
+void main() async {
+  final urls = await UrlStores.instance.getUrls();
+  urls.addAll({
+    "http://music.163.com/song/media/outer/url?id=1451998397.mp3": PlayType.url,
+    "tracks/rise.mp3": PlayType.asset,
+    "https://storage.googleapis.com/exoplayer-test-media-0/play.mp3":
+        PlayType.url,
+  });
+  runApp(MyApp(urls));
 }
 
-enum _Type { file, url, asset }
+enum PlayType { file, url, asset }
 
 class MyApp extends StatefulWidget {
-  final Map<String, _Type> urls = {
-    "sdcard/springfestive.mp4": _Type.file,
-    "http://music.163.com/song/media/outer/url?id=1451998397.mp3": _Type.url,
-    "tracks/rise.mp3": _Type.asset,
-    "https://storage.googleapis.com/exoplayer-test-media-0/play.mp3": _Type.url,
-  };
+  final Map<String, PlayType> urls;
+
+  MyApp(this.urls, {Key? key}) : super(key: key);
 
   @override
   _MyAppState createState() => _MyAppState();
@@ -27,11 +32,12 @@ class _MyAppState extends State<MyApp> {
   AudioPlayer? player;
   String? url;
 
-  Map<String, _Type> get urls => widget.urls;
+  Map<String, PlayType> urls = {};
 
   @override
   void initState() {
     super.initState();
+    urls.addAll(widget.urls);
     _newPlayer(urls.keys.first);
   }
 
@@ -44,13 +50,13 @@ class _MyAppState extends State<MyApp> {
     }
     final type = urls[uri!]!;
     switch (type) {
-      case _Type.file:
+      case PlayType.file:
         player = AudioPlayer.file(uri);
         break;
-      case _Type.url:
+      case PlayType.url:
         player = AudioPlayer.url(uri);
         break;
-      case _Type.asset:
+      case PlayType.asset:
         player = AudioPlayer.asset(uri);
         break;
     }
@@ -73,7 +79,12 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       home: Scaffold(
-        appBar: AppBar(title: const Text('Plugin example app')),
+        appBar: HomeAppBar(add: (added) {
+          setState(() {
+            urls.addEntries([added]);
+            UrlStores.instance.put(added.key, added.value);
+          });
+        }),
         body: Column(
           children: [
             SmallVideo(player: player),
@@ -97,6 +108,85 @@ class _MyAppState extends State<MyApp> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
+  final Function(MapEntry<String, PlayType>) add;
+
+  const HomeAppBar({Key? key, required this.add}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return AppBar(
+      title: const Text('Plugin example app'),
+      actions: [
+        IconButton(
+            icon: Icon(Icons.add),
+            onPressed: () async {
+              final MapEntry<String, PlayType>? result = await showDialog(
+                  context: context,
+                  builder: (context) {
+                    return PathInputDialog();
+                  });
+              if (result == null) {
+                return;
+              }
+              var url = result.key.trim();
+              if (url.isEmpty) {
+                return;
+              }
+              if (url.startsWith('"')) {
+                url = url.substring(1);
+              }
+              if (url.endsWith('"')) {
+                url = url.substring(0, url.length - 1);
+              }
+              add(MapEntry(url, result.value));
+            })
+      ],
+    );
+  }
+
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+}
+
+class PathInputDialog extends StatefulWidget {
+  const PathInputDialog({Key? key}) : super(key: key);
+
+  @override
+  _PathInputDialogState createState() => _PathInputDialogState();
+}
+
+class _PathInputDialogState extends State<PathInputDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return SimpleDialog(
+      title: Text("input url or file path"),
+      children: [
+        TextField(controller: _controller),
+        TextButton(
+            child: Text("FILE"),
+            onPressed: () {
+              Navigator.of(context)
+                  .pop(MapEntry(_controller.text, PlayType.file));
+            }),
+        TextButton(
+            child: Text("URL"),
+            onPressed: () {
+              Navigator.of(context)
+                  .pop(MapEntry(_controller.text, PlayType.url));
+            }),
+        TextButton(
+            child: Text("Cancel"),
+            onPressed: () {
+              Navigator.of(context).pop();
+            }),
+      ],
     );
   }
 }
