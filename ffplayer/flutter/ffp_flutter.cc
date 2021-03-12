@@ -1,4 +1,5 @@
 #include <list>
+#include <algorithm>
 
 #include "ffplayer.h"
 #include "ffp_utils.h"
@@ -240,13 +241,17 @@ int ffplayer_open_file(CPlayer *player, const char *filename) {
   return player->OpenDataSource(filename);
 }
 
+static void release_player(CPlayer *player) {
+  ffp_detach_video_render_flutter(player);
+  av_log(nullptr, AV_LOG_INFO, "free play, close stream %p \n", player);
+  delete player;
+}
+
 void ffplayer_free_player(CPlayer *player) {
   if (players_) {
     players_->remove(player);
   }
-  ffp_detach_video_render_flutter(player);
-  av_log(nullptr, AV_LOG_INFO, "free play, close stream %p \n", player);
-  delete player;
+  release_player(player);
 }
 
 void ffplayer_global_init(void *arg) {
@@ -286,9 +291,9 @@ void ffplayer_global_init(void *arg) {
   Dart_InitializeApiDL(arg);
 
   if (players_) {
-    for (auto player : *players_) {
+    for (const auto &player : *players_) {
       av_log(nullptr, AV_LOG_INFO, "free play, close stream %p by flutter global \n", player);
-      ffplayer_free_player(player);
+      release_player(player);
     }
     players_->clear();
   }

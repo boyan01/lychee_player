@@ -1,0 +1,13 @@
+{
+    "files.associations": {
+        "variant": "cpp",
+        "type_traits": "cpp",
+        "xlocale": "c",
+        "xstring": "c",
+        "any": "c",
+        "functional": "c",
+        "xlocnum": "c",
+        "xtr1common": "c"
+    },
+    "cmake.sourceDirectory": "${workspaceFolder}/example/windows"
+}

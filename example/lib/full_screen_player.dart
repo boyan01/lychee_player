@@ -1,4 +1,4 @@
-import 'package:av_player/av_player.dart';
+import 'package:media_player/media_player.dart';
 import 'package:flutter/material.dart';
 
 class FullScreenPage extends StatelessWidget {

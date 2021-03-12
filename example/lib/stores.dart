@@ -1,5 +1,7 @@
+import 'package:flutter/cupertino.dart';
 import 'package:sembast/sembast.dart';
 import 'package:sembast/sembast_io.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'main.dart';
 
@@ -12,7 +14,10 @@ class UrlStores {
 
   Future<Database> _openDb() async {
     if (_db == null) {
-      _db = await databaseFactoryIo.openDatabase("example.db");
+      final dir = await getApplicationSupportDirectory();
+      final path = "${dir.absolute.path}/example.db";
+      debugPrint("path = ${path}");
+      _db = await databaseFactoryIo.openDatabase(path);
     }
     return _db!;
   }

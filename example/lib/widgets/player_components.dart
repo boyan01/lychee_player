@@ -1,5 +1,5 @@
-import 'package:av_player/av_player.dart';
 import 'package:flutter/material.dart';
+import 'package:media_player/media_player.dart';
 
 extension DurationClimp on Duration {
   Duration atMost(Duration duration) {

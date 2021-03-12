@@ -1,4 +1,4 @@
-name: av_player
+name: media_player
 description: A new flutter plugin project.
 version: 0.0.1
 author:
@@ -42,7 +42,7 @@ flutter:
         package: tech.soit.flutter.player
         pluginClass: AvPlayerPlugin
       windows:
-        pluginClass: AvPlayerPlugin
+        pluginClass: MediaPlayerPlugin
       linux:
         pluginClass: AvPlayerPlugin
     # -------------------

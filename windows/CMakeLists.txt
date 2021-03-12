@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.15)
-set(PROJECT_NAME "av_player")
+set(PROJECT_NAME "media_player")
 project(${PROJECT_NAME} LANGUAGES CXX)
 
 # This value is used when generating builds using this plugin, so it must
 # not be changed
-set(PLUGIN_NAME "av_player_plugin")
+set(PLUGIN_NAME "media_player_plugin")
 
 add_library(${PLUGIN_NAME} SHARED
-        "av_player_plugin.cpp"
+        "media_player_plugin.cpp"
         )
 apply_standard_settings(${PLUGIN_NAME})
 

@@ -1,7 +1,12 @@
+import 'dart:ffi';
+
 import 'package:audio_player_example/full_screen_player.dart';
-import 'package:av_player/av_player.dart';
+import 'package:media_player/media_player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:overlay_support/overlay_support.dart';
+
+import 'package:media_player/src/ffi_player.dart';
 
 import 'widgets/player_components.dart';
 import 'stores.dart';
@@ -14,7 +19,7 @@ void main() async {
     "https://storage.googleapis.com/exoplayer-test-media-0/play.mp3":
         PlayType.url,
   });
-  runApp(MyApp(urls));
+  runApp(OverlaySupport.global(child: MyApp(urls)));
 }
 
 enum PlayType { file, url, asset }
@@ -123,7 +128,13 @@ class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
       title: const Text('Plugin example app'),
       actions: [
         IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: () {
+              ffplayer_init(NativeApi.initializeApiDLData);
+            }),
+        IconButton(
             icon: Icon(Icons.add),
+            tooltip: "Add custom video/audio uri",
             onPressed: () async {
               final MapEntry<String, PlayType>? result = await showDialog(
                   context: context,
@@ -144,6 +155,11 @@ class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
                 url = url.substring(0, url.length - 1);
               }
               add(MapEntry(url, result.value));
+            }),
+        IconButton(
+            icon: Icon(Icons.more_vert),
+            onPressed: () {
+              toast("more clicked");
             })
       ],
     );

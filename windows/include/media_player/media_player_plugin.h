@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 
-FLUTTER_PLUGIN_EXPORT void AvPlayerPluginRegisterWithRegistrar(
+FLUTTER_PLUGIN_EXPORT void MediaPlayerPluginRegisterWithRegistrar(
     FlutterDesktopPluginRegistrarRef registrar);
 
 extern "C" void register_flutter_plugin(flutter::PluginRegistrarWindows *registrar);

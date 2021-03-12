@@ -1,6 +1,6 @@
-#include "include/av_player/av_player_plugin.h"
+#include "include/media_player/media_player_plugin.h"
 
-void AvPlayerPluginRegisterWithRegistrar(
+void MediaPlayerPluginRegisterWithRegistrar(
         FlutterDesktopPluginRegistrarRef registrar) {
     register_flutter_plugin(
             flutter::PluginRegistrarManager::GetInstance()
