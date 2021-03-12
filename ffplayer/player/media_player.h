@@ -2,8 +2,8 @@
 // Created by yangbin on 2021/2/13.
 //
 
-#ifndef FFPLAYER_FFP_PLAYER_H
-#define FFPLAYER_FFP_PLAYER_H
+#ifndef MEDIA_PLAYER_MEDIA_PLAYER_H
+#define MEDIA_PLAYER_MEDIA_PLAYER_H
 
 #include <memory>
 #include <functional>
@@ -22,7 +22,7 @@ enum FFPlayerState {
   FFP_STATE_END
 };
 
-struct CPlayer {
+class MediaPlayer {
 
  private:
 
@@ -41,13 +41,11 @@ struct CPlayer {
 
   std::shared_ptr<MessageContext> message_context;
 
-  void DumpStatus();
-
  public:
 
-  CPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<AudioRenderBase> audio_render);
+  MediaPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<AudioRenderBase> audio_render);
 
-  ~CPlayer();
+  ~MediaPlayer();
 
   static void GlobalInit();
 
@@ -96,6 +94,12 @@ struct CPlayer {
   const char *GetMetadataDict(const char *key);
 
   VideoRenderBase *GetVideoRender();
+
+  /**
+   * Dump player status information to console.
+   */
+  void DumpStatus();
+
 };
 
-#endif //FFPLAYER_FFP_PLAYER_H
+#endif //MEDIA_PLAYER_MEDIA_PLAYER_H

@@ -3,10 +3,6 @@
 
 #include <cstdint>
 
-struct CPlayer;
-
-typedef struct CPlayer CPlayer;
-
 struct PlayerConfiguration {
   int32_t audio_disable = false;
   int32_t video_disable = false;

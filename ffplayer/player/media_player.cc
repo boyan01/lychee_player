@@ -2,7 +2,7 @@
 // Created by yangbin on 2021/2/13.
 //
 
-#include "ffp_player.h"
+#include "media_player.h"
 
 #ifndef _FLUTTER_MEDIA_ANDROID
 #define MEDIA_SDL_ENABLE
@@ -16,7 +16,7 @@ extern "C" {
 #include "libavutil/bprint.h"
 }
 
-CPlayer::CPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<AudioRenderBase> audio_render)
+MediaPlayer::MediaPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<AudioRenderBase> audio_render)
     : video_render_(std::move(video_render)), audio_render_(std::move(audio_render)) {
   message_context = std::make_shared<MessageContext>();
 
@@ -54,18 +54,12 @@ CPlayer::CPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<
     video_render_->Init(video_pkt_queue, clock_context, message_context);
   }
 
-  if (start_configuration.show_status && video_render_) {
-    video_render_->on_post_draw_frame = [this]() {
-      DumpStatus();
-    };
-  }
-
   decoder_context = std::make_shared<DecoderContext>(audio_render_, video_render_, clock_context);
 }
 
-CPlayer::~CPlayer() = default;
+MediaPlayer::~MediaPlayer() = default;
 
-void CPlayer::TogglePause() {
+void MediaPlayer::TogglePause() {
   if (paused) {
     if (video_render_) {
       video_render_->frame_timer +=
@@ -95,7 +89,7 @@ void CPlayer::TogglePause() {
   }
 }
 
-int CPlayer::OpenDataSource(const char *filename) {
+int MediaPlayer::OpenDataSource(const char *filename) {
   if (data_source) {
     av_log(nullptr, AV_LOG_ERROR, "can not open file multi-times.\n");
     return -1;
@@ -114,7 +108,7 @@ int CPlayer::OpenDataSource(const char *filename) {
   return 0;
 }
 
-void CPlayer::DumpStatus() {
+void MediaPlayer::DumpStatus() {
   AVBPrint buf;
   static int64_t last_time;
   int64_t cur_time;
@@ -178,7 +172,7 @@ void CPlayer::DumpStatus() {
 
 }
 
-double CPlayer::GetCurrentPosition() {
+double MediaPlayer::GetCurrentPosition() {
   double position = clock_context->GetMasterClock();
   if (isnan(position)) {
     if (data_source) {
@@ -190,76 +184,76 @@ double CPlayer::GetCurrentPosition() {
   return position;
 }
 
-bool CPlayer::IsPaused() const {
+bool MediaPlayer::IsPaused() const {
   return paused;
 }
 
-int CPlayer::GetVolume() {
+int MediaPlayer::GetVolume() {
   CHECK_VALUE_WITH_RETURN(audio_render_, 0);
   return audio_render_->GetVolume();
 }
 
-void CPlayer::SetVolume(int volume) {
+void MediaPlayer::SetVolume(int volume) {
   CHECK_VALUE(audio_render_);
   audio_render_->SetVolume(volume);
 }
 
-void CPlayer::SetMute(bool mute) {
+void MediaPlayer::SetMute(bool mute) {
   CHECK_VALUE(audio_render_);
   audio_render_->SetMute(mute);
 }
 
-bool CPlayer::IsMuted() {
+bool MediaPlayer::IsMuted() {
   CHECK_VALUE_WITH_RETURN(audio_render_, true);
   return audio_render_->IsMute();
 }
 
-double CPlayer::GetDuration() {
+double MediaPlayer::GetDuration() {
   CHECK_VALUE_WITH_RETURN(data_source, -1);
   return data_source->GetDuration();
 }
 
-void CPlayer::Seek(double position) {
+void MediaPlayer::Seek(double position) {
   CHECK_VALUE(data_source);
   data_source->Seek(position);
 }
 
-void CPlayer::SeekToChapter(int chapter) {
+void MediaPlayer::SeekToChapter(int chapter) {
   CHECK_VALUE(data_source);
   data_source->SeekToChapter(chapter);
 }
 
-int CPlayer::GetCurrentChapter() {
+int MediaPlayer::GetCurrentChapter() {
   CHECK_VALUE_WITH_RETURN(data_source, -1);
   int64_t pos = GetCurrentPosition() * AV_TIME_BASE;
   return data_source->GetChapterByPosition(pos);
 }
 
-int CPlayer::GetChapterCount() {
+int MediaPlayer::GetChapterCount() {
   CHECK_VALUE_WITH_RETURN(data_source, -1);
   return data_source->GetChapterCount();
 }
 
-void CPlayer::SetMessageHandleCallback(std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback) {
+void MediaPlayer::SetMessageHandleCallback(std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback) {
   message_context->message_callback = std::move(message_callback);
 }
 
-double CPlayer::GetVideoAspectRatio() {
+double MediaPlayer::GetVideoAspectRatio() {
   CHECK_VALUE_WITH_RETURN(video_render_, 0);
   return video_render_->GetVideoAspectRatio();
 }
 
-const char *CPlayer::GetUrl() {
+const char *MediaPlayer::GetUrl() {
   CHECK_VALUE_WITH_RETURN(data_source, nullptr);
   return data_source->GetFileName();
 }
 
-const char *CPlayer::GetMetadataDict(const char *key) {
+const char *MediaPlayer::GetMetadataDict(const char *key) {
   CHECK_VALUE_WITH_RETURN(data_source, nullptr);
   return data_source->GetMetadataDict(key);
 }
 
-void CPlayer::GlobalInit() {
+void MediaPlayer::GlobalInit() {
   av_log_set_flags(AV_LOG_SKIP_REPEATED);
   av_log_set_level(AV_LOG_INFO);
   /* register all codecs, demux and protocols */
@@ -280,7 +274,7 @@ void CPlayer::GlobalInit() {
   flush_pkt->data = (uint8_t *) &flush_pkt;
 }
 
-VideoRenderBase *CPlayer::GetVideoRender() {
+VideoRenderBase *MediaPlayer::GetVideoRender() {
   CHECK_VALUE_WITH_RETURN(video_render_, nullptr);
   return video_render_.get();
 }
