@@ -1,12 +1,12 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.12)
 
 project("media_player" "CXX" "C")
 
 message("ANDROID_STL = ${ANDROID_STL}")
 
 add_library(media_player_android SHARED
-        av_player_plugin.h
-        av_player_plugin.cpp)
+        media_player_plugin.h
+        media_player_plugin.cpp)
 
 find_library(LOG_LIB log REQUIRED)
 
@@ -38,7 +38,7 @@ endforeach ()
 add_library(cpufeatures_shared SHARED IMPORTED)
 set_target_properties(cpufeatures_shared PROPERTIES IMPORTED_LOCATION "${FFP_ANDROID_LIBS}/libcpufeatures.so")
 
-find_package (oboe REQUIRED CONFIG)
+find_package(oboe REQUIRED CONFIG)
 
 list(APPEND FFP_LIBS log cpufeatures_shared android oboe::oboe)
 

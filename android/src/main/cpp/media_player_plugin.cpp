@@ -9,7 +9,7 @@
 
 #include "ffp_flutter_android.h"
 
-#include "av_player_plugin.h"
+#include "media_player_plugin.h"
 
 static JavaVM *g_vm;
 
@@ -24,7 +24,7 @@ void JNI_OnUnload(JavaVM *vm, void * /*reserved*/) {
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_tech_soit_flutter_player_MediaPlayerBridge_setupJNI(JNIEnv *env, jclass clazz) {
+Java_tech_soit_flutter_media_MediaPlayerBridge_setupJNI(JNIEnv *env, jclass clazz) {
   __android_log_print(ANDROID_LOG_INFO, "MediaPlayerPlugin", "MediaPlayerBridge_SetupJNI");
   auto bridge_class = reinterpret_cast<jclass>(env->NewGlobalRef(clazz));
   media::FlutterAndroidVideoRender::flutter_texture_registry =
@@ -44,7 +44,7 @@ Java_tech_soit_flutter_player_MediaPlayerBridge_setupJNI(JNIEnv *env, jclass cla
 //        }
         jmethodID register_method_id = g_env->GetStaticMethodID(bridge_class,
                                                                 "register",
-                                                                "()Ltech/soit/flutter/player/FlutterTexture;");
+                                                                "()Ltech/soit/flutter/media/FlutterTexture;");
         jobject data = g_env->CallStaticObjectMethod(bridge_class, register_method_id);
         return std::make_unique<media::FlutterTextureEntry>(g_env, g_env->NewGlobalRef(data));
       };

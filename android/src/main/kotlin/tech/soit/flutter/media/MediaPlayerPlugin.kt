@@ -1,4 +1,4 @@
-package tech.soit.flutter.player
+package tech.soit.flutter.media
 
 import androidx.annotation.NonNull
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -6,8 +6,8 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 
-/** AvPlayerPlugin */
-class AvPlayerPlugin : FlutterPlugin, MethodCallHandler {
+/** MediaPlayerPlugin */
+class MediaPlayerPlugin : FlutterPlugin, MethodCallHandler {
 
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         System.loadLibrary("media_player_android")

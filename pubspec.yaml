@@ -39,8 +39,8 @@ flutter:
       macos:
         pluginClass: SwiftAudioPlayerPlugin
       android:
-        package: tech.soit.flutter.player
-        pluginClass: AvPlayerPlugin
+        package: tech.soit.flutter.media
+        pluginClass: MediaPlayerPlugin
       windows:
         pluginClass: MediaPlayerPlugin
       linux:

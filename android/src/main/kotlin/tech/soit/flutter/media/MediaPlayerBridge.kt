@@ -1,4 +1,4 @@
-package tech.soit.flutter.player
+package tech.soit.flutter.media
 
 import android.os.Handler
 import android.os.Looper

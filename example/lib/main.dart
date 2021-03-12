@@ -1,10 +1,12 @@
 import 'dart:ffi';
+import 'dart:io';
 
 import 'package:audio_player_example/full_screen_player.dart';
 import 'package:media_player/media_player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:overlay_support/overlay_support.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'package:media_player/src/ffi_player.dart';
 
@@ -12,6 +14,7 @@ import 'widgets/player_components.dart';
 import 'stores.dart';
 
 void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   final urls = await UrlStores.instance.getUrls();
   urls.addAll({
     "http://music.163.com/song/media/outer/url?id=1451998397.mp3": PlayType.url,
@@ -187,7 +190,12 @@ class _PathInputDialogState extends State<PathInputDialog> {
         TextField(controller: _controller),
         TextButton(
             child: Text("FILE"),
-            onPressed: () {
+            onPressed: () async {
+              if (Platform.isAndroid) {
+                if (!(await Permission.storage.isGranted)) {
+                  Permission.storage.request();
+                }
+              }
               Navigator.of(context)
                   .pop(MapEntry(_controller.text, PlayType.file));
             }),

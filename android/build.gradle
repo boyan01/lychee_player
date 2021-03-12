@@ -1,4 +1,4 @@
-group 'tech.soit.flutter.av_player'
+group 'tech.soit.flutter.media'
 version '1.0-SNAPSHOT'
 
 buildscript {
@@ -44,7 +44,7 @@ android {
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
-            version "3.18.1"
+            version "3.12.0+"
         }
     }
     buildFeatures {
