@@ -10,6 +10,8 @@
 
 #ifdef MEDIA_SDL_ENABLE
 #include <SDL2/SDL.h>
+
+#include <utility>
 #endif
 
 extern "C" {
@@ -21,6 +23,20 @@ MediaPlayer::MediaPlayer(
     std::unique_ptr<BasicAudioRender> audio_render
 ) : video_render_(std::move(video_render)), audio_render_(std::move(audio_render)), player_mutex_() {
   message_context = std::make_shared<MessageContext>();
+  message_context->message_callback = [this](int what, int64_t arg1, int64_t arg2) {
+    switch (what) { // NOLINT(hicpp-multiway-paths-covered)
+      case MEDIA_MSG_DO_SOME_WORK: {
+        DoSomeWork();
+        break;
+      }
+      default: {
+        if (message_callback_external_) {
+          message_callback_external_(what, arg1, arg2);
+        }
+        break;
+      }
+    }
+  };
 
   audio_pkt_queue = std::make_shared<PacketQueue>();
   video_pkt_queue = std::make_shared<PacketQueue>();
@@ -50,11 +66,11 @@ MediaPlayer::MediaPlayer(
                                                sync_type_confirm);
 
   if (audio_render_) {
-    audio_render_->SetRenderCallback([this]() { DoSomeWork(); });
+    audio_render_->SetRenderCallback([this]() { message_context->NotifyMsg(MEDIA_MSG_DO_SOME_WORK); });
     audio_render_->Init(audio_pkt_queue, clock_context);
   }
   if (video_render_) {
-    video_render_->SetRenderCallback([this]() { DoSomeWork(); });
+    video_render_->SetRenderCallback([this]() { message_context->NotifyMsg(MEDIA_MSG_DO_SOME_WORK); });
     video_render_->Init(video_pkt_queue, clock_context, message_context);
   }
 
@@ -118,7 +134,12 @@ int MediaPlayer::OpenDataSource(const char *filename) {
   data_source->decoder_ctx = decoder_context;
   data_source->msg_ctx = message_context;
 
+  data_source->on_new_packet_send_ = [this]() {
+    message_context->NotifyMsg(MEDIA_MSG_DO_SOME_WORK);
+  };
+
   data_source->Open();
+  ChangePlaybackState(MediaPlayerState::BUFFERING);
   return 0;
 }
 
@@ -225,6 +246,7 @@ double MediaPlayer::GetDuration() {
 
 void MediaPlayer::Seek(double position) {
   CHECK_VALUE(data_source);
+  ChangePlaybackState(MediaPlayerState::BUFFERING);
   data_source->Seek(position);
 }
 
@@ -245,7 +267,7 @@ int MediaPlayer::GetChapterCount() {
 }
 
 void MediaPlayer::SetMessageHandleCallback(std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback) {
-  message_context->message_callback = std::move(message_callback);
+  message_callback_external_ = std::move(message_callback);
 }
 
 double MediaPlayer::GetVideoAspectRatio() {
@@ -311,10 +333,6 @@ void MediaPlayer::DoSomeWork() {
     if (play_when_ready_) {
       StartRenders();
     }
-  }
-
-  if (player_state_ == MediaPlayerState::BUFFERING) {
-    return;
   }
 }
 

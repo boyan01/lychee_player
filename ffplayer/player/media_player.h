@@ -44,6 +44,8 @@ class MediaPlayer {
   MediaPlayerState player_state_ = MediaPlayerState::IDLE;
   std::mutex player_mutex_;
 
+  std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback_external_;
+
  public:
 
   MediaPlayer(std::unique_ptr<VideoRenderBase> video_render, std::unique_ptr<BasicAudioRender> audio_render);

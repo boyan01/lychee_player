@@ -333,7 +333,9 @@ void DataSource::ReadStreams(std::mutex &read_mutex) {
     }
 
     ProcessQueuePacket(pkt);
-//        check_buffering(player);
+    if (on_new_packet_send_) {
+      on_new_packet_send_();
+    }
   }
 }
 

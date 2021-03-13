@@ -21,7 +21,7 @@ struct MessageQueue {
   Message *first_ = nullptr, *last_ = nullptr;
   int nb_messages_ = 0;
   int abort_request_ = 1;
-  std::mutex *mutex_ = nullptr;
+  std::recursive_mutex *mutex_ = nullptr;
   std::condition_variable_any *cond_ = nullptr;
 
   int PutPrivate(Message *msg);
@@ -46,7 +46,7 @@ struct MessageQueue {
 
 int MessageQueue::Init() {
   memset(this, 0, sizeof(MessageQueue));
-  mutex_ = new std::mutex;
+  mutex_ = new std::recursive_mutex;
   cond_ = new std::condition_variable_any;
   abort_request_ = 1;
   return 0;
@@ -127,7 +127,7 @@ int MessageQueue::Get(Message *msg, int block) {
   Message *msg1;
   int ret;
 
-  std::unique_lock<std::mutex> lock(*mutex_);
+  std::unique_lock<std::recursive_mutex> lock(*mutex_);
 
   for (;;) {
     if (abort_request_) {

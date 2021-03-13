@@ -40,6 +40,8 @@ class DataSource {
 
   std::shared_ptr<DecoderContext> decoder_ctx;
 
+  std::function<void()> on_new_packet_send_;
+
   int read_pause_return;
 
   bool paused = false;
