@@ -19,14 +19,11 @@ class VideoRenderBase : public BaseRender {
 
   bool step = false;
 
-  bool paused_ = false;
-
  private:
   int frame_drop_count = 0;
   int frame_drop_count_pre = 0;
 
   bool abort_render = false;
-  bool render_attached = false;
   bool first_video_frame_loaded = false;
   bool first_video_frame_rendered = false;
   int frame_width = 0;
@@ -36,6 +33,8 @@ class VideoRenderBase : public BaseRender {
 
   // maximum duration of a frame - above this, we consider the jump a timestamp discontinuity
   double max_frame_duration = 3600;
+
+  bool paused_ = false;
 
  private:
 
@@ -61,7 +60,7 @@ class VideoRenderBase : public BaseRender {
 
   VideoRenderBase();
 
-  virtual ~VideoRenderBase();
+  ~VideoRenderBase() override;
 
   void Init(const std::shared_ptr<PacketQueue> &video_queue, std::shared_ptr<MediaClock> clock_ctx,
             std::shared_ptr<MessageContext> msg_ctx);
@@ -91,6 +90,10 @@ class VideoRenderBase : public BaseRender {
   void SetMaxFrameDuration(double duration) { max_frame_duration = duration; }
 
   bool IsReady() override;
+
+  void Start();
+
+  void Stop();
 
 };
 

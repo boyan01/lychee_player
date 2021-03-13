@@ -26,9 +26,9 @@ class AndroidAudioRender : public AudioRenderBase {
 
   int Open(int64_t wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate) override;
 
-  void Start() const override;
+  void OnStart() const override;
 
-  void Pause() const override;
+  void onStop() const override;
 
   bool IsMute() const override;
 

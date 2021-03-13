@@ -19,11 +19,11 @@ class AudioRenderSdl : public BasicAudioRender {
 
   ~AudioRenderSdl() override;
 
-  void Start() const override;
-
-  void Pause() const override;
-
  protected:
+
+  void OnStart() const override;
+
+  void onStop() const override;
 
   int OpenAudioDevice(int64_t wanted_channel_layout,
                       int wanted_nb_channels,

@@ -13,11 +13,11 @@ int AndroidAudioRender::Open(int64_t wanted_channel_layout, int wanted_nb_channe
   return 0;
 }
 
-void AndroidAudioRender::Start() const {
+void AndroidAudioRender::OnStart() const {
 
 }
 
-void AndroidAudioRender::Pause() const {
+void AndroidAudioRender::onStop() const {
 }
 
 bool AndroidAudioRender::IsMute() const {

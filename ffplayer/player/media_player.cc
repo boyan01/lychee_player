@@ -50,9 +50,11 @@ MediaPlayer::MediaPlayer(
                                                sync_type_confirm);
 
   if (audio_render_) {
+    audio_render_->SetRenderCallback([this]() { DoSomeWork(); });
     audio_render_->Init(audio_pkt_queue, clock_context);
   }
   if (video_render_) {
+    video_render_->SetRenderCallback([this]() { DoSomeWork(); });
     video_render_->Init(video_pkt_queue, clock_context, message_context);
   }
 
@@ -63,8 +65,26 @@ MediaPlayer::MediaPlayer(
 
 MediaPlayer::~MediaPlayer() = default;
 
-void MediaPlayer::TogglePause() {
-  if (paused) {
+void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
+  if (play_when_ready_ == play_when_ready) {
+    return;
+  }
+  play_when_ready_ = play_when_ready;
+  if (data_source) {
+    data_source->paused = !play_when_ready;
+  }
+  if (!play_when_ready) {
+    StopRenders();
+  } else {
+    StartRenders();
+  }
+}
+
+void MediaPlayer::PauseClock(bool pause) {
+  if (clock_context->paused == pause) {
+    return;
+  }
+  if (clock_context->paused) {
     if (video_render_) {
       video_render_->frame_timer +=
           av_gettime_relative() / 1000000.0 - clock_context->GetVideoClock()->last_updated;
@@ -77,20 +97,10 @@ void MediaPlayer::TogglePause() {
   }
   clock_context->GetExtClock()->SetClock(clock_context->GetExtClock()->GetClock(),
                                          clock_context->GetExtClock()->serial);
-
-  paused = !paused;
-  clock_context->GetExtClock()->paused = clock_context->GetAudioClock()->paused
-      = clock_context->GetVideoClock()->paused = paused;
-  if (data_source) {
-    data_source->paused = paused;
-  }
-  if (audio_render_) {
-    audio_render_->paused = paused;
-  }
-  if (video_render_) {
-    video_render_->paused_ = paused;
-    video_render_->step = false;
-  }
+  clock_context->paused = pause;
+  clock_context->GetExtClock()->paused = pause;
+  clock_context->GetAudioClock()->paused = pause;
+  clock_context->GetVideoClock()->paused = pause;
 }
 
 int MediaPlayer::OpenDataSource(const char *filename) {
@@ -188,10 +198,6 @@ double MediaPlayer::GetCurrentPosition() {
   return position;
 }
 
-bool MediaPlayer::IsPaused() const {
-  return paused;
-}
-
 int MediaPlayer::GetVolume() {
   CHECK_VALUE_WITH_RETURN(audio_render_, 0);
   return audio_render_->GetVolume();
@@ -284,6 +290,10 @@ VideoRenderBase *MediaPlayer::GetVideoRender() {
 }
 
 void MediaPlayer::OnDecoderBlocking() {
+
+}
+
+void MediaPlayer::DoSomeWork() {
   std::lock_guard<std::mutex> lock(player_mutex_);
   bool render_allow_playback = true;
   if (audio_render_) {
@@ -292,14 +302,68 @@ void MediaPlayer::OnDecoderBlocking() {
   if (video_render_) {
     render_allow_playback &= video_render_->IsReady();
   }
-  if (!render_allow_playback) {
-    av_log(nullptr, AV_LOG_INFO, "player decoder blocking and render is not ready. we should pause playback.\n");
+
+  if (player_state_ == MediaPlayerState::READY && !render_allow_playback) {
+    ChangePlaybackState(MediaPlayerState::BUFFERING);
+    StopRenders();
+  } else if (player_state_ == MediaPlayerState::BUFFERING && ShouldTransitionToReadyState(render_allow_playback)) {
+    ChangePlaybackState(MediaPlayerState::READY);
+    if (play_when_ready_) {
+      StartRenders();
+    }
   }
 
   if (player_state_ == MediaPlayerState::BUFFERING) {
     return;
   }
+}
 
+void MediaPlayer::ChangePlaybackState(MediaPlayerState state) {
+  if (player_state_ == state) {
+    return;
+  }
+  player_state_ = state;
+  message_context->NotifyMsg(FFP_MSG_PLAYBACK_STATE_CHANGED, int(player_state_));
+}
+
+void MediaPlayer::StopRenders() {
+  av_log(nullptr, AV_LOG_INFO, "StopRenders\n");
+  PauseClock(true);
+  if (audio_render_) {
+    audio_render_->Stop();
+  }
+  if (video_render_) {
+    video_render_->Stop();
+  }
+}
+
+void MediaPlayer::StartRenders() {
+  av_log(nullptr, AV_LOG_INFO, "StartRenders\n");
+  PauseClock(false);
+  if (audio_render_) {
+    audio_render_->Start();
+  }
+  if (video_render_) {
+    video_render_->Start();
+  }
+}
+
+bool MediaPlayer::ShouldTransitionToReadyState(bool render_allow_play) {
+  if (!render_allow_play) {
+    return false;
+  }
+  if (data_source->IsReadComplete()) {
+    return true;
+  }
+
+  bool ready = true;
+  if (audio_render_ && data_source->ContainAudioStream()) {
+    ready &= audio_pkt_queue->nb_packets > 2;
+  }
+  if (video_render_ && data_source->ContainVideoStream()) {
+    ready &= video_pkt_queue->nb_packets > 2;
+  }
+  return ready;
 }
 
 

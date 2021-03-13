@@ -225,9 +225,7 @@ double VideoRenderBase::DrawFrame() {
     }
   }
 
-  if (render_callback_) {
-    render_callback_();
-  }
+  NotifyRenderProceed();
 
   force_refresh_ = false;
   return remaining_time;
@@ -243,6 +241,14 @@ bool VideoRenderBase::IsReady() {
 
 bool VideoRenderBase::ShouldDropFrames() const {
   return framedrop > 0 || framedrop > 0 && clock_context->GetMasterSyncType() != AV_SYNC_VIDEO_MASTER;
+}
+
+void VideoRenderBase::Start() {
+  paused_ = false;
+}
+
+void VideoRenderBase::Stop() {
+  paused_ = true;
 }
 
 static void check_external_clock_speed() {

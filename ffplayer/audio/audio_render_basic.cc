@@ -78,7 +78,7 @@ void BasicAudioRender::ReadAudioData(uint8_t *stream, int len) {
     len -= len_flush;
     stream += len_flush;
     audio_buf_index += len_flush;
-
+    NotifyRenderProceed();
   }
 
   audio_write_buf_size = audio_buf_size - audio_buf_index;
@@ -110,12 +110,12 @@ int BasicAudioRender::GetVolume() const {
 
 int BasicAudioRender::OnBeforeDecodeFrame() {
 #if defined(_WIN32)
-  while (sample_queue->NbRemaining() == 0) {
-    if ((av_gettime_relative() - audio_callback_time_) >
-        1000000LL * audio_hw_buf_size / audio_tgt.bytes_per_sec / 2)
-      return -1;
-    av_usleep(1000);
-  }
+//  while (sample_queue->NbRemaining() == 0) {
+//    if ((av_gettime_relative() - audio_callback_time_) >
+//        1000000LL * audio_hw_buf_size / audio_tgt.bytes_per_sec / 2)
+//      return -1;
+//    av_usleep(1000);
+//  }
 #endif
   return 0;
 }

@@ -56,22 +56,33 @@ class MediaPlayer {
 
   void OnDecoderBlocking();
 
+  void DoSomeWork();
+
+  void StopRenders();
+
+  void StartRenders();
+
+  void ChangePlaybackState(MediaPlayerState state);
+
+  void PauseClock(bool pause);
+
+  bool ShouldTransitionToReadyState(bool render_allow_play);
+
  public:
   PlayerConfiguration start_configuration{};
 
   // buffered position in seconds. -1 if not avalible
   int64_t buffered_position = -1;
 
-
-  bool paused = false;
-
-  void TogglePause();
+  bool play_when_ready_ = false;
 
   int OpenDataSource(const char *filename);
 
   double GetCurrentPosition();
 
-  bool IsPaused() const;
+  bool IsPlayWhenReady() const { return play_when_ready_; }
+
+  void SetPlayWhenReady(bool play_when_ready);
 
   int GetVolume();
 

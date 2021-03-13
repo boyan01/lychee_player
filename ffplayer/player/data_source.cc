@@ -62,7 +62,7 @@ DataSource::~DataSource() {
 
 void DataSource::ReadThread() {
   update_thread_name("read_source");
-  av_log(nullptr, AV_LOG_DEBUG, "DataSource Read Start: %s \n", filename);
+  av_log(nullptr, AV_LOG_DEBUG, "DataSource Read OnStart: %s \n", filename);
   int st_index[AVMEDIA_TYPE_NB] = {-1, -1, -1, -1, -1};
   std::mutex wait_mutex;
 
@@ -296,7 +296,7 @@ void DataSource::ReadStreams(std::mutex *read_mutex) {
       }
     }
 #if CONFIG_RTSP_DEMUXER || CONFIG_MMSH_PROTOCOL
-    if (paused && (!strcmp(format_ctx_->iformat->name, "rtsp")
+    if (play_when_ready_ && (!strcmp(format_ctx_->iformat->name, "rtsp")
                    || (format_ctx_->pb && !strncmp(filename, "mmsh:", 5)))) {
         /* wait 10 ms to avoid trying to get another packet */
         /* XXX: horrible */

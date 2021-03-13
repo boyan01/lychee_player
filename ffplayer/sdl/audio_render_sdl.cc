@@ -18,11 +18,11 @@ AudioRenderSdl::~AudioRenderSdl() {
   SDL_CloseAudioDevice(audio_device_id_);
 }
 
-void AudioRenderSdl::Start() const {
+void AudioRenderSdl::OnStart() const {
   SDL_PauseAudioDevice(audio_device_id_, 0);
-}
 
-void AudioRenderSdl::Pause() const {
+}
+void AudioRenderSdl::onStop() const {
   SDL_PauseAudioDevice(audio_device_id_, 1);
 }
 

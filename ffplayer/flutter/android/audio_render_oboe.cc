@@ -6,10 +6,10 @@
 
 namespace media {
 
-void AudioRenderOboe::Start() const {
+void AudioRenderOboe::OnStart() const {
   audio_stream_->requestStart();
 }
-void AudioRenderOboe::Pause() const {
+void AudioRenderOboe::onStop() const {
   audio_stream_->requestPause();
 }
 

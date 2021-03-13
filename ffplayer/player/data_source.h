@@ -104,6 +104,8 @@ class DataSource {
 
   const char *GetFileName() const;
 
+  bool IsReadComplete() const;
+
  private:
 
   int PrepareFormatContext();
@@ -127,8 +129,6 @@ class DataSource {
   void ProcessAttachedPicture();
 
   bool isNeedReadMore();
-
-  bool IsReadComplete() const;
 
   int ProcessReadFrame(AVPacket *pkt, std::mutex *read_mutex);
 

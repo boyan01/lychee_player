@@ -77,10 +77,10 @@ static void toggle_full_screen() {
 }
 
 static void step_to_next_frame(MediaPlayer *player) {
-  /* if the stream is paused unpause it, then step */
-  if (player->IsPaused()) {
-    player->TogglePause();
-  }
+  /* if the stream is play_when_ready_ unpause it, then step */
+//  if (player->IsPaused()) {
+//    player->TogglePause();
+//  }
 //    player->is->step = 1;
 }
 
@@ -125,8 +125,10 @@ static void event_loop(MediaPlayer *player) {
 //                        is->force_refresh = 1;
             break;
           case SDLK_p:
-          case SDLK_SPACE:player->TogglePause();
+          case SDLK_SPACE: {
+            player->SetPlayWhenReady(!player->IsPlayWhenReady());
             break;
+          }
           case SDLK_m:player->SetMute(!player->IsMuted());
             break;
           case SDLK_KP_MULTIPLY:
@@ -412,10 +414,9 @@ int main(int argc, char *argv[]) {
     do_exit(nullptr);
   }
 
-  if (player->IsPaused()) {
-    // perform play when start.
-    player->TogglePause();
-  }
+  // perform play when start.
+  player->SetPlayWhenReady(true);
+
   event_loop(player);
 
   return 0;

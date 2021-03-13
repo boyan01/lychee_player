@@ -6,6 +6,7 @@
 #define FFP_RENDER_BASE_H
 
 #include <functional>
+#include <utility>
 
 extern "C" {
 #include "libavutil/frame.h"
@@ -13,14 +14,20 @@ extern "C" {
 
 class BaseRender {
 
- protected:
+ private:
   std::function<void()> render_callback_;
+
+ protected:
+
+  void NotifyRenderProceed();
 
  public:
 
-  void SetRenderCallback(const std::function<void()> &render_callback) {
-    render_callback_ = render_callback;
-  };
+  BaseRender();
+
+  virtual ~BaseRender() = default;
+
+  void SetRenderCallback(std::function<void()> render_callback);;
 
   virtual void Abort() = 0;
 
