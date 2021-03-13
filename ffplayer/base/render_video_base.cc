@@ -210,7 +210,6 @@ double VideoRenderBase::DrawFrame() {
   }
   display:
   if (force_refresh_ && picture_queue->rindex_shown) {
-//            video_display(player);
     auto *vp = picture_queue->PeekLast();
     if (vp) {
       if (first_video_frame_rendered) {

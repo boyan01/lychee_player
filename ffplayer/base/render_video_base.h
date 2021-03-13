@@ -52,6 +52,8 @@ class VideoRenderBase : public BaseRender {
   std::shared_ptr<MediaClock> clock_context;
   std::shared_ptr<MessageContext> msg_ctx_;
 
+  virtual void RenderPicture(Frame &frame) = 0;
+
  public:
 
   VideoRenderBase();
@@ -79,8 +81,6 @@ class VideoRenderBase : public BaseRender {
    * @return time for next frame should be scheduled.
    */
   double DrawFrame();
-
-  virtual void RenderPicture(Frame &frame) = 0;
 
   void Abort() override;
 

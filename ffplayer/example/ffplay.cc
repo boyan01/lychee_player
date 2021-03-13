@@ -389,8 +389,8 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  auto video_render = std::make_shared<SdlVideoRender>(std::move(renderer));
-  auto audio_render = std::make_shared<AudioRenderSdl>();
+  auto video_render = std::make_unique<SdlVideoRender>(std::move(renderer));
+  auto audio_render = std::make_unique<AudioRenderSdl>();
   auto *player = new MediaPlayer(std::move(video_render), std::move(audio_render));
   player->start_configuration = config;
   player->SetVolume(50);

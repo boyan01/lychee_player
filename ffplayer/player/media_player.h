@@ -46,7 +46,7 @@ class MediaPlayer {
 
  public:
 
-  MediaPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<BasicAudioRender> audio_render);
+  MediaPlayer(std::unique_ptr<VideoRenderBase> video_render, std::unique_ptr<BasicAudioRender> audio_render);
 
   ~MediaPlayer();
 
