@@ -15,7 +15,7 @@
 extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
-};
+}
 
 #include "ffp_packet_queue.h"
 #include "ffp_frame_queue.h"
@@ -25,6 +25,7 @@ extern "C" {
 
 struct DecodeParams {
   std::shared_ptr<PacketQueue> pkt_queue;
+  // Use to notify data_source if decoder have not enough packets.
   std::shared_ptr<std::condition_variable_any> read_condition;
   AVFormatContext *const *format_ctx;
   int stream_index = -1;
@@ -44,7 +45,6 @@ struct DecodeParams {
 
 extern AVPacket *flush_pkt;
 
-template<class T>
 class Decoder {
 
  protected:
@@ -63,165 +63,37 @@ class Decoder {
   std::thread *decoder_tid = nullptr;
   int decoder_reorder_pts = -1;
   std::function<void()> on_frame_decode_block = nullptr;
-  std::shared_ptr<T> render;
   std::unique_ptr<DecodeParams> decode_params;
 
  protected:
 
-  const std::shared_ptr<PacketQueue> &queue() {
+  const std::shared_ptr<PacketQueue> &queue() const {
     return decode_params->pkt_queue;
   }
 
-  const std::shared_ptr<std::condition_variable_any> &empty_queue_cond() {
-    return decode_params->read_condition;
+  void NotifyQueueEmpty() const {
+    decode_params->read_condition->notify_all();
   }
 
-  int DecodeFrame(AVFrame *frame, AVSubtitle *sub) {
-    auto *d = this;
-    int ret = AVERROR(EAGAIN);
-
-    while (!abort_decoder) {
-      AVPacket temp_pkt;
-
-      if (d->queue()->serial == d->pkt_serial) {
-        do {
-          if (d->queue()->abort_request || abort_decoder)
-            return -1;
-
-          switch (d->avctx->codec_type) {
-            case AVMEDIA_TYPE_VIDEO:ret = avcodec_receive_frame(d->avctx.get(), frame);
-              if (ret >= 0) {
-                if (d->decoder_reorder_pts == -1) {
-                  frame->pts = frame->best_effort_timestamp;
-                } else if (!d->decoder_reorder_pts) {
-                  frame->pts = frame->pkt_dts;
-                }
-              }
-              break;
-            case AVMEDIA_TYPE_AUDIO:ret = avcodec_receive_frame(d->avctx.get(), frame);
-              if (ret >= 0) {
-                AVRational tb = {1, frame->sample_rate};
-                if (frame->pts != AV_NOPTS_VALUE)
-                  frame->pts = av_rescale_q(frame->pts, d->avctx->pkt_timebase, tb);
-                else if (d->next_pts != AV_NOPTS_VALUE)
-                  frame->pts = av_rescale_q(d->next_pts, d->next_pts_tb, tb);
-                if (frame->pts != AV_NOPTS_VALUE) {
-                  d->next_pts = frame->pts + frame->nb_samples;
-                  d->next_pts_tb = tb;
-                }
-              }
-              break;
-            default:break;
-          }
-          if (ret == AVERROR_EOF) {
-            d->finished = d->pkt_serial;
-            avcodec_flush_buffers(d->avctx.get());
-            return 0;
-          }
-          if (ret >= 0)
-            return 1;
-        } while (ret != AVERROR(EAGAIN));
-      }
-
-      do {
-        if (d->queue()->nb_packets == 0) {
-          d->empty_queue_cond()->notify_all();
-        }
-        if (d->packet_pending) {
-          av_packet_move_ref(&temp_pkt, &d->pkt);
-          d->packet_pending = 0;
-        } else {
-          if (d->queue()->Get(&temp_pkt, 1, &d->pkt_serial, d, [](void *opacity) {
-            auto decoder = static_cast<Decoder *>(opacity);
-            if (decoder->on_frame_decode_block) {
-              decoder->on_frame_decode_block();
-            }
-          }) < 0) {
-            return -1;
-          }
-        }
-        if (d->queue()->serial == d->pkt_serial)
-          break;
-        av_packet_unref(&temp_pkt);
-      } while (true);
-
-      if (temp_pkt.data == flush_pkt->data) {
-        avcodec_flush_buffers(d->avctx.get());
-        d->finished = 0;
-        d->next_pts = d->start_pts;
-        d->next_pts_tb = d->start_pts_tb;
-      } else {
-        if (d->avctx->codec_type == AVMEDIA_TYPE_SUBTITLE) {
-          int got_frame = 0;
-          ret = avcodec_decode_subtitle2(d->avctx.get(), sub, &got_frame, &temp_pkt);
-          if (ret < 0) {
-            ret = AVERROR(EAGAIN);
-          } else {
-            if (got_frame && !temp_pkt.data) {
-              d->packet_pending = 1;
-              av_packet_move_ref(&d->pkt, &temp_pkt);
-            }
-            ret = got_frame ? 0 : (temp_pkt.data ? AVERROR(EAGAIN) : AVERROR_EOF);
-          }
-        } else {
-          if (avcodec_send_packet(d->avctx.get(), &temp_pkt) == AVERROR(EAGAIN)) {
-            av_log(d->avctx.get(), AV_LOG_ERROR,
-                   "Receive_frame and send_packet both returned EAGAIN, which is an API violation.\n");
-            d->packet_pending = 1;
-            av_packet_move_ref(&d->pkt, &temp_pkt);
-          }
-        }
-        av_packet_unref(&temp_pkt);
-      }
-    }
-    return 0;
-  }
+  int DecodeFrame(AVFrame *frame, AVSubtitle *sub);
 
   virtual const char *debug_label() = 0;
 
   virtual int DecodeThread() = 0;
 
-  void Start() {
-    decode_params->pkt_queue->Start();
-    decoder_tid = new std::thread([this]() {
-      update_thread_name(debug_label());
-      av_log(nullptr, AV_LOG_INFO, "start decoder thread: %s.\n", debug_label());
-      int ret = DecodeThread();
-      av_log(nullptr, AV_LOG_INFO, "thread: %s done. ret = %d\n", debug_label(), ret);
-    });
-  }
+  virtual void AbortRender() = 0;
+
+  void Start();
 
  public:
 
-  Decoder(unique_ptr_d<AVCodecContext> codec_context, std::unique_ptr<DecodeParams> decode_params_,
-          std::shared_ptr<T> render_)
-      : decode_params(std::move(decode_params_)), avctx(std::move(codec_context)),
-        render(std::move(render_)) {
-    static_assert(std::is_base_of<BaseRender, T>::value, "T must inherit from BaseRender");
-  }
+  Decoder(unique_ptr_d<AVCodecContext> codec_context, std::unique_ptr<DecodeParams> decode_params_);
 
-  ~Decoder() {
-    if (decoder_tid) {
-      av_log(nullptr, AV_LOG_WARNING, "decoder destroyed but thread do not complete.\n");
-    }
-  }
+  virtual ~Decoder();
 
-  void Abort(FrameQueue *fq) {
-    abort_decoder = true;
-    queue()->Abort();
-    render->Abort();
-    queue()->Flush();
-    if (fq) {
-      fq->Signal();
-    }
-  }
+  void Abort(FrameQueue *fq);
 
-  void Join() {
-    if (decoder_tid && decoder_tid->joinable()) {
-      decoder_tid->join();
-      decoder_tid = nullptr;
-    }
-  }
+  void Join();
 
 };
 

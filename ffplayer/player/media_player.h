@@ -36,14 +36,14 @@ class MediaPlayer {
 
   std::shared_ptr<DecoderContext> decoder_context;
 
-  std::shared_ptr<AudioRenderBase> audio_render_;
+  std::shared_ptr<BasicAudioRender> audio_render_;
   std::shared_ptr<VideoRenderBase> video_render_;
 
   std::shared_ptr<MessageContext> message_context;
 
  public:
 
-  MediaPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<AudioRenderBase> audio_render);
+  MediaPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<BasicAudioRender> audio_render);
 
   ~MediaPlayer();
 

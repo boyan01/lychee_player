@@ -82,6 +82,9 @@ class VideoRenderBase : public BaseRender {
 
   void Abort() override;
 
+  /// duration is seconds.
+  void SetMaxFrameDuration(double duration) { max_frame_duration = duration; }
+
 };
 
 #endif //FFP_SRC_RENDER_VIDEO_BASE_H_

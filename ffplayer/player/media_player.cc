@@ -16,7 +16,7 @@ extern "C" {
 #include "libavutil/bprint.h"
 }
 
-MediaPlayer::MediaPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<AudioRenderBase> audio_render)
+MediaPlayer::MediaPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<BasicAudioRender> audio_render)
     : video_render_(std::move(video_render)), audio_render_(std::move(audio_render)) {
   message_context = std::make_shared<MessageContext>();
 

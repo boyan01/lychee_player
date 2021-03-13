@@ -99,14 +99,13 @@ int DecoderContext::StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx,
     return -1;
   }
 
-  audio_decoder = new AudioDecoder(std::move(codec_ctx), std::move(decode_params),
-                                   audio_render);
+  audio_decoder = new AudioDecoder(std::move(codec_ctx), std::move(decode_params), audio_render);
   audio_render->Start();
   return 0;
 }
 
 DecoderContext::DecoderContext(
-    std::shared_ptr<AudioRenderBase> audio_render_,
+    std::shared_ptr<BasicAudioRender> audio_render_,
     std::shared_ptr<VideoRenderBase> video_render_,
     std::shared_ptr<MediaClock> clock_ctx_
 ) : audio_render(std::move(audio_render_)), video_render(std::move(video_render_)),

@@ -120,8 +120,6 @@ int DataSource::PrepareFormatContext() {
         && strcmp("ogg", format_ctx_->iformat->name) != 0;
   }
 
-//    max_frame_duration = (format_ctx_->iformat->flags & AVFMT_TS_DISCONT) ? 10.0 : 3600.0;
-
   return 0;
 }
 
