@@ -60,7 +60,7 @@ int AudioRenderSdl::OpenAudioDevice(int64_t wanted_channel_layout,
                               2 << av_log2(wanted_spec.freq / SDL_AUDIO_MAX_CALLBACKS_PER_SEC));
   wanted_spec.callback = [](void *userdata, Uint8 *stream, int len) {
     auto *render = static_cast<AudioRenderSdl *>(userdata);
-    render->FetchAudioStream(stream, len);
+    render->ReadAudioData(stream, len);
   };
   wanted_spec.userdata = this;
   while (!(audio_device_id_ = SDL_OpenAudioDevice(nullptr, 0, &wanted_spec, &spec, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE |

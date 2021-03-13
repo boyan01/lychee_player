@@ -5,13 +5,22 @@
 #ifndef FFP_RENDER_BASE_H
 #define FFP_RENDER_BASE_H
 
+#include <functional>
+
 extern "C" {
 #include "libavutil/frame.h"
 };
 
 class BaseRender {
 
+ protected:
+  std::function<void()> render_callback_;
+
  public:
+
+  void SetRenderCallback(const std::function<void()> &render_callback) {
+    render_callback_ = render_callback;
+  };
 
   virtual void Abort() = 0;
 

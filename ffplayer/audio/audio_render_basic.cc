@@ -43,8 +43,8 @@ int BasicAudioRender::Open(int64_t wanted_channel_layout, int wanted_nb_channels
   return buf_size;
 }
 
-void BasicAudioRender::FetchAudioStream(uint8_t *stream, int len) {
-  av_log(nullptr, AV_LOG_DEBUG, "FetchAudioStream: len = %d\n", len);
+void BasicAudioRender::ReadAudioData(uint8_t *stream, int len) {
+  av_log(nullptr, AV_LOG_DEBUG, "ReadAudioData: len = %d\n", len);
 
   audio_callback_time_ = av_gettime_relative();
   while (len > 0) {

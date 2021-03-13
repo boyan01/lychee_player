@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "render_video_base.h"
+#include "ffp_utils.h"
 
 /* polls for possible required screen refresh at least this often, should be less than 1/fps */
 #define REFRESH_RATE 0.01
@@ -58,16 +59,20 @@ double VideoRenderBase::ComputeTargetDelay(double delay) const {
   /* update delay to follow master synchronisation source */
   if (clock_context->GetMasterSyncType() != AV_SYNC_VIDEO_MASTER) {
     /* if video is not main clock, we try to correct big delays by duplicating or deleting a frame */
+    // diff > 0, video need wait audio.
+    // diff < 0, video need skip frame.
     diff = clock_context->GetVideoClock()->GetClock() - clock_context->GetMasterClock();
 
     /* skip or repeat frame. We take into account the delay to compute the threshold. I still don't know if it is the best guess */
     sync_threshold = FFMAX(AV_SYNC_THRESHOLD_MIN, FFMIN(AV_SYNC_THRESHOLD_MAX, delay));
     if (!std::isnan(diff) && fabs(diff) < max_frame_duration) {
       if (diff <= -sync_threshold) {
+        // try to render next frame as soon.
         delay = FFMAX(0, delay + diff);
       } else if (diff >= sync_threshold && delay > AV_SYNC_FRAMEDUP_THRESHOLD) {
         delay = delay + diff;
       } else if (diff >= sync_threshold) {
+        // Double current frame present duration. Waiting next frame.
         delay = 2 * delay;
       }
     }
@@ -159,7 +164,7 @@ double VideoRenderBase::DrawFrame() {
     }
 
     if (last_vp->serial != vp->serial) {
-      frame_timer = av_gettime_relative() / 1000000.0;
+      frame_timer = get_relative_time();
     }
 
     if (paused_) {
@@ -170,8 +175,9 @@ double VideoRenderBase::DrawFrame() {
     last_duration = VideoPictureDuration(last_vp, vp);
     delay = ComputeTargetDelay(last_duration);
 
-    time = av_gettime_relative() / 1000000.0;
+    time = get_relative_time();
     if (time < frame_timer + delay) {
+      // It's not time to display current frame. still display last frame again.
       remaining_time = FFMIN(frame_timer + delay - time, remaining_time);
       goto display;
     }
@@ -193,9 +199,8 @@ double VideoRenderBase::DrawFrame() {
     if (picture_queue->NbRemaining() > 1) {
       auto *next_vp = picture_queue->PeekNext();
       duration = VideoPictureDuration(vp, next_vp);
-      if (!step
-          && (framedrop > 0 || (framedrop && clock_context->GetMasterSyncType() != AV_SYNC_VIDEO_MASTER))
-          && time > frame_timer + duration) {
+      if (!step && ShouldDropFrames() && time > frame_timer + duration) {
+        // Next frame is the best candidate, drop current frame.
         frame_drop_count++;
         picture_queue->Next();
         goto retry;
@@ -220,6 +225,10 @@ double VideoRenderBase::DrawFrame() {
     }
   }
 
+  if (render_callback_) {
+    render_callback_();
+  }
+
   force_refresh_ = false;
   return remaining_time;
 }
@@ -230,6 +239,10 @@ void VideoRenderBase::Abort() {
 
 bool VideoRenderBase::IsReady() {
   return picture_queue->NbRemaining() > 0;
+}
+
+bool VideoRenderBase::ShouldDropFrames() const {
+  return framedrop > 0 || framedrop > 0 && clock_context->GetMasterSyncType() != AV_SYNC_VIDEO_MASTER;
 }
 
 static void check_external_clock_speed() {

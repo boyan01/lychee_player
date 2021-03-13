@@ -45,6 +45,9 @@ class VideoRenderBase : public BaseRender {
   // Compute target frame display delay. For Clock Sync.
   double ComputeTargetDelay(double delay) const;
 
+  // return true if we need drop frames to compensate AV sync.
+  bool ShouldDropFrames() const;
+
  protected:
   std::unique_ptr<FrameQueue> picture_queue;
   int framedrop = -1;
