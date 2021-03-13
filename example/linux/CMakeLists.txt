@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 project(runner LANGUAGES CXX)
 
-set(BINARY_NAME "audio_player_example")
-set(APPLICATION_ID "tech.soit.flutter.audio_player")
+set(BINARY_NAME "media_player_example")
+set(APPLICATION_ID "tech.soit.flutter.media_player")
 
 set("CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES" "")
 set("CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES" "")

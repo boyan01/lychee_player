@@ -3,7 +3,7 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
-  av_player
+  media_player
   system_clock
 )
 

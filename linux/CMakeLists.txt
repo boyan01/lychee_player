@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-set(PROJECT_NAME "av_player")
+set(PROJECT_NAME "media_player")
 
 set(CMAKE_CXX_FLAGS  "-fPIC ${CMAKE_CXX_FLAGS}")
 
@@ -12,7 +12,7 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 set(PLUGIN_NAME "${PROJECT_NAME}_plugin")
 
 add_library(${PLUGIN_NAME} SHARED
-        "av_player_plugin.cc"
+        "media_player_plugin.cc"
         )
 
 set(CMAKE_FLUTTER_MEDIA "1")

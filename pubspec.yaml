@@ -44,6 +44,6 @@ flutter:
       windows:
         pluginClass: MediaPlayerPlugin
       linux:
-        pluginClass: AvPlayerPlugin
+        pluginClass: MediaPlayerPlugin
     # -------------------
   

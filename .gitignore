@@ -3,7 +3,7 @@
 
 .packages
 .pub/
-.vscode
+.vscode/
 
 build/
 
@@ -13,3 +13,5 @@ build/
 macos/Flutter/ephemeral
 
 .idea/*
+
+pubspec.lock
