@@ -122,7 +122,7 @@ class DataSource {
 
   int OpenComponentStream(int stream_index, AVMediaType media_type);
 
-  void ReadStreams(std::mutex *read_mutex);
+  void ReadStreams(std::mutex &read_mutex);
 
   void ProcessSeekRequest();
 
@@ -130,7 +130,7 @@ class DataSource {
 
   bool isNeedReadMore();
 
-  int ProcessReadFrame(AVPacket *pkt, std::mutex *read_mutex);
+  int ProcessReadFrame(AVPacket *pkt, std::mutex &read_mutex);
 
   void ProcessQueuePacket(AVPacket *pkt);
 

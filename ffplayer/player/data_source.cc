@@ -78,7 +78,7 @@ void DataSource::ReadThread() {
     // todo destroy streams;
     return;
   }
-  ReadStreams(&wait_mutex);
+  ReadStreams(wait_mutex);
 
   av_log(nullptr, AV_LOG_INFO, "thread: read_source done.\n");
 }
@@ -280,7 +280,7 @@ int DataSource::OpenComponentStream(int stream_index, AVMediaType media_type) {
   return 0;
 }
 
-void DataSource::ReadStreams(std::mutex *read_mutex) {
+void DataSource::ReadStreams(std::mutex &read_mutex) {
   bool last_paused = false;
   AVPacket pkt_data, *pkt = &pkt_data;
   for (;;) {
@@ -307,7 +307,7 @@ void DataSource::ReadStreams(std::mutex *read_mutex) {
     ProcessSeekRequest();
     ProcessAttachedPicture();
     if (!isNeedReadMore()) {
-      std::unique_lock<std::mutex> lock(*read_mutex);
+      std::unique_lock<std::mutex> lock(read_mutex);
       continue_read_thread_->wait(lock);
       continue;
     }
@@ -408,7 +408,7 @@ bool DataSource::IsReadComplete() const {
   return eof;
 }
 
-int DataSource::ProcessReadFrame(AVPacket *pkt, std::mutex *read_mutex) {
+int DataSource::ProcessReadFrame(AVPacket *pkt, std::mutex &read_mutex) {
   auto ret = av_read_frame(format_ctx_, pkt);
   if (ret < 0) {
     if ((ret == AVERROR_EOF || avio_feof(format_ctx_->pb)) && !eof) {
@@ -427,7 +427,7 @@ int DataSource::ProcessReadFrame(AVPacket *pkt, std::mutex *read_mutex) {
     if (format_ctx_->pb && format_ctx_->pb->error) {
       return -1;
     }
-    std::unique_lock<std::mutex> lock(*read_mutex);
+    std::unique_lock<std::mutex> lock(read_mutex);
     continue_read_thread_->wait_for(lock, std::chrono::milliseconds(10));
     return 1;
   } else {
