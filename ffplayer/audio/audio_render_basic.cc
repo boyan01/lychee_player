@@ -149,3 +149,7 @@ void BasicAudioRender::MixAudioVolume(uint8_t *dst, const uint8_t *src, uint32_t
   }
 }
 
+bool BasicAudioRender::IsReady() {
+  return sample_queue->NbRemaining() > 0 || (audio_buf_size > 0 && audio_buf_index < audio_buf_size);
+}
+

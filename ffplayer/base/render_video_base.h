@@ -15,9 +15,6 @@
 class VideoRenderBase : public BaseRender {
 
  public:
-
-  std::function<void()> on_post_draw_frame;
-
   double frame_timer = 0;
 
   bool step = false;
@@ -76,6 +73,11 @@ class VideoRenderBase : public BaseRender {
 
   double GetVideoAspectRatio() const;
 
+  /**
+   * called to display each frame
+   *
+   * @return time for next frame should be scheduled.
+   */
   double DrawFrame();
 
   virtual void RenderPicture(Frame &frame) = 0;
@@ -84,6 +86,8 @@ class VideoRenderBase : public BaseRender {
 
   /// duration is seconds.
   void SetMaxFrameDuration(double duration) { max_frame_duration = duration; }
+
+  bool IsReady() override;
 
 };
 

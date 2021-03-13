@@ -23,9 +23,12 @@ class AudioDecoder : public Decoder {
 
  public:
 
-  AudioDecoder(unique_ptr_d<AVCodecContext> codec_context_,
-               std::unique_ptr<DecodeParams> decode_params_,
-               std::shared_ptr<BasicAudioRender> audio_render);
+  AudioDecoder(
+      unique_ptr_d<AVCodecContext> codec_context_,
+      std::unique_ptr<DecodeParams> decode_params_,
+      std::shared_ptr<BasicAudioRender> audio_render,
+      std::function<void()> on_decoder_blocking
+  );
 
  protected:
 

@@ -16,8 +16,10 @@ extern "C" {
 #include "libavutil/bprint.h"
 }
 
-MediaPlayer::MediaPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<BasicAudioRender> audio_render)
-    : video_render_(std::move(video_render)), audio_render_(std::move(audio_render)) {
+MediaPlayer::MediaPlayer(
+    std::shared_ptr<VideoRenderBase> video_render,
+    std::shared_ptr<BasicAudioRender> audio_render
+) : video_render_(std::move(video_render)), audio_render_(std::move(audio_render)), player_mutex_() {
   message_context = std::make_shared<MessageContext>();
 
   audio_pkt_queue = std::make_shared<PacketQueue>();
@@ -54,7 +56,9 @@ MediaPlayer::MediaPlayer(std::shared_ptr<VideoRenderBase> video_render, std::sha
     video_render_->Init(video_pkt_queue, clock_context, message_context);
   }
 
-  decoder_context = std::make_shared<DecoderContext>(audio_render_, video_render_, clock_context);
+  decoder_context = std::make_shared<DecoderContext>(audio_render_, video_render_, clock_context, [this]() {
+    OnDecoderBlocking();
+  });
 }
 
 MediaPlayer::~MediaPlayer() = default;
@@ -277,6 +281,25 @@ void MediaPlayer::GlobalInit() {
 VideoRenderBase *MediaPlayer::GetVideoRender() {
   CHECK_VALUE_WITH_RETURN(video_render_, nullptr);
   return video_render_.get();
+}
+
+void MediaPlayer::OnDecoderBlocking() {
+  std::lock_guard<std::mutex> lock(player_mutex_);
+  bool render_allow_playback = true;
+  if (audio_render_) {
+    render_allow_playback &= audio_render_->IsReady();
+  }
+  if (video_render_) {
+    render_allow_playback &= video_render_->IsReady();
+  }
+  if (!render_allow_playback) {
+    av_log(nullptr, AV_LOG_INFO, "player decoder blocking and render is not ready. we should pause playback.\n");
+  }
+
+  if (player_state_ == MediaPlayerState::BUFFERING) {
+    return;
+  }
+
 }
 
 

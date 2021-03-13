@@ -6,6 +6,8 @@
 #include "data_source.h"
 #include "ffp_utils.h"
 
+#include "media_player.h"
+
 #define MIN_FRAMES 25
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
 
@@ -112,7 +114,7 @@ int DataSource::PrepareFormatContext() {
   }
 
   if (format_ctx_->pb) {
-    format_ctx_->pb->eof_reached = 0; // FIXME hack, ffplay maybe should not use avio_feof() to test for the end
+    format_ctx_->pb->eof_reached = 0; // FIXME hack, ffplay maybe should not use avio_feof() to test for the END
   }
 
   if (seek_by_bytes < 0) {
@@ -310,16 +312,16 @@ void DataSource::ReadStreams(std::mutex *read_mutex) {
       continue;
     }
     if (IsReadComplete()) {
-      // TODO check complete
-//            bool loop = player->loop != 1 && (!player->loop || --player->loop);
-//            ffp_send_msg1(player, FFP_MSG_COMPLETED, loop);
-//            if (loop) {
-//                stream_seek(player, player->start_time != AV_NOPTS_VALUE ? player->start_time : 0, 0, 0);
-//            } else {
-      // TODO: 0 it's a bit early to notify complete here
-//                change_player_state(player, FFP_STATE_END);
-//                stream_toggle_pause(player->is);
-//            }
+//      // TODO check complete
+//      bool loop = configuration.loop != 1 && (!configuration.loop || --configuration.loop);
+//      msg_ctx->NotifyMsg(FFP_MSG_COMPLETED, loop);
+//      if (loop) {
+//        Seek(configuration.start_time != AV_NOPTS_VALUE ? configuration.start_time : 0);
+//      } else {
+//        msg_ctx->NotifyMsg(FFP_MSG_PLAYBACK_STATE_CHANGED, int(MediaPlayerState::END));
+//        change_player_state(player, END);
+//        stream_toggle_pause(player->is);
+//      }
     }
     {
       auto ret = ProcessReadFrame(pkt, read_mutex);
@@ -403,7 +405,7 @@ bool DataSource::IsReadComplete() const {
   if (paused) {
     return false;
   }
-  return false;
+  return eof;
 }
 
 int DataSource::ProcessReadFrame(AVPacket *pkt, std::mutex *read_mutex) {
@@ -470,7 +472,7 @@ bool DataSource::ContainSubtitleStream() {
 }
 
 void DataSource::Seek(double position) {
-  int64_t target = (int64_t) (position * AV_TIME_BASE);
+  auto target = (int64_t) (position * AV_TIME_BASE);
   if (!format_ctx_) {
     start_time = FFMAX(0, target);
     return;
@@ -489,7 +491,7 @@ void DataSource::Seek(double position) {
 
     // TODO update buffered position
 //        player->buffered_position = -1;
-//        change_player_state(player, FFP_STATE_BUFFERING);
+//        change_player_state(player, BUFFERING);
     continue_read_thread_->notify_all();
   }
 }

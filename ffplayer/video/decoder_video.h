@@ -27,9 +27,12 @@ class VideoDecoder : public Decoder {
   int DecodeThread() override;
 
  public:
-  VideoDecoder(unique_ptr_d<AVCodecContext> codecContext,
-               std::unique_ptr<DecodeParams> decodeParams,
-               std::shared_ptr<VideoRenderBase> render);
+  VideoDecoder(
+      unique_ptr_d<AVCodecContext> codecContext,
+      std::unique_ptr<DecodeParams> decodeParams,
+      std::shared_ptr<VideoRenderBase> render,
+      std::function<void()> on_decoder_blocking
+  );
 
  protected:
   void AbortRender() override;

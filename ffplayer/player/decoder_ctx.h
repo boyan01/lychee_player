@@ -37,13 +37,22 @@ class DecoderContext {
 
   std::shared_ptr<MediaClock> clock_ctx;
 
+  /**
+   * callback when decoder blocking.
+   */
+  std::function<void()> on_decoder_blocking_;
+
  private:
   int StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx, std::unique_ptr<DecodeParams> decode_params);
 
  public:
 
-  DecoderContext(std::shared_ptr<BasicAudioRender> audio_render_, std::shared_ptr<VideoRenderBase> video_render_,
-                 std::shared_ptr<MediaClock> clock_ctx_);
+  DecoderContext(
+      std::shared_ptr<BasicAudioRender> audio_render_,
+      std::shared_ptr<VideoRenderBase> video_render_,
+      std::shared_ptr<MediaClock> clock_ctx_,
+      std::function<void()> on_decoder_blocking
+  );
 
   ~DecoderContext();
 

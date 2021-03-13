@@ -12,7 +12,7 @@ struct PlayerConfiguration {
 
   int32_t show_status = true;
 
-  int64_t start_time = 0;
+  double start_time = 0;
   int32_t loop = 1;
 };
 

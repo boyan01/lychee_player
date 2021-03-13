@@ -15,11 +15,11 @@
 #include "render_audio_base.h"
 #include "render_video_base.h"
 
-enum FFPlayerState {
-  FFP_STATE_IDLE = 0,
-  FFP_STATE_READY,
-  FFP_STATE_BUFFERING,
-  FFP_STATE_END
+enum class MediaPlayerState {
+  IDLE = 0,
+  READY,
+  BUFFERING,
+  END
 };
 
 class MediaPlayer {
@@ -41,6 +41,9 @@ class MediaPlayer {
 
   std::shared_ptr<MessageContext> message_context;
 
+  MediaPlayerState player_state_ = MediaPlayerState::IDLE;
+  std::mutex player_mutex_;
+
  public:
 
   MediaPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<BasicAudioRender> audio_render);
@@ -49,13 +52,16 @@ class MediaPlayer {
 
   static void GlobalInit();
 
+ private:
+
+  void OnDecoderBlocking();
+
  public:
   PlayerConfiguration start_configuration{};
 
   // buffered position in seconds. -1 if not avalible
   int64_t buffered_position = -1;
 
-  FFPlayerState state = FFP_STATE_IDLE;
 
   bool paused = false;
 

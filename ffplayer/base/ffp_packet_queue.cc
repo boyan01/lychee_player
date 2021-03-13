@@ -133,3 +133,29 @@ int PacketQueue::Put_(AVPacket *pkt) {
   cond.notify_all();
   return 0;
 }
+
+int PacketQueue::DequeuePacket(AVPacket &pkt, int *pkt_serial) {
+  std::lock_guard<std::mutex> lck(mutex);
+  if (abort_request) {
+    return -1;
+  }
+  MyAVPacketList *head = first_pkt;
+  if (!head) {
+    return -1;
+  }
+
+  first_pkt = head->next;
+  if (!first_pkt) {
+    last_pkt = nullptr;
+  }
+  nb_packets--;
+  size -= head->pkt.size + int(sizeof(*head));
+  duration -= head->pkt.duration;
+
+  pkt = head->pkt;
+  if (pkt_serial) {
+    *pkt_serial = head->serial;
+  }
+  av_free(head);
+  return 0;
+}

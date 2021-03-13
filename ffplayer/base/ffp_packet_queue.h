@@ -12,13 +12,13 @@ extern "C" {
 #include "libavcodec/avcodec.h"
 };
 
-typedef struct MyAVPacketList {
+struct MyAVPacketList {
   AVPacket pkt;
   struct MyAVPacketList *next;
   int serial;
-} MyAVPacketList;
+};
 
-typedef struct PacketQueue {
+struct PacketQueue {
   MyAVPacketList *first_pkt = nullptr, *last_pkt = nullptr;
   int nb_packets = 0;
   int size = 0;
@@ -48,6 +48,15 @@ typedef struct PacketQueue {
 
   int Get(AVPacket *pkt, int block, int *pkt_serial, void *opacity, void (*on_block)(void *opacity));
 
-} PacketQueue;
+  /**
+   * Take pkt from packet queue.
+   *
+   * @param pkt the pkt take from queue.
+   * @param pkt_serial the serial of pkt.
+   * @return -1 if we got nothing, 0 if success.
+   */
+  int DequeuePacket(AVPacket &pkt, int *pkt_serial);
+
+};
 
 #endif //FFP_PACKET_QUEUE_H

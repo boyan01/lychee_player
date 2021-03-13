@@ -22,8 +22,13 @@ AVStream *DecodeParams::stream() const {
   }
 }
 
-Decoder::Decoder(unique_ptr_d<AVCodecContext> codec_context, std::unique_ptr<DecodeParams> decode_params_)
-    : decode_params(std::move(decode_params_)), avctx(std::move(codec_context)) {
+Decoder::Decoder(
+    unique_ptr_d<AVCodecContext> codec_context,
+    std::unique_ptr<DecodeParams> decode_params_,
+    std::function<void()> on_decoder_blocking
+) : decode_params(std::move(decode_params_)),
+    avctx(std::move(codec_context)),
+    on_decoder_blocking_(std::move(on_decoder_blocking)) {
 }
 
 Decoder::~Decoder() {
@@ -91,18 +96,26 @@ int Decoder::DecodeFrame(AVFrame *frame, AVSubtitle *sub) {
         av_packet_move_ref(&temp_pkt, &d->pkt);
         d->packet_pending = 0;
       } else {
-        if (d->queue()->Get(&temp_pkt, 1, &d->pkt_serial, d, [](void *opacity) {
-          auto decoder = static_cast<Decoder *>(opacity);
-          if (decoder->on_frame_decode_block) {
-            decoder->on_frame_decode_block();
+
+        while (!abort_decoder && !queue()->abort_request && queue()->DequeuePacket(temp_pkt, &d->pkt_serial) < 0) {
+          std::unique_lock<std::mutex> lock(queue()->mutex);
+          av_log(nullptr, AV_LOG_DEBUG, "%s pending for waiting packets.\n", debug_label());
+          if (on_decoder_blocking_) {
+            on_decoder_blocking_();
           }
-        }) < 0) {
+          queue()->cond.wait(lock);
+        }
+
+        if (abort_decoder || queue()->abort_request) {
           return -1;
         }
       }
-      if (d->queue()->serial == d->pkt_serial)
+      if (d->queue()->serial == d->pkt_serial) {
+        // we got the correct pkt.
         break;
-      av_packet_unref(&temp_pkt);
+      } else {
+        av_packet_unref(&temp_pkt);
+      }
     } while (true);
 
     if (temp_pkt.data == flush_pkt->data) {

@@ -47,6 +47,10 @@ extern AVPacket *flush_pkt;
 
 class Decoder {
 
+ private:
+  // Callback invoked when decode blocking because lack of packets.
+  std::function<void()> on_decoder_blocking_;
+
  protected:
   bool abort_decoder = false;
 
@@ -59,10 +63,9 @@ class Decoder {
   int64_t start_pts = AV_NOPTS_VALUE;
   AVRational start_pts_tb{0};
   int64_t next_pts = 0;
-  AVRational next_pts_tb;
+  AVRational next_pts_tb{};
   std::thread *decoder_tid = nullptr;
   int decoder_reorder_pts = -1;
-  std::function<void()> on_frame_decode_block = nullptr;
   std::unique_ptr<DecodeParams> decode_params;
 
  protected:
@@ -87,7 +90,10 @@ class Decoder {
 
  public:
 
-  Decoder(unique_ptr_d<AVCodecContext> codec_context, std::unique_ptr<DecodeParams> decode_params_);
+  Decoder(
+      unique_ptr_d<AVCodecContext> codec_context,
+      std::unique_ptr<DecodeParams> decode_params_,
+      std::function<void()> on_decoder_blocking);
 
   virtual ~Decoder();
 

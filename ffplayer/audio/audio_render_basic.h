@@ -48,6 +48,8 @@ class BasicAudioRender : public AudioRenderBase {
 
   int GetVolume() const override;
 
+  bool IsReady() override;
+
 };
 
 #endif //MEDIA_AUDIO_AUDIO_RENDER_BASIC_H_

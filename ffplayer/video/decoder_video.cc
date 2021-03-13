@@ -51,10 +51,13 @@ int VideoDecoder::DecodeThread() {
   return 0;
 }
 
-VideoDecoder::VideoDecoder(unique_ptr_d<AVCodecContext> codecContext,
-                           std::unique_ptr<DecodeParams> decodeParams,
-                           std::shared_ptr<VideoRenderBase> render)
-    : Decoder(std::move(codecContext), std::move(decodeParams)), video_render_(std::move(render)) {
+VideoDecoder::VideoDecoder(
+    unique_ptr_d<AVCodecContext> codecContext,
+    std::unique_ptr<DecodeParams> decodeParams,
+    std::shared_ptr<VideoRenderBase> render,
+    std::function<void()> on_decoder_blocking
+) : Decoder(std::move(codecContext), std::move(decodeParams), std::move(on_decoder_blocking)),
+    video_render_(std::move(render)) {
   Start();
 }
 

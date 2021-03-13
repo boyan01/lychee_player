@@ -132,11 +132,6 @@ double VideoRenderBase::GetVideoAspectRatio() const {
   return ((double) frame_width) / frame_height;
 }
 
-/**
- * called to display each frame
- *
- * \return time for next frame should be scheduled.
- */
 double VideoRenderBase::DrawFrame() {
   double remaining_time = REFRESH_RATE;
 
@@ -227,14 +222,15 @@ double VideoRenderBase::DrawFrame() {
   }
 
   force_refresh_ = false;
-  if (on_post_draw_frame) {
-    on_post_draw_frame();
-  }
   return remaining_time;
 }
 
 void VideoRenderBase::Abort() {
   picture_queue->Signal();
+}
+
+bool VideoRenderBase::IsReady() {
+  return picture_queue->NbRemaining() > 0;
 }
 
 static void check_external_clock_speed() {
