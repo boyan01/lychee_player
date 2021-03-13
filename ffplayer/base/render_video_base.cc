@@ -141,6 +141,7 @@ double VideoRenderBase::DrawFrame() {
   double remaining_time = REFRESH_RATE;
 
   if (paused_ && !force_refresh_) {
+    NotifyRenderProceed();
     return remaining_time;
   }
 

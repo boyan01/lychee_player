@@ -78,7 +78,6 @@ void BasicAudioRender::ReadAudioData(uint8_t *stream, int len) {
     len -= len_flush;
     stream += len_flush;
     audio_buf_index += len_flush;
-    NotifyRenderProceed();
   }
 
   audio_write_buf_size = audio_buf_size - audio_buf_index;
@@ -90,6 +89,7 @@ void BasicAudioRender::ReadAudioData(uint8_t *stream, int len) {
     clock_ctx_->GetExtClock()->Sync(clock_ctx_->GetAudioClock());
   }
 
+  NotifyRenderProceed();
 }
 
 bool BasicAudioRender::IsMute() const {
