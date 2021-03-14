@@ -6,6 +6,8 @@
 #include "data_source.h"
 #include "ffp_utils.h"
 
+#include "media_player.h"
+
 #define MIN_FRAMES 25
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
 
@@ -60,7 +62,7 @@ DataSource::~DataSource() {
 
 void DataSource::ReadThread() {
   update_thread_name("read_source");
-  av_log(nullptr, AV_LOG_DEBUG, "DataSource Read Start: %s \n", filename);
+  av_log(nullptr, AV_LOG_DEBUG, "DataSource Read OnStart: %s \n", filename);
   int st_index[AVMEDIA_TYPE_NB] = {-1, -1, -1, -1, -1};
   std::mutex wait_mutex;
 
@@ -76,7 +78,7 @@ void DataSource::ReadThread() {
     // todo destroy streams;
     return;
   }
-  ReadStreams(&wait_mutex);
+  ReadStreams(wait_mutex);
 
   av_log(nullptr, AV_LOG_INFO, "thread: read_source done.\n");
 }
@@ -112,15 +114,13 @@ int DataSource::PrepareFormatContext() {
   }
 
   if (format_ctx_->pb) {
-    format_ctx_->pb->eof_reached = 0; // FIXME hack, ffplay maybe should not use avio_feof() to test for the end
+    format_ctx_->pb->eof_reached = 0; // FIXME hack, ffplay maybe should not use avio_feof() to test for the END
   }
 
   if (seek_by_bytes < 0) {
     seek_by_bytes = (format_ctx_->iformat->flags & AVFMT_TS_DISCONT) != 0
         && strcmp("ogg", format_ctx_->iformat->name) != 0;
   }
-
-//    max_frame_duration = (format_ctx_->iformat->flags & AVFMT_TS_DISCONT) ? 10.0 : 3600.0;
 
   return 0;
 }
@@ -262,16 +262,19 @@ int DataSource::OpenComponentStream(int stream_index, AVMediaType media_type) {
       case AVMEDIA_TYPE_VIDEO: {
         video_stream_index = stream_index;
         video_stream_ = stream;
+        video_queue->time_base = stream->time_base;
         break;
       }
       case AVMEDIA_TYPE_AUDIO: {
         audio_stream_index = stream_index;
         audio_stream_ = stream;
+        audio_queue->time_base = stream->time_base;
         break;
       }
       case AVMEDIA_TYPE_SUBTITLE: {
         subtitle_stream_index = stream_index;
         subtitle_stream_ = stream;
+        subtitle_queue->time_base = stream->time_base;
         break;
       }
       default:break;
@@ -280,7 +283,7 @@ int DataSource::OpenComponentStream(int stream_index, AVMediaType media_type) {
   return 0;
 }
 
-void DataSource::ReadStreams(std::mutex *read_mutex) {
+void DataSource::ReadStreams(std::mutex &read_mutex) {
   bool last_paused = false;
   AVPacket pkt_data, *pkt = &pkt_data;
   for (;;) {
@@ -296,7 +299,7 @@ void DataSource::ReadStreams(std::mutex *read_mutex) {
       }
     }
 #if CONFIG_RTSP_DEMUXER || CONFIG_MMSH_PROTOCOL
-    if (paused && (!strcmp(format_ctx_->iformat->name, "rtsp")
+    if (play_when_ready_ && (!strcmp(format_ctx_->iformat->name, "rtsp")
                    || (format_ctx_->pb && !strncmp(filename, "mmsh:", 5)))) {
         /* wait 10 ms to avoid trying to get another packet */
         /* XXX: horrible */
@@ -307,21 +310,21 @@ void DataSource::ReadStreams(std::mutex *read_mutex) {
     ProcessSeekRequest();
     ProcessAttachedPicture();
     if (!isNeedReadMore()) {
-      std::unique_lock<std::mutex> lock(*read_mutex);
+      std::unique_lock<std::mutex> lock(read_mutex);
       continue_read_thread_->wait(lock);
       continue;
     }
     if (IsReadComplete()) {
-      // TODO check complete
-//            bool loop = player->loop != 1 && (!player->loop || --player->loop);
-//            ffp_send_msg1(player, FFP_MSG_COMPLETED, loop);
-//            if (loop) {
-//                stream_seek(player, player->start_time != AV_NOPTS_VALUE ? player->start_time : 0, 0, 0);
-//            } else {
-      // TODO: 0 it's a bit early to notify complete here
-//                change_player_state(player, FFP_STATE_END);
-//                stream_toggle_pause(player->is);
-//            }
+//      // TODO check complete
+//      bool loop = configuration.loop != 1 && (!configuration.loop || --configuration.loop);
+//      msg_ctx->NotifyMsg(FFP_MSG_COMPLETED, loop);
+//      if (loop) {
+//        Seek(configuration.start_time != AV_NOPTS_VALUE ? configuration.start_time : 0);
+//      } else {
+//        msg_ctx->NotifyMsg(FFP_MSG_PLAYBACK_STATE_CHANGED, int(MediaPlayerState::END));
+//        change_player_state(player, END);
+//        stream_toggle_pause(player->is);
+//      }
     }
     {
       auto ret = ProcessReadFrame(pkt, read_mutex);
@@ -333,7 +336,9 @@ void DataSource::ReadStreams(std::mutex *read_mutex) {
     }
 
     ProcessQueuePacket(pkt);
-//        check_buffering(player);
+    if (on_new_packet_send_) {
+      on_new_packet_send_();
+    }
   }
 }
 
@@ -348,15 +353,15 @@ void DataSource::ProcessSeekRequest() {
   } else {
     if (audio_stream_index >= 0 && audio_queue) {
       audio_queue->Flush();
-      audio_queue->Put(flush_pkt);
+      audio_queue->Put(PacketQueue::GetFlushPacket());
     }
     if (subtitle_stream_index >= 0 && subtitle_queue) {
       subtitle_queue->Flush();
-      subtitle_queue->Put(flush_pkt);
+      subtitle_queue->Put(PacketQueue::GetFlushPacket());
     }
     if (video_stream_index >= 0 && video_queue) {
       video_queue->Flush();
-      video_queue->Put(flush_pkt);
+      video_queue->Put(PacketQueue::GetFlushPacket());
     }
     if (ext_clock) {
       ext_clock->SetClock(seek_target / (double) AV_TIME_BASE, 0);
@@ -405,10 +410,10 @@ bool DataSource::IsReadComplete() const {
   if (paused) {
     return false;
   }
-  return false;
+  return eof;
 }
 
-int DataSource::ProcessReadFrame(AVPacket *pkt, std::mutex *read_mutex) {
+int DataSource::ProcessReadFrame(AVPacket *pkt, std::mutex &read_mutex) {
   auto ret = av_read_frame(format_ctx_, pkt);
   if (ret < 0) {
     if ((ret == AVERROR_EOF || avio_feof(format_ctx_->pb)) && !eof) {
@@ -427,7 +432,7 @@ int DataSource::ProcessReadFrame(AVPacket *pkt, std::mutex *read_mutex) {
     if (format_ctx_->pb && format_ctx_->pb->error) {
       return -1;
     }
-    std::unique_lock<std::mutex> lock(*read_mutex);
+    std::unique_lock<std::mutex> lock(read_mutex);
     continue_read_thread_->wait_for(lock, std::chrono::milliseconds(10));
     return 1;
   } else {
@@ -472,7 +477,7 @@ bool DataSource::ContainSubtitleStream() {
 }
 
 void DataSource::Seek(double position) {
-  int64_t target = (int64_t) (position * AV_TIME_BASE);
+  auto target = (int64_t) (position * AV_TIME_BASE);
   if (!format_ctx_) {
     start_time = FFMAX(0, target);
     return;
@@ -491,7 +496,7 @@ void DataSource::Seek(double position) {
 
     // TODO update buffered position
 //        player->buffered_position = -1;
-//        change_player_state(player, FFP_STATE_BUFFERING);
+//        change_player_state(player, BUFFERING);
     continue_read_thread_->notify_all();
   }
 }

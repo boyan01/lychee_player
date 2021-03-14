@@ -3,7 +3,7 @@
 
 #include "ffplayer.h"
 #include "ffp_utils.h"
-#include "ffp_player.h"
+#include "media_player.h"
 
 #include "ffp_flutter.h"
 #include "dart/dart_api_dl.h"
@@ -13,30 +13,11 @@
 #elif defined(_FLUTTER_MEDIA_ANDROID)
 #include "ffp_flutter_android.h"
 #elif defined(_FLUTTER_MEDIA_LINUX)
-#include "audio_render_sdl_2.h"
+#include "audio_render_sdl.h"
 #endif
 
 // hold all player instance. destroy all play when flutter app hot reloaded.
 static std::list<CPlayer *> *players_;
-
-static inline void on_buffered_update(CPlayer *player, double position) {
-  int64_t mills = position * 1000;
-  player->buffered_position = mills;
-//    player->message_context->NotifyMsg(FFP_MSG_BUFFERING_TIME_UPDATE, mills);
-}
-
-static void change_player_state(CPlayer *player, FFPlayerState state) {
-  if (player->state == state) {
-    return;
-  }
-  player->state = state;
-//    player->message_context->NotifyMsg(FFP_MSG_PLAYBACK_STATE_CHANGED, state);
-}
-
-static void on_decode_frame_block(void *opacity) {
-  auto *player = static_cast<CPlayer *>(opacity);
-  change_player_state(player, FFP_STATE_BUFFERING);
-}
 
 #if 0
 static void stream_component_close(CPlayer *player, int stream_index) {
@@ -112,10 +93,9 @@ double ffplayer_get_duration(CPlayer *player) {
   return player->GetDuration();
 }
 
-/* pause or resume the video */
-void ffplayer_toggle_pause(CPlayer *player) {
+void media_set_play_when_ready(MediaPlayer *player, bool play_when_ready) {
   CHECK_VALUE(player);
-  player->TogglePause();
+  player->SetPlayWhenReady(play_when_ready);
 }
 
 bool ffplayer_is_mute(CPlayer *player) {
@@ -140,84 +120,8 @@ int ffp_get_volume(CPlayer *player) {
 
 bool ffplayer_is_paused(CPlayer *player) {
   CHECK_VALUE_WITH_RETURN(player, false);
-  return player->IsPaused();
+  return player->IsPlayWhenReady();
 }
-
-#define BUFFERING_CHECK_PER_MILLISECONDS                     (500)
-#define BUFFERING_CHECK_PER_MILLISECONDS_NO_RENDERING        (20)
-
-#if 0
-static void check_buffering(CPlayer *player) {
-    VideoState *is = player->is;
-    if (is->eof) {
-        double position = ffplayer_get_duration(player);
-        if (position <= 0 && is->audioq.last_pkt) {
-            position = av_q2d(is->audio_st->time_base) *
-                       (int64_t) (is->audioq.last_pkt->pkt.pts + is->audioq.last_pkt->pkt.duration);
-        }
-        if (position <= 0 && is->videoq.last_pkt) {
-            position = av_q2d(is->video_st->time_base) *
-                       (int64_t) (is->videoq.last_pkt->pkt.pts + is->videoq.last_pkt->pkt.duration);
-        }
-        on_buffered_update(player, position);
-        change_player_state(player, FFP_STATE_READY);
-        return;
-    }
-
-    int64_t current_ts = av_gettime_relative() / 1000;
-    int step = player->state == FFP_STATE_BUFFERING ? BUFFERING_CHECK_PER_MILLISECONDS_NO_RENDERING
-                                                    : BUFFERING_CHECK_PER_MILLISECONDS;
-    if (current_ts - player->last_io_buffering_ts < step) {
-        return;
-    }
-    if (player->state == FFP_STATE_END || player->state == FFP_STATE_IDLE) {
-        return;
-    }
-    player->last_io_buffering_ts = current_ts;
-    double cached_position = INT_MAX;
-    int nb_packets = INT_MAX;
-    if (is->audio_st && is->audioq.last_pkt) {
-        nb_packets = FFP_MIN(nb_packets, player->is->audioq.nb_packets);
-        double audio_position = player->is->audioq.last_pkt->pkt.pts * av_q2d(player->is->audio_st->time_base);
-        cached_position = FFMIN(cached_position, audio_position);
-        av_log(nullptr, AV_LOG_DEBUG, "audio q cached: %f \n",
-               player->is->audioq.duration * av_q2d(player->is->audio_st->time_base));
-    }
-    if (is->video_st && !(is->video_st->disposition & AV_DISPOSITION_ATTACHED_PIC)) {
-        cached_position = FFP_MIN(cached_position,
-                                  player->is->videoq.duration * av_q2d(player->is->video_st->time_base));
-        nb_packets = FFP_MIN(nb_packets, player->is->videoq.nb_packets);
-        av_log(nullptr, AV_LOG_DEBUG, "video q cached: %f \n",
-               player->is->videoq.duration * av_q2d(player->is->video_st->time_base));
-    }
-    if (is->subtitle_st) {
-        cached_position = FFP_MIN(cached_position,
-                                  player->is->subtitleq.duration * av_q2d(player->is->subtitle_st->time_base));
-        nb_packets = FFP_MIN(nb_packets, player->is->subtitleq.nb_packets);
-        av_log(nullptr, AV_LOG_DEBUG, "subtitle q cached: %f \n",
-               player->is->subtitleq.duration * av_q2d(player->is->audio_st->time_base));
-    }
-    if (cached_position == INT_MAX) {
-        av_log(nullptr, AV_LOG_ERROR, "check_buffering failed\n");
-        return;
-    }
-    on_buffered_update(player, cached_position);
-
-    bool ready = false;
-    if (is->video_st) {
-
-    }
-    if ((player->is->videoq.nb_packets > CACHE_THRESHOLD_MIN_FRAMES || player->is->video_stream < 0 ||
-         player->is->videoq.abort_request)
-        && (player->is->audioq.nb_packets > CACHE_THRESHOLD_MIN_FRAMES || player->is->audio_stream < 0 ||
-            player->is->audioq.abort_request)
-        && (player->is->subtitleq.nb_packets > CACHE_THRESHOLD_MIN_FRAMES || player->is->subtitle_stream < 0 ||
-            player->is->subtitleq.abort_request)) {
-        change_player_state(player, FFP_STATE_READY);
-    }
-
-}
-#endif
 
 int ffplayer_get_chapter_count(CPlayer *player) {
   CHECK_VALUE_WITH_RETURN(player, -1);
@@ -300,20 +204,20 @@ void ffplayer_global_init(void *arg) {
 }
 
 CPlayer *ffp_create_player(PlayerConfiguration *config) {
-  std::shared_ptr<VideoRenderBase> video_render;
-  std::shared_ptr<AudioRenderBase> audio_render;
+  std::unique_ptr<VideoRenderBase> video_render;
+  std::unique_ptr<BasicAudioRender> audio_render;
 #ifdef _FLUTTER_MEDIA_WINDOWS
-  video_render = std::make_shared<FlutterWindowsVideoRender>();
-  audio_render = std::make_shared<AudioRenderSdl2>();
+  video_render = std::make_unique<FlutterWindowsVideoRender>();
+  audio_render = std::make_unique<AudioRenderSdl>();
 #elif _FLUTTER_MEDIA_ANDROID
-  video_render = std::make_shared<media::FlutterAndroidVideoRender>();
-  audio_render = std::make_shared<media::AudioRenderOboe>();
+  video_render = std::make_unique<media::FlutterAndroidVideoRender>();
+  audio_render = std::make_unique<media::AudioRenderOboe>();
 #else
   video_render = nullptr;
-  audio_render = std::make_shared<AudioRenderSdl2>();
+  audio_render = std::make_unique<AudioRenderSdl>();
 #endif
-  auto *player = new CPlayer(video_render, audio_render);
-  player->TogglePause();
+  auto *player = new MediaPlayer(std::move(video_render), std::move(audio_render));
+  player->SetPlayWhenReady(true);
   av_log(nullptr, AV_LOG_INFO, "malloc player, %p\n", player);
   player->start_configuration = *config;
 

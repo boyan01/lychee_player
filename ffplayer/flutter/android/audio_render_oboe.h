@@ -24,9 +24,9 @@ class AudioRenderOboe : public BasicAudioRender, public oboe::AudioStreamDataCal
 
   virtual ~AudioRenderOboe();
 
-  void Start() const override;
+  void OnStart() const override;
 
-  void Pause() const override;
+  void onStop() const override;
 
   oboe::DataCallbackResult onAudioReady(oboe::AudioStream *audioStream, void *audioData, int32_t numFrames) override;
 

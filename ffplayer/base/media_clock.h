@@ -59,6 +59,10 @@ struct Clock {
 };
 
 class MediaClock {
+
+ public:
+  bool paused = true;
+
  private:
   int av_sync_type_ = AV_SYNC_AUDIO_MASTER;
 

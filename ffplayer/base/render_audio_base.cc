@@ -75,7 +75,7 @@ int AudioRenderBase::PushFrame(AVFrame *frame, int pkt_serial) {
 }
 
 int AudioRenderBase::AudioDecodeFrame() {
-  if (paused) {
+  if (paused_) {
     return -1;
   }
   Frame *af;
@@ -193,4 +193,14 @@ void AudioRenderBase::Abort() {
 
 int AudioRenderBase::OnBeforeDecodeFrame() {
   return 0;
+}
+
+void AudioRenderBase::Start() {
+  paused_ = false;
+  OnStart();
+}
+
+void AudioRenderBase::Stop() {
+  paused_ = true;
+  onStop();
 }

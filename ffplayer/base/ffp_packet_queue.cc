@@ -4,8 +4,6 @@
 
 #include "ffp_packet_queue.h"
 
-AVPacket *flush_pkt;
-
 int PacketQueue::Get(AVPacket *pkt, int block, int *pkt_serial, void *opacity, void (*on_block)(void *)) {
   MyAVPacketList *pkt1;
   int ret;
@@ -47,7 +45,7 @@ int PacketQueue::Get(AVPacket *pkt, int block, int *pkt_serial, void *opacity, v
 
 void PacketQueue::Start() {
   abort_request = 0;
-  Put_(flush_pkt);
+  Put_(GetFlushPacket());
 }
 
 void PacketQueue::Abort() {
@@ -62,7 +60,7 @@ int PacketQueue::Put(AVPacket *pkt) {
 
   ret = Put_(pkt);
 
-  if (pkt != flush_pkt && ret < 0)
+  if (pkt != GetFlushPacket() && ret < 0)
     av_packet_unref(pkt);
 
   return ret;
@@ -116,7 +114,7 @@ int PacketQueue::Put_(AVPacket *pkt) {
     return -1;
   pkt1->pkt = *pkt;
   pkt1->next = nullptr;
-  if (pkt == flush_pkt) {
+  if (pkt == GetFlushPacket()) {
     serial++;
   }
   pkt1->serial = serial;
@@ -132,4 +130,37 @@ int PacketQueue::Put_(AVPacket *pkt) {
   /* XXX: should duplicate packet data in DV case */
   cond.notify_all();
   return 0;
+}
+
+int PacketQueue::DequeuePacket(AVPacket &pkt, int *pkt_serial) {
+  std::lock_guard<std::mutex> lck(mutex);
+  if (abort_request) {
+    return -1;
+  }
+  MyAVPacketList *head = first_pkt;
+  if (!head) {
+    return -1;
+  }
+
+  first_pkt = head->next;
+  if (!first_pkt) {
+    last_pkt = nullptr;
+  }
+  nb_packets--;
+  size -= head->pkt.size + int(sizeof(*head));
+  duration -= head->pkt.duration;
+
+  pkt = head->pkt;
+  if (pkt_serial) {
+    *pkt_serial = head->serial;
+  }
+  av_free(head);
+  return 0;
+}
+
+AVPacket *PacketQueue::GetFlushPacket() {
+  static AVPacket flush_pkt;
+  av_init_packet(&flush_pkt);
+  flush_pkt.data = (uint8_t *) &flush_pkt;
+  return &flush_pkt;
 }

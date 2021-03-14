@@ -11,9 +11,9 @@
 #include "flutter/plugin_registrar_windows.h"
 
 #include "ffp_define.h"
-#include "ffp_player.h"
+#include "media_player.h"
 #include "render_video_flutter.h"
-#include "audio_render_sdl_2.h"
+#include "audio_render_sdl.h"
 
 class FlutterWindowsVideoRender : public FlutterVideoRender {
 

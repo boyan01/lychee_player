@@ -2,8 +2,8 @@
 // Created by yangbin on 2021/2/13.
 //
 
-#ifndef FFPLAYER_FFP_PLAYER_H
-#define FFPLAYER_FFP_PLAYER_H
+#ifndef MEDIA_PLAYER_MEDIA_PLAYER_H
+#define MEDIA_PLAYER_MEDIA_PLAYER_H
 
 #include <memory>
 #include <functional>
@@ -15,14 +15,14 @@
 #include "render_audio_base.h"
 #include "render_video_base.h"
 
-enum FFPlayerState {
-  FFP_STATE_IDLE = 0,
-  FFP_STATE_READY,
-  FFP_STATE_BUFFERING,
-  FFP_STATE_END
+enum class MediaPlayerState {
+  IDLE = 0,
+  READY,
+  BUFFERING,
+  END
 };
 
-struct CPlayer {
+class MediaPlayer {
 
  private:
 
@@ -36,38 +36,57 @@ struct CPlayer {
 
   std::shared_ptr<DecoderContext> decoder_context;
 
-  std::shared_ptr<AudioRenderBase> audio_render_;
+  std::shared_ptr<BasicAudioRender> audio_render_;
   std::shared_ptr<VideoRenderBase> video_render_;
 
   std::shared_ptr<MessageContext> message_context;
 
-  void DumpStatus();
+  MediaPlayerState player_state_ = MediaPlayerState::IDLE;
+  std::mutex player_mutex_;
+
+  std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback_external_;
+
+  double buffering_check_last_stamp_ = 0;
+
+  bool play_when_ready_ = false;
+
+  // buffered position in seconds. -1 if not available
+  double buffered_position_ = -1;
 
  public:
 
-  CPlayer(std::shared_ptr<VideoRenderBase> video_render, std::shared_ptr<AudioRenderBase> audio_render);
+  MediaPlayer(std::unique_ptr<VideoRenderBase> video_render, std::unique_ptr<BasicAudioRender> audio_render);
 
-  ~CPlayer();
+  ~MediaPlayer();
 
   static void GlobalInit();
 
+ private:
+
+  void DoSomeWork();
+
+  void StopRenders();
+
+  void StartRenders();
+
+  void ChangePlaybackState(MediaPlayerState state);
+
+  void PauseClock(bool pause);
+
+  bool ShouldTransitionToReadyState(bool render_allow_play);
+
+  void CheckBuffering();
+
  public:
   PlayerConfiguration start_configuration{};
-
-  // buffered position in seconds. -1 if not avalible
-  int64_t buffered_position = -1;
-
-  FFPlayerState state = FFP_STATE_IDLE;
-
-  bool paused = false;
-
-  void TogglePause();
 
   int OpenDataSource(const char *filename);
 
   double GetCurrentPosition();
 
-  bool IsPaused() const;
+  bool IsPlayWhenReady() const { return play_when_ready_; }
+
+  void SetPlayWhenReady(bool play_when_ready);
 
   int GetVolume();
 
@@ -96,6 +115,12 @@ struct CPlayer {
   const char *GetMetadataDict(const char *key);
 
   VideoRenderBase *GetVideoRender();
+
+  /**
+   * Dump player status information to console.
+   */
+  void DumpStatus();
+
 };
 
-#endif //FFPLAYER_FFP_PLAYER_H
+#endif //MEDIA_PLAYER_MEDIA_PLAYER_H

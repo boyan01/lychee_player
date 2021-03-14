@@ -28,6 +28,8 @@ int VideoDecoder::DecodeThread() {
   int ret;
   AVRational tb = decode_params->stream()->time_base;
   AVRational frame_rate = av_guess_frame_rate(*decode_params->format_ctx, decode_params->stream(), nullptr);
+  double max_frame_duration = ((*decode_params->format_ctx)->iformat->flags & AVFMT_TS_DISCONT) ? 10.0 : 3600.0;
+  video_render_->SetMaxFrameDuration(max_frame_duration);
   for (;;) {
     ret = GetVideoFrame(frame);
     if (ret < 0) {
@@ -39,7 +41,7 @@ int VideoDecoder::DecodeThread() {
     auto duration = (frame_rate.num && frame_rate.den ? av_q2d(AVRational{frame_rate.den, frame_rate.num}) : 0);
     auto pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(tb);
 
-    ret = render->PushFrame(frame, pts, duration, pkt_serial);
+    ret = video_render_->PushFrame(frame, pts, duration, pkt_serial);
     av_frame_unref(frame);
     if (ret < 0) {
       break;
@@ -49,8 +51,16 @@ int VideoDecoder::DecodeThread() {
   return 0;
 }
 
-VideoDecoder::VideoDecoder(unique_ptr_d<AVCodecContext> codecContext, std::unique_ptr<DecodeParams> decodeParams,
-                           std::shared_ptr<VideoRenderBase> render)
-    : Decoder(std::move(codecContext), std::move(decodeParams), std::move(render)) {
+VideoDecoder::VideoDecoder(
+    unique_ptr_d<AVCodecContext> codecContext,
+    std::unique_ptr<DecodeParams> decodeParams,
+    std::shared_ptr<VideoRenderBase> render,
+    std::function<void()> on_decoder_blocking
+) : Decoder(std::move(codecContext), std::move(decodeParams), std::move(on_decoder_blocking)),
+    video_render_(std::move(render)) {
   Start();
+}
+
+void VideoDecoder::AbortRender() {
+  video_render_->Abort();
 }

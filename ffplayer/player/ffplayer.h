@@ -3,10 +3,6 @@
 
 #include <cstdint>
 
-struct CPlayer;
-
-typedef struct CPlayer CPlayer;
-
 struct PlayerConfiguration {
   int32_t audio_disable = false;
   int32_t video_disable = false;
@@ -16,7 +12,7 @@ struct PlayerConfiguration {
 
   int32_t show_status = true;
 
-  int64_t start_time = 0;
+  double start_time = 0;
   int32_t loop = 1;
 };
 

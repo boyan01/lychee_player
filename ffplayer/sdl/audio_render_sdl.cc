@@ -2,7 +2,7 @@
 // Created by yangbin on 2021/3/6.
 //
 
-#include "audio_render_sdl_2.h"
+#include "audio_render_sdl.h"
 
 /* Minimum SDL audio buffer size, in samples. */
 #define SDL_AUDIO_MIN_BUFFER_SIZE 512
@@ -14,22 +14,22 @@
 /* Calculate actual buffer size keeping in mind not cause too frequent audio callbacks */
 #define SDL_AUDIO_MAX_CALLBACKS_PER_SEC 30
 
-AudioRenderSdl2::~AudioRenderSdl2() {
+AudioRenderSdl::~AudioRenderSdl() {
   SDL_CloseAudioDevice(audio_device_id_);
 }
 
-void AudioRenderSdl2::Start() const {
+void AudioRenderSdl::OnStart() const {
   SDL_PauseAudioDevice(audio_device_id_, 0);
+
+}
+void AudioRenderSdl::onStop() const {
+//  SDL_PauseAudioDevice(audio_device_id_, 1);
 }
 
-void AudioRenderSdl2::Pause() const {
-  SDL_PauseAudioDevice(audio_device_id_, 1);
-}
-
-int AudioRenderSdl2::OpenAudioDevice(int64_t wanted_channel_layout,
-                                     int wanted_nb_channels,
-                                     int wanted_sample_rate,
-                                     AudioParams &device_output) {
+int AudioRenderSdl::OpenAudioDevice(int64_t wanted_channel_layout,
+                                    int wanted_nb_channels,
+                                    int wanted_sample_rate,
+                                    AudioParams &device_output) {
   SDL_AudioSpec wanted_spec, spec;
   const char *env;
   static const int next_nb_channels[] = {0, 0, 1, 6, 2, 6, 4, 6};
@@ -59,8 +59,8 @@ int AudioRenderSdl2::OpenAudioDevice(int64_t wanted_channel_layout,
   wanted_spec.samples = FFMAX(SDL_AUDIO_MIN_BUFFER_SIZE,
                               2 << av_log2(wanted_spec.freq / SDL_AUDIO_MAX_CALLBACKS_PER_SEC));
   wanted_spec.callback = [](void *userdata, Uint8 *stream, int len) {
-    auto *render = static_cast<AudioRenderSdl2 *>(userdata);
-    render->FetchAudioStream(stream, len);
+    auto *render = static_cast<AudioRenderSdl *>(userdata);
+    render->ReadAudioData(stream, len);
   };
   wanted_spec.userdata = this;
   while (!(audio_device_id_ = SDL_OpenAudioDevice(nullptr, 0, &wanted_spec, &spec, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE |

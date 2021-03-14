@@ -54,7 +54,7 @@ int DecoderContext::StartDecoder(std::unique_ptr<DecodeParams> decode_params) {
   switch (codec_ctx->codec_type) {
     case AVMEDIA_TYPE_VIDEO:
       video_decoder = new VideoDecoder(std::move(codec_ctx), std::move(decode_params),
-                                       video_render);
+                                       video_render, on_decoder_blocking_);
       break;
     case AVMEDIA_TYPE_AUDIO: {
       return StartAudioDecoder(std::move(codec_ctx), std::move(decode_params));
@@ -100,17 +100,18 @@ int DecoderContext::StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx,
   }
 
   audio_decoder = new AudioDecoder(std::move(codec_ctx), std::move(decode_params),
-                                   audio_render);
+                                   audio_render, on_decoder_blocking_);
   audio_render->Start();
   return 0;
 }
 
 DecoderContext::DecoderContext(
-    std::shared_ptr<AudioRenderBase> audio_render_,
+    std::shared_ptr<BasicAudioRender> audio_render_,
     std::shared_ptr<VideoRenderBase> video_render_,
-    std::shared_ptr<MediaClock> clock_ctx_
+    std::shared_ptr<MediaClock> clock_ctx_,
+    std::function<void()> on_decoder_blocking
 ) : audio_render(std::move(audio_render_)), video_render(std::move(video_render_)),
-    clock_ctx(std::move(clock_ctx_)) {
+    clock_ctx(std::move(clock_ctx_)), on_decoder_blocking_(std::move(on_decoder_blocking)) {
 
 }
 

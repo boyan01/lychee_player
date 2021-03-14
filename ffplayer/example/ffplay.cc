@@ -7,9 +7,9 @@
 #include <utility>
 
 #include "ffp_utils.h"
-#include "ffp_player.h"
+#include "media_player.h"
 #include "sdl_utils.h"
-#include "audio_render_sdl_2.h"
+#include "audio_render_sdl.h"
 #include "render_video_sdl.h"
 
 extern "C" {
@@ -45,21 +45,23 @@ static int screen_height = 0;
 static int screen_left = SDL_WINDOWPOS_CENTERED;
 static int screen_top = SDL_WINDOWPOS_CENTERED;
 
+static bool dump_status = false;
+
 struct MessageData {
-  CPlayer *player = nullptr;
+  MediaPlayer *player = nullptr;
   int32_t what = 0;
   int64_t arg1 = 0;
   int64_t arg2 = 0;
 
 };
 
-static void on_message(CPlayer *player, int what, int64_t arg1, int64_t arg2);
+static void on_message(MediaPlayer *player, int what, int64_t arg1, int64_t arg2);
 
 static void sigterm_handler(int sig) {
   exit(123);
 }
 
-static void do_exit(CPlayer *player) {
+static void do_exit(MediaPlayer *player) {
   delete player;
   if (window)
     SDL_DestroyWindow(window);
@@ -74,15 +76,15 @@ static void toggle_full_screen() {
   SDL_SetWindowFullscreen(window, is_full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 }
 
-static void step_to_next_frame(CPlayer *player) {
-  /* if the stream is paused unpause it, then step */
-  if (player->IsPaused()) {
-    player->TogglePause();
-  }
+static void step_to_next_frame(MediaPlayer *player) {
+  /* if the stream is play_when_ready_ unpause it, then step */
+//  if (player->IsPaused()) {
+//    player->TogglePause();
+//  }
 //    player->is->step = 1;
 }
 
-static void refresh_loop_wait_event(CPlayer *player, SDL_Event *event) {
+static void refresh_loop_wait_event(MediaPlayer *player, SDL_Event *event) {
   double remaining_time = 0.0;
   SDL_PumpEvents();
   while (!SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
@@ -94,12 +96,15 @@ static void refresh_loop_wait_event(CPlayer *player, SDL_Event *event) {
       av_usleep((int64_t) (remaining_time * 1000000.0));
     auto *render = dynamic_cast<SdlVideoRender *>(player->GetVideoRender());
     remaining_time = render->DrawFrame();
+    if (dump_status) {
+      player->DumpStatus();
+    }
     SDL_PumpEvents();
   }
 }
 
 /* handle an event sent by the GUI */
-static void event_loop(CPlayer *player) {
+static void event_loop(MediaPlayer *player) {
   SDL_Event event;
   double incr;
 
@@ -120,8 +125,10 @@ static void event_loop(CPlayer *player) {
 //                        is->force_refresh = 1;
             break;
           case SDLK_p:
-          case SDLK_SPACE:player->TogglePause();
+          case SDLK_SPACE: {
+            player->SetPlayWhenReady(!player->IsPlayWhenReady());
             break;
+          }
           case SDLK_m:player->SetMute(!player->IsMuted());
             break;
           case SDLK_KP_MULTIPLY:
@@ -134,7 +141,10 @@ static void event_loop(CPlayer *player) {
             step_to_next_frame(player);
             break;
           case SDLK_a:break;
-          case SDLK_v:break;
+          case SDLK_v: {
+            dump_status = !dump_status;
+            break;
+          }
           case SDLK_c:break;
           case SDLK_t:break;
           case SDLK_w:break;
@@ -267,7 +277,7 @@ void check_screen_size(int64_t &width, int64_t &height) {
   height = display_mode.h * scale;
 }
 
-static void on_message(CPlayer *player, int what, int64_t arg1, int64_t arg2) {
+static void on_message(MediaPlayer *player, int what, int64_t arg1, int64_t arg2) {
 //    av_log(nullptr, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n", what, arg1, arg2);
   switch (what) {
     case FFP_MSG_VIDEO_FRAME_LOADED: {
@@ -306,23 +316,6 @@ static void on_message(CPlayer *player, int what, int64_t arg1, int64_t arg2) {
   }
 }
 
-static void set_sdl_yuv_conversion_mode(AVFrame *frame) {
-#if SDL_VERSION_ATLEAST(2, 0, 8)
-  SDL_YUV_CONVERSION_MODE mode = SDL_YUV_CONVERSION_AUTOMATIC;
-  if (frame && (frame->format == AV_PIX_FMT_YUV420P || frame->format == AV_PIX_FMT_YUYV422 ||
-      frame->format == AV_PIX_FMT_UYVY422)) {
-    if (frame->color_range == AVCOL_RANGE_JPEG)
-      mode = SDL_YUV_CONVERSION_JPEG;
-    else if (frame->colorspace == AVCOL_SPC_BT709)
-      mode = SDL_YUV_CONVERSION_BT709;
-    else if (frame->colorspace == AVCOL_SPC_BT470BG || frame->colorspace == AVCOL_SPC_SMPTE170M ||
-        frame->colorspace == AVCOL_SPC_SMPTE240M)
-      mode = SDL_YUV_CONVERSION_BT601;
-  }
-  SDL_SetYUVConversionMode(mode);
-#endif
-}
-
 int main(int argc, char *argv[]) {
   char *input_file = argv[1];
   if (!input_file) {
@@ -330,8 +323,7 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-//    ffplayer_global_init(nullptr);
-  CPlayer::GlobalInit();
+  MediaPlayer::GlobalInit();
 
   signal(SIGINT, sigterm_handler);  /* Interrupt (ANSI).    */
   signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */
@@ -399,11 +391,11 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  auto video_render = std::make_shared<SdlVideoRender>(std::move(renderer));
-  auto audio_render = std::make_shared<AudioRenderSdl2>();
-  auto *player = new CPlayer(std::move(video_render), std::move(audio_render));
+  auto video_render = std::make_unique<SdlVideoRender>(std::move(renderer));
+  auto audio_render = std::make_unique<AudioRenderSdl>();
+  auto *player = new MediaPlayer(std::move(video_render), std::move(audio_render));
   player->start_configuration = config;
-  player->SetVolume(100);
+  player->SetVolume(50);
 
   player->SetMessageHandleCallback([player](int32_t what, int64_t arg1, int64_t arg2) {
     SDL_Event event;
@@ -422,10 +414,9 @@ int main(int argc, char *argv[]) {
     do_exit(nullptr);
   }
 
-  if (player->IsPaused()) {
-    // perform play when start.
-    player->TogglePause();
-  }
+  // perform play when start.
+  player->SetPlayWhenReady(true);
+
   event_loop(player);
 
   return 0;

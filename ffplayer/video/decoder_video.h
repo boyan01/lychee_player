@@ -8,9 +8,15 @@
 #include "decoder_base.h"
 #include "render_video_base.h"
 
-class VideoDecoder : public Decoder<VideoRenderBase> {
+extern "C" {
+#include "libavformat/avformat.h"
+};
+
+class VideoDecoder : public Decoder {
 
  private:
+
+  std::shared_ptr<VideoRenderBase> video_render_;
 
   int GetVideoFrame(AVFrame *frame);
 
@@ -21,9 +27,15 @@ class VideoDecoder : public Decoder<VideoRenderBase> {
   int DecodeThread() override;
 
  public:
-  VideoDecoder(unique_ptr_d<AVCodecContext> codecContext,
-               std::unique_ptr<DecodeParams> decodeParams,
-               std::shared_ptr<VideoRenderBase> render);
+  VideoDecoder(
+      unique_ptr_d<AVCodecContext> codecContext,
+      std::unique_ptr<DecodeParams> decodeParams,
+      std::shared_ptr<VideoRenderBase> render,
+      std::function<void()> on_decoder_blocking
+  );
+
+ protected:
+  void AbortRender() override;
 };
 
 #endif //FFP_DECODER_VIDEO_H

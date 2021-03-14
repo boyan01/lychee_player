@@ -43,8 +43,8 @@ int BasicAudioRender::Open(int64_t wanted_channel_layout, int wanted_nb_channels
   return buf_size;
 }
 
-void BasicAudioRender::FetchAudioStream(uint8_t *stream, int len) {
-  av_log(nullptr, AV_LOG_DEBUG, "FetchAudioStream: len = %d\n", len);
+void BasicAudioRender::ReadAudioData(uint8_t *stream, int len) {
+  av_log(nullptr, AV_LOG_DEBUG, "ReadAudioData: len = %d\n", len);
 
   audio_callback_time_ = av_gettime_relative();
   while (len > 0) {
@@ -78,7 +78,6 @@ void BasicAudioRender::FetchAudioStream(uint8_t *stream, int len) {
     len -= len_flush;
     stream += len_flush;
     audio_buf_index += len_flush;
-
   }
 
   audio_write_buf_size = audio_buf_size - audio_buf_index;
@@ -90,6 +89,7 @@ void BasicAudioRender::FetchAudioStream(uint8_t *stream, int len) {
     clock_ctx_->GetExtClock()->Sync(clock_ctx_->GetAudioClock());
   }
 
+  NotifyRenderProceed();
 }
 
 bool BasicAudioRender::IsMute() const {
@@ -110,12 +110,12 @@ int BasicAudioRender::GetVolume() const {
 
 int BasicAudioRender::OnBeforeDecodeFrame() {
 #if defined(_WIN32)
-  while (sample_queue->NbRemaining() == 0) {
-    if ((av_gettime_relative() - audio_callback_time_) >
-        1000000LL * audio_hw_buf_size / audio_tgt.bytes_per_sec / 2)
-      return -1;
-    av_usleep(1000);
-  }
+//  while (sample_queue->NbRemaining() == 0) {
+//    if ((av_gettime_relative() - audio_callback_time_) >
+//        1000000LL * audio_hw_buf_size / audio_tgt.bytes_per_sec / 2)
+//      return -1;
+//    av_usleep(1000);
+//  }
 #endif
   return 0;
 }
@@ -147,5 +147,9 @@ void BasicAudioRender::MixAudioVolume(uint8_t *dst, const uint8_t *src, uint32_t
     dst[1] = dst_sample & 0xFF;
     dst += 2;
   }
+}
+
+bool BasicAudioRender::IsReady() {
+  return sample_queue->NbRemaining() > 0 || (audio_buf_size > 0 && audio_buf_index < audio_buf_size);
 }
 

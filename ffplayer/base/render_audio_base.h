@@ -57,9 +57,10 @@ class AudioRenderBase : public BaseRender {
 
   int *audio_queue_serial = nullptr;
 
-  bool paused = false;
 
  private:
+
+  bool paused_ = false;
 
  protected:
   /**
@@ -75,21 +76,21 @@ class AudioRenderBase : public BaseRender {
 
   int SynchronizeAudio(int nb_samples);
 
+  virtual void OnStart() const = 0;
+
+  virtual void onStop() const = 0;
+
  public:
 
   AudioRenderBase();
 
   virtual void Init(const std::shared_ptr<PacketQueue> &audio_queue, std::shared_ptr<MediaClock> clock_ctx);
 
-  virtual ~AudioRenderBase();
+  ~AudioRenderBase() override;
 
   virtual int Open(int64_t wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate) = 0;
 
   int PushFrame(AVFrame *frame, int pkt_serial);
-
-  virtual void Start() const = 0;
-
-  virtual void Pause() const = 0;
 
   void Abort() override;
 
@@ -106,6 +107,10 @@ class AudioRenderBase : public BaseRender {
    * @return 0 - 100
    */
   virtual int GetVolume() const = 0;
+
+  void Start();
+
+  void Stop();
 
 };
 

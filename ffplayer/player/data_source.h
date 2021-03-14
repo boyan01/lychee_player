@@ -40,6 +40,8 @@ class DataSource {
 
   std::shared_ptr<DecoderContext> decoder_ctx;
 
+  std::function<void()> on_new_packet_send_;
+
   int read_pause_return;
 
   bool paused = false;
@@ -104,6 +106,8 @@ class DataSource {
 
   const char *GetFileName() const;
 
+  bool IsReadComplete() const;
+
  private:
 
   int PrepareFormatContext();
@@ -120,7 +124,7 @@ class DataSource {
 
   int OpenComponentStream(int stream_index, AVMediaType media_type);
 
-  void ReadStreams(std::mutex *read_mutex);
+  void ReadStreams(std::mutex &read_mutex);
 
   void ProcessSeekRequest();
 
@@ -128,9 +132,7 @@ class DataSource {
 
   bool isNeedReadMore();
 
-  bool IsReadComplete() const;
-
-  int ProcessReadFrame(AVPacket *pkt, std::mutex *read_mutex);
+  int ProcessReadFrame(AVPacket *pkt, std::mutex &read_mutex);
 
   void ProcessQueuePacket(AVPacket *pkt);
 

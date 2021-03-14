@@ -6,10 +6,16 @@
 
 namespace media {
 
-void AudioRenderOboe::Start() const {
+void AudioRenderOboe::OnStart() const {
+  if (!audio_stream_) {
+    return;
+  }
   audio_stream_->requestStart();
 }
-void AudioRenderOboe::Pause() const {
+void AudioRenderOboe::onStop() const {
+  if (!audio_stream_) {
+    return;
+  }
   audio_stream_->requestPause();
 }
 
@@ -56,9 +62,9 @@ oboe::DataCallbackResult AudioRenderOboe::onAudioReady(
   unsigned int len = numFrames * audioStream->getChannelCount() * sizeof(int16_t);
   memset(audioData, 0, len);
 
-  if (!paused) {
+  {
     auto *outputData = static_cast<uint8_t *>(audioData);
-    FetchAudioStream(outputData, int(len));
+    ReadAudioData(outputData, int(len));
   }
   return oboe::DataCallbackResult::Continue;
 }
