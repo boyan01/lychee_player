@@ -262,16 +262,19 @@ int DataSource::OpenComponentStream(int stream_index, AVMediaType media_type) {
       case AVMEDIA_TYPE_VIDEO: {
         video_stream_index = stream_index;
         video_stream_ = stream;
+        video_queue->time_base = stream->time_base;
         break;
       }
       case AVMEDIA_TYPE_AUDIO: {
         audio_stream_index = stream_index;
         audio_stream_ = stream;
+        audio_queue->time_base = stream->time_base;
         break;
       }
       case AVMEDIA_TYPE_SUBTITLE: {
         subtitle_stream_index = stream_index;
         subtitle_stream_ = stream;
+        subtitle_queue->time_base = stream->time_base;
         break;
       }
       default:break;

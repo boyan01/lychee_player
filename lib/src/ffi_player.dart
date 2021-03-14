@@ -252,6 +252,7 @@ class FfiAudioPlayer implements AudioPlayer {
         _buffred.value = [buffered];
         break;
       case _FFP_MSG_PLAYBACK_STATE_CHANGED:
+        debugPrint("_FFP_MSG_PLAYBACK_STATE_CHANGED: arg1 = ${arg1}");
         assert(() {
           assert(arg1 == _FFP_STATE_BUFFERING ||
               arg1 == _FFP_STATE_IDLE ||

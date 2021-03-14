@@ -46,6 +46,13 @@ class MediaPlayer {
 
   std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback_external_;
 
+  double buffering_check_last_stamp_ = 0;
+
+  bool play_when_ready_ = false;
+
+  // buffered position in seconds. -1 if not available
+  double buffered_position_ = -1;
+
  public:
 
   MediaPlayer(std::unique_ptr<VideoRenderBase> video_render, std::unique_ptr<BasicAudioRender> audio_render);
@@ -55,8 +62,6 @@ class MediaPlayer {
   static void GlobalInit();
 
  private:
-
-  void OnDecoderBlocking();
 
   void DoSomeWork();
 
@@ -70,13 +75,10 @@ class MediaPlayer {
 
   bool ShouldTransitionToReadyState(bool render_allow_play);
 
+  void CheckBuffering();
+
  public:
   PlayerConfiguration start_configuration{};
-
-  // buffered position in seconds. -1 if not avalible
-  int64_t buffered_position = -1;
-
-  bool play_when_ready_ = false;
 
   int OpenDataSource(const char *filename);
 

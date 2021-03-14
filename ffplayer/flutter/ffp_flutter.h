@@ -7,8 +7,11 @@
 
 #include "ffplayer.h"
 #include "ffp_define.h"
+#include "media_player.h"
 
 #include "dart/dart_api_dl.h"
+
+typedef MediaPlayer CPlayer;
 
 FFPLAYER_EXPORT void ffplayer_global_init(void *arg);
 

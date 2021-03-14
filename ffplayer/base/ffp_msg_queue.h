@@ -131,6 +131,8 @@ class MessageContext {
 
   void NotifyMsg(int what);
 
+  void RemoveMessage(int what);
+
 };
 
 #endif //FFPLAYER_FFP_MSG_QUEUE_H

@@ -27,6 +27,7 @@ struct PacketQueue {
   int serial = 0;
   std::mutex mutex;
   std::condition_variable_any cond;
+  AVRational time_base;
  private:
   int Put_(AVPacket *pkt);
 

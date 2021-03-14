@@ -26,7 +26,7 @@ MediaPlayer::MediaPlayer(
   message_context->message_callback = [this](int what, int64_t arg1, int64_t arg2) {
     switch (what) { // NOLINT(hicpp-multiway-paths-covered)
       case MEDIA_MSG_DO_SOME_WORK: {
-        DoSomeWork();
+//        DoSomeWork();
         break;
       }
       default: {
@@ -66,16 +66,19 @@ MediaPlayer::MediaPlayer(
                                                sync_type_confirm);
 
   if (audio_render_) {
-    audio_render_->SetRenderCallback([this]() { message_context->NotifyMsg(MEDIA_MSG_DO_SOME_WORK); });
+    audio_render_->SetRenderCallback([this]() {
+    });
     audio_render_->Init(audio_pkt_queue, clock_context);
   }
   if (video_render_) {
-    video_render_->SetRenderCallback([this]() { message_context->NotifyMsg(MEDIA_MSG_DO_SOME_WORK); });
+    video_render_->SetRenderCallback([this]() {
+    });
     video_render_->Init(video_pkt_queue, clock_context, message_context);
   }
 
   decoder_context = std::make_shared<DecoderContext>(audio_render_, video_render_, clock_context, [this]() {
-    OnDecoderBlocking();
+    ChangePlaybackState(MediaPlayerState::BUFFERING);
+//    StopRenders();
   });
 }
 
@@ -105,7 +108,7 @@ void MediaPlayer::PauseClock(bool pause) {
       video_render_->frame_timer +=
           av_gettime_relative() / 1000000.0 - clock_context->GetVideoClock()->last_updated;
     }
-    if (data_source->read_pause_return != AVERROR(ENOSYS)) {
+    if (data_source && data_source->read_pause_return != AVERROR(ENOSYS)) {
       clock_context->GetVideoClock()->paused = 0;
     }
     clock_context->GetVideoClock()->SetClock(clock_context->GetVideoClock()->GetClock(),
@@ -135,7 +138,7 @@ int MediaPlayer::OpenDataSource(const char *filename) {
   data_source->msg_ctx = message_context;
 
   data_source->on_new_packet_send_ = [this]() {
-    message_context->NotifyMsg(MEDIA_MSG_DO_SOME_WORK);
+    CheckBuffering();
   };
 
   data_source->Open();
@@ -311,10 +314,6 @@ VideoRenderBase *MediaPlayer::GetVideoRender() {
   return video_render_.get();
 }
 
-void MediaPlayer::OnDecoderBlocking() {
-
-}
-
 void MediaPlayer::DoSomeWork() {
   std::lock_guard<std::mutex> lock(player_mutex_);
   bool render_allow_playback = true;
@@ -382,6 +381,76 @@ bool MediaPlayer::ShouldTransitionToReadyState(bool render_allow_play) {
     ready &= video_pkt_queue->nb_packets > 2;
   }
   return ready;
+}
+
+static inline bool check_queue_is_ready(const std::shared_ptr<PacketQueue> &queue, bool has_stream) {
+  static const int min_frames = 2;
+  return queue->nb_packets > min_frames || !has_stream || queue->abort_request;
+}
+
+void MediaPlayer::CheckBuffering() {
+  if (data_source->IsReadComplete()) {
+    double duration = GetDuration();
+    if (duration <= 0 && audio_pkt_queue->last_pkt) {
+      auto d = audio_pkt_queue->last_pkt->pkt.pts + audio_pkt_queue->last_pkt->pkt.duration;
+      duration = av_q2d(audio_pkt_queue->time_base) * d;
+    }
+    if (duration <= 0 && video_pkt_queue->last_pkt) {
+      duration = av_q2d(video_pkt_queue->time_base) *
+          (int64_t) (video_pkt_queue->last_pkt->pkt.pts + video_pkt_queue->last_pkt->pkt.duration);
+    }
+    buffered_position_ = duration;
+    message_context->NotifyMsg(FFP_MSG_BUFFERING_TIME_UPDATE, buffered_position_ * 1000);
+    ChangePlaybackState(MediaPlayerState::READY);
+    return;
+  }
+
+  static const double BUFFERING_CHECK_DELAY = (0.500);
+  static const double BUFFERING_CHECK_NO_RENDERING_DELAY = (0.020);
+
+  auto current_time = get_relative_time();
+  auto step = player_state_ == MediaPlayerState::BUFFERING ? BUFFERING_CHECK_NO_RENDERING_DELAY : BUFFERING_CHECK_DELAY;
+  if (current_time - buffering_check_last_stamp_ < step) {
+    // It is not time to check buffering state.
+    return;
+  }
+  if (player_state_ == MediaPlayerState::END || player_state_ == MediaPlayerState::IDLE) {
+    return;
+  }
+  buffering_check_last_stamp_ = current_time;
+
+  auto check_packet = [](const std::shared_ptr<PacketQueue> &queue, int &nb_packets, double &cached_position) {
+    nb_packets = FFMIN(nb_packets, queue->nb_packets);
+    auto last_position = queue->last_pkt->pkt.pts * av_q2d(queue->time_base);
+    cached_position = FFMIN(cached_position, last_position);
+  };
+
+  double cached_position = INT_MAX;
+  int nb_packets = INT_MAX;
+
+  if (data_source->ContainAudioStream() && audio_pkt_queue->last_pkt) {
+    check_packet(audio_pkt_queue, nb_packets, cached_position);
+  }
+  if (data_source->ContainVideoStream() && video_pkt_queue->last_pkt) {
+    check_packet(video_pkt_queue, nb_packets, cached_position);
+  }
+
+  if (cached_position == INT_MAX) {
+    av_log(nullptr, AV_LOG_WARNING, "can not determine buffering position");
+    return;
+  }
+
+  buffered_position_ = cached_position;
+  message_context->NotifyMsg(FFP_MSG_BUFFERING_TIME_UPDATE, buffered_position_ * 1000);
+
+  if (check_queue_is_ready(video_pkt_queue, data_source->ContainVideoStream())
+      && check_queue_is_ready(audio_pkt_queue, data_source->ContainAudioStream())) {
+    ChangePlaybackState(MediaPlayerState::READY);
+    if (play_when_ready_) {
+//      StartRenders();
+    }
+  }
+
 }
 
 

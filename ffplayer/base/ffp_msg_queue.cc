@@ -158,7 +158,7 @@ int MessageQueue::Get(Message *msg, int block) {
 }
 
 void MessageQueue::Remove(int what) {
-  Message *p_msg, *msg, *last_msg;
+  Message *p_msg, *msg, *last_msg = nullptr;
   mutex_->lock();
 
   if (!abort_request_ && first_) {
@@ -248,4 +248,8 @@ void MessageContext::StopAndWait() {
     thread_->join();
   }
   delete thread_;
+}
+void MessageContext::RemoveMessage(int what) {
+  msg_queue->Remove(what);
+
 }
