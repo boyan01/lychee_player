@@ -95,6 +95,8 @@ class VideoRenderBase : public BaseRender {
 
   void Stop();
 
+  void DumpDebugInformation();
+
 };
 
 #endif //FFP_SRC_RENDER_VIDEO_BASE_H_

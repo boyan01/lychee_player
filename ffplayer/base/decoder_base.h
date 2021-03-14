@@ -43,8 +43,6 @@ struct DecodeParams {
 
 };
 
-extern AVPacket *flush_pkt;
-
 class Decoder {
 
  private:

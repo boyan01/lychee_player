@@ -353,15 +353,15 @@ void DataSource::ProcessSeekRequest() {
   } else {
     if (audio_stream_index >= 0 && audio_queue) {
       audio_queue->Flush();
-      audio_queue->Put(flush_pkt);
+      audio_queue->Put(PacketQueue::GetFlushPacket());
     }
     if (subtitle_stream_index >= 0 && subtitle_queue) {
       subtitle_queue->Flush();
-      subtitle_queue->Put(flush_pkt);
+      subtitle_queue->Put(PacketQueue::GetFlushPacket());
     }
     if (video_stream_index >= 0 && video_queue) {
       video_queue->Flush();
-      video_queue->Put(flush_pkt);
+      video_queue->Put(PacketQueue::GetFlushPacket());
     }
     if (ext_clock) {
       ext_clock->SetClock(seek_target / (double) AV_TIME_BASE, 0);

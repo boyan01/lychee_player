@@ -93,10 +93,9 @@ double ffplayer_get_duration(CPlayer *player) {
   return player->GetDuration();
 }
 
-/* pause or resume the video */
-void ffplayer_toggle_pause(CPlayer *player) {
+void media_set_play_when_ready(MediaPlayer *player, bool play_when_ready) {
   CHECK_VALUE(player);
-  player->SetPlayWhenReady(!player->IsPlayWhenReady());
+  player->SetPlayWhenReady(play_when_ready);
 }
 
 bool ffplayer_is_mute(CPlayer *player) {

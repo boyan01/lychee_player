@@ -99,6 +99,7 @@ int Decoder::DecodeFrame(AVFrame *frame, AVSubtitle *sub) {
 
         while (!abort_decoder && !queue()->abort_request && queue()->DequeuePacket(temp_pkt, &d->pkt_serial) < 0) {
           std::unique_lock<std::mutex> lock(queue()->mutex);
+          NotifyQueueEmpty();
           av_log(nullptr, AV_LOG_DEBUG, "%s pending for waiting packets.\n", debug_label());
           if (on_decoder_blocking_) {
             on_decoder_blocking_();
@@ -109,6 +110,7 @@ int Decoder::DecodeFrame(AVFrame *frame, AVSubtitle *sub) {
         if (abort_decoder || queue()->abort_request) {
           return -1;
         }
+        NotifyQueueEmpty();
       }
       if (d->queue()->serial == d->pkt_serial) {
         // we got the correct pkt.
@@ -118,7 +120,7 @@ int Decoder::DecodeFrame(AVFrame *frame, AVSubtitle *sub) {
       }
     } while (true);
 
-    if (temp_pkt.data == flush_pkt->data) {
+    if (temp_pkt.data == PacketQueue::GetFlushPacket()->data) {
       avcodec_flush_buffers(d->avctx.get());
       d->finished = 0;
       d->next_pts = d->start_pts;

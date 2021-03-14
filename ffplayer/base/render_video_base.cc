@@ -96,6 +96,8 @@ int VideoRenderBase::PushFrame(AVFrame *src_frame, double pts, double duration, 
     }
   }
 
+//  av_log(nullptr, AV_LOG_INFO, "VideoRenderBase: push frame pts= %0.3f , serial = %d\n", pts, pkt_serial);
+
   auto *vp = picture_queue->PeekWritable();
   if (!vp) {
     return -1;
@@ -250,6 +252,10 @@ void VideoRenderBase::Start() {
 
 void VideoRenderBase::Stop() {
   paused_ = true;
+}
+
+void VideoRenderBase::DumpDebugInformation() {
+  av_log(nullptr, AV_LOG_INFO, "video_render, frame: %d/%d.\n", picture_queue->NbRemaining(), picture_queue->max_size);
 }
 
 static void check_external_clock_speed() {

@@ -23,7 +23,7 @@ FFPLAYER_EXPORT int ffplayer_open_file(CPlayer *player, const char *filename);
 
 FFPLAYER_EXPORT bool ffplayer_is_paused(CPlayer *player);
 
-FFPLAYER_EXPORT void ffplayer_toggle_pause(CPlayer *player);
+FFPLAYER_EXPORT void media_set_play_when_ready(MediaPlayer *player, bool play_when_ready);
 
 FFPLAYER_EXPORT bool ffplayer_is_mute(CPlayer *player);
 

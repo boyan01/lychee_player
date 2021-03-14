@@ -183,9 +183,9 @@ final ffplayer_is_paused =
     _library.lookupFunction<Int8 Function(Pointer), int Function(Pointer)>(
         "ffplayer_is_paused");
 
-final ffplayer_toggle_pause =
-    _library.lookupFunction<Void Function(Pointer), void Function(Pointer)>(
-        "ffplayer_toggle_pause");
+final media_set_play_when_ready = _library.lookupFunction<
+    Void Function(Pointer, Int8),
+    void Function(Pointer, int)>("media_set_play_when_ready");
 
 final ffp_attach_video_render_flutter =
     _library.lookupFunction<Int64 Function(Pointer), int Function(Pointer)>(
@@ -289,10 +289,7 @@ class FfiAudioPlayer implements AudioPlayer {
       return;
     }
     _playWhenReady.value = value;
-    final paused = ffplayer_is_paused(_player) != 0;
-    if ((paused && value) || (!paused && !value)) {
-      ffplayer_toggle_pause(_player);
-    }
+    media_set_play_when_ready(_player, value ? 1 : 0);
   }
 
   @override

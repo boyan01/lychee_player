@@ -303,10 +303,6 @@ void MediaPlayer::GlobalInit() {
   else
     av_log(nullptr, AV_LOG_DEBUG, "SDL Audio was initialized fine!\n");
 #endif
-
-  flush_pkt = new AVPacket;
-  av_init_packet(flush_pkt);
-  flush_pkt->data = (uint8_t *) &flush_pkt;
 }
 
 VideoRenderBase *MediaPlayer::GetVideoRender() {
@@ -442,6 +438,16 @@ void MediaPlayer::CheckBuffering() {
 
   buffered_position_ = cached_position;
   message_context->NotifyMsg(FFP_MSG_BUFFERING_TIME_UPDATE, buffered_position_ * 1000);
+
+#if 0
+  av_log(nullptr,
+         AV_LOG_INFO,
+         "video_pkt_queue: packets number = %d, duration = %lf s , size = %d\n",
+         video_pkt_queue->nb_packets,
+         video_pkt_queue->duration * av_q2d(video_pkt_queue->time_base),
+         video_pkt_queue->size);
+  video_render_->DumpDebugInformation();
+#endif
 
   if (check_queue_is_ready(video_pkt_queue, data_source->ContainVideoStream())
       && check_queue_is_ready(audio_pkt_queue, data_source->ContainAudioStream())) {

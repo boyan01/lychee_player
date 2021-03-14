@@ -18,7 +18,10 @@ struct MyAVPacketList {
   int serial;
 };
 
-struct PacketQueue {
+class PacketQueue {
+ public:
+  static AVPacket *GetFlushPacket();
+
   MyAVPacketList *first_pkt = nullptr, *last_pkt = nullptr;
   int nb_packets = 0;
   int size = 0;
