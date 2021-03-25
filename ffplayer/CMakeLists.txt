@@ -52,15 +52,12 @@ if (NOT DEFINED FFP_LIBS)
     endif ()
 endif ()
 
-add_subdirectory(base)
-add_subdirectory(audio)
-add_subdirectory(video)
+
+add_subdirectory(player)
 
 if (MEDIA_USE_SDL)
     add_subdirectory(sdl)
 endif ()
-
-add_subdirectory(player)
 
 if (CMAKE_FLUTTER_MEDIA)
     add_subdirectory(flutter)

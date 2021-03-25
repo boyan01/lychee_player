@@ -325,6 +325,7 @@ int main(int argc, char *argv[]) {
   }
 
   MediaPlayer::GlobalInit();
+  media::sdl::InitSdlAudio();
 
   signal(SIGINT, sigterm_handler);  /* Interrupt (ANSI).    */
   signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */

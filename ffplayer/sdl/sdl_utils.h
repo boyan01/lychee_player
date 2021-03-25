@@ -14,6 +14,13 @@ namespace media {
 
 namespace sdl {
 
+/**
+ * Init SDL Audio Components.
+ *
+ * Must call after MediaPlayer::GlobalInit();
+ */
+void InitSdlAudio();
+
 void calculate_display_rect(SDL_Rect *rect,
                             int scr_xleft, int scr_ytop, int scr_width, int scr_height,
                             int pic_width, int pic_height, AVRational pic_sar);
