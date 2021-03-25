@@ -7,6 +7,8 @@
 
 #include "media_clock.h"
 
+namespace media {
+
 Clock::Clock(int *queue_serial)
     : queue_serial_(queue_serial),
       speed_(1.0),
@@ -99,4 +101,6 @@ MediaClock::MediaClock(
     audio_clock_(std::make_unique<Clock>(audio_queue_serial)),
     video_clock_(std::make_unique<Clock>(video_queue_serial)),
     ext_clock_(std::make_unique<Clock>()) {
+}
+
 }

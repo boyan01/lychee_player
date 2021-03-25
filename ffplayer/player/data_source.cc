@@ -7,6 +7,9 @@
 #include "ffp_utils.h"
 
 #include "media_player.h"
+#include "decoder_base.h"
+
+namespace media {
 
 #define MIN_FRAMES 25
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
@@ -231,28 +234,28 @@ int DataSource::OpenComponentStream(int stream_index, AVMediaType media_type) {
   }
   auto stream = format_ctx_->streams[stream_index];
 
-  std::unique_ptr<DecodeParams> params;
+  std::unique_ptr<media::DecodeParams> params;
   switch (media_type) {
     case AVMEDIA_TYPE_VIDEO:
-      params = std::make_unique<DecodeParams>(video_queue,
-                                              continue_read_thread_,
-                                              &format_ctx_,
-                                              stream_index);
+      params = std::make_unique<media::DecodeParams>(video_queue,
+                                                     continue_read_thread_,
+                                                     &format_ctx_,
+                                                     stream_index);
       break;
     case AVMEDIA_TYPE_AUDIO:
-      params = std::make_unique<DecodeParams>(audio_queue,
-                                              continue_read_thread_,
-                                              &format_ctx_,
-                                              stream_index);
+      params = std::make_unique<media::DecodeParams>(audio_queue,
+                                                     continue_read_thread_,
+                                                     &format_ctx_,
+                                                     stream_index);
       params->audio_follow_stream_start_pts =
           (format_ctx_->iformat->flags & (AVFMT_NOBINSEARCH | AVFMT_NOGENSEARCH | AVFMT_NO_BYTE_SEEK))
               && format_ctx_->iformat->read_seek;
       break;
     case AVMEDIA_TYPE_SUBTITLE:
-      params = std::make_unique<DecodeParams>(subtitle_queue,
-                                              continue_read_thread_,
-                                              &format_ctx_,
-                                              stream_index);
+      params = std::make_unique<media::DecodeParams>(subtitle_queue,
+                                                     continue_read_thread_,
+                                                     &format_ctx_,
+                                                     stream_index);
       break;
     default:return -1;
   }
@@ -548,4 +551,4 @@ const char *DataSource::GetMetadataDict(const char *key) {
   return nullptr;
 }
 
-
+}

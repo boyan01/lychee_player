@@ -10,7 +10,9 @@
 #include "ffp_define.h"
 #include "audio_render_basic.h"
 
-class AudioDecoder : public Decoder {
+namespace media {
+
+class AudioDecoder : public media::Decoder {
 
  private:
   std::shared_ptr<BasicAudioRender> audio_render_;
@@ -25,7 +27,7 @@ class AudioDecoder : public Decoder {
 
   AudioDecoder(
       unique_ptr_d<AVCodecContext> codec_context_,
-      std::unique_ptr<DecodeParams> decode_params_,
+      std::unique_ptr<media::DecodeParams> decode_params_,
       std::shared_ptr<BasicAudioRender> audio_render,
       std::function<void()> on_decoder_blocking
   );
@@ -36,4 +38,5 @@ class AudioDecoder : public Decoder {
 
 };
 
+}
 #endif //FFP_DECODER_AUDIO_H

@@ -4,6 +4,8 @@
 
 #include "audio_render_basic.h"
 
+namespace media {
+
 int BasicAudioRender::Open(int64_t wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate) {
   int buf_size = OpenAudioDevice(wanted_channel_layout, wanted_nb_channels, wanted_sample_rate, audio_tgt);
 
@@ -153,3 +155,4 @@ bool BasicAudioRender::IsReady() {
   return sample_queue->NbRemaining() > 0 || (audio_buf_size > 0 && audio_buf_index < audio_buf_size);
 }
 
+}

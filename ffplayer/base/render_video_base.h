@@ -12,6 +12,8 @@
 #include "media_clock.h"
 #include "ffp_msg_queue.h"
 
+namespace media {
+
 class VideoRenderBase : public BaseRender {
 
  public:
@@ -99,4 +101,5 @@ class VideoRenderBase : public BaseRender {
 
 };
 
+}
 #endif //FFP_SRC_RENDER_VIDEO_BASE_H_

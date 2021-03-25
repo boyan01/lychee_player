@@ -12,6 +12,8 @@ extern "C" {
 #include "libavutil/frame.h"
 };
 
+namespace media {
+
 class BaseRender {
 
  private:
@@ -38,5 +40,7 @@ class BaseRender {
    */
   virtual bool IsReady() = 0;
 };
+
+}
 
 #endif //FFP_RENDER_BASE_H

@@ -5,16 +5,16 @@
 
 #include <utility>
 
-DecodeParams::DecodeParams(std::shared_ptr<PacketQueue> pkt_queue_,
-                           std::shared_ptr<std::condition_variable_any> read_condition_,
-                           AVFormatContext *const *format_ctx_, int stream_index_)
+media::DecodeParams::DecodeParams(std::shared_ptr<PacketQueue> pkt_queue_,
+                                  std::shared_ptr<std::condition_variable_any> read_condition_,
+                                  AVFormatContext *const *format_ctx_, int stream_index_)
     : pkt_queue(std::move(pkt_queue_)),
       read_condition(std::move(read_condition_)),
       format_ctx(format_ctx_),
       stream_index(stream_index_) {
 }
 
-AVStream *DecodeParams::stream() const {
+AVStream *media::DecodeParams::stream() const {
   if (!*format_ctx) {
     return nullptr;
   } else {
@@ -22,7 +22,7 @@ AVStream *DecodeParams::stream() const {
   }
 }
 
-Decoder::Decoder(
+media::Decoder::Decoder(
     unique_ptr_d<AVCodecContext> codec_context,
     std::unique_ptr<DecodeParams> decode_params_,
     std::function<void()> on_decoder_blocking
@@ -31,13 +31,13 @@ Decoder::Decoder(
     on_decoder_blocking_(std::move(on_decoder_blocking)) {
 }
 
-Decoder::~Decoder() {
+media::Decoder::~Decoder() {
   if (decoder_tid) {
     av_log(nullptr, AV_LOG_WARNING, "decoder destroyed but thread do not complete.\n");
   }
 }
 
-int Decoder::DecodeFrame(AVFrame *frame, AVSubtitle *sub) {
+int media::Decoder::DecodeFrame(AVFrame *frame, AVSubtitle *sub) {
   auto *d = this;
   int ret = AVERROR(EAGAIN);
 
@@ -152,7 +152,7 @@ int Decoder::DecodeFrame(AVFrame *frame, AVSubtitle *sub) {
   return 0;
 }
 
-void Decoder::Start() {
+void media::Decoder::Start() {
   decode_params->pkt_queue->Start();
   decoder_tid = new std::thread([this]() {
     update_thread_name(debug_label());
@@ -162,7 +162,7 @@ void Decoder::Start() {
   });
 }
 
-void Decoder::Abort(FrameQueue *fq) {
+void media::Decoder::Abort(FrameQueue *fq) {
   abort_decoder = true;
   queue()->Abort();
   AbortRender();
@@ -172,7 +172,7 @@ void Decoder::Abort(FrameQueue *fq) {
   }
 }
 
-void Decoder::Join() {
+void media::Decoder::Join() {
   if (decoder_tid && decoder_tid->joinable()) {
     decoder_tid->join();
     decoder_tid = nullptr;

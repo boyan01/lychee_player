@@ -4,6 +4,8 @@
 
 #include "ffp_frame_queue.h"
 
+namespace media {
+
 void Frame::Unref() {
   av_frame_unref(this->frame);
   avsubtitle_free(&this->sub);
@@ -117,4 +119,6 @@ int64_t FrameQueue::LastPos() {
     return fp->pos;
   else
     return -1;
+}
+
 }

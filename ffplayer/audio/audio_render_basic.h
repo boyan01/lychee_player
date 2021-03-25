@@ -10,6 +10,8 @@
 
 #include "render_audio_base.h"
 
+namespace media {
+
 class BasicAudioRender : public AudioRenderBase {
 
  private:
@@ -55,5 +57,7 @@ class BasicAudioRender : public AudioRenderBase {
   bool IsReady() override;
 
 };
+
+}
 
 #endif //MEDIA_AUDIO_AUDIO_RENDER_BASIC_H_

@@ -3,6 +3,9 @@
 //
 
 #include "decoder_video.h"
+#include "decoder_base.h"
+
+namespace media {
 
 int VideoDecoder::GetVideoFrame(AVFrame *frame) {
   auto got_picture = DecodeFrame(frame, nullptr);
@@ -53,7 +56,7 @@ int VideoDecoder::DecodeThread() {
 
 VideoDecoder::VideoDecoder(
     unique_ptr_d<AVCodecContext> codecContext,
-    std::unique_ptr<DecodeParams> decodeParams,
+    std::unique_ptr<media::DecodeParams> decodeParams,
     std::shared_ptr<VideoRenderBase> render,
     std::function<void()> on_decoder_blocking
 ) : Decoder(std::move(codecContext), std::move(decodeParams), std::move(on_decoder_blocking)),
@@ -63,4 +66,6 @@ VideoDecoder::VideoDecoder(
 
 void VideoDecoder::AbortRender() {
   video_render_->Abort();
+}
+
 }

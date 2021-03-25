@@ -2,8 +2,8 @@
 // Created by boyan on 2021/2/14.
 //
 
-#ifndef FFP_DECODER_VIDEO_H
-#define FFP_DECODER_VIDEO_H
+#ifndef MEDIA_VIDEO_DECODER_H_
+#define MEDIA_VIDEO_DECODER_H_
 
 #include "decoder_base.h"
 #include "render_video_base.h"
@@ -12,7 +12,9 @@ extern "C" {
 #include "libavformat/avformat.h"
 };
 
-class VideoDecoder : public Decoder {
+namespace media {
+
+class VideoDecoder : public media::Decoder {
 
  private:
 
@@ -29,7 +31,7 @@ class VideoDecoder : public Decoder {
  public:
   VideoDecoder(
       unique_ptr_d<AVCodecContext> codecContext,
-      std::unique_ptr<DecodeParams> decodeParams,
+      std::unique_ptr<media::DecodeParams> decodeParams,
       std::shared_ptr<VideoRenderBase> render,
       std::function<void()> on_decoder_blocking
   );
@@ -38,4 +40,6 @@ class VideoDecoder : public Decoder {
   void AbortRender() override;
 };
 
-#endif //FFP_DECODER_VIDEO_H
+}
+
+#endif //MEDIA_VIDEO_DECODER_H_

@@ -14,12 +14,14 @@
 #include "render_base.h"
 #include "decoder_video.h"
 #include "decoder_audio.h"
+#include "decoder_base.h"
 
 extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 };
 
+namespace media {
 class DecoderContext {
  public:
   /**
@@ -59,5 +61,6 @@ class DecoderContext {
   int StartDecoder(std::unique_ptr<DecodeParams> decode_params);
 
 };
+}
 
 #endif //FFPLAYER_FFP_DECODER_H

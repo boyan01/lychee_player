@@ -14,6 +14,8 @@ extern "C" {
 #include "libavutil/log.h"
 };
 
+namespace media {
+
 #define FFP_MSG_FLUSH                       0
 #define FFP_MSG_ERROR                       100     /* arg1 = error */
 #define FFP_MSG_PREPARED                    200
@@ -134,5 +136,7 @@ class MessageContext {
   void RemoveMessage(int what);
 
 };
+
+}
 
 #endif //FFPLAYER_FFP_MSG_QUEUE_H

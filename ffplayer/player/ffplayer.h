@@ -3,6 +3,8 @@
 
 #include <cstdint>
 
+namespace media {
+
 struct PlayerConfiguration {
   int32_t audio_disable = false;
   int32_t video_disable = false;
@@ -15,5 +17,7 @@ struct PlayerConfiguration {
   double start_time = 0;
   int32_t loop = 1;
 };
+
+}
 
 #endif  // FFPLAYER_FFPLAYER_H_

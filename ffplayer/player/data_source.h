@@ -18,6 +18,8 @@ extern "C" {
 #include "libavformat/avformat.h"
 };
 
+namespace media {
+
 class DataSource {
  public:
   bool gen_pts = false;
@@ -38,7 +40,7 @@ class DataSource {
 
   Clock *ext_clock;
 
-  std::shared_ptr<DecoderContext> decoder_ctx;
+  std::shared_ptr<media::DecoderContext> decoder_ctx;
 
   std::function<void()> on_new_packet_send_;
 
@@ -137,5 +139,7 @@ class DataSource {
   void ProcessQueuePacket(AVPacket *pkt);
 
 };
+
+}
 
 #endif //FFPLAYER_FFP_DATA_SOURCE_H

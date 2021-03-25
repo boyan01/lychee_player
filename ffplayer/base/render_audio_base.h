@@ -9,6 +9,12 @@
 #include "media_clock.h"
 #include "ffp_frame_queue.h"
 
+extern "C" {
+#include "libswresample//swresample.h"
+};
+
+namespace media {
+
 /* we use about AUDIO_DIFF_AVG_NB A-V differences to make the average */
 #define AUDIO_DIFF_AVG_NB 20
 
@@ -113,5 +119,7 @@ class AudioRenderBase : public BaseRender {
   void Stop();
 
 };
+
+}
 
 #endif //ANDROID_RENDER_AUDIO_BASE_H

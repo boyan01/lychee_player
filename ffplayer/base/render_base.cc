@@ -4,6 +4,8 @@
 
 #include "render_base.h"
 
+namespace media {
+
 BaseRender::BaseRender() = default;
 
 void BaseRender::NotifyRenderProceed() {
@@ -16,3 +18,4 @@ void BaseRender::SetRenderCallback(std::function<void()> render_callback) {
   render_callback_ = std::move(render_callback);
 }
 
+}

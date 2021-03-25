@@ -3,8 +3,11 @@
 //
 
 #include "decoder_audio.h"
+#include "decoder_base.h"
 
 #include <utility>
+
+namespace media {
 
 const char *AudioDecoder::debug_label() {
   return "audio_decoder";
@@ -33,10 +36,10 @@ int AudioDecoder::DecodeThread() {
 
 AudioDecoder::AudioDecoder(
     unique_ptr_d<AVCodecContext> codec_context_,
-    std::unique_ptr<DecodeParams> decode_params_,
+    std::unique_ptr<media::DecodeParams> decode_params_,
     std::shared_ptr<BasicAudioRender> audio_render,
     std::function<void()> on_decoder_blocking
-) : Decoder(std::move(codec_context_), std::move(decode_params_), std::move(on_decoder_blocking)),
+) : media::Decoder(std::move(codec_context_), std::move(decode_params_), std::move(on_decoder_blocking)),
     audio_render_(std::move(audio_render)) {
   if (decode_params->audio_follow_stream_start_pts) {
     start_pts = decode_params->stream()->start_time;
@@ -47,4 +50,6 @@ AudioDecoder::AudioDecoder(
 
 void AudioDecoder::AbortRender() {
   audio_render_->Abort();
+}
+
 }

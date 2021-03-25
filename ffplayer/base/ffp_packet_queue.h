@@ -12,6 +12,8 @@ extern "C" {
 #include "libavcodec/avcodec.h"
 };
 
+namespace media {
+
 struct MyAVPacketList {
   AVPacket pkt;
   struct MyAVPacketList *next;
@@ -62,5 +64,7 @@ class PacketQueue {
   int DequeuePacket(AVPacket &pkt, int *pkt_serial);
 
 };
+
+}
 
 #endif //FFP_PACKET_QUEUE_H

@@ -14,6 +14,8 @@ extern "C" {
 #include "libavcodec/avcodec.h"
 };
 
+namespace media {
+
 #define VIDEO_PICTURE_QUEUE_SIZE 3
 #define SUBPICTURE_QUEUE_SIZE 16
 #define SAMPLE_QUEUE_SIZE 9
@@ -79,5 +81,7 @@ class FrameQueue {
   int64_t LastPos();
 
 };
+
+}
 
 #endif //FFPLAYER_FFP_FRAME_QUEUE_H

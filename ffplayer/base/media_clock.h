@@ -12,6 +12,8 @@ extern "C" {
 #include <libavutil/time.h> // NOLINT(modernize-deprecated-headers)
 };
 
+namespace media {
+
 /* no AV correction is done if too big error */
 #define AV_NOSYNC_THRESHOLD 10.0
 
@@ -87,5 +89,7 @@ class MediaClock {
   double GetMasterClock();
 
 };
+
+}
 
 #endif //BASE_MEDIA_CLOCK_H

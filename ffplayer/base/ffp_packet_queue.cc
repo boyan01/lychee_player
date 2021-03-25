@@ -4,6 +4,8 @@
 
 #include "ffp_packet_queue.h"
 
+namespace media {
+
 int PacketQueue::Get(AVPacket *pkt, int block, int *pkt_serial, void *opacity, void (*on_block)(void *)) {
   MyAVPacketList *pkt1;
   int ret;
@@ -163,4 +165,6 @@ AVPacket *PacketQueue::GetFlushPacket() {
   av_init_packet(&flush_pkt);
   flush_pkt.data = (uint8_t *) &flush_pkt;
   return &flush_pkt;
+}
+
 }

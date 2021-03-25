@@ -7,6 +7,8 @@
 
 #include <memory>
 
+namespace media {
+
 template<typename T>
 using unique_ptr_d = std::unique_ptr<T, void (*)(T *ptr)>;
 
@@ -27,5 +29,7 @@ if(!(VALUE)) {\
 #else
 #define FFPLAYER_EXPORT extern "C" __attribute__((visibility("default"))) __attribute__((used))
 #endif
+
+}
 
 #endif //FFPLAYER_FFP_DEFINE_H

@@ -5,6 +5,9 @@
 #include <utility>
 
 #include "decoder_ctx.h"
+#include "decoder_base.h"
+
+namespace media {
 
 int DecoderContext::StartDecoder(std::unique_ptr<DecodeParams> decode_params) {
   unique_ptr_d<AVCodecContext> codec_ctx(avcodec_alloc_context3(nullptr),
@@ -133,4 +136,5 @@ DecoderContext::~DecoderContext() {
     video_decoder->Join();
     delete video_decoder;
   }
+}
 }

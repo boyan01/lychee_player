@@ -3,6 +3,7 @@
 //
 
 #include "media_player.h"
+#include "decoder_ctx.h"
 
 #ifndef _FLUTTER_MEDIA_ANDROID
 #define MEDIA_SDL_ENABLE
@@ -17,6 +18,8 @@
 extern "C" {
 #include "libavutil/bprint.h"
 }
+
+namespace media {
 
 MediaPlayer::MediaPlayer(
     std::unique_ptr<VideoRenderBase> video_render,
@@ -459,4 +462,4 @@ void MediaPlayer::CheckBuffering() {
 
 }
 
-
+}

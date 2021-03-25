@@ -9,6 +9,8 @@ extern "C" {
 #include "libavutil/common.h"
 }
 
+namespace media {
+
 struct Message {
   int what;
   int64_t arg1;
@@ -251,5 +253,7 @@ void MessageContext::StopAndWait() {
 }
 void MessageContext::RemoveMessage(int what) {
   msg_queue->Remove(what);
+
+}
 
 }

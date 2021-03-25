@@ -17,6 +17,7 @@ extern "C" {
 }
 
 using namespace std;
+using namespace media;
 
 #define FF_DRAW_EVENT    (SDL_USEREVENT + 2)
 #define FF_MSG_EVENT    (SDL_USEREVENT + 3)

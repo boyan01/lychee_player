@@ -7,6 +7,8 @@
 #include "render_video_base.h"
 #include "ffp_utils.h"
 
+namespace media {
+
 /* polls for possible required screen refresh at least this often, should be less than 1/fps */
 #define REFRESH_RATE 0.01
 
@@ -271,4 +273,6 @@ static void check_external_clock_speed() {
 //            is->extclk.SetSpeed(speed + EXTERNAL_CLOCK_SPEED_STEP * (1.0 - speed) / fabs(1.0 - speed));
 //        }
 //    }
+}
+
 }

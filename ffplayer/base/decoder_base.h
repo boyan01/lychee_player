@@ -23,6 +23,8 @@ extern "C" {
 
 #include "render_base.h"
 
+namespace media {
+
 struct DecodeParams {
   std::shared_ptr<PacketQueue> pkt_queue;
   // Use to notify data_source if decoder have not enough packets.
@@ -100,5 +102,7 @@ class Decoder {
   void Join();
 
 };
+
+}
 
 #endif //FFP_DECODER_BASE_H

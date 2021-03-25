@@ -14,6 +14,9 @@
 #include "data_source.h"
 #include "render_audio_base.h"
 #include "render_video_base.h"
+#include "decoder_ctx.h"
+
+namespace media {
 
 enum class MediaPlayerState {
   IDLE = 0,
@@ -122,5 +125,7 @@ class MediaPlayer {
   void DumpStatus();
 
 };
+
+} // namespace media
 
 #endif //MEDIA_PLAYER_MEDIA_PLAYER_H

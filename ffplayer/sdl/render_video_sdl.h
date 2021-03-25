@@ -12,6 +12,8 @@ extern "C" {
 #include "libswscale/swscale.h"
 };
 
+namespace media {
+
 class SdlVideoRender : public VideoRenderBase {
 
  public:
@@ -46,4 +48,5 @@ class SdlVideoRender : public VideoRenderBase {
   void DestroyTexture();
 };
 
+}
 #endif //FFP_SRC_RENDER_VIDEO_SDL_H_

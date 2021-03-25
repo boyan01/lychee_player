@@ -5,6 +5,8 @@
 #include "render_video_sdl.h"
 #include "sdl_utils.h"
 
+namespace media {
+
 SdlVideoRender::SdlVideoRender(std::shared_ptr<SDL_Renderer> renderer)
     : VideoRenderBase(), renderer_(std::move(renderer)) {
 
@@ -199,3 +201,4 @@ void SdlVideoRender::DestroyTexture() {
   texture_ = nullptr;
 }
 
+}
