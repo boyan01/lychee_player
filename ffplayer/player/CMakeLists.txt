@@ -2,12 +2,14 @@ cmake_minimum_required(VERSION 3.10)
 
 project("media_player")
 
-aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} BASE_SOURCES)
+set(MEDIA_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/")
 
-add_library(media_player ${BASE_SOURCES})
+aux_source_directory(${MEDIA_SRC_DIR} SRC_FILES)
+
+add_library(media_player ${SRC_FILES})
 
 target_include_directories(media_player PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${MEDIA_SRC_DIR}
         ../third_party
         )
 
