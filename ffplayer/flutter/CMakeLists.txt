@@ -22,6 +22,10 @@ if (CMAKE_FLUTTER_MEDIA_ANDROID)
     list(APPEND media_flutter_libs media_flutter_android)
 endif ()
 
+if (MEDIA_USE_SDL)
+    list(APPEND media_flutter_libs media_sdl)
+endif ()
+
 add_subdirectory(base)
 
 target_link_libraries(media_flutter PUBLIC media_flutter_base ${media_flutter_libs})
