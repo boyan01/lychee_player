@@ -11,7 +11,7 @@
 
 extern "C" {
 #include "libswresample//swresample.h"
-};
+}
 
 namespace media {
 
@@ -62,7 +62,6 @@ class AudioRenderBase : public BaseRender {
  public:
 
   int *audio_queue_serial = nullptr;
-
 
  private:
 

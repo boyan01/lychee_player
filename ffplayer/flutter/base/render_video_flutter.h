@@ -10,6 +10,8 @@
 
 #include "render_video_base.h"
 
+namespace media {
+
 class FlutterVideoRender : public VideoRenderBase {
 
  private:
@@ -34,5 +36,7 @@ class FlutterVideoRender : public VideoRenderBase {
   void Abort() override;
 
 };
+
+}
 
 #endif //AUDIO_PLAYER_EXAMPLE_RENDER_VIDEO_FLUTTER_H

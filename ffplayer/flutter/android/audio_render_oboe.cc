@@ -50,8 +50,10 @@ int AudioRenderOboe::OpenAudioDevice(int64_t wanted_channel_layout,
 AudioRenderOboe::AudioRenderOboe() = default;
 
 AudioRenderOboe::~AudioRenderOboe() {
-  audio_stream_->stop();
-  audio_stream_->close();
+  if (audio_stream_) {
+    audio_stream_->stop();
+    audio_stream_->close();
+  }
 }
 
 oboe::DataCallbackResult AudioRenderOboe::onAudioReady(
