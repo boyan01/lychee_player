@@ -13,5 +13,5 @@ target_include_directories(media_player PUBLIC
         ../third_party
         )
 
-target_link_libraries(media_player PUBLIC ${FFP_LIBS})
+target_link_libraries(media_player PUBLIC ${FFP_LIBS} media_base)
 
