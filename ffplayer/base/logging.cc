@@ -19,11 +19,7 @@ int min_log_level = 0;
 // InitLogging is not called.  On Windows, use a file next to the exe;
 // on POSIX platforms, where it may not even be possible to locate the
 // executable on disk, use stderr.
-#if defined(OS_WIN)
-LoggingDestination logging_destination = LOG_ONLY_TO_FILE;
-#elif defined(__linux__)
 LoggingDestination logging_destination = LOG_ONLY_TO_SYSTEM_DEBUG_LOG;
-#endif
 
 LogMessage::LogMessage(const char *file, int line, LogSeverity severity,
                        int ctr)

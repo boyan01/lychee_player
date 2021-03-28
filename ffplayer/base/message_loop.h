@@ -15,32 +15,42 @@
 namespace media {
 namespace base {
 
-
 class MessageLoop {
 
  public:
 
-  void PostTask(const tracked_objects::Location &from_here, TaskClosure &task);
+  /**
+   *
+   *  Create MessageLoop and run in new thread.
+   *
+   * @param loop_name the name of [MessageLoop]
+   * @return created MessageLoop.
+   */
+  static MessageLoop *prepare_looper(const char *loop_name);
+
+  virtual ~MessageLoop();
+
+  // Returns the MessageLoop object for the current thread, or null if none.
+  static MessageLoop *current();
+
+  void PostTask(const tracked_objects::Location &from_here, const TaskClosure &task);
+
+  void Quit();
 
  private:
-  MessageQueue incoming_queue_;
-  mutable std::mutex incoming_queue_lock_;
 
-  // The next sequence number to use for delayed tasks. Updating this counter is
-  // protected by incoming_queue_lock_.
-  int next_sequence_num_;
+  explicit MessageLoop(const char *loop_name);
 
-  MessageQueue work_queue_;
+  const char *loop_name_;
 
-  void AddToIncomingQueue(Message *message);
+  MessageQueue message_queue_;
 
-  void DoWork();
+  void Loop();
 
-  void ReloadWorkQueue();
+  DISALLOW_COPY_AND_ASSIGN(MessageLoop);
 
-  void AddToDelayedWorkQueue(const Message &message);
+  static thread_local MessageLoop *thread_local_message_loop_;
 
-  static void RunTask(const Message &message);
 };
 
 } // namespace base

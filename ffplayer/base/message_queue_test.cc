@@ -19,10 +19,13 @@ static const Message &obtain_emtpy_message() {
   return message;
 }
 
+typedef std::function<void(MessageQueue &queue, Message *)> StdOnMessageCB;
+typedef testing::MockFunction<void(MessageQueue &queue, Message *)> MockOnMessageCB;
+
 static void simple_loop(
     const std::function<void(MessageQueue &queue)> &before_prepared,
     const std::function<void(MessageQueue &queue)> &on_prepared,
-    std::function<void(MessageQueue &queue, Message *)> on_message,
+    StdOnMessageCB on_message,
     milliseconds max_waiting_duration = milliseconds(3000) // 3 seconds.
 ) {
 
@@ -57,7 +60,7 @@ static void simple_loop(
 }
 
 TEST(MessageQueue, SimpleEnqueueMessage) {
-  testing::MockFunction<bool(MessageQueue &queue, Message *)> on_message;
+  MockOnMessageCB on_message;
   EXPECT_CALL(on_message, Call(testing::_, testing::_))
       .Times(1);
 
@@ -74,7 +77,7 @@ TEST(MessageQueue, EnqueueMultiTimes) {
 
   const static int TEST_LOOP = 50;
 
-  testing::MockFunction<bool(MessageQueue &queue, Message *)> on_message;
+  MockOnMessageCB on_message;
   EXPECT_CALL(on_message, Call(testing::_, testing::_))
       .Times(TEST_LOOP * 2);
 
@@ -91,4 +94,31 @@ TEST(MessageQueue, EnqueueMultiTimes) {
       enqueue_messages,
       on_message.AsStdFunction()
   );
+}
+
+TEST(MessageQueue, MultiThreadPostMessage) {
+
+  const static int TEST_LOOP = 40;
+  const static int thread_count = 4;
+
+  MockOnMessageCB on_message_cb;
+  EXPECT_CALL(on_message_cb, Call(testing::_, testing::_))
+      .Times(TEST_LOOP);
+
+  simple_loop([](MessageQueue &queue) {
+    // sleep 100 mills to ensure our message looper is ready.
+    std::this_thread::sleep_for(milliseconds(100));
+
+    // split [thread_count] threads to post all [TEST_LOOP] count of messages.
+    for (int i = 0; i < thread_count; ++i) {
+      std::thread thread([&queue]() {
+        for (int j = 0; j < TEST_LOOP / thread_count; ++j) {
+          queue.EnqueueMessage(obtain_emtpy_message());
+        }
+      });
+      thread.detach();
+    }
+
+  }, on_message_cb.AsStdFunction());
+
 }

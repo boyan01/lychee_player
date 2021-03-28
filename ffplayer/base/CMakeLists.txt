@@ -12,12 +12,19 @@ add_library(media_base
         logging.h
         logging.cc
         basictypes.h
-        message_queue.cc message_queue.h)
+        message_queue.h
+        message_queue.cc
+        utility.h
+        utility.cc
+        )
 
 target_include_directories(media_base PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 
-add_executable(media_base_test message_queue_test.cc)
+add_executable(media_base_test
+        message_queue_test.cc
+        message_loop_test.cc
+        )
 target_link_libraries(media_base_test media_base gtest_main gmock_main)
 
 add_test(NAME media_base_test COMMAND media_base)

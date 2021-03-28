@@ -4,36 +4,60 @@
 
 #include "logging.h"
 #include "message_loop.h"
+#include "utility.h"
 
 namespace media {
 
 namespace base {
 
-void MessageLoop::PostTask(const tracked_objects::Location &from_here, TaskClosure &task) {
-  DCHECK(!task) << from_here.ToString();
+thread_local MessageLoop *MessageLoop::thread_local_message_loop_;
+
+MessageLoop::MessageLoop(const char *loop_name) : loop_name_(loop_name) {
+
+}
+
+MessageLoop::~MessageLoop() {
+  DCHECK_EQ(this, current());
+}
+
+void MessageLoop::PostTask(const tracked_objects::Location &from_here, const TaskClosure &task) {
   Message message(task, from_here);
-  AddToIncomingQueue(&message);
+  message_queue_.EnqueueMessage(message);
 }
 
-void MessageLoop::AddToIncomingQueue(Message *message) {
+void MessageLoop::Loop() {
+  for (;;) {
+    Message *msg = message_queue_.next();
+    if (msg == nullptr) {
+      DLOG(INFO) << "MessageLoop over.";
+      return;
+    }
 
+    DCHECK(msg->next == nullptr);
+
+    msg->task();
+
+    delete msg;
+  }
 }
 
-void MessageLoop::DoWork() {
-
+MessageLoop *MessageLoop::current() {
+  return thread_local_message_loop_;
 }
 
-void MessageLoop::ReloadWorkQueue() {
-
-
+void MessageLoop::Quit() {
+  message_queue_.Quit();
 }
 
-void MessageLoop::AddToDelayedWorkQueue(const Message &message) {
-  // Move to the delayed work queue.
-}
-
-void MessageLoop::RunTask(const Message &message) {
-  message.task();
+MessageLoop *MessageLoop::prepare_looper(const char *loop_name) {
+  auto *looper = new MessageLoop(loop_name);
+  std::thread looper_th([looper]() {
+    utility::update_thread_name(looper->loop_name_);
+    thread_local_message_loop_ = looper;
+    looper->Loop();
+  });
+  looper_th.detach();
+  return looper;
 }
 
 } // namespace base

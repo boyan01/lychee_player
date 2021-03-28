@@ -32,6 +32,8 @@ const LogSeverity LOG_ERROR_REPORT = 3;
 const LogSeverity LOG_FATAL = 4;
 const LogSeverity LOG_NUM_SEVERITIES = 5;
 
+const LogSeverity LOG_DCHECK = LOG_FATAL;
+
 // LOG_DFATAL is LOG_FATAL in debug mode, ERROR in normal mode
 #ifdef NDEBUG
 const LogSeverity LOG_DFATAL = LOG_ERROR;
@@ -157,6 +159,49 @@ class LogMessageVoid {
 // the condition doesn't hold.
 #define LAZY_STREAM(stream, condition)                                  \
   !(condition) ? (void) 0 : ::logging::LogMessageVoid() & (stream)
+
+// Build the error message string.  This is separate from the "Impl"
+// function template because it is not performance critical and so can
+// be out of line, while the "Impl" code should be inline.  Caller
+// takes ownership of the returned string.
+template<class t1, class t2>
+std::string* MakeCheckOpString(const t1& v1, const t2& v2, const char* names) {
+  std::ostringstream ss;
+  ss << names << " (" << v1 << " vs. " << v2 << ")";
+  auto* msg = new std::string(ss.str());
+  return msg;
+}
+
+// Helper functions for CHECK_OP macro.
+// The (int, int) specialization works around the issue that the compiler
+// will not instantiate the template version of the function on values of
+// unnamed enum type - see comment below.
+#define DEFINE_CHECK_OP_IMPL(name, op) \
+  template <class t1, class t2> \
+  inline std::string* Check##name##Impl(const t1& v1, const t2& v2, \
+                                        const char* names) { \
+    if (v1 op v2) return NULL; \
+    else return MakeCheckOpString(v1, v2, names); \
+  } \
+  inline std::string* Check##name##Impl(int v1, int v2, const char* names) { \
+    if (v1 op v2) return NULL; \
+    else return MakeCheckOpString(v1, v2, names); \
+  }
+DEFINE_CHECK_OP_IMPL(EQ, ==)
+DEFINE_CHECK_OP_IMPL(NE, !=)
+DEFINE_CHECK_OP_IMPL(LE, <=)
+DEFINE_CHECK_OP_IMPL(LT, < )
+DEFINE_CHECK_OP_IMPL(GE, >=)
+DEFINE_CHECK_OP_IMPL(GT, > )
+#undef DEFINE_CHECK_OP_IMPL
+
+#define CHECK_EQ(val1, val2) CHECK_OP(EQ, ==, val1, val2)
+#define CHECK_NE(val1, val2) CHECK_OP(NE, !=, val1, val2)
+#define CHECK_LE(val1, val2) CHECK_OP(LE, <=, val1, val2)
+#define CHECK_LT(val1, val2) CHECK_OP(LT, < , val1, val2)
+#define CHECK_GE(val1, val2) CHECK_OP(GE, >=, val1, val2)
+#define CHECK_GT(val1, val2) CHECK_OP(GT, > , val1, val2)
+
 
 // We use the preprocessor's merging operator, "##", so that, e.g.,
 // LOG(INFO) becomes the token COMPACT_GOOGLE_LOG_INFO.  There's some funny
