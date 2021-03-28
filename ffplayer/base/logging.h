@@ -165,10 +165,10 @@ class LogMessageVoid {
 // be out of line, while the "Impl" code should be inline.  Caller
 // takes ownership of the returned string.
 template<class t1, class t2>
-std::string* MakeCheckOpString(const t1& v1, const t2& v2, const char* names) {
+std::string *MakeCheckOpString(const t1 &v1, const t2 &v2, const char *names) {
   std::ostringstream ss;
   ss << names << " (" << v1 << " vs. " << v2 << ")";
-  auto* msg = new std::string(ss.str());
+  auto *msg = new std::string(ss.str());
   return msg;
 }
 
@@ -190,9 +190,9 @@ std::string* MakeCheckOpString(const t1& v1, const t2& v2, const char* names) {
 DEFINE_CHECK_OP_IMPL(EQ, ==)
 DEFINE_CHECK_OP_IMPL(NE, !=)
 DEFINE_CHECK_OP_IMPL(LE, <=)
-DEFINE_CHECK_OP_IMPL(LT, < )
+DEFINE_CHECK_OP_IMPL(LT, <)
 DEFINE_CHECK_OP_IMPL(GE, >=)
-DEFINE_CHECK_OP_IMPL(GT, > )
+DEFINE_CHECK_OP_IMPL(GT, >)
 #undef DEFINE_CHECK_OP_IMPL
 
 #define CHECK_EQ(val1, val2) CHECK_OP(EQ, ==, val1, val2)
@@ -213,6 +213,8 @@ DEFINE_CHECK_OP_IMPL(GT, > )
 // function of LogMessage which seems to avoid the problem.
 #define LOG_STREAM(severity) COMPACT_GOOGLE_LOG_ ## severity.stream()
 
+#define LOG(severity) LAZY_STREAM(LOG_STREAM(severity), LOG_IS_ON(severity))
+
 #define DLOG(severity)                                          \
   LAZY_STREAM(LOG_STREAM(severity), DLOG_IS_ON(severity))
 
@@ -220,6 +222,9 @@ DEFINE_CHECK_OP_IMPL(GT, > )
   LAZY_STREAM(LOG_STREAM(DCHECK), DCHECK_IS_ON() && !(condition))   \
   << "Check failed: " #condition ". "
 
+#define CHECK(condition)                       \
+  LAZY_STREAM(LOG_STREAM(FATAL), !(condition)) \
+  << "Check failed: " #condition ". "
 
 // Helper macro for binary operators.
 // Don't use this macro directly in your code, use DCHECK_EQ et al below.

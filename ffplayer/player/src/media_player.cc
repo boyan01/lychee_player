@@ -121,7 +121,7 @@ int MediaPlayer::OpenDataSource(const char *filename) {
     return -1;
   }
 
-  data_source = std::make_unique<DataSource>(filename, nullptr);
+  data_source = std::make_unique<DataSource1>(filename, nullptr);
   data_source->configuration = start_configuration;
   data_source->audio_queue = audio_pkt_queue;
   data_source->video_queue = video_pkt_queue;

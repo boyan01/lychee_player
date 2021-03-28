@@ -3,7 +3,7 @@
 //
 
 #include "ffplayer.h"
-#include "data_source.h"
+#include "data_source_1.h"
 #include "ffp_utils.h"
 
 #include "media_player.h"
@@ -32,17 +32,17 @@ static int is_realtime(AVFormatContext *s) {
   return 0;
 }
 
-DataSource::DataSource(const char *filename, AVInputFormat *format) : in_format(format) {
+DataSource1::DataSource1(const char *filename, AVInputFormat *format) : in_format(format) {
   memset(wanted_stream_spec, 0, sizeof wanted_stream_spec);
   this->filename = av_strdup(filename);
   continue_read_thread_ = std::make_shared<std::condition_variable_any>();
 }
 
-int DataSource::Open() {
+int DataSource1::Open() {
   if (!filename) {
     return -1;
   }
-  read_tid = new std::thread(&DataSource::ReadThread, this);
+  read_tid = new std::thread(&DataSource1::ReadThread, this);
   if (!read_tid) {
     av_log(nullptr, AV_LOG_FATAL, "can not create thread for video render.\n");
     return -1;
@@ -50,7 +50,7 @@ int DataSource::Open() {
   return 0;
 }
 
-DataSource::~DataSource() {
+DataSource1::~DataSource1() {
   av_free(filename);
   if (read_tid && read_tid->joinable()) {
     abort_request = true;
@@ -63,9 +63,9 @@ DataSource::~DataSource() {
   }
 }
 
-void DataSource::ReadThread() {
+void DataSource1::ReadThread() {
   update_thread_name("read_source");
-  av_log(nullptr, AV_LOG_DEBUG, "DataSource Read OnStart: %s \n", filename);
+  av_log(nullptr, AV_LOG_DEBUG, "DataSource1 Read OnStart: %s \n", filename);
   int st_index[AVMEDIA_TYPE_NB] = {-1, -1, -1, -1, -1};
   std::mutex wait_mutex;
 
@@ -86,7 +86,7 @@ void DataSource::ReadThread() {
   av_log(nullptr, AV_LOG_INFO, "thread: read_source done.\n");
 }
 
-int DataSource::PrepareFormatContext() {
+int DataSource1::PrepareFormatContext() {
   format_ctx_ = avformat_alloc_context();
   if (!format_ctx_) {
     av_log(nullptr, AV_LOG_FATAL, "Could not allocate context.\n");
@@ -94,7 +94,7 @@ int DataSource::PrepareFormatContext() {
   }
   format_ctx_->interrupt_callback.opaque = this;
   format_ctx_->interrupt_callback.callback = [](void *ctx) -> int {
-    auto *source = static_cast<DataSource *>(ctx);
+    auto *source = static_cast<DataSource1 *>(ctx);
     return source->abort_request;
   };
   auto err = avformat_open_input(&format_ctx_, filename, in_format, nullptr);
@@ -128,7 +128,7 @@ int DataSource::PrepareFormatContext() {
   return 0;
 }
 
-void DataSource::OnFormatContextOpen() {
+void DataSource1::OnFormatContextOpen() {
   msg_ctx->NotifyMsg(FFP_MSG_AV_METADATA_LOADED);
 
   /* if seeking requested, we execute it */
@@ -154,7 +154,7 @@ void DataSource::OnFormatContextOpen() {
   }
 }
 
-int DataSource::ReadStreamInfo(int st_index[AVMEDIA_TYPE_NB]) {
+int DataSource1::ReadStreamInfo(int st_index[AVMEDIA_TYPE_NB]) {
   for (int i = 0; i < format_ctx_->nb_streams; ++i) {
     auto *st = format_ctx_->streams[i];
     auto type = st->codecpar->codec_type;
@@ -197,7 +197,7 @@ int DataSource::ReadStreamInfo(int st_index[AVMEDIA_TYPE_NB]) {
   return 0;
 }
 
-void DataSource::OnStreamInfoLoad(const int st_index[AVMEDIA_TYPE_NB]) {
+void DataSource1::OnStreamInfoLoad(const int st_index[AVMEDIA_TYPE_NB]) {
   if (st_index[AVMEDIA_TYPE_VIDEO] >= 0) {
     auto *st = format_ctx_->streams[st_index[AVMEDIA_TYPE_VIDEO]];
     auto sar = av_guess_sample_aspect_ratio(format_ctx_, st, nullptr);
@@ -207,7 +207,7 @@ void DataSource::OnStreamInfoLoad(const int st_index[AVMEDIA_TYPE_NB]) {
   }
 }
 
-int DataSource::OpenStreams(const int st_index[AVMEDIA_TYPE_NB]) {
+int DataSource1::OpenStreams(const int st_index[AVMEDIA_TYPE_NB]) {
   if (st_index[AVMEDIA_TYPE_AUDIO] >= 0) {
     OpenComponentStream(st_index[AVMEDIA_TYPE_AUDIO], AVMEDIA_TYPE_AUDIO);
   }
@@ -224,7 +224,7 @@ int DataSource::OpenStreams(const int st_index[AVMEDIA_TYPE_NB]) {
   return 0;
 }
 
-int DataSource::OpenComponentStream(int stream_index, AVMediaType media_type) {
+int DataSource1::OpenComponentStream(int stream_index, AVMediaType media_type) {
   if (decoder_ctx == nullptr) {
     av_log(nullptr, AV_LOG_ERROR, "can not open stream(%d) cause decoder_ctx is null.\n", stream_index);
     return -1;
@@ -286,7 +286,7 @@ int DataSource::OpenComponentStream(int stream_index, AVMediaType media_type) {
   return 0;
 }
 
-void DataSource::ReadStreams(std::mutex &read_mutex) {
+void DataSource1::ReadStreams(std::mutex &read_mutex) {
   bool last_paused = false;
   AVPacket pkt_data, *pkt = &pkt_data;
   for (;;) {
@@ -345,7 +345,7 @@ void DataSource::ReadStreams(std::mutex &read_mutex) {
   }
 }
 
-void DataSource::ProcessSeekRequest() {
+void DataSource1::ProcessSeekRequest() {
   if (!seek_req_) {
     return;
   }
@@ -377,7 +377,7 @@ void DataSource::ProcessSeekRequest() {
   // TODO notify on seek complete.
 }
 
-void DataSource::ProcessAttachedPicture() {
+void DataSource1::ProcessAttachedPicture() {
   if (!queue_attachments_req_) {
     return;
   }
@@ -394,7 +394,7 @@ void DataSource::ProcessAttachedPicture() {
   queue_attachments_req_ = false;
 }
 
-bool DataSource::isNeedReadMore() {
+bool DataSource1::isNeedReadMore() {
   if (infinite_buffer) {
     return true;
   }
@@ -409,14 +409,14 @@ bool DataSource::isNeedReadMore() {
   return true;
 }
 
-bool DataSource::IsReadComplete() const {
+bool DataSource1::IsReadComplete() const {
   if (paused) {
     return false;
   }
   return eof;
 }
 
-int DataSource::ProcessReadFrame(AVPacket *pkt, std::mutex &read_mutex) {
+int DataSource1::ProcessReadFrame(AVPacket *pkt, std::mutex &read_mutex) {
   auto ret = av_read_frame(format_ctx_, pkt);
   if (ret < 0) {
     if ((ret == AVERROR_EOF || avio_feof(format_ctx_->pb)) && !eof) {
@@ -444,7 +444,7 @@ int DataSource::ProcessReadFrame(AVPacket *pkt, std::mutex &read_mutex) {
   return 0;
 }
 
-void DataSource::ProcessQueuePacket(AVPacket *pkt) {
+void DataSource1::ProcessQueuePacket(AVPacket *pkt) {
   auto stream_start_time = format_ctx_->streams[pkt->stream_index]->start_time;
   if (stream_start_time == AV_NOPTS_VALUE) {
     stream_start_time = 0;
@@ -467,19 +467,19 @@ void DataSource::ProcessQueuePacket(AVPacket *pkt) {
   }
 }
 
-bool DataSource::ContainVideoStream() {
+bool DataSource1::ContainVideoStream() {
   return video_stream_ != nullptr;
 }
 
-bool DataSource::ContainAudioStream() {
+bool DataSource1::ContainAudioStream() {
   return audio_stream_ != nullptr;
 }
 
-bool DataSource::ContainSubtitleStream() {
+bool DataSource1::ContainSubtitleStream() {
   return subtitle_stream_ != nullptr;
 }
 
-void DataSource::Seek(double position) {
+void DataSource1::Seek(double position) {
   auto target = (int64_t) (position * AV_TIME_BASE);
   if (!format_ctx_) {
     start_time = FFMAX(0, target);
@@ -504,19 +504,19 @@ void DataSource::Seek(double position) {
   }
 }
 
-double DataSource::GetSeekPosition() const { return seek_position / (double) (AV_TIME_BASE); }
+double DataSource1::GetSeekPosition() const { return seek_position / (double) (AV_TIME_BASE); }
 
-double DataSource::GetDuration() {
+double DataSource1::GetDuration() {
   CHECK_VALUE_WITH_RETURN(format_ctx_, -1);
   return format_ctx_->duration / (double) AV_TIME_BASE;
 }
 
-int DataSource::GetChapterCount() {
+int DataSource1::GetChapterCount() {
   CHECK_VALUE_WITH_RETURN(format_ctx_, -1);
   return (int) format_ctx_->nb_chapters;
 }
 
-int DataSource::GetChapterByPosition(int64_t position) {
+int DataSource1::GetChapterByPosition(int64_t position) {
   CHECK_VALUE_WITH_RETURN(format_ctx_, -1);
   CHECK_VALUE_WITH_RETURN(format_ctx_->nb_chapters, -1);
   for (int i = 0; i < format_ctx_->nb_chapters; i++) {
@@ -529,7 +529,7 @@ int DataSource::GetChapterByPosition(int64_t position) {
   return -1;
 }
 
-void DataSource::SeekToChapter(int chapter) {
+void DataSource1::SeekToChapter(int chapter) {
   CHECK_VALUE(format_ctx_);
   CHECK_VALUE(format_ctx_->nb_chapters);
   if (chapter < 0 || chapter >= format_ctx_->nb_chapters) {
@@ -540,9 +540,9 @@ void DataSource::SeekToChapter(int chapter) {
   Seek(av_rescale_q(ac->start, ac->time_base, av_time_base_q_));
 }
 
-const char *DataSource::GetFileName() const { return filename; }
+const char *DataSource1::GetFileName() const { return filename; }
 
-const char *DataSource::GetMetadataDict(const char *key) {
+const char *DataSource1::GetMetadataDict(const char *key) {
   CHECK_VALUE_WITH_RETURN(format_ctx_, nullptr);
   auto *entry = av_dict_get(format_ctx_->metadata, key, nullptr, 0);
   if (entry) {

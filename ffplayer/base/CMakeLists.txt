@@ -16,7 +16,7 @@ add_library(media_base
         message_queue.cc
         utility.h
         utility.cc
-        )
+        size.cc size.h rect.cc rect.h)
 
 target_include_directories(media_base PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 

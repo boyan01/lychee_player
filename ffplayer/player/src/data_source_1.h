@@ -20,7 +20,7 @@ extern "C" {
 
 namespace media {
 
-class DataSource {
+class DataSource1 {
  public:
   bool gen_pts = false;
   bool find_stream_info = true;
@@ -92,9 +92,9 @@ class DataSource {
   bool infinite_buffer = false;
  public:
 
-  DataSource(const char *filename, AVInputFormat *format);
+  DataSource1(const char *filename, AVInputFormat *format);
 
-  ~DataSource();
+  ~DataSource1();
 
   int Open();
 
