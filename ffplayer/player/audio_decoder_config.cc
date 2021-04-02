@@ -11,24 +11,24 @@ namespace media {
 
 AudioDecoderConfig::AudioDecoderConfig()
     : codec_(kUnknownAudioCodec),
-      bits_per_channel_(0),
+      bytes_per_channel_(0),
       channel_layout_(CHANNEL_LAYOUT_UNSUPPORTED),
       samples_per_second_(0),
       extra_data_size_(0) {
 }
 
 AudioDecoderConfig::AudioDecoderConfig(AudioCodec codec,
-                                       int bits_per_channel,
+                                       int bytes_per_channel,
                                        ChannelLayout channel_layout,
                                        int samples_per_second,
                                        const uint8* extra_data,
                                        size_t extra_data_size) {
-  Initialize(codec, bits_per_channel, channel_layout, samples_per_second,
+  Initialize(codec, bytes_per_channel, channel_layout, samples_per_second,
              extra_data, extra_data_size, true);
 }
 
 void AudioDecoderConfig::Initialize(AudioCodec codec,
-                                    int bits_per_channel,
+                                    int bytes_per_channel,
                                     ChannelLayout channel_layout,
                                     int samples_per_second,
                                     const uint8* extra_data,
@@ -55,7 +55,7 @@ void AudioDecoderConfig::Initialize(AudioCodec codec,
   }
 
   codec_ = codec;
-  bits_per_channel_ = bits_per_channel;
+  bytes_per_channel_ = bytes_per_channel;
   channel_layout_ = channel_layout;
   samples_per_second_ = samples_per_second;
   extra_data_size_ = extra_data_size;
@@ -73,15 +73,15 @@ AudioDecoderConfig::~AudioDecoderConfig() = default;
 bool AudioDecoderConfig::IsValidConfig() const {
   return codec_ != kUnknownAudioCodec &&
       channel_layout_ != CHANNEL_LAYOUT_UNSUPPORTED &&
-      bits_per_channel_ > 0 &&
-      bits_per_channel_ <= limits::kMaxBitsPerSample &&
+      bytes_per_channel_ > 0 &&
+      bytes_per_channel_ <= limits::kMaxBytesPerSample &&
       samples_per_second_ > 0 &&
       samples_per_second_ <= limits::kMaxSampleRate;
 }
 
 bool AudioDecoderConfig::Matches(const AudioDecoderConfig& config) const {
   return ((codec() == config.codec()) &&
-      (bits_per_channel() == config.bits_per_channel()) &&
+      (bytes_per_channel() == config.bytes_per_channel()) &&
       (channel_layout() == config.channel_layout()) &&
       (samples_per_second() == config.samples_per_second()) &&
       (extra_data_size() == config.extra_data_size()) &&
@@ -91,7 +91,7 @@ bool AudioDecoderConfig::Matches(const AudioDecoderConfig& config) const {
 
 void AudioDecoderConfig::CopyFrom(const AudioDecoderConfig& audio_config) {
   Initialize(audio_config.codec(),
-             audio_config.bits_per_channel(),
+             audio_config.bytes_per_channel(),
              audio_config.channel_layout(),
              audio_config.samples_per_second(),
              audio_config.extra_data(),
@@ -103,8 +103,8 @@ AudioCodec AudioDecoderConfig::codec() const {
   return codec_;
 }
 
-int AudioDecoderConfig::bits_per_channel() const {
-  return bits_per_channel_;
+int AudioDecoderConfig::bytes_per_channel() const {
+  return bytes_per_channel_;
 }
 
 ChannelLayout AudioDecoderConfig::channel_layout() const {

@@ -16,7 +16,7 @@ void AVCodecContextToAudioDecoderConfig(const AVCodecContext *codec_context, Aud
   int samples_per_seconds = codec_context->sample_rate;
 
   config->Initialize(codec,
-                     bytes_per_channel << 3,
+                     bytes_per_channel,
                      channel_layout,
                      samples_per_seconds,
                      codec_context->extradata,

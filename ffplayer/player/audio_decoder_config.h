@@ -36,9 +36,6 @@ enum AudioCodec {
   kAudioCodecMax = kCodecPCM_S24BE  // Must equal the last "real" codec above.
 };
 
-//// TODO: FFmpeg API uses |bytes_per_channel| instead of
-//// |bits_per_channel|, we should switch over since bits are generally confusing
-//// to work with.
 class AudioDecoderConfig {
 
  public:
@@ -48,14 +45,14 @@ class AudioDecoderConfig {
 
   // Constructs an initialized object. It is acceptable to pass in NULL for
   // |extra_data|, otherwise the memory is copied.
-  AudioDecoderConfig(AudioCodec codec, int bits_per_channel,
+  AudioDecoderConfig(AudioCodec codec, int bytes_per_channel,
                      ChannelLayout channel_layout, int samples_per_second,
                      const uint8 *extra_data, size_t extra_data_size);
 
   ~AudioDecoderConfig();
 
   // Resets the internal state of this object.
-  void Initialize(AudioCodec codec, int bits_per_channel,
+  void Initialize(AudioCodec codec, int bytes_per_channel,
                   ChannelLayout channel_layout, int samples_per_second,
                   const uint8 *extra_data, size_t extra_data_size,
                   bool record_stats);
@@ -72,7 +69,7 @@ class AudioDecoderConfig {
   bool Matches(const AudioDecoderConfig &config) const;
 
   AudioCodec codec() const;
-  int bits_per_channel() const;
+  int bytes_per_channel() const;
   ChannelLayout channel_layout() const;
   int samples_per_second() const;
 
@@ -83,7 +80,7 @@ class AudioDecoderConfig {
 
  private:
   AudioCodec codec_;
-  int bits_per_channel_;
+  int bytes_per_channel_;
   ChannelLayout channel_layout_;
   int samples_per_second_;
 

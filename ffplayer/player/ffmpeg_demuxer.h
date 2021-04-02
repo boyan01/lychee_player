@@ -13,6 +13,7 @@ extern "C" {
 
 #include "message_loop.h"
 
+#include "pipeline_status.h"
 #include "decoder_buffer.h"
 #include "data_source.h"
 
@@ -20,6 +21,26 @@ extern "C" {
 #include "video_decoder_config.h"
 
 namespace media {
+
+class DemuxerHost : public DataSourceHost {
+ public:
+  /**
+   * Set the duration of media.
+   * Duration may be kInfiniteDuration() if the duration is not known.
+   */
+  virtual void SetDuration(chrono::microseconds duration) = 0;
+
+  /**
+   * Stops execution of the pipeline due to a fatal error.
+   * Do not call this method with PipelineStatus::OK.
+   */
+  virtual void OnDemuxerError(PipelineStatus error) = 0;
+
+ protected:
+
+  virtual ~DemuxerHost();
+
+};
 
 class FFmpegDemuxer;
 
@@ -61,6 +82,14 @@ class FFmpegDemuxerStream {
 
   void Read(const ReadCB &read_cb);
 
+  // Carries out enqueuing a pending read on the demuxer thread.
+  void FFmpegDemuxerStream::ReadTask(const ReadCB &read_cb);
+
+  // Attempts to fulfill a single pending read by dequeueing a buffer and read
+  // callback pair and executing the callback. The calling function must
+  // acquire `lock_` before calling this function.
+  void FulfillPendingRead();
+
   // Convert an FFmpeg stream timestamp in to a chrono::microseconds.
   static chrono::microseconds ConvertStreamTimestamp(const AVRational &time_base, int64 timestamp);
 
@@ -74,7 +103,7 @@ class FFmpegDemuxerStream {
   chrono::microseconds duration_;
   bool stopped_;
 
-  typedef std::deque<std::shared_ptr<DecoderBuffer> > BufferQueue;
+  typedef std::deque<std::shared_ptr<DecoderBuffer>> BufferQueue;
   BufferQueue buffer_queue_;
 
   typedef std::deque<ReadCB> ReadQueue;
@@ -92,9 +121,44 @@ class FFmpegDemuxer {
  public:
   FFmpegDemuxer(std::shared_ptr<base::MessageLoop> message_loop, std::shared_ptr<DataSource> data_source);
 
+  std::shared_ptr<base::MessageLoop> message_loop() { return message_loop_; }
+
+  void Initialize(DemuxerHost *host, const PipelineStatusCB &status_cb);
+
+  /**
+   * Post a task to perform additional demuxing.
+   */
+  void PostDemuxTask();
+
  private:
+
+  // Carries out initialization on the demuxer thread.
+  void InitializeTask(DemuxerHost* host, const PipelineStatusCB& status_cb);
+
+  // Carries out demuxing and satisfying stream reads on the demuxer thread.
+  void DemuxTask();
+
+  // Return ture if any of the streams have pending reads.
+  // Since we lazily post a `DemuxTask()` for every read, we use
+  // this method to quickly terminate the tasks if there is
+  // no work to do.
+  //
+  // Must to called on the demuxer thread.
+  bool StreamHavePendingReads();
+
+  DemuxerHost* host_;
+
   std::shared_ptr<base::MessageLoop> message_loop_;
   std::shared_ptr<DataSource> data_source_;
+
+  // FFmpeg context handle.
+  AVFormatContext *format_context_;
+
+  // Set if we know duration of the audio stream. Used when processing end of
+  // stream -- at this moment we definitely know duration.
+  bool duration_known_;
+
+  DISALLOW_COPY_AND_ASSIGN(FFmpegDemuxer);
 
 };
 

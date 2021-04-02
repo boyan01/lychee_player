@@ -28,7 +28,11 @@ add_library(media_player ${SRC_FILES}
         video_decoder_config.cc
         video_decoder_config.h
         video_frame.cc
-        video_frame.h)
+        video_frame.h
+        pipeline_status.cc
+        pipeline_status.h
+        ffmpeg_glue.cc
+        ffmpeg_glue.h)
 
 target_include_directories(media_player PUBLIC
         ${MEDIA_SRC_DIR}
@@ -38,7 +42,7 @@ target_include_directories(media_player PUBLIC
 
 target_link_libraries(media_player PUBLIC ${FFP_LIBS} media_base)
 
-add_executable(media_player_test ffmpeg_common_test.cc)
+add_executable(media_player_test ffmpeg_common_test.cc ffmpeg_glue_test.cc)
 target_link_libraries(media_player_test media_player gtest_main gmock_main)
 
 add_test(NAME media_player_test COMMAND media_player)

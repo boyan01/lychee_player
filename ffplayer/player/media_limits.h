@@ -30,6 +30,7 @@ enum {
   kMinSampleRate = 8000,
   kMaxChannels = 32,
   kMaxBitsPerSample = 64,
+  kMaxBytesPerSample = kMaxBitsPerSample / 8,
   kMaxSamplesPerPacket = kMaxSampleRate,
   kMaxPacketSizeInBytes =
   (kMaxBitsPerSample / 8) * kMaxChannels * kMaxSamplesPerPacket,

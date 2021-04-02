@@ -50,3 +50,9 @@ TEST_MESSAGE_LOOP_START(PostNestedTask)
     message_loop->PostTask(FROM_HERE_WITH_EXPLICIT_FUNCTION("PostNestedTask#lambda"), task.AsStdFunction());
   });
 TEST_MESSAGE_LOOP_END()
+
+TEST_MESSAGE_LOOP_START(CurrentThread)
+  message_loop->PostTask(FROM_HERE, [&]() {
+    EXPECT_TRUE(message_loop->BelongsToCurrentThread());
+  });
+TEST_MESSAGE_LOOP_END()

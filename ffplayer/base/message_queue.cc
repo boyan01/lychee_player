@@ -80,9 +80,10 @@ Message *MessageQueue::next() {
       }
 
       if (quitting_) {
-        return nullptr;
+        break;
       }
 
+      blocked_ = true;
       continue;
     }
 
@@ -97,7 +98,6 @@ void MessageQueue::Wake() {
 
 void MessageQueue::PollOnce(std::chrono::milliseconds wait_duration) {
   std::unique_lock<std::mutex> condition_lock(message_wait_lock_);
-  blocked_ = true;
   if (wait_duration >= std::chrono::milliseconds::zero()) {
     message_wait_condition_.wait_for(condition_lock, wait_duration);
   } else {

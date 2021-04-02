@@ -35,6 +35,13 @@ class MessageLoop {
 
   void PostTask(const tracked_objects::Location &from_here, const TaskClosure &task);
 
+  /**
+   * @return true if the current thread is a thread on which is running current looper.
+   */
+  bool BelongsToCurrentThread() {
+    return MessageLoop::current() == this;
+  }
+
   void Quit();
 
  private:
