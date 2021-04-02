@@ -1,3 +1,4 @@
+#include <__bit_reference>
 //
 // Created by yangbin on 2021/3/28.
 //
@@ -14,14 +15,15 @@ AudioDecoderConfig::AudioDecoderConfig()
       bytes_per_channel_(0),
       channel_layout_(CHANNEL_LAYOUT_UNSUPPORTED),
       samples_per_second_(0),
-      extra_data_size_(0) {
+      extra_data_size_(0),
+      extra_data_(nullptr) {
 }
 
 AudioDecoderConfig::AudioDecoderConfig(AudioCodec codec,
                                        int bytes_per_channel,
                                        ChannelLayout channel_layout,
                                        int samples_per_second,
-                                       const uint8* extra_data,
+                                       const uint8 *extra_data,
                                        size_t extra_data_size) {
   Initialize(codec, bytes_per_channel, channel_layout, samples_per_second,
              extra_data, extra_data_size, true);
@@ -31,7 +33,7 @@ void AudioDecoderConfig::Initialize(AudioCodec codec,
                                     int bytes_per_channel,
                                     ChannelLayout channel_layout,
                                     int samples_per_second,
-                                    const uint8* extra_data,
+                                    const uint8 *extra_data,
                                     size_t extra_data_size,
                                     bool record_stats) {
   CHECK((extra_data_size != 0) == (extra_data != nullptr));
@@ -61,14 +63,16 @@ void AudioDecoderConfig::Initialize(AudioCodec codec,
   extra_data_size_ = extra_data_size;
 
   if (extra_data_size_ > 0) {
-    extra_data_.reset(new uint8[extra_data_size_]);
-    memcpy(extra_data_.get(), extra_data, extra_data_size_);
+    extra_data_ = new uint8[extra_data_size_];
+    memcpy(extra_data_, extra_data, extra_data_size_);
   } else {
-    extra_data_.reset();
+    extra_data_ = nullptr;
   }
 }
 
-AudioDecoderConfig::~AudioDecoderConfig() = default;
+AudioDecoderConfig::~AudioDecoderConfig() {
+  delete[] extra_data_;
+}
 
 bool AudioDecoderConfig::IsValidConfig() const {
   return codec_ != kUnknownAudioCodec &&
@@ -79,7 +83,7 @@ bool AudioDecoderConfig::IsValidConfig() const {
       samples_per_second_ <= limits::kMaxSampleRate;
 }
 
-bool AudioDecoderConfig::Matches(const AudioDecoderConfig& config) const {
+bool AudioDecoderConfig::Matches(const AudioDecoderConfig &config) const {
   return ((codec() == config.codec()) &&
       (bytes_per_channel() == config.bytes_per_channel()) &&
       (channel_layout() == config.channel_layout()) &&
@@ -89,7 +93,7 @@ bool AudioDecoderConfig::Matches(const AudioDecoderConfig& config) const {
                                 extra_data_size())));
 }
 
-void AudioDecoderConfig::CopyFrom(const AudioDecoderConfig& audio_config) {
+void AudioDecoderConfig::CopyFrom(const AudioDecoderConfig &audio_config) {
   Initialize(audio_config.codec(),
              audio_config.bytes_per_channel(),
              audio_config.channel_layout(),
@@ -115,8 +119,8 @@ int AudioDecoderConfig::samples_per_second() const {
   return samples_per_second_;
 }
 
-uint8* AudioDecoderConfig::extra_data() const {
-  return extra_data_.get();
+uint8 *AudioDecoderConfig::extra_data() const {
+  return extra_data_;
 }
 
 size_t AudioDecoderConfig::extra_data_size() const {

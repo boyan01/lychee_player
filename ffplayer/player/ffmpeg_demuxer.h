@@ -83,7 +83,7 @@ class FFmpegDemuxerStream {
   void Read(const ReadCB &read_cb);
 
   // Carries out enqueuing a pending read on the demuxer thread.
-  void FFmpegDemuxerStream::ReadTask(const ReadCB &read_cb);
+  void ReadTask(const ReadCB &read_cb);
 
   // Attempts to fulfill a single pending read by dequeueing a buffer and read
   // callback pair and executing the callback. The calling function must

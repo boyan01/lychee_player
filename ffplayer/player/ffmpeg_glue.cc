@@ -146,7 +146,7 @@ std::string FFmpegGlue::AddProtocol(FFmpegUrlProtocol *protocol) {
 
 void FFmpegGlue::RemoveProtocol(FFmpegUrlProtocol *protocol) {
   std::lock_guard<std::mutex> auto_lock(mutex_);
-  for (ProtocolMap::iterator cur, iter = protocols_.begin(); iter != protocols_.end()) {
+  for (ProtocolMap::iterator cur, iter = protocols_.begin(); iter != protocols_.end();) {
     cur = iter;
     iter++;
     if (cur->second == protocol) {

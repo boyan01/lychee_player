@@ -49,7 +49,7 @@ FFmpegDemuxerStream::~FFmpegDemuxerStream() {
 }
 
 void FFmpegDemuxerStream::Read(const FFmpegDemuxerStream::ReadCB &read_cb) {
-  DCHECK_NE(read_cb, nullptr);
+  DCHECK(!read_cb);
 
   std::lock_guard<std::mutex> auto_lock(mutex_);
 

@@ -5,6 +5,8 @@
 #ifndef MEDIA_PLAYER_AUDIO_DECODER_CONFIG_H_
 #define MEDIA_PLAYER_AUDIO_DECODER_CONFIG_H_
 
+#include <memory>
+
 #include "basictypes.h"
 #include "channel_layout.h"
 
@@ -84,7 +86,7 @@ class AudioDecoderConfig {
   ChannelLayout channel_layout_;
   int samples_per_second_;
 
-  std::shared_ptr<uint8[]> extra_data_;
+  uint8 *extra_data_;
   size_t extra_data_size_;
 
   DISALLOW_COPY_AND_ASSIGN(AudioDecoderConfig);

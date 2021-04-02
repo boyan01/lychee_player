@@ -12,11 +12,12 @@ VideoDecoderConfig::VideoDecoderConfig()
       profile_(VIDEO_CODEC_PROFILE_UNKNOWN),
       format_(VideoFrame::INVALID),
       extra_data_size_(0),
-      is_encrypted_(false) {
+      is_encrypted_(false),
+      extra_data_(nullptr) {
 
 }
 
-VideoDecoderConfig::VideoDecoderConfig( // NOLINT(cppcoreguidelines-pro-type-member-init)
+VideoDecoderConfig::VideoDecoderConfig(
     VideoCodec codec,
     VideoCodecProfile profile,
     VideoFrame::Format format,
@@ -64,16 +65,18 @@ void VideoDecoderConfig::Initialize(VideoCodec codec,
   extra_data_size_ = extra_data_size;
 
   if (extra_data_size_ > 0) {
-    extra_data_.reset(new uint8[extra_data_size_]);
-    memcpy(extra_data_.get(), extra_data, extra_data_size_);
+    extra_data_ = new uint8[extra_data_size_];
+    memcpy(extra_data_, extra_data, extra_data_size_);
   } else {
-    extra_data_.reset();
+    extra_data_ = nullptr;
   }
 
   is_encrypted_ = is_encrypted;
 }
 
-VideoDecoderConfig::~VideoDecoderConfig() = default;
+VideoDecoderConfig::~VideoDecoderConfig() {
+  delete[] extra_data_;
+}
 
 void VideoDecoderConfig::CopyFrom(const VideoDecoderConfig &video_config) {
   Initialize(video_config.codec(),
@@ -149,7 +152,7 @@ base::Size VideoDecoderConfig::natural_size() const {
 }
 
 uint8 *VideoDecoderConfig::extra_data() const {
-  return extra_data_.get();
+  return extra_data_;
 }
 
 size_t VideoDecoderConfig::extra_data_size() const {

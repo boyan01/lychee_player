@@ -141,7 +141,7 @@ class VideoDecoderConfig {
   base::Rect visible_rect_;
   base::Size natural_size_;
 
-  std::shared_ptr<uint8[]> extra_data_;
+  uint8* extra_data_;
   size_t extra_data_size_;
 
   bool is_encrypted_;
