@@ -10,6 +10,8 @@ namespace media {
 
 DataSourceHost::~DataSourceHost() = default;
 
+const int DataSource::kReadError = -1;
+
 void DataSource::SetHost(DataSourceHost *host) {
   DCHECK(host);
   DCHECK(!host_);

@@ -55,6 +55,8 @@ class FFmpegGlue {
    */
   static FFmpegGlue *GetInstance();
 
+  static URLProtocol *url_protocol();
+
   // Adds a FFmpegProtocol to the FFmpeg glue layer and returns a unique string
   // that can be passed to FFmpeg to identify the data source.
   std::string AddProtocol(FFmpegUrlProtocol *protocol);
@@ -81,8 +83,6 @@ class FFmpegGlue {
   // Map between keys and FFmpegProtocol references.
   typedef std::map<std::string, FFmpegUrlProtocol *> ProtocolMap;
   ProtocolMap protocols_;
-
-  static URLProtocol *url_protocol();
 
   DISALLOW_COPY_AND_ASSIGN(FFmpegGlue);
 

@@ -5,6 +5,8 @@
 #ifndef MEDIA_PLAYER_DATA_SOURCE_H_
 #define MEDIA_PLAYER_DATA_SOURCE_H_
 
+#include <functional>
+
 #include "basictypes.h"
 
 namespace media {
@@ -38,6 +40,10 @@ class DataSourceHost {
 class DataSource {
 
  public:
+
+  typedef std::function<void(int64, int64)> StatusCallback;
+  typedef std::function<void(int)> ReadCB;
+  static const int kReadError;
 
   void SetHost(DataSourceHost *host);
 
