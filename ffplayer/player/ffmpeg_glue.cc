@@ -4,7 +4,7 @@
 
 #include <strstream>
 
-#include "logging.h"
+#include "base/logging.h"
 
 #include "ffmpeg_glue.h"
 #include "ffmpeg_common.h"

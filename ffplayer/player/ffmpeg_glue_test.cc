@@ -5,7 +5,7 @@
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
 
-#include "logging.h"
+#include "base/logging.h"
 #include "ffmpeg_common.h"
 #include "ffmpeg_glue.h"
 #include "data_source.h"

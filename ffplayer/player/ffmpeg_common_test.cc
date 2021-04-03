@@ -4,7 +4,7 @@
 
 #include <gtest/gtest.h>
 
-#include "logging.h"
+#include "base/logging.h"
 #include "ffmpeg_common.h"
 
 namespace media {

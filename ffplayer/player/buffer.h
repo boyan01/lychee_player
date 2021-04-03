@@ -5,8 +5,8 @@
 #ifndef MEDIA_PLAYER_BUFFER_H_
 #define MEDIA_PLAYER_BUFFER_H_
 
-#include "basictypes.h"
-#include "timestamps.h"
+#include "base/basictypes.h"
+#include "base/timestamps.h"
 
 namespace media {
 

@@ -6,9 +6,9 @@
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
 
-#include "logging.h"
+#include "base/logging.h"
 
-#include "message_queue.h"
+#include "base/message_queue.h"
 
 using namespace media::base;
 using namespace std::chrono;

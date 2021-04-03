@@ -7,8 +7,8 @@
 
 #include <memory>
 
-#include "basictypes.h"
-#include "rect.h"
+#include "base/basictypes.h"
+#include "base/rect.h"
 
 #include "video_frame.h"
 

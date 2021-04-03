@@ -8,8 +8,8 @@
 #include <memory>
 #include <functional>
 
-#include "basictypes.h"
-#include "rect.h"
+#include "base/basictypes.h"
+#include "base/rect.h"
 
 namespace media {
 

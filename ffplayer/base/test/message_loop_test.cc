@@ -6,8 +6,8 @@
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
 
-#include "logging.h"
-#include "message_loop.h"
+#include "base/logging.h"
+#include "base/message_loop.h"
 
 using media::base::MessageLoop;
 

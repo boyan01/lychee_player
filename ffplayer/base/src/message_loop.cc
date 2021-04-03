@@ -4,9 +4,9 @@
 
 #include <thread>
 
-#include "logging.h"
-#include "message_loop.h"
-#include "utility.h"
+#include "base/logging.h"
+#include "base/message_loop.h"
+#include "base/utility.h"
 
 namespace media {
 

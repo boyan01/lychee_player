@@ -5,8 +5,8 @@
 #include <algorithm>
 #include <sstream>
 
-#include "rect.h"
-#include "logging.h"
+#include "base/rect.h"
+#include "base/logging.h"
 
 namespace {
 

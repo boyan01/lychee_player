@@ -11,7 +11,7 @@ extern "C" {
 #include "libavformat/avformat.h"
 };
 
-#include "message_loop.h"
+#include "base/message_loop.h"
 
 #include "pipeline_status.h"
 #include "decoder_buffer.h"
