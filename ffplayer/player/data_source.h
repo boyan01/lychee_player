@@ -47,6 +47,10 @@ class DataSource {
 
   void SetHost(DataSourceHost *host);
 
+  // Notify the DataSource of the bitrate of the media.
+  // Values of |bitrate| <= 0 are invalid and should be ignored.
+  virtual void SetBitrate(int bitrate) = 0;
+
  protected:
 
   virtual ~DataSource();

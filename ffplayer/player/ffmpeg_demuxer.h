@@ -20,6 +20,8 @@ extern "C" {
 #include "audio_decoder_config.h"
 #include "video_decoder_config.h"
 
+#include "ffmpeg_glue.h"
+
 namespace media {
 
 class DemuxerHost : public DataSourceHost {
@@ -59,6 +61,17 @@ class FFmpegDemuxerStream {
    * @return The Type of stream.
    */
   Type type();
+
+  /**
+   * Returns the duration of this stream.
+   */
+  chrono::microseconds duration();
+
+  /**
+   * Returns elapsed time based on the already queued packets.
+   * Used to determine stream duration when it's not known ahead of time.
+   */
+  TimeDelta GetElapsedTime() const;
 
  protected:
  public:
@@ -116,7 +129,7 @@ class FFmpegDemuxerStream {
 
 };
 
-class FFmpegDemuxer {
+class FFmpegDemuxer : public FFmpegUrlProtocol {
 
  public:
   FFmpegDemuxer(std::shared_ptr<base::MessageLoop> message_loop, std::shared_ptr<DataSource> data_source);
@@ -133,7 +146,7 @@ class FFmpegDemuxer {
  private:
 
   // Carries out initialization on the demuxer thread.
-  void InitializeTask(DemuxerHost* host, const PipelineStatusCB& status_cb);
+  void InitializeTask(DemuxerHost *host, const PipelineStatusCB &status_cb);
 
   // Carries out demuxing and satisfying stream reads on the demuxer thread.
   void DemuxTask();
@@ -146,7 +159,7 @@ class FFmpegDemuxer {
   // Must to called on the demuxer thread.
   bool StreamHavePendingReads();
 
-  DemuxerHost* host_;
+  DemuxerHost *host_;
 
   std::shared_ptr<base::MessageLoop> message_loop_;
   std::shared_ptr<DataSource> data_source_;
@@ -154,12 +167,33 @@ class FFmpegDemuxer {
   // FFmpeg context handle.
   AVFormatContext *format_context_;
 
+  // |streams_| mirrors the AVStream array in |format_context_|. It contains
+  // FFmpegDemuxerStreams encapsluating AVStream objects at the same index.
+  //
+  // Since we only support a single audio and video stream, |streams_| will
+  // contain NULL entries for additional audio/video streams as well as for
+  // stream types that we do not currently support.
+  //
+  // Once initialized, operations on FFmpegDemuxerStreams should be carried out
+  // on the demuxer thread.
+  typedef std::vector<std::shared_ptr<FFmpegDemuxerStream>> StreamVector;
+  StreamVector streams_;
+
+  // Derived bitrate after initialization has completed.
+  int bitrate_;
+
+  // The first timestamp of the opened media file. This is used to set the
+  // starting clock value to match the timestamps in the media file. Default
+  // is 0.
+  chrono::microseconds start_time_;
+
   // Set if we know duration of the audio stream. Used when processing end of
   // stream -- at this moment we definitely know duration.
   bool duration_known_;
 
   DISALLOW_COPY_AND_ASSIGN(FFmpegDemuxer);
 
+  void StreamHasEnded();
 };
 
 }

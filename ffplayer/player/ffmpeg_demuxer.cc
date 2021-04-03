@@ -8,6 +8,7 @@
 
 #include "ffmpeg_common.h"
 #include "ffmpeg_demuxer.h"
+#include "ffmpeg_glue.h"
 
 namespace media {
 
@@ -76,8 +77,16 @@ void FFmpegDemuxerStream::Read(const FFmpegDemuxerStream::ReadCB &read_cb) {
   read_cb(FFmpegDemuxerStream::kOk, buffer);
 }
 
+chrono::microseconds FFmpegDemuxerStream::duration() {
+  return duration_;
+}
+
 FFmpegDemuxerStream::Type FFmpegDemuxerStream::type() {
   return type_;
+}
+
+TimeDelta FFmpegDemuxerStream::GetElapsedTime() const {
+  return ConvertStreamTimestamp(stream_->time_base, stream_->cur_dts);
 }
 
 void FFmpegDemuxerStream::ReadTask(const FFmpegDemuxerStream::ReadCB &read_cb) {
@@ -156,9 +165,27 @@ void FFmpegDemuxer::DemuxTask() {
     // Update the duration based on the audio stream if it was previously unknown.
     // http://crbug.com/86830
     if (!duration_known_) {
-      // Search
+      // Search streams for AUDIO one.
+      for (auto &stream : streams_) {
+        if (stream && stream->type() == FFmpegDemuxerStream::AUDIO) {
+          auto duration = stream->GetElapsedTime();
+          if (duration != kNoTimestamp() && duration > TimeDelta()) {
+            host_->SetDuration(duration);
+            duration_known_ = true;
+          }
+          break;
+        }
+      }
     }
+
+    // If we have reached the end of stream, tell the downstream filters about the event.
+    StreamHasEnded();
+    return;
   }
+
+  // Queue the packet with the appropriate streams.
+  DCHECK_GE(packet->stream_index, 0);
+  DCHECK_LT(packet->stream_index, static_cast<int>(streams_.size()));
 
 }
 
@@ -174,6 +201,42 @@ void FFmpegDemuxer::Initialize(DemuxerHost *host, const PipelineStatusCB &status
   });
 }
 
+// Helper for calculating the bitrate of the media based on information stored
+// in |format_context| or failing that the size and duration of the media.
+//
+// Returns 0 if a bitrate could not be determined.
+static int CalculateBitrate(
+    AVFormatContext *format_context,
+    const TimeDelta &duration,
+    int64 filesize_in_bytes) {
+  // If there is a bitrate set on the container, use it.
+  if (format_context->bit_rate > 0)
+    return format_context->bit_rate;
+
+  // Then try to sum the bitrates individually per stream.
+  int bitrate = 0;
+  for (size_t i = 0; i < format_context->nb_streams; ++i) {
+    auto *codec_par = format_context->streams[i]->codecpar;
+    bitrate += codec_par->bit_rate;
+  }
+  if (bitrate > 0)
+    return bitrate;
+
+  // See if we can approximate the bitrate as long as we have a filesize and
+  // valid duration.
+  if (duration.count() <= 0 ||
+      duration == kInfiniteDuration() ||
+      filesize_in_bytes == 0) {
+    return 0;
+  }
+
+  // Do math in floating point as we'd overflow an int64 if the filesize was
+  // larger than ~1073GB.
+  double bytes = filesize_in_bytes;
+  double duration_us = duration.count();
+  return int(bytes * 8000000.0 / duration_us);
+}
+
 void FFmpegDemuxer::InitializeTask(DemuxerHost *host, const PipelineStatusCB &status_cb) {
   DCHECK(message_loop_->BelongsToCurrentThread());
 
@@ -181,7 +244,8 @@ void FFmpegDemuxer::InitializeTask(DemuxerHost *host, const PipelineStatusCB &st
 
   data_source_->SetHost(host);
 
-  std::string key = "";
+  // Add ourself to Protocol list and get our unique key.
+  std::string key = FFmpegGlue::GetInstance()->AddProtocol(this);
 
   // Open FFmpeg AVFormatContext.
   DCHECK(!format_context_);
@@ -194,6 +258,99 @@ void FFmpegDemuxer::InitializeTask(DemuxerHost *host, const PipelineStatusCB &st
 
   int result = avformat_open_input(&context, key.c_str(), nullptr, nullptr);
 
+  // Remove ourself from protocol list.
+  FFmpegGlue::GetInstance()->RemoveProtocol(this);
+
+  if (result < 0) {
+    status_cb(PipelineStatus::DEMUXER_ERROR_COULD_NOT_OPEN);
+    return;
+  }
+
+  DCHECK(context);
+  format_context_ = context;
+
+  // Fully initialize AVFormatContext by parsing the stream a little.
+  result = avformat_find_stream_info(format_context_, nullptr);
+  if (result < 0) {
+    status_cb(PipelineStatus::DEMUXER_ERROR_COULD_NOT_PARSE);
+    return;
+  }
+
+  // Create demuxer stream entries for each possible AVStreams.
+  streams_.resize(format_context_->nb_streams);
+  bool found_audio_stream = false;
+  bool found_video_stream = false;
+
+  TimeDelta max_duration;
+
+  for (size_t i = 0; i < format_context_->nb_streams; i++) {
+    auto *codec_par = format_context_->streams[i]->codecpar;
+    auto codec_type = codec_par->codec_type;
+
+    if (codec_type == AVMEDIA_TYPE_AUDIO) {
+      if (found_audio_stream)
+        continue;
+      // Ensure the codec is supported.
+      if (CodecIDToAudioCodec(codec_par->codec_id) == kUnknownAudioCodec)
+        continue;
+      found_audio_stream = true;
+    } else if (codec_type == AVMEDIA_TYPE_VIDEO) {
+      if (found_video_stream)
+        continue;
+      // Ensure the codec iis supported.
+      if (CodecIDToVideoCodec(codec_par->codec_id) == kUnknownVideoCodec)
+        continue;
+      found_video_stream = true;
+    } else {
+      continue;
+    }
+
+    AVStream *stream = format_context_->streams[i];
+    auto demuxer_stream = std::make_shared<FFmpegDemuxerStream>(this, stream);
+
+    streams_[i] = demuxer_stream;
+    max_duration = std::max(max_duration, demuxer_stream->duration());
+
+    if (stream->first_dts != static_cast<int64_t>(AV_NOPTS_VALUE)) {
+      const auto first_dts = ConvertFromTimeBase(stream->time_base, stream->first_dts);
+      if (start_time_ == kNoTimestamp() || first_dts < start_time_) {
+        start_time_ = first_dts;
+      }
+    }
+  }
+
+  if (!found_audio_stream && !found_video_stream) {
+    status_cb(PipelineStatus::DEMUXER_ERROR_NO_SUPPORTED_STREAMS);
+    return;
+  }
+
+  if (format_context_->duration != AV_NOPTS_VALUE) {
+    const AVRational av_time_base = {1, AV_TIME_BASE};
+    max_duration = std::max(max_duration, ConvertFromTimeBase(av_time_base, format_context_->duration));
+  } else {
+    max_duration = kInfiniteDuration();
+  }
+
+  // Some demuxer, like WAV, do not put timestamps on their frames, We assume the start time is 0.
+  if (start_time_ == kNoTimestamp()) {
+    start_time_ = TimeDelta();
+  }
+
+  // Set the duration and bitrate and notify we're done initializing.
+  host->SetDuration(max_duration);
+  duration_known_ = (max_duration != kInfiniteDuration());
+
+  int64 filesize_in_types = 0;
+  GetSize(&filesize_in_types);
+  bitrate_ = CalculateBitrate(format_context_, max_duration, filesize_in_types);
+  if (bitrate_ > 0) {
+    data_source_->SetBitrate(bitrate_);
+  }
+
+  status_cb(PipelineStatus::OK);
+}
+
+void FFmpegDemuxer::StreamHasEnded() {
 
 }
 

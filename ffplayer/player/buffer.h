@@ -6,8 +6,17 @@
 #define MEDIA_PLAYER_BUFFER_H_
 
 #include "basictypes.h"
+#include "timestamps.h"
 
 namespace media {
+
+extern inline TimeDelta kNoTimestamp() {
+  return TimeDelta::min();
+}
+
+extern inline TimeDelta kInfiniteDuration() {
+  return TimeDelta::max();
+}
 
 class Buffer {
 
