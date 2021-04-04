@@ -1,141 +1,86 @@
 //
-// Created by boyan on 2021/2/10.
+// Created by yangbin on 2021/3/28.
 //
 
-#ifndef FFPLAYER_FFP_DATA_SOURCE_H
-#define FFPLAYER_FFP_DATA_SOURCE_H
+#ifndef MEDIA_PLAYER_DATA_SOURCE_H_
+#define MEDIA_PLAYER_DATA_SOURCE_H_
 
-#include <thread>
-#include <condition_variable>
 #include <functional>
 
-#include "ffp_packet_queue.h"
-#include "media_clock.h"
-#include "decoder_ctx.h"
-#include "ffplayer.h"
+#include "base/basictypes.h"
 
-extern "C" {
-#include "libavformat/avformat.h"
+namespace media {
+
+/**
+ * Object which host datasource.
+ */
+class DataSourceHost {
+
+ public:
+  /**
+   * Set the total size of the media file.
+   */
+  virtual void SetTotalBytes(int64 total_bytes) = 0;
+
+  /**
+   * Notify the host that byte range [start, end] has been buffered.
+   */
+  virtual void AddBufferedByteRange(int64 start, int64 end) = 0;
+
+  /**
+   * Notify the host that time range `start`,`end` has been buffered.
+   */
+  virtual void AddBufferedTimeRange(chrono::microseconds start, chrono::microseconds end) = 0;
+
+ protected:
+  virtual ~DataSourceHost();
+
 };
 
 class DataSource {
- public:
-  bool gen_pts = false;
-  bool find_stream_info = true;
-  int seek_by_bytes = -1;
 
-  int64_t start_time = AV_NOPTS_VALUE;
-
-  char *wanted_stream_spec[AVMEDIA_TYPE_NB];
-
-  PlayerConfiguration configuration;
-
-  std::shared_ptr<PacketQueue> audio_queue;
-  std::shared_ptr<PacketQueue> video_queue;
-  std::shared_ptr<PacketQueue> subtitle_queue;
-
-  std::shared_ptr<MessageContext> msg_ctx;
-
-  Clock *ext_clock;
-
-  std::shared_ptr<DecoderContext> decoder_ctx;
-
-  std::function<void()> on_new_packet_send_;
-
-  int read_pause_return;
-
-  bool paused = false;
-
-  void Seek(double position);
-
-  double GetDuration();
-
-  int GetChapterCount();
-
-  int GetChapterByPosition(int64_t position);
-
-  void SeekToChapter(int chapter);
-
-  const char *GetMetadataDict(const char *key);
-
- private:
-  char *filename;
-  AVInputFormat *in_format;
-  std::shared_ptr<std::condition_variable_any> continue_read_thread_;
-  std::thread *read_tid = nullptr;
-  bool abort_request = false;
-  AVFormatContext *format_ctx_ = nullptr;
-  bool realtime_ = false;
-
-  int audio_stream_index = -1;
-  int video_stream_index = -1;
-  int subtitle_stream_index = -1;
-
-  // request for seek.
-  bool seek_req_ = false;
-  int64_t seek_position = 0;
-
-  // request for attached_pic.
-  bool queue_attachments_req_ = false;
-
-  bool eof = false;
-
-  AVStream *video_stream_ = nullptr;
-  AVStream *audio_stream_ = nullptr;
-  AVStream *subtitle_stream_ = nullptr;
-
-  int64_t duration = AV_NOPTS_VALUE;
-
-  // buffer infinite.
-  bool infinite_buffer = false;
  public:
 
-  DataSource(const char *filename, AVInputFormat *format);
+  typedef std::function<void(int64, int64)> StatusCallback;
+  typedef std::function<void(int)> ReadCB;
+  static const int kReadError;
 
-  ~DataSource();
+  void SetHost(DataSourceHost *host);
 
-  int Open();
+  // Notify the DataSource of the bitrate of the media.
+  // Values of |bitrate| <= 0 are invalid and should be ignored.
+  virtual void SetBitrate(int bitrate) = 0;
 
-  bool ContainVideoStream();
+  // Reads |size| bytes from |position| into |data|. And when the read is done
+  // or failed, |read_cb| is called with the number of bytes read or
+  // kReadError in case of error.
+  virtual void Read(int64 position, int size, uint8 *data,
+                    const DataSource::ReadCB &read_cb) = 0;
 
-  bool ContainAudioStream();
+  // Notifies the DataSource of a change in the current playback rate.
+  virtual void SetPlaybackRate(float playback_rate);
 
-  bool ContainSubtitleStream();
+  // Stops the DataSource. Once this is called all future Read() calls will
+  // return an error.
+  virtual void Stop(const std::function<void()> &callback) = 0;
 
-  double GetSeekPosition() const;
+  // Returns true and the file size, false if the file size could not be
+  // retrieved.
+  virtual bool GetSize(int64 *size_out) = 0;
 
-  const char *GetFileName() const;
+ protected:
 
-  bool IsReadComplete() const;
+  virtual ~DataSource();
+
+  DataSourceHost *host();
 
  private:
+  DataSourceHost *host_;
 
-  int PrepareFormatContext();
-
-  void OnFormatContextOpen();
-
-  int ReadStreamInfo(int st_index[AVMEDIA_TYPE_NB]);
-
-  void ReadThread();
-
-  void OnStreamInfoLoad(const int st_index[AVMEDIA_TYPE_NB]);
-
-  int OpenStreams(const int st_index[AVMEDIA_TYPE_NB]);
-
-  int OpenComponentStream(int stream_index, AVMediaType media_type);
-
-  void ReadStreams(std::mutex &read_mutex);
-
-  void ProcessSeekRequest();
-
-  void ProcessAttachedPicture();
-
-  bool isNeedReadMore();
-
-  int ProcessReadFrame(AVPacket *pkt, std::mutex &read_mutex);
-
-  void ProcessQueuePacket(AVPacket *pkt);
+  DISALLOW_COPY_AND_ASSIGN(DataSource);
 
 };
 
-#endif //FFPLAYER_FFP_DATA_SOURCE_H
+}
+
+#endif //MEDIA_PLAYER_DATA_SOURCE_H_

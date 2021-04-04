@@ -6,6 +6,8 @@
 #include "ffp_utils.h"
 #include "ffp_define.h"
 
+namespace media {
+
 void FlutterVideoRender::StartRenderThread() {
   CHECK_VALUE(!render_started_);
   render_started_ = true;
@@ -29,6 +31,7 @@ void FlutterVideoRender::RenderThread() {
 
   av_log(nullptr, AV_LOG_INFO, "flutter_video_render_thread done.\n");
 }
+
 void FlutterVideoRender::Abort() {
   VideoRenderBase::Abort();
   StopRenderThread();
@@ -44,4 +47,6 @@ void FlutterVideoRender::StopRenderThread() {
   delete render_mutex_;
   delete thread_;
   render_started_ = false;
+}
+
 }

@@ -17,6 +17,7 @@ extern "C" {
 }
 
 using namespace std;
+using namespace media;
 
 #define FF_DRAW_EVENT    (SDL_USEREVENT + 2)
 #define FF_MSG_EVENT    (SDL_USEREVENT + 3)
@@ -324,6 +325,7 @@ int main(int argc, char *argv[]) {
   }
 
   MediaPlayer::GlobalInit();
+  media::sdl::InitSdlAudio();
 
   signal(SIGINT, sigterm_handler);  /* Interrupt (ANSI).    */
   signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */

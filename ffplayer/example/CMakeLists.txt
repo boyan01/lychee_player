@@ -11,8 +11,13 @@ if (WIN32)
     add_library(SDL2main STATIC IMPORTED)
     set_target_properties(SDL2main PROPERTIES
             IMPORTED_LINK_INTERFACE_LANGUAGES_DEBUG "C"
-            IMPORTED_LOCATION "${EXAMPLE_WINDOWS_LIB_PATH}/SDL2main.lib"
-            )
+            IMPORTED_LOCATION "${EXAMPLE_WINDOWS_LIB_PATH}/SDL2main.lib")
+endif ()
+
+if (APPLE)
+    add_library(SDL2main STATIC IMPORTED)
+    set_target_properties(SDL2main PROPERTIES
+            IMPORTED_LOCATION "/usr/local/lib/libSDL2main.a")
 endif ()
 
 add_executable(${EXAMPLE_BIN_NAME} ${EXAMPLE_SOURCES})

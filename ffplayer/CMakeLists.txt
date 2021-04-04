@@ -45,6 +45,21 @@ if (NOT DEFINED FFP_LIBS)
 
     endif ()
 
+    if (APPLE)
+        function(add_macos_lib NAME)
+            add_library(${NAME} SHARED IMPORTED GLOBAL)
+            set_property(TARGET ${NAME} PROPERTY IMPORTED_LOCATION /usr/local/lib/lib${NAME}.dylib)
+        endfunction()
+
+        add_macos_lib(avutil)
+        add_macos_lib(avcodec)
+        add_macos_lib(avformat)
+        add_macos_lib(swscale)
+        add_macos_lib(swresample)
+        add_macos_lib(SDL2)
+
+    endif ()
+
     list(APPEND FFP_LIBS ${MEDIA_THIRD_PARTY_LIBS})
     if (UNIX)
         # linux do not have math library.
@@ -52,15 +67,25 @@ if (NOT DEFINED FFP_LIBS)
     endif ()
 endif ()
 
+
+# https://google.github.io/googletest/quickstart-cmake.html#set-up-a-project
+include(FetchContent)
+FetchContent_Declare(
+        googletest
+        URL https://github.com/google/googletest/archive/609281088cfefc76f9d0ce82e1ff6c30cc3591e5.zip
+)
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
+
 add_subdirectory(base)
-add_subdirectory(audio)
-add_subdirectory(video)
+
+add_subdirectory(player)
 
 if (MEDIA_USE_SDL)
     add_subdirectory(sdl)
 endif ()
-
-add_subdirectory(player)
 
 if (CMAKE_FLUTTER_MEDIA)
     add_subdirectory(flutter)

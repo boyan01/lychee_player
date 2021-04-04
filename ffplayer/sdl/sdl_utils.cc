@@ -6,6 +6,7 @@
 
 extern "C" {
 #include "libavutil/avutil.h"
+#include "SDL2/SDL.h"
 }
 
 namespace media {
@@ -35,6 +36,13 @@ void calculate_display_rect(SDL_Rect *rect, int scr_xleft, int scr_ytop, int scr
   rect->y = (int) (scr_ytop + y);
   rect->w = FFMAX((int) width, 1);
   rect->h = FFMAX((int) height, 1);
+}
+
+void InitSdlAudio() {
+  if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0)
+    av_log(nullptr, AV_LOG_ERROR, "SDL fails to initialize audio subsystem!\n%s", SDL_GetError());
+  else
+    av_log(nullptr, AV_LOG_DEBUG, "SDL Audio was initialized fine!\n");
 }
 
 } // namespace sdl

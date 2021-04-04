@@ -1,8 +1,6 @@
 #include <list>
-#include <algorithm>
 
 #include "ffplayer.h"
-#include "ffp_utils.h"
 #include "media_player.h"
 
 #include "ffp_flutter.h"
@@ -12,71 +10,19 @@
 #include "ffp_flutter_windows.h"
 #elif defined(_FLUTTER_MEDIA_ANDROID)
 #include "ffp_flutter_android.h"
+#define _MEDIA_AUDIO_USE_SDL
 #elif defined(_FLUTTER_MEDIA_LINUX)
+#define _MEDIA_AUDIO_USE_SDL
+#endif
+
+// Use SDL2 to render audio.
+#ifdef _MEDIA_AUDIO_USE_SDL
 #include "audio_render_sdl.h"
+#include "sdl_utils.h"
 #endif
 
 // hold all player instance. destroy all play when flutter app hot reloaded.
 static std::list<CPlayer *> *players_;
-
-#if 0
-static void stream_component_close(CPlayer *player, int stream_index) {
-    VideoState *is = player->is;
-    AVFormatContext *ic = is->ic;
-    AVCodecParameters *codecpar;
-
-    if (stream_index < 0 || stream_index >= ic->nb_streams)
-        return;
-    codecpar = ic->streams[stream_index]->codecpar;
-
-    switch (codecpar->codec_type) {
-        case AVMEDIA_TYPE_AUDIO:
-            is->auddec.Abort(&is->sampq);
-            SDL_CloseAudioDevice(player->audio_dev);
-            is->auddec.Destroy();
-            swr_free(&is->swr_ctx);
-            av_freep(&is->audio_buf1);
-            is->audio_buf1_size = 0;
-            is->audio_buf = nullptr;
-
-            if (is->rdft) {
-                av_rdft_end(is->rdft);
-                av_freep(&is->rdft_data);
-                is->rdft = nullptr;
-                is->rdft_bits = 0;
-            }
-            break;
-        case AVMEDIA_TYPE_VIDEO:
-            is->viddec.Abort(&is->pictq);
-            is->viddec.Destroy();
-            break;
-        case AVMEDIA_TYPE_SUBTITLE:
-            is->subdec.Abort(&is->subpq);
-            is->subdec.Destroy();
-            break;
-        default:
-            break;
-    }
-
-    ic->streams[stream_index]->discard = AVDISCARD_ALL;
-    switch (codecpar->codec_type) {
-        case AVMEDIA_TYPE_AUDIO:
-            is->audio_st = nullptr;
-            is->audio_stream = -1;
-            break;
-        case AVMEDIA_TYPE_VIDEO:
-            is->video_st = nullptr;
-            is->video_stream = -1;
-            break;
-        case AVMEDIA_TYPE_SUBTITLE:
-            is->subtitle_st = nullptr;
-            is->subtitle_stream = -1;
-            break;
-        default:
-            break;
-    }
-}
-#endif
 
 void ffplayer_seek_to_position(CPlayer *player, double position) {
   CHECK_VALUE(player);
@@ -192,6 +138,11 @@ void ffplayer_global_init(void *arg) {
   });
 #endif
   CPlayer::GlobalInit();
+
+#ifdef _MEDIA_AUDIO_USE_SDL
+  media::sdl::InitSdlAudio();
+#endif
+
   Dart_InitializeApiDL(arg);
 
   if (players_) {

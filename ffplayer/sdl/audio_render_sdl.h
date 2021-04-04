@@ -11,6 +11,8 @@ extern "C" {
 #include "SDL2/SDL.h"
 };
 
+namespace media {
+
 class AudioRenderSdl : public BasicAudioRender {
 
  private:
@@ -31,5 +33,7 @@ class AudioRenderSdl : public BasicAudioRender {
                       AudioParams &device_output) override;
 
 };
+
+}
 
 #endif //MEDIA_AUDIO_AUDIO_RENDER_SDL_2_H_

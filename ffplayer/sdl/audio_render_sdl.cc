@@ -4,6 +4,8 @@
 
 #include "audio_render_sdl.h"
 
+namespace media {
+
 /* Minimum SDL audio buffer size, in samples. */
 #define SDL_AUDIO_MIN_BUFFER_SIZE 512
 /* Calculate actual buffer size keeping in mind not cause too frequent audio callbacks */
@@ -108,3 +110,4 @@ int AudioRenderSdl::OpenAudioDevice(int64_t wanted_channel_layout,
   return spec.size;
 }
 
+}

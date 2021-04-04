@@ -8,4 +8,4 @@ add_library(media_sdl ${SDL_SOURCES})
 
 target_include_directories(media_sdl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} include)
 
-target_link_libraries(media_sdl PUBLIC media_base media_audio media_video)
+target_link_libraries(media_sdl PUBLIC media_player)
