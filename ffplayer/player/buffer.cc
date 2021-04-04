@@ -6,7 +6,7 @@
 
 namespace media {
 
-Buffer::Buffer(const chrono::milliseconds &timestamp, const chrono::milliseconds &duration)
+Buffer::Buffer(const TimeDelta &timestamp, const TimeDelta &duration)
     : timestamp_(timestamp), duration_(duration) {}
 
 Buffer::~Buffer() = default;

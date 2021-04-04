@@ -22,6 +22,10 @@ DataSourceHost *DataSource::host() {
   return host_;
 }
 
+void DataSource::SetPlaybackRate(float playback_rate) {
+
+}
+
 DataSource::~DataSource() = default;
 
 }

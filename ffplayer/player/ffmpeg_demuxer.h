@@ -16,6 +16,7 @@ extern "C" {
 #include "pipeline_status.h"
 #include "decoder_buffer.h"
 #include "data_source.h"
+#include "ranges.h"
 
 #include "audio_decoder_config.h"
 #include "video_decoder_config.h"
@@ -57,6 +58,15 @@ class FFmpegDemuxerStream {
 
   FFmpegDemuxerStream(FFmpegDemuxer *demuxer, AVStream *stream);
 
+  // Returns true is this stream has pending reads, false otherwise.
+  //
+  // Safe to call on any thread.
+  bool HasPendingReads();
+
+  // Enqueues the given AVPacket.  If |packet| is NULL an end of stream packet
+  // is enqueued.
+  void EnqueuePacket(AVPacketUniquePtr packet);
+
   /**
    * @return The Type of stream.
    */
@@ -72,6 +82,12 @@ class FFmpegDemuxerStream {
    * Used to determine stream duration when it's not known ahead of time.
    */
   TimeDelta GetElapsedTime() const;
+
+  // Returns the range of buffered data in this stream.
+  Ranges<TimeDelta> GetBufferedRanges() const;
+
+  // Empties the queues and ignores any additional calls to Read().
+  void Stop();
 
  protected:
  public:
@@ -116,6 +132,9 @@ class FFmpegDemuxerStream {
   chrono::microseconds duration_;
   bool stopped_;
 
+  TimeDelta last_packet_timestamp_;
+  Ranges<TimeDelta> buffered_ranges_;
+
   typedef std::deque<std::shared_ptr<DecoderBuffer>> BufferQueue;
   BufferQueue buffer_queue_;
 
@@ -143,6 +162,14 @@ class FFmpegDemuxer : public FFmpegUrlProtocol {
    */
   void PostDemuxTask();
 
+  // Allow FFmpegDemuxerStream to notify us when there is updated information
+  // about what buffered data is available.
+  void NotifyBufferingChanged();
+
+  // The pipeline is being stopped either as a result of an error or because
+  // the client called Stop().
+  virtual void Stop(const std::function<void(void)> &callback);
+
  private:
 
   // Carries out initialization on the demuxer thread.
@@ -157,7 +184,23 @@ class FFmpegDemuxer : public FFmpegUrlProtocol {
   // no work to do.
   //
   // Must to called on the demuxer thread.
-  bool StreamHavePendingReads();
+  bool StreamsHavePendingReads();
+
+  // Signal all FFmpegDemuxerStream that the stream has ended.
+  //
+  // Must be called on the demuxer thread.
+  void StreamHasEnded();
+
+  // Returns the stream from |streams_| that matches |type| as an
+  // FFmpegDemuxerStream.
+  std::shared_ptr<FFmpegDemuxerStream> GetFFmpegStream(FFmpegDemuxerStream::Type type) const;
+
+  // Carries out stopping the demuxer streams on the demuxer thread.
+  void StopTask(const std::function<void(void)> &callback);
+
+  // Signal the blocked thread that the read has completed, with |size| bytes
+  // read or kReadError in case of error.
+  virtual void SignalReadCompleted(int size);
 
   DemuxerHost *host_;
 
@@ -179,6 +222,13 @@ class FFmpegDemuxer : public FFmpegUrlProtocol {
   typedef std::vector<std::shared_ptr<FFmpegDemuxerStream>> StreamVector;
   StreamVector streams_;
 
+  // Flag to indicate if read has ever failed. Once set to true, it will
+  // never be reset. This flag is set true and accessed in Read().
+  bool read_has_failed_;
+
+  int last_read_bytes_;
+  int64 read_position_;
+
   // Derived bitrate after initialization has completed.
   int bitrate_;
 
@@ -187,13 +237,16 @@ class FFmpegDemuxer : public FFmpegUrlProtocol {
   // is 0.
   chrono::microseconds start_time_;
 
+  // Whether audio has been disabled for this demuxer (in which case this class
+  // drops packets destined for AUDIO demuxer streams on the floor).
+  bool audio_disabled_;
+
   // Set if we know duration of the audio stream. Used when processing end of
   // stream -- at this moment we definitely know duration.
   bool duration_known_;
 
   DISALLOW_COPY_AND_ASSIGN(FFmpegDemuxer);
 
-  void StreamHasEnded();
 };
 
 }

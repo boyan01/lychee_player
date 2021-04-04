@@ -19,7 +19,8 @@ FFmpegDemuxerStream::FFmpegDemuxerStream(FFmpegDemuxer *demuxer, AVStream *strea
       stream_(stream),
       type_(Type::UNKNOWN),
       stopped_(false),
-      duration_(chrono::microseconds::zero()) {
+      duration_(chrono::microseconds::zero()),
+      last_packet_timestamp_(kNoTimestamp()) {
   DCHECK(demuxer_);
 
   switch (stream->codecpar->codec_type) {
@@ -49,6 +50,47 @@ FFmpegDemuxerStream::~FFmpegDemuxerStream() {
   DCHECK(buffer_queue_.empty());
 }
 
+bool FFmpegDemuxerStream::HasPendingReads() {
+  DCHECK(demuxer_->message_loop()->BelongsToCurrentThread());
+  std::lock_guard<std::mutex> auto_lock(mutex_);
+  DCHECK(!stopped_ || read_queue_.empty())
+  << "Read queue should have been emptied if demuxing stream is stopped";
+  return !read_queue_.empty();
+}
+
+void FFmpegDemuxerStream::EnqueuePacket(AVPacketUniquePtr packet) {
+  DCHECK(demuxer_->message_loop()->BelongsToCurrentThread());
+
+  std::lock_guard<std::mutex> auto_lock(mutex_);
+  if (stopped_) {
+    NOTREACHED() << "Attempted to enqueue packet to a stopped stream";
+    return;
+  }
+
+  std::shared_ptr<DecoderBuffer> buffer;
+  if (!packet.get()) {
+    buffer = DecoderBuffer::CreateEOSBuffer();
+  }
+
+  // If a packet is returned by FFmpeg's av_parser_parse2() the packet will
+  // reference inner memory of FFmpeg.  As such we should transfer the packet
+  // into memory we control.
+  buffer = DecoderBuffer::CopyFrom(packet->data, packet->size);
+  buffer->SetTimeStamp(ConvertStreamTimestamp(stream_->time_base, packet->pts));
+  buffer->SetDuration(ConvertStreamTimestamp(stream_->time_base, packet->duration));
+  if (buffer->GetTimestamp() != kNoTimestamp() && last_packet_timestamp_ != kNoTimestamp() &&
+      last_packet_timestamp_ < buffer->GetTimestamp()) {
+    buffered_ranges_.Add(last_packet_timestamp_, buffer->GetTimestamp());
+    demuxer_->message_loop()->PostTask(FROM_HERE, [&]() {
+      demuxer_->NotifyBufferingChanged();
+    });
+    last_packet_timestamp_ = buffer->GetTimestamp();
+  }
+
+  buffer_queue_.push_back(buffer);
+  FulfillPendingRead();
+}
+
 void FFmpegDemuxerStream::Read(const FFmpegDemuxerStream::ReadCB &read_cb) {
   DCHECK(!read_cb);
 
@@ -75,6 +117,17 @@ void FFmpegDemuxerStream::Read(const FFmpegDemuxerStream::ReadCB &read_cb) {
   auto buffer = buffer_queue_.front();
   buffer_queue_.pop_front();
   read_cb(FFmpegDemuxerStream::kOk, buffer);
+}
+
+void FFmpegDemuxerStream::Stop() {
+  DCHECK(demuxer_->message_loop()->BelongsToCurrentThread());
+  std::lock_guard<std::mutex> auto_lock(mutex_);
+  buffer_queue_.clear();
+  for (auto &read_cb : read_queue_) {
+    read_cb(kOk, DecoderBuffer::CreateEOSBuffer());
+  }
+  read_queue_.clear();
+  stopped_ = true;
 }
 
 chrono::microseconds FFmpegDemuxerStream::duration() {
@@ -136,12 +189,24 @@ chrono::microseconds FFmpegDemuxerStream::ConvertStreamTimestamp(const AVRationa
   return ConvertFromTimeBase(time_base, timestamp);
 }
 
+Ranges<TimeDelta> FFmpegDemuxerStream::GetBufferedRanges() const {
+  std::lock_guard<std::mutex> auto_lock(mutex_);
+  return buffered_ranges_;
+}
+
 FFmpegDemuxer::FFmpegDemuxer(
     std::shared_ptr<base::MessageLoop> message_loop,
     std::shared_ptr<DataSource> data_source)
     : message_loop_(std::move(message_loop)),
-      data_source_(std::move(data_source)) {
-
+      data_source_(std::move(data_source)),
+      host_(nullptr),
+      format_context_(nullptr),
+      bitrate_(0),
+      start_time_(kNoTimestamp()),
+      audio_disabled_(false),
+      duration_known_(false) {
+  DCHECK(message_loop_);
+  DCHECK(data_source_);
 }
 
 void FFmpegDemuxer::PostDemuxTask() {
@@ -154,7 +219,7 @@ void FFmpegDemuxer::DemuxTask() {
   DCHECK(message_loop_->BelongsToCurrentThread());
 
   // Make sure we have work to do before demuxing.
-  if (!StreamHavePendingReads()) {
+  if (!StreamsHavePendingReads()) {
     return;
   }
 
@@ -187,12 +252,25 @@ void FFmpegDemuxer::DemuxTask() {
   DCHECK_GE(packet->stream_index, 0);
   DCHECK_LT(packet->stream_index, static_cast<int>(streams_.size()));
 
+  if (packet->stream_index >= 0 && packet->stream_index < streams_.size() && streams_[packet->stream_index]
+      && (!audio_disabled_ || streams_[packet->stream_index]->type() != FFmpegDemuxerStream::AUDIO)) {
+    auto demuxer_stream = streams_[packet->stream_index];
+    demuxer_stream->EnqueuePacket(std::move(packet));
+  }
+
+  // Create a loop by posting another task.  This allows seek and message loop
+  // quit tasks to get processed.
+  if (StreamsHavePendingReads()) {
+    PostDemuxTask();
+  }
+
 }
 
-bool FFmpegDemuxer::StreamHavePendingReads() {
+bool FFmpegDemuxer::StreamsHavePendingReads() {
   DCHECK(message_loop_->BelongsToCurrentThread());
-
-  return false;
+  return std::any_of(streams_.begin(), streams_.end(), [](const std::shared_ptr<FFmpegDemuxerStream> &stream) -> bool {
+    return stream->HasPendingReads();
+  });
 }
 
 void FFmpegDemuxer::Initialize(DemuxerHost *host, const PipelineStatusCB &status_cb) {
@@ -351,7 +429,67 @@ void FFmpegDemuxer::InitializeTask(DemuxerHost *host, const PipelineStatusCB &st
 }
 
 void FFmpegDemuxer::StreamHasEnded() {
+  DCHECK(message_loop_->BelongsToCurrentThread());
+  for (auto &stream: streams_) {
+    if (audio_disabled_ && stream->type() == FFmpegDemuxerStream::AUDIO) {
+      continue;
+    }
+    // FIXME: flush packet.
+    AVPacketUniquePtr packet(new AVPacket(), UniquePtrAVFreePacket());
+    stream->EnqueuePacket(std::move(packet));
+  }
+}
 
+void FFmpegDemuxer::NotifyBufferingChanged() {
+  DCHECK(message_loop_->BelongsToCurrentThread());
+  Ranges<TimeDelta> buffered;
+  std::shared_ptr<FFmpegDemuxerStream> audio = audio_disabled_ ? nullptr : GetFFmpegStream(FFmpegDemuxerStream::AUDIO);
+  std::shared_ptr<FFmpegDemuxerStream> video = GetFFmpegStream(FFmpegDemuxerStream::VIDEO);
+  if (audio && video) {
+    buffered = audio->GetBufferedRanges().IntersectionWith(video->GetBufferedRanges());
+  } else if (audio_disabled_) {
+    buffered = audio->GetBufferedRanges();
+  } else if (video) {
+    buffered = video->GetBufferedRanges();
+  }
+  for (size_t i = 0; i < buffered.size(); ++i) {
+    host_->AddBufferedTimeRange(buffered.start(i), buffered.end(i));
+  }
+}
+
+std::shared_ptr<FFmpegDemuxerStream> FFmpegDemuxer::GetFFmpegStream(FFmpegDemuxerStream::Type type) const {
+  for (auto &stream : streams_) {
+    if (stream->type() == type) {
+      return stream;
+    }
+  }
+  return nullptr;
+}
+
+void FFmpegDemuxer::Stop(const std::function<void(void)> &callback) {
+  message_loop_->PostTask(FROM_HERE, [&]() {
+    StopTask(callback);
+  });
+
+  // Then wakes up the thread from reading.
+  SignalReadCompleted(DataSource::kReadError);
+}
+
+void FFmpegDemuxer::StopTask(const std::function<void(void)> &callback) {
+  DCHECK(message_loop_->BelongsToCurrentThread());
+  for (auto &stream: streams_) {
+    stream->Stop();
+  }
+  if (data_source_) {
+    data_source_->Stop(callback);
+  } else {
+    callback();
+  }
+}
+
+void FFmpegDemuxer::SignalReadCompleted(int size) {
+  last_read_bytes_ = size;
+//  read_event_.Signal();
 }
 
 }

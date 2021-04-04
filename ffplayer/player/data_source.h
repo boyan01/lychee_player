@@ -51,6 +51,23 @@ class DataSource {
   // Values of |bitrate| <= 0 are invalid and should be ignored.
   virtual void SetBitrate(int bitrate) = 0;
 
+  // Reads |size| bytes from |position| into |data|. And when the read is done
+  // or failed, |read_cb| is called with the number of bytes read or
+  // kReadError in case of error.
+  virtual void Read(int64 position, int size, uint8 *data,
+                    const DataSource::ReadCB &read_cb) = 0;
+
+  // Notifies the DataSource of a change in the current playback rate.
+  virtual void SetPlaybackRate(float playback_rate);
+
+  // Stops the DataSource. Once this is called all future Read() calls will
+  // return an error.
+  virtual void Stop(const std::function<void()> &callback) = 0;
+
+  // Returns true and the file size, false if the file size could not be
+  // retrieved.
+  virtual bool GetSize(int64 *size_out) = 0;
+
  protected:
 
   virtual ~DataSource();

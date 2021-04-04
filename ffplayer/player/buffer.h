@@ -36,28 +36,28 @@ class Buffer {
    */
   bool isEndOfStream() const;
 
-  chrono::milliseconds GetTimestamp() const {
+  TimeDelta GetTimestamp() const {
     return timestamp_;
   }
 
-  void SetTimeStamp(const chrono::milliseconds &timestamp) {
+  void SetTimeStamp(const TimeDelta &timestamp) {
     timestamp_ = timestamp;
   }
 
-  const chrono::milliseconds &GetDuration() const {
+  const TimeDelta &GetDuration() const {
     return duration_;
   }
-  void SetDuration(const chrono::milliseconds &duration) {
+  void SetDuration(const TimeDelta &duration) {
     duration_ = duration;
   }
 
  protected:
-  Buffer(const chrono::milliseconds &timestamp, const chrono::milliseconds &duration);
+  Buffer(const TimeDelta &timestamp, const TimeDelta &duration);
   virtual ~Buffer();
 
  private:
-  chrono::milliseconds timestamp_;
-  chrono::milliseconds duration_;
+  TimeDelta timestamp_;
+  TimeDelta duration_;
 
   DISALLOW_COPY_AND_ASSIGN(Buffer);
 
