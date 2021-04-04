@@ -5,10 +5,12 @@
 import FlutterMacOS
 import Foundation
 
-import audio_player
+import media_player
+import path_provider_macos
 import system_clock
 
 func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
   SwiftAudioPlayerPlugin.register(with: registry.registrar(forPlugin: "SwiftAudioPlayerPlugin"))
+  PathProviderPlugin.register(with: registry.registrar(forPlugin: "PathProviderPlugin"))
   SystemClockPlugin.register(with: registry.registrar(forPlugin: "SystemClockPlugin"))
 }
