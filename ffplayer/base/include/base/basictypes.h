@@ -18,21 +18,21 @@ typedef long                int64;
 #else
 typedef long long int64;
 #endif
-typedef signed char         schar;
-typedef signed char         int8;
-typedef short               int16;
+typedef signed char schar;
+typedef signed char int8;
+typedef short int16;
 // TODO: Remove these type guards.  These are to avoid conflicts with
 // obsolete/protypes.h in the Gecko SDK.
 #ifndef _INT32
 #define _INT32
-typedef int                 int32;
+typedef int int32;
 #endif
 
 typedef unsigned char uint8;
 typedef unsigned short uint16;
 #ifndef _UINT32
 #define _UINT32
-typedef unsigned int       uint32;
+typedef unsigned int uint32;
 #endif
 
 // A macro to disallow the copy constructor and operator= functions
@@ -68,7 +68,7 @@ typedef unsigned int       uint32;
 // the expression is false, most compilers will issue a warning/error
 // containing the name of the variable.
 
-template <bool>
+template<bool>
 struct CompileAssert {
 };
 
@@ -91,14 +91,14 @@ struct CompileAssert {
 // This template function declaration is used in defining arraysize.
 // Note that the function doesn't need an implementation, as we only
 // use its type.
-template <typename T, size_t N>
+template<typename T, size_t N>
 char (&ArraySizeHelper(T (&array)[N]))[N];
 
 // That gcc wants both of these prototypes seems mysterious. VC, for
 // its part, can't decide which to use (another mystery). Matching of
 // template overloads: the final frontier.
 #ifndef _MSC_VER
-template <typename T, size_t N>
+template<typename T, size_t N>
 char (&ArraySizeHelper(const T (&array)[N]))[N];
 #endif
 
