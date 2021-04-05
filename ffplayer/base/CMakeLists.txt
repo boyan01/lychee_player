@@ -16,10 +16,12 @@ add_library(media_base
 target_include_directories(media_base PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 
-add_executable(media_base_test
-        test/message_queue_test.cc
-        test/message_loop_test.cc
-        )
-target_link_libraries(media_base_test media_base gtest_main gmock_main)
+if (NOT DISABLE_MEDIA_TEST)
+    add_executable(media_base_test
+            test/message_queue_test.cc
+            test/message_loop_test.cc
+            )
+    target_link_libraries(media_base_test media_base gtest_main gmock_main)
 
-add_test(NAME media_base_test COMMAND media_base)
+    add_test(NAME media_base_test COMMAND media_base)
+endif ()

@@ -45,11 +45,13 @@ target_include_directories(media_player PUBLIC
 
 target_link_libraries(media_player PUBLIC ${FFP_LIBS} media_base)
 
-add_executable(media_player_test
-        ffmpeg_common_test.cc
-        ffmpeg_glue_test.cc
-        ffmpeg_demuxer_test.cc
-        )
-target_link_libraries(media_player_test media_player gtest_main gmock_main)
+if (NOT DISABLE_MEDIA_TEST)
+    add_executable(media_player_test
+            ffmpeg_common_test.cc
+            ffmpeg_glue_test.cc
+            ffmpeg_demuxer_test.cc
+            )
+    target_link_libraries(media_player_test media_player gtest_main gmock_main)
 
-add_test(NAME media_player_test COMMAND media_player)
+    add_test(NAME media_player_test COMMAND media_player)
+endif ()
