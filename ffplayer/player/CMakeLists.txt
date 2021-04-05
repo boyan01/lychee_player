@@ -6,7 +6,7 @@ set(MEDIA_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/")
 
 aux_source_directory(${MEDIA_SRC_DIR} SRC_FILES)
 
-add_library(media_player ${SRC_FILES}
+add_library(media_player STATIC ${SRC_FILES}
         renderer.h
         renderer.cc
         renderer_video.h

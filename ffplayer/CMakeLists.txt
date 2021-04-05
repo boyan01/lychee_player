@@ -48,7 +48,7 @@ if (NOT DEFINED FFP_LIBS)
     if (APPLE)
         function(add_macos_lib NAME)
             add_library(${NAME} SHARED IMPORTED GLOBAL)
-            set_property(TARGET ${NAME} PROPERTY IMPORTED_LOCATION /usr/local/lib/lib${NAME}.dylib)
+            set_target_properties(${NAME} PROPERTIES IMPORTED_LOCATION /usr/local/lib/lib${NAME}.dylib)
         endfunction()
 
         add_macos_lib(avutil)
@@ -77,6 +77,25 @@ FetchContent_Declare(
 # For Windows: Prevent overriding the parent project's compiler/linker settings
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
+
+
+if (CMAKE_FLUTTER_MEDIA_WINDOWS)
+    set(CMAKE_FLUTTER_MEDIA "1")
+    add_compile_definitions(_FLUTTER_MEDIA_)
+    add_compile_definitions(_FLUTTER_MEDIA_WINDOWS)
+elseif (CMAKE_FLUTTER_MEDIA_LINUX)
+    set(CMAKE_FLUTTER_MEDIA "1")
+    add_compile_definitions(_FLUTTER_MEDIA_)
+    add_compile_definitions(_FLUTTER_MEDIA_LINUX)
+elseif (CMAKE_FLUTTER_MEDIA_ANDROID)
+    set(CMAKE_FLUTTER_MEDIA "1")
+    add_compile_definitions(_FLUTTER_MEDIA_)
+    add_compile_definitions(_FLUTTER_MEDIA_ANDROID)
+elseif (CMAKE_FLUTTER_MEDIA_MACOS)
+    set(MEDIA_USE_SDL "1")
+    set(CMAKE_FLUTTER_MEDIA "1")
+    add_compile_definitions(_FLUTTER_MEDIA_MACOS)
+endif ()
 
 
 add_subdirectory(base)

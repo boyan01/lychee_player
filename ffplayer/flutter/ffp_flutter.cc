@@ -13,6 +13,8 @@
 #define _MEDIA_AUDIO_USE_SDL
 #elif defined(_FLUTTER_MEDIA_LINUX)
 #define _MEDIA_AUDIO_USE_SDL
+#elif defined(_FLUTTER_MEDIA_MACOS)
+#define _MEDIA_AUDIO_USE_SDL
 #endif
 
 // Use SDL2 to render audio.

@@ -22,6 +22,7 @@ extern "C" {
 #include "video_decoder_config.h"
 
 #include "ffmpeg_glue.h"
+#include "ffmpeg_common.h"
 
 namespace media {
 
