@@ -11,7 +11,8 @@ add_library(media_base
         src/utility.cc
         src/size.cc
         src/rect.cc
-        )
+        src/channel_layout.cc
+        src/buffer.cc)
 
 target_include_directories(media_base PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 

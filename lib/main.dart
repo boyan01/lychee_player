@@ -1,17 +1,16 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'full_screen_player.dart';
-import 'player/media_player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:overlay_support/overlay_support.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'full_screen_player.dart';
 import 'player/ffi_player.dart';
-
-import 'widgets/player_components.dart';
+import 'player/media_player.dart';
 import 'stores.dart';
+import 'widgets/player_components.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

@@ -8,35 +8,13 @@
 #include <memory>
 
 #include "base/basictypes.h"
-#include "channel_layout.h"
+#include "base/channel_layout.h"
+
+extern "C" {
+#include "libavformat/avformat.h"
+};
 
 namespace media {
-
-enum AudioCodec {
-  // These values are histogrammed over time; do not change their ordinal
-  // values.  When deleting a codec replace it with a dummy value; when adding a
-  // codec, do so at the bottom (and update kAudioCodecMax).
-  kUnknownAudioCodec = 0,
-  kCodecAAC,
-  kCodecMP3,
-  kCodecPCM,
-  kCodecVorbis,
-  // ChromiumOS and ChromeOS specific codecs.
-  kCodecFLAC,
-  // ChromeOS specific codecs.
-  kCodecAMR_NB,
-  kCodecAMR_WB,
-  kCodecPCM_MULAW,
-  kCodecGSM_MS,
-  kCodecPCM_S16BE,
-  kCodecPCM_S24BE,
-  // DO NOT ADD RANDOM AUDIO CODECS!
-  //
-  // The only acceptable time to add a new codec is if there is production code
-  // that uses said codec in the same CL.
-
-  kAudioCodecMax = kCodecPCM_S24BE  // Must equal the last "real" codec above.
-};
 
 class AudioDecoderConfig {
 
@@ -47,14 +25,14 @@ class AudioDecoderConfig {
 
   // Constructs an initialized object. It is acceptable to pass in NULL for
   // |extra_data|, otherwise the memory is copied.
-  AudioDecoderConfig(AudioCodec codec, int bytes_per_channel,
+  AudioDecoderConfig(AVCodecID codec_id, int bytes_per_channel,
                      ChannelLayout channel_layout, int samples_per_second,
                      const uint8 *extra_data, size_t extra_data_size);
 
   ~AudioDecoderConfig();
 
   // Resets the internal state of this object.
-  void Initialize(AudioCodec codec, int bytes_per_channel,
+  void Initialize(AVCodecID codec_id, int bytes_per_channel,
                   ChannelLayout channel_layout, int samples_per_second,
                   const uint8 *extra_data, size_t extra_data_size,
                   bool record_stats);
@@ -70,7 +48,7 @@ class AudioDecoderConfig {
   // Note: The contents of |extra_data_| are compared not the raw pointers.
   bool Matches(const AudioDecoderConfig &config) const;
 
-  AudioCodec codec() const;
+  AVCodecID CodecId() const;
   int bytes_per_channel() const;
   ChannelLayout channel_layout() const;
   int samples_per_second() const;
@@ -81,15 +59,13 @@ class AudioDecoderConfig {
   size_t extra_data_size() const;
 
  private:
-  AudioCodec codec_;
+  AVCodecID codec_;
   int bytes_per_channel_;
   ChannelLayout channel_layout_;
   int samples_per_second_;
 
   uint8 *extra_data_;
   size_t extra_data_size_;
-
-  DISALLOW_COPY_AND_ASSIGN(AudioDecoderConfig);
 
 };
 

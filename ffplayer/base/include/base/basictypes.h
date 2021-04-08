@@ -106,4 +106,9 @@ char (&ArraySizeHelper(const T (&array)[N]))[N];
 
 namespace chrono = std::chrono;
 
+#include "memory"
+
+template<typename T>
+using unique_ptr_d = std::unique_ptr<T, void (*)(T *ptr)>;
+
 #endif //MEDIA_BASE_BASICTYPES_H_

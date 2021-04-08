@@ -36,11 +36,11 @@
  * There may be slight deviations from the principle due to implementation
  * details.
  *
- * If you add a codec ID to this list, add it so that
- * 1. no value of an existing codec ID changes (that would break ABI),
+ * If you add a CodecId ID to this list, add it so that
+ * 1. no value of an existing CodecId ID changes (that would break ABI),
  * 2. it is as close as possible to similar codecs
  *
- * After adding new codec IDs, do not forget to add an entry to the codec
+ * After adding new codec IDs, do not forget to add an entry to the CodecId
  * descriptor list and bump libavcodec minor version.
  */
 enum AVCodecID {
@@ -551,22 +551,22 @@ enum AVCodecID {
 
     AV_CODEC_ID_PROBE = 0x19000, ///< codec_id is not known (like AV_CODEC_ID_NONE) but lavf should attempt to identify it
 
-    AV_CODEC_ID_MPEG2TS = 0x20000, /**< _FAKE_ codec to indicate a raw MPEG-2 TS
+    AV_CODEC_ID_MPEG2TS = 0x20000, /**< _FAKE_ CodecId to indicate a raw MPEG-2 TS
                                 * stream (only used by libavformat) */
-    AV_CODEC_ID_MPEG4SYSTEMS = 0x20001, /**< _FAKE_ codec to indicate a MPEG-4 Systems
+    AV_CODEC_ID_MPEG4SYSTEMS = 0x20001, /**< _FAKE_ CodecId to indicate a MPEG-4 Systems
                                 * stream (only used by libavformat) */
-    AV_CODEC_ID_FFMETADATA = 0x21000,   ///< Dummy codec for streams containing only metadata information.
-    AV_CODEC_ID_WRAPPED_AVFRAME = 0x21001, ///< Passthrough codec, AVFrames wrapped in AVPacket
+    AV_CODEC_ID_FFMETADATA = 0x21000,   ///< Dummy CodecId for streams containing only metadata information.
+    AV_CODEC_ID_WRAPPED_AVFRAME = 0x21001, ///< Passthrough CodecId, AVFrames wrapped in AVPacket
 };
 
 /**
- * Get the type of the given codec.
+ * Get the type of the given CodecId.
  */
 enum AVMediaType avcodec_get_type(enum AVCodecID codec_id);
 
 /**
- * Get the name of a codec.
- * @return  a static string identifying the codec; never NULL
+ * Get the name of a CodecId.
+ * @return  a static string identifying the CodecId; never NULL
  */
 const char *avcodec_get_name(enum AVCodecID id);
 

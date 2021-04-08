@@ -8,9 +8,8 @@
 namespace media {
 
 VideoDecoderConfig::VideoDecoderConfig()
-    : codec_(kUnknownVideoCodec),
-      profile_(VIDEO_CODEC_PROFILE_UNKNOWN),
-      format_(VideoFrame::INVALID),
+    : codec_id_(AV_CODEC_ID_NONE),
+      format_(AV_PIX_FMT_NONE),
       extra_data_size_(0),
       is_encrypted_(false),
       extra_data_(nullptr) {
@@ -18,22 +17,20 @@ VideoDecoderConfig::VideoDecoderConfig()
 }
 
 VideoDecoderConfig::VideoDecoderConfig(
-    VideoCodec codec,
-    VideoCodecProfile profile,
-    VideoFrame::Format format,
+    AVCodecID codec_id,
+    AVPixelFormat format,
     const base::Size &coded_size,
     const base::Rect &visible_rect,
     const base::Size &natural_size,
     const uint8 *extra_data,
     size_t extra_data_size,
     bool is_encrypted) {
-  Initialize(codec, profile, format, coded_size, visible_rect,
+  Initialize(codec_id, format, coded_size, visible_rect,
              natural_size, extra_data, extra_data_size, is_encrypted, true);
 }
 
-void VideoDecoderConfig::Initialize(VideoCodec codec,
-                                    VideoCodecProfile profile,
-                                    VideoFrame::Format format,
+void VideoDecoderConfig::Initialize(AVCodecID codec_id,
+                                    AVPixelFormat format,
                                     const base::Size &coded_size,
                                     const base::Rect &visible_rect,
                                     const base::Size &natural_size,
@@ -44,7 +41,7 @@ void VideoDecoderConfig::Initialize(VideoCodec codec,
   CHECK((extra_data_size != 0) == (extra_data != nullptr));
 
   if (record_stats) {
-//    UMA_HISTOGRAM_ENUMERATION("Media.VideoCodec", codec, kVideoCodecMax + 1);
+//    UMA_HISTOGRAM_ENUMERATION("Media.VideoCodec", CodecId, kVideoCodecMax + 1);
 //    // Drop UNKNOWN because U_H_E() uses one bucket for all values less than 1.
 //    if (profile >= 0) {
 //      UMA_HISTOGRAM_ENUMERATION("Media.VideoCodecProfile", profile,
@@ -56,8 +53,7 @@ void VideoDecoderConfig::Initialize(VideoCodec codec,
 //    UmaHistogramAspectRatio("Media.VideoVisibleAspectRatio", visible_rect);
   }
 
-  codec_ = codec;
-  profile_ = profile;
+  codec_id_ = codec_id;
   format_ = format;
   coded_size_ = coded_size;
   visible_rect_ = visible_rect;
@@ -79,8 +75,7 @@ VideoDecoderConfig::~VideoDecoderConfig() {
 }
 
 void VideoDecoderConfig::CopyFrom(const VideoDecoderConfig &video_config) {
-  Initialize(video_config.codec(),
-             video_config.profile(),
+  Initialize(video_config.CodecId(),
              video_config.format(),
              video_config.coded_size(),
              video_config.visible_rect(),
@@ -92,16 +87,15 @@ void VideoDecoderConfig::CopyFrom(const VideoDecoderConfig &video_config) {
 }
 
 bool VideoDecoderConfig::IsValidConfig() const {
-  return codec_ != kUnknownVideoCodec &&
+  return codec_id_ != AV_CODEC_ID_NONE &&
       natural_size_.width() > 0 &&
       natural_size_.height() > 0 &&
-      VideoFrame::IsValidConfig(format_, visible_rect().size(), natural_size_);
+      format_ != AV_PIX_FMT_NONE;
 }
 
 bool VideoDecoderConfig::Matches(const VideoDecoderConfig &config) const {
-  return ((codec() == config.codec()) &&
+  return ((CodecId() == config.CodecId()) &&
       (format() == config.format()) &&
-      (profile() == config.profile()) &&
       (coded_size() == config.coded_size()) &&
       (visible_rect() == config.visible_rect()) &&
       (natural_size() == config.natural_size()) &&
@@ -113,7 +107,7 @@ bool VideoDecoderConfig::Matches(const VideoDecoderConfig &config) const {
 
 std::string VideoDecoderConfig::AsHumanReadableString() const {
   std::ostringstream s;
-  s << "codec: " << codec()
+  s << "CodecId: " << CodecId()
     << " format: " << format()
     << " coded size: [" << coded_size().width()
     << "," << coded_size().height() << "]"
@@ -127,15 +121,11 @@ std::string VideoDecoderConfig::AsHumanReadableString() const {
   return s.str();
 }
 
-VideoCodec VideoDecoderConfig::codec() const {
-  return codec_;
+AVCodecID VideoDecoderConfig::CodecId() const {
+  return codec_id_;
 }
 
-VideoCodecProfile VideoDecoderConfig::profile() const {
-  return profile_;
-}
-
-VideoFrame::Format VideoDecoderConfig::format() const {
+AVPixelFormat VideoDecoderConfig::format() const {
   return format_;
 }
 

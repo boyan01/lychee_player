@@ -27,17 +27,12 @@ void AVStreamToVideoDecoderConfig(
     const AVStream *stream,
     VideoDecoderConfig *config);
 
-// Converts an FFmpeg video codec ID into its corresponding supported codec id.
+// Converts an FFmpeg video codec ID into its corresponding supported CodecId id.
 VideoCodec CodecIDToVideoCodec(AVCodecID codec_id);
 
-// Converts an FFmpeg audio codec ID into its corresponding supported codec id.
+// Converts an FFmpeg audio codec ID into its corresponding supported CodecId id.
 AudioCodec CodecIDToAudioCodec(AVCodecID codec_id);
 
-// Converts FFmpeg's channel layout to chrome's ChannelLayout.  |channels| can
-// be used when FFmpeg's channel layout is not informative in order to make a
-// good guess about the plausible channel layout based on number of channels.
-ChannelLayout AVChannelLayoutToChannelLayout(int64_t layout,
-                                             int channels);
 
 VideoFrame::Format PixelFormatToVideoFormat(AVPixelFormat pixel_format);
 

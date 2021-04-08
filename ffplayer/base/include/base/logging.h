@@ -147,6 +147,9 @@ class LogMessageVoid {
 #define COMPACT_GOOGLE_LOG_FATAL \
   COMPACT_GOOGLE_LOG_EX(LogMessage, logging::LOG_FATAL)
 
+#define COMPACT_GOOGLE_LOG_ERROR \
+  COMPACT_GOOGLE_LOG_EX(LogMessage, logging::LOG_ERROR)
+
 #define COMPACT_GOOGLE_LOG_WARNING \
   COMPACT_GOOGLE_LOG_EX(LogMessage, logging::LOG_WARNING)
 
@@ -171,6 +174,20 @@ std::string *MakeCheckOpString(const t1 &v1, const t2 &v2, const char *names) {
   auto *msg = new std::string(ss.str());
   return msg;
 }
+
+// Helper macro for binary operators.
+// The 'switch' is used to prevent the 'else' from being ambiguous when the
+// macro is used in an 'if' clause such as:
+// if (a == 1)
+//   CHECK_EQ(2, a);
+#define CHECK_OP(name, op, val1, val2)                        \
+  if (std::string* _result =                                  \
+      logging::Check##name##Impl((val1), (val2),              \
+                                 #val1 " " #op " " #val2))    \
+    logging::LogMessage(                                      \
+        __FILE__, __LINE__, ::logging::LOG_DCHECK,            \
+        _result).stream()
+
 
 // Helper functions for CHECK_OP macro.
 // The (int, int) specialization works around the issue that the compiler

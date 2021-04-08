@@ -113,10 +113,10 @@
  *   Repeat this call until it returns AVERROR(EAGAIN) or an error. The
  *   AVERROR(EAGAIN) return value means that new input data is required to
  *   return new output. In this case, continue with sending input. For each
- *   input frame/packet, the codec will typically return 1 output frame/packet,
+ *   input frame/packet, the CodecId will typically return 1 output frame/packet,
  *   but it can also be 0 or more than 1.
  *
- * At the beginning of decoding or encoding, the codec might accept multiple
+ * At the beginning of decoding or encoding, the CodecId might accept multiple
  * input frames/packets without returning a frame, until its internal buffers
  * are filled. This situation is handled transparently if you follow the steps
  * outlined above.
@@ -127,8 +127,8 @@
  * try sending new input on each iteration, and try to receive output if that
  * returns EAGAIN.
  *
- * End of stream situations. These require "flushing" (aka draining) the codec,
- * as the codec might buffer multiple frames or packets internally for
+ * End of stream situations. These require "flushing" (aka draining) the CodecId,
+ * as the CodecId might buffer multiple frames or packets internally for
  * performance or out of necessity (consider B-frames).
  * This is handled as follows:
  * - Instead of valid input, send NULL to the avcodec_send_packet() (decoding)
@@ -137,14 +137,14 @@
  * - Call avcodec_receive_frame() (decoding) or avcodec_receive_packet()
  *   (encoding) in a loop until AVERROR_EOF is returned. The functions will
  *   not return AVERROR(EAGAIN), unless you forgot to enter draining mode.
- * - Before decoding can be resumed again, the codec has to be reset with
+ * - Before decoding can be resumed again, the CodecId has to be reset with
  *   avcodec_flush_buffers().
  *
  * Using the API as outlined above is highly recommended. But it is also
  * possible to call functions outside of this rigid schema. For example, you can
  * call avcodec_send_packet() repeatedly without calling
  * avcodec_receive_frame(). In this case, avcodec_send_packet() will succeed
- * until the codec's internal buffer has been filled up (which is typically of
+ * until the CodecId's internal buffer has been filled up (which is typically of
  * size 1 per output frame, after initial input), and then reject input with
  * AVERROR(EAGAIN). Once it starts rejecting input, you have no choice but to
  * read at least some output.
@@ -152,7 +152,7 @@
  * Not all codecs will follow a rigid and predictable dataflow; the only
  * guarantee is that an AVERROR(EAGAIN) return value on a send/receive call on
  * one end implies that a receive/send call on the other end will succeed, or
- * at least will not fail with AVERROR(EAGAIN). In general, no codec will
+ * at least will not fail with AVERROR(EAGAIN). In general, no CodecId will
  * permit unlimited buffering of input or output.
  *
  * This API replaces the following legacy functions:
@@ -178,8 +178,8 @@
  * Some codecs might require using the new API; using the old API will return
  * an error when calling it. All codecs support the new API.
  *
- * A codec is not allowed to return AVERROR(EAGAIN) for both sending and receiving. This
- * would be an invalid state, which could put the codec user into an endless
+ * A CodecId is not allowed to return AVERROR(EAGAIN) for both sending and receiving. This
+ * would be an invalid state, which could put the CodecId user into an endless
  * loop. The API has no concept of time either: it cannot happen that trying to
  * do avcodec_send_packet() results in AVERROR(EAGAIN), but a repeated call 1 second
  * later accepts the packet (with no other receive/flush API calls involved).
@@ -189,7 +189,7 @@
  * returning EAGAIN at the same time at any point. It must also absolutely be
  * avoided that the current state is "unstable" and can "flip-flop" between
  * the send/receive APIs allowing progress. For example, it's not allowed that
- * the codec randomly decides that it actually wants to consume a packet now
+ * the CodecId randomly decides that it actually wants to consume a packet now
  * instead of returning a frame, after it just returned AVERROR(EAGAIN) on an
  * avcodec_send_packet() call.
  * @}
@@ -392,7 +392,7 @@ typedef struct RcOverride{
  *              Reference Picture Selection
  *              Independent Segment Decoding */
 /* /Fx */
-/* codec capabilities */
+/* CodecId capabilities */
 
 /* Exported side data.
    These flags can be passed in AVCodecContext.export_side_data before initialization.
@@ -538,10 +538,10 @@ typedef struct AVCodecContext {
     /**
      * fourcc (LSB first, so "ABCD" -> ('D'<<24) + ('C'<<16) + ('B'<<8) + 'A').
      * This is used to work around some encoder bugs.
-     * A demuxer should set this to what is stored in the field used to identify the codec.
+     * A demuxer should set this to what is stored in the field used to identify the CodecId.
      * If there are multiple such fields in a container then the demuxer should choose the one
-     * which maximizes the information about the used codec.
-     * If the codec tag field in a container is larger than 32 bits then the demuxer should
+     * which maximizes the information about the used CodecId.
+     * If the CodecId tag field in a container is larger than 32 bits then the demuxer should
      * remap the longer ID to 32 bits with a table or other structure. Alternatively a new
      * extra_codec_tag + size could be added but for this a clear advantage must be demonstrated
      * first.
@@ -555,7 +555,7 @@ typedef struct AVCodecContext {
     /**
      * Private context used for internal data.
      *
-     * Unlike priv_data, this is not codec-specific. It is used in general
+     * Unlike priv_data, this is not CodecId-specific. It is used in general
      * libavcodec functions.
      */
     struct AVCodecInternal *internal;
@@ -638,7 +638,7 @@ typedef struct AVCodecContext {
      *
      * Like containers, elementary streams also can store timestamps, 1/time_base
      * is the unit in which these timestamps are specified.
-     * As example of such codec time base see ISO/IEC 14496-2:2001(E)
+     * As example of such CodecId time base see ISO/IEC 14496-2:2001(E)
      * vop_time_increment_resolution and fixed_vop_rate
      * (fixed_vop_rate == 0 implies that it is different from the framerate)
      *
@@ -738,7 +738,7 @@ typedef struct AVCodecContext {
     /**
      * If non NULL, 'draw_horiz_band' is called by the libavcodec
      * decoder to draw a horizontal band. It improves cache usage. Not
-     * all codecs can do that. You must check the codec capabilities
+     * all codecs can do that. You must check the CodecId capabilities
      * beforehand.
      * When multithreading is used, it may be called from multiple threads
      * at the same time; threads might draw different parts of the same AVFrame,
@@ -764,7 +764,7 @@ typedef struct AVCodecContext {
 
     /**
      * callback to negotiate the pixelFormat
-     * @param fmt is the list of formats which are supported by the codec,
+     * @param fmt is the list of formats which are supported by the CodecId,
      * it is terminated by -1 as 0 is a valid format, the formats are ordered by quality.
      * The first is always the native one.
      * @note The callback may be called again immediately if initialization for
@@ -1199,7 +1199,7 @@ typedef struct AVCodecContext {
      *
      * - encoding: set by libavcodec in avcodec_open2(). Each submitted frame
      *   except the last must contain exactly frame_size samples per channel.
-     *   May be 0 when the codec has AV_CODEC_CAP_VARIABLE_FRAME_SIZE set, then the
+     *   May be 0 when the CodecId has AV_CODEC_CAP_VARIABLE_FRAME_SIZE set, then the
      *   frame size is not restricted.
      * - decoding: may be set by some decoders to indicate constant frame size
      */
@@ -1272,7 +1272,7 @@ typedef struct AVCodecContext {
      * - width, height (video only)
      * - sample_rate, channel_layout, nb_samples (audio only)
      * Their values may differ from the corresponding values in
-     * AVCodecContext. This callback must use the frame values, not the codec
+     * AVCodecContext. This callback must use the frame values, not the CodecId
      * context values, to calculate the required buffer size.
      *
      * This callback must fill the following fields in the frame:
@@ -1656,7 +1656,7 @@ typedef struct AVCodecContext {
 
 /**
  * Verify checksums embedded in the bitstream (could be of either encoded or
- * decoded data, depending on the codec) and print an error message on mismatch.
+ * decoded data, depending on the CodecId) and print an error message on mismatch.
  * If AV_EF_EXPLODE is also set, a mismatching checksum will result in the
  * decoder returning an error.
  */
@@ -1797,7 +1797,7 @@ typedef struct AVCodecContext {
 #define FF_THREAD_SLICE   2 ///< Decode more than one part of a single frame at once
 
     /**
-     * Which multithreading methods are in use by the codec.
+     * Which multithreading methods are in use by the CodecId.
      * - encoding: Set by libavcodec.
      * - decoding: Set by libavcodec.
      */
@@ -1814,7 +1814,7 @@ typedef struct AVCodecContext {
     int thread_safe_callbacks;
 
     /**
-     * The codec may call this to execute several independent things.
+     * The CodecId may call this to execute several independent things.
      * It will return only after finishing all tasks.
      * The user may replace this with some multithreaded implementation,
      * the default implementation will execute the parts serially.
@@ -1825,7 +1825,7 @@ typedef struct AVCodecContext {
     int (*execute)(struct AVCodecContext *c, int (*func)(struct AVCodecContext *c2, void *arg), void *arg2, int *ret, int count, int size);
 
     /**
-     * The codec may call this to execute several independent things.
+     * The CodecId may call this to execute several independent things.
      * It will return only after finishing all tasks.
      * The user may replace this with some multithreaded implementation,
      * the default implementation will execute the parts serially.
@@ -2122,13 +2122,13 @@ typedef struct AVCodecContext {
      * - encoding: unused
      */
     int sub_charenc_mode;
-#define FF_SUB_CHARENC_MODE_DO_NOTHING  -1  ///< do nothing (demuxer outputs a stream supposed to be already in UTF-8, or the codec is bitmap for instance)
+#define FF_SUB_CHARENC_MODE_DO_NOTHING  -1  ///< do nothing (demuxer outputs a stream supposed to be already in UTF-8, or the CodecId is bitmap for instance)
 #define FF_SUB_CHARENC_MODE_AUTOMATIC    0  ///< libavcodec will select the mode itself
 #define FF_SUB_CHARENC_MODE_PRE_DECODER  1  ///< the AVPacket data needs to be recoded to UTF-8 before being fed to the decoder, requires iconv
 #define FF_SUB_CHARENC_MODE_IGNORE       2  ///< neither convert the subtitles, nor check them for valid UTF-8
 
     /**
-     * Skip processing alpha if supported by codec.
+     * Skip processing alpha if supported by CodecId.
      * Note that if the format uses pre-multiplied alpha (common with VP6,
      * and recommended due to better video quality/compression)
      * the image will look as if alpha-blended onto a black background.
@@ -2260,7 +2260,7 @@ typedef struct AVCodecContext {
      * be used by a hardware encoder/decoder.  The reference is set by the
      * caller and afterwards owned (and freed) by libavcodec.
      *
-     * This should be used if either the codec device does not require
+     * This should be used if either the CodecId device does not require
      * hardware frames or any that are used are to be allocated internally by
      * libavcodec.  If the user wishes to supply any of the frames used as
      * encoder input or decoder output then hw_frames_ctx should be used
@@ -2306,7 +2306,7 @@ typedef struct AVCodecContext {
      * libavcodec is unable to apply cropping from the top/left border.
      *
      * @note when this option is set to zero, the width/height fields of the
-     * AVCodecContext and output AVFrames have different meanings. The codec
+     * AVCodecContext and output AVFrames have different meanings. The CodecId
      * context fields store display dimensions (with the coded dimensions in
      * coded_width/height), while the frame fields store the coded dimensions
      * (with the display dimensions being determined by the crop_* fields).
@@ -2409,14 +2409,14 @@ struct MpegEncContext;
  */
 typedef struct AVHWAccel {
     /**
-     * Name of the hardware accelerated codec.
+     * Name of the hardware accelerated CodecId.
      * The name is globally unique among encoders and among decoders (but an
      * encoder and a decoder can share the same name).
      */
     const char *name;
 
     /**
-     * Type of codec implemented by the hardware accelerator.
+     * Type of CodecId implemented by the hardware accelerator.
      *
      * See AVMEDIA_TYPE_xxx
      */
@@ -2437,7 +2437,7 @@ typedef struct AVHWAccel {
     enum AVPixelFormat pix_fmt;
 
     /**
-     * Hardware accelerated codec capabilities.
+     * Hardware accelerated CodecId capabilities.
      * see AV_HWACCEL_CODEC_CAP_*
      */
     int capabilities;
@@ -2458,13 +2458,13 @@ typedef struct AVHWAccel {
     /**
      * Called at the beginning of each frame or field picture.
      *
-     * Meaningful frame information (codec specific) is guaranteed to
+     * Meaningful frame information (CodecId specific) is guaranteed to
      * be parsed at this point. This function is mandatory.
      *
      * Note that buf can be NULL along with buf_size set to 0.
      * Otherwise, this means the whole frame is available at this point.
      *
-     * @param avctx the codec context
+     * @param avctx the CodecId context
      * @param buf the frame data buffer base
      * @param buf_size the size of the frame in bytes
      * @return zero if successful, a negative value otherwise
@@ -2477,7 +2477,7 @@ typedef struct AVHWAccel {
      * Useful for hardware decoders which keep persistent state about the
      * video parameters, and need to receive any changes to update that state.
      *
-     * @param avctx the codec context
+     * @param avctx the CodecId context
      * @param type the nal unit type
      * @param buf the nal unit data buffer
      * @param buf_size the size of the nal unit in bytes
@@ -2488,11 +2488,11 @@ typedef struct AVHWAccel {
     /**
      * Callback for each slice.
      *
-     * Meaningful slice information (codec specific) is guaranteed to
+     * Meaningful slice information (CodecId specific) is guaranteed to
      * be parsed at this point. This function is mandatory.
      * The only exception is XvMC, that works on MB level.
      *
-     * @param avctx the codec context
+     * @param avctx the CodecId context
      * @param buf the slice data buffer base
      * @param buf_size the size of the slice in bytes
      * @return zero if successful, a negative value otherwise
@@ -2505,7 +2505,7 @@ typedef struct AVHWAccel {
      * The whole picture is parsed at this point and can now be sent
      * to the hardware accelerator. This function is mandatory.
      *
-     * @param avctx the codec context
+     * @param avctx the CodecId context
      * @return zero if successful, a negative value otherwise
      */
     int (*end_frame)(AVCodecContext *avctx);
@@ -2559,7 +2559,7 @@ typedef struct AVHWAccel {
     int caps_internal;
 
     /**
-     * Fill the given hw_frames context with current codec parameters. Called
+     * Fill the given hw_frames context with current CodecId parameters. Called
      * from get_format. Refer to avcodec_get_hw_frames_parameters() for
      * details.
      *
@@ -2576,7 +2576,7 @@ typedef struct AVHWAccel {
 #define AV_HWACCEL_CODEC_CAP_EXPERIMENTAL 0x0200
 
 /**
- * Hardware acceleration should be used for decoding even if the codec level
+ * Hardware acceleration should be used for decoding even if the CodecId level
  * used is unknown or higher than the maximum supported level reported by the
  * hardware driver.
  *
@@ -2593,7 +2593,7 @@ typedef struct AVHWAccel {
 
 /**
  * Hardware acceleration should still be attempted for decoding when the
- * codec profile does not match the reported capabilities of the hardware.
+ * CodecId profile does not match the reported capabilities of the hardware.
  *
  * For example, this can be used to try to decode baseline profile H.264
  * streams in hardware - it will often succeed, because many streams marked
@@ -2702,8 +2702,8 @@ typedef struct AVSubtitle {
 
 #if FF_API_NEXT
 /**
- * If c is NULL, returns the first registered codec,
- * if c is non-NULL, returns the next registered codec after c,
+ * If c is NULL, returns the first registered CodecId,
+ * if c is non-NULL, returns the next registered CodecId after c,
  * or NULL if c is the last one.
  */
 attribute_deprecated
@@ -2727,7 +2727,7 @@ const char *avcodec_license(void);
 
 #if FF_API_NEXT
 /**
- * Register the codec codec and initialize libavcodec.
+ * Register the codec CodecId and initialize libavcodec.
  *
  * @warning either this function or avcodec_register_all() must be called
  * before any other libavcodec functions.
@@ -2756,9 +2756,9 @@ void avcodec_register_all(void);
  * resulting struct should be freed with avcodec_free_context().
  *
  * @param codec if non-NULL, allocate private data and initialize defaults
- *              for the given codec. It is illegal to then call avcodec_open2()
- *              with a different codec.
- *              If NULL, then the codec-specific defaults won't be initialized,
+ *              for the given CodecId. It is illegal to then call avcodec_open2()
+ *              with a different CodecId.
+ *              If NULL, then the CodecId-specific defaults won't be initialized,
  *              which may result in suboptimal default settings (this is
  *              important mainly for encoders, e.g. libx264).
  *
@@ -2767,15 +2767,15 @@ void avcodec_register_all(void);
 AVCodecContext *avcodec_alloc_context3(const AVCodec *codec);
 
 /**
- * Free the codec context and everything associated with it and write NULL to
+ * Free the CodecId context and everything associated with it and write NULL to
  * the provided pointer.
  */
 void avcodec_free_context(AVCodecContext **avctx);
 
 #if FF_API_GET_CONTEXT_DEFAULTS
 /**
- * @deprecated This function should not be used, as closing and opening a codec
- * context multiple time is not supported. A new codec context should be
+ * @deprecated This function should not be used, as closing and opening a CodecId
+ * context multiple time is not supported. A new CodecId context should be
  * allocated for each new use.
  */
 int avcodec_get_context_defaults3(AVCodecContext *s, const AVCodec *codec);
@@ -2808,17 +2808,17 @@ const AVClass *avcodec_get_subtitle_rect_class(void);
 
 /**
  * Copy the settings of the source AVCodecContext into the destination
- * AVCodecContext. The resulting destination codec context will be
+ * AVCodecContext. The resulting destination CodecId context will be
  * unopened, i.e. you are required to call avcodec_open2() before you
  * can use this AVCodecContext to decode/encode video/audio data.
  *
- * @param dest target codec context, should be initialized with
+ * @param dest target CodecId context, should be initialized with
  *             avcodec_alloc_context3(NULL), but otherwise uninitialized
- * @param src source codec context
+ * @param src source CodecId context
  * @return AVERROR() on error (e.g. memory allocation error), 0 on success
  *
  * @deprecated The semantics of this function are ill-defined and it should not
- * be used. If you need to transfer the stream parameters from one codec context
+ * be used. If you need to transfer the stream parameters from one CodecId context
  * to another, use an intermediate AVCodecParameters instance and the
  * avcodec_parameters_from_context() / avcodec_parameters_to_context()
  * functions.
@@ -2828,9 +2828,9 @@ int avcodec_copy_context(AVCodecContext *dest, const AVCodecContext *src);
 #endif
 
 /**
- * Fill the parameters struct based on the values from the supplied codec
+ * Fill the parameters struct based on the values from the supplied CodecId
  * context. Any allocated fields in par are freed and replaced with duplicates
- * of the corresponding fields in codec.
+ * of the corresponding fields in CodecId.
  *
  * @return >= 0 on success, a negative AVERROR code on failure
  */
@@ -2838,10 +2838,10 @@ int avcodec_parameters_from_context(AVCodecParameters *par,
                                     const AVCodecContext *codec);
 
 /**
- * Fill the codec context based on the values from the supplied codec
- * parameters. Any allocated fields in codec that have a corresponding field in
+ * Fill the codec context based on the values from the supplied CodecId
+ * parameters. Any allocated fields in CodecId that have a corresponding field in
  * par are freed and replaced with duplicates of the corresponding field in par.
- * Fields in codec that do not have a counterpart in par are not touched.
+ * Fields in CodecId that do not have a counterpart in par are not touched.
  *
  * @return >= 0 on success, a negative AVERROR code on failure.
  */
@@ -2854,7 +2854,7 @@ int avcodec_parameters_to_context(AVCodecContext *codec,
  *
  * The functions avcodec_find_decoder_by_name(), avcodec_find_encoder_by_name(),
  * avcodec_find_decoder() and avcodec_find_encoder() provide an easy way for
- * retrieving a codec.
+ * retrieving a CodecId.
  *
  * @warning This function is not thread safe!
  *
@@ -2864,22 +2864,22 @@ int avcodec_parameters_to_context(AVCodecContext *codec,
  * @code
  * avcodec_register_all();
  * av_dict_set(&opts, "b", "2.5M", 0);
- * codec = avcodec_find_decoder(AV_CODEC_ID_H264);
- * if (!codec)
+ * CodecId = avcodec_find_decoder(AV_CODEC_ID_H264);
+ * if (!CodecId)
  *     exit(1);
  *
- * context = avcodec_alloc_context3(codec);
+ * context = avcodec_alloc_context3(CodecId);
  *
- * if (avcodec_open2(context, codec, opts) < 0)
+ * if (avcodec_open2(context, CodecId, opts) < 0)
  *     exit(1);
  * @endcode
  *
  * @param avctx The context to initialize.
- * @param codec The codec to open this context for. If a non-NULL codec has been
+ * @param codec The CodecId to open this context for. If a non-NULL codec has been
  *              previously passed to avcodec_alloc_context3() or
  *              for this context, then this parameter MUST be either NULL or
- *              equal to the previously passed codec.
- * @param options A dictionary filled with AVCodecContext and codec-private options.
+ *              equal to the previously passed CodecId.
+ * @param options A dictionary filled with AVCodecContext and CodecId-private options.
  *                On return this object will be filled with options that were not found.
  *
  * @return zero on success, a negative value on error
@@ -2893,12 +2893,12 @@ int avcodec_open2(AVCodecContext *avctx, const AVCodec *codec, AVDictionary **op
  * (but not the AVCodecContext itself).
  *
  * Calling this function on an AVCodecContext that hasn't been opened will free
- * the codec-specific data allocated in avcodec_alloc_context3() with a non-NULL
- * codec. Subsequent calls will do nothing.
+ * the CodecId-specific data allocated in avcodec_alloc_context3() with a non-NULL
+ * CodecId. Subsequent calls will do nothing.
  *
  * @note Do not use this function. Use avcodec_free_context() to destroy a
- * codec context (either open or closed). Opening and closing a codec context
- * multiple times is not supported anymore -- use multiple codec contexts
+ * CodecId context (either open or closed). Opening and closing a codec context
+ * multiple times is not supported anymore -- use multiple CodecId contexts
  * instead.
  */
 int avcodec_close(AVCodecContext *avctx);
@@ -2928,19 +2928,19 @@ int avcodec_default_get_buffer2(AVCodecContext *s, AVFrame *frame, int flags);
 
 /**
  * Modify width and height values so that they will result in a memory
- * buffer that is acceptable for the codec if you do not use any horizontal
+ * buffer that is acceptable for the CodecId if you do not use any horizontal
  * padding.
  *
- * May only be used if a codec with AV_CODEC_CAP_DR1 has been opened.
+ * May only be used if a CodecId with AV_CODEC_CAP_DR1 has been opened.
  */
 void avcodec_align_dimensions(AVCodecContext *s, int *width, int *height);
 
 /**
  * Modify width and height values so that they will result in a memory
- * buffer that is acceptable for the codec if you also ensure that all
+ * buffer that is acceptable for the CodecId if you also ensure that all
  * line sizes are a multiple of the respective linesize_align[i].
  *
- * May only be used if a codec with AV_CODEC_CAP_DR1 has been opened.
+ * May only be used if a CodecId with AV_CODEC_CAP_DR1 has been opened.
  */
 void avcodec_align_dimensions2(AVCodecContext *s, int *width, int *height,
                                int linesize_align[AV_NUM_DATA_POINTERS]);
@@ -2993,7 +2993,7 @@ enum AVChromaLocation avcodec_chroma_pos_to_enum(int xpos, int ypos);
  * @note The AVCodecContext MUST have been opened with @ref avcodec_open2()
  * before packets may be fed to the decoder.
  *
- * @param      avctx the codec context
+ * @param      avctx the CodecId context
  * @param[out] frame The AVFrame in which to store decoded audio samples.
  *                   The decoder will allocate a buffer for the decoded frame by
  *                   calling the AVCodecContext.get_buffer2() callback.
@@ -3043,9 +3043,9 @@ int avcodec_decode_audio4(AVCodecContext *avctx, AVFrame *frame,
  * @note The AVCodecContext MUST have been opened with @ref avcodec_open2()
  * before packets may be fed to the decoder.
  *
- * @param avctx the codec context
+ * @param avctx the CodecId context
  * @param[out] picture The AVFrame in which the decoded video frame will be stored.
- *             Use av_frame_alloc() to get an AVFrame. The codec will
+ *             Use av_frame_alloc() to get an AVFrame. The CodecId will
  *             allocate memory for the actual bitmap by calling the
  *             AVCodecContext.get_buffer2() callback.
  *             When AVCodecContext.refcounted_frames is set to 1, the frame is
@@ -3095,7 +3095,7 @@ int avcodec_decode_video2(AVCodecContext *avctx, AVFrame *picture,
  * @note The AVCodecContext MUST have been opened with @ref avcodec_open2()
  * before packets may be fed to the decoder.
  *
- * @param avctx the codec context
+ * @param avctx the CodecId context
  * @param[out] sub The preallocated AVSubtitle in which the decoded subtitle will be stored,
  *                 must be freed with avsubtitle_free if *got_sub_ptr is set.
  * @param[in,out] got_sub_ptr Zero if no subtitle could be decompressed, otherwise, it is nonzero.
@@ -3124,7 +3124,7 @@ int avcodec_decode_subtitle2(AVCodecContext *avctx, AVSubtitle *sub,
  * @note The AVCodecContext MUST have been opened with @ref avcodec_open2()
  *       before packets may be fed to the decoder.
  *
- * @param avctx codec context
+ * @param avctx CodecId context
  * @param[in] avpkt The input AVPacket. Usually, this will be a single video
  *                  frame, or several complete audio frames.
  *                  Ownership of the packet remains with the caller, and the
@@ -3151,7 +3151,7 @@ int avcodec_decode_subtitle2(AVCodecContext *avctx, AVSubtitle *sub,
  *      AVERROR_EOF:       the decoder has been flushed, and no new packets can
  *                         be sent to it (also returned if more than 1 flush
  *                         packet is sent)
- *      AVERROR(EINVAL):   codec not opened, it is an encoder, or requires flush
+ *      AVERROR(EINVAL):   CodecId not opened, it is an encoder, or requires flush
  *      AVERROR(ENOMEM):   failed to add packet to internal queue, or similar
  *      other errors: legitimate decoding errors
  */
@@ -3160,7 +3160,7 @@ int avcodec_send_packet(AVCodecContext *avctx, const AVPacket *avpkt);
 /**
  * Return decoded output data from a decoder.
  *
- * @param avctx codec context
+ * @param avctx CodecId context
  * @param frame This will be set to a reference-counted video or audio
  *              frame (depending on the decoder type) allocated by the
  *              decoder. Note that the function will always call
@@ -3172,7 +3172,7 @@ int avcodec_send_packet(AVCodecContext *avctx, const AVPacket *avpkt);
  *                         to send new input
  *      AVERROR_EOF:       the decoder has been fully flushed, and there will be
  *                         no more output frames
- *      AVERROR(EINVAL):   codec not opened, or it is an encoder
+ *      AVERROR(EINVAL):   CodecId not opened, or it is an encoder
  *      AVERROR_INPUT_CHANGED:   current decoded frame has changed parameters
  *                               with respect to first decoded frame. Applicable
  *                               when flag AV_CODEC_FLAG_DROPCHANGED is set.
@@ -3184,7 +3184,7 @@ int avcodec_receive_frame(AVCodecContext *avctx, AVFrame *frame);
  * Supply a raw video or audio frame to the encoder. Use avcodec_receive_packet()
  * to retrieve buffered output packets.
  *
- * @param avctx     codec context
+ * @param avctx     CodecId context
  * @param[in] frame AVFrame containing the raw audio or video frame to be encoded.
  *                  Ownership of the frame remains with the caller, and the
  *                  encoder will not write to the frame. The encoder may create
@@ -3210,7 +3210,7 @@ int avcodec_receive_frame(AVCodecContext *avctx, AVFrame *frame);
  *                         the call will not fail with EAGAIN).
  *      AVERROR_EOF:       the encoder has been flushed, and no new frames can
  *                         be sent to it
- *      AVERROR(EINVAL):   codec not opened, refcounted_frames not set, it is a
+ *      AVERROR(EINVAL):   CodecId not opened, refcounted_frames not set, it is a
  *                         decoder, or requires flush
  *      AVERROR(ENOMEM):   failed to add packet to internal queue, or similar
  *      other errors: legitimate encoding errors
@@ -3220,7 +3220,7 @@ int avcodec_send_frame(AVCodecContext *avctx, const AVFrame *frame);
 /**
  * Read encoded data from the encoder.
  *
- * @param avctx codec context
+ * @param avctx CodecId context
  * @param avpkt This will be set to a reference-counted packet allocated by the
  *              encoder. Note that the function will always call
  *              av_packet_unref(avpkt) before doing anything else.
@@ -3229,7 +3229,7 @@ int avcodec_send_frame(AVCodecContext *avctx, const AVFrame *frame);
  *                         must try to send input
  *      AVERROR_EOF:       the encoder has been fully flushed, and there will be
  *                         no more output packets
- *      AVERROR(EINVAL):   codec not opened, or it is a decoder
+ *      AVERROR(EINVAL):   CodecId not opened, or it is a decoder
  *      other errors: legitimate encoding errors
  */
 int avcodec_receive_packet(AVCodecContext *avctx, AVPacket *avpkt);
@@ -3244,7 +3244,7 @@ int avcodec_receive_packet(AVCodecContext *avctx, AVPacket *avpkt);
  * with av_hwframe_ctx_init().
  *
  * Calling this function is not a requirement, but makes it simpler to avoid
- * codec or hardware API specific details when manually allocating frames.
+ * CodecId or hardware API specific details when manually allocating frames.
  *
  * Alternatively to this, an API user can set AVCodecContext.hw_device_ctx,
  * which sets up AVCodecContext.hw_frames_ctx fully automatically, and makes
@@ -3296,7 +3296,7 @@ int avcodec_receive_packet(AVCodecContext *avctx, AVPacket *avpkt);
  * - Set the width/height fields to the coded frame size, rounded up to the
  *   API-specific minimum alignment.
  * - Only _if_ the hwaccel requires a pre-allocated pool: set the initial_pool_size
- *   field to the number of maximum reference surfaces possible with the codec,
+ *   field to the number of maximum reference surfaces possible with the CodecId,
  *   plus 1 surface for the user to work (meaning the user can safely reference
  *   at most 1 decoded surface at a time), plus additional buffering introduced
  *   by frame threading. If the hwaccel does not require pre-allocation, the
@@ -3518,7 +3518,7 @@ typedef struct AVCodecParserContext {
 } AVCodecParserContext;
 
 typedef struct AVCodecParser {
-    int codec_ids[5]; /* several codec IDs are permitted */
+    int codec_ids[5]; /* several CodecId IDs are permitted */
     int priv_data_size;
     int (*parser_init)(AVCodecParserContext *s);
     /* This callback never returns an error, a negative value means that
@@ -3533,12 +3533,12 @@ typedef struct AVCodecParser {
 } AVCodecParser;
 
 /**
- * Iterate over all registered codec parsers.
+ * Iterate over all registered CodecId parsers.
  *
  * @param opaque a pointer where libavcodec will store the iteration state. Must
  *               point to NULL to start the iteration.
  *
- * @return the next registered codec parser or NULL when the iteration is
+ * @return the next registered CodecId parser or NULL when the iteration is
  *         finished
  */
 const AVCodecParser *av_parser_iterate(void **opaque);
@@ -3554,7 +3554,7 @@ AVCodecParserContext *av_parser_init(int codec_id);
  * Parse a packet.
  *
  * @param s             parser context.
- * @param avctx         codec context.
+ * @param avctx         CodecId context.
  * @param poutbuf       set to pointer to parsed buffer or NULL if not yet finished.
  * @param poutbuf_size  set to size of parsed buffer or zero if not yet finished.
  * @param buf           input buffer.
@@ -3616,7 +3616,7 @@ void av_parser_close(AVCodecParserContext *s);
  * the most recent frame, as encoders can delay, split, and combine input frames
  * internally as needed.
  *
- * @param avctx     codec context
+ * @param avctx     CodecId context
  * @param avpkt     output AVPacket.
  *                  The user can supply an output buffer by setting
  *                  avpkt->data and avpkt->size prior to calling the
@@ -3660,7 +3660,7 @@ int avcodec_encode_audio2(AVCodecContext *avctx, AVPacket *avpkt,
  * the most recent frame, as encoders can delay and reorder input frames
  * internally as needed.
  *
- * @param avctx     codec context
+ * @param avctx     CodecId context
  * @param avpkt     output AVPacket.
  *                  The user can supply an output buffer by setting
  *                  avpkt->data and avpkt->size prior to calling the
@@ -3841,11 +3841,11 @@ enum AVPixelFormat avcodec_default_get_format(struct AVCodecContext *s, const en
 
 #if FF_API_TAG_STRING
 /**
- * Put a string representing the codec tag codec_tag in buf.
+ * Put a string representing the CodecId tag codec_tag in buf.
  *
- * @param buf       buffer to place codec tag in
+ * @param buf       buffer to place CodecId tag in
  * @param buf_size size in bytes of buf
- * @param codec_tag codec tag to assign
+ * @param codec_tag CodecId tag to assign
  * @return the length of the string that would have been generated if
  * enough space had been available, excluding the trailing null
  *
@@ -3860,7 +3860,7 @@ void avcodec_string(char *buf, int buf_size, AVCodecContext *enc, int encode);
 /**
  * Return a name for the specified profile, if available.
  *
- * @param codec the codec that is searched for the given profile
+ * @param codec the CodecId that is searched for the given profile
  * @param profile the profile value for which a name is requested
  * @return A name for the profile if found, NULL otherwise.
  */
@@ -3869,7 +3869,7 @@ const char *av_get_profile_name(const AVCodec *codec, int profile);
 /**
  * Return a name for the specified profile, if available.
  *
- * @param codec_id the ID of the codec to which the requested profile belongs
+ * @param codec_id the ID of the CodecId to which the requested profile belongs
  * @param profile the profile value for which a name is requested
  * @return A name for the profile if found, NULL otherwise.
  *
@@ -3911,7 +3911,7 @@ int avcodec_fill_audio_frame(AVFrame *frame, int nb_channels,
                              int buf_size, int align);
 
 /**
- * Reset the internal codec state / flush internal buffers. Should be called
+ * Reset the internal CodecId state / flush internal buffers. Should be called
  * e.g. when seeking or when switching to a different stream.
  *
  * @note for decoders, when refcounted frames are not used
@@ -3930,15 +3930,15 @@ int avcodec_fill_audio_frame(AVFrame *frame, int nb_channels,
 void avcodec_flush_buffers(AVCodecContext *avctx);
 
 /**
- * Return codec bits per sample.
+ * Return CodecId bits per sample.
  *
- * @param[in] codec_id the codec
- * @return Number of bits per sample or zero if unknown for the given codec.
+ * @param[in] codec_id the CodecId
+ * @return Number of bits per sample or zero if unknown for the given CodecId.
  */
 int av_get_bits_per_sample(enum AVCodecID codec_id);
 
 /**
- * Return the PCM codec associated with a sample format.
+ * Return the PCM CodecId associated with a sample format.
  * @param be  endianness, 0 for little, 1 for big,
  *            -1 (or anything else) for native
  * @return  AV_CODEC_ID_PCM_* or AV_CODEC_ID_NONE
@@ -3946,19 +3946,19 @@ int av_get_bits_per_sample(enum AVCodecID codec_id);
 enum AVCodecID av_get_pcm_codec(enum AVSampleFormat fmt, int be);
 
 /**
- * Return codec bits per sample.
+ * Return CodecId bits per sample.
  * Only return non-zero if the bits per sample is exactly correct, not an
  * approximation.
  *
- * @param[in] codec_id the codec
- * @return Number of bits per sample or zero if unknown for the given codec.
+ * @param[in] codec_id the CodecId
+ * @return Number of bits per sample or zero if unknown for the given CodecId.
  */
 int av_get_exact_bits_per_sample(enum AVCodecID codec_id);
 
 /**
  * Return audio frame duration.
  *
- * @param avctx        codec context
+ * @param avctx        CodecId context
  * @param frame_bytes  size of the frame, or 0 if unknown
  * @return             frame duration, in samples, if known. 0 if not able to
  *                     determine.

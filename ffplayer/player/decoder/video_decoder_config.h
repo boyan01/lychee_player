@@ -10,54 +10,11 @@
 #include "base/basictypes.h"
 #include "base/rect.h"
 
-#include "video_frame.h"
+extern "C" {
+#include "libavformat/avformat.h"
+};
 
 namespace media {
-
-enum VideoCodec {
-  // These values are histogrammed over time; do not change their ordinal
-  // values.  When deleting a codec replace it with a dummy value; when adding a
-  // codec, do so at the bottom (and update kVideoCodecMax).
-  kUnknownVideoCodec = 0,
-  kCodecH264,
-  kCodecVC1,
-  kCodecMPEG2,
-  kCodecMPEG4,
-  kCodecTheora,
-  kCodecVP8,
-  // DO NOT ADD RANDOM VIDEO CODECS!
-  //
-  // The only acceptable time to add a new codec is if there is production code
-  // that uses said codec in the same CL.
-
-  kVideoCodecMax = kCodecVP8  // Must equal the last "real" codec above.
-};
-
-// Video stream profile.  This *must* match PP_VideoDecoder_Profile.
-// (enforced in webkit/plugins/ppapi/ppb_video_decoder_impl.cc)
-enum VideoCodecProfile {
-  // Keep the values in this enum unique, as they imply format (h.264 vs. VP8,
-  // for example), and keep the values for a particular format grouped
-  // together for clarity.
-  VIDEO_CODEC_PROFILE_UNKNOWN = -1,
-  H264PROFILE_MIN = 0,
-  H264PROFILE_BASELINE = H264PROFILE_MIN,
-  H264PROFILE_MAIN = 1,
-  H264PROFILE_EXTENDED = 2,
-  H264PROFILE_HIGH = 3,
-  H264PROFILE_HIGH10PROFILE = 4,
-  H264PROFILE_HIGH422PROFILE = 5,
-  H264PROFILE_HIGH444PREDICTIVEPROFILE = 6,
-  H264PROFILE_SCALABLEBASELINE = 7,
-  H264PROFILE_SCALABLEHIGH = 8,
-  H264PROFILE_STEREOHIGH = 9,
-  H264PROFILE_MULTIVIEWHIGH = 10,
-  H264PROFILE_MAX = H264PROFILE_MULTIVIEWHIGH,
-  VP8PROFILE_MIN = 11,
-  VP8PROFILE_MAIN = VP8PROFILE_MIN,
-  VP8PROFILE_MAX = VP8PROFILE_MAIN,
-  VIDEO_CODEC_PROFILE_MAX = VP8PROFILE_MAX,
-};
 
 class VideoDecoderConfig {
  public:
@@ -67,9 +24,8 @@ class VideoDecoderConfig {
 
   // Constructs an initialized object. It is acceptable to pass in NULL for
   // |extra_data|, otherwise the memory is copied.
-  VideoDecoderConfig(VideoCodec codec,
-                     VideoCodecProfile profile,
-                     VideoFrame::Format format,
+  VideoDecoderConfig(AVCodecID codec,
+                     AVPixelFormat format,
                      const base::Size &coded_size,
                      const base::Rect &visible_rect,
                      const base::Size &natural_size,
@@ -79,9 +35,8 @@ class VideoDecoderConfig {
   ~VideoDecoderConfig();
 
   // Resets the internal state of this object.
-  void Initialize(VideoCodec codec,
-                  VideoCodecProfile profile,
-                  VideoFrame::Format format,
+  void Initialize(AVCodecID codec,
+                  AVPixelFormat format,
                   const base::Size &coded_size,
                   const base::Rect &visible_rect,
                   const base::Size &natural_size,
@@ -104,11 +59,10 @@ class VideoDecoderConfig {
   // output only.
   std::string AsHumanReadableString() const;
 
-  VideoCodec codec() const;
-  VideoCodecProfile profile() const;
+  AVCodecID CodecId() const;
 
   // Video format used to determine YUV buffer sizes.
-  VideoFrame::Format format() const;
+  AVPixelFormat format() const;
 
   // Width and height of video frame immediately post-decode. Not all pixels
   // in this region are valid.
@@ -132,21 +86,19 @@ class VideoDecoderConfig {
   bool is_encrypted() const;
 
  private:
-  VideoCodec codec_;
-  VideoCodecProfile profile_;
+  AVCodecID codec_id_;
 
-  VideoFrame::Format format_;
+  AVPixelFormat format_;
 
   base::Size coded_size_;
   base::Rect visible_rect_;
   base::Size natural_size_;
 
-  uint8* extra_data_;
+  uint8 *extra_data_;
   size_t extra_data_size_;
 
   bool is_encrypted_;
 
-  DISALLOW_COPY_AND_ASSIGN(VideoDecoderConfig);
 };
 
 }  // namespace media

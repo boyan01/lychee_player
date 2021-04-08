@@ -11,7 +11,7 @@
 namespace media {
 
 AudioDecoderConfig::AudioDecoderConfig()
-    : codec_(kUnknownAudioCodec),
+    : codec_(AV_CODEC_ID_NONE),
       bytes_per_channel_(0),
       channel_layout_(CHANNEL_LAYOUT_UNSUPPORTED),
       samples_per_second_(0),
@@ -19,17 +19,17 @@ AudioDecoderConfig::AudioDecoderConfig()
       extra_data_(nullptr) {
 }
 
-AudioDecoderConfig::AudioDecoderConfig(AudioCodec codec,
+AudioDecoderConfig::AudioDecoderConfig(AVCodecID codec_id,
                                        int bytes_per_channel,
                                        ChannelLayout channel_layout,
                                        int samples_per_second,
                                        const uint8 *extra_data,
                                        size_t extra_data_size) {
-  Initialize(codec, bytes_per_channel, channel_layout, samples_per_second,
+  Initialize(codec_id, bytes_per_channel, channel_layout, samples_per_second,
              extra_data, extra_data_size, true);
 }
 
-void AudioDecoderConfig::Initialize(AudioCodec codec,
+void AudioDecoderConfig::Initialize(AVCodecID codec_id,
                                     int bytes_per_channel,
                                     ChannelLayout channel_layout,
                                     int samples_per_second,
@@ -39,7 +39,7 @@ void AudioDecoderConfig::Initialize(AudioCodec codec,
   CHECK((extra_data_size != 0) == (extra_data != nullptr));
 
   if (record_stats) {
-//    UMA_HISTOGRAM_ENUMERATION("Media.AudioCodec", codec, kAudioCodecMax + 1);
+//    UMA_HISTOGRAM_ENUMERATION("Media.AudioCodec", CodecId, kAudioCodecMax + 1);
 //    // Fake enum histogram to get exact integral buckets.  Expect to never see
 //    // any values over 32 and even that is huge.
 //    UMA_HISTOGRAM_ENUMERATION("Media.AudioBitsPerChannel", bits_per_channel,
@@ -56,7 +56,7 @@ void AudioDecoderConfig::Initialize(AudioCodec codec,
 //    }
   }
 
-  codec_ = codec;
+  codec_ = codec_id;
   bytes_per_channel_ = bytes_per_channel;
   channel_layout_ = channel_layout;
   samples_per_second_ = samples_per_second;
@@ -75,7 +75,7 @@ AudioDecoderConfig::~AudioDecoderConfig() {
 }
 
 bool AudioDecoderConfig::IsValidConfig() const {
-  return codec_ != kUnknownAudioCodec &&
+  return codec_ != AV_CODEC_ID_NONE &&
       channel_layout_ != CHANNEL_LAYOUT_UNSUPPORTED &&
       bytes_per_channel_ > 0 &&
       bytes_per_channel_ <= limits::kMaxBytesPerSample &&
@@ -84,7 +84,7 @@ bool AudioDecoderConfig::IsValidConfig() const {
 }
 
 bool AudioDecoderConfig::Matches(const AudioDecoderConfig &config) const {
-  return ((codec() == config.codec()) &&
+  return ((CodecId() == config.CodecId()) &&
       (bytes_per_channel() == config.bytes_per_channel()) &&
       (channel_layout() == config.channel_layout()) &&
       (samples_per_second() == config.samples_per_second()) &&
@@ -94,7 +94,7 @@ bool AudioDecoderConfig::Matches(const AudioDecoderConfig &config) const {
 }
 
 void AudioDecoderConfig::CopyFrom(const AudioDecoderConfig &audio_config) {
-  Initialize(audio_config.codec(),
+  Initialize(audio_config.CodecId(),
              audio_config.bytes_per_channel(),
              audio_config.channel_layout(),
              audio_config.samples_per_second(),
@@ -103,7 +103,7 @@ void AudioDecoderConfig::CopyFrom(const AudioDecoderConfig &audio_config) {
              false);
 }
 
-AudioCodec AudioDecoderConfig::codec() const {
+AVCodecID AudioDecoderConfig::CodecId() const {
   return codec_;
 }
 

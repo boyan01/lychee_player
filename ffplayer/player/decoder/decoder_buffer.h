@@ -5,7 +5,7 @@
 #ifndef MEDIA_PLAYER_DECODER_BUFFER_H_
 #define MEDIA_PLAYER_DECODER_BUFFER_H_
 
-#include "buffer.h"
+#include "base/buffer.h"
 
 namespace media {
 

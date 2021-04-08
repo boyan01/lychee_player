@@ -31,7 +31,7 @@
  */
 
 /**
- * This struct describes the properties of a single codec described by an
+ * This struct describes the properties of a single CodecId described by an
  * AVCodecID.
  * @see avcodec_descriptor_get()
  */
@@ -39,13 +39,13 @@ typedef struct AVCodecDescriptor {
     enum AVCodecID     id;
     enum AVMediaType type;
     /**
-     * Name of the codec described by this descriptor. It is non-empty and
-     * unique for each codec descriptor. It should contain alphanumeric
+     * Name of the CodecId described by this descriptor. It is non-empty and
+     * unique for each CodecId descriptor. It should contain alphanumeric
      * characters and '_' only.
      */
     const char      *name;
     /**
-     * A more descriptive name for this codec. May be NULL.
+     * A more descriptive name for this CodecId. May be NULL.
      */
     const char *long_name;
     /**
@@ -53,13 +53,13 @@ typedef struct AVCodecDescriptor {
      */
     int             props;
     /**
-     * MIME type(s) associated with the codec.
+     * MIME type(s) associated with the CodecId.
      * May be NULL; if not, a NULL-terminated array of MIME types.
      * The first item is always non-NULL and is the preferred MIME type.
      */
     const char *const *mime_types;
     /**
-     * If non-NULL, an array of profiles recognized for this codec.
+     * If non-NULL, an array of profiles recognized for this CodecId.
      * Terminated with FF_PROFILE_UNKNOWN.
      */
     const struct AVProfile *profiles;
@@ -72,7 +72,7 @@ typedef struct AVCodecDescriptor {
 #define AV_CODEC_PROP_INTRA_ONLY    (1 << 0)
 /**
  * Codec supports lossy compression. Audio and video codecs only.
- * @note a codec may support both lossy and lossless
+ * @note a CodecId may support both lossy and lossless
  * compression modes
  */
 #define AV_CODEC_PROP_LOSSY         (1 << 1)
@@ -91,23 +91,23 @@ typedef struct AVCodecDescriptor {
  */
 #define AV_CODEC_PROP_REORDER       (1 << 3)
 /**
- * Subtitle codec is bitmap based
+ * Subtitle CodecId is bitmap based
  * Decoded AVSubtitle data can be read from the AVSubtitleRect->pict field.
  */
 #define AV_CODEC_PROP_BITMAP_SUB    (1 << 16)
 /**
- * Subtitle codec is text based.
+ * Subtitle CodecId is text based.
  * Decoded AVSubtitle data can be read from the AVSubtitleRect->ass field.
  */
 #define AV_CODEC_PROP_TEXT_SUB      (1 << 17)
 
 /**
- * @return descriptor for given codec ID or NULL if no descriptor exists.
+ * @return descriptor for given CodecId ID or NULL if no descriptor exists.
  */
 const AVCodecDescriptor *avcodec_descriptor_get(enum AVCodecID id);
 
 /**
- * Iterate over all codec descriptors known to libavcodec.
+ * Iterate over all CodecId descriptors known to libavcodec.
  *
  * @param prev previous descriptor. NULL to get the first descriptor.
  *
@@ -116,7 +116,7 @@ const AVCodecDescriptor *avcodec_descriptor_get(enum AVCodecID id);
 const AVCodecDescriptor *avcodec_descriptor_next(const AVCodecDescriptor *prev);
 
 /**
- * @return codec descriptor with the given name or NULL if no such descriptor
+ * @return CodecId descriptor with the given name or NULL if no such descriptor
  *         exists.
  */
 const AVCodecDescriptor *avcodec_descriptor_get_by_name(const char *name);
