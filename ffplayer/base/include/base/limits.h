@@ -2,8 +2,8 @@
 // Created by yangbin on 2021/3/28.
 //
 
-#ifndef MEDIA_PLAYER_MEDIA_LIMITS_H_
-#define MEDIA_PLAYER_MEDIA_LIMITS_H_
+#ifndef MEDIA_BASE_LIMITS_H_
+#define MEDIA_BASE_LIMITS_H_
 
 namespace media {
 namespace limits {
@@ -40,4 +40,4 @@ enum {
 } // namespace limits
 } // namespace media
 
-#endif //MEDIA_PLAYER_MEDIA_LIMITS_H_
+#endif //MEDIA_BASE_LIMITS_H_

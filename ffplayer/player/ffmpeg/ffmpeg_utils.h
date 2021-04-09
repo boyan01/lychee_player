@@ -35,6 +35,10 @@ int64 ConvertToTimeBase(const AVRational &time_base,
 // Wrapping helps ensure eventual destruction of the AVCodecContext.
 std::unique_ptr<AVCodecContext, AVCodecContextDeleter> AVStreamToAVCodecContext(const AVStream *stream);
 
+std::string AVErrorToString(int err_num);
+
+void VideoDecoderConfigToAVCodecContext(const VideoDecoderConfig &config, AVCodecContext *codec_context);
+
 }
 }
 

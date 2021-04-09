@@ -117,5 +117,34 @@ std::unique_ptr<AVCodecContext, AVCodecContextDeleter> AVStreamToAVCodecContext(
   return codec_context;
 }
 
+std::string AVErrorToString(int err_num) {
+  char err_buf[AV_ERROR_MAX_STRING_SIZE] = {0};
+  av_strerror(err_num, err_buf, AV_ERROR_MAX_STRING_SIZE);
+  return std::string(err_buf);
+}
+
+void VideoDecoderConfigToAVCodecContext(const VideoDecoderConfig &config, AVCodecContext *codec_context) {
+  codec_context->codec_type = AVMEDIA_TYPE_VIDEO;
+  codec_context->codec_id = config.CodecId();
+//  codec_context->profile = VideoCodecProfileToProfileID(config.profile());
+  codec_context->coded_width = config.coded_size().width();
+  codec_context->coded_height = config.coded_size().height();
+//  if (config.color_space_info().range == gfx::ColorSpace::RangeID::FULL)
+//    codec_context->color_range = AVCOL_RANGE_JPEG;
+
+  if (!config.extra_data()) {
+    codec_context->extradata = nullptr;
+    codec_context->extradata_size = 0;
+  } else {
+    codec_context->extradata_size = static_cast<int>(config.extra_data_size());
+    codec_context->extradata = reinterpret_cast<uint8_t *>(
+        av_malloc(config.extra_data_size() + AV_INPUT_BUFFER_PADDING_SIZE));
+    memcpy(codec_context->extradata, &config.extra_data()[0],
+           config.extra_data_size());
+    memset(codec_context->extradata + config.extra_data_size(), '\0',
+           AV_INPUT_BUFFER_PADDING_SIZE);
+  }
+}
+
 }
 }

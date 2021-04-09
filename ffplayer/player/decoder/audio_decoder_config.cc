@@ -4,7 +4,7 @@
 //
 
 #include "base/logging.h"
-#include "media_limits.h"
+#include "limits.h"
 
 #include "audio_decoder_config.h"
 

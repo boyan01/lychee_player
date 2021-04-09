@@ -3,9 +3,9 @@
 //
 
 #include "base/logging.h"
+#include "base/limits.h"
 
-#include "video_frame.h"
-#include "media_limits.h"
+#include "decoder/video_frame.h"
 
 extern "C" {
 #include "libavutil/mem.h"

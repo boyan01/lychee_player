@@ -24,6 +24,15 @@ struct AVCodecContextDeleter {
   }
 };
 
+// Frees an AVFrame object in a class that can be passed as a Deleter argument
+// to scoped_ptr_malloc.
+struct ScopedPtrAVFreeFrame {
+  inline void operator()(void *x) const {
+    auto *frame = static_cast<AVFrame *>(x);
+    av_frame_free(&frame);
+  }
+};
+
 }
 
 #endif //MEDIA_PLAYER_FFMPEG_FFMPEG_DELETERS_H_

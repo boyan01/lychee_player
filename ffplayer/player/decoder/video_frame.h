@@ -2,8 +2,8 @@
 // Created by yangbin on 2021/3/28.
 //
 
-#ifndef MEDIA_PLAYER_VIDEO_FRAME_H_
-#define MEDIA_PLAYER_VIDEO_FRAME_H_
+#ifndef MEDIA_PLAYER_DECODER_VIDEO_FRAME_H_
+#define MEDIA_PLAYER_DECODER_VIDEO_FRAME_H_
 
 #include <memory>
 #include <functional>
@@ -160,4 +160,4 @@ class VideoFrame {
 
 
 
-#endif //MEDIA_PLAYER_VIDEO_FRAME_H_
+#endif // MEDIA_PLAYER_DECODER_VIDEO_FRAME_H_

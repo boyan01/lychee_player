@@ -27,6 +27,18 @@ add_library(media_player STATIC ${SRC_FILES}
         decoder/media_track.cc
         decoder/media_tracks.h
         decoder/media_tracks.cc
+        decoder/decoder_stream.cc
+        decoder/decoder_stream.h
+        decoder/decoder_stream_traits.cc
+        decoder/decoder_stream_traits.h
+        decoder/video_decoder.cc
+        decoder/video_decoder.h
+        decoder/video_frame.h
+        decoder/video_frame.cc
+        decoder/decode_status.cc
+        decoder/decode_status.h
+        decoder/video_frame_pool.cc
+        decoder/video_frame_pool.h
         ffmpeg/ffmpeg_utils.cc
         ffmpeg/ffmpeg_utils.h
         ffmpeg/ffmpeg_glue.h
@@ -34,6 +46,8 @@ add_library(media_player STATIC ${SRC_FILES}
         ffmpeg/blocking_url_protocol.h
         ffmpeg/blocking_url_protocol.cc
         ffmpeg/ffmpeg_deleters.h
+        ffmpeg/ffmpeg_decoding_loop.cc
+        ffmpeg/ffmpeg_decoding_loop.h
         source/data_source.cc
         source/data_source.h
         source/file_data_source.cc
