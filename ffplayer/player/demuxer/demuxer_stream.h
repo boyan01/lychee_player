@@ -9,6 +9,7 @@
 #include "memory"
 #include "queue"
 #include "string"
+#include "functional"
 
 #include "base/timestamps.h"
 #include "base/basictypes.h"

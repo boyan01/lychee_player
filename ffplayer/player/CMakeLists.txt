@@ -37,8 +37,6 @@ add_library(media_player STATIC ${SRC_FILES}
         decoder/video_frame.cc
         decoder/decode_status.cc
         decoder/decode_status.h
-        decoder/video_frame_pool.cc
-        decoder/video_frame_pool.h
         ffmpeg/ffmpeg_utils.cc
         ffmpeg/ffmpeg_utils.h
         ffmpeg/ffmpeg_glue.h

@@ -101,7 +101,7 @@ void Demuxer::Initialize(DemuxerHost *host, PipelineStatusCB status_cb) {
       [weak_this(std::weak_ptr<Demuxer>(shared_from_this()))]() {
         DLOG(WARNING) << ": data source error";
         if (auto demuxer = weak_this.lock()) {
-          demuxer->host_->OnDemuxerError(-1);
+          demuxer->host_->OnDemuxerError(PIPELINE_ERROR_ABORT);
         }
       });
   glue_ = std::make_unique<FFmpegGlue>(url_protocol_.get());
@@ -184,17 +184,17 @@ static int CalculateBitrate(
 void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   if (stopped_) {
-    status_cb(-1);
+    status_cb(PIPELINE_ERROR_ABORT);
     return;
   }
   if (!open) {
-    status_cb(-1);
+    status_cb(PIPELINE_ERROR_ABORT);
     return;
   }
 
   auto result = avformat_find_stream_info(glue_->format_context(), nullptr);
   if (result < 0) {
-    status_cb(-1);
+    status_cb(PIPELINE_ERROR_ABORT);
     return;
   }
 
@@ -337,7 +337,7 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
 
   if (media_tracks->tracks().empty()) {
     LOG(ERROR) << GetDisplayName() << ": no supported streams";
-    status_cb(-1);
+    status_cb(PIPELINE_ERROR_ABORT);
     return;
   }
 
@@ -399,7 +399,7 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
 
   media_tracks_updated_cb_(std::move(media_tracks));
 
-  status_cb(0);
+  status_cb(PIPELINE_OK);
 
 }
 

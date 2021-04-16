@@ -135,9 +135,7 @@ bool VideoDecoder::FFmpegDecode(const DecoderBuffer &buffer) {
 }
 
 bool VideoDecoder::OnNewFrame(AVFrame *frame) {
-
-  video_frame->SetTimestamp(TimeDelta(frame->reordered_opaque));
-
+  auto video_frame = VideoFrame::Create(frame, codec_context_->time_base);
   output_cb_(video_frame);
   return true;
 }

@@ -12,6 +12,7 @@
 #include "decoder/video_decoder_config.h"
 #include "decoder/decoder_buffer.h"
 #include "decoder/decode_status.h"
+#include "decoder/video_frame.h"
 
 #include "ffmpeg/ffmpeg_deleters.h"
 #include "ffmpeg/ffmpeg_decoding_loop.h"
@@ -24,7 +25,7 @@ class VideoDecoder {
 
   // Callback for VideoDecoder to return a decoded frame whenever it becomes
   // available. Only non-EOS frames should be returned via this callback.
-  using OutputCallback = std::function<void(std::shared_ptr<AVFrame>)>;
+  using OutputCallback = std::function<void(std::shared_ptr<VideoFrame>)>;
 
   using DecodeCallback = std::function<void(DecodeStatus)>;
 

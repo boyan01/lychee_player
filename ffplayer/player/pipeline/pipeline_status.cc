@@ -44,4 +44,13 @@ std::ostream &operator<<(std::ostream &out, PipelineStatus status) {
   return out << PipelineStatusToString(status);
 }
 
+PipelineStatistics::PipelineStatistics() {
+
+}
+PipelineStatistics::PipelineStatistics(const PipelineStatistics &other) {
+
+}
+PipelineStatistics::~PipelineStatistics() {
+
+}
 }

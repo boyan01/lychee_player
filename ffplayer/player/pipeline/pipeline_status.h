@@ -9,6 +9,9 @@
 #include "iosfwd"
 #include "string"
 
+#include "base/timestamps.h"
+#include "base/buffer.h"
+
 namespace media {
 
 // Status states for pipeline.  All codes except PIPELINE_OK indicate errors.
@@ -59,6 +62,54 @@ std::string PipelineStatusToString(PipelineStatus status);
 std::ostream &operator<<(std::ostream &out, PipelineStatus status);
 
 using PipelineStatusCallback = std::function<void(PipelineStatus)>;
+
+
+template<typename DecoderTypeId>
+struct PipelineDecoderInfo {
+  bool is_platform_decoder = false;
+  bool has_decrypting_demuxer_stream = false;
+  DecoderTypeId decoder_type = 0;
+};
+
+using AudioDecoderInfo = PipelineDecoderInfo<int>;
+using VideoDecoderInfo = PipelineDecoderInfo<int>;
+
+struct PipelineStatistics {
+  PipelineStatistics();
+  PipelineStatistics(const PipelineStatistics &other);
+  ~PipelineStatistics();
+
+   uint64_t audio_bytes_decoded = 0u;
+  uint64_t video_bytes_decoded = 0u;
+  uint32_t video_frames_decoded = 0u;
+  uint32_t video_frames_dropped = 0u;
+  uint32_t video_frames_decoded_power_efficient = 0u;
+
+  int64_t audio_memory_usage = 0;
+  int64_t video_memory_usage = 0;
+
+  TimeDelta video_keyframe_distance_average = kNoTimestamp();
+
+  // NOTE: frame duration should reflect changes to playback rate.
+  TimeDelta video_frame_duration_average = kNoTimestamp();
+
+  // Note: Keep these fields at the end of the structure, if you move them you
+  // need to also update the test ProtoUtilsTest::PipelineStatisticsConversion.
+  AudioDecoderInfo audio_decoder_info;
+  VideoDecoderInfo video_decoder_info;
+
+  // NOTE: always update operator== implementation in pipeline_status.cc when
+  // adding a field to this struct. Leave this comment at the end.
+};
+
+bool operator==(const PipelineStatistics &first,
+                const PipelineStatistics &second);
+bool operator!=(const PipelineStatistics &first,
+                const PipelineStatistics &second);
+
+// Used for updating pipeline statistics; the passed value should be a delta
+// of all attributes since the last update.
+using StatisticsCB = std::function<void(const PipelineStatistics &)>;
 
 }
 

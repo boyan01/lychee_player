@@ -12,7 +12,8 @@ add_library(media_base
         src/size.cc
         src/rect.cc
         src/channel_layout.cc
-        src/buffer.cc)
+        src/buffer.cc
+        src/circular_deque.cc)
 
 target_include_directories(media_base PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -21,6 +22,7 @@ if (NOT DISABLE_MEDIA_TEST)
     add_executable(media_base_test
             test/message_queue_test.cc
             test/message_loop_test.cc
+            test/circular_deque_test.cc
             )
     target_link_libraries(media_base_test media_base gtest_main gmock_main)
 
