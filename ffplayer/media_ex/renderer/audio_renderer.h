@@ -14,6 +14,10 @@ class AudioRenderer {
 
  public:
 
+  AudioRenderer();
+
+  ~AudioRenderer();
+
   void Initialize(DemuxerStream *audio_stream, PipelineStatusCallback init_callback);
 
   virtual void StartPlaying() = 0;

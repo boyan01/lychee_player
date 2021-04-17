@@ -4,9 +4,9 @@
 
 #include "base/logging.h"
 
+#include "renderer/audio_renderer.h"
 #include "pipeline/player_pipeline.h"
 #include "source/file_data_source.h"
-#include "renderer/audio_renderer.h"
 
 namespace media {
 
@@ -62,9 +62,9 @@ void PlayerPipeline::OnDemuxerError(PipelineStatus error) {
 }
 
 void PlayerPipeline::OnDemuxerInited() {
-  auto audio_render = std::make_unique<AudioRenderer>();
-  auto video_render = std::make_unique<VideoRenderer>();
-  renderer_ = std::make_shared<Renderer>(pipeline_runner_, std::move(audio_render), std::move(video_render));
+//  auto audio_render = std::make_unique<AudioRenderer>();
+//  auto video_render = std::make_unique<VideoRenderer>();
+//  renderer_ = std::make_shared<Renderer>(pipeline_runner_, std::move(audio_render), std::move(video_render));
 }
 
 } // namespace media

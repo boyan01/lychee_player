@@ -3,6 +3,10 @@ cmake_minimum_required(VERSION 3.10)
 project("media_ex")
 
 add_library(media_ex STATIC
+        base/time_delta.cc
+        base/time_delta.h
+        base/time_ticks.cc
+        base/time_ticks.h
         renderer/renderer.h
         renderer/renderer.cc
         renderer/audio_renderer.cc
@@ -49,20 +53,19 @@ add_library(media_ex STATIC
         pipeline/player_pipeline.cc
         pipeline/player_pipeline.h
         pipeline/pipeline_status.h
-        pipeline/pipeline_status.cc
-        )
+        pipeline/pipeline_status.cc)
 
 target_include_directories(media_ex PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(media_ex PUBLIC ${FFP_LIBS} media_base)
 
 if (NOT DISABLE_MEDIA_TEST)
-    add_executable(media_player_test
+    add_executable(media_ex_test
             ffmpeg/ffmpeg_glue_unittest.cc
             ffmpeg/blocking_url_protocol_unittest.cc
             pipeline/player_pipeline_test.cc
             )
-    target_link_libraries(media_player_test media_player gtest_main gmock_main)
+    target_link_libraries(media_ex_test media_ex gtest_main gmock_main)
 
-    add_test(NAME media_player_test COMMAND media_player)
+    add_test(NAME media_ex_test COMMAND media_player)
 endif ()
