@@ -92,7 +92,7 @@ if (NOT DISABLE_MEDIA_TEST)
     include(FetchContent)
     FetchContent_Declare(
             googletest
-            URL https://github.com/google/googletest/archive/609281088cfefc76f9d0ce82e1ff6c30cc3591e5.zip
+            URL https://github.com.cnpmjs.org/google/googletest/archive/609281088cfefc76f9d0ce82e1ff6c30cc3591e5.zip
     )
     # For Windows: Prevent overriding the parent project's compiler/linker settings
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
@@ -103,6 +103,7 @@ endif ()
 add_subdirectory(base)
 
 add_subdirectory(player)
+add_subdirectory(media_ex)
 
 if (MEDIA_USE_SDL)
     add_subdirectory(sdl)

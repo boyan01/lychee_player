@@ -2,6 +2,7 @@
 // Created by yangbin on 2021/4/7.
 //
 
+#if 0
 #include "base/logging.h"
 
 #include "sdl/sdl_audio_render.h"
@@ -71,3 +72,5 @@ int SdlAudioRender::OpenAudioDevice() {
 }
 
 } // namespace media
+
+#endif

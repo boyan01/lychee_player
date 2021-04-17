@@ -6,6 +6,7 @@
 
 #include "pipeline/player_pipeline.h"
 #include "source/file_data_source.h"
+#include "renderer/audio_renderer.h"
 
 namespace media {
 

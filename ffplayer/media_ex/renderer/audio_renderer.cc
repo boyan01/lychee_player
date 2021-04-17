@@ -8,6 +8,10 @@
 
 namespace media {
 
+AudioRenderer::AudioRenderer() = default;
+
+AudioRenderer::~AudioRenderer() = default;
+
 void AudioRenderer::Initialize(DemuxerStream *audio_stream, PipelineStatusCallback init_callback) {
   DCHECK(audio_stream);
   DCHECK_EQ(audio_stream->type(), DemuxerStream::Type::AUDIO);

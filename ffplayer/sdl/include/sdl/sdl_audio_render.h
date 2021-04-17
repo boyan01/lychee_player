@@ -1,7 +1,7 @@
 //
 // Created by yangbin on 2021/4/7.
 //
-
+#if 0
 #ifndef MEDIA_SDL_SDL_AUDIO_RENDER_H_
 #define MEDIA_SDL_SDL_AUDIO_RENDER_H_
 
@@ -40,3 +40,5 @@ class SdlAudioRender : public AudioRenderer {
 }
 
 #endif //MEDIA_SDL_SDL_AUDIO_RENDER_H_
+
+#endif
