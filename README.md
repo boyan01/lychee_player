@@ -33,12 +33,12 @@ requirement:
 
 1. set up your enviorenment for desktop build. see more [ffplayer](ffplayer/README.md)
 2. install flutter.
-3. `cd example & flutter run`
+3. `flutter run`
 
 #### Android
 
 1. install flutter
-2. `cd example & flutter build apk`
+2. `flutter build apk`
 
 ## Dev Tips
 
