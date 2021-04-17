@@ -4,6 +4,8 @@
 
 #include <cmath>
 
+#include "base/logging.h"
+
 #include "render_video_base.h"
 #include "ffp_utils.h"
 
@@ -32,11 +34,14 @@ VideoRenderBase::VideoRenderBase() {
   picture_queue = std::make_unique<FrameQueue>();
 }
 
-void VideoRenderBase::Init(const std::shared_ptr<PacketQueue> &video_queue,
-                           std::shared_ptr<MediaClock> clock_ctx,
-                           std::shared_ptr<MessageContext> msg_ctx) {
+void VideoRenderBase::Init(VideoRenderHost *host,
+                           const std::shared_ptr<PacketQueue> &video_queue,
+                           std::shared_ptr<MediaClock> clock_ctx) {
+  task_runner_ = TaskRunner::current();
+  DCHECK(task_runner_);
+  DCHECK(host);
+  render_host_ = host;
   clock_context = std::move(clock_ctx);
-  msg_ctx_ = std::move(msg_ctx);
   picture_queue->Init(video_queue.get(), VIDEO_PICTURE_QUEUE_SIZE, 1);
 }
 
@@ -123,7 +128,7 @@ int VideoRenderBase::PushFrame(AVFrame *src_frame, double pts, double duration, 
 
   if (!first_video_frame_loaded) {
     first_video_frame_loaded = true;
-    msg_ctx_->NotifyMsg(FFP_MSG_VIDEO_FRAME_LOADED, vp->width, vp->height);
+    render_host_->OnFirstFrameLoaded(vp->width, vp->height);
   }
 
   av_frame_move_ref(vp->frame, src_frame);
@@ -224,7 +229,7 @@ double VideoRenderBase::DrawFrame() {
     if (vp) {
       if (first_video_frame_rendered) {
         first_video_frame_rendered = true;
-        msg_ctx_->NotifyMsg(FFP_MSG_VIDEO_RENDERING_START, vp->width, vp->height);
+        render_host_->OnFirstFrameRendered(vp->width, vp->height);
       }
       RenderPicture(*vp);
     }
@@ -261,18 +266,7 @@ void VideoRenderBase::DumpDebugInformation() {
 }
 
 static void check_external_clock_speed() {
-//    if (is->video_stream >= 0 && is->videoq.nb_packets <= EXTERNAL_CLOCK_MIN_FRAMES ||
-//        is->audio_stream >= 0 && is->audioq.nb_packets <= EXTERNAL_CLOCK_MIN_FRAMES) {
-//        is->extclk.SetSpeed(FFMAX(EXTERNAL_CLOCK_SPEED_MIN, is->extclk.GetSpeed() - EXTERNAL_CLOCK_SPEED_STEP));
-//    } else if ((is->video_stream < 0 || is->videoq.nb_packets > EXTERNAL_CLOCK_MAX_FRAMES) &&
-//               (is->audio_stream < 0 || is->audioq.nb_packets > EXTERNAL_CLOCK_MAX_FRAMES)) {
-//        is->extclk.SetSpeed(FFMIN(EXTERNAL_CLOCK_SPEED_MAX, is->extclk.GetSpeed() + EXTERNAL_CLOCK_SPEED_STEP));
-//    } else {
-//        double speed = is->extclk.GetSpeed();
-//        if (speed != 1.0) {
-//            is->extclk.SetSpeed(speed + EXTERNAL_CLOCK_SPEED_STEP * (1.0 - speed) / fabs(1.0 - speed));
-//        }
-//    }
+
 }
 
 }

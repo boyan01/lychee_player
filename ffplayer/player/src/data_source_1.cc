@@ -129,7 +129,7 @@ int DataSource1::PrepareFormatContext() {
 }
 
 void DataSource1::OnFormatContextOpen() {
-  msg_ctx->NotifyMsg(FFP_MSG_AV_METADATA_LOADED);
+//  msg_ctx->NotifyMsg(FFP_MSG_AV_METADATA_LOADED);
 
   /* if seeking requested, we execute it */
   if (start_time != AV_NOPTS_VALUE) {

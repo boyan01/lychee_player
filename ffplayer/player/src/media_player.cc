@@ -5,6 +5,8 @@
 #include "media_player.h"
 #include "decoder_ctx.h"
 
+#include "base/logging.h"
+
 extern "C" {
 #include "libavutil/bprint.h"
 }
@@ -14,22 +16,16 @@ namespace media {
 MediaPlayer::MediaPlayer(
     std::unique_ptr<VideoRenderBase> video_render,
     std::unique_ptr<BasicAudioRender> audio_render
-) : video_render_(std::move(video_render)), audio_render_(std::move(audio_render)), player_mutex_() {
-  message_context = std::make_shared<MessageContext>();
-  message_context->message_callback = [this](int what, int64_t arg1, int64_t arg2) {
-    switch (what) { // NOLINT(hicpp-multiway-paths-covered)
-      case MEDIA_MSG_DO_SOME_WORK: {
-//        DoSomeWork();
-        break;
-      }
-      default: {
-        if (message_callback_external_) {
-          message_callback_external_(what, arg1, arg2);
-        }
-        break;
-      }
-    }
-  };
+) : video_render_(std::move(video_render)), audio_render_(std::move(audio_render)) {
+  task_runner_ = TaskRunner::prepare_looper("media_player");
+  task_runner_->PostTask(FROM_HERE, [&]() {
+    Initialize();
+  });
+}
+
+void MediaPlayer::Initialize() {
+  DCHECK_EQ(state_, kUninitialized);
+  DCHECK(task_runner_->BelongsToCurrentThread());
 
   audio_pkt_queue = std::make_shared<PacketQueue>();
   video_pkt_queue = std::make_shared<PacketQueue>();
@@ -66,16 +62,21 @@ MediaPlayer::MediaPlayer(
   if (video_render_) {
     video_render_->SetRenderCallback([this]() {
     });
-    video_render_->Init(video_pkt_queue, clock_context, message_context);
+    video_render_->Init(this, video_pkt_queue, clock_context);
   }
 
   decoder_context = std::make_shared<DecoderContext>(audio_render_, video_render_, clock_context, [this]() {
     ChangePlaybackState(MediaPlayerState::BUFFERING);
 //    StopRenders();
   });
+
+  state_ = kIdle;
+
 }
 
-MediaPlayer::~MediaPlayer() = default;
+MediaPlayer::~MediaPlayer() {
+  task_runner_->Quit();
+};
 
 void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
   if (play_when_ready_ == play_when_ready) {
@@ -120,6 +121,17 @@ int MediaPlayer::OpenDataSource(const char *filename) {
     av_log(nullptr, AV_LOG_ERROR, "can not open file multi-times.\n");
     return -1;
   }
+  task_runner_->PostTask(FROM_HERE, [&, filename]() {
+    OpenDataSourceTask(filename);
+  });
+  return 0;
+}
+
+void MediaPlayer::OpenDataSourceTask(const char *filename) {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(!data_source) << "can not open file multi-times.";
+
+  DLOG(INFO) << "open file: " << filename;
 
   data_source = std::make_unique<DataSource1>(filename, nullptr);
   data_source->configuration = start_configuration;
@@ -128,7 +140,6 @@ int MediaPlayer::OpenDataSource(const char *filename) {
   data_source->subtitle_queue = subtitle_pkt_queue;
   data_source->ext_clock = clock_context->GetAudioClock();
   data_source->decoder_ctx = decoder_context;
-  data_source->msg_ctx = message_context;
 
   data_source->on_new_packet_send_ = [this]() {
     CheckBuffering();
@@ -136,7 +147,6 @@ int MediaPlayer::OpenDataSource(const char *filename) {
 
   data_source->Open();
   ChangePlaybackState(MediaPlayerState::BUFFERING);
-  return 0;
 }
 
 void MediaPlayer::DumpStatus() {
@@ -204,6 +214,10 @@ void MediaPlayer::DumpStatus() {
 }
 
 double MediaPlayer::GetCurrentPosition() {
+  if (state_ == kUninitialized) {
+    return 0;
+  }
+
   double position = clock_context->GetMasterClock();
   if (isnan(position)) {
     if (data_source) {
@@ -323,7 +337,6 @@ void MediaPlayer::ChangePlaybackState(MediaPlayerState state) {
     return;
   }
   player_state_ = state;
-  message_context->NotifyMsg(FFP_MSG_PLAYBACK_STATE_CHANGED, int(player_state_));
 }
 
 void MediaPlayer::StopRenders() {
@@ -383,7 +396,6 @@ void MediaPlayer::CheckBuffering() {
           (int64_t) (video_pkt_queue->last_pkt->pkt.pts + video_pkt_queue->last_pkt->pkt.duration);
     }
     buffered_position_ = duration;
-    message_context->NotifyMsg(FFP_MSG_BUFFERING_TIME_UPDATE, buffered_position_ * 1000);
     ChangePlaybackState(MediaPlayerState::READY);
     return;
   }
@@ -424,8 +436,6 @@ void MediaPlayer::CheckBuffering() {
   }
 
   buffered_position_ = cached_position;
-  message_context->NotifyMsg(FFP_MSG_BUFFERING_TIME_UPDATE, buffered_position_ * 1000);
-
 #if 0
   av_log(nullptr,
          AV_LOG_INFO,
@@ -442,6 +452,18 @@ void MediaPlayer::CheckBuffering() {
     if (play_when_ready_) {
 //      StartRenders();
     }
+  }
+
+}
+void MediaPlayer::OnFirstFrameLoaded(int width, int height) {
+  if (on_video_size_changed_) {
+    on_video_size_changed_(width, height);
+  }
+}
+
+void MediaPlayer::OnFirstFrameRendered(int width, int height) {
+  if (on_video_size_changed_) {
+    on_video_size_changed_(width, height);
   }
 
 }

@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <utility>
 
+#include "base/logging.h"
+
 #include "ffp_utils.h"
 #include "media_player.h"
 #include "sdl_utils.h"
@@ -262,7 +264,7 @@ static void set_default_window_size(int width, int height) {
 }
 
 /// limit max show size to half of screen.
-void check_screen_size(int64_t &width, int64_t &height) {
+static void check_screen_size(int &width, int &height) {
   SDL_DisplayMode display_mode;
 
   int window_index = 0;
@@ -281,26 +283,6 @@ void check_screen_size(int64_t &width, int64_t &height) {
 static void on_message(MediaPlayer *player, int what, int64_t arg1, int64_t arg2) {
 //    av_log(nullptr, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n", what, arg1, arg2);
   switch (what) {
-    case FFP_MSG_VIDEO_FRAME_LOADED: {
-      check_screen_size(arg1, arg2);
-      set_default_window_size(arg1, arg2);
-      std::cout << "FFP_MSG_VIDEO_FRAME_LOADED: width = " << arg1 << "height = " << arg2 << endl;
-      int w, h;
-      w = screen_width ? screen_width : default_width;
-      h = screen_height ? screen_height : default_height;
-
-      if (!window_title)
-        window_title = player->GetUrl();
-      SDL_SetWindowTitle(window, window_title);
-
-      printf("set_default_window_size : %d , %d \n", w, h);
-      SDL_SetWindowSize(window, w, h);
-      SDL_SetWindowPosition(window, screen_left, screen_top);
-      if (is_full_screen)
-        SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-      SDL_ShowWindow(window);
-      break;
-    }
     case FFP_MSG_PLAYBACK_STATE_CHANGED:printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %ld \n", arg1);
       break;
     case FFP_MSG_BUFFERING_TIME_UPDATE:
@@ -320,7 +302,7 @@ static void on_message(MediaPlayer *player, int what, int64_t arg1, int64_t arg2
 int main(int argc, char *argv[]) {
   char *input_file = argv[1];
   if (!input_file) {
-    av_log(nullptr, AV_LOG_FATAL, "An input file must be specified\n");
+    LOG(FATAL) << "An input file must be specified";
     exit(1);
   }
 
@@ -410,9 +392,28 @@ int main(int argc, char *argv[]) {
     data->arg2 = arg2;
     SDL_PushEvent(&event);
   });
+  player->set_on_video_size_changed_callback([player](int width, int height) {
+    check_screen_size(width, height);
+    set_default_window_size(width, height);
+    DLOG(INFO) << "on video size changed: width = " << width << "height = " << height;
+    int w, h;
+    w = screen_width ? screen_width : default_width;
+    h = screen_height ? screen_height : default_height;
+
+    if (!window_title)
+      window_title = player->GetUrl();
+    SDL_SetWindowTitle(window, window_title);
+
+    DLOG(INFO) << "set_default_window_size width = " << w << ", height = " << h;
+    SDL_SetWindowSize(window, w, h);
+    SDL_SetWindowPosition(window, screen_left, screen_top);
+    if (is_full_screen)
+      SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    SDL_ShowWindow(window);
+  });
 
   if (player->OpenDataSource(input_file) < 0) {
-    av_log(nullptr, AV_LOG_FATAL, "failed to open file\n");
+    LOG(FATAL) << "failed to open file";
     do_exit(nullptr);
   }
 

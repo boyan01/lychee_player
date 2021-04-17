@@ -11,8 +11,19 @@
 #include "ffp_frame_queue.h"
 #include "media_clock.h"
 #include "ffp_msg_queue.h"
+#include "task_runner.h"
 
 namespace media {
+
+class VideoRenderHost {
+
+ public:
+
+  virtual void OnFirstFrameLoaded(int width, int height) = 0;
+
+  virtual void OnFirstFrameRendered(int width, int height) = 0;
+
+};
 
 class VideoRenderBase : public BaseRender {
 
@@ -54,7 +65,6 @@ class VideoRenderBase : public BaseRender {
   int framedrop = -1;
 
   std::shared_ptr<MediaClock> clock_context;
-  std::shared_ptr<MessageContext> msg_ctx_;
 
   virtual void RenderPicture(Frame &frame) = 0;
 
@@ -64,8 +74,9 @@ class VideoRenderBase : public BaseRender {
 
   ~VideoRenderBase() override;
 
-  void Init(const std::shared_ptr<PacketQueue> &video_queue, std::shared_ptr<MediaClock> clock_ctx,
-            std::shared_ptr<MessageContext> msg_ctx);
+  void Init(VideoRenderHost *host,
+            const std::shared_ptr<PacketQueue> &video_queue,
+            std::shared_ptr<MediaClock> clock_ctx);
 
   /**
    * Accept Frame from Decoder.
@@ -98,6 +109,12 @@ class VideoRenderBase : public BaseRender {
   void Stop();
 
   void DumpDebugInformation();
+
+ private:
+
+  TaskRunner *task_runner_ = nullptr;
+
+  VideoRenderHost *render_host_ = nullptr;
 
 };
 

@@ -65,6 +65,8 @@ class PacketQueue {
 
 };
 
+using DemuxerStream = PacketQueue;
+
 }
 
 #endif //FFP_PACKET_QUEUE_H

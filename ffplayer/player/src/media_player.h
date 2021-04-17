@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <functional>
+#include <utility>
 
 #include "ffplayer.h"
 #include "ffp_packet_queue.h"
@@ -15,6 +16,7 @@
 #include "render_audio_base.h"
 #include "render_video_base.h"
 #include "decoder_ctx.h"
+#include "task_runner.h"
 
 namespace media {
 
@@ -25,9 +27,28 @@ enum class MediaPlayerState {
   END
 };
 
-class MediaPlayer {
+class MediaPlayer : VideoRenderHost {
+
+ public:
+
+  /**
+   * Global init player resources.
+   */
+  static void GlobalInit();
+
+  MediaPlayer(std::unique_ptr<VideoRenderBase> video_render, std::unique_ptr<BasicAudioRender> audio_render);
+
+  ~MediaPlayer();
 
  private:
+
+  enum State {
+    kUninitialized,
+    kIdle,
+    kPrepared,
+  };
+
+  State state_ = kUninitialized;
 
   std::shared_ptr<PacketQueue> audio_pkt_queue;
   std::shared_ptr<PacketQueue> video_pkt_queue;
@@ -42,8 +63,6 @@ class MediaPlayer {
   std::shared_ptr<BasicAudioRender> audio_render_;
   std::shared_ptr<VideoRenderBase> video_render_;
 
-  std::shared_ptr<MessageContext> message_context;
-
   MediaPlayerState player_state_ = MediaPlayerState::IDLE;
   std::mutex player_mutex_;
 
@@ -56,15 +75,7 @@ class MediaPlayer {
   // buffered position in seconds. -1 if not available
   double buffered_position_ = -1;
 
- public:
-
-  MediaPlayer(std::unique_ptr<VideoRenderBase> video_render, std::unique_ptr<BasicAudioRender> audio_render);
-
-  ~MediaPlayer();
-
-  static void GlobalInit();
-
- private:
+  void Initialize();
 
   void DoSomeWork();
 
@@ -79,6 +90,8 @@ class MediaPlayer {
   bool ShouldTransitionToReadyState(bool render_allow_play);
 
   void CheckBuffering();
+
+  void OpenDataSourceTask(const char *filename);
 
  public:
   PlayerConfiguration start_configuration{};
@@ -123,6 +136,21 @@ class MediaPlayer {
    * Dump player status information to console.
    */
   void DumpStatus();
+
+  using OnVideoSizeChangeCallback = std::function<void(int width, int height)>;
+  void set_on_video_size_changed_callback(OnVideoSizeChangeCallback callback) {
+    on_video_size_changed_ = std::move(callback);
+  }
+
+ private:
+
+  TaskRunner *task_runner_;
+
+  OnVideoSizeChangeCallback on_video_size_changed_;
+
+  void OnFirstFrameLoaded(int width, int height) override;
+
+  void OnFirstFrameRendered(int width, int height) override;
 
 };
 
