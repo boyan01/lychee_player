@@ -46,7 +46,7 @@ enum AVPacketSideDataType {
     AV_PKT_DATA_PALETTE,
 
     /**
-     * The AV_PKT_DATA_NEW_EXTRADATA is used to notify the codec or the format
+     * The AV_PKT_DATA_NEW_EXTRADATA is used to notify the CodecId or the format
      * that the extradata buffer was changed and the receiving side should
      * act upon it appropriately. The new extradata is embedded in the side
      * data buffer and should be immediately used for processing the current
@@ -135,7 +135,7 @@ enum AVPacketSideDataType {
      * This side data contains an integer value representing the stream index
      * of a "fallback" track.  A fallback track indicates an alternate
      * track to use when the current track can not be decoded for some reason.
-     * e.g. no decoder available for codec.
+     * e.g. no decoder available for CodecId.
      */
     AV_PKT_DATA_FALLBACK_TRACK,
 

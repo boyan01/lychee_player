@@ -331,8 +331,8 @@ class Rect : public RectBase<Rect, Point, Size, Insets, int> {
   Rect(int width, int height);
   Rect(int x, int y, int width, int height);
 
-  explicit Rect(const base::Size& size);
-  Rect(const base::Point& origin, const base::Size& size);
+  explicit Rect(const base::Size &size);
+  Rect(const base::Point &origin, const base::Size &size);
 
   ~Rect();
 

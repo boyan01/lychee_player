@@ -252,7 +252,7 @@ typedef struct AVRegionOfInterest {
      * largest possible offset - if the rest of the frame is encoded with the
      * worst possible quality, an offset of -1 indicates that this region
      * should be encoded with the best possible quality anyway.  Intermediate
-     * values are then interpolated in some codec-dependent way.
+     * values are then interpolated in some CodecId-dependent way.
      *
      * For example, in 10-bit H.264 the quantisation parameter varies between
      * -12 and 51.  A typical qoffset value of -1/10 therefore indicates that

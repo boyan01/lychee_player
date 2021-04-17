@@ -19,7 +19,7 @@ class FFmpegDemuxerTest : public testing::Test {
 
   virtual ~FFmpegDemuxerTest() {
     if (demuxer_) {
-      demuxer_->Stop();
+//      demuxer_->Stop();
     }
   }
 

@@ -10,8 +10,9 @@
 #include "ffp_flutter_windows.h"
 #elif defined(_FLUTTER_MEDIA_ANDROID)
 #include "ffp_flutter_android.h"
-#define _MEDIA_AUDIO_USE_SDL
 #elif defined(_FLUTTER_MEDIA_LINUX)
+#define _MEDIA_AUDIO_USE_SDL
+#elif defined(_FLUTTER_MEDIA_MACOS)
 #define _MEDIA_AUDIO_USE_SDL
 #endif
 

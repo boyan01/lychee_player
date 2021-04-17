@@ -198,8 +198,8 @@
  *   avio_open2() or a custom one.
  * - Unless the format is of the AVFMT_NOSTREAMS type, at least one stream must
  *   be created with the avformat_new_stream() function. The caller should fill
- *   the @ref AVStream.codecpar "stream codec parameters" information, such as the
- *   codec @ref AVCodecParameters.codec_type "type", @ref AVCodecParameters.codec_id
+ *   the @ref AVStream.codecpar "stream CodecId parameters" information, such as the
+ *   CodecId @ref AVCodecParameters.codec_type "type", @ref AVCodecParameters.codec_id
  *   "id" and other parameters (e.g. width / height, the pixel or sample format,
  *   etc.) as known. The @ref AVStream.time_base "stream timebase" should
  *   be set to the timebase that the caller desires to use for this stream (note
@@ -207,7 +207,7 @@
  *   described later).
  * - It is advised to manually initialize only the relevant fields in
  *   AVCodecParameters, rather than using @ref avcodec_parameters_copy() during
- *   remuxing: there is no guarantee that the codec context values remain valid
+ *   remuxing: there is no guarantee that the CodecId context values remain valid
  *   for both input and output format contexts.
  * - The caller may fill in additional information, such as @ref
  *   AVFormatContext.metadata "global" or @ref AVStream.metadata "per-stream"
@@ -498,9 +498,9 @@ typedef struct AVOutputFormat {
     const char *mime_type;
     const char *extensions; /**< comma-separated filename extensions */
     /* output support */
-    enum AVCodecID audio_codec;    /**< default audio codec */
-    enum AVCodecID video_codec;    /**< default video codec */
-    enum AVCodecID subtitle_codec; /**< default subtitle codec */
+    enum AVCodecID audio_codec;    /**< default audio CodecId */
+    enum AVCodecID video_codec;    /**< default video CodecId */
+    enum AVCodecID subtitle_codec; /**< default subtitle CodecId */
     /**
      * can use flags: AVFMT_NOFILE, AVFMT_NEEDNUMBER,
      * AVFMT_GLOBALHEADER, AVFMT_NOTIMESTAMPS, AVFMT_VARIABLE_FPS,
@@ -557,11 +557,11 @@ typedef struct AVOutputFormat {
     int (*interleave_packet)(struct AVFormatContext *, AVPacket *out,
                              AVPacket *in, int flush);
     /**
-     * Test if the given codec can be stored in this container.
+     * Test if the given CodecId can be stored in this container.
      *
-     * @return 1 if the codec is supported, 0 if it is not.
+     * @return 1 if the CodecId is supported, 0 if it is not.
      *         A negative number if unknown.
-     *         MKTAG('A', 'P', 'I', 'C') if the codec is only supported as AV_DISPOSITION_ATTACHED_PIC
+     *         MKTAG('A', 'P', 'I', 'C') if the CodecId is only supported as AV_DISPOSITION_ATTACHED_PIC
      */
     int (*query_codec)(enum AVCodecID id, int std_compliance);
 
@@ -598,7 +598,7 @@ typedef struct AVOutputFormat {
      * @see avdevice_capabilities_free() for more details.
      */
     int (*free_device_capabilities)(struct AVFormatContext *s, struct AVDeviceCapabilitiesQuery *caps);
-    enum AVCodecID data_codec; /**< default data codec */
+    enum AVCodecID data_codec; /**< default data CodecId */
     /**
      * Initialize format. May allocate data here, and set any AVFormatContext or
      * AVStream parameters that need to be set before packets are sent.
@@ -682,7 +682,7 @@ typedef struct AVInputFormat {
     ff_const59 struct AVInputFormat *next;
 
     /**
-     * Raw demuxers store their codec ID here.
+     * Raw demuxers store their CodecId ID here.
      */
     int raw_codec_id;
 
@@ -789,7 +789,7 @@ enum AVStreamParseType {
     AVSTREAM_PARSE_FULL_ONCE,  /**< full parsing and repack of the first frame only, only implemented for H.264 currently */
     AVSTREAM_PARSE_FULL_RAW,   /**< full parsing and repack with timestamp and position generation by parser for raw
                                     this assumes that each packet in the file contains no demuxer level headers and
-                                    just codec level data, otherwise position generation would fail */
+                                    just CodecId level data, otherwise position generation would fail */
 };
 
 typedef struct AVIndexEntry {
@@ -1072,7 +1072,7 @@ typedef struct AVStream {
     int last_IP_duration;
 
     /**
-     * Number of packets to buffer for codec probing
+     * Number of packets to buffer for CodecId probing
      */
     int probe_packets;
 
@@ -1487,7 +1487,7 @@ typedef struct AVFormatContext {
 #define AVFMT_FLAG_MP4A_LATM    0x8000 ///< Deprecated, does nothing.
 #endif
 #define AVFMT_FLAG_SORT_DTS    0x10000 ///< try to interleave outputted packets by dts (using this flag can slow demuxing down)
-#define AVFMT_FLAG_PRIV_OPT    0x20000 ///< Enable use of private options by delaying codec open (this could be made default once all code is converted)
+#define AVFMT_FLAG_PRIV_OPT    0x20000 ///< Enable use of private options by delaying CodecId open (this could be made default once all code is converted)
 #if FF_API_LAVF_KEEPSIDE_FLAG
 #define AVFMT_FLAG_KEEP_SIDE_DATA 0x40000 ///< Deprecated, does nothing.
 #endif
@@ -1798,7 +1798,7 @@ typedef struct AVFormatContext {
     int io_repositioned;
 
     /**
-     * Forced video codec.
+     * Forced video CodecId.
      * This allows forcing a specific decoder, even when there are multiple with
      * the same codec_id.
      * Demuxing: Set by user
@@ -1806,7 +1806,7 @@ typedef struct AVFormatContext {
     AVCodec *video_codec;
 
     /**
-     * Forced audio codec.
+     * Forced audio CodecId.
      * This allows forcing a specific decoder, even when there are multiple with
      * the same codec_id.
      * Demuxing: Set by user
@@ -1814,7 +1814,7 @@ typedef struct AVFormatContext {
     AVCodec *audio_codec;
 
     /**
-     * Forced subtitle codec.
+     * Forced subtitle CodecId.
      * This allows forcing a specific decoder, even when there are multiple with
      * the same codec_id.
      * Demuxing: Set by user
@@ -1822,7 +1822,7 @@ typedef struct AVFormatContext {
     AVCodec *subtitle_codec;
 
     /**
-     * Forced data codec.
+     * Forced data CodecId.
      * This allows forcing a specific decoder, even when there are multiple with
      * the same codec_id.
      * Demuxing: Set by user
@@ -2152,8 +2152,8 @@ const AVClass *avformat_get_class(void);
  *
  * @param s media file handle
  * @param c If non-NULL, the AVCodecContext corresponding to the new stream
- * will be initialized to use this codec. This is needed for e.g. codec-specific
- * defaults to be set, so codec should be provided if it is known.
+ * will be initialized to use this codec. This is needed for e.g. CodecId-specific
+ * defaults to be set, so CodecId should be provided if it is known.
  *
  * @return newly created stream or NULL on error.
  */
@@ -2325,7 +2325,7 @@ int av_demuxer_open(AVFormatContext *ic);
  * @param ic media file handle
  * @param options  If non-NULL, an ic.nb_streams long array of pointers to
  *                 dictionaries, where i-th member contains options for
- *                 codec corresponding to i-th stream.
+ *                 CodecId corresponding to i-th stream.
  *                 On return each dictionary will be filled with options that were not found.
  * @return >=0 if OK, AVERROR_xxx on error
  *
@@ -2356,7 +2356,7 @@ void av_program_add_stream_index(AVFormatContext *ac, int progid, unsigned int i
  * The best stream is determined according to various heuristics as the most
  * likely to be what the user expects.
  * If the decoder parameter is non-NULL, av_find_best_stream will find the
- * default decoder for the stream's codec; streams for which no decoder can
+ * default decoder for the stream's CodecId; streams for which no decoder can
  * be found are ignored.
  *
  * @param ic                media file handle
@@ -2519,8 +2519,8 @@ void avformat_close_input(AVFormatContext **s);
  *                 On return this parameter will be destroyed and replaced with a dict containing
  *                 options that were not found. May be NULL.
  *
- * @return AVSTREAM_INIT_IN_WRITE_HEADER on success if the codec had not already been fully initialized in avformat_init,
- *         AVSTREAM_INIT_IN_INIT_OUTPUT  on success if the codec had already been fully initialized in avformat_init,
+ * @return AVSTREAM_INIT_IN_WRITE_HEADER on success if the CodecId had not already been fully initialized in avformat_init,
+ *         AVSTREAM_INIT_IN_INIT_OUTPUT  on success if the CodecId had already been fully initialized in avformat_init,
  *         negative AVERROR on failure.
  *
  * @see av_opt_find, av_dict_set, avio_open, av_oformat_next, avformat_init_output.
@@ -2529,7 +2529,7 @@ av_warn_unused_result
 int avformat_write_header(AVFormatContext *s, AVDictionary **options);
 
 /**
- * Allocate the stream private data and initialize the codec, but do not write the header.
+ * Allocate the stream private data and initialize the CodecId, but do not write the header.
  * May optionally be used before avformat_write_header to initialize stream parameters
  * before actually writing the header.
  * If using this function, do not pass the same options to avformat_write_header.
@@ -2541,8 +2541,8 @@ int avformat_write_header(AVFormatContext *s, AVDictionary **options);
  *                 On return this parameter will be destroyed and replaced with a dict containing
  *                 options that were not found. May be NULL.
  *
- * @return AVSTREAM_INIT_IN_WRITE_HEADER on success if the codec requires avformat_write_header to fully initialize,
- *         AVSTREAM_INIT_IN_INIT_OUTPUT  on success if the codec has been fully initialized,
+ * @return AVSTREAM_INIT_IN_WRITE_HEADER on success if the CodecId requires avformat_write_header to fully initialize,
+ *         AVSTREAM_INIT_IN_INIT_OUTPUT  on success if the CodecId has been fully initialized,
  *         negative AVERROR on failure.
  *
  * @see av_opt_find, av_dict_set, avio_open, av_oformat_next, avformat_write_header.
@@ -2700,7 +2700,7 @@ ff_const59 AVOutputFormat *av_guess_format(const char *short_name,
                                 const char *mime_type);
 
 /**
- * Guess the codec ID based upon muxer and filename.
+ * Guess the CodecId ID based upon muxer and filename.
  */
 enum AVCodecID av_guess_codec(ff_const59 AVOutputFormat *fmt, const char *short_name,
                             const char *filename, const char *mime_type,
@@ -2790,31 +2790,31 @@ void av_pkt_dump_log2(void *avcl, int level, const AVPacket *pkt, int dump_paylo
                       const AVStream *st);
 
 /**
- * Get the AVCodecID for the given codec tag tag.
- * If no codec id is found returns AV_CODEC_ID_NONE.
+ * Get the AVCodecID for the given CodecId tag tag.
+ * If no CodecId id is found returns AV_CODEC_ID_NONE.
  *
  * @param tags list of supported codec_id-codec_tag pairs, as stored
  * in AVInputFormat.codec_tag and AVOutputFormat.codec_tag
- * @param tag  codec tag to match to a codec ID
+ * @param tag  CodecId tag to match to a codec ID
  */
 enum AVCodecID av_codec_get_id(const struct AVCodecTag * const *tags, unsigned int tag);
 
 /**
- * Get the codec tag for the given codec id id.
- * If no codec tag is found returns 0.
+ * Get the codec tag for the given CodecId id id.
+ * If no CodecId tag is found returns 0.
  *
  * @param tags list of supported codec_id-codec_tag pairs, as stored
  * in AVInputFormat.codec_tag and AVOutputFormat.codec_tag
- * @param id   codec ID to match to a codec tag
+ * @param id   codec ID to match to a CodecId tag
  */
 unsigned int av_codec_get_tag(const struct AVCodecTag * const *tags, enum AVCodecID id);
 
 /**
- * Get the codec tag for the given codec id.
+ * Get the codec tag for the given CodecId id.
  *
  * @param tags list of supported codec_id - codec_tag pairs, as stored
  * in AVInputFormat.codec_tag and AVOutputFormat.codec_tag
- * @param id codec id that should be searched for in the list
+ * @param id CodecId id that should be searched for in the list
  * @param tag A pointer to the found tag
  * @return 0 if id was not found in tags, > 0 if it was found
  */
@@ -2876,7 +2876,7 @@ void av_url_split(char *proto,         int proto_size,
 /**
  * Print detailed information about the input or output format, such as
  * duration, bitrate, streams, container, programs, metadata, side data,
- * codec and time base.
+ * CodecId and time base.
  *
  * @param ic        the context to analyze
  * @param index     index of the stream to dump information about
@@ -2947,13 +2947,13 @@ int av_sdp_create(AVFormatContext *ac[], int n_files, char *buf, int size);
 int av_match_ext(const char *filename, const char *extensions);
 
 /**
- * Test if the given container can store a codec.
+ * Test if the given container can store a CodecId.
  *
  * @param ofmt           container to check for compatibility
- * @param codec_id       codec to potentially store in container
+ * @param codec_id       CodecId to potentially store in container
  * @param std_compliance standards compliance level, one of FF_COMPLIANCE_*
  *
- * @return 1 if codec with ID codec_id can be stored in ofmt, 0 if it cannot.
+ * @return 1 if CodecId with ID codec_id can be stored in ofmt, 0 if it cannot.
  *         A negative number if this information is not available.
  */
 int avformat_query_codec(const AVOutputFormat *ofmt, enum AVCodecID codec_id,
@@ -2996,7 +2996,7 @@ const struct AVCodecTag *avformat_get_mov_audio_tags(void);
  * Guess the sample aspect ratio of a frame, based on both the stream and the
  * frame aspect ratio.
  *
- * Since the frame aspect ratio is set by the codec but the stream aspect ratio
+ * Since the frame aspect ratio is set by the CodecId but the stream aspect ratio
  * is set by the demuxer, these two may not be equal. This function tries to
  * return the value that you should use if you would like to display the frame.
  *
@@ -3012,7 +3012,7 @@ const struct AVCodecTag *avformat_get_mov_audio_tags(void);
 AVRational av_guess_sample_aspect_ratio(AVFormatContext *format, AVStream *stream, AVFrame *frame);
 
 /**
- * Guess the frame rate, based on both the container and codec information.
+ * Guess the frame rate, based on both the container and CodecId information.
  *
  * @param ctx the format context which the stream is part of
  * @param stream the stream which the frame is part of
@@ -3073,14 +3073,14 @@ enum AVTimebaseSource {
  * @param ofmt     target output format for ost
  * @param ost      output stream which needs timings copy and adjustments
  * @param ist      reference input stream to copy timings from
- * @param copy_tb  define from where the stream codec timebase needs to be imported
+ * @param copy_tb  define from where the stream CodecId timebase needs to be imported
  */
 int avformat_transfer_internal_stream_timing_info(const AVOutputFormat *ofmt,
                                                   AVStream *ost, const AVStream *ist,
                                                   enum AVTimebaseSource copy_tb);
 
 /**
- * Get the internal codec timebase from a stream.
+ * Get the internal CodecId timebase from a stream.
  *
  * @param st  input stream to extract the timebase from
  */

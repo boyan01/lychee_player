@@ -29,3 +29,11 @@ endif ()
 add_subdirectory(base)
 
 target_link_libraries(media_flutter PUBLIC media_flutter_base ${media_flutter_libs})
+
+if (APPLE)
+    set_target_properties(media_flutter PROPERTIES
+            FRAMEWORK TRUE
+            MACOSX_FRAMEWORK_IDENTIFIER tech.soit.media_flutter
+            PUBLIC_HEADER ffp_flutter.h
+            )
+endif ()

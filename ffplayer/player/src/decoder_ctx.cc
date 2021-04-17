@@ -30,7 +30,7 @@ int DecoderContext::StartDecoder(std::unique_ptr<DecodeParams> decode_params) {
 
   auto codec = avcodec_find_decoder(codec_ctx->codec_id);
   if (!codec) {
-    av_log(nullptr, AV_LOG_WARNING, "No decoder could be found for codec %s\n",
+    av_log(nullptr, AV_LOG_WARNING, "No decoder could be found for CodecId %s\n",
            avcodec_get_name(codec_ctx->codec_id));
     return AVERROR(EINVAL);
   }

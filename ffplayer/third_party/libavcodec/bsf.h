@@ -99,9 +99,9 @@ typedef struct AVBitStreamFilter {
     const char *name;
 
     /**
-     * A list of codec ids supported by the filter, terminated by
+     * A list of CodecId ids supported by the filter, terminated by
      * AV_CODEC_ID_NONE.
-     * May be NULL, in that case the bitstream filter works with any codec id.
+     * May be NULL, in that case the bitstream filter works with any CodecId id.
      */
     const enum AVCodecID *codec_ids;
 

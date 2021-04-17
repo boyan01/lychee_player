@@ -55,16 +55,16 @@ typedef struct AVCodecParameters {
      */
     enum AVMediaType codec_type;
     /**
-     * Specific type of the encoded data (the codec used).
+     * Specific type of the encoded data (the CodecId used).
      */
     enum AVCodecID   codec_id;
     /**
-     * Additional information about the codec (corresponds to the AVI FOURCC).
+     * Additional information about the CodecId (corresponds to the AVI FOURCC).
      */
     uint32_t         codec_tag;
 
     /**
-     * Extra binary data needed for initializing the decoder, codec-dependent.
+     * Extra binary data needed for initializing the decoder, CodecId-dependent.
      *
      * Must be allocated with av_malloc() and will be freed by
      * avcodec_parameters_free(). The allocated size of extradata must be at

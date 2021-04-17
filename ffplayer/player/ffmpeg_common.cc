@@ -58,34 +58,6 @@ VideoCodec CodecIDToVideoCodec(AVCodecID codec_id) {
   return kUnknownVideoCodec;
 }
 
-ChannelLayout AVChannelLayoutToChannelLayout(int64_t layout, int channels) {
-  switch (layout) {
-    case AV_CH_LAYOUT_MONO:return CHANNEL_LAYOUT_MONO;
-    case AV_CH_LAYOUT_STEREO:return CHANNEL_LAYOUT_STEREO;
-    case AV_CH_LAYOUT_2_1:return CHANNEL_LAYOUT_2_1;
-    case AV_CH_LAYOUT_SURROUND:return CHANNEL_LAYOUT_SURROUND;
-    case AV_CH_LAYOUT_4POINT0:return CHANNEL_LAYOUT_4_0;
-    case AV_CH_LAYOUT_2_2:return CHANNEL_LAYOUT_2_2;
-    case AV_CH_LAYOUT_QUAD:return CHANNEL_LAYOUT_QUAD;
-    case AV_CH_LAYOUT_5POINT0:return CHANNEL_LAYOUT_5_0;
-    case AV_CH_LAYOUT_5POINT1:return CHANNEL_LAYOUT_5_1;
-    case AV_CH_LAYOUT_5POINT0_BACK:return CHANNEL_LAYOUT_5_0_BACK;
-    case AV_CH_LAYOUT_5POINT1_BACK:return CHANNEL_LAYOUT_5_1_BACK;
-    case AV_CH_LAYOUT_7POINT0:return CHANNEL_LAYOUT_7_0;
-    case AV_CH_LAYOUT_7POINT1:return CHANNEL_LAYOUT_7_1;
-    case AV_CH_LAYOUT_7POINT1_WIDE:return CHANNEL_LAYOUT_7_1_WIDE;
-    case AV_CH_LAYOUT_STEREO_DOWNMIX:return CHANNEL_LAYOUT_STEREO_DOWNMIX;
-    default:
-      // FFmpeg channel_layout is 0 for .wav and .mp3.  We know mono and stereo
-      // from the number of channels, otherwise report errors.
-      if (channels == 1)
-        return CHANNEL_LAYOUT_MONO;
-      if (channels == 2)
-        return CHANNEL_LAYOUT_STEREO;
-      DLOG(WARNING) << "Unsupported channel layout: " << layout;
-  }
-  return CHANNEL_LAYOUT_UNSUPPORTED;
-}
 
 base::Size GetNaturalSize(const base::Size &visible_size,
                           int aspect_ratio_numerator,
@@ -124,32 +96,6 @@ static VideoCodecProfile ProfileIDToVideoCodecProfile(int profile) {
   return VIDEO_CODEC_PROFILE_UNKNOWN;
 }
 
-void AVStreamToVideoDecoderConfig(const AVStream *stream, VideoDecoderConfig *config) {
-  base::Size coded_size(stream->codec->coded_width, stream->codec->coded_height);
-
-  // TODO(vrk): This assumes decoded frame data starts at (0, 0), which is true
-  // for now, but may not always be true forever. Fix this in the future.
-  base::Rect visible_rect(stream->codecpar->width, stream->codecpar->height);
-
-  AVRational aspect_ratio = {1, 1};
-  if (stream->sample_aspect_ratio.num)
-    aspect_ratio = stream->sample_aspect_ratio;
-  else if (stream->codecpar->sample_aspect_ratio.num)
-    aspect_ratio = stream->codecpar->sample_aspect_ratio;
-
-  VideoCodec codec = CodecIDToVideoCodec(stream->codecpar->codec_id);
-  VideoCodecProfile profile = (codec == kCodecVP8) ? VP8PROFILE_MAIN :
-                              ProfileIDToVideoCodecProfile(stream->codecpar->profile);
-  base::Size natural_size = GetNaturalSize(
-      visible_rect.size(), aspect_ratio.num, aspect_ratio.den);
-  config->Initialize(codec,
-                     profile,
-                     PixelFormatToVideoFormat(static_cast<AVPixelFormat>(stream->codecpar->format)),
-                     coded_size, visible_rect, natural_size,
-                     stream->codecpar->extradata, stream->codecpar->extradata_size,
-                     false,
-                     true);
-}
 
 VideoFrame::Format PixelFormatToVideoFormat(AVPixelFormat pixel_format) {
   switch (pixel_format) {
