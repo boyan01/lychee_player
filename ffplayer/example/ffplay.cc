@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/logging.h"
+#include <base/bind_to_current_loop.h>
 
 #include "ffp_utils.h"
 #include "media_player.h"
@@ -302,26 +303,24 @@ static void on_message(MediaPlayer *player, int what, int64_t arg1, int64_t arg2
 }
 
 void OnVideoSizeChanged(TaskRunner *main_task_runner, MediaPlayer *media_player, int video_width, int video_height) {
-  main_task_runner->PostTask(FROM_HERE, [media_player, video_width, video_height]() {
-    int width = video_width, height = video_height;
-    check_screen_size(width, height);
-    set_default_window_size(width, height);
-    DLOG(INFO) << "on video size changed: width = " << width << "height = " << height;
-    int w, h;
-    w = screen_width ? screen_width : default_width;
-    h = screen_height ? screen_height : default_height;
+  int width = video_width, height = video_height;
+  check_screen_size(width, height);
+  set_default_window_size(width, height);
+  DLOG(INFO) << "on video size changed: width = " << width << "height = " << height;
+  int w, h;
+  w = screen_width ? screen_width : default_width;
+  h = screen_height ? screen_height : default_height;
 
-    if (!window_title)
-      window_title = media_player->GetUrl();
-    SDL_SetWindowTitle(window, window_title);
+  if (!window_title)
+    window_title = media_player->GetUrl();
+  SDL_SetWindowTitle(window, window_title);
 
-    DLOG(INFO) << "set_default_window_size width = " << w << ", height = " << h;
-    SDL_SetWindowSize(window, w, h);
-    SDL_SetWindowPosition(window, screen_left, screen_top);
-    if (is_full_screen)
-      SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-    SDL_ShowWindow(window);
-  });
+  DLOG(INFO) << "set_default_window_size width = " << w << ", height = " << h;
+  SDL_SetWindowSize(window, w, h);
+  SDL_SetWindowPosition(window, screen_left, screen_top);
+  if (is_full_screen)
+    SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+  SDL_ShowWindow(window);
 }
 
 int main(int argc, char *argv[]) {
@@ -422,7 +421,9 @@ int main(int argc, char *argv[]) {
   task_runner->Prepare();
 
   player->set_on_video_size_changed_callback([player, task_runner](int width, int height) {
-    OnVideoSizeChanged(task_runner, player, width, height);
+    BindToLoop(task_runner, [task_runner, player, width, height]() {
+      return OnVideoSizeChanged(task_runner, player, width, height);
+    })();
   });
 
   if (player->OpenDataSource(input_file) < 0) {
