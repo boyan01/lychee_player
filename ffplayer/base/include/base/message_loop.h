@@ -28,6 +28,10 @@ class MessageLoop {
    */
   static MessageLoop *prepare_looper(const char *loop_name);
 
+  explicit MessageLoop(const char *loop_name);
+
+  void Prepare();
+
   virtual ~MessageLoop();
 
   // Returns the MessageLoop object for the current thread, or null if none.
@@ -42,17 +46,17 @@ class MessageLoop {
     return MessageLoop::current() == this;
   }
 
+  void Loop();
+
   void Quit();
 
  private:
 
-  explicit MessageLoop(const char *loop_name);
+  bool prepared_ = false;
 
   const char *loop_name_;
 
   MessageQueue message_queue_;
-
-  void Loop();
 
   DISALLOW_COPY_AND_ASSIGN(MessageLoop);
 

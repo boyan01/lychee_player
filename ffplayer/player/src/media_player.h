@@ -71,6 +71,7 @@ class MediaPlayer : VideoRenderHost {
   double buffering_check_last_stamp_ = 0;
 
   bool play_when_ready_ = false;
+  bool play_when_ready_pending_ = false;
 
   // buffered position in seconds. -1 if not available
   double buffered_position_ = -1;
@@ -103,6 +104,8 @@ class MediaPlayer : VideoRenderHost {
   bool IsPlayWhenReady() const { return play_when_ready_; }
 
   void SetPlayWhenReady(bool play_when_ready);
+
+  void SetPlayWhenReadyTask(bool play_when_ready);
 
   int GetVolume();
 

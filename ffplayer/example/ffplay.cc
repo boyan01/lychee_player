@@ -23,6 +23,7 @@ using namespace media;
 
 #define FF_DRAW_EVENT    (SDL_USEREVENT + 2)
 #define FF_MSG_EVENT    (SDL_USEREVENT + 3)
+const int SDL_UPDATE_FRAME_SIZE = SDL_USEREVENT + 4;
 /* Step size for volume control*/
 #define SDL_VOLUME_STEP (10)
 
@@ -111,144 +112,145 @@ static void event_loop(MediaPlayer *player) {
   SDL_Event event;
   double incr;
 
-  for (;;) {
-    double x;
-    refresh_loop_wait_event(player, &event);
-    switch (event.type) {
-      case SDL_KEYDOWN:
-        if (exit_on_keydown || event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_q) {
-          do_exit(player);
-          break;
-        }
-        // If we don't yet have a window, skip all key events, because read_thread might still be initializing...
-        if (false) // TODO check if player render start
-          continue;
-        switch (event.key.keysym.sym) {
-          case SDLK_f:toggle_full_screen();
-//                        is->force_refresh = 1;
-            break;
-          case SDLK_p:
-          case SDLK_SPACE: {
-            player->SetPlayWhenReady(!player->IsPlayWhenReady());
-            break;
-          }
-          case SDLK_m:player->SetMute(!player->IsMuted());
-            break;
-          case SDLK_KP_MULTIPLY:
-          case SDLK_0:player->SetVolume(player->GetVolume() + SDL_VOLUME_STEP);
-            break;
-          case SDLK_KP_DIVIDE:
-          case SDLK_9:player->SetVolume(player->GetVolume() - SDL_VOLUME_STEP);
-            break;
-          case SDLK_s:  // S: Step to next frame
-            step_to_next_frame(player);
-            break;
-          case SDLK_a:break;
-          case SDLK_v: {
-            dump_status = !dump_status;
-            break;
-          }
-          case SDLK_c:break;
-          case SDLK_t:break;
-          case SDLK_w:break;
-          case SDLK_PAGEUP:
-            if (player->GetChapterCount() <= 1) {
-              incr = 600.0;
-              goto do_seek;
-            }
-            player->SeekToChapter(player->GetChapterCount() + 1);
-            break;
-          case SDLK_PAGEDOWN:
-            if (player->GetChapterCount() <= 1) {
-              incr = -600.0;
-              goto do_seek;
-            }
-            player->SeekToChapter(player->GetChapterCount() - 1);
-            break;
-          case SDLK_LEFT:incr = -seek_interval;
-            goto do_seek;
-          case SDLK_RIGHT:incr = seek_interval;
-            goto do_seek;
-          case SDLK_UP:incr = 60.0;
-            goto do_seek;
-          case SDLK_DOWN:incr = -60.0;
-          do_seek:
-            printf("ffplayer_seek_to_position from: %0.2f , to: %0.2f .\n",
-                   player->GetCurrentPosition(), player->GetCurrentPosition() + incr);
-            player->Seek(player->GetCurrentPosition() + incr);
-            break;
-          default:break;
-        }
+  double x;
+  refresh_loop_wait_event(player, &event);
+  switch (event.type) {
+    case SDL_KEYDOWN:
+      if (exit_on_keydown || event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_q) {
+        do_exit(player);
         break;
-      case SDL_MOUSEBUTTONDOWN:
-        if (exit_on_mousedown) {
-          do_exit(player);
+      }
+      // If we don't yet have a window, skip all key events, because read_thread might still be initializing...
+      if (false) // TODO check if player render start
+        break;
+      switch (event.key.keysym.sym) {
+        case SDLK_f:toggle_full_screen();
+//                        is->force_refresh = 1;
+          break;
+        case SDLK_p:
+        case SDLK_SPACE: {
+          player->SetPlayWhenReady(!player->IsPlayWhenReady());
           break;
         }
-        if (event.button.button == SDL_BUTTON_LEFT) {
-          static int64_t last_mouse_left_click = 0;
-          if (av_gettime_relative() - last_mouse_left_click <= 500000) {
-            toggle_full_screen();
-//                        is->force_refresh = 1;
-            last_mouse_left_click = 0;
-          } else {
-            last_mouse_left_click = av_gettime_relative();
+        case SDLK_m:player->SetMute(!player->IsMuted());
+          break;
+        case SDLK_KP_MULTIPLY:
+        case SDLK_0:player->SetVolume(player->GetVolume() + SDL_VOLUME_STEP);
+          break;
+        case SDLK_KP_DIVIDE:
+        case SDLK_9:player->SetVolume(player->GetVolume() - SDL_VOLUME_STEP);
+          break;
+        case SDLK_s:  // S: Step to next frame
+          step_to_next_frame(player);
+          break;
+        case SDLK_a:break;
+        case SDLK_v: {
+          dump_status = !dump_status;
+          break;
+        }
+        case SDLK_c:break;
+        case SDLK_t:break;
+        case SDLK_w:break;
+        case SDLK_PAGEUP:
+          if (player->GetChapterCount() <= 1) {
+            incr = 600.0;
+            goto do_seek;
           }
-        }
-      case SDL_MOUSEMOTION:
-        if (cursor_hidden) {
-          SDL_ShowCursor(1);
-          cursor_hidden = 0;
-        }
-        cursor_last_shown = av_gettime_relative();
-        if (event.type == SDL_MOUSEBUTTONDOWN) {
-          if (event.button.button != SDL_BUTTON_RIGHT)
-            break;
-          x = event.button.x;
+          player->SeekToChapter(player->GetChapterCount() + 1);
+          break;
+        case SDLK_PAGEDOWN:
+          if (player->GetChapterCount() <= 1) {
+            incr = -600.0;
+            goto do_seek;
+          }
+          player->SeekToChapter(player->GetChapterCount() - 1);
+          break;
+        case SDLK_LEFT:incr = -seek_interval;
+          goto do_seek;
+        case SDLK_RIGHT:incr = seek_interval;
+          goto do_seek;
+        case SDLK_UP:incr = 60.0;
+          goto do_seek;
+        case SDLK_DOWN:incr = -60.0;
+        do_seek:
+          printf("ffplayer_seek_to_position from: %0.2f , to: %0.2f .\n",
+                 player->GetCurrentPosition(), player->GetCurrentPosition() + incr);
+          player->Seek(player->GetCurrentPosition() + incr);
+          break;
+        default:break;
+      }
+      break;
+    case SDL_MOUSEBUTTONDOWN:
+      if (exit_on_mousedown) {
+        do_exit(player);
+        break;
+      }
+      if (event.button.button == SDL_BUTTON_LEFT) {
+        static int64_t last_mouse_left_click = 0;
+        if (av_gettime_relative() - last_mouse_left_click <= 500000) {
+          toggle_full_screen();
+//                        is->force_refresh = 1;
+          last_mouse_left_click = 0;
         } else {
-          if (!(event.motion.state & SDL_BUTTON_RMASK))
-            break;
-          x = event.motion.x;
+          last_mouse_left_click = av_gettime_relative();
         }
-        {
-          double dest = (x / screen_width) * player->GetDuration();
-          player->Seek(dest);
+      }
+    case SDL_MOUSEMOTION:
+      if (cursor_hidden) {
+        SDL_ShowCursor(1);
+        cursor_hidden = 0;
+      }
+      cursor_last_shown = av_gettime_relative();
+      if (event.type == SDL_MOUSEBUTTONDOWN) {
+        if (event.button.button != SDL_BUTTON_RIGHT)
+          break;
+        x = event.button.x;
+      } else {
+        if (!(event.motion.state & SDL_BUTTON_RMASK))
+          break;
+        x = event.motion.x;
+      }
+      {
+        double dest = (x / screen_width) * player->GetDuration();
+        player->Seek(dest);
+      }
+      break;
+    case SDL_WINDOWEVENT:
+      switch (event.window.event) {
+        case SDL_WINDOWEVENT_SIZE_CHANGED: {
+          screen_width = event.window.data1;
+          screen_height = event.window.data2;
+          auto *render = dynamic_cast<SdlVideoRender *>(player->GetVideoRender());
+          render->screen_height = screen_height;
+          render->screen_width = screen_width;
+          render->DestroyTexture();
         }
-        break;
-      case SDL_WINDOWEVENT:
-        switch (event.window.event) {
-          case SDL_WINDOWEVENT_SIZE_CHANGED: {
-            screen_width = event.window.data1;
-            screen_height = event.window.data2;
-            auto *render = dynamic_cast<SdlVideoRender *>(player->GetVideoRender());
-            render->screen_height = screen_height;
-            render->screen_width = screen_width;
-            render->DestroyTexture();
-          }
-          case SDL_WINDOWEVENT_EXPOSED:
+        case SDL_WINDOWEVENT_EXPOSED:
 //                        is->force_refresh = 1;
-            break;
-        }
-        break;
-      case SDL_QUIT:do_exit(player);
-        return;
-      case FF_DRAW_EVENT: {
+          break;
+      }
+      break;
+    case SDL_QUIT:do_exit(player);
+      return;
+    case FF_DRAW_EVENT: {
 //                auto *video_render_ctx = static_cast<VideoRenderData *>(event.user.data1);
 //                SDL_RenderPresent(video_render_ctx->renderer);
 //                cout << "draw delay time: "
 //                     << (SDL_GetTicks() - event.user.timestamp) << " milliseconds"
 //                     << endl;
-      }
-        break;
-      case FF_MSG_EVENT: {
-        auto *msg = static_cast<MessageData *>(event.user.data1);
-        on_message(msg->player, msg->what, msg->arg1, msg->arg2);
-        delete msg;
-      }
-        break;
-      default:break;
     }
+      break;
+    case FF_MSG_EVENT: {
+      auto *msg = static_cast<MessageData *>(event.user.data1);
+      on_message(msg->player, msg->what, msg->arg1, msg->arg2);
+      delete msg;
+    }
+      break;
+    default:break;
   }
+  auto *main_task_runner = TaskRunner::current();
+  DCHECK(main_task_runner);
+  main_task_runner->PostTask(FROM_HERE, [player] { return event_loop(player); });
 }
 
 static void set_default_window_size(int width, int height) {
@@ -297,6 +299,29 @@ static void on_message(MediaPlayer *player, int what, int64_t arg1, int64_t arg2
     }
     default:break;
   }
+}
+
+void OnVideoSizeChanged(TaskRunner *main_task_runner, MediaPlayer *media_player, int video_width, int video_height) {
+  main_task_runner->PostTask(FROM_HERE, [media_player, video_width, video_height]() {
+    int width = video_width, height = video_height;
+    check_screen_size(width, height);
+    set_default_window_size(width, height);
+    DLOG(INFO) << "on video size changed: width = " << width << "height = " << height;
+    int w, h;
+    w = screen_width ? screen_width : default_width;
+    h = screen_height ? screen_height : default_height;
+
+    if (!window_title)
+      window_title = media_player->GetUrl();
+    SDL_SetWindowTitle(window, window_title);
+
+    DLOG(INFO) << "set_default_window_size width = " << w << ", height = " << h;
+    SDL_SetWindowSize(window, w, h);
+    SDL_SetWindowPosition(window, screen_left, screen_top);
+    if (is_full_screen)
+      SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    SDL_ShowWindow(window);
+  });
 }
 
 int main(int argc, char *argv[]) {
@@ -392,24 +417,12 @@ int main(int argc, char *argv[]) {
     data->arg2 = arg2;
     SDL_PushEvent(&event);
   });
-  player->set_on_video_size_changed_callback([player](int width, int height) {
-    check_screen_size(width, height);
-    set_default_window_size(width, height);
-    DLOG(INFO) << "on video size changed: width = " << width << "height = " << height;
-    int w, h;
-    w = screen_width ? screen_width : default_width;
-    h = screen_height ? screen_height : default_height;
 
-    if (!window_title)
-      window_title = player->GetUrl();
-    SDL_SetWindowTitle(window, window_title);
+  auto *task_runner = new TaskRunner("main_task");
+  task_runner->Prepare();
 
-    DLOG(INFO) << "set_default_window_size width = " << w << ", height = " << h;
-    SDL_SetWindowSize(window, w, h);
-    SDL_SetWindowPosition(window, screen_left, screen_top);
-    if (is_full_screen)
-      SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-    SDL_ShowWindow(window);
+  player->set_on_video_size_changed_callback([player, task_runner](int width, int height) {
+    OnVideoSizeChanged(task_runner, player, width, height);
   });
 
   if (player->OpenDataSource(input_file) < 0) {
@@ -420,7 +433,10 @@ int main(int argc, char *argv[]) {
   // perform play when start.
   player->SetPlayWhenReady(true);
 
-  event_loop(player);
+  task_runner->PostTask(FROM_HERE, [player]() {
+    event_loop(player);
+  });
+  task_runner->Loop();
 
   return 0;
 }

@@ -79,6 +79,17 @@ MediaPlayer::~MediaPlayer() {
 };
 
 void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
+  std::lock_guard<std::mutex> lock_guard(player_mutex_);
+  if (play_when_ready_pending_ == play_when_ready) {
+    return;
+  }
+  play_when_ready_pending_ = play_when_ready;
+  task_runner_->PostTask(FROM_HERE, [&]() {
+    SetPlayWhenReadyTask(play_when_ready_pending_);
+  });
+}
+
+void MediaPlayer::SetPlayWhenReadyTask(bool play_when_ready) {
   if (play_when_ready_ == play_when_ready) {
     return;
   }
