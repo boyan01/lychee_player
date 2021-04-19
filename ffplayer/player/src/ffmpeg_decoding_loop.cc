@@ -5,6 +5,7 @@
 #include "ffmpeg_decoding_loop.h"
 
 #include "base/logging.h"
+#include "ffp_utils.h"
 
 namespace media {
 
@@ -25,7 +26,7 @@ FFmpegDecodingLoop::DecodeStatus FFmpegDecodingLoop::DecodePacket(
     if (!sent_packet) {
       const int result = avcodec_send_packet(context_, packet);
       if (result < 0 && result != AVERROR(EAGAIN) && result != AVERROR_EOF) {
-        DLOG(ERROR) << "Failed to send packet for decoding: " << result;
+        DLOG(ERROR) << "Failed to send packet for decoding: " << av_err_to_str(result);
         return DecodeStatus::kSendPacketFailed;
       }
 
