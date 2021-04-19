@@ -75,7 +75,7 @@ class VideoRenderBase : public BaseRender {
   ~VideoRenderBase() override;
 
   void Init(VideoRenderHost *host,
-            const std::shared_ptr<PacketQueue> &video_queue,
+            const std::shared_ptr<DemuxerStream> &demuxer_stream,
             std::shared_ptr<MediaClock> clock_ctx);
 
   /**

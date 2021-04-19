@@ -35,14 +35,14 @@ VideoRenderBase::VideoRenderBase() {
 }
 
 void VideoRenderBase::Init(VideoRenderHost *host,
-                           const std::shared_ptr<PacketQueue> &video_queue,
+                           const std::shared_ptr<DemuxerStream> &demuxer_stream,
                            std::shared_ptr<MediaClock> clock_ctx) {
   task_runner_ = TaskRunner::current();
   DCHECK(task_runner_);
   DCHECK(host);
   render_host_ = host;
   clock_context = std::move(clock_ctx);
-  picture_queue->Init(video_queue.get(), VIDEO_PICTURE_QUEUE_SIZE, 1);
+  picture_queue->Init(demuxer_stream.get(), VIDEO_PICTURE_QUEUE_SIZE, 1);
 }
 
 VideoRenderBase::~VideoRenderBase() = default;

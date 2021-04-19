@@ -7,9 +7,9 @@
 
 #include <queue>
 #include <functional>
-#include <chrono>
 
-#include "location.h"
+#include "base/timestamps.h"
+#include "base/location.h"
 
 namespace media {
 namespace base {
@@ -23,7 +23,7 @@ struct Message {
 
   Message(TaskClosure task,
           const tracked_objects::Location &posted_from,
-          const std::chrono::milliseconds &delayed_run_time);
+          TimeDelta when);
 
   ~Message();
 

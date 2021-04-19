@@ -5,14 +5,13 @@
 #include "base/message.h"
 
 #include <utility>
-#include "base/location.h"
 
 namespace media {
 namespace base {
 
 Message::Message(TaskClosure task,
                  const media::tracked_objects::Location &posted_from,
-                 const std::chrono::milliseconds &delayed_run_time)
+                 TimeDelta delayed_run_time)
     : task(std::move(task)),
       posted_from(posted_from),
       when(std::chrono::system_clock::now() + delayed_run_time),
@@ -38,8 +37,6 @@ bool Message::operator<(const Message &other) const {
 }
 
 Message::~Message() = default;
-
-
 
 } // namespace base
 } // namespace media

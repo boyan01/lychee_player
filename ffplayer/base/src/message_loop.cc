@@ -27,6 +27,13 @@ void MessageLoop::PostTask(const tracked_objects::Location &from_here, const Tas
   message_queue_.EnqueueMessage(message);
 }
 
+void MessageLoop::PostDelayedTask(const tracked_objects::Location &from_here,
+                                  TimeDelta delay,
+                                  const TaskClosure &task) {
+  Message message(task, from_here, delay);
+  message_queue_.EnqueueMessage(message);
+}
+
 void MessageLoop::Prepare() {
   DCHECK(!prepared_);
   prepared_ = true;

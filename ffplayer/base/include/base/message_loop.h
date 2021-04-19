@@ -39,6 +39,10 @@ class MessageLoop {
 
   void PostTask(const tracked_objects::Location &from_here, const TaskClosure &task);
 
+  void PostDelayedTask(const tracked_objects::Location &from_here,
+                       TimeDelta delay,
+                       const TaskClosure &task_closure);
+
   /**
    * @return true if the current thread is a thread on which is running current looper.
    */

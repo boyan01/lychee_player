@@ -89,7 +89,7 @@ static void step_to_next_frame(MediaPlayer *player) {
 //    player->is->step = 1;
 }
 
-static void refresh_loop_wait_event(MediaPlayer *player, SDL_Event *event) {
+static double refresh_loop_wait_event(MediaPlayer *player, SDL_Event *event) {
   double remaining_time = 0.0;
   SDL_PumpEvents();
   if (!SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
@@ -106,6 +106,7 @@ static void refresh_loop_wait_event(MediaPlayer *player, SDL_Event *event) {
     }
     SDL_PumpEvents();
   }
+  return remaining_time;
 }
 
 /* handle an event sent by the GUI */
@@ -114,7 +115,7 @@ static void event_loop(MediaPlayer *player) {
   double incr;
 
   double x;
-  refresh_loop_wait_event(player, &event);
+  double next_frame_delayed = refresh_loop_wait_event(player, &event);
   switch (event.type) {
     case SDL_KEYDOWN:
       if (exit_on_keydown || event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_q) {
@@ -251,7 +252,9 @@ static void event_loop(MediaPlayer *player) {
   }
   auto *main_task_runner = TaskRunner::current();
   DCHECK(main_task_runner);
-  main_task_runner->PostTask(FROM_HERE, [player] { return event_loop(player); });
+  main_task_runner->PostDelayedTask(FROM_HERE,
+                                    TimeDelta(int64(next_frame_delayed * 1000000)),
+                                    [player] { return event_loop(player); });
 }
 
 static void set_default_window_size(int width, int height) {
