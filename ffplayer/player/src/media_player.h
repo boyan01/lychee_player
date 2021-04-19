@@ -27,7 +27,7 @@ enum class MediaPlayerState {
   END
 };
 
-class MediaPlayer : VideoRenderHost {
+class MediaPlayer : VideoRenderHost, public std::enable_shared_from_this<MediaPlayer> {
 
  public:
 
@@ -46,6 +46,7 @@ class MediaPlayer : VideoRenderHost {
     kUninitialized,
     kIdle,
     kPrepared,
+    kPreparing
   };
 
   State state_ = kUninitialized;
@@ -93,6 +94,10 @@ class MediaPlayer : VideoRenderHost {
   void CheckBuffering();
 
   void OpenDataSourceTask(const char *filename);
+
+  void OnDataSourceOpen(int open_status);
+
+  void InitVideoRender();
 
  public:
   PlayerConfiguration start_configuration{};

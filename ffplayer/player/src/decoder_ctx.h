@@ -35,10 +35,8 @@ class DecoderContext {
 
  private:
   AudioDecoder *audio_decoder = nullptr;
-  VideoDecoder *video_decoder = nullptr;
 
   std::shared_ptr<BasicAudioRender> audio_render;
-  std::shared_ptr<VideoRenderBase> video_render;
 
   std::shared_ptr<MediaClock> clock_ctx;
 
@@ -54,7 +52,6 @@ class DecoderContext {
 
   DecoderContext(
       std::shared_ptr<BasicAudioRender> audio_render_,
-      std::shared_ptr<VideoRenderBase> video_render_,
       std::shared_ptr<MediaClock> clock_ctx_,
       std::function<void()> on_decoder_blocking
   );
@@ -63,20 +60,10 @@ class DecoderContext {
 
   int StartDecoder(std::unique_ptr<DecodeParams> decode_params);
 
-  int InitVideoDecoder(VideoDecodeConfig config);
-
-  void StartVideoDecoder(std::shared_ptr<DemuxerStream> stream);
 
  private:
 
-  std::unique_ptr<AVCodecContext, AVCodecContextDeleter> video_codec_context_;
-  TaskRunner *decode_task_runner_ = nullptr;
-  std::shared_ptr<DemuxerStream> video_stream_;
-  AVFrame *video_temp_frame_ = nullptr;
-  VideoDecodeConfig video_decode_config_;
-  std::unique_ptr<FFmpegDecodingLoop> video_decoding_loop_;
 
-  void VideoDecodeTask();
 
 };
 }

@@ -66,8 +66,7 @@ static void sigterm_handler(int sig) {
   exit(123);
 }
 
-static void do_exit(MediaPlayer *player) {
-  delete player;
+static void do_exit() {
   if (window)
     SDL_DestroyWindow(window);
 
@@ -81,7 +80,7 @@ static void toggle_full_screen() {
   SDL_SetWindowFullscreen(window, is_full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 }
 
-static void step_to_next_frame(MediaPlayer *player) {
+static void step_to_next_frame(std::shared_ptr<MediaPlayer> player) {
   /* if the stream is play_when_ready_ unpause it, then step */
 //  if (player->IsPaused()) {
 //    player->TogglePause();
@@ -89,7 +88,7 @@ static void step_to_next_frame(MediaPlayer *player) {
 //    player->is->step = 1;
 }
 
-static double refresh_loop_wait_event(MediaPlayer *player, SDL_Event *event) {
+static double refresh_loop_wait_event(std::shared_ptr<MediaPlayer> player, SDL_Event *event) {
   double remaining_time = 0.0;
   SDL_PumpEvents();
   if (!SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
@@ -110,7 +109,7 @@ static double refresh_loop_wait_event(MediaPlayer *player, SDL_Event *event) {
 }
 
 /* handle an event sent by the GUI */
-static void event_loop(MediaPlayer *player) {
+static void event_loop(std::shared_ptr<MediaPlayer> player) {
   SDL_Event event;
   double incr;
 
@@ -119,7 +118,7 @@ static void event_loop(MediaPlayer *player) {
   switch (event.type) {
     case SDL_KEYDOWN:
       if (exit_on_keydown || event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_q) {
-        do_exit(player);
+        do_exit();
         break;
       }
       // If we don't yet have a window, skip all key events, because read_thread might still be initializing...
@@ -184,7 +183,7 @@ static void event_loop(MediaPlayer *player) {
       break;
     case SDL_MOUSEBUTTONDOWN:
       if (exit_on_mousedown) {
-        do_exit(player);
+        do_exit();
         break;
       }
       if (event.button.button == SDL_BUTTON_LEFT) {
@@ -232,7 +231,7 @@ static void event_loop(MediaPlayer *player) {
           break;
       }
       break;
-    case SDL_QUIT:do_exit(player);
+    case SDL_QUIT:do_exit();
       return;
     case FF_DRAW_EVENT: {
 //                auto *video_render_ctx = static_cast<VideoRenderData *>(event.user.data1);
@@ -305,7 +304,10 @@ static void on_message(MediaPlayer *player, int what, int64_t arg1, int64_t arg2
   }
 }
 
-void OnVideoSizeChanged(TaskRunner *main_task_runner, MediaPlayer *media_player, int video_width, int video_height) {
+void OnVideoSizeChanged(TaskRunner *main_task_runner,
+                        std::shared_ptr<MediaPlayer> media_player,
+                        int video_width,
+                        int video_height) {
   int width = video_width, height = video_height;
   check_screen_size(width, height);
   set_default_window_size(width, height);
@@ -398,27 +400,15 @@ int main(int argc, char *argv[]) {
     }
     if (!window || !renderer || !renderer_info.num_texture_formats) {
       av_log(nullptr, AV_LOG_FATAL, "Failed to create window or renderer: %s", SDL_GetError());
-      do_exit(nullptr);
+      do_exit();
     }
   }
 
   auto video_render = std::make_unique<SdlVideoRender>(std::move(renderer));
   auto audio_render = std::make_unique<AudioRenderSdl>();
-  auto *player = new MediaPlayer(std::move(video_render), std::move(audio_render));
+  auto player = std::make_shared<MediaPlayer>(std::move(video_render), std::move(audio_render));
   player->start_configuration = config;
   player->SetVolume(50);
-
-  player->SetMessageHandleCallback([player](int32_t what, int64_t arg1, int64_t arg2) {
-    SDL_Event event;
-    event.type = FF_MSG_EVENT;
-    auto *data = new MessageData;
-    event.user.data1 = data;
-    data->player = player;
-    data->what = what;
-    data->arg1 = arg1;
-    data->arg2 = arg2;
-    SDL_PushEvent(&event);
-  });
 
   auto *task_runner = new TaskRunner("main_task");
   task_runner->Prepare();
@@ -431,7 +421,7 @@ int main(int argc, char *argv[]) {
 
   if (player->OpenDataSource(input_file) < 0) {
     LOG(FATAL) << "failed to open file";
-    do_exit(nullptr);
+    do_exit();
   }
 
   // perform play when start.

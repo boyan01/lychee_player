@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "base/logging.h"
+#include "base/lambda.h"
 
 #include "render_video_base.h"
 #include "ffp_utils.h"
@@ -34,18 +35,34 @@ VideoRenderBase::VideoRenderBase() {
   picture_queue = std::make_unique<FrameQueue>();
 }
 
-void VideoRenderBase::Init(VideoRenderHost *host,
-                           const std::shared_ptr<PacketQueue> &demuxer_stream,
-                           std::shared_ptr<MediaClock> clock_ctx) {
+VideoRenderBase::~VideoRenderBase() = default;
+
+void VideoRenderBase::Initialize(
+    VideoRenderHost *host,
+    DemuxerStream *demuxer_stream,
+    std::shared_ptr<MediaClock> clock_ctx,
+    std::shared_ptr<VideoDecoder> decoder) {
   task_runner_ = TaskRunner::current();
   DCHECK(task_runner_);
   DCHECK(host);
   render_host_ = host;
   clock_context = std::move(clock_ctx);
-  picture_queue->Init(demuxer_stream.get(), VIDEO_PICTURE_QUEUE_SIZE, 1);
+  picture_queue->Init(demuxer_stream->packet_queue(), VIDEO_PICTURE_QUEUE_SIZE, 1);
+  decoder_ = std::move(decoder);
+  task_runner_->PostTask(FROM_HERE, bind_weak(&VideoRenderBase::StartDecoderTask, shared_from_this()));
 }
 
-VideoRenderBase::~VideoRenderBase() = default;
+void VideoRenderBase::StartDecoderTask() {
+  decoder_->ReadFrame(bind_weak(&VideoRenderBase::OnNewFrameReady, shared_from_this()));
+  task_runner_->PostTask(FROM_HERE, bind_weak(&VideoRenderBase::StartDecoderTask, shared_from_this()));
+}
+
+void VideoRenderBase::OnNewFrameReady(VideoFrame frame) {
+  if (frame.frame()) {
+    PushFrame(frame.frame(), frame.pts(), frame.duration(), frame.serial());
+  }
+
+}
 
 double VideoRenderBase::VideoPictureDuration(Frame *vp, Frame *next_vp) const {
   if (vp->serial == next_vp->serial) {

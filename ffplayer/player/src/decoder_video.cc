@@ -3,69 +3,105 @@
 //
 
 #include "decoder_video.h"
-#include "decoder_base.h"
+
+#include <utility>
+
+#include "base/logging.h"
+#include "base/lambda.h"
 
 namespace media {
 
-int VideoDecoder::GetVideoFrame(AVFrame *frame) {
-  auto got_picture = DecodeFrame(frame, nullptr);
-  if (got_picture < 0) {
+VideoDecoder::VideoDecoder(TaskRunner *task_runner) : decode_task_runner_(task_runner) {}
+
+VideoDecoder::~VideoDecoder() = default;
+
+int VideoDecoder::Initialize(VideoDecodeConfig config, DemuxerStream *stream) {
+  DCHECK(!video_codec_context_);
+
+  video_codec_context_ = std::unique_ptr<AVCodecContext, AVCodecContextDeleter>(avcodec_alloc_context3(nullptr));
+
+  auto ret = avcodec_parameters_to_context(video_codec_context_.get(), &config.codec_parameters());
+  DCHECK_GE(ret, 0);
+
+  video_codec_context_->codec_id = config.codec_id();
+  video_codec_context_->pkt_timebase = config.time_base();
+
+  auto *codec = avcodec_find_decoder(config.codec_id());
+  DCHECK(codec) << "No decoder could be found for CodecId:" << avcodec_get_name(config.codec_id());
+
+  if (codec == nullptr) {
+    video_codec_context_.reset();
     return -1;
   }
-  return got_picture;
-}
 
-const char *VideoDecoder::debug_label() {
-  return "video_decoder";
-}
-
-int VideoDecoder::DecodeThread() {
-  if (*decode_params->format_ctx == nullptr) {
-    return -1;
+  video_codec_context_->codec_id = codec->id;
+  int stream_lower = config.low_res();
+  DCHECK_LE(stream_lower, codec->max_lowres)
+      << "The maximum value for lowres supported by the decoder is " << codec->max_lowres
+      << ", but is " << stream_lower;
+  if (stream_lower > codec->max_lowres) {
+    stream_lower = codec->max_lowres;
+  }
+  video_codec_context_->lowres = stream_lower;
+  if (config.fast()) {
+    video_codec_context_->flags2 |= AV_CODEC_FLAG2_FAST;
   }
 
-  AVFrame *frame = av_frame_alloc();
-  if (!frame) {
-    return AVERROR(ENOMEM);
+  ret = avcodec_open2(video_codec_context_.get(), codec, nullptr);
+  DCHECK_GE(ret, 0) << "can not open avcodec, reason: " << av_err_to_str(ret);
+  if (ret < 0) {
+    video_codec_context_.reset();
+    return ret;
   }
-  int ret;
-  AVRational tb = decode_params->stream()->time_base;
-  AVRational frame_rate = av_guess_frame_rate(*decode_params->format_ctx, decode_params->stream(), nullptr);
-  double max_frame_duration = ((*decode_params->format_ctx)->iformat->flags & AVFMT_TS_DISCONT) ? 10.0 : 3600.0;
-  video_render_->SetMaxFrameDuration(max_frame_duration);
-  for (;;) {
-    ret = GetVideoFrame(frame);
-    if (ret < 0) {
-      break;
-    }
-    if (!ret) {
-      continue;
-    }
-    auto duration = (frame_rate.num && frame_rate.den ? av_q2d(AVRational{frame_rate.den, frame_rate.num}) : 0);
-    auto pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(tb);
 
-    ret = video_render_->PushFrame(frame, pts, duration, pkt_serial);
-    av_frame_unref(frame);
-    if (ret < 0) {
-      break;
-    }
-  }
-  av_frame_free(&frame);
+  video_decoding_loop_ = std::make_unique<FFmpegDecodingLoop>(video_codec_context_.get(), true);
+//  video_render->SetMaxFrameDuration(video_decode_config_.max_frame_duration());
+  video_decode_config_ = config;
+
+  video_stream_ = stream;
+
+  video_stream_->stream()->discard = AVDISCARD_DEFAULT;
+  video_stream_->packet_queue()->Start();
+
   return 0;
 }
 
-VideoDecoder::VideoDecoder(
-    unique_ptr_d<AVCodecContext> codecContext,
-    std::unique_ptr<media::DecodeParams> decodeParams,
-    std::shared_ptr<VideoRenderBase> render,
-    std::function<void()> on_decoder_blocking
-) : Decoder(std::move(codecContext), std::move(decodeParams), std::move(on_decoder_blocking)),
-    video_render_(std::move(render)) {
-  Start();
+void VideoDecoder::ReadFrame(VideoDecoder::ReadCallback read_callback) {
+  DCHECK(!read_callback_);
+  read_callback_ = std::move(read_callback);
+  decode_task_runner_->PostTask(FROM_HERE, bind_weak(&VideoDecoder::VideoDecodeTask, shared_from_this()));
 }
 
-void VideoDecoder::AbortRender() {
-  video_render_->Abort();
+void VideoDecoder::VideoDecodeTask() {
+  DCHECK(decode_task_runner_->BelongsToCurrentThread());
+  DCHECK(video_stream_);
+  DCHECK(video_decoding_loop_);
+
+  AVPacket packet;
+  av_init_packet(&packet);
+  if (!video_stream_->ReadPacket(&packet)) {
+    std::move(read_callback_)(VideoFrame::Empty());
+    return;
+  }
+
+  switch (video_decoding_loop_->DecodePacket(
+      &packet, bind_weak(&VideoDecoder::OnNewFrameAvailable, shared_from_this(), false))) {
+    case FFmpegDecodingLoop::DecodeStatus::kOkay:break;
+    default: {
+      std::move(read_callback_)(VideoFrame::Empty());
+      break;
+    }
+  }
+
+}
+
+bool VideoDecoder::OnNewFrameAvailable(AVFrame *frame) {
+  auto frame_rate = video_decode_config_.frame_rate();
+  auto duration = (frame_rate.num && frame_rate.den ? av_q2d(AVRational{frame_rate.den, frame_rate.num}) : 0);
+  auto pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(video_decode_config_.time_base());
+  VideoFrame video_frame(frame, pts, duration, 0);
+  std::move(read_callback_)(video_frame);
+  return true;
 }
 
 }

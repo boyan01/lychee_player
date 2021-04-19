@@ -13,6 +13,7 @@
 #include "media_clock.h"
 #include "decoder_ctx.h"
 #include "ffplayer.h"
+#include "ffp_msg_queue.h"
 
 extern "C" {
 #include "libavformat/avformat.h"
@@ -90,17 +91,27 @@ class DataSource1 {
 
   // buffer infinite.
   bool infinite_buffer = false;
+
  public:
 
   DataSource1(const char *filename, AVInputFormat *format);
 
   ~DataSource1();
 
-  int Open();
+  using OpenCallback = std::function<void(int)>;
+  void Open(OpenCallback open_callback);
 
   bool ContainVideoStream();
 
   bool ContainAudioStream();
+
+  DemuxerStream *video_demuxer_stream() {
+    return video_demuxer_stream_.get();
+  }
+
+  VideoDecodeConfig video_decode_config() {
+    return video_decode_config_;
+  }
 
   bool ContainSubtitleStream();
 
@@ -113,6 +124,10 @@ class DataSource1 {
  private:
 
   std::shared_ptr<DemuxerStream> video_demuxer_stream_;
+
+  VideoDecodeConfig video_decode_config_;
+
+  OpenCallback open_callback_;
 
   int PrepareFormatContext();
 

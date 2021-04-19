@@ -6,6 +6,7 @@
 #include "decoder_ctx.h"
 
 #include "base/logging.h"
+#include "base/lambda.h"
 
 extern "C" {
 #include "libavutil/bprint.h"
@@ -59,13 +60,8 @@ void MediaPlayer::Initialize() {
     });
     audio_render_->Init(audio_pkt_queue, clock_context);
   }
-  if (video_render_) {
-    video_render_->SetRenderCallback([this]() {
-    });
-    video_render_->Init(this, video_pkt_queue, clock_context);
-  }
 
-  decoder_context = std::make_shared<DecoderContext>(audio_render_, video_render_, clock_context, [this]() {
+  decoder_context = std::make_shared<DecoderContext>(audio_render_, clock_context, [this]() {
     ChangePlaybackState(MediaPlayerState::BUFFERING);
 //    StopRenders();
   });
@@ -141,6 +137,7 @@ int MediaPlayer::OpenDataSource(const char *filename) {
 void MediaPlayer::OpenDataSourceTask(const char *filename) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(!data_source) << "can not open file multi-times.";
+  DCHECK_EQ(state_, kIdle);
 
   DLOG(INFO) << "open file: " << filename;
 
@@ -156,8 +153,33 @@ void MediaPlayer::OpenDataSourceTask(const char *filename) {
     CheckBuffering();
   };
 
-  data_source->Open();
+  data_source->Open(bind_weak(&MediaPlayer::OnDataSourceOpen, shared_from_this()));
   ChangePlaybackState(MediaPlayerState::BUFFERING);
+  state_ = kPreparing;
+}
+
+void MediaPlayer::OnDataSourceOpen(int open_status) {
+  DCHECK_EQ(state_, kPreparing);
+  if (open_status >= 0) {
+    state_ = kPrepared;
+    DLOG(INFO) << "Open DataSource Succeed";
+    task_runner_->PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitVideoRender, shared_from_this()));
+  } else {
+    state_ = kIdle;
+  }
+}
+
+void MediaPlayer::InitVideoRender() {
+  if (data_source->ContainVideoStream()) {
+    auto video_decoder = std::make_shared<VideoDecoder>(TaskRunner::prepare_looper("decoder"));
+    auto ret = video_decoder->Initialize(data_source->video_decode_config(), data_source->video_demuxer_stream());
+    if (ret >= 0) {
+      video_render_->Initialize(this, data_source->video_demuxer_stream(),
+                                clock_context, std::move(video_decoder));
+    } else {
+      DLOG(ERROR) << "Open Video Decoder Failed: " << ret;
+    }
+  }
 }
 
 void MediaPlayer::DumpStatus() {

@@ -12,6 +12,9 @@
 #include "media_clock.h"
 #include "ffp_msg_queue.h"
 #include "task_runner.h"
+#include "demuxer_stream.h"
+#include "decoder_video.h"
+#include "video_frame.h"
 
 namespace media {
 
@@ -25,7 +28,7 @@ class VideoRenderHost {
 
 };
 
-class VideoRenderBase : public BaseRender {
+class VideoRenderBase : public BaseRender, public std::enable_shared_from_this<VideoRenderBase> {
 
  public:
   double frame_timer = 0;
@@ -74,9 +77,11 @@ class VideoRenderBase : public BaseRender {
 
   ~VideoRenderBase() override;
 
-  void Init(VideoRenderHost *host,
-            const std::shared_ptr<PacketQueue> &demuxer_stream,
-            std::shared_ptr<MediaClock> clock_ctx);
+  void Initialize(VideoRenderHost *host,
+                  DemuxerStream *demuxer_stream,
+                  std::shared_ptr<MediaClock> clock_ctx,
+                  std::shared_ptr<VideoDecoder> decoder
+  );
 
   /**
    * Accept Frame from Decoder.
@@ -115,6 +120,14 @@ class VideoRenderBase : public BaseRender {
   TaskRunner *task_runner_ = nullptr;
 
   VideoRenderHost *render_host_ = nullptr;
+
+  std::shared_ptr<VideoDecoder> decoder_;
+
+  void StartDecoderTask();
+
+  void OnNewFrameReady(VideoFrame frame);
+
+  DISALLOW_COPY_AND_ASSIGN(VideoRenderBase);
 
 };
 

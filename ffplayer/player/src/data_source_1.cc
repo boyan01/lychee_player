@@ -34,22 +34,16 @@ static int is_realtime(AVFormatContext *s) {
   return 0;
 }
 
-DataSource1::DataSource1(const char *filename, AVInputFormat *format) : in_format(format) {
+DataSource1::DataSource1(const char *filename, AVInputFormat *format) : in_format(format), video_decode_config_() {
   memset(wanted_stream_spec, 0, sizeof wanted_stream_spec);
   this->filename = av_strdup(filename);
   continue_read_thread_ = std::make_shared<std::condition_variable_any>();
 }
 
-int DataSource1::Open() {
-  if (!filename) {
-    return -1;
-  }
+void DataSource1::Open(DataSource1::OpenCallback open_callback) {
+  DCHECK(filename);
+  open_callback_ = std::move(open_callback);
   read_tid = new std::thread(&DataSource1::ReadThread, this);
-  if (!read_tid) {
-    av_log(nullptr, AV_LOG_FATAL, "can not create thread for video render.\n");
-    return -1;
-  }
-  return 0;
 }
 
 DataSource1::~DataSource1() {
@@ -66,12 +60,15 @@ DataSource1::~DataSource1() {
 }
 
 void DataSource1::ReadThread() {
+  DCHECK(open_callback_);
+
   update_thread_name("read_source");
   av_log(nullptr, AV_LOG_DEBUG, "DataSource1 Read OnStart: %s \n", filename);
   int st_index[AVMEDIA_TYPE_NB] = {-1, -1, -1, -1, -1};
   std::mutex wait_mutex;
 
   if (PrepareFormatContext() < 0) {
+    std::move(open_callback_)(-1);
     return;
   }
   OnFormatContextOpen();
@@ -81,8 +78,12 @@ void DataSource1::ReadThread() {
 
   if (OpenStreams(st_index) < 0) {
     // todo destroy streams;
+    std::move(open_callback_)(-1);
     return;
   }
+
+  std::move(open_callback_)(0);
+
   ReadStreams(wait_mutex);
 
   av_log(nullptr, AV_LOG_INFO, "thread: read_source done.\n");
@@ -241,17 +242,14 @@ void DataSource1::InitVideoDecoder(int stream_index) {
   VideoDecodeConfig decode_config(*stream->codecpar, stream->time_base,
                                   av_guess_frame_rate(format_ctx_, stream, nullptr),
                                   max_frame_duration);
-  auto ret = decoder_ctx->InitVideoDecoder(decode_config);
-  DCHECK(ret >= 0);
-  if (ret < 0) {
-    return;
-  }
   video_stream_index = stream_index;
   video_stream_ = stream;
   video_queue->time_base = stream->time_base;
 
   video_demuxer_stream_ = std::make_shared<DemuxerStream>(stream, video_queue.get());
-  decoder_ctx->StartVideoDecoder(video_demuxer_stream_);
+  video_decode_config_ = VideoDecodeConfig(*stream->codecpar, stream->time_base,
+                                           av_guess_frame_rate(format_ctx_, stream, nullptr),
+                                           max_frame_duration);
 }
 
 int DataSource1::OpenComponentStream(int stream_index, AVMediaType media_type) {
