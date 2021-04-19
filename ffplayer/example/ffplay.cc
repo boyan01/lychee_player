@@ -92,7 +92,7 @@ static void step_to_next_frame(MediaPlayer *player) {
 static void refresh_loop_wait_event(MediaPlayer *player, SDL_Event *event) {
   double remaining_time = 0.0;
   SDL_PumpEvents();
-  while (!SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
+  if (!SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
     if (!cursor_hidden && av_gettime_relative() - cursor_last_shown > CURSOR_HIDE_DELAY) {
       SDL_ShowCursor(0);
       cursor_hidden = 1;
@@ -422,7 +422,7 @@ int main(int argc, char *argv[]) {
 
   player->set_on_video_size_changed_callback([player, task_runner](int width, int height) {
     BindToLoop(task_runner, [task_runner, player, width, height]() {
-      return OnVideoSizeChanged(task_runner, player, width, height);
+      OnVideoSizeChanged(task_runner, player, width, height);
     })();
   });
 
