@@ -29,7 +29,7 @@ class DemuxerStream {
 
   bool ReadPacket(AVPacket *packet) {
     auto ret = packet_queue_->Get(packet, true, nullptr, nullptr, nullptr);
-    return ret >= 0;
+    return ret > 0;
   }
 
  private:

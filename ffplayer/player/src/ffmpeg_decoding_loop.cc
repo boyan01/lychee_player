@@ -48,7 +48,8 @@ FFmpegDecodingLoop::DecodeStatus FFmpegDecodingLoop::DecodePacket(
                               "which is an API violation.";
       }
 
-      continue;
+      // continue;
+      return DecodeStatus::kDecodeFrameFailed;
     } else if (result < 0) {
       DLOG(ERROR) << "Failed to decode frame: " << result;
       last_av_error_code_ = result;

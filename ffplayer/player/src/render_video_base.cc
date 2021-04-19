@@ -6,6 +6,7 @@
 
 #include "base/logging.h"
 #include "base/lambda.h"
+#include "base/bind_to_current_loop.h"
 
 #include "render_video_base.h"
 #include "ffp_utils.h"
@@ -54,14 +55,15 @@ void VideoRenderBase::Initialize(
 
 void VideoRenderBase::StartDecoderTask() {
   decoder_->ReadFrame(bind_weak(&VideoRenderBase::OnNewFrameReady, shared_from_this()));
-  task_runner_->PostTask(FROM_HERE, bind_weak(&VideoRenderBase::StartDecoderTask, shared_from_this()));
 }
 
 void VideoRenderBase::OnNewFrameReady(VideoFrame frame) {
+  DLOG(INFO) << "OnNewFrameReady";
   if (frame.frame()) {
     PushFrame(frame.frame(), frame.pts(), frame.duration(), frame.serial());
   }
-
+  task_runner_->PostTask(FROM_HERE,
+                                bind_weak(&VideoRenderBase::StartDecoderTask, shared_from_this()));
 }
 
 double VideoRenderBase::VideoPictureDuration(Frame *vp, Frame *next_vp) const {

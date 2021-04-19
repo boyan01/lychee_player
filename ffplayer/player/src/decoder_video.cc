@@ -67,32 +67,35 @@ int VideoDecoder::Initialize(VideoDecodeConfig config, DemuxerStream *stream) {
 }
 
 void VideoDecoder::ReadFrame(VideoDecoder::ReadCallback read_callback) {
+  DLOG(INFO) << "ReadFrame";
   DCHECK(!read_callback_);
   read_callback_ = std::move(read_callback);
   decode_task_runner_->PostTask(FROM_HERE, bind_weak(&VideoDecoder::VideoDecodeTask, shared_from_this()));
 }
 
 void VideoDecoder::VideoDecodeTask() {
+  DLOG(INFO) << "VideoDecodeTask";
+
   DCHECK(decode_task_runner_->BelongsToCurrentThread());
   DCHECK(video_stream_);
   DCHECK(video_decoding_loop_);
 
   AVPacket packet;
   av_init_packet(&packet);
-  if (!video_stream_->ReadPacket(&packet)) {
+  if (!video_stream_->ReadPacket(&packet) || packet.data == PacketQueue::GetFlushPacket()->data) {
     std::move(read_callback_)(VideoFrame::Empty());
     return;
   }
 
   switch (video_decoding_loop_->DecodePacket(
       &packet, bind_weak(&VideoDecoder::OnNewFrameAvailable, shared_from_this(), false))) {
-    case FFmpegDecodingLoop::DecodeStatus::kOkay:break;
+    case FFmpegDecodingLoop::DecodeStatus::kOkay:return;
+    case FFmpegDecodingLoop::DecodeStatus::kFrameProcessingFailed :return;
     default: {
-      std::move(read_callback_)(VideoFrame::Empty());
       break;
     }
   }
-
+  std::move(read_callback_)(VideoFrame::Empty());
 }
 
 bool VideoDecoder::OnNewFrameAvailable(AVFrame *frame) {
@@ -101,7 +104,7 @@ bool VideoDecoder::OnNewFrameAvailable(AVFrame *frame) {
   auto pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(video_decode_config_.time_base());
   VideoFrame video_frame(frame, pts, duration, 0);
   std::move(read_callback_)(video_frame);
-  return true;
+  return false;
 }
 
 }
