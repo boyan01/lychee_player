@@ -4,8 +4,9 @@
 
 #include <utility>
 
+#include "base/logging.h"
+
 #include "decoder_ctx.h"
-#include "decoder_base.h"
 
 namespace media {
 
@@ -113,9 +114,12 @@ DecoderContext::DecoderContext(
     std::shared_ptr<VideoRenderBase> video_render_,
     std::shared_ptr<MediaClock> clock_ctx_,
     std::function<void()> on_decoder_blocking
-) : audio_render(std::move(audio_render_)), video_render(std::move(video_render_)),
-    clock_ctx(std::move(clock_ctx_)), on_decoder_blocking_(std::move(on_decoder_blocking)) {
-
+) : audio_render(std::move(audio_render_)),
+    video_render(std::move(video_render_)),
+    video_decode_config_(),
+    clock_ctx(std::move(clock_ctx_)),
+    on_decoder_blocking_(std::move(on_decoder_blocking)) {
+  decode_task_runner_ = TaskRunner::prepare_looper("decoder");
 }
 
 DecoderContext::~DecoderContext() {
@@ -137,4 +141,98 @@ DecoderContext::~DecoderContext() {
     delete video_decoder;
   }
 }
+
+int DecoderContext::InitVideoDecoder(VideoDecodeConfig config) {
+  DCHECK(!video_codec_context_);
+
+  video_codec_context_ = std::unique_ptr<AVCodecContext, AVCodecContextDeleter>(avcodec_alloc_context3(nullptr));
+
+  auto ret = avcodec_parameters_to_context(video_codec_context_.get(), &config.codec_parameters());
+  DCHECK_GE(ret, 0);
+
+  video_codec_context_->codec_id = config.codec_id();
+  video_codec_context_->pkt_timebase = config.time_base();
+
+  auto *codec = avcodec_find_decoder(config.codec_id());
+  DCHECK(codec) << "No decoder could be found for CodecId:" << avcodec_get_name(config.codec_id());
+
+  if (codec == nullptr) {
+    video_codec_context_.reset();
+    return -1;
+  }
+
+  video_codec_context_->codec_id = codec->id;
+  int stream_lower = config.low_res();
+  DCHECK_LE(stream_lower, codec->max_lowres)
+      << "The maximum value for lowres supported by the decoder is " << codec->max_lowres
+      << ", but is " << stream_lower;
+  if (stream_lower > codec->max_lowres) {
+    stream_lower = codec->max_lowres;
+  }
+  video_codec_context_->lowres = stream_lower;
+  if (config.fast()) {
+    video_codec_context_->flags2 |= AV_CODEC_FLAG2_FAST;
+  }
+
+  ret = avcodec_open2(video_codec_context_.get(), codec, nullptr);
+  DCHECK_GE(ret, 0) << "can not open avcodec, reason: " << av_err_to_str(ret);
+  if (ret < 0) {
+    video_codec_context_.reset();
+    return ret;
+  }
+
+  video_temp_frame_ = av_frame_alloc();
+  DCHECK(video_temp_frame_);
+
+  video_decoding_loop_ = std::make_unique<FFmpegDecodingLoop>(video_codec_context_.get(), true);
+  video_render->SetMaxFrameDuration(video_decode_config_.max_frame_duration());
+  video_decode_config_ = config;
+
+  return 0;
+}
+
+void DecoderContext::StartVideoDecoder(std::shared_ptr<DemuxerStream> stream) {
+  DCHECK(video_codec_context_);
+
+  video_stream_ = std::move(stream);
+
+  video_stream_->stream()->discard = AVDISCARD_DEFAULT;
+  video_stream_->packet_queue()->Start();
+
+  decode_task_runner_->PostTask(FROM_HERE, [&]() {
+    VideoDecodeTask();
+  });
+}
+
+void DecoderContext::VideoDecodeTask() {
+  DCHECK(decode_task_runner_->BelongsToCurrentThread());
+  DCHECK(video_stream_);
+  DCHECK(video_temp_frame_);
+  DCHECK(video_decoding_loop_);
+
+  AVPacket packet;
+  av_init_packet(&packet);
+  if (!video_stream_->ReadPacket(&packet)) {
+    goto end;
+  }
+
+  switch (video_decoding_loop_->DecodePacket(&packet, [&](AVFrame *frame) {
+    auto frame_rate = video_decode_config_.frame_rate();
+    auto duration = (frame_rate.num && frame_rate.den ? av_q2d(AVRational{frame_rate.den, frame_rate.num}) : 0);
+    auto pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(video_decode_config_.time_base());
+    video_render->PushFrame(frame, pts, duration, 0);
+    return false;
+  })) {
+    case FFmpegDecodingLoop::DecodeStatus::kOkay:break;
+    case FFmpegDecodingLoop::DecodeStatus::kSendPacketFailed:break;
+    case FFmpegDecodingLoop::DecodeStatus::kDecodeFrameFailed:break;
+    case FFmpegDecodingLoop::DecodeStatus::kFrameProcessingFailed:break;
+  }
+
+  end:
+  decode_task_runner_->PostTask(FROM_HERE, [&]() {
+    VideoDecodeTask();
+  });
+}
+
 }

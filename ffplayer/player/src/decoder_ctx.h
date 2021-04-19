@@ -15,6 +15,9 @@
 #include "decoder_video.h"
 #include "decoder_audio.h"
 #include "decoder_base.h"
+#include "ffmpeg_deleters.h"
+#include "demuxer_stream.h"
+#include "ffmpeg_decoding_loop.h"
 
 extern "C" {
 #include "libavcodec/avcodec.h"
@@ -59,6 +62,21 @@ class DecoderContext {
   ~DecoderContext();
 
   int StartDecoder(std::unique_ptr<DecodeParams> decode_params);
+
+  int InitVideoDecoder(VideoDecodeConfig config);
+
+  void StartVideoDecoder(std::shared_ptr<DemuxerStream> stream);
+
+ private:
+
+  std::unique_ptr<AVCodecContext, AVCodecContextDeleter> video_codec_context_;
+  TaskRunner *decode_task_runner_ = nullptr;
+  std::shared_ptr<DemuxerStream> video_stream_;
+  AVFrame *video_temp_frame_ = nullptr;
+  VideoDecodeConfig video_decode_config_;
+  std::unique_ptr<FFmpegDecodingLoop> video_decoding_loop_;
+
+  void VideoDecodeTask();
 
 };
 }

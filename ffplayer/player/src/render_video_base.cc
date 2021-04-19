@@ -35,7 +35,7 @@ VideoRenderBase::VideoRenderBase() {
 }
 
 void VideoRenderBase::Init(VideoRenderHost *host,
-                           const std::shared_ptr<DemuxerStream> &demuxer_stream,
+                           const std::shared_ptr<PacketQueue> &demuxer_stream,
                            std::shared_ptr<MediaClock> clock_ctx) {
   task_runner_ = TaskRunner::current();
   DCHECK(task_runner_);

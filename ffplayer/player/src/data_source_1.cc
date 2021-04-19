@@ -9,6 +9,8 @@
 #include "media_player.h"
 #include "decoder_base.h"
 
+#include "base/logging.h"
+
 namespace media {
 
 #define MIN_FRAMES 25
@@ -212,7 +214,8 @@ int DataSource1::OpenStreams(const int st_index[AVMEDIA_TYPE_NB]) {
     OpenComponentStream(st_index[AVMEDIA_TYPE_AUDIO], AVMEDIA_TYPE_AUDIO);
   }
   if (st_index[AVMEDIA_TYPE_VIDEO] >= 0) {
-    OpenComponentStream(st_index[AVMEDIA_TYPE_VIDEO], AVMEDIA_TYPE_VIDEO);
+//    OpenComponentStream(st_index[AVMEDIA_TYPE_VIDEO], AVMEDIA_TYPE_VIDEO);
+    InitVideoDecoder(st_index[AVMEDIA_TYPE_VIDEO]);
   }
   if (st_index[AVMEDIA_TYPE_SUBTITLE] >= 0) {
     OpenComponentStream(st_index[AVMEDIA_TYPE_SUBTITLE], AVMEDIA_TYPE_SUBTITLE);
@@ -222,6 +225,33 @@ int DataSource1::OpenStreams(const int st_index[AVMEDIA_TYPE_NB]) {
     return -1;
   }
   return 0;
+}
+
+void DataSource1::InitVideoDecoder(int stream_index) {
+  DCHECK_GE(stream_index, 0);
+  DCHECK_LT(stream_index, format_ctx_->nb_streams);
+  if (stream_index < 0 || stream_index >= format_ctx_->nb_streams) {
+    return;
+  }
+  DCHECK(decoder_ctx) << "can not open stream(" << stream_index << ").";
+  auto *stream = format_ctx_->streams[stream_index];
+  DCHECK(stream);
+
+  double max_frame_duration = (format_ctx_->iformat->flags & AVFMT_TS_DISCONT) ? 10.0 : 3600.0;
+  VideoDecodeConfig decode_config(*stream->codecpar, stream->time_base,
+                                  av_guess_frame_rate(format_ctx_, stream, nullptr),
+                                  max_frame_duration);
+  auto ret = decoder_ctx->InitVideoDecoder(decode_config);
+  DCHECK(ret >= 0);
+  if (ret < 0) {
+    return;
+  }
+  video_stream_index = stream_index;
+  video_stream_ = stream;
+  video_queue->time_base = stream->time_base;
+
+  video_demuxer_stream_ = std::make_shared<DemuxerStream>(stream, video_queue.get());
+  decoder_ctx->StartVideoDecoder(video_demuxer_stream_);
 }
 
 int DataSource1::OpenComponentStream(int stream_index, AVMediaType media_type) {

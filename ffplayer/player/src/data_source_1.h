@@ -112,6 +112,8 @@ class DataSource1 {
 
  private:
 
+  std::shared_ptr<DemuxerStream> video_demuxer_stream_;
+
   int PrepareFormatContext();
 
   void OnFormatContextOpen();
@@ -121,6 +123,8 @@ class DataSource1 {
   void ReadThread();
 
   void OnStreamInfoLoad(const int st_index[AVMEDIA_TYPE_NB]);
+
+  void InitVideoDecoder(int stream_index);
 
   int OpenStreams(const int st_index[AVMEDIA_TYPE_NB]);
 
