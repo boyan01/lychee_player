@@ -11,7 +11,7 @@
 
 extern "C" {
 #include "libavformat/avformat.h"
-};
+}
 
 #include "base/circular_deque.h"
 
@@ -40,13 +40,13 @@ class VideoDecoder : public std::enable_shared_from_this<VideoDecoder> {
 
  private:
 
-  std::unique_ptr<AVCodecContext, AVCodecContextDeleter> video_codec_context_;
-  TaskRunner *decode_task_runner_ = nullptr;
-  DemuxerStream *video_stream_ = nullptr;
+  std::unique_ptr<AVCodecContext, AVCodecContextDeleter> codec_context_;
+  TaskRunner *task_runner_ = nullptr;
+  DemuxerStream *stream_ = nullptr;
   VideoDecodeConfig video_decode_config_;
-  std::unique_ptr<FFmpegDecodingLoop> video_decoding_loop_;
+  std::unique_ptr<FFmpegDecodingLoop> ffmpeg_decoding_loop_;
 
-  CircularDeque<std::shared_ptr<VideoFrame>> picture_queue_;
+  CircularDeque<std::shared_ptr<VideoFrame>> frame_queue_;
 
   VideoDecoder::ReadCallback read_callback_;
 
