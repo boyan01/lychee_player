@@ -59,6 +59,10 @@ void VideoRenderBase::OnNewFrameReady(std::shared_ptr<VideoFrame> frame) {
     return;
   }
   DLOG(INFO) << "frame: " << frame->pts();
+  if (!first_video_frame_loaded_) {
+    first_video_frame_loaded_ = true;
+    render_host_->OnFirstFrameLoaded(frame->Width(), frame->Height());
+  }
   frame_queue_.InsertLast(std::move(frame));
   if (frame_queue_.IsFull()) {
     return;
@@ -111,7 +115,7 @@ double VideoRenderBase::ComputeTargetDelay(double delay) const {
 }
 
 double VideoRenderBase::GetVideoAspectRatio() const {
-  if (!first_video_frame_loaded) {
+  if (!first_video_frame_loaded_) {
     return 0;
   }
   if (frame_height == 0) {

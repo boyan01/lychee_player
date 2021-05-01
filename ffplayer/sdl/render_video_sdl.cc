@@ -40,9 +40,6 @@ SdlVideoRender::~SdlVideoRender() {
   if (texture_) {
     SDL_DestroyTexture(texture_);
   }
-  if (sub_texture_) {
-    SDL_DestroyTexture(sub_texture_);
-  }
   sws_freeContext(img_convert_ctx);
 }
 

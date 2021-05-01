@@ -40,7 +40,7 @@ class VideoRenderBase : public BaseRender, public std::enable_shared_from_this<V
   int frame_drop_count_pre = 0;
 
   bool abort_render = false;
-  bool first_video_frame_loaded = false;
+  bool first_video_frame_loaded_ = false;
   bool first_video_frame_rendered = false;
   int frame_width = 0;
   int frame_height = 0;

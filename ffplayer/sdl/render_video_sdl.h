@@ -23,7 +23,6 @@ class SdlVideoRender : public VideoRenderBase {
  private:
   std::shared_ptr<SDL_Renderer> renderer_;
   SDL_Texture *texture_ = nullptr;
-  SDL_Texture *sub_texture_ = nullptr;
   struct SwsContext *img_convert_ctx = nullptr;
 
  private:
