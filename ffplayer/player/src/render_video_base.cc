@@ -32,8 +32,8 @@ namespace media {
 #define EXTERNAL_CLOCK_MIN_FRAMES 2
 #define EXTERNAL_CLOCK_MAX_FRAMES 10
 
-VideoRenderBase::VideoRenderBase() {
-  picture_queue = std::make_unique<FrameQueue>();
+VideoRenderBase::VideoRenderBase() : frame_queue_(VIDEO_PICTURE_QUEUE_SIZE) {
+
 }
 
 VideoRenderBase::~VideoRenderBase() = default;
@@ -48,22 +48,23 @@ void VideoRenderBase::Initialize(
   DCHECK(host);
   render_host_ = host;
   clock_context = std::move(clock_ctx);
-  picture_queue->Init(demuxer_stream->packet_queue(), VIDEO_PICTURE_QUEUE_SIZE, 1);
   decoder_ = std::move(decoder);
-  task_runner_->PostTask(FROM_HERE, bind_weak(&VideoRenderBase::StartDecoderTask, shared_from_this()));
+  task_runner_->PostTask(FROM_HERE, [&]() {
+    decoder_->ReadFrame(bind_weak(&VideoRenderBase::OnNewFrameReady, shared_from_this()));
+  });
 }
 
-void VideoRenderBase::StartDecoderTask() {
-  decoder_->ReadFrame(bind_weak(&VideoRenderBase::OnNewFrameReady, shared_from_this()));
-}
-
-void VideoRenderBase::OnNewFrameReady(VideoFrame frame) {
-  DLOG(INFO) << "OnNewFrameReady";
-  if (frame.frame()) {
-    PushFrame(frame.frame(), frame.pts(), frame.duration(), frame.serial());
+void VideoRenderBase::OnNewFrameReady(std::shared_ptr<VideoFrame> frame) {
+  if (!frame || frame->IsEmpty()) {
+    return;
   }
-  task_runner_->PostTask(FROM_HERE,
-                                bind_weak(&VideoRenderBase::StartDecoderTask, shared_from_this()));
+  frame_queue_.InsertLast(std::move(frame));
+  if (frame_queue_.IsFull()) {
+    return;
+  }
+  task_runner_->PostTask(FROM_HERE, [&]() {
+    decoder_->ReadFrame(bind_weak(&VideoRenderBase::OnNewFrameReady, shared_from_this()));
+  });
 }
 
 double VideoRenderBase::VideoPictureDuration(Frame *vp, Frame *next_vp) const {
@@ -108,53 +109,6 @@ double VideoRenderBase::ComputeTargetDelay(double delay) const {
   return delay;
 }
 
-int VideoRenderBase::PushFrame(AVFrame *src_frame, double pts, double duration, int pkt_serial) {
-  // check video frame pts if needed.
-  if (framedrop > 0 || (framedrop && clock_context->GetMasterSyncType() != AV_SYNC_VIDEO_MASTER)) {
-    if (src_frame->pts != AV_NOPTS_VALUE) {
-      double diff = pts - clock_context->GetMasterClock();
-      if (!isnan(diff) && fabs(diff) < AV_NOSYNC_THRESHOLD && diff < 0 &&
-          pkt_serial == clock_context->GetVideoClock()->serial &&
-          picture_queue->pktq->nb_packets) {
-        frame_drop_count_pre++;
-        return 0;
-      }
-    }
-  }
-
-//  av_log(nullptr, AV_LOG_INFO, "VideoRenderBase: push frame pts= %0.3f , serial = %d\n", pts, pkt_serial);
-
-  auto *vp = picture_queue->PeekWritable();
-  if (!vp) {
-    return -1;
-  }
-#if defined(DEBUG_SYNC)
-  printf("frame_type=%c pts=%0.3f\n",
-         av_get_picture_type_char(src_frame->pict_type), pts);
-#endif
-
-  vp->sar = src_frame->sample_aspect_ratio;
-  vp->uploaded = 0;
-
-  vp->width = src_frame->width;
-  vp->height = src_frame->height;
-  vp->format = src_frame->format;
-
-  vp->pts = pts;
-  vp->duration = duration;
-  vp->pos = src_frame->pkt_pos;
-  vp->serial = pkt_serial;
-
-  if (!first_video_frame_loaded) {
-    first_video_frame_loaded = true;
-    render_host_->OnFirstFrameLoaded(vp->width, vp->height);
-  }
-
-  av_frame_move_ref(vp->frame, src_frame);
-  picture_queue->Push();
-  return 0;
-}
-
 double VideoRenderBase::GetVideoAspectRatio() const {
   if (!first_video_frame_loaded) {
     return 0;
@@ -174,18 +128,12 @@ double VideoRenderBase::DrawFrame() {
   }
 
 #if 0
-  bool realtime = false; // TODO check is realtime
-  if (!paused_ && clock_context->GetMasterSyncType() == AV_SYNC_EXTERNAL_CLOCK && realtime) {
-//        check_external_clock_speed
-  }
-#endif
-
   retry:
-  if (picture_queue->NbRemaining() == 0) {
+  if (frame_queue_.IsEmpty()) {
     // nothing to do, no picture to display in the queue
   } else {
     double last_duration, duration, delay, time;
-    auto last_vp = picture_queue->PeekLast();
+    auto last_vp = frame_queue_->PeekLast();
     auto vp = picture_queue->Peek();
     if (vp->serial != picture_queue->queue->serial) {
       picture_queue->Next();
@@ -256,16 +204,64 @@ double VideoRenderBase::DrawFrame() {
 
   NotifyRenderProceed();
 
+#endif
+
+  if (frame_queue_.IsEmpty()) {
+    return remaining_time;
+  }
+
+  auto last_frame = frame_queue_.GetFront();
+  auto delay = ComputeTargetDelay(last_frame->duration());
+
+  auto time = get_relative_time();
+
+  if (time < frame_timer + delay) {
+    // It's not time to display next frame. still display current frame again.
+    DLOG(INFO) << "Draw frame: " << (frame_timer + delay) - time;
+    remaining_time = std::min(frame_timer + delay - time, remaining_time);
+  } else if (frame_queue_.GetSize() > 1) {
+    frame_timer += delay;
+    if (delay > 0 && time - frame_timer > AV_SYNC_THRESHOLD_MAX) {
+      frame_timer = time;
+    }
+    frame_queue_.DeleteFront();
+    if (!frame_queue_.IsEmpty()) {
+      // TODO drop frames.
+    }
+    force_refresh_ = true;
+    frame_timer = get_relative_time();
+  }
+
+  auto frame = frame_queue_.GetFront();
+  DCHECK(frame);
+
+  if (force_refresh_) {
+    if (!first_video_frame_rendered) {
+      first_video_frame_rendered = true;
+      render_host_->OnFirstFrameRendered(frame->Width(), frame->Height());
+    }
+    RenderPicture(frame);
+  }
+
   force_refresh_ = false;
+
+  if (!frame_queue_.IsFull()) {
+    task_runner_->PostTask(FROM_HERE, [&]() {
+      decoder_->ReadFrame(bind_weak(&VideoRenderBase::OnNewFrameReady, shared_from_this()));
+    });
+  }
+
   return remaining_time;
+
 }
 
 void VideoRenderBase::Abort() {
-  picture_queue->Signal();
+  // TODO
 }
 
 bool VideoRenderBase::IsReady() {
-  return picture_queue->NbRemaining() > 0;
+  // TODO
+  return true;
 }
 
 bool VideoRenderBase::ShouldDropFrames() const {
@@ -281,7 +277,7 @@ void VideoRenderBase::Stop() {
 }
 
 void VideoRenderBase::DumpDebugInformation() {
-  av_log(nullptr, AV_LOG_INFO, "video_render, frame: %d/%d.\n", picture_queue->NbRemaining(), picture_queue->max_size);
+  // TODO
 }
 
 static void check_external_clock_speed() {

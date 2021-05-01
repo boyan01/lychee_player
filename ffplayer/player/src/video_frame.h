@@ -39,12 +39,38 @@ class VideoFrame {
     return serial_;
   }
 
+  bool IsEmpty() const {
+    return frame_ == nullptr;
+  }
+
+  int Width() const {
+    return IsEmpty() ? 0 : frame_->width;
+  }
+
+  int Height() const {
+    return IsEmpty() ? 0 : frame_->height;
+  }
+
+  std::string ToString() const {
+    std::stringstream ss;
+    ss << "VideoFrame(";
+    if (IsEmpty()) {
+      ss << "Empty";
+    } else {
+      ss << "W=" << Width() << "H=" << Height() << "D=" << duration() << "P=" << pts();
+    }
+    ss << ")";
+    return ss.str();
+  }
+
  private:
 
   AVFrame *frame_;
   double pts_;
   double duration_;
   int serial_;
+
+  DISALLOW_COPY_AND_ASSIGN(VideoFrame);
 
 };
 

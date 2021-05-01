@@ -12,23 +12,26 @@ SdlVideoRender::SdlVideoRender(std::shared_ptr<SDL_Renderer> renderer)
 
 }
 
-void SdlVideoRender::RenderPicture(Frame &frame) {
+void SdlVideoRender::RenderPicture(std::shared_ptr<VideoFrame> frame) {
   SDL_SetRenderDrawColor(renderer_.get(), 0, 0, 0, 255);
   SDL_RenderClear(renderer_.get());
   SDL_Rect rect{};
-  media::sdl::calculate_display_rect(&rect, 0, 0, screen_width,
-                                     screen_height, frame.width, frame.height, frame.sar);
-  if (!frame.uploaded) {
-    if (UploadTexture(frame.frame) < 0) {
-      return;
-    }
-    frame.uploaded = 1;
-    frame.flip_v = frame.frame->linesize[0] < 0;
+  media::sdl::calculate_display_rect(&rect,
+                                     0,
+                                     0,
+                                     screen_width,
+                                     screen_height,
+                                     frame->Width(),
+                                     frame->Height(),
+                                     frame->frame()->sample_aspect_ratio);
+  if (UploadTexture(frame->frame()) < 0) {
+    return;
   }
+  auto flip_v = frame->frame()->linesize[0] < 0;
 
-  SetSdlYuvConversionMode(frame.frame);
+  SetSdlYuvConversionMode(frame->frame());
   SDL_RenderCopyEx(renderer_.get(), texture_, nullptr, &rect, 0, nullptr,
-                   frame.flip_v ? SDL_FLIP_VERTICAL : SDL_FLIP_NONE);
+                   flip_v ? SDL_FLIP_VERTICAL : SDL_FLIP_NONE);
   SetSdlYuvConversionMode(nullptr);
   SDL_RenderPresent(renderer_.get());
 }

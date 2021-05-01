@@ -26,7 +26,7 @@ FFmpegDecodingLoop::DecodeStatus FFmpegDecodingLoop::DecodePacket(
     if (!sent_packet) {
       const int result = avcodec_send_packet(context_, packet);
       if (result < 0 && result != AVERROR(EAGAIN) && result != AVERROR_EOF) {
-        DLOG(ERROR) << "Failed to send packet for decoding: " << av_err_to_str(result);
+        DLOG(ERROR) << "Failed to send packet for decoding: " << result;
         return DecodeStatus::kSendPacketFailed;
       }
 
@@ -48,14 +48,12 @@ FFmpegDecodingLoop::DecodeStatus FFmpegDecodingLoop::DecodePacket(
                               "which is an API violation.";
       }
 
-      // continue;
-      return DecodeStatus::kDecodeFrameFailed;
+      continue;
     } else if (result < 0) {
       DLOG(ERROR) << "Failed to decode frame: " << result;
       last_av_error_code_ = result;
-      if (!continue_on_decoding_errors_) {
+      if (!continue_on_decoding_errors_)
         return DecodeStatus::kDecodeFrameFailed;
-      }
       decoder_error = true;
       continue;
     }

@@ -64,12 +64,11 @@ class VideoRenderBase : public BaseRender, public std::enable_shared_from_this<V
   bool ShouldDropFrames() const;
 
  protected:
-  std::unique_ptr<FrameQueue> picture_queue;
   int framedrop = -1;
 
   std::shared_ptr<MediaClock> clock_context;
 
-  virtual void RenderPicture(Frame &frame) = 0;
+  virtual void RenderPicture(std::shared_ptr<VideoFrame> frame) = 0;
 
  public:
 
@@ -83,15 +82,6 @@ class VideoRenderBase : public BaseRender, public std::enable_shared_from_this<V
                   std::shared_ptr<VideoDecoder> decoder
   );
 
-  /**
-   * Accept Frame from Decoder.
-   *
-   * @param src_frame source frame.
-   * @param pts frame presentation timestamp in seconds.
-   * @param duration frame presentation duration in seconds.
-   * @param pkt_serial frame serial.
-   */
-  int PushFrame(AVFrame *src_frame, double pts, double duration, int pkt_serial);
 
   double GetVideoAspectRatio() const;
 
@@ -123,9 +113,9 @@ class VideoRenderBase : public BaseRender, public std::enable_shared_from_this<V
 
   std::shared_ptr<VideoDecoder> decoder_;
 
-  void StartDecoderTask();
+  CircularDeque<std::shared_ptr<VideoFrame>> frame_queue_;
 
-  void OnNewFrameReady(VideoFrame frame);
+  void OnNewFrameReady(std::shared_ptr<VideoFrame> frame);
 
   DISALLOW_COPY_AND_ASSIGN(VideoRenderBase);
 

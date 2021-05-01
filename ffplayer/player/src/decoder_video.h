@@ -13,6 +13,8 @@ extern "C" {
 #include "libavformat/avformat.h"
 };
 
+#include "base/circular_deque.h"
+
 #include "decoder_base.h"
 #include "ffmpeg_decoding_loop.h"
 #include "ffmpeg_deleters.h"
@@ -30,9 +32,10 @@ class VideoDecoder : public std::enable_shared_from_this<VideoDecoder> {
 
   virtual ~VideoDecoder();
 
+  using OutputCallback = std::function<void(VideoFrame)>;
   int Initialize(VideoDecodeConfig config, DemuxerStream *stream);
 
-  using ReadCallback = std::function<void(VideoFrame)>;
+  using ReadCallback = std::function<void(std::shared_ptr<VideoFrame>)>;
   void ReadFrame(ReadCallback read_callback);
 
  private:
@@ -43,11 +46,17 @@ class VideoDecoder : public std::enable_shared_from_this<VideoDecoder> {
   VideoDecodeConfig video_decode_config_;
   std::unique_ptr<FFmpegDecodingLoop> video_decoding_loop_;
 
-  ReadCallback read_callback_;
+  CircularDeque<std::shared_ptr<VideoFrame>> picture_queue_;
+
+  VideoDecoder::ReadCallback read_callback_;
 
   void VideoDecodeTask();
 
-  bool OnNewFrameAvailable(AVFrame* frame);
+  bool FFmpegDecode();
+
+  bool OnNewFrameAvailable(AVFrame *frame);
+
+  bool NeedDecodeMore();
 
   DISALLOW_COPY_AND_ASSIGN(VideoDecoder);
 

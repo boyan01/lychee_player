@@ -43,7 +43,7 @@ class SdlVideoRender : public VideoRenderBase {
 
   ~SdlVideoRender() override;
 
-  void RenderPicture(Frame &frame) override;
+  void RenderPicture(std::shared_ptr<VideoFrame> frame) override;
 
   void DestroyTexture();
 };

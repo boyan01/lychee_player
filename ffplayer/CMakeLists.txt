@@ -103,7 +103,6 @@ endif ()
 add_subdirectory(base)
 
 add_subdirectory(player)
-add_subdirectory(media_ex)
 
 if (MEDIA_USE_SDL)
     add_subdirectory(sdl)
