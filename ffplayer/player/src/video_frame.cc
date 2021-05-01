@@ -12,9 +12,18 @@ VideoFrame VideoFrame::Empty() {
 }
 
 VideoFrame::VideoFrame(AVFrame *frame, double pts, double duration, int serial)
-    : frame_(frame), pts_(pts), duration_(duration), serial_(serial) {}
+    : frame_(nullptr), pts_(pts), duration_(duration), serial_(serial) {
+  if (frame) {
+    frame_ = av_frame_alloc();
+    av_frame_ref(frame_, frame);
+  }
+}
 
-
-VideoFrame::~VideoFrame() = default;
+VideoFrame::~VideoFrame() {
+  if (frame_) {
+    av_frame_unref(frame_);
+    av_frame_free(&frame_);
+  }
+}
 
 }

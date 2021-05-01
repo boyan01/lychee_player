@@ -50,6 +50,13 @@ class CircularDeque {
     return true;
   }
 
+  T &PopFront() {
+    DCHECK(!empty_);
+    auto item = GetFront();
+    DeleteFront();
+    return item;
+  }
+
   bool DeleteLast() {
     if (empty_) return false;
     behind_ = (behind_ - 1 + capacity_) % capacity_;
@@ -91,6 +98,13 @@ class CircularDeque {
     if (empty_) return 0;
     if (full_) return capacity_;
     return abs(behind_ - front_);
+  }
+
+  void Clear() {
+    if (empty_) return;
+    full_ = false;
+    empty_ = true;
+    front_ = behind_ = 0;
   }
 
  private:

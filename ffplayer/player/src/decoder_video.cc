@@ -12,7 +12,7 @@
 
 namespace media {
 
-const int kVideoPictureQueueSize = 25;
+const int kVideoPictureQueueSize = 3;
 
 VideoDecoder::VideoDecoder(TaskRunner *task_runner)
     : decode_task_runner_(task_runner), picture_queue_(kVideoPictureQueueSize) {
@@ -20,11 +20,12 @@ VideoDecoder::VideoDecoder(TaskRunner *task_runner)
 
 VideoDecoder::~VideoDecoder() = default;
 
-int VideoDecoder::Initialize(VideoDecodeConfig config, DemuxerStream *stream) {
+int VideoDecoder::Initialize(VideoDecodeConfig config, DemuxerStream *stream, OnFlushCallback on_flush_callback) {
   DCHECK(!video_codec_context_);
   DCHECK(picture_queue_.IsEmpty());
 
   video_codec_context_ = std::unique_ptr<AVCodecContext, AVCodecContextDeleter>(avcodec_alloc_context3(nullptr));
+  on_flush_callback_ = std::move(on_flush_callback);
 
   auto ret = avcodec_parameters_to_context(video_codec_context_.get(), &config.codec_parameters());
   DCHECK_GE(ret, 0);
@@ -83,16 +84,16 @@ void VideoDecoder::ReadFrame(VideoDecoder::ReadCallback read_callback) {
     read_callback_bound(std::move(frame));
   }
 
-  if (NeedDecodeMore()) {
-    decode_task_runner_->PostTask(FROM_HERE, bind_weak(&VideoDecoder::VideoDecodeTask, shared_from_this()));
-  }
+  decode_task_runner_->PostTask(FROM_HERE, bind_weak(&VideoDecoder::VideoDecodeTask, shared_from_this()));
 }
 
 void VideoDecoder::VideoDecodeTask() {
   DCHECK(decode_task_runner_->BelongsToCurrentThread());
   DCHECK(video_stream_);
   DCHECK(video_decoding_loop_);
-  DCHECK(NeedDecodeMore());
+  if (!NeedDecodeMore()) {
+    return;
+  }
 
   if (FFmpegDecode()) {
     if (read_callback_ && picture_queue_.GetFront()) {
@@ -115,6 +116,10 @@ bool VideoDecoder::FFmpegDecode() {
   av_init_packet(&packet);
 
   if (!video_stream_->ReadPacket(&packet) || packet.data == PacketQueue::GetFlushPacket()->data) {
+    picture_queue_.Clear();
+    if (on_flush_callback_) {
+      on_flush_callback_();
+    }
     return false;
   }
   switch (video_decoding_loop_->DecodePacket(
@@ -140,9 +145,7 @@ bool VideoDecoder::OnNewFrameAvailable(AVFrame *frame) {
   auto duration = (frame_rate.num && frame_rate.den ? av_q2d(AVRational{frame_rate.den, frame_rate.num}) : 0);
   auto pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : double(frame->pts) * av_q2d(video_decode_config_.time_base());
 
-  auto *vp = av_frame_alloc();
-  av_frame_ref(vp, frame);
-  std::shared_ptr<VideoFrame> video_frame = std::make_shared<VideoFrame>(vp, pts, duration, 0);
+  std::shared_ptr<VideoFrame> video_frame = std::make_shared<VideoFrame>(frame, pts, duration, 0);
   picture_queue_.InsertLast(std::move(video_frame));
   return true;
 }

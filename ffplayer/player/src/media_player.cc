@@ -106,8 +106,7 @@ void MediaPlayer::PauseClock(bool pause) {
   }
   if (clock_context->paused) {
     if (video_render_) {
-      video_render_->frame_timer +=
-          av_gettime_relative() / 1000000.0 - clock_context->GetVideoClock()->last_updated;
+      video_render_->frame_timer_ += get_relative_time() - clock_context->GetVideoClock()->last_updated;
     }
     if (data_source && data_source->read_pause_return != AVERROR(ENOSYS)) {
       clock_context->GetVideoClock()->paused = 0;
@@ -172,7 +171,9 @@ void MediaPlayer::OnDataSourceOpen(int open_status) {
 void MediaPlayer::InitVideoRender() {
   if (data_source->ContainVideoStream()) {
     auto video_decoder = std::make_shared<VideoDecoder>(TaskRunner::prepare_looper("decoder"));
-    auto ret = video_decoder->Initialize(data_source->video_decode_config(), data_source->video_demuxer_stream());
+    auto ret = video_decoder->Initialize(data_source->video_decode_config(),
+                                         data_source->video_demuxer_stream(),
+                                         bind_weak(&VideoRenderBase::Flush, video_render_));
     if (ret >= 0) {
       video_render_->Initialize(this, data_source->video_demuxer_stream(),
                                 clock_context, std::move(video_decoder));

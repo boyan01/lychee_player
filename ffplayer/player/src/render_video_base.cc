@@ -58,6 +58,7 @@ void VideoRenderBase::OnNewFrameReady(std::shared_ptr<VideoFrame> frame) {
   if (!frame || frame->IsEmpty()) {
     return;
   }
+  DLOG(INFO) << "frame: " << frame->pts();
   frame_queue_.InsertLast(std::move(frame));
   if (frame_queue_.IsFull()) {
     return;
@@ -211,25 +212,31 @@ double VideoRenderBase::DrawFrame() {
   }
 
   auto last_frame = frame_queue_.GetFront();
-  auto delay = ComputeTargetDelay(last_frame->duration());
+  double clock = GetDrawingClock();
+  if (std::isnan(clock)) {
+    return remaining_time;
+  }
 
-  auto time = get_relative_time();
-
-  if (time < frame_timer + delay) {
+  if (last_frame->pts() > clock) {
     // It's not time to display next frame. still display current frame again.
-    DLOG(INFO) << "Draw frame: " << (frame_timer + delay) - time;
-    remaining_time = std::min(frame_timer + delay - time, remaining_time);
+    remaining_time = std::min(clock - last_frame->pts(), remaining_time);
   } else if (frame_queue_.GetSize() > 1) {
-    frame_timer += delay;
-    if (delay > 0 && time - frame_timer > AV_SYNC_THRESHOLD_MAX) {
-      frame_timer = time;
-    }
     frame_queue_.DeleteFront();
     if (!frame_queue_.IsEmpty()) {
-      // TODO drop frames.
+      auto current_frame = frame_queue_.PopFront();
+      while (!frame_queue_.IsEmpty()) {
+        auto next_frame = frame_queue_.GetFront();
+        if (next_frame->pts() > clock) {
+          break;
+        }
+        frame_queue_.DeleteFront();
+        frame_drop_count++;
+        current_frame = next_frame;
+      }
+      frame_queue_.InsertFront(current_frame);
     }
     force_refresh_ = true;
-    frame_timer = get_relative_time();
+    frame_timer_ = get_relative_time();
   }
 
   auto frame = frame_queue_.GetFront();
@@ -255,6 +262,11 @@ double VideoRenderBase::DrawFrame() {
 
 }
 
+double VideoRenderBase::GetDrawingClock() {
+  DCHECK(clock_context);
+  return clock_context->GetMasterClock();
+}
+
 void VideoRenderBase::Abort() {
   // TODO
 }
@@ -278,6 +290,14 @@ void VideoRenderBase::Stop() {
 
 void VideoRenderBase::DumpDebugInformation() {
   // TODO
+}
+
+void VideoRenderBase::Flush() {
+  task_runner_->PostTask(FROM_HERE, [&]() {
+    DLOG(INFO) << "on flush";
+    frame_queue_.Clear();
+    decoder_->ReadFrame(bind_weak(&VideoRenderBase::OnNewFrameReady, shared_from_this()));
+  });
 }
 
 static void check_external_clock_speed() {

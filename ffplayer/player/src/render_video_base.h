@@ -31,7 +31,7 @@ class VideoRenderHost {
 class VideoRenderBase : public BaseRender, public std::enable_shared_from_this<VideoRenderBase> {
 
  public:
-  double frame_timer = 0;
+  double frame_timer_ = 0;
 
   bool step = false;
 
@@ -82,7 +82,6 @@ class VideoRenderBase : public BaseRender, public std::enable_shared_from_this<V
                   std::shared_ptr<VideoDecoder> decoder
   );
 
-
   double GetVideoAspectRatio() const;
 
   /**
@@ -103,6 +102,11 @@ class VideoRenderBase : public BaseRender, public std::enable_shared_from_this<V
 
   void Stop();
 
+  /**
+   * Flush all frame buffers.
+   */
+  void Flush();
+
   void DumpDebugInformation();
 
  private:
@@ -116,6 +120,9 @@ class VideoRenderBase : public BaseRender, public std::enable_shared_from_this<V
   CircularDeque<std::shared_ptr<VideoFrame>> frame_queue_;
 
   void OnNewFrameReady(std::shared_ptr<VideoFrame> frame);
+
+  // To get current clock time in seconds.
+  double GetDrawingClock();
 
   DISALLOW_COPY_AND_ASSIGN(VideoRenderBase);
 

@@ -32,8 +32,8 @@ class VideoDecoder : public std::enable_shared_from_this<VideoDecoder> {
 
   virtual ~VideoDecoder();
 
-  using OutputCallback = std::function<void(VideoFrame)>;
-  int Initialize(VideoDecodeConfig config, DemuxerStream *stream);
+  using OnFlushCallback = std::function<void()>;
+  int Initialize(VideoDecodeConfig config, DemuxerStream *stream, OnFlushCallback on_flush_callback);
 
   using ReadCallback = std::function<void(std::shared_ptr<VideoFrame>)>;
   void ReadFrame(ReadCallback read_callback);
@@ -49,6 +49,8 @@ class VideoDecoder : public std::enable_shared_from_this<VideoDecoder> {
   CircularDeque<std::shared_ptr<VideoFrame>> picture_queue_;
 
   VideoDecoder::ReadCallback read_callback_;
+
+  OnFlushCallback on_flush_callback_;
 
   void VideoDecodeTask();
 
