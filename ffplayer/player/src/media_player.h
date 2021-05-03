@@ -17,6 +17,9 @@
 #include "render_video_base.h"
 #include "decoder_ctx.h"
 #include "task_runner.h"
+#include "audio_renderer.h"
+#include "audio_decoder.h"
+#include "decoder_stream.h"
 
 namespace media {
 
@@ -36,7 +39,7 @@ class MediaPlayer : VideoRenderHost, public std::enable_shared_from_this<MediaPl
    */
   static void GlobalInit();
 
-  MediaPlayer(std::unique_ptr<VideoRenderBase> video_render, std::unique_ptr<BasicAudioRender> audio_render);
+  MediaPlayer(std::unique_ptr<VideoRenderBase> video_render, std::shared_ptr<AudioRendererSink> audio_renderer_sink);
 
   ~MediaPlayer();
 
@@ -61,7 +64,7 @@ class MediaPlayer : VideoRenderHost, public std::enable_shared_from_this<MediaPl
 
   std::shared_ptr<DecoderContext> decoder_context;
 
-  std::shared_ptr<BasicAudioRender> audio_render_;
+  std::shared_ptr<AudioRenderer> audio_renderer_;
   std::shared_ptr<VideoRenderBase> video_render_;
 
   MediaPlayerState player_state_ = MediaPlayerState::IDLE;
@@ -98,6 +101,10 @@ class MediaPlayer : VideoRenderHost, public std::enable_shared_from_this<MediaPl
   void OnDataSourceOpen(int open_status);
 
   void InitVideoRender();
+
+  void InitAudioRender();
+
+  void OnAudioRendererInitialized(bool success);
 
  public:
   PlayerConfiguration start_configuration{};
@@ -153,6 +160,7 @@ class MediaPlayer : VideoRenderHost, public std::enable_shared_from_this<MediaPl
  private:
 
   TaskRunner *task_runner_;
+  TaskRunner *decoder_task_runner_;
 
   OnVideoSizeChangeCallback on_video_size_changed_;
 

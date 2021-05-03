@@ -14,6 +14,7 @@
 #include "decoder_ctx.h"
 #include "ffplayer.h"
 #include "ffp_msg_queue.h"
+#include "audio_decode_config.h"
 
 extern "C" {
 #include "libavformat/avformat.h"
@@ -113,6 +114,14 @@ class DataSource1 {
     return video_decode_config_;
   }
 
+  DemuxerStream *audio_demuxer_stream() {
+    return audio_demuxer_stream_.get();
+  }
+
+  const AudioDecodeConfig &audio_decode_config() {
+    return audio_decode_config_;
+  }
+
   bool ContainSubtitleStream();
 
   double GetSeekPosition() const;
@@ -124,8 +133,10 @@ class DataSource1 {
  private:
 
   std::shared_ptr<DemuxerStream> video_demuxer_stream_;
+  std::shared_ptr<DemuxerStream> audio_demuxer_stream_;
 
   VideoDecodeConfig video_decode_config_;
+  AudioDecodeConfig audio_decode_config_;
 
   OpenCallback open_callback_;
 
@@ -140,6 +151,8 @@ class DataSource1 {
   void OnStreamInfoLoad(const int st_index[AVMEDIA_TYPE_NB]);
 
   void InitVideoDecoder(int stream_index);
+
+  void InitAudioDecoder(int stream_index);
 
   int OpenStreams(const int st_index[AVMEDIA_TYPE_NB]);
 

@@ -16,12 +16,14 @@ namespace media {
 
 MediaPlayer::MediaPlayer(
     std::unique_ptr<VideoRenderBase> video_render,
-    std::unique_ptr<BasicAudioRender> audio_render
-) : video_render_(std::move(video_render)), audio_render_(std::move(audio_render)) {
+    std::shared_ptr<AudioRendererSink> audio_renderer_sink
+) : video_render_(std::move(video_render)) {
   task_runner_ = TaskRunner::prepare_looper("media_player");
   task_runner_->PostTask(FROM_HERE, [&]() {
     Initialize();
   });
+  decoder_task_runner_ = TaskRunner::prepare_looper("decoder");
+  audio_renderer_ = std::make_shared<AudioRenderer>(decoder_task_runner_, std::move(audio_renderer_sink));
 }
 
 void MediaPlayer::Initialize() {
@@ -55,13 +57,7 @@ void MediaPlayer::Initialize() {
   clock_context = std::make_shared<MediaClock>(&audio_pkt_queue->serial, &video_pkt_queue->serial,
                                                sync_type_confirm);
 
-  if (audio_render_) {
-    audio_render_->SetRenderCallback([this]() {
-    });
-    audio_render_->Init(audio_pkt_queue, clock_context);
-  }
-
-  decoder_context = std::make_shared<DecoderContext>(audio_render_, clock_context, [this]() {
+  decoder_context = std::make_shared<DecoderContext>(clock_context, [this]() {
     ChangePlaybackState(MediaPlayerState::BUFFERING);
 //    StopRenders();
   });
@@ -170,7 +166,7 @@ void MediaPlayer::OnDataSourceOpen(int open_status) {
 
 void MediaPlayer::InitVideoRender() {
   if (data_source->ContainVideoStream()) {
-    auto video_decoder = std::make_shared<VideoDecoder>(TaskRunner::prepare_looper("decoder"));
+    auto video_decoder = std::make_shared<VideoDecoder>(decoder_task_runner_);
     auto ret = video_decoder->Initialize(data_source->video_decode_config(),
                                          data_source->video_demuxer_stream(),
                                          bind_weak(&VideoRenderBase::Flush, video_render_));
@@ -181,6 +177,22 @@ void MediaPlayer::InitVideoRender() {
       DLOG(ERROR) << "Open Video Decoder Failed: " << ret;
     }
   }
+  task_runner_->PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitAudioRender, shared_from_this()));
+}
+
+void MediaPlayer::InitAudioRender() {
+  if (data_source->ContainAudioStream()) {
+    auto audio_decoder_stream = std::make_shared<AudioDecoderStream>(
+        std::make_unique<DecoderStreamTraits<DemuxerStream::Audio>>(),
+        decoder_task_runner_
+    );
+    audio_renderer_->Initialize(data_source->audio_demuxer_stream(), clock_context,
+                                bind_weak(&MediaPlayer::OnAudioRendererInitialized, shared_from_this()));
+  }
+}
+
+void MediaPlayer::OnAudioRendererInitialized(bool success) {
+  DLOG(INFO) << success;
 }
 
 void MediaPlayer::DumpStatus() {
@@ -264,23 +276,23 @@ double MediaPlayer::GetCurrentPosition() {
 }
 
 int MediaPlayer::GetVolume() {
-  CHECK_VALUE_WITH_RETURN(audio_render_, 0);
-  return audio_render_->GetVolume();
+  CHECK_VALUE_WITH_RETURN(audio_renderer_, 0);
+//  return audio_render_->GetVolume();
 }
 
 void MediaPlayer::SetVolume(int volume) {
-  CHECK_VALUE(audio_render_);
-  audio_render_->SetVolume(volume);
+  CHECK_VALUE(audio_renderer_);
+//  audio_render_->SetVolume(volume);
 }
 
 void MediaPlayer::SetMute(bool mute) {
-  CHECK_VALUE(audio_render_);
-  audio_render_->SetMute(mute);
+  CHECK_VALUE(audio_renderer_);
+//  audio_render_->SetMute(mute);
 }
 
 bool MediaPlayer::IsMuted() {
-  CHECK_VALUE_WITH_RETURN(audio_render_, true);
-  return audio_render_->IsMute();
+  CHECK_VALUE_WITH_RETURN(audio_renderer_, true);
+//  return audio_render_->IsMute();
 }
 
 double MediaPlayer::GetDuration() {
@@ -348,8 +360,8 @@ VideoRenderBase *MediaPlayer::GetVideoRender() {
 void MediaPlayer::DoSomeWork() {
   std::lock_guard<std::mutex> lock(player_mutex_);
   bool render_allow_playback = true;
-  if (audio_render_) {
-    render_allow_playback &= audio_render_->IsReady();
+  if (audio_renderer_) {
+//    render_allow_playback &= audio_render_->IsReady();
   }
   if (video_render_) {
     render_allow_playback &= video_render_->IsReady();
@@ -376,8 +388,8 @@ void MediaPlayer::ChangePlaybackState(MediaPlayerState state) {
 void MediaPlayer::StopRenders() {
   av_log(nullptr, AV_LOG_INFO, "StopRenders\n");
   PauseClock(true);
-  if (audio_render_) {
-    audio_render_->Stop();
+  if (audio_renderer_) {
+//    audio_render_->Stop();
   }
   if (video_render_) {
     video_render_->Stop();
@@ -387,8 +399,8 @@ void MediaPlayer::StopRenders() {
 void MediaPlayer::StartRenders() {
   av_log(nullptr, AV_LOG_INFO, "StartRenders\n");
   PauseClock(false);
-  if (audio_render_) {
-    audio_render_->Start();
+  if (audio_renderer_) {
+//    audio_render_->Start();
   }
   if (video_render_) {
     video_render_->Start();
@@ -404,7 +416,7 @@ bool MediaPlayer::ShouldTransitionToReadyState(bool render_allow_play) {
   }
 
   bool ready = true;
-  if (audio_render_ && data_source->ContainAudioStream()) {
+  if (audio_renderer_ && data_source->ContainAudioStream()) {
     ready &= audio_pkt_queue->nb_packets > 2;
   }
   if (video_render_ && data_source->ContainVideoStream()) {

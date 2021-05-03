@@ -34,7 +34,8 @@ static int is_realtime(AVFormatContext *s) {
   return 0;
 }
 
-DataSource1::DataSource1(const char *filename, AVInputFormat *format) : in_format(format), video_decode_config_() {
+DataSource1::DataSource1(const char *filename, AVInputFormat *format)
+    : in_format(format), video_decode_config_(), audio_decode_config_() {
   memset(wanted_stream_spec, 0, sizeof wanted_stream_spec);
   this->filename = av_strdup(filename);
   continue_read_thread_ = std::make_shared<std::condition_variable_any>();
@@ -212,10 +213,9 @@ void DataSource1::OnStreamInfoLoad(const int st_index[AVMEDIA_TYPE_NB]) {
 
 int DataSource1::OpenStreams(const int st_index[AVMEDIA_TYPE_NB]) {
   if (st_index[AVMEDIA_TYPE_AUDIO] >= 0) {
-    OpenComponentStream(st_index[AVMEDIA_TYPE_AUDIO], AVMEDIA_TYPE_AUDIO);
+    InitAudioDecoder(st_index[AVMEDIA_TYPE_AUDIO]);
   }
   if (st_index[AVMEDIA_TYPE_VIDEO] >= 0) {
-//    OpenComponentStream(st_index[AVMEDIA_TYPE_VIDEO], AVMEDIA_TYPE_VIDEO);
     InitVideoDecoder(st_index[AVMEDIA_TYPE_VIDEO]);
   }
   if (st_index[AVMEDIA_TYPE_SUBTITLE] >= 0) {
@@ -239,17 +239,42 @@ void DataSource1::InitVideoDecoder(int stream_index) {
   DCHECK(stream);
 
   double max_frame_duration = (format_ctx_->iformat->flags & AVFMT_TS_DISCONT) ? 10.0 : 3600.0;
-  VideoDecodeConfig decode_config(*stream->codecpar, stream->time_base,
-                                  av_guess_frame_rate(format_ctx_, stream, nullptr),
-                                  max_frame_duration);
   video_stream_index = stream_index;
   video_stream_ = stream;
   video_queue->time_base = stream->time_base;
 
-  video_demuxer_stream_ = std::make_shared<DemuxerStream>(stream, video_queue.get());
-  video_decode_config_ = VideoDecodeConfig(*stream->codecpar, stream->time_base,
-                                           av_guess_frame_rate(format_ctx_, stream, nullptr),
-                                           max_frame_duration);
+  auto video_decode_config = std::make_unique<VideoDecodeConfig>(
+      *stream->codecpar, stream->time_base,
+      av_guess_frame_rate(format_ctx_, stream, nullptr),
+      max_frame_duration);
+  video_decode_config_ = *video_decode_config;
+  video_demuxer_stream_ = std::make_shared<DemuxerStream>(stream,
+                                                          video_queue.get(),
+                                                          DemuxerStream::Video,
+                                                          nullptr,
+                                                          std::move(video_decode_config));
+}
+
+void DataSource1::InitAudioDecoder(int stream_index) {
+  DCHECK_GE(stream_index, 0);
+  DCHECK_LT(stream_index, format_ctx_->nb_streams);
+  if (stream_index < 0 || stream_index >= format_ctx_->nb_streams) {
+    return;
+  }
+  DCHECK(decoder_ctx) << "can not open stream (" << stream_index << ").";
+  auto *stream = format_ctx_->streams[stream_index];
+  DCHECK(stream);
+
+  audio_stream_index = stream_index;
+  audio_stream_ = stream;
+  audio_queue->time_base = stream->time_base;
+
+  audio_decode_config_ = AudioDecodeConfig(*stream->codecpar, stream->time_base);
+  audio_demuxer_stream_ = std::make_shared<DemuxerStream>(
+      stream, audio_queue.get(), DemuxerStream::Audio,
+      std::make_unique<AudioDecodeConfig>(*stream->codecpar, stream->time_base),
+      nullptr);
+
 }
 
 int DataSource1::OpenComponentStream(int stream_index, AVMediaType media_type) {

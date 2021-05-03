@@ -34,9 +34,6 @@ class DecoderContext {
   bool fast = false;
 
  private:
-  AudioDecoder *audio_decoder = nullptr;
-
-  std::shared_ptr<BasicAudioRender> audio_render;
 
   std::shared_ptr<MediaClock> clock_ctx;
 
@@ -51,7 +48,6 @@ class DecoderContext {
  public:
 
   DecoderContext(
-      std::shared_ptr<BasicAudioRender> audio_render_,
       std::shared_ptr<MediaClock> clock_ctx_,
       std::function<void()> on_decoder_blocking
   );

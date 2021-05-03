@@ -72,6 +72,7 @@ int DecoderContext::StartDecoder(std::unique_ptr<DecodeParams> decode_params) {
 
 int DecoderContext::StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx,
                                       std::unique_ptr<DecodeParams> decode_params) {
+#if 0
   CHECK_VALUE_WITH_RETURN(audio_render, -1);
   int sample_rate, nb_channels;
   int64_t channel_layout;
@@ -103,26 +104,20 @@ int DecoderContext::StartAudioDecoder(unique_ptr_d<AVCodecContext> codec_ctx,
   audio_decoder = new AudioDecoder(std::move(codec_ctx), std::move(decode_params),
                                    audio_render, on_decoder_blocking_);
   audio_render->Start();
+#endif
   return 0;
 }
 
 DecoderContext::DecoderContext(
-    std::shared_ptr<BasicAudioRender> audio_render_,
     std::shared_ptr<MediaClock> clock_ctx_,
     std::function<void()> on_decoder_blocking
-) : audio_render(std::move(audio_render_)),
+) :
     clock_ctx(std::move(clock_ctx_)),
     on_decoder_blocking_(std::move(on_decoder_blocking)) {
 }
 
 DecoderContext::~DecoderContext() {
-  if (audio_decoder) {
-    audio_decoder->Abort(nullptr);
-  }
-  if (audio_decoder) {
-    audio_decoder->Join();
-    delete audio_decoder;
-  }
+
 }
 
 }

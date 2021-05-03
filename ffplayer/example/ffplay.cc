@@ -14,6 +14,7 @@
 #include "sdl_utils.h"
 #include "audio_render_sdl.h"
 #include "render_video_sdl.h"
+#include "sdl_audio_renderer_sink.h"
 
 extern "C" {
 #include "libavutil/avstring.h"
@@ -405,8 +406,8 @@ int main(int argc, char *argv[]) {
   }
 
   auto video_render = std::make_unique<SdlVideoRender>(std::move(renderer));
-  auto audio_render = std::make_unique<AudioRenderSdl>();
-  auto player = std::make_shared<MediaPlayer>(std::move(video_render), std::move(audio_render));
+  auto audio_renderer_sink = std::make_unique<SdlAudioRendererSink>();
+  auto player = std::make_shared<MediaPlayer>(std::move(video_render), std::move(audio_renderer_sink));
   player->start_configuration = config;
   player->SetVolume(50);
 

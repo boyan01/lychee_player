@@ -50,9 +50,9 @@ class CircularDeque {
     return true;
   }
 
-  T &PopFront() {
+  T PopFront() {
     DCHECK(!empty_);
-    auto item = GetFront();
+    auto item = deque_[front_];
     DeleteFront();
     return item;
   }

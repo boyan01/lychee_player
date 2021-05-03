@@ -122,7 +122,7 @@ int BasicAudioRender::OnBeforeDecodeFrame() {
   return 0;
 }
 
-#define ADJUST_VOLUME(s, v) (s = (s*v)/MAX_AUDIO_VOLUME)
+#define ADJUST_VOLUME(s, v) ((s) = ((s)*(v))/MAX_AUDIO_VOLUME)
 
 // from SDL_MixAudioFormat#AUDIO_S16LSB
 void BasicAudioRender::MixAudioVolume(uint8_t *dst, const uint8_t *src, uint32_t len, int volume) {
@@ -134,9 +134,9 @@ void BasicAudioRender::MixAudioVolume(uint8_t *dst, const uint8_t *src, uint32_t
 
   len /= 2;
   while (len--) {
-    src1 = ((src[1]) << 8 | src[0]);
+    src1 = (int16_t) ((src[1]) << 8 | src[0]);
     ADJUST_VOLUME(src1, volume);
-    src2 = ((dst[1]) << 8 | dst[0]);
+    src2 = (int16_t) ((dst[1]) << 8 | dst[0]);
     src += 2;
     dst_sample = src1 + src2;
     if (dst_sample > max_audioval) {
