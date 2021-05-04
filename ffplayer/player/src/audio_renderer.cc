@@ -20,7 +20,6 @@ AudioRenderer::~AudioRenderer() {
 void AudioRenderer::Initialize(DemuxerStream *stream,
                                std::shared_ptr<MediaClock> media_clock,
                                InitCallback init_callback) {
-  task_runner_ = TaskRunner::current();
   DCHECK(task_runner_);
   media_clock_ = std::move(media_clock);
   demuxer_stream_ = stream;
