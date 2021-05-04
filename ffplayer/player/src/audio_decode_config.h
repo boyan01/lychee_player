@@ -39,6 +39,10 @@ class AudioDecodeConfig {
     return codec_parameters_.channel_layout;
   }
 
+  int channels() const {
+    return codec_parameters_.channels;
+  }
+
   int samples_per_second() const {
     return codec_parameters_.sample_rate;
   }

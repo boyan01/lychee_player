@@ -66,7 +66,38 @@ void AudioRenderer::OnNewFrameAvailable(AudioDecoderStream::ReadResult result) {
 
 int AudioRenderer::Render(double delay, uint8 *stream, int len) {
 
-  return 0;
+  DCHECK_GT(len, 0);
+  DCHECK(stream);
+
+  double audio_clock_time = 0;
+  auto render_callback_time = get_relative_time();
+
+  auto len_flush = 0;
+  while (len_flush < len) {
+    if (audio_buffer_.IsEmpty()) {
+      break;
+    }
+    auto buffer = audio_buffer_.GetFront();
+    if (audio_clock_time == 0) {
+      audio_clock_time = buffer->PtsFromCursor() - delay;
+    }
+
+    auto flushed = buffer->Read(stream + len_flush, len - len_flush);
+    if (flushed == buffer->size()) {
+      audio_buffer_.DeleteFront();
+    }
+    len_flush += flushed;
+  }
+
+  if (audio_clock_time != 0) {
+    media_clock_->GetAudioClock()->SetClockAt(audio_clock_time, 0, render_callback_time);
+    media_clock_->GetExtClock()->Sync(media_clock_->GetAudioClock());
+  }
+
+  task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
+
+
+  return len_flush;
 }
 
 void AudioRenderer::OnRenderError() {
@@ -74,7 +105,7 @@ void AudioRenderer::OnRenderError() {
 }
 
 void AudioRenderer::Start() {
-
+  sink_->Play();
 }
 
 void AudioRenderer::Stop() {

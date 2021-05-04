@@ -53,12 +53,33 @@ int SdlAudioRendererSink::OpenAudioDevices(int wanted_nb_channels, int wanted_sa
     return -1;
   }
 
+  sample_rate_ = spec.freq;
   return int(spec.size);
 }
 
 void SdlAudioRendererSink::ReadAudioData(Uint8 *stream, int len) {
+  DCHECK_GT(sample_rate_, 0) << "Invalid sample rate. " << sample_rate_;
   auto delay = (2.0 * hw_audio_buffer_size_) / sample_rate_;
   render_callback_->Render(delay, stream, len);
+}
+
+void SdlAudioRendererSink::Start() {
+
+}
+
+void SdlAudioRendererSink::Play() {
+  DCHECK_GT(audio_device_id_, 0);
+  SDL_PauseAudioDevice(audio_device_id_, 0);
+}
+
+void SdlAudioRendererSink::Pause() {
+  DCHECK_GT(audio_device_id_, 0);
+  SDL_PauseAudioDevice(audio_device_id_, 1);
+}
+
+void SdlAudioRendererSink::Stop() {
+  DCHECK_GT(audio_device_id_, 0);
+  SDL_CloseAudioDevice(audio_device_id_);
 }
 
 }

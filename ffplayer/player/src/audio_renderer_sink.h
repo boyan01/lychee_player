@@ -35,6 +35,14 @@ class AudioRendererSink {
    */
   virtual bool SetVolume(double volume) = 0;
 
+  virtual void Start() = 0;
+
+  virtual void Play() = 0;
+
+  virtual void Pause() = 0;
+
+  virtual void Stop() = 0;
+
   virtual ~AudioRendererSink() {}
 
 };

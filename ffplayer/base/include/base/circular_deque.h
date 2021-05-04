@@ -54,7 +54,7 @@ class CircularDeque {
     DCHECK(!empty_);
     auto item = deque_[front_];
     DeleteFront();
-    return item;
+    return std::move(item);
   }
 
   bool DeleteLast() {

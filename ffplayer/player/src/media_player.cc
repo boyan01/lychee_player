@@ -89,6 +89,9 @@ void MediaPlayer::SetPlayWhenReadyTask(bool play_when_ready) {
   if (data_source) {
     data_source->paused = !play_when_ready;
   }
+  if (state_ != kPrepared) {
+    return;
+  }
   if (!play_when_ready) {
     StopRenders();
   } else {
@@ -156,7 +159,6 @@ void MediaPlayer::OpenDataSourceTask(const char *filename) {
 void MediaPlayer::OnDataSourceOpen(int open_status) {
   DCHECK_EQ(state_, kPreparing);
   if (open_status >= 0) {
-    state_ = kPrepared;
     DLOG(INFO) << "Open DataSource Succeed";
     task_runner_->PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitVideoRender, shared_from_this()));
   } else {
@@ -193,6 +195,14 @@ void MediaPlayer::InitAudioRender() {
 
 void MediaPlayer::OnAudioRendererInitialized(bool success) {
   DLOG(INFO) << success;
+  if (success) {
+    state_ = kPrepared;
+    if (play_when_ready_) {
+      StartRenders();
+    }
+  } else {
+    state_ = kIdle;
+  }
 }
 
 void MediaPlayer::DumpStatus() {
@@ -349,6 +359,7 @@ void MediaPlayer::GlobalInit() {
   avdevice_register_all();
 #endif
   avformat_network_init();
+  google::InitGoogleLogging("media_player");
 
 }
 
@@ -397,10 +408,10 @@ void MediaPlayer::StopRenders() {
 }
 
 void MediaPlayer::StartRenders() {
-  av_log(nullptr, AV_LOG_INFO, "StartRenders\n");
+  DLOG(INFO) << "StartRenders";
   PauseClock(false);
   if (audio_renderer_) {
-//    audio_render_->Start();
+    audio_renderer_->Start();
   }
   if (video_render_) {
     video_render_->Start();

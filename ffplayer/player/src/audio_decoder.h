@@ -9,6 +9,7 @@
 
 extern "C" {
 #include "libavcodec/avcodec.h"
+#include "libswresample/swresample.h"
 }
 
 #include "base/circular_deque.h"
@@ -46,6 +47,8 @@ class AudioDecoder2 {
   DemuxerStream *stream_ = nullptr;
 
   OutputCallback output_callback_;
+
+  struct SwrContext *swr_ctx = nullptr;
 
   bool OnFrameAvailable(AVFrame *frame);
 

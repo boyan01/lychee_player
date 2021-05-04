@@ -31,7 +31,8 @@ class DemuxerStream {
                 PacketQueue *packet_queue,
                 Type type,
                 std::unique_ptr<AudioDecodeConfig> audio_decode_config,
-                std::unique_ptr<VideoDecodeConfig> video_decode_config);
+                std::unique_ptr<VideoDecodeConfig> video_decode_config,
+                std::shared_ptr<std::condition_variable_any> continue_read_thread);
 
   AVStream *stream() const {
     return stream_;
@@ -42,7 +43,10 @@ class DemuxerStream {
   }
 
   bool ReadPacket(AVPacket *packet) {
-    auto ret = packet_queue_->Get(packet, true, nullptr, nullptr, nullptr);
+    auto ret = packet_queue_->Get(packet, false, nullptr, nullptr, nullptr);
+    if (ret <= 0) {
+      continue_read_thread_->notify_all();
+    }
     return ret > 0;
   }
 
@@ -57,6 +61,8 @@ class DemuxerStream {
   std::unique_ptr<AudioDecodeConfig> audio_decode_config_;
   std::unique_ptr<VideoDecodeConfig> video_decode_config_;
   Type type_;
+
+  std::shared_ptr<std::condition_variable_any> continue_read_thread_;
 
   DISALLOW_COPY_AND_ASSIGN(DemuxerStream);
 

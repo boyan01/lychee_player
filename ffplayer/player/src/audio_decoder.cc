@@ -81,7 +81,37 @@ void AudioDecoder2::Decode(const AVPacket *packet) {
 }
 
 bool AudioDecoder2::OnFrameAvailable(AVFrame *frame) {
-  output_callback_(std::make_shared<AudioBuffer>());
+  auto bytes_per_sec = av_samples_get_buffer_size(nullptr, frame->channels, frame->sample_rate,
+                                                  AV_SAMPLE_FMT_S16, 1);
+
+//  if (!swr_ctx || swr_init(swr_ctx) < 0) {
+//    DLOG(ERROR) << "Cannot create sample rate converter for conversion of "
+//                << frame->sample_rate << " Hz "
+//                << av_get_sample_fmt_name(static_cast<AVSampleFormat>(frame->format))
+//                << frame->channels << " channels to "
+//                << audio_decode_config_.samples_per_second() << " Hz "
+//                << av_get_sample_fmt_name(AV_SAMPLE_FMT_S16) << "%s "
+//                << audio_decode_config_.codec_parameters().channels << " channels!";
+//    swr_free(&swr_ctx);
+//    return false;
+//  }
+//
+//  if (swr_ctx) {
+//    const auto **in = (const uint8_t **) frame->extended_data;
+//    int64_t out_count = frame->nb_samples * audio_decode_config_.samples_per_second() / frame->sample_rate + 256;
+//    int out_size = av_samples_get_buffer_size(nullptr,
+//                                              audio_decode_config_.channels(), out_count, AV_SAMPLE_FMT_S16, 0);
+//    DCHECK_GT(out_size, 0) << "av_samples_get_buffer_size() failed";
+//
+//  }
+
+  auto size = frame->linesize[0];
+
+  uint8 *data = static_cast<uint8 *>(malloc(sizeof(uint8) * size));
+  memcpy(data, frame->data[0], size);
+  output_callback_(std::make_shared<AudioBuffer>(
+      data, size, frame->pts, bytes_per_sec
+  ));
 
   return true;
 }

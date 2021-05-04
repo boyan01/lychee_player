@@ -19,6 +19,11 @@ class SdlAudioRendererSink : public AudioRendererSink {
 
   bool SetVolume(double volume) override;
 
+  void Start() override;
+  void Play() override;
+  void Pause() override;
+  void Stop() override;
+
  private:
 
   RenderCallback *render_callback_;

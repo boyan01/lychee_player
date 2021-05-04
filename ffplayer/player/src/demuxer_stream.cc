@@ -13,12 +13,14 @@ DemuxerStream::DemuxerStream(
     PacketQueue *packet_queue,
     Type type,
     std::unique_ptr<AudioDecodeConfig> audio_decode_config,
-    std::unique_ptr<VideoDecodeConfig> video_decode_config
+    std::unique_ptr<VideoDecodeConfig> video_decode_config,
+    std::shared_ptr<std::condition_variable_any> continue_read_thread
 ) : stream_(stream),
     packet_queue_(packet_queue),
     type_(type),
     audio_decode_config_(std::move(audio_decode_config)),
-    video_decode_config_(std::move(video_decode_config)) {
+    video_decode_config_(std::move(video_decode_config)),
+    continue_read_thread_(std::move(continue_read_thread)) {
 
 }
 
