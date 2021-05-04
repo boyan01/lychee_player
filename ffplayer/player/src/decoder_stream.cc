@@ -25,7 +25,7 @@ void DecoderStream<StreamType>::Initialize(DemuxerStream *stream, DecoderStream:
   traits_->InitializeDecoder(
       decoder_.get(), stream,
       bind_weak(&DecoderStream<StreamType>::OnFrameAvailable, this->shared_from_this()));
-  auto init_callback_bound = BindToCurrentLoop(std::move(init_callback));
+  auto init_callback_bound = BindToLoop(task_runner_, std::move(init_callback));
   init_callback_bound(true);
 }
 
