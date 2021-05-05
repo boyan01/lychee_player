@@ -11,8 +11,10 @@
 
 #include "ffp_packet_queue.h"
 #include "media_clock.h"
-#include "decoder_ctx.h"
 #include "ffplayer.h"
+#include "ffp_msg_queue.h"
+#include "audio_decode_config.h"
+#include "demuxer_stream.h"
 
 extern "C" {
 #include "libavformat/avformat.h"
@@ -39,8 +41,6 @@ class DataSource1 {
   std::shared_ptr<MessageContext> msg_ctx;
 
   Clock *ext_clock;
-
-  std::shared_ptr<media::DecoderContext> decoder_ctx;
 
   std::function<void()> on_new_packet_send_;
 
@@ -90,17 +90,35 @@ class DataSource1 {
 
   // buffer infinite.
   bool infinite_buffer = false;
+
  public:
 
   DataSource1(const char *filename, AVInputFormat *format);
 
   ~DataSource1();
 
-  int Open();
+  using OpenCallback = std::function<void(int)>;
+  void Open(OpenCallback open_callback);
 
   bool ContainVideoStream();
 
   bool ContainAudioStream();
+
+  DemuxerStream *video_demuxer_stream() {
+    return video_demuxer_stream_.get();
+  }
+
+  VideoDecodeConfig video_decode_config() {
+    return video_decode_config_;
+  }
+
+  DemuxerStream *audio_demuxer_stream() {
+    return audio_demuxer_stream_.get();
+  }
+
+  const AudioDecodeConfig &audio_decode_config() {
+    return audio_decode_config_;
+  }
 
   bool ContainSubtitleStream();
 
@@ -112,6 +130,14 @@ class DataSource1 {
 
  private:
 
+  std::shared_ptr<DemuxerStream> video_demuxer_stream_;
+  std::shared_ptr<DemuxerStream> audio_demuxer_stream_;
+
+  VideoDecodeConfig video_decode_config_;
+  AudioDecodeConfig audio_decode_config_;
+
+  OpenCallback open_callback_;
+
   int PrepareFormatContext();
 
   void OnFormatContextOpen();
@@ -122,9 +148,11 @@ class DataSource1 {
 
   void OnStreamInfoLoad(const int st_index[AVMEDIA_TYPE_NB]);
 
-  int OpenStreams(const int st_index[AVMEDIA_TYPE_NB]);
+  void InitVideoDecoder(int stream_index);
 
-  int OpenComponentStream(int stream_index, AVMediaType media_type);
+  void InitAudioDecoder(int stream_index);
+
+  int OpenStreams(const int st_index[AVMEDIA_TYPE_NB]);
 
   void ReadStreams(std::mutex &read_mutex);
 

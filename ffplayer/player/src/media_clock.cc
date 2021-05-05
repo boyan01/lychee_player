@@ -49,8 +49,8 @@ void Clock::Sync(Clock *secondary) {
 }
 
 double Clock::GetClock() {
-  if (*queue_serial_ != serial)
-    return NAN;
+//  if (*queue_serial_ != serial)
+//    return NAN;
   if (paused) {
     return pts_;
   } else {

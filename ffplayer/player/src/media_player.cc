@@ -3,7 +3,12 @@
 //
 
 #include "media_player.h"
-#include "decoder_ctx.h"
+
+#include "ffp_utils.h"
+#include "ffp_define.h"
+
+#include "base/logging.h"
+#include "base/lambda.h"
 
 extern "C" {
 #include "libavutil/bprint.h"
@@ -12,24 +17,23 @@ extern "C" {
 namespace media {
 
 MediaPlayer::MediaPlayer(
-    std::unique_ptr<VideoRenderBase> video_render,
-    std::unique_ptr<BasicAudioRender> audio_render
-) : video_render_(std::move(video_render)), audio_render_(std::move(audio_render)), player_mutex_() {
-  message_context = std::make_shared<MessageContext>();
-  message_context->message_callback = [this](int what, int64_t arg1, int64_t arg2) {
-    switch (what) { // NOLINT(hicpp-multiway-paths-covered)
-      case MEDIA_MSG_DO_SOME_WORK: {
-//        DoSomeWork();
-        break;
-      }
-      default: {
-        if (message_callback_external_) {
-          message_callback_external_(what, arg1, arg2);
-        }
-        break;
-      }
-    }
-  };
+    std::unique_ptr<VideoRendererSink> video_renderer_sink,
+    std::shared_ptr<AudioRendererSink> audio_renderer_sink
+) {
+  task_runner_ = TaskRunner::prepare_looper("media_player");
+  task_runner_->PostTask(FROM_HERE, [&]() {
+    Initialize();
+  });
+//  decoder_task_runner_ = TaskRunner::prepare_looper("decoder");
+  audio_renderer_ =
+      std::make_shared<AudioRenderer>(TaskRunner::prepare_looper("audio_decoder"), std::move(audio_renderer_sink));
+  video_renderer_ =
+      std::make_shared<VideoRenderer>(TaskRunner::prepare_looper("video_decoder"), std::move(video_renderer_sink));
+}
+
+void MediaPlayer::Initialize() {
+  DCHECK_EQ(state_, kUninitialized);
+  DCHECK(task_runner_->BelongsToCurrentThread());
 
   audio_pkt_queue = std::make_shared<PacketQueue>();
   video_pkt_queue = std::make_shared<PacketQueue>();
@@ -57,33 +61,37 @@ MediaPlayer::MediaPlayer(
   };
   clock_context = std::make_shared<MediaClock>(&audio_pkt_queue->serial, &video_pkt_queue->serial,
                                                sync_type_confirm);
+  task_runner_->PostTask(FROM_HERE, std::bind(&MediaPlayer::DumpMediaClockStatus, this));
 
-  if (audio_render_) {
-    audio_render_->SetRenderCallback([this]() {
-    });
-    audio_render_->Init(audio_pkt_queue, clock_context);
-  }
-  if (video_render_) {
-    video_render_->SetRenderCallback([this]() {
-    });
-    video_render_->Init(video_pkt_queue, clock_context, message_context);
-  }
+  state_ = kIdle;
 
-  decoder_context = std::make_shared<DecoderContext>(audio_render_, video_render_, clock_context, [this]() {
-    ChangePlaybackState(MediaPlayerState::BUFFERING);
-//    StopRenders();
+}
+
+MediaPlayer::~MediaPlayer() {
+  task_runner_->Quit();
+};
+
+void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
+  std::lock_guard<std::mutex> lock_guard(player_mutex_);
+  if (play_when_ready_pending_ == play_when_ready) {
+    return;
+  }
+  play_when_ready_pending_ = play_when_ready;
+  task_runner_->PostTask(FROM_HERE, [&]() {
+    SetPlayWhenReadyTask(play_when_ready_pending_);
   });
 }
 
-MediaPlayer::~MediaPlayer() = default;
-
-void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
+void MediaPlayer::SetPlayWhenReadyTask(bool play_when_ready) {
   if (play_when_ready_ == play_when_ready) {
     return;
   }
   play_when_ready_ = play_when_ready;
   if (data_source) {
     data_source->paused = !play_when_ready;
+  }
+  if (state_ != kPrepared) {
+    return;
   }
   if (!play_when_ready) {
     StopRenders();
@@ -97,9 +105,8 @@ void MediaPlayer::PauseClock(bool pause) {
     return;
   }
   if (clock_context->paused) {
-    if (video_render_) {
-      video_render_->frame_timer +=
-          av_gettime_relative() / 1000000.0 - clock_context->GetVideoClock()->last_updated;
+    if (video_renderer_) {
+//      video_renderer_->frame_timer_ += get_relative_time() - clock_context->GetVideoClock()->last_updated;
     }
     if (data_source && data_source->read_pause_return != AVERROR(ENOSYS)) {
       clock_context->GetVideoClock()->paused = 0;
@@ -120,6 +127,18 @@ int MediaPlayer::OpenDataSource(const char *filename) {
     av_log(nullptr, AV_LOG_ERROR, "can not open file multi-times.\n");
     return -1;
   }
+  task_runner_->PostTask(FROM_HERE, [&, filename]() {
+    OpenDataSourceTask(filename);
+  });
+  return 0;
+}
+
+void MediaPlayer::OpenDataSourceTask(const char *filename) {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(!data_source) << "can not open file multi-times.";
+  DCHECK_EQ(state_, kIdle);
+
+  DLOG(INFO) << "open file: " << filename;
 
   data_source = std::make_unique<DataSource1>(filename, nullptr);
   data_source->configuration = start_configuration;
@@ -127,16 +146,62 @@ int MediaPlayer::OpenDataSource(const char *filename) {
   data_source->video_queue = video_pkt_queue;
   data_source->subtitle_queue = subtitle_pkt_queue;
   data_source->ext_clock = clock_context->GetAudioClock();
-  data_source->decoder_ctx = decoder_context;
-  data_source->msg_ctx = message_context;
 
   data_source->on_new_packet_send_ = [this]() {
     CheckBuffering();
   };
 
-  data_source->Open();
+  data_source->Open(bind_weak(&MediaPlayer::OnDataSourceOpen, shared_from_this()));
   ChangePlaybackState(MediaPlayerState::BUFFERING);
-  return 0;
+  state_ = kPreparing;
+}
+
+void MediaPlayer::OnDataSourceOpen(int open_status) {
+  DCHECK_EQ(state_, kPreparing);
+  if (open_status >= 0) {
+    DLOG(INFO) << "Open DataSource Succeed";
+    task_runner_->PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitVideoRender, shared_from_this()));
+  } else {
+    state_ = kIdle;
+  }
+}
+
+void MediaPlayer::InitVideoRender() {
+  if (data_source->ContainVideoStream()) {
+    video_renderer_->Initialize(data_source->video_demuxer_stream(),
+                                clock_context,
+                                bind_weak(&MediaPlayer::OnVideoRendererInitialized, shared_from_this()));
+  } else {
+    DLOG(WARNING) << "data source does not contains video stream";
+    task_runner_->PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitAudioRender, shared_from_this()));
+  }
+}
+
+void MediaPlayer::OnVideoRendererInitialized(bool success) {
+  if (!success) {
+    state_ = kIdle;
+    return;
+  }
+  task_runner_->PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitAudioRender, shared_from_this()));
+}
+
+void MediaPlayer::InitAudioRender() {
+  if (data_source->ContainAudioStream()) {
+    audio_renderer_->Initialize(data_source->audio_demuxer_stream(), clock_context,
+                                bind_weak(&MediaPlayer::OnAudioRendererInitialized, shared_from_this()));
+  }
+}
+
+void MediaPlayer::OnAudioRendererInitialized(bool success) {
+  DLOG(INFO) << success;
+  if (success) {
+    state_ = kPrepared;
+    if (play_when_ready_) {
+      StartRenders();
+    }
+  } else {
+    state_ = kIdle;
+  }
 }
 
 void MediaPlayer::DumpStatus() {
@@ -204,6 +269,10 @@ void MediaPlayer::DumpStatus() {
 }
 
 double MediaPlayer::GetCurrentPosition() {
+  if (state_ == kUninitialized) {
+    return 0;
+  }
+
   double position = clock_context->GetMasterClock();
   if (isnan(position)) {
     if (data_source) {
@@ -216,23 +285,23 @@ double MediaPlayer::GetCurrentPosition() {
 }
 
 int MediaPlayer::GetVolume() {
-  CHECK_VALUE_WITH_RETURN(audio_render_, 0);
-  return audio_render_->GetVolume();
+  CHECK_VALUE_WITH_RETURN(audio_renderer_, 0);
+//  return audio_render_->GetVolume();
 }
 
 void MediaPlayer::SetVolume(int volume) {
-  CHECK_VALUE(audio_render_);
-  audio_render_->SetVolume(volume);
+  CHECK_VALUE(audio_renderer_);
+//  audio_render_->SetVolume(volume);
 }
 
 void MediaPlayer::SetMute(bool mute) {
-  CHECK_VALUE(audio_render_);
-  audio_render_->SetMute(mute);
+  CHECK_VALUE(audio_renderer_);
+//  audio_render_->SetMute(mute);
 }
 
 bool MediaPlayer::IsMuted() {
-  CHECK_VALUE_WITH_RETURN(audio_render_, true);
-  return audio_render_->IsMute();
+  CHECK_VALUE_WITH_RETURN(audio_renderer_, true);
+//  return audio_render_->IsMute();
 }
 
 double MediaPlayer::GetDuration() {
@@ -266,11 +335,6 @@ void MediaPlayer::SetMessageHandleCallback(std::function<void(int what, int64_t 
   message_callback_external_ = std::move(message_callback);
 }
 
-double MediaPlayer::GetVideoAspectRatio() {
-  CHECK_VALUE_WITH_RETURN(video_render_, 0);
-  return video_render_->GetVideoAspectRatio();
-}
-
 const char *MediaPlayer::GetUrl() {
   CHECK_VALUE_WITH_RETURN(data_source, nullptr);
   return data_source->GetFileName();
@@ -289,22 +353,18 @@ void MediaPlayer::GlobalInit() {
   avdevice_register_all();
 #endif
   avformat_network_init();
+  google::InitGoogleLogging("media_player");
 
-}
-
-VideoRenderBase *MediaPlayer::GetVideoRender() {
-  CHECK_VALUE_WITH_RETURN(video_render_, nullptr);
-  return video_render_.get();
 }
 
 void MediaPlayer::DoSomeWork() {
   std::lock_guard<std::mutex> lock(player_mutex_);
   bool render_allow_playback = true;
-  if (audio_render_) {
-    render_allow_playback &= audio_render_->IsReady();
+  if (audio_renderer_) {
+//    render_allow_playback &= audio_render_->IsReady();
   }
-  if (video_render_) {
-    render_allow_playback &= video_render_->IsReady();
+  if (video_renderer_) {
+//    render_allow_playback &= video_renderer_->IsReady();
   }
 
   if (player_state_ == MediaPlayerState::READY && !render_allow_playback) {
@@ -323,28 +383,27 @@ void MediaPlayer::ChangePlaybackState(MediaPlayerState state) {
     return;
   }
   player_state_ = state;
-  message_context->NotifyMsg(FFP_MSG_PLAYBACK_STATE_CHANGED, int(player_state_));
 }
 
 void MediaPlayer::StopRenders() {
   av_log(nullptr, AV_LOG_INFO, "StopRenders\n");
   PauseClock(true);
-  if (audio_render_) {
-    audio_render_->Stop();
+  if (audio_renderer_) {
+//    audio_render_->Stop();
   }
-  if (video_render_) {
-    video_render_->Stop();
+  if (video_renderer_) {
+    video_renderer_->Stop();
   }
 }
 
 void MediaPlayer::StartRenders() {
-  av_log(nullptr, AV_LOG_INFO, "StartRenders\n");
+  DLOG(INFO) << "StartRenders";
   PauseClock(false);
-  if (audio_render_) {
-    audio_render_->Start();
+  if (audio_renderer_) {
+    audio_renderer_->Start();
   }
-  if (video_render_) {
-    video_render_->Start();
+  if (video_renderer_) {
+    video_renderer_->Start();
   }
 }
 
@@ -357,10 +416,10 @@ bool MediaPlayer::ShouldTransitionToReadyState(bool render_allow_play) {
   }
 
   bool ready = true;
-  if (audio_render_ && data_source->ContainAudioStream()) {
+  if (audio_renderer_ && data_source->ContainAudioStream()) {
     ready &= audio_pkt_queue->nb_packets > 2;
   }
-  if (video_render_ && data_source->ContainVideoStream()) {
+  if (video_renderer_ && data_source->ContainVideoStream()) {
     ready &= video_pkt_queue->nb_packets > 2;
   }
   return ready;
@@ -383,7 +442,6 @@ void MediaPlayer::CheckBuffering() {
           (int64_t) (video_pkt_queue->last_pkt->pkt.pts + video_pkt_queue->last_pkt->pkt.duration);
     }
     buffered_position_ = duration;
-    message_context->NotifyMsg(FFP_MSG_BUFFERING_TIME_UPDATE, buffered_position_ * 1000);
     ChangePlaybackState(MediaPlayerState::READY);
     return;
   }
@@ -419,13 +477,11 @@ void MediaPlayer::CheckBuffering() {
   }
 
   if (cached_position == INT_MAX) {
-    av_log(nullptr, AV_LOG_WARNING, "can not determine buffering position");
+//    av_log(nullptr, AV_LOG_WARNING, "can not determine buffering position");
     return;
   }
 
   buffered_position_ = cached_position;
-  message_context->NotifyMsg(FFP_MSG_BUFFERING_TIME_UPDATE, buffered_position_ * 1000);
-
 #if 0
   av_log(nullptr,
          AV_LOG_INFO,
@@ -444,6 +500,26 @@ void MediaPlayer::CheckBuffering() {
     }
   }
 
+}
+void MediaPlayer::OnFirstFrameLoaded(int width, int height) {
+  if (on_video_size_changed_) {
+    on_video_size_changed_(width, height);
+  }
+}
+
+void MediaPlayer::OnFirstFrameRendered(int width, int height) {
+  if (on_video_size_changed_) {
+    on_video_size_changed_(width, height);
+  }
+
+}
+
+void MediaPlayer::DumpMediaClockStatus() {
+
+  DLOG(INFO) << "DumpMediaClockStatus: master clock = "
+             << clock_context->GetMasterClock();
+
+  task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(1000000), std::bind(&MediaPlayer::DumpMediaClockStatus, this));
 }
 
 }

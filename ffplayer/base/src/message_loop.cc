@@ -27,6 +27,20 @@ void MessageLoop::PostTask(const tracked_objects::Location &from_here, const Tas
   message_queue_.EnqueueMessage(message);
 }
 
+void MessageLoop::PostDelayedTask(const tracked_objects::Location &from_here,
+                                  TimeDelta delay,
+                                  const TaskClosure &task) {
+  Message message(task, from_here, delay);
+  message_queue_.EnqueueMessage(message);
+}
+
+void MessageLoop::Prepare() {
+  DCHECK(!prepared_);
+  prepared_ = true;
+  utility::update_thread_name(loop_name_);
+  thread_local_message_loop_ = this;
+}
+
 void MessageLoop::Loop() {
   for (;;) {
     Message *msg = message_queue_.next();
@@ -54,8 +68,7 @@ void MessageLoop::Quit() {
 MessageLoop *MessageLoop::prepare_looper(const char *loop_name) {
   auto *looper = new MessageLoop(loop_name);
   std::thread looper_th([looper]() {
-    utility::update_thread_name(looper->loop_name_);
-    thread_local_message_loop_ = looper;
+    looper->Prepare();
     looper->Loop();
   });
   looper_th.detach();

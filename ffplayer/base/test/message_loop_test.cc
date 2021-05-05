@@ -96,3 +96,23 @@ TEST_F(MessageLoopTest, BindToCurrent) {
 
 }
 
+TEST_F(MessageLoopTest, BindTo) {
+  testing::MockFunction<void(int)> function1;
+  testing::MockFunction<void(int)> function2;
+
+  testing::InSequence in_sequence;
+  EXPECT_CALL(function2, Call(0));
+  EXPECT_CALL(function1, Call(0));
+
+  message_loop_->PostTask(FROM_HERE, [&] {
+
+    auto function1_bound = media::BindToLoop(message_loop_, function1.AsStdFunction());
+    function1_bound(0);
+    function2.AsStdFunction()(0);
+
+  });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+}
+

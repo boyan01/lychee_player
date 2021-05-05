@@ -11,10 +11,10 @@ void Frame::Unref() {
   avsubtitle_free(&this->sub);
 }
 
-int FrameQueue::Init(PacketQueue *_pktq, int _max_size, int _keep_last) {
+int FrameQueue::Init(PacketQueue *_pktq, int _max_size, bool _keep_last) {
   this->pktq = _pktq;
   this->max_size = FFMIN(_max_size, FRAME_QUEUE_SIZE);
-  this->keep_last = !!_keep_last;
+  this->keep_last = _keep_last;
   for (int i = 0; i < this->max_size; i++)
     if (!(this->queue[i].frame = av_frame_alloc()))
       return AVERROR(ENOMEM);

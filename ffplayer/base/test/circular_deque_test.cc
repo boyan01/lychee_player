@@ -28,4 +28,13 @@ TEST(CircularDequeTest, Insert) {
   EXPECT_TRUE(deque.IsEmpty());
   EXPECT_FALSE(deque.IsFull());
 
+  deque.InsertFront(value);
+  deque.InsertFront(value);
+  deque.InsertFront(value);
+  EXPECT_EQ(deque.GetSize(), 3);
+
+  deque.Clear();
+  EXPECT_EQ(deque.GetSize(), 0);
+  EXPECT_EQ(deque.IsEmpty(), true);
+  EXPECT_EQ(deque.IsFull(), false);
 }

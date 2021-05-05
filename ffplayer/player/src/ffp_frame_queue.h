@@ -47,14 +47,14 @@ class FrameQueue {
   int windex = 0;
   int size = 0;
   int max_size = 0;
-  int keep_last = 0;
+  bool keep_last = false;
   int rindex_shown = 0;
   std::recursive_mutex mutex;
   std::condition_variable_any cond;
   PacketQueue *pktq = nullptr;
 
  public:
-  int Init(PacketQueue *_pktq, int _max_size, int _keep_last);
+  int Init(PacketQueue *_pktq, int _max_size, bool _keep_last);
 
   void Destroy();
 

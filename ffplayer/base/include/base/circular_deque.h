@@ -50,6 +50,13 @@ class CircularDeque {
     return true;
   }
 
+  T PopFront() {
+    DCHECK(!empty_);
+    auto item = deque_[front_];
+    DeleteFront();
+    return std::move(item);
+  }
+
   bool DeleteLast() {
     if (empty_) return false;
     behind_ = (behind_ - 1 + capacity_) % capacity_;
@@ -61,20 +68,44 @@ class CircularDeque {
   /**
    * @return The front item from the deque.
    */
-  T GetFront() const {
+  const T &GetFront() const {
+    return deque_[front_];
+  }
+
+  /**
+   * @return The front item from the deque.
+   */
+  T &GetFront() {
     return deque_[front_];
   }
 
   /**
    * Get the last item from the deque.
    */
-  T getRear() const {
+  const T &GetRear() const {
+    return deque_[(behind_ - 1 + capacity_) % capacity_];
+  }
+
+  T &GetRear() {
     return deque_[(behind_ - 1 + capacity_) % capacity_];
   }
 
   bool IsEmpty() const { return empty_; }
 
   bool IsFull() const { return full_; }
+
+  int GetSize() const {
+    if (empty_) return 0;
+    if (full_) return capacity_;
+    return abs(behind_ - front_);
+  }
+
+  void Clear() {
+    if (empty_) return;
+    full_ = false;
+    empty_ = true;
+    front_ = behind_ = 0;
+  }
 
  private:
   int capacity_;
