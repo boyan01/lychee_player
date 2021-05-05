@@ -7,8 +7,6 @@
 
 #include "base/basictypes.h"
 
-#include "render_audio_base.h"
-
 namespace media {
 
 class AudioRendererSink {

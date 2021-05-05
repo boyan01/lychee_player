@@ -4,8 +4,14 @@
 
 #include "sdl_audio_renderer_sink.h"
 
+extern "C" {
+#include <libavutil/common.h>
+}
+
 #include "base/logging.h"
 #include "base/bind_to_current_loop.h"
+
+#include "ffp_utils.h"
 
 namespace media {
 

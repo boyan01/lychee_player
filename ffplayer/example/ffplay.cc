@@ -12,7 +12,6 @@
 #include "ffp_utils.h"
 #include "media_player.h"
 #include "sdl_utils.h"
-#include "audio_render_sdl.h"
 #include "render_video_sdl.h"
 #include "sdl_audio_renderer_sink.h"
 
