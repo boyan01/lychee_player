@@ -488,7 +488,7 @@ void MediaPlayer::CheckBuffering() {
   }
 
   if (cached_position == INT_MAX) {
-    av_log(nullptr, AV_LOG_WARNING, "can not determine buffering position");
+//    av_log(nullptr, AV_LOG_WARNING, "can not determine buffering position");
     return;
   }
 

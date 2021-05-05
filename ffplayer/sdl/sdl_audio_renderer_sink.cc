@@ -37,8 +37,13 @@ int SdlAudioRendererSink::OpenAudioDevices(int wanted_nb_channels, int wanted_sa
   wanted_spec.samples = std::max(kSdlAudioMinBufferSize,
                                  2 << av_log2(wanted_spec.freq / kSdlAudioMaxCallbacksPerSec));
   wanted_spec.callback = [](void *userdata, Uint8 *stream, int len) {
+    int64 start = av_gettime_relative();
     auto *sink = static_cast<SdlAudioRendererSink *>(userdata);
     sink->ReadAudioData(stream, len);
+
+    DLOG_IF(INFO, (av_gettime_relative() - start) > 2000)
+            << "render consume time more than 2ms: " << double(av_gettime_relative() - start) / 1000.0 << "ms";
+
   };
   wanted_spec.userdata = this;
 
@@ -65,6 +70,9 @@ void SdlAudioRendererSink::ReadAudioData(Uint8 *stream, int len) {
     auto delay = (2.0 * hw_audio_buffer_size_ + read) / sample_rate_;
     read += render_callback_->Render(delay, stream, len - read);
   }
+
+  DCHECK_EQ(len, read);
+
 }
 
 void SdlAudioRendererSink::Start() {

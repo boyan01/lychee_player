@@ -48,11 +48,17 @@ class DecoderStream : public std::enable_shared_from_this<DecoderStream<StreamTy
 
   TaskRunner *task_runner_;
 
+  int pending_decode_requests_;
+
   void ReadFromDemuxerStream();
 
   void DecodeTask();
 
   void OnFrameAvailable(std::shared_ptr<Output> output);
+
+  int GetMaxDecodeRequests();
+
+  bool CanDecodeMore();
 
   DISALLOW_COPY_AND_ASSIGN(DecoderStream);
 

@@ -11,7 +11,7 @@
 namespace media {
 
 AudioRenderer::AudioRenderer(TaskRunner *task_runner, std::shared_ptr<AudioRendererSink> sink)
-    : task_runner_(task_runner), audio_buffer_(30000), sink_(std::move(sink)) {}
+    : task_runner_(task_runner), audio_buffer_(3), sink_(std::move(sink)) {}
 
 AudioRenderer::~AudioRenderer() {
 
@@ -62,14 +62,15 @@ void AudioRenderer::AttemptReadFrame() {
     return;
   }
 
-  DLOG(WARNING) << "read frames: " << audio_buffer_.GetSize();
-
   decoder_stream_->Read(bind_weak(&AudioRenderer::OnNewFrameAvailable, shared_from_this()));
 }
 
 void AudioRenderer::OnNewFrameAvailable(AudioDecoderStream::ReadResult result) {
   DLOG_IF(WARNING, audio_buffer_.IsFull()) << "OnNewFrameAvailable is full";
   audio_buffer_.InsertLast(std::move(result));
+  if (NeedReadStream()) {
+    AttemptReadFrame();
+  }
 }
 
 int AudioRenderer::Render(double delay, uint8 *stream, int len) {
@@ -121,7 +122,7 @@ void AudioRenderer::Stop() {
 
 bool AudioRenderer::NeedReadStream() {
   // FIXME temp solution.
-  return audio_buffer_.GetSize() < 3;
+  return !audio_buffer_.IsFull();
 }
 
 }
