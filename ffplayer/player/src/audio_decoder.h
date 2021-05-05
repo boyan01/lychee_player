@@ -20,6 +20,7 @@ extern "C" {
 #include "audio_buffer.h"
 #include "ffmpeg_deleters.h"
 #include "ffmpeg_decoding_loop.h"
+#include "audio_device_info.h"
 
 namespace media {
 
@@ -48,9 +49,13 @@ class AudioDecoder2 {
 
   OutputCallback output_callback_;
 
-  struct SwrContext *swr_ctx = nullptr;
+  struct SwrContext *swr_ctx_ = nullptr;
+
+  AudioDeviceInfo audio_device_info_;
 
   bool OnFrameAvailable(AVFrame *frame);
+
+  static int64 GetChannelLayout(AVFrame *frame);
 
   DISALLOW_COPY_AND_ASSIGN(AudioDecoder2);
 

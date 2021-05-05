@@ -8,12 +8,11 @@
 
 namespace media {
 
-
 AudioBuffer::AudioBuffer(uint8 *data, int size, double pts, int bytes_per_sec)
     : data_(data), size_(size), pts_(pts), bytes_per_sec_(bytes_per_sec) {}
 
 AudioBuffer::~AudioBuffer() {
-
+  free(data_);
 }
 
 int AudioBuffer::Read(uint8 *dest, int size) {
@@ -25,7 +24,5 @@ int AudioBuffer::Read(uint8 *dest, int size) {
   read_cursor_ += flush_size;
   return flush_size;
 }
-
-
 
 }

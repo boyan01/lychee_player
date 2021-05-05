@@ -56,6 +56,8 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
 
   void OnNewFrameAvailable(AudioDecoderStream::ReadResult result);
 
+  bool NeedReadStream();
+
   DISALLOW_COPY_AND_ASSIGN(AudioRenderer);
 
 };

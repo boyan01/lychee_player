@@ -14,7 +14,7 @@ namespace media {
 template<DemuxerStream::Type StreamType>
 DecoderStream<StreamType>::DecoderStream(std::unique_ptr<DecoderStreamTraits<StreamType>> traits,
                                          TaskRunner *task_runner)
-    : traits_(std::move(traits)), task_runner_(task_runner), outputs_(3) {}
+    : traits_(std::move(traits)), task_runner_(task_runner), outputs_(300000) {}
 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::Initialize(DemuxerStream *stream, DecoderStream::InitCallback init_callback) {
@@ -42,7 +42,9 @@ void DecoderStream<StreamType>::Read(DecoderStream::ReadCallback read_callback) 
 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::ReadFromDemuxerStream() {
-
+  if (outputs_.GetSize() > 3) {
+    return;
+  }
   task_runner_->PostTask(FROM_HERE, bind_weak(&DecoderStream<StreamType>::DecodeTask, this->shared_from_this()));
 
 }
@@ -65,6 +67,8 @@ void DecoderStream<StreamType>::DecodeTask() {
 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::OnFrameAvailable(std::shared_ptr<Output> output) {
+  DLOG_IF(WARNING, outputs_.IsFull()) << "OnFrameAvailable but outputs pool is full";
+
   outputs_.InsertLast(output);
   if (read_callback_) {
     std::move(read_callback_)(std::move(outputs_.PopFront()));

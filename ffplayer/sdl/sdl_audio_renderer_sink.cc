@@ -59,8 +59,12 @@ int SdlAudioRendererSink::OpenAudioDevices(int wanted_nb_channels, int wanted_sa
 
 void SdlAudioRendererSink::ReadAudioData(Uint8 *stream, int len) {
   DCHECK_GT(sample_rate_, 0) << "Invalid sample rate. " << sample_rate_;
-  auto delay = (2.0 * hw_audio_buffer_size_) / sample_rate_;
-  render_callback_->Render(delay, stream, len);
+  auto read = 0;
+
+  while (read < len) {
+    auto delay = (2.0 * hw_audio_buffer_size_ + read) / sample_rate_;
+    read += render_callback_->Render(delay, stream, len - read);
+  }
 }
 
 void SdlAudioRendererSink::Start() {
