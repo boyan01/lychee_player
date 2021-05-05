@@ -7,7 +7,7 @@
 #include "ffp_utils.h"
 
 #include "media_player.h"
-#include "decoder_base.h"
+#include "ffp_define.h"
 
 #include "base/logging.h"
 
@@ -219,7 +219,7 @@ int DataSource1::OpenStreams(const int st_index[AVMEDIA_TYPE_NB]) {
     InitVideoDecoder(st_index[AVMEDIA_TYPE_VIDEO]);
   }
   if (st_index[AVMEDIA_TYPE_SUBTITLE] >= 0) {
-    OpenComponentStream(st_index[AVMEDIA_TYPE_SUBTITLE], AVMEDIA_TYPE_SUBTITLE);
+    // ignore.
   }
   if (video_stream_index < 0 && audio_stream_index < 0) {
     av_log(nullptr, AV_LOG_FATAL, "Failed to open file '%s' or configure filtergraph\n", filename);
@@ -234,7 +234,6 @@ void DataSource1::InitVideoDecoder(int stream_index) {
   if (stream_index < 0 || stream_index >= format_ctx_->nb_streams) {
     return;
   }
-  DCHECK(decoder_ctx) << "can not open stream(" << stream_index << ").";
   auto *stream = format_ctx_->streams[stream_index];
   DCHECK(stream);
 
@@ -259,7 +258,6 @@ void DataSource1::InitAudioDecoder(int stream_index) {
   if (stream_index < 0 || stream_index >= format_ctx_->nb_streams) {
     return;
   }
-  DCHECK(decoder_ctx) << "can not open stream (" << stream_index << ").";
   auto *stream = format_ctx_->streams[stream_index];
   DCHECK(stream);
 
@@ -273,68 +271,6 @@ void DataSource1::InitAudioDecoder(int stream_index) {
       std::make_unique<AudioDecodeConfig>(*stream->codecpar, stream->time_base),
       nullptr, continue_read_thread_);
 
-}
-
-int DataSource1::OpenComponentStream(int stream_index, AVMediaType media_type) {
-  if (decoder_ctx == nullptr) {
-    av_log(nullptr, AV_LOG_ERROR, "can not open stream(%d) cause decoder_ctx is null.\n", stream_index);
-    return -1;
-  }
-  if (stream_index < 0 || stream_index >= format_ctx_->nb_streams) {
-    return -1;
-  }
-  auto stream = format_ctx_->streams[stream_index];
-
-  std::unique_ptr<media::DecodeParams> params;
-  switch (media_type) {
-    case AVMEDIA_TYPE_VIDEO:
-      params = std::make_unique<media::DecodeParams>(video_queue,
-                                                     continue_read_thread_,
-                                                     &format_ctx_,
-                                                     stream_index);
-      break;
-    case AVMEDIA_TYPE_AUDIO:
-      params = std::make_unique<media::DecodeParams>(audio_queue,
-                                                     continue_read_thread_,
-                                                     &format_ctx_,
-                                                     stream_index);
-      params->audio_follow_stream_start_pts =
-          (format_ctx_->iformat->flags & (AVFMT_NOBINSEARCH | AVFMT_NOGENSEARCH | AVFMT_NO_BYTE_SEEK))
-              && format_ctx_->iformat->read_seek;
-      break;
-    case AVMEDIA_TYPE_SUBTITLE:
-      params = std::make_unique<media::DecodeParams>(subtitle_queue,
-                                                     continue_read_thread_,
-                                                     &format_ctx_,
-                                                     stream_index);
-      break;
-    default:return -1;
-  }
-
-  if (decoder_ctx->StartDecoder(std::move(params)) >= 0) {
-    switch (media_type) {
-      case AVMEDIA_TYPE_VIDEO: {
-        video_stream_index = stream_index;
-        video_stream_ = stream;
-        video_queue->time_base = stream->time_base;
-        break;
-      }
-      case AVMEDIA_TYPE_AUDIO: {
-        audio_stream_index = stream_index;
-        audio_stream_ = stream;
-        audio_queue->time_base = stream->time_base;
-        break;
-      }
-      case AVMEDIA_TYPE_SUBTITLE: {
-        subtitle_stream_index = stream_index;
-        subtitle_stream_ = stream;
-        subtitle_queue->time_base = stream->time_base;
-        break;
-      }
-      default:break;
-    }
-  }
-  return 0;
 }
 
 void DataSource1::ReadStreams(std::mutex &read_mutex) {

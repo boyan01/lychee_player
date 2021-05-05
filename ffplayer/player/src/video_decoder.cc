@@ -6,6 +6,8 @@
 
 #include "base/logging.h"
 
+#include "ffp_utils.h"
+
 namespace media {
 
 VideoDecoder2::VideoDecoder2() {
@@ -42,8 +44,8 @@ int VideoDecoder2::Initialize(VideoDecodeConfig config,
   codec_context_->codec_id = codec->id;
   int stream_lower = config.low_res();
   DCHECK_LE(stream_lower, codec->max_lowres)
-      << "The maximum value for lowres supported by the decoder is " << codec->max_lowres
-      << ", but is " << stream_lower;
+    << "The maximum value for lowres supported by the decoder is " << codec->max_lowres
+    << ", but is " << stream_lower;
   if (stream_lower > codec->max_lowres) {
     stream_lower = codec->max_lowres;
   }

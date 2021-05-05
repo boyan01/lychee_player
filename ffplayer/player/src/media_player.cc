@@ -3,7 +3,9 @@
 //
 
 #include "media_player.h"
-#include "decoder_ctx.h"
+
+#include "ffp_utils.h"
+#include "ffp_define.h"
 
 #include "base/logging.h"
 #include "base/lambda.h"
@@ -60,11 +62,6 @@ void MediaPlayer::Initialize() {
   clock_context = std::make_shared<MediaClock>(&audio_pkt_queue->serial, &video_pkt_queue->serial,
                                                sync_type_confirm);
   task_runner_->PostTask(FROM_HERE, std::bind(&MediaPlayer::DumpMediaClockStatus, this));
-
-  decoder_context = std::make_shared<DecoderContext>(clock_context, [this]() {
-    ChangePlaybackState(MediaPlayerState::BUFFERING);
-//    StopRenders();
-  });
 
   state_ = kIdle;
 
@@ -149,7 +146,6 @@ void MediaPlayer::OpenDataSourceTask(const char *filename) {
   data_source->video_queue = video_pkt_queue;
   data_source->subtitle_queue = subtitle_pkt_queue;
   data_source->ext_clock = clock_context->GetAudioClock();
-  data_source->decoder_ctx = decoder_context;
 
   data_source->on_new_packet_send_ = [this]() {
     CheckBuffering();

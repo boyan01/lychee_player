@@ -6,6 +6,8 @@
 #include "base/lambda.h"
 #include "base/bind_to_current_loop.h"
 
+#include "ffp_utils.h"
+
 #include "audio_renderer.h"
 
 namespace media {

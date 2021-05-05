@@ -11,10 +11,10 @@
 
 #include "ffp_packet_queue.h"
 #include "media_clock.h"
-#include "decoder_ctx.h"
 #include "ffplayer.h"
 #include "ffp_msg_queue.h"
 #include "audio_decode_config.h"
+#include "demuxer_stream.h"
 
 extern "C" {
 #include "libavformat/avformat.h"
@@ -41,8 +41,6 @@ class DataSource1 {
   std::shared_ptr<MessageContext> msg_ctx;
 
   Clock *ext_clock;
-
-  std::shared_ptr<media::DecoderContext> decoder_ctx;
 
   std::function<void()> on_new_packet_send_;
 
@@ -155,8 +153,6 @@ class DataSource1 {
   void InitAudioDecoder(int stream_index);
 
   int OpenStreams(const int st_index[AVMEDIA_TYPE_NB]);
-
-  int OpenComponentStream(int stream_index, AVMediaType media_type);
 
   void ReadStreams(std::mutex &read_mutex);
 

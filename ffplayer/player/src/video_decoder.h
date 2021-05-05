@@ -15,7 +15,6 @@ extern "C" {
 
 #include "ffmpeg_decoding_loop.h"
 #include "video_frame.h"
-#include "decoder_base.h"
 #include "demuxer_stream.h"
 
 namespace media {

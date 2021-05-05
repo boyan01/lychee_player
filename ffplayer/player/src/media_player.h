@@ -13,7 +13,6 @@
 #include "ffp_packet_queue.h"
 #include "media_clock.h"
 #include "data_source_1.h"
-#include "decoder_ctx.h"
 #include "task_runner.h"
 #include "audio_renderer.h"
 #include "video_renderer.h"
@@ -61,8 +60,6 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer> {
   std::shared_ptr<MediaClock> clock_context;
 
   std::unique_ptr<DataSource1> data_source{nullptr};
-
-  std::shared_ptr<DecoderContext> decoder_context;
 
   std::shared_ptr<AudioRenderer> audio_renderer_;
   std::shared_ptr<VideoRenderer> video_renderer_;
