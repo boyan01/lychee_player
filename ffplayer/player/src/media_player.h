@@ -13,10 +13,10 @@
 #include "ffp_packet_queue.h"
 #include "media_clock.h"
 #include "data_source_1.h"
-#include "render_video_base.h"
 #include "decoder_ctx.h"
 #include "task_runner.h"
 #include "audio_renderer.h"
+#include "video_renderer.h"
 #include "audio_decoder.h"
 #include "decoder_stream.h"
 
@@ -29,7 +29,7 @@ enum class MediaPlayerState {
   END
 };
 
-class MediaPlayer : VideoRenderHost, public std::enable_shared_from_this<MediaPlayer> {
+class MediaPlayer : public std::enable_shared_from_this<MediaPlayer> {
 
  public:
 
@@ -38,7 +38,8 @@ class MediaPlayer : VideoRenderHost, public std::enable_shared_from_this<MediaPl
    */
   static void GlobalInit();
 
-  MediaPlayer(std::unique_ptr<VideoRenderBase> video_render, std::shared_ptr<AudioRendererSink> audio_renderer_sink);
+  MediaPlayer(std::unique_ptr<VideoRendererSink> video_renderer_sink,
+              std::shared_ptr<AudioRendererSink> audio_renderer_sink);
 
   ~MediaPlayer();
 
@@ -64,7 +65,7 @@ class MediaPlayer : VideoRenderHost, public std::enable_shared_from_this<MediaPl
   std::shared_ptr<DecoderContext> decoder_context;
 
   std::shared_ptr<AudioRenderer> audio_renderer_;
-  std::shared_ptr<VideoRenderBase> video_render_;
+  std::shared_ptr<VideoRenderer> video_renderer_;
 
   MediaPlayerState player_state_ = MediaPlayerState::IDLE;
   std::mutex player_mutex_;
@@ -100,6 +101,8 @@ class MediaPlayer : VideoRenderHost, public std::enable_shared_from_this<MediaPl
   void OnDataSourceOpen(int open_status);
 
   void InitVideoRender();
+
+  void OnVideoRendererInitialized(bool success);
 
   void InitAudioRender();
 
@@ -138,13 +141,9 @@ class MediaPlayer : VideoRenderHost, public std::enable_shared_from_this<MediaPl
 
   void SetMessageHandleCallback(std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback);
 
-  double GetVideoAspectRatio();
-
   const char *GetUrl();
 
   const char *GetMetadataDict(const char *key);
-
-  VideoRenderBase *GetVideoRender();
 
   /**
    * Dump player status information to console.
@@ -163,9 +162,11 @@ class MediaPlayer : VideoRenderHost, public std::enable_shared_from_this<MediaPl
 
   OnVideoSizeChangeCallback on_video_size_changed_;
 
-  void OnFirstFrameLoaded(int width, int height) override;
+  void OnFirstFrameLoaded(int width, int height);
 
-  void OnFirstFrameRendered(int width, int height) override;
+  void OnFirstFrameRendered(int width, int height);
+
+  void DumpMediaClockStatus();
 
 };
 

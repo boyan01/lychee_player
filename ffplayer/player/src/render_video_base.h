@@ -15,6 +15,7 @@
 #include "demuxer_stream.h"
 #include "decoder_video.h"
 #include "video_frame.h"
+#include "video_renderer_sink.h"
 
 namespace media {
 

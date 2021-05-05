@@ -12,8 +12,8 @@
 #include "ffp_utils.h"
 #include "media_player.h"
 #include "sdl_utils.h"
-#include "render_video_sdl.h"
 #include "sdl_audio_renderer_sink.h"
+#include "sdl_video_renderer_sink.h"
 
 extern "C" {
 #include "libavutil/avstring.h"
@@ -89,7 +89,7 @@ static void step_to_next_frame(std::shared_ptr<MediaPlayer> player) {
 }
 
 static double refresh_loop_wait_event(std::shared_ptr<MediaPlayer> player, SDL_Event *event) {
-  double remaining_time = 0.0;
+  double remaining_time = 0.01;
   SDL_PumpEvents();
   if (!SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
     if (!cursor_hidden && av_gettime_relative() - cursor_last_shown > CURSOR_HIDE_DELAY) {
@@ -98,8 +98,6 @@ static double refresh_loop_wait_event(std::shared_ptr<MediaPlayer> player, SDL_E
     }
     if (remaining_time > 0.0)
       av_usleep((int64_t) (remaining_time * 1000000.0));
-    auto *render = dynamic_cast<SdlVideoRender *>(player->GetVideoRender());
-    remaining_time = render->DrawFrame();
     if (dump_status) {
       player->DumpStatus();
     }
@@ -221,10 +219,13 @@ static void event_loop(std::shared_ptr<MediaPlayer> player) {
         case SDL_WINDOWEVENT_SIZE_CHANGED: {
           screen_width = event.window.data1;
           screen_height = event.window.data2;
-          auto *render = dynamic_cast<SdlVideoRender *>(player->GetVideoRender());
-          render->screen_height = screen_height;
-          render->screen_width = screen_width;
-          render->DestroyTexture();
+//          auto *render = dynamic_cast<SdlVideoRender *>(player->GetVideoRender());
+//          render->screen_width = screen_width;
+//          render->screen_height = screen_height;
+//          render->DestroyTexture();
+
+          SdlVideoRendererSink::screen_height = screen_height;
+          SdlVideoRendererSink::screen_width = screen_width;
         }
         case SDL_WINDOWEVENT_EXPOSED:
 //                        is->force_refresh = 1;
@@ -304,10 +305,7 @@ static void on_message(MediaPlayer *player, int what, int64_t arg1, int64_t arg2
   }
 }
 
-void OnVideoSizeChanged(TaskRunner *main_task_runner,
-                        std::shared_ptr<MediaPlayer> media_player,
-                        int video_width,
-                        int video_height) {
+void OnVideoSizeChanged(std::shared_ptr<MediaPlayer> media_player, int video_width, int video_height) {
   int width = video_width, height = video_height;
   check_screen_size(width, height);
   set_default_window_size(width, height);
@@ -404,19 +402,24 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  auto video_render = std::make_unique<SdlVideoRender>(std::move(renderer));
-  auto audio_renderer_sink = std::make_unique<SdlAudioRendererSink>();
-  auto player = std::make_shared<MediaPlayer>(std::move(video_render), std::move(audio_renderer_sink));
-  player->start_configuration = config;
-  player->SetVolume(50);
-
   auto *task_runner = new TaskRunner("main_task");
   task_runner->Prepare();
 
+  auto video_renderer_sink = std::make_unique<SdlVideoRendererSink>(task_runner, std::move(renderer));
+  auto audio_renderer_sink = std::make_unique<SdlAudioRendererSink>();
+  auto player = std::make_shared<MediaPlayer>(std::move(video_renderer_sink), std::move(audio_renderer_sink));
+  player->start_configuration = config;
+  player->SetVolume(50);
+
   player->set_on_video_size_changed_callback([player, task_runner](int width, int height) {
-    BindToLoop(task_runner, [task_runner, player, width, height]() {
-      OnVideoSizeChanged(task_runner, player, width, height);
+    BindToLoop(task_runner, [player, width, height]() {
+      OnVideoSizeChanged(player, width, height);
     })();
+  });
+
+  // TODO temp solution.
+  task_runner->PostDelayedTask(FROM_HERE, TimeDelta(3000), [player]() {
+    OnVideoSizeChanged(player, 1280, 720);
   });
 
   if (player->OpenDataSource(input_file) < 0) {

@@ -17,7 +17,7 @@ class VideoFrame {
 
  public:
 
-  static VideoFrame Empty();
+  static std::shared_ptr<VideoFrame> CreateEmptyFrame();
 
   VideoFrame(AVFrame *frame, double pts, double duration, int serial);
 

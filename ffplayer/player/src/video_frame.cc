@@ -7,8 +7,8 @@
 namespace media {
 
 // static
-VideoFrame VideoFrame::Empty() {
-  return VideoFrame(nullptr, 0, 0, 0);
+std::shared_ptr<VideoFrame> VideoFrame::CreateEmptyFrame() {
+  return std::make_shared<VideoFrame>(nullptr, 0, 0, 0);
 }
 
 VideoFrame::VideoFrame(AVFrame *frame, double pts, double duration, int serial)

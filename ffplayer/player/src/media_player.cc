@@ -15,15 +15,18 @@ extern "C" {
 namespace media {
 
 MediaPlayer::MediaPlayer(
-    std::unique_ptr<VideoRenderBase> video_render,
+    std::unique_ptr<VideoRendererSink> video_renderer_sink,
     std::shared_ptr<AudioRendererSink> audio_renderer_sink
-) : video_render_(std::move(video_render)) {
+) {
   task_runner_ = TaskRunner::prepare_looper("media_player");
   task_runner_->PostTask(FROM_HERE, [&]() {
     Initialize();
   });
-  decoder_task_runner_ = TaskRunner::prepare_looper("decoder");
-  audio_renderer_ = std::make_shared<AudioRenderer>(decoder_task_runner_, std::move(audio_renderer_sink));
+//  decoder_task_runner_ = TaskRunner::prepare_looper("decoder");
+  audio_renderer_ =
+      std::make_shared<AudioRenderer>(TaskRunner::prepare_looper("audio_decoder"), std::move(audio_renderer_sink));
+  video_renderer_ =
+      std::make_shared<VideoRenderer>(TaskRunner::prepare_looper("video_decoder"), std::move(video_renderer_sink));
 }
 
 void MediaPlayer::Initialize() {
@@ -56,6 +59,7 @@ void MediaPlayer::Initialize() {
   };
   clock_context = std::make_shared<MediaClock>(&audio_pkt_queue->serial, &video_pkt_queue->serial,
                                                sync_type_confirm);
+  task_runner_->PostTask(FROM_HERE, std::bind(&MediaPlayer::DumpMediaClockStatus, this));
 
   decoder_context = std::make_shared<DecoderContext>(clock_context, [this]() {
     ChangePlaybackState(MediaPlayerState::BUFFERING);
@@ -104,8 +108,8 @@ void MediaPlayer::PauseClock(bool pause) {
     return;
   }
   if (clock_context->paused) {
-    if (video_render_) {
-      video_render_->frame_timer_ += get_relative_time() - clock_context->GetVideoClock()->last_updated;
+    if (video_renderer_) {
+//      video_renderer_->frame_timer_ += get_relative_time() - clock_context->GetVideoClock()->last_updated;
     }
     if (data_source && data_source->read_pause_return != AVERROR(ENOSYS)) {
       clock_context->GetVideoClock()->paused = 0;
@@ -168,26 +172,25 @@ void MediaPlayer::OnDataSourceOpen(int open_status) {
 
 void MediaPlayer::InitVideoRender() {
   if (data_source->ContainVideoStream()) {
-    auto video_decoder = std::make_shared<VideoDecoder>(decoder_task_runner_);
-    auto ret = video_decoder->Initialize(data_source->video_decode_config(),
-                                         data_source->video_demuxer_stream(),
-                                         bind_weak(&VideoRenderBase::Flush, video_render_));
-    if (ret >= 0) {
-      video_render_->Initialize(this, data_source->video_demuxer_stream(),
-                                clock_context, std::move(video_decoder));
-    } else {
-      DLOG(ERROR) << "Open Video Decoder Failed: " << ret;
-    }
+    video_renderer_->Initialize(data_source->video_demuxer_stream(),
+                                clock_context,
+                                bind_weak(&MediaPlayer::OnVideoRendererInitialized, shared_from_this()));
+  } else {
+    DLOG(WARNING) << "data source does not contains video stream";
+    task_runner_->PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitAudioRender, shared_from_this()));
+  }
+}
+
+void MediaPlayer::OnVideoRendererInitialized(bool success) {
+  if (!success) {
+    state_ = kIdle;
+    return;
   }
   task_runner_->PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitAudioRender, shared_from_this()));
 }
 
 void MediaPlayer::InitAudioRender() {
   if (data_source->ContainAudioStream()) {
-    auto audio_decoder_stream = std::make_shared<AudioDecoderStream>(
-        std::make_unique<DecoderStreamTraits<DemuxerStream::Audio>>(),
-        decoder_task_runner_
-    );
     audio_renderer_->Initialize(data_source->audio_demuxer_stream(), clock_context,
                                 bind_weak(&MediaPlayer::OnAudioRendererInitialized, shared_from_this()));
   }
@@ -336,11 +339,6 @@ void MediaPlayer::SetMessageHandleCallback(std::function<void(int what, int64_t 
   message_callback_external_ = std::move(message_callback);
 }
 
-double MediaPlayer::GetVideoAspectRatio() {
-  CHECK_VALUE_WITH_RETURN(video_render_, 0);
-  return video_render_->GetVideoAspectRatio();
-}
-
 const char *MediaPlayer::GetUrl() {
   CHECK_VALUE_WITH_RETURN(data_source, nullptr);
   return data_source->GetFileName();
@@ -363,19 +361,14 @@ void MediaPlayer::GlobalInit() {
 
 }
 
-VideoRenderBase *MediaPlayer::GetVideoRender() {
-  CHECK_VALUE_WITH_RETURN(video_render_, nullptr);
-  return video_render_.get();
-}
-
 void MediaPlayer::DoSomeWork() {
   std::lock_guard<std::mutex> lock(player_mutex_);
   bool render_allow_playback = true;
   if (audio_renderer_) {
 //    render_allow_playback &= audio_render_->IsReady();
   }
-  if (video_render_) {
-    render_allow_playback &= video_render_->IsReady();
+  if (video_renderer_) {
+//    render_allow_playback &= video_renderer_->IsReady();
   }
 
   if (player_state_ == MediaPlayerState::READY && !render_allow_playback) {
@@ -402,8 +395,8 @@ void MediaPlayer::StopRenders() {
   if (audio_renderer_) {
 //    audio_render_->Stop();
   }
-  if (video_render_) {
-    video_render_->Stop();
+  if (video_renderer_) {
+    video_renderer_->Stop();
   }
 }
 
@@ -413,8 +406,8 @@ void MediaPlayer::StartRenders() {
   if (audio_renderer_) {
     audio_renderer_->Start();
   }
-  if (video_render_) {
-    video_render_->Start();
+  if (video_renderer_) {
+    video_renderer_->Start();
   }
 }
 
@@ -430,7 +423,7 @@ bool MediaPlayer::ShouldTransitionToReadyState(bool render_allow_play) {
   if (audio_renderer_ && data_source->ContainAudioStream()) {
     ready &= audio_pkt_queue->nb_packets > 2;
   }
-  if (video_render_ && data_source->ContainVideoStream()) {
+  if (video_renderer_ && data_source->ContainVideoStream()) {
     ready &= video_pkt_queue->nb_packets > 2;
   }
   return ready;
@@ -523,6 +516,14 @@ void MediaPlayer::OnFirstFrameRendered(int width, int height) {
     on_video_size_changed_(width, height);
   }
 
+}
+
+void MediaPlayer::DumpMediaClockStatus() {
+
+  DLOG(INFO) << "DumpMediaClockStatus: master clock = "
+             << clock_context->GetMasterClock();
+
+  task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(1000000), std::bind(&MediaPlayer::DumpMediaClockStatus, this));
 }
 
 }
