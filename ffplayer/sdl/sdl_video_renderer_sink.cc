@@ -60,8 +60,6 @@ void SdlVideoRendererSink::RenderPicture(std::shared_ptr<VideoFrame> frame) {
     return;
   }
 
-  DLOG(INFO) << "RenderPicture " << frame->pts();
-
   SDL_SetRenderDrawColor(renderer_.get(), 0, 0, 0, 255);
   SDL_RenderClear(renderer_.get());
   SDL_Rect rect{};

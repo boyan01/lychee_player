@@ -94,7 +94,7 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
     }
 
     auto flushed = buffer->Read(stream + len_flush, len - len_flush);
-    if (flushed == buffer->size()) {
+    if (buffer->IsConsumed()) {
       audio_buffer_.DeleteFront();
     }
     len_flush += flushed;

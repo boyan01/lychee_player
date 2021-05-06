@@ -5,6 +5,8 @@
 
 #include "video_renderer.h"
 
+#include "cmath"
+
 #include "base/bind_to_current_loop.h"
 #include "base/lambda.h"
 

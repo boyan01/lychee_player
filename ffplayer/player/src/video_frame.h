@@ -5,6 +5,9 @@
 #ifndef MEDIA_PLAYER_SRC_VIDEO_FRAME_H_
 #define MEDIA_PLAYER_SRC_VIDEO_FRAME_H_
 
+#include "string"
+#include "sstream"
+
 #include "base/basictypes.h"
 
 extern "C" {
