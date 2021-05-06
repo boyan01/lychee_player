@@ -135,7 +135,7 @@ void LogMessage::Init(const char *file, int line) {
   else
     stream_ << "VERBOSE" << -severity_;
 
-  stream_ << ":" << filename << "(" << line << ")] ";
+  stream_ << " " << filename << ":" << line << "] ";
 
 }
 
