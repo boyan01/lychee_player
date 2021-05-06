@@ -33,6 +33,10 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
 
   void Stop();
 
+  VideoRendererSink* video_renderer_sink() {
+    return sink_.get();
+  }
+
  private:
 
   enum State {

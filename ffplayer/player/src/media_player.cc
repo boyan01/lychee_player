@@ -354,6 +354,7 @@ void MediaPlayer::GlobalInit() {
 #endif
   avformat_network_init();
   google::InitGoogleLogging("media_player");
+  google::SetStderrLogging(1);
 
 }
 
@@ -402,7 +403,7 @@ void MediaPlayer::StartRenders() {
   if (audio_renderer_) {
     audio_renderer_->Start();
   }
-  if (video_renderer_) {
+  if (video_renderer_ && data_source->ContainVideoStream()) {
     video_renderer_->Start();
   }
 }

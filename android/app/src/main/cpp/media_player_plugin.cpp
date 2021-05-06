@@ -7,7 +7,7 @@
 
 #include <android/log.h>
 
-#include "ffp_flutter_android.h"
+#include "android_video_renderer_sink.h"
 
 #include "media_player_plugin.h"
 
@@ -27,7 +27,7 @@ JNIEXPORT void JNICALL
 Java_tech_soit_flutter_lychee_MediaPlayerBridge_setupJNI(JNIEnv *env, jclass clazz) {
   __android_log_print(ANDROID_LOG_INFO, "MediaPlayerPlugin", "MediaPlayerBridge_SetupJNI");
   auto bridge_class = reinterpret_cast<jclass>(env->NewGlobalRef(clazz));
-  media::FlutterAndroidVideoRender::flutter_texture_registry =
+  media::AndroidVideoRendererSink::flutter_texture_registry =
       [bridge_class]() -> std::unique_ptr<media::FlutterTextureEntry> {
         JNIEnv *g_env;
         if (g_vm->AttachCurrentThread(&g_env, nullptr) != 0) {

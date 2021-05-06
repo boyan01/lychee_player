@@ -17,7 +17,7 @@ AudioBuffer::~AudioBuffer() {
 
 int AudioBuffer::Read(uint8 *dest, int size) {
   DCHECK_GT(size, 0);
-  DCHECK_LT(read_cursor_, size);
+  DCHECK_LT(read_cursor_, size_);
 
   auto flush_size = std::min(size, size_ - read_cursor_);
   memcpy(dest, data_ + read_cursor_, flush_size);

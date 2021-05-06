@@ -103,6 +103,7 @@ endif ()
 include(FetchContent)
 set(WITH_GFLAGS OFF)
 set(BUILD_SHARED_LIBS OFF)
+set(BUILD_TESTING OFF)
 ADD_COMPILE_DEFINITIONS(HAVE_SNPRINTF)
 FetchContent_Declare(
         glog
