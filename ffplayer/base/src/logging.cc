@@ -5,6 +5,10 @@
 #include <iomanip>
 #include "base/logging.h"
 
+#if defined(__ANDROID__)
+#include "android/log.h"
+#endif
+
 namespace logging {
 
 // For LOG_ERROR and above, always print to stderr.
@@ -67,24 +71,20 @@ LogMessage::~LogMessage() {
       logging_destination == LOG_TO_BOTH_FILE_AND_SYSTEM_DEBUG_LOG) {
 #if defined(OS_WIN)
     OutputDebugStringA(str_newline.c_str());
-#elif defined(OS_ANDROID)
+#elif defined(__ANDROID__)
     android_LogPriority priority = ANDROID_LOG_UNKNOWN;
     switch (severity_) {
-      case LOG_INFO:
-        priority = ANDROID_LOG_INFO;
+      case LOG_INFO:priority = ANDROID_LOG_INFO;
         break;
-      case LOG_WARNING:
-        priority = ANDROID_LOG_WARN;
+      case LOG_WARNING:priority = ANDROID_LOG_WARN;
         break;
       case LOG_ERROR:
-      case LOG_ERROR_REPORT:
-        priority = ANDROID_LOG_ERROR;
+      case LOG_ERROR_REPORT:priority = ANDROID_LOG_ERROR;
         break;
-      case LOG_FATAL:
-        priority = ANDROID_LOG_FATAL;
+      case LOG_FATAL:priority = ANDROID_LOG_FATAL;
         break;
     }
-    __android_log_write(priority, "chromium", str_newline.c_str());
+    __android_log_write(priority, "media_player", str_newline.c_str());
 #endif
     fprintf(stderr, "%s", str_newline.c_str());
     fflush(stderr);

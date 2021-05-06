@@ -49,11 +49,11 @@ void AndroidVideoRendererSink::DoRender(std::shared_ptr<VideoFrame> frame) {
   uint8_t *bgr_buffer[8] = {static_cast<uint8_t *>(window_buffer_.bits)};
   sws_scale(img_convert_ctx_, av_frame->data, av_frame->linesize, 0, av_frame->height, bgr_buffer, linesize);
 
-  av_log(nullptr, AV_LOG_INFO, "RenderPicture: %d, %d line size = %d\n",
-         window_buffer_.width, window_buffer_.height, linesize[0]);
+//  av_log(nullptr, AV_LOG_INFO, "RenderPicture: %d, %d line size = %d\n",
+//         window_buffer_.width, window_buffer_.height, linesize[0]);
 #endif
 
-#if 1
+#if 0
   auto *buffer = static_cast<uint8_t *>(window_buffer_.bits);
   av_log(nullptr, AV_LOG_INFO, "render_frame(%lld, %p): render first pixel = 0x%2x%2x%2x%2x \n",
          texture_->id(), texture_.get(),
