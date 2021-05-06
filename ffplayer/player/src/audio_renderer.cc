@@ -90,7 +90,9 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
     }
     auto buffer = audio_buffer_.GetFront();
     if (audio_clock_time == 0) {
-      audio_clock_time = buffer->PtsFromCursor() - delay;
+      //TODO It is like we do not need calculate delay for clock time.
+      // audio_clock_time = buffer->PtsFromCursor() - delay;
+      audio_clock_time = buffer->PtsFromCursor();
     }
 
     auto flushed = buffer->Read(stream + len_flush, len - len_flush);
