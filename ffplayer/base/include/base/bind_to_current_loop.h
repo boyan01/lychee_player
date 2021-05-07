@@ -10,6 +10,7 @@
 #include "functional"
 
 #include "base/message_loop.h"
+#include "base/callback.h"
 
 namespace media {
 
