@@ -16,8 +16,8 @@ DecoderStream<StreamType>::DecoderStream(
     std::unique_ptr<DecoderStreamTraits<StreamType>> traits,
     TaskRunner *task_runner
 ) : traits_(std::move(traits)), task_runner_(task_runner),
-    outputs_(15), pending_decode_requests_(0) {
-
+    outputs_(15), pending_decode_requests_(0),
+    read_callback_(nullptr) {
 }
 
 template<DemuxerStream::Type StreamType>
@@ -35,6 +35,11 @@ void DecoderStream<StreamType>::Initialize(DemuxerStream *stream, DecoderStream:
 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::Read(DecoderStream::ReadCallback read_callback) {
+  if (read_callback_) {
+    DCHECK(false);
+  }
+  DCHECK(!read_callback_);
+
   auto read_callback_bound = BindToCurrentLoop(read_callback);
   if (outputs_.IsEmpty()) {
     read_callback_ = std::move(read_callback);
@@ -67,6 +72,7 @@ void DecoderStream<StreamType>::DecodeTask() {
   AVPacket packet;
   av_init_packet(&packet);
   if (!demuxer_stream_->ReadPacket(&packet) || packet.data == PacketQueue::GetFlushPacket()->data) {
+    ReadFromDemuxerStream();
     // TODO
     return;
   }
@@ -75,9 +81,7 @@ void DecoderStream<StreamType>::DecodeTask() {
   decoder_->Decode(&packet);
   --pending_decode_requests_;
 
-  if (CanDecodeMore()) {
-    task_runner_->PostTask(FROM_HERE, bind_weak(&DecoderStream<StreamType>::DecodeTask, this->shared_from_this()));
-  }
+  ReadFromDemuxerStream();
 
 }
 
@@ -95,8 +99,9 @@ void DecoderStream<StreamType>::OnFrameAvailable(std::shared_ptr<Output> output)
 
   outputs_.InsertLast(output);
   if (read_callback_) {
-    std::move(read_callback_)(std::move(outputs_.PopFront()));
+    auto read_cb = std::move(read_callback_);
     read_callback_ = nullptr;
+    read_cb(std::move(outputs_.PopFront()));
   }
   ReadFromDemuxerStream();
 }

@@ -58,6 +58,8 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
 
   int frame_drop_count_ = 0;
 
+  bool reading_ = false;
+
   void OnDecodeStreamInitialized(bool success);
 
   void AttemptReadFrame();

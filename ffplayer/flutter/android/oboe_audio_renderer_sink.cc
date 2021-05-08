@@ -71,12 +71,13 @@ oboe::DataCallbackResult OboeAudioRendererSink::onAudioReady(
     void *audioData,
     int32_t numFrames) {
 
-  unsigned int len = numFrames * audioStream->getChannelCount() * sizeof(int16_t);
+  int len = numFrames * audioStream->getBytesPerFrame();
   memset(audioData, 0, len);
 
   {
+    auto delay = audioStream->calculateLatencyMillis().value() / 1000;
     auto *outputData = static_cast<uint8_t *>(audioData);
-    render_callback_->Render(0, outputData, int(len));
+    render_callback_->Render(delay, outputData, len);
   }
   return oboe::DataCallbackResult::Continue;
 }

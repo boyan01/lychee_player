@@ -60,14 +60,16 @@ void VideoRenderer::AttemptReadFrame() {
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(decoder_stream_);
 
-  if (!CanDecodeMore()) {
+  if (!CanDecodeMore() || reading_) {
     return;
   }
+  reading_ = true;
   decoder_stream_->Read(bind_weak(&VideoRenderer::OnNewFrameAvailable, shared_from_this()));
 }
 
 void VideoRenderer::OnNewFrameAvailable(std::shared_ptr<VideoFrame> frame) {
   DLOG_IF(WARNING, ready_frames_.IsFull()) << "accepted a new frame, but frame pool is full";
+  reading_ = false;
   ready_frames_.InsertLast(std::move(frame));
 
   task_runner_->PostTask(FROM_HERE, bind_weak(&VideoRenderer::AttemptReadFrame, shared_from_this()));
@@ -81,7 +83,6 @@ void VideoRenderer::Start() {
   DCHECK_NE(state_, kUnInitialized);
 
   sink_->Start(this);
-  task_runner_->PostTask(FROM_HERE, bind_weak(&VideoRenderer::AttemptReadFrame, shared_from_this()));
 }
 void VideoRenderer::Stop() {
   sink_->Stop();
@@ -90,7 +91,6 @@ void VideoRenderer::Stop() {
 std::shared_ptr<VideoFrame> VideoRenderer::Render() {
 
   if (ready_frames_.IsEmpty()) {
-    task_runner_->PostTask(FROM_HERE, bind_weak(&VideoRenderer::AttemptReadFrame, shared_from_this()));
     return VideoFrame::CreateEmptyFrame();
   }
 

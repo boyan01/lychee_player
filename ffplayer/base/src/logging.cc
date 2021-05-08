@@ -97,6 +97,10 @@ LogMessage::~LogMessage() {
 
   }
 
+  if (severity_ >= LOG_FATAL) {
+    abort();
+  }
+
 }
 
 // writes the common header info to the stream

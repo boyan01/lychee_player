@@ -39,8 +39,9 @@ void AudioRenderer::OnDecoderStreamInitialized(bool success) {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
   if (!success) {
-    init_callback_(false);
+    auto callback = std::move(init_callback_);
     init_callback_ = nullptr;
+    std::move(callback)(false);
     return;
   }
 
@@ -50,8 +51,9 @@ void AudioRenderer::OnDecoderStreamInitialized(bool success) {
       audio_config.samples_per_second(),
       this);
 
-  init_callback_(true);
+  auto callback = std::move(init_callback_);
   init_callback_ = nullptr;
+  std::move(callback)(true);
 
   task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
 
@@ -60,14 +62,16 @@ void AudioRenderer::OnDecoderStreamInitialized(bool success) {
 void AudioRenderer::AttemptReadFrame() {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  if (!NeedReadStream()) {
+  if (!NeedReadStream() || reading_) {
     return;
   }
 
+  reading_ = true;
   decoder_stream_->Read(bind_weak(&AudioRenderer::OnNewFrameAvailable, shared_from_this()));
 }
 
 void AudioRenderer::OnNewFrameAvailable(AudioDecoderStream::ReadResult result) {
+  reading_ = false;
   DLOG_IF(WARNING, audio_buffer_.IsFull()) << "OnNewFrameAvailable is full";
   audio_buffer_.InsertLast(std::move(result));
   if (NeedReadStream()) {
@@ -89,15 +93,17 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
       break;
     }
     auto buffer = audio_buffer_.GetFront();
+    DCHECK(buffer);
     if (audio_clock_time == 0) {
-      //TODO It is like we do not need calculate delay for clock time.
-      // audio_clock_time = buffer->PtsFromCursor() - delay;
-      audio_clock_time = buffer->PtsFromCursor();
+//      TODO It is like we do not need calculate delay for clock time.
+      audio_clock_time = buffer->PtsFromCursor() - delay;
+//      audio_clock_time = buffer->PtsFromCursor();
     }
 
     auto flushed = buffer->Read(stream + len_flush, len - len_flush);
     if (buffer->IsConsumed()) {
       audio_buffer_.DeleteFront();
+      task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
     }
     len_flush += flushed;
   }
@@ -107,7 +113,7 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
     media_clock_->GetExtClock()->Sync(media_clock_->GetAudioClock());
   }
 
-  task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
+//  task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
 
   return len_flush;
 }
