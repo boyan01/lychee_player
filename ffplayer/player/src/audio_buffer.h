@@ -35,6 +35,13 @@ class AudioBuffer {
   }
 
   /**
+   * @return true if all data has been read by [Read].
+   */
+  bool IsConsumed() const {
+    return size_ == read_cursor_;
+  }
+
+  /**
    * The presentation time of start of cursor.
    */
   double PtsFromCursor() const {

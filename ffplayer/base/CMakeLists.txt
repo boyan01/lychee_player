@@ -6,6 +6,7 @@ add_library(media_base
         src/message_loop.cc
         src/location.cc
         src/message.cc
+        src/logging.cc
         src/message_queue.cc
         src/utility.cc
         src/size.cc
@@ -15,7 +16,6 @@ add_library(media_base
         src/circular_deque.cc)
 
 target_include_directories(media_base PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(media_base glog::glog)
 
 
 if (NOT DISABLE_MEDIA_TEST)

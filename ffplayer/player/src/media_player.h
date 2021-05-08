@@ -142,6 +142,10 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer> {
 
   const char *GetMetadataDict(const char *key);
 
+  VideoRendererSink* GetVideoRenderSink() {
+    return video_renderer_->video_renderer_sink();
+  }
+
   /**
    * Dump player status information to console.
    */

@@ -48,7 +48,7 @@ int SdlAudioRendererSink::OpenAudioDevices(int wanted_nb_channels, int wanted_sa
     sink->ReadAudioData(stream, len);
 
     DLOG_IF(INFO, (av_gettime_relative() - start) > 2000)
-            << "render consume time more than 2ms: " << double(av_gettime_relative() - start) / 1000.0 << "ms";
+    << "render consume time more than 2ms: " << double(av_gettime_relative() - start) / 1000.0 << "ms";
 
   };
   wanted_spec.userdata = this;
@@ -73,8 +73,9 @@ void SdlAudioRendererSink::ReadAudioData(Uint8 *stream, int len) {
   auto read = 0;
 
   while (read < len) {
-    auto delay = (2.0 * hw_audio_buffer_size_ + read) / sample_rate_;
-    read += render_callback_->Render(delay, stream, len - read);
+    // It is seems that we don't need calculate delay for SDL render.
+//    auto delay = (2.0 * hw_audio_buffer_size_ + read) / sample_rate_;
+    read += render_callback_->Render(0, stream, len - read);
   }
 
   DCHECK_EQ(len, read);

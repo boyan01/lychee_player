@@ -353,7 +353,6 @@ void MediaPlayer::GlobalInit() {
   avdevice_register_all();
 #endif
   avformat_network_init();
-  google::InitGoogleLogging("media_player");
 
 }
 
@@ -402,7 +401,7 @@ void MediaPlayer::StartRenders() {
   if (audio_renderer_) {
     audio_renderer_->Start();
   }
-  if (video_renderer_) {
+  if (video_renderer_ && data_source->ContainVideoStream()) {
     video_renderer_->Start();
   }
 }

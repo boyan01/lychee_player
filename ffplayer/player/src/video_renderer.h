@@ -33,6 +33,10 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
 
   void Stop();
 
+  VideoRendererSink* video_renderer_sink() {
+    return sink_.get();
+  }
+
  private:
 
   enum State {
@@ -53,6 +57,8 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
   InitCallback init_callback_;
 
   int frame_drop_count_ = 0;
+
+  bool reading_ = false;
 
   void OnDecodeStreamInitialized(bool success);
 

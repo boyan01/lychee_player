@@ -21,7 +21,7 @@ class AudioRendererSink {
 
    protected:
 
-    virtual ~RenderCallback() {}
+    virtual ~RenderCallback() = default;
 
   };
 
@@ -41,7 +41,7 @@ class AudioRendererSink {
 
   virtual void Stop() = 0;
 
-  virtual ~AudioRendererSink() {}
+  virtual ~AudioRendererSink() = default;
 
 };
 

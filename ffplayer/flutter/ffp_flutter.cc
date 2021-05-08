@@ -9,7 +9,8 @@
 #if defined(_FLUTTER_MEDIA_WINDOWS)
 #include "ffp_flutter_windows.h"
 #elif defined(_FLUTTER_MEDIA_ANDROID)
-#include "ffp_flutter_android.h"
+#include "android_video_renderer_sink.h"
+#include "oboe_audio_renderer_sink.h"
 #elif defined(_FLUTTER_MEDIA_LINUX)
 #define _MEDIA_AUDIO_USE_SDL
 #elif defined(_FLUTTER_MEDIA_MACOS)
@@ -23,7 +24,7 @@
 #endif
 
 // hold all player instance. destroy all play when flutter app hot reloaded.
-static std::list<CPlayer *> *players_;
+static std::list<std::shared_ptr<CPlayer>> players_;
 
 void ffplayer_seek_to_position(CPlayer *player, double position) {
   CHECK_VALUE(player);
@@ -95,14 +96,13 @@ int ffplayer_open_file(CPlayer *player, const char *filename) {
 static void release_player(CPlayer *player) {
   ffp_detach_video_render_flutter(player);
   av_log(nullptr, AV_LOG_INFO, "free play, close stream %p \n", player);
-  delete player;
 }
 
 void ffplayer_free_player(CPlayer *player) {
-  if (players_) {
-    players_->remove(player);
-  }
   release_player(player);
+  players_.remove_if([player](const std::shared_ptr<MediaPlayer> &ptr) {
+    return ptr.get() == player;
+  });
 }
 
 void ffplayer_global_init(void *arg) {
@@ -146,44 +146,40 @@ void ffplayer_global_init(void *arg) {
 
   Dart_InitializeApiDL(arg);
 
-  if (players_) {
-    for (const auto &player : *players_) {
-      av_log(nullptr, AV_LOG_INFO, "free play, close stream %p by flutter global \n", player);
-      release_player(player);
-    }
-    players_->clear();
+  for (const auto &player : players_) {
+    av_log(nullptr, AV_LOG_INFO, "free play, close stream %p by flutter global \n", player.get());
+    release_player(player.get());
   }
+  players_.clear();
 }
 
 CPlayer *ffp_create_player(PlayerConfiguration *config) {
-  std::unique_ptr<VideoRenderBase> video_render;
-  std::unique_ptr<BasicAudioRender> audio_render;
+  std::unique_ptr<VideoRendererSink> video_render;
+  std::unique_ptr<AudioRendererSink> audio_render;
 #ifdef _FLUTTER_MEDIA_WINDOWS
   video_render = std::make_unique<FlutterWindowsVideoRender>();
   audio_render = std::make_unique<AudioRenderSdl>();
 #elif _FLUTTER_MEDIA_ANDROID
-  video_render = std::make_unique<media::FlutterAndroidVideoRender>();
-  audio_render = std::make_unique<media::AudioRenderOboe>();
+  video_render = std::make_unique<media::AndroidVideoRendererSink>();
+  audio_render = std::make_unique<media::OboeAudioRendererSink>();
 #else
   video_render = nullptr;
   audio_render = std::make_unique<AudioRenderSdl>();
 #endif
-  auto *player = new MediaPlayer(std::move(video_render), std::move(audio_render));
+  auto player = std::make_shared<MediaPlayer>(std::move(video_render), std::move(audio_render));
   player->SetPlayWhenReady(true);
-  av_log(nullptr, AV_LOG_INFO, "malloc player, %p\n", player);
+  av_log(nullptr, AV_LOG_INFO, "malloc player, %p\n", player.get());
   player->start_configuration = *config;
 
-  if (!players_) {
-    players_ = new std::list<CPlayer *>;
-  }
-  players_->push_back(player);
+  players_.push_back(player);
 
-  return player;
+  return player.get();
 }
 
 double ffp_get_video_aspect_ratio(CPlayer *player) {
   CHECK_VALUE_WITH_RETURN(player, -1);
-  return player->GetVideoAspectRatio();
+  // TODO FIXME
+  return 16.0 / 9;
 }
 
 const char *ffp_get_file_name(CPlayer *player) {
@@ -202,7 +198,7 @@ int64_t ffp_attach_video_render_flutter(CPlayer *player) {
   auto *video_render = dynamic_cast<FlutterWindowsVideoRender *>(player->GetVideoRender());
   texture_id = video_render->Attach();
 #elif _FLUTTER_MEDIA_ANDROID
-  auto *video_render = dynamic_cast<media::FlutterAndroidVideoRender *>(player->GetVideoRender());
+  auto *video_render = dynamic_cast<media::AndroidVideoRendererSink *>(player->GetVideoRenderSink());
   texture_id = video_render->Attach();
 #elif _FLUTTER_MEDIA_LINUX
 
@@ -234,7 +230,7 @@ void ffp_detach_video_render_flutter(CPlayer *player) {
   auto *video_render = dynamic_cast<FlutterWindowsVideoRender *>(player->GetVideoRender());
   video_render->Detach();
 #elif _FLUTTER_MEDIA_ANDROID
-  auto *video_render = dynamic_cast<media::FlutterAndroidVideoRender *>(player->GetVideoRender());
+  auto *video_render = dynamic_cast<media::AndroidVideoRendererSink *>(player->GetVideoRenderSink());
   video_render->Detach();
 #endif
 }

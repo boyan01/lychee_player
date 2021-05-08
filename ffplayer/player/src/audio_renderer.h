@@ -50,6 +50,8 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
 
   InitCallback init_callback_;
 
+  bool reading_ = false;
+
   void OnDecoderStreamInitialized(bool success);
 
   void AttemptReadFrame();

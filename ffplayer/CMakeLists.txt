@@ -100,17 +100,6 @@ if (NOT DISABLE_MEDIA_TEST)
     FetchContent_MakeAvailable(googletest)
 endif ()
 
-include(FetchContent)
-set(WITH_GFLAGS OFF)
-set(BUILD_SHARED_LIBS OFF)
-ADD_COMPILE_DEFINITIONS(HAVE_SNPRINTF)
-FetchContent_Declare(
-        glog
-        GIT_REPOSITORY https://github.com/google/glog.git
-        GIT_TAG v0.5.0-rc2
-        GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(glog)
 
 add_subdirectory(base)
 
