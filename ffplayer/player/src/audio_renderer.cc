@@ -15,9 +15,7 @@ namespace media {
 AudioRenderer::AudioRenderer(TaskRunner *task_runner, std::shared_ptr<AudioRendererSink> sink)
     : task_runner_(task_runner), audio_buffer_(3), sink_(std::move(sink)) {}
 
-AudioRenderer::~AudioRenderer() {
-
-}
+AudioRenderer::~AudioRenderer() = default;
 
 void AudioRenderer::Initialize(DemuxerStream *stream,
                                std::shared_ptr<MediaClock> media_clock,
@@ -95,9 +93,7 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
     auto buffer = audio_buffer_.GetFront();
     DCHECK(buffer);
     if (audio_clock_time == 0) {
-//      TODO It is like we do not need calculate delay for clock time.
       audio_clock_time = buffer->PtsFromCursor() - delay;
-//      audio_clock_time = buffer->PtsFromCursor();
     }
 
     auto flushed = buffer->Read(stream + len_flush, len - len_flush);
