@@ -26,6 +26,7 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  RegisterMediaPlayer(flutter_controller_->engine());
   run_loop_->RegisterFlutterInstance(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
   return true;
@@ -61,4 +62,11 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
+}
+
+// static
+void FlutterWindow::RegisterMediaPlayer(flutter::PluginRegistry *registry) {
+  auto ref = registry->GetRegistrarForPlugin("media_player");
+  auto registrar = flutter::PluginRegistrarManager::GetInstance()->GetRegistrar<flutter::PluginRegistrarWindows>(ref);
+  register_flutter_plugin(registrar->texture_registrar());
 }

@@ -20,6 +20,10 @@ class FlutterVideoRendererSink : public VideoRendererSink {
 
   void Stop() override;
 
+  virtual int64_t Attach() = 0;
+
+  virtual void Detach() = 0;
+
  protected:
 
   virtual void DoRender(std::shared_ptr<VideoFrame> frame) = 0;
@@ -30,7 +34,7 @@ class FlutterVideoRendererSink : public VideoRendererSink {
   State state_ = kIdle;
 
   TaskRunner *task_runner_;
-  RenderCallback* render_callback_;
+  RenderCallback *render_callback_;
 
   void RenderTask();
 

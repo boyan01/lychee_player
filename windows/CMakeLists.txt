@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
-project(media_player LANGUAGES CXX)
+project(lychee LANGUAGES CXX)
 
-set(BINARY_NAME "media_player")
+set(BINARY_NAME "lychee")
 
 cmake_policy(SET CMP0063 NEW)
 
@@ -32,7 +32,7 @@ add_definitions(-DUNICODE -D_UNICODE)
 # Compilation settings that should be applied to most targets.
 function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_17)
-  target_compile_options(${TARGET} PRIVATE /W4 /WX /wd"4100")
+  target_compile_options(${TARGET} PRIVATE /W4)
   target_compile_options(${TARGET} PRIVATE /EHsc)
   target_compile_definitions(${TARGET} PRIVATE "_HAS_EXCEPTIONS=0")
   target_compile_definitions(${TARGET} PRIVATE "$<$<CONFIG:Debug>:_DEBUG>")
@@ -42,6 +42,14 @@ set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 
 # Flutter library and tool build rules.
 add_subdirectory(${FLUTTER_MANAGED_DIR})
+
+set(CMAKE_FLUTTER_MEDIA "1")
+set(CMAKE_FLUTTER_MEDIA_WINDOWS "1")
+set(MEDIA_USE_SDL "1")
+
+add_compile_definitions(_FLUTTER_MEDIA_)
+add_compile_definitions(_FLUTTER_MEDIA_WINDOWS)
+add_subdirectory(../ffplayer media_framework)
 
 # Application build
 add_subdirectory("runner")
@@ -58,6 +66,7 @@ include(flutter/generated_plugins.cmake)
 set(BUILD_BUNDLE_DIR "$<TARGET_FILE_DIR:${BINARY_NAME}>")
 # Make the "install" step default, as it's required to run.
 set(CMAKE_VS_INCLUDE_INSTALL_TO_DEFAULT_BUILD 1)
+set(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT 1)
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${BUILD_BUNDLE_DIR}" CACHE PATH "..." FORCE)
 endif()
@@ -73,6 +82,19 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
 
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
+
+# Install media libraries to bundle lib dir.
+set(media_libraries
+        "$<TARGET_FILE:media_flutter>"
+        "$<TARGET_FILE:SDL2>"
+        "$<TARGET_FILE:avutil>"
+        "$<TARGET_FILE:avcodec>"
+        "$<TARGET_FILE:avformat>"
+        "$<TARGET_FILE:swresample>"
+        "$<TARGET_FILE:swscale>")
+install(FILES "${media_libraries}"
+        DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+        COMPONENT Runtime)
 
 if(PLUGIN_BUNDLED_LIBRARIES)
   install(FILES "${PLUGIN_BUNDLED_LIBRARIES}"

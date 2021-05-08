@@ -5,6 +5,7 @@
 #include <flutter/flutter_view_controller.h>
 
 #include <memory>
+#include <flutter/plugin_registrar_windows.h>
 
 #include "run_loop.h"
 #include "win32_window.h"
@@ -34,6 +35,11 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  static void RegisterMediaPlayer(flutter::PluginRegistry* registry);
+
 };
+
+extern "C" void register_flutter_plugin(flutter::TextureRegistrar *registrar);
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_
