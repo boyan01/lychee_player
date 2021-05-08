@@ -70,6 +70,7 @@ endif ()
 
 if (CMAKE_FLUTTER_MEDIA_WINDOWS)
     set(CMAKE_FLUTTER_MEDIA "1")
+    set(DISABLE_MEDIA_TEST 1)
     add_compile_definitions(_FLUTTER_MEDIA_)
     add_compile_definitions(_FLUTTER_MEDIA_WINDOWS)
 elseif (CMAKE_FLUTTER_MEDIA_LINUX)

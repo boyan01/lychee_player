@@ -15,3 +15,5 @@ macos/Flutter/ephemeral
 .idea/*
 
 pubspec.lock
+
+flutter_*.log

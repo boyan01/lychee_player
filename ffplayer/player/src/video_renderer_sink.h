@@ -20,7 +20,7 @@ class VideoRendererSink {
 
     virtual void OnFrameDrop() = 0;
 
-    virtual ~RenderCallback() {}
+    virtual ~RenderCallback() = default;
 
   };
 
@@ -28,7 +28,7 @@ class VideoRendererSink {
 
   virtual void Stop() = 0;
 
-  virtual ~VideoRendererSink() {}
+  virtual ~VideoRendererSink() = default;
 
 };
 
