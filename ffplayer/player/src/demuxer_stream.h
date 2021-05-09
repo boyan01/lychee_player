@@ -5,7 +5,10 @@
 #ifndef MEDIA_PLAYER_SRC_DEMUXER_STREAM_H_
 #define MEDIA_PLAYER_SRC_DEMUXER_STREAM_H_
 
+#include "functional"
+
 #include "base/basictypes.h"
+#include "base/callback.h"
 
 extern "C" {
 #include "libavformat/avformat.h"
@@ -14,12 +17,18 @@ extern "C" {
 #include "ffp_packet_queue.h"
 #include "audio_decode_config.h"
 #include "video_decode_config.h"
+#include "decoder_buffer.h"
+#include "decoder_buffer_queue.h"
+#include "task_runner.h"
 
 namespace media {
 
 class DemuxerStream {
 
  public:
+
+  DELETE_COPY_AND_ASSIGN(DemuxerStream);
+
   enum Type {
     UNKNOWN,
     Audio,
@@ -50,6 +59,11 @@ class DemuxerStream {
     return ret > 0;
   }
 
+  using ReadCallback = OnceCallback<void(std::shared_ptr<DecoderBuffer>)>;
+  void Read(ReadCallback read_callback);
+
+  void EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> packet);
+
   AudioDecodeConfig audio_decode_config();
 
   VideoDecodeConfig video_decode_config();
@@ -64,7 +78,21 @@ class DemuxerStream {
 
   std::shared_ptr<std::condition_variable_any> continue_read_thread_;
 
-  DISALLOW_COPY_AND_ASSIGN(DemuxerStream);
+  std::shared_ptr<DecoderBufferQueue> buffer_queue_;
+
+  TaskRunner *task_runner_;
+  bool end_of_stream_;
+
+  int64 last_packet_pos_;
+  int64 last_packet_dts_;
+
+  bool waiting_for_key_frame_;
+
+  ReadCallback read_callback_;
+
+  void SatisfyPendingRead();
+
+  bool HasAvailableCapacity();
 
 };
 

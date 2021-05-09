@@ -43,7 +43,7 @@ class OnceCallback<Result(Args...)> {
   }
 
   void operator()(Args... args) &&{
-    OnceCallback cb = std::move(this);
+    OnceCallback cb = std::move(*this);
     auto f = cb.function_;
     f(std::forward<Args>(args)...);
   }

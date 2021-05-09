@@ -33,6 +33,14 @@ struct ScopedPtrAVFreeFrame {
   }
 };
 
+struct AVPacketDeleter {
+  void operator()(void *x) const {
+    auto *packet = static_cast<AVPacket *>(x);
+    av_packet_unref(packet);
+    delete packet;
+  }
+};
+
 }
 
 #endif //MEDIA_PLAYER_FFMPEG_FFMPEG_DELETERS_H_
