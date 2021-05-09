@@ -79,8 +79,6 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer> {
 
   void Initialize();
 
-  void DoSomeWork();
-
   void StopRenders();
 
   void StartRenders();

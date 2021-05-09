@@ -2,13 +2,13 @@
 // Created by yangbin on 2021/2/13.
 //
 
+#include "base/logging.h"
+#include "base/lambda.h"
+
 #include "media_player.h"
 
 #include "ffp_utils.h"
 #include "ffp_define.h"
-
-#include "base/logging.h"
-#include "base/lambda.h"
 
 extern "C" {
 #include "libavutil/bprint.h"
@@ -24,11 +24,9 @@ MediaPlayer::MediaPlayer(
   task_runner_->PostTask(FROM_HERE, [&]() {
     Initialize();
   });
-//  decoder_task_runner_ = TaskRunner::prepare_looper("decoder");
-  audio_renderer_ =
-      std::make_shared<AudioRenderer>(TaskRunner::prepare_looper("audio_decoder"), std::move(audio_renderer_sink));
-  video_renderer_ =
-      std::make_shared<VideoRenderer>(TaskRunner::prepare_looper("video_decoder"), std::move(video_renderer_sink));
+  decoder_task_runner_ = TaskRunner::prepare_looper("decoder");
+  audio_renderer_ = std::make_shared<AudioRenderer>(decoder_task_runner_, std::move(audio_renderer_sink));
+  video_renderer_ = std::make_shared<VideoRenderer>(decoder_task_runner_, std::move(video_renderer_sink));
 }
 
 void MediaPlayer::Initialize() {
@@ -69,7 +67,7 @@ void MediaPlayer::Initialize() {
 
 MediaPlayer::~MediaPlayer() {
   task_runner_->Quit();
-};
+}
 
 void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
   std::lock_guard<std::mutex> lock_guard(player_mutex_);
@@ -354,27 +352,6 @@ void MediaPlayer::GlobalInit() {
 #endif
   avformat_network_init();
 
-}
-
-void MediaPlayer::DoSomeWork() {
-  std::lock_guard<std::mutex> lock(player_mutex_);
-  bool render_allow_playback = true;
-  if (audio_renderer_) {
-//    render_allow_playback &= audio_render_->IsReady();
-  }
-  if (video_renderer_) {
-//    render_allow_playback &= video_renderer_->IsReady();
-  }
-
-  if (player_state_ == MediaPlayerState::READY && !render_allow_playback) {
-    ChangePlaybackState(MediaPlayerState::BUFFERING);
-    StopRenders();
-  } else if (player_state_ == MediaPlayerState::BUFFERING && ShouldTransitionToReadyState(render_allow_playback)) {
-    ChangePlaybackState(MediaPlayerState::READY);
-    if (play_when_ready_) {
-      StartRenders();
-    }
-  }
 }
 
 void MediaPlayer::ChangePlaybackState(MediaPlayerState state) {
