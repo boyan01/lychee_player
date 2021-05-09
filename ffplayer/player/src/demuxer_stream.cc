@@ -5,6 +5,7 @@
 #include "demuxer_stream.h"
 
 #include "base/logging.h"
+#include "base/bind_to_current_loop.h"
 
 namespace media {
 
@@ -93,6 +94,18 @@ bool DemuxerStream::HasAvailableCapacity() {
   // Try to have two second's worth of encoded data per stream.
   const double kCapacity = 2;
   return buffer_queue_->IsEmpty() || buffer_queue_->Duration() < kCapacity;
+}
+
+void DemuxerStream::Read(std::function<void(std::shared_ptr<DecoderBuffer>)> read_callback) {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(!read_callback_) << "Overlapping reads are not supported.";
+  read_callback_ = ReadCallback(std::move(BindToCurrentLoop(std::move(read_callback))));
+
+  if (!stream_) {
+    std::move(read_callback_)(DecoderBuffer::CreateEOSBuffer());
+    return;
+  }
+  SatisfyPendingRead();
 }
 
 } // namespace media

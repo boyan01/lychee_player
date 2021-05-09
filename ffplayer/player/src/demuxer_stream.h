@@ -60,7 +60,7 @@ class DemuxerStream {
   }
 
   using ReadCallback = OnceCallback<void(std::shared_ptr<DecoderBuffer>)>;
-  void Read(ReadCallback read_callback);
+  void Read(std::function<void(std::shared_ptr<DecoderBuffer>)> read_callback);
 
   void EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> packet);
 
