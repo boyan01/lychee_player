@@ -38,3 +38,5 @@ if (WIN32)
                 $<TARGET_FILE_DIR:${EXAMPLE_BIN_NAME}>)
     endforeach ()
 endif ()
+
+install(TARGETS ${PROJECT_NAME} DESTINATION bin)

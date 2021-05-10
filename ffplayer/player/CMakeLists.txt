@@ -15,3 +15,12 @@ target_include_directories(media_player PUBLIC
         )
 
 target_link_libraries(media_player PUBLIC ${FFP_LIBS} media_base)
+
+install(TARGETS ${PROJECT_NAME}
+        LIBRARY DESTINATION lib
+        PUBLIC_HEADER DESTINATION include
+        )
+
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/src/"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+        FILES_MATCHING PATTERN "*.h*")
