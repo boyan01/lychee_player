@@ -31,6 +31,10 @@ class DecoderBuffer {
     timestamp_ = timestamp;
   }
 
+  AVPacket *av_packet() {
+    return av_packet_.get();
+  }
+
   bool end_of_stream();
 
  private:

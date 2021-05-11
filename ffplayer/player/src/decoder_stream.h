@@ -52,7 +52,9 @@ class DecoderStream : public std::enable_shared_from_this<DecoderStream<StreamTy
 
   void ReadFromDemuxerStream();
 
-  void DecodeTask();
+  void OnBufferReady(std::shared_ptr<DecoderBuffer> buffer);
+
+  void DecodeTask(std::shared_ptr<DecoderBuffer> decoder_buffer);
 
   void OnFrameAvailable(std::shared_ptr<Output> output);
 

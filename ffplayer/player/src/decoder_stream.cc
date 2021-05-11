@@ -52,12 +52,22 @@ void DecoderStream<StreamType>::Read(DecoderStream::ReadCallback read_callback) 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::ReadFromDemuxerStream() {
   if (CanDecodeMore()) {
-    task_runner_->PostTask(FROM_HERE, bind_weak(&DecoderStream<StreamType>::DecodeTask, this->shared_from_this()));
   }
 }
 
 template<DemuxerStream::Type StreamType>
-void DecoderStream<StreamType>::DecodeTask() {
+void DecoderStream<StreamType>::OnBufferReady(std::shared_ptr<DecoderBuffer> buffer) {
+  task_runner_->PostTask(FROM_HERE,
+                         [weak_this(std::weak_ptr<DecoderStream<StreamType>>(this->shared_from_this())), buffer]() {
+                           auto ptr = weak_this.lock();
+                           if (ptr) {
+                             ptr->DecodeTask(buffer);
+                           }
+                         });
+}
+
+template<DemuxerStream::Type StreamType>
+void DecoderStream<StreamType>::DecodeTask(std::shared_ptr<DecoderBuffer> decoder_buffer) {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
   if (!CanDecodeMore()) {
@@ -69,16 +79,8 @@ void DecoderStream<StreamType>::DecodeTask() {
   DCHECK(CanDecodeMore());
   DCHECK_LT(pending_decode_requests_, GetMaxDecodeRequests());
 
-  AVPacket packet;
-  av_init_packet(&packet);
-  if (!demuxer_stream_->ReadPacket(&packet) || packet.data == PacketQueue::GetFlushPacket()->data) {
-    ReadFromDemuxerStream();
-    // TODO
-    return;
-  }
-
   ++pending_decode_requests_;
-  decoder_->Decode(&packet);
+  decoder_->Decode(decoder_buffer->av_packet());
   --pending_decode_requests_;
 
   ReadFromDemuxerStream();

@@ -24,7 +24,7 @@
 #include <memory>
 
 #include "base/basictypes.h"
-#include "ffmpeg/ffmpeg_utils.h"
+#include "ffmpeg_utils.h"
 
 struct AVFormatContext;
 struct AVIOContext;

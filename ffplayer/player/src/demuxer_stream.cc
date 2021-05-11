@@ -7,7 +7,39 @@
 #include "base/logging.h"
 #include "base/bind_to_current_loop.h"
 
+#include "demuxer.h"
+
 namespace media {
+
+std::shared_ptr<DemuxerStream> DemuxerStream::Create(media::Demuxer *demuxer, AVStream *stream) {
+  Type type;
+  std::unique_ptr<AudioDecodeConfig> audio_decode_config;
+  std::unique_ptr<VideoDecodeConfig> video_decode_config;
+  switch (stream->codecpar->codec_type) {
+    case AVMEDIA_TYPE_AUDIO: {
+      type = Audio;
+      audio_decode_config = std::make_unique<AudioDecodeConfig>(*stream->codecpar, stream->time_base);
+      break;
+    }
+    case AVMEDIA_TYPE_VIDEO: {
+      type = Video;
+      video_decode_config = std::make_unique<VideoDecodeConfig>(*stream->codecpar, stream->time_base,
+                                                                stream->avg_frame_rate,
+                                                                10);
+      break;
+    }
+    default:type = UNKNOWN;
+      NOTREACHED();
+      break;
+  }
+
+  return std::make_shared<DemuxerStream>(stream,
+                                         nullptr,
+                                         type,
+                                         std::move(audio_decode_config),
+                                         std::move(video_decode_config),
+                                         nullptr);
+}
 
 DemuxerStream::DemuxerStream(
     AVStream *stream,
@@ -20,8 +52,7 @@ DemuxerStream::DemuxerStream(
     packet_queue_(packet_queue),
     type_(type),
     audio_decode_config_(std::move(audio_decode_config)),
-    video_decode_config_(std::move(video_decode_config)),
-    continue_read_thread_(std::move(continue_read_thread)) {
+    video_decode_config_(std::move(video_decode_config)) {
 
 }
 
@@ -86,7 +117,7 @@ void DemuxerStream::SatisfyPendingRead() {
 
   if (!end_of_stream_ && HasAvailableCapacity()) {
     // TODO notify to read more.
-    continue_read_thread_->notify_all();
+    demuxer_->NotifyCapacityAvailable();
   }
 }
 
@@ -106,6 +137,30 @@ void DemuxerStream::Read(std::function<void(std::shared_ptr<DecoderBuffer>)> rea
     return;
   }
   SatisfyPendingRead();
+}
+
+double DemuxerStream::duration() {
+  return av_q2d(stream_->time_base) * double(stream_->duration);
+}
+
+std::string DemuxerStream::GetMetadata(const char *key) const {
+  const AVDictionaryEntry *entry =
+      av_dict_get(stream_->metadata, key, nullptr, 0);
+  return (entry == nullptr || entry->value == nullptr) ? "" : entry->value;
+}
+
+void DemuxerStream::Stop() {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+
+  buffer_queue_->Clear();
+  stream_ = nullptr;
+  demuxer_ = nullptr;
+  end_of_stream_ = true;
+
+  if (read_callback_) {
+    std::move(read_callback_)(DecoderBuffer::CreateEOSBuffer());
+  }
+
 }
 
 } // namespace media

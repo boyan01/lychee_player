@@ -61,6 +61,10 @@ class VideoDecodeConfig {
     return max_frame_duration_;
   }
 
+  bool IsValidConfig() const {
+    return true;
+  }
+
  private:
   AVCodecParameters codec_parameters_;
   AVRational time_base_;

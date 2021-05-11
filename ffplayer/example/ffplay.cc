@@ -14,6 +14,7 @@
 #include "sdl_utils.h"
 #include "sdl_audio_renderer_sink.h"
 #include "sdl_video_renderer_sink.h"
+#include "ffp_msg_queue.h"
 
 extern "C" {
 #include "libavutil/avstring.h"

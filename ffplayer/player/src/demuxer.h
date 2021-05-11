@@ -11,6 +11,9 @@
 
 #include "demuxer_stream.h"
 #include "media_tracks.h"
+#include "ffmpeg_glue.h"
+#include "blocking_url_protocol.h"
+#include "data_source.h"
 
 namespace media {
 
@@ -28,7 +31,7 @@ class DemuxerHost {
    * Set the duration of media.
    * Duration may be kInfiniteDuration() if the duration is not known.
    */
-  virtual void SetDuration(chrono::microseconds duration) = 0;
+  virtual void SetDuration(double duration) = 0;
 
   /**
    * Stops execution of the pipeline due to a fatal error.
@@ -42,7 +45,7 @@ class DemuxerHost {
 
 };
 
-class Demuxer : std::enable_shared_from_this<Demuxer> {
+class Demuxer : public std::enable_shared_from_this<Demuxer> {
 
  public:
 
@@ -51,11 +54,11 @@ class Demuxer : std::enable_shared_from_this<Demuxer> {
 // init segment has been parsed successfully in MSE case).
   using MediaTracksUpdatedCB = std::function<void(std::unique_ptr<MediaTracks>)>;
 
-  Demuxer(std::shared_ptr<base::MessageLoop> message_loop,
+  Demuxer(base::MessageLoop *task_runner,
           DataSource *data_source,
           MediaTracksUpdatedCB media_tracks_updated_cb);
 
-  std::shared_ptr<base::MessageLoop> message_loop() { return task_runner_; }
+  TaskRunner *message_loop() { return task_runner_; }
 
   void Initialize(DemuxerHost *host, PipelineStatusCB status_cb);
 
@@ -76,6 +79,8 @@ class Demuxer : std::enable_shared_from_this<Demuxer> {
 
   std::vector<DemuxerStream *> GetAllStreams();
 
+  void NotifyCapacityAvailable();
+
  protected:
 
   virtual std::string GetDisplayName() const;
@@ -84,14 +89,6 @@ class Demuxer : std::enable_shared_from_this<Demuxer> {
 
   // Carries out demuxing and satisfying stream reads on the demuxer thread.
   void DemuxTask();
-
-  // Return ture if any of the streams have pending reads.
-  // Since we lazily post a `DemuxTask()` for every read, we use
-  // this method to quickly terminate the tasks if there is
-  // no work to do.
-  //
-  // Must to called on the demuxer thread.
-  bool StreamsHavePendingReads();
 
   // Signal all DemuxerStream that the stream has ended.
   //
@@ -115,7 +112,7 @@ class Demuxer : std::enable_shared_from_this<Demuxer> {
 
   std::unique_ptr<BlockingUrlProtocol> url_protocol_;
 
-  std::shared_ptr<base::MessageLoop> task_runner_;
+  TaskRunner *task_runner_;
   DataSource *data_source_;
   double duration_ = kNoTimestamp();
 
@@ -169,6 +166,7 @@ class Demuxer : std::enable_shared_from_this<Demuxer> {
 
   DISALLOW_COPY_AND_ASSIGN(Demuxer);
 
+  bool StreamsHaveAvailableCapacity();
 };
 
 } // namespace media

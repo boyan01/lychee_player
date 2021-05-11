@@ -5,7 +5,8 @@
 #include "vector"
 
 #include "base/logging.h"
-#include "ffmpeg/ffmpeg_glue.h"
+
+#include "ffmpeg_glue.h"
 
 namespace media {
 

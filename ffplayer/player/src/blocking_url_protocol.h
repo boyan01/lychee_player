@@ -10,7 +10,7 @@
 #include "condition_variable"
 
 #include "base/basictypes.h"
-#include "ffmpeg/ffmpeg_glue.h"
+#include "ffmpeg_glue.h"
 
 namespace media {
 

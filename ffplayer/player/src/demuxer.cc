@@ -5,14 +5,16 @@
 #include "base/logging.h"
 
 #include "demuxer.h"
-#include <ffmpeg/blocking_url_protocol.h>
 
 namespace media {
 
-Demuxer::Demuxer(std::shared_ptr<base::MessageLoop> message_loop,
+const int PIPELINE_ERROR_ABORT = -1;
+const int PIPELINE_OK = 0;
+
+Demuxer::Demuxer(base::MessageLoop *task_runner,
                  DataSource *data_source,
                  MediaTracksUpdatedCB media_tracks_updated_cb)
-    : task_runner_(std::move(message_loop)),
+    : task_runner_(task_runner),
       data_source_(data_source),
       media_tracks_updated_cb_(std::move(media_tracks_updated_cb)),
       host_(nullptr),
@@ -35,14 +37,13 @@ void Demuxer::DemuxTask() {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
   // Make sure we have work to do before demuxing.
-  if (!StreamsHavePendingReads()) {
+  if (!StreamsHaveAvailableCapacity()) {
     return;
   }
 
   // Allocate and read an AVPacket from the media.
-  unique_ptr_d<AVPacket> packet(new AVPacket(), [](AVPacket *ptr) {
-    delete ptr;
-  });
+  std::unique_ptr<AVPacket, AVPacketDeleter> packet(new AVPacket());
+  // TODO ignore empty packet.
   int result = av_read_frame(format_context_, packet.get());
   if (result < 0) {
     // Update the duration based on the audio stream if it was previously unknown.
@@ -51,8 +52,8 @@ void Demuxer::DemuxTask() {
       // Search streams for AUDIO one.
       for (auto &stream : streams_) {
         if (stream && stream->type() == DemuxerStream::Audio) {
-          auto duration = stream->GetElapsedTime();
-          if (duration != kNoTimestamp() && duration > TimeDelta()) {
+          auto duration = stream->duration();
+          if (duration != kNoTimestamp() && duration > 0) {
             host_->SetDuration(duration);
             duration_known_ = true;
           }
@@ -78,17 +79,10 @@ void Demuxer::DemuxTask() {
 
   // Create a loop by posting another task.  This allows seek and message loop
   // quit tasks to get processed.
-  if (StreamsHavePendingReads()) {
+  if (StreamsHaveAvailableCapacity()) {
     PostDemuxTask();
   }
 
-}
-
-bool Demuxer::StreamsHavePendingReads() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
-  return std::any_of(streams_.begin(), streams_.end(), [](const std::shared_ptr<DemuxerStream> &stream) -> bool {
-    return stream->HasPendingReads();
-  });
 }
 
 void Demuxer::Initialize(DemuxerHost *host, PipelineStatusCB status_cb) {
@@ -122,9 +116,9 @@ void Demuxer::Initialize(DemuxerHost *host, PipelineStatusCB status_cb) {
 
 }
 
-static TimeDelta ExtractStartTime(AVStream *stream) {
+static double ExtractStartTime(AVStream *stream) {
   // The default start time is zero.
-  TimeDelta start_time;
+  double start_time;
 
   // First try to use  the |start_time| value as is.
   if (stream->start_time != AV_NOPTS_VALUE)
@@ -136,7 +130,7 @@ static TimeDelta ExtractStartTime(AVStream *stream) {
       stream->codecpar->codec_id != AV_CODEC_ID_HEVC &&
       stream->codecpar->codec_id != AV_CODEC_ID_H264 &&
       stream->codecpar->codec_id != AV_CODEC_ID_MPEG4) {
-    const TimeDelta first_pts =
+    const double first_pts =
         ffmpeg::ConvertFromTimeBase(stream->time_base, stream->first_dts);
     if (first_pts < start_time)
       start_time = first_pts;
@@ -151,33 +145,31 @@ static TimeDelta ExtractStartTime(AVStream *stream) {
 // Returns 0 if a bitrate could not be determined.
 static int CalculateBitrate(
     AVFormatContext *format_context,
-    const TimeDelta &duration,
+    const double &duration,
     int64 filesize_in_bytes) {
   // If there is a bitrate set on the container, use it.
   if (format_context->bit_rate > 0)
-    return format_context->bit_rate;
+    return int(format_context->bit_rate);
 
   // Then try to sum the bitrates individually per stream.
   int bitrate = 0;
   for (size_t i = 0; i < format_context->nb_streams; ++i) {
     auto *codec_par = format_context->streams[i]->codecpar;
-    bitrate += codec_par->bit_rate;
+    bitrate += int(codec_par->bit_rate);
   }
   if (bitrate > 0)
     return bitrate;
 
   // See if we can approximate the bitrate as long as we have a filesize and
   // valid duration.
-  if (duration.count() <= 0 ||
-      duration == kInfiniteDuration() ||
-      filesize_in_bytes == 0) {
+  if (duration <= 0 || filesize_in_bytes == 0) {
     return 0;
   }
 
   // Do math in floating point as we'd overflow an int64 if the filesize was
   // larger than ~1073GB.
-  double bytes = filesize_in_bytes;
-  double duration_us = duration.count();
+  auto bytes = double(filesize_in_bytes);
+  double duration_us = duration * 1000000000;
   return int(bytes * 8000000.0 / duration_us);
 }
 
@@ -210,9 +202,9 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
   DCHECK(track_id_to_demux_stream_map_.empty());
 
   // If available, |start_time_| will be set to the lowest stream start time.
-  start_time_ = kInfiniteDuration();
+  start_time_ = -1;
 
-  TimeDelta max_duration;
+  double max_duration;
   int supported_audio_track_count = 0;
   int supported_video_track_count = 0;
   bool has_opus_or_vorbis_audio = false;
@@ -289,7 +281,7 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
     // record src= playback UMA stats for the stream's decoder config.
     MediaTrack *media_track = nullptr;
     if (codec_type == AVMEDIA_TYPE_AUDIO) {
-      AudioDecoderConfig audio_config = streams_[i]->audio_decoder_config();
+      AudioDecodeConfig audio_config = streams_[i]->audio_decode_config();
 
       media_track = media_tracks->AddAudioTrack(audio_config, track_id,
                                                 MediaTrack::Kind("main"),
@@ -299,7 +291,7 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
           track_id_to_demux_stream_map_.end());
       track_id_to_demux_stream_map_[media_track->id()] = streams_[i].get();
     } else if (codec_type == AVMEDIA_TYPE_VIDEO) {
-      VideoDecoderConfig video_config = streams_[i]->video_decoder_config();
+      VideoDecodeConfig video_config = streams_[i]->video_decode_config();
 
       media_track = media_tracks->AddVideoTrack(video_config, track_id,
                                                 MediaTrack::Kind("main"),
@@ -312,7 +304,7 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
 
     max_duration = std::max(max_duration, streams_[i]->duration());
 
-    TimeDelta start_time = ExtractStartTime(stream);
+    double start_time = ExtractStartTime(stream);
 
     // Note: This value is used for seeking, so we must take the true value and
     // not the one possibly clamped to zero below.
@@ -323,13 +315,13 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
     if (!has_opus_or_vorbis_audio)
       has_opus_or_vorbis_audio = is_opus_or_vorbis;
 
-    if (codec_type == AVMEDIA_TYPE_AUDIO && start_time < TimeDelta() &&
+    if (codec_type == AVMEDIA_TYPE_AUDIO && start_time < 0 &&
         is_opus_or_vorbis) {
       needs_negative_timestamp_fixup = true;
 
       // Fixup the seeking information to avoid selecting the audio stream
       // simply because it has a lower starting time.
-      start_time = TimeDelta();
+      start_time = 0;
     }
 
 //    streams_[i]->set_start_time(start_time);
@@ -348,12 +340,12 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
     max_duration = std::max(max_duration, ffmpeg::ConvertFromTimeBase(av_time_base, format_context->duration));
   } else {
     // The duration is unknown, in which case this is likely a live stream.
-    max_duration = kInfiniteDuration();
+    max_duration = std::numeric_limits<double>::max();
   }
 
   // If no start time could be determined, default to zero.
-  if (start_time_ == kInfiniteDuration())
-    start_time_ = TimeDelta();
+  if (start_time_ == std::numeric_limits<double>::max())
+    start_time_ = 0;
 
   // MPEG-4 B-frames cause grief for a simple container like AVI. Enable PTS
   // generation so we always get timestamps, see http://crbug.com/169570
@@ -389,7 +381,7 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
   // initializing.
   host_->SetDuration(max_duration);
   duration_ = max_duration;
-  duration_known_ = (max_duration != kInfiniteDuration());
+  duration_known_ = (max_duration != std::numeric_limits<double>::max());
 
   int64_t filesize_in_bytes = 0;
   url_protocol_->GetSize(&filesize_in_bytes);
@@ -414,19 +406,19 @@ void Demuxer::StreamHasEnded() {
 
 void Demuxer::NotifyBufferingChanged() {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  Ranges<TimeDelta> buffered;
-  std::shared_ptr<DemuxerStream> audio = audio_disabled_ ? nullptr : GetFFmpegStream(DemuxerStream::AUDIO);
-  std::shared_ptr<DemuxerStream> video = GetFFmpegStream(DemuxerStream::VIDEO);
-  if (audio && video) {
-    buffered = audio->GetBufferedRanges().IntersectionWith(video->GetBufferedRanges());
-  } else if (audio_disabled_) {
-    buffered = audio->GetBufferedRanges();
-  } else if (video) {
-    buffered = video->GetBufferedRanges();
-  }
-  for (size_t i = 0; i < buffered.size(); ++i) {
+//  Ranges<TimeDelta> buffered;
+//  std::shared_ptr<DemuxerStream> audio = audio_disabled_ ? nullptr : GetFFmpegStream(DemuxerStream::Audio);
+//  std::shared_ptr<DemuxerStream> video = GetFFmpegStream(DemuxerStream::Video);
+//  if (audio && video) {
+//    buffered = audio->GetBufferedRanges().IntersectionWith(video->GetBufferedRanges());
+//  } else if (audio_disabled_) {
+//    buffered = audio->GetBufferedRanges();
+//  } else if (video) {
+//    buffered = video->GetBufferedRanges();
+//  }
+//  for (size_t i = 0; i < buffered.size(); ++i) {
 //    host_->AddBufferedTimeRange(buffered.start(i), buffered.end(i));
-  }
+//  }
 }
 
 std::shared_ptr<DemuxerStream> Demuxer::GetFFmpegStream(DemuxerStream::Type type) const {
@@ -496,6 +488,18 @@ std::vector<DemuxerStream *> Demuxer::GetAllStreams() {
 //      result.push_back(stream.get());
 //  }
   return result;
+}
+
+bool Demuxer::StreamsHaveAvailableCapacity() {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  return std::any_of(streams_.begin(), streams_.end(), [](const std::shared_ptr<DemuxerStream> &stream) {
+    return stream && stream->HasAvailableCapacity();
+  });
+}
+
+void Demuxer::NotifyCapacityAvailable() {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  DemuxTask();
 }
 
 }

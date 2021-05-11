@@ -23,6 +23,8 @@ extern "C" {
 
 namespace media {
 
+class Demuxer;
+
 class DemuxerStream {
 
  public:
@@ -43,6 +45,8 @@ class DemuxerStream {
                 std::unique_ptr<VideoDecodeConfig> video_decode_config,
                 std::shared_ptr<std::condition_variable_any> continue_read_thread);
 
+  static std::shared_ptr<DemuxerStream> Create(media::Demuxer *demuxer, AVStream *stream);
+
   AVStream *stream() const {
     return stream_;
   }
@@ -54,7 +58,6 @@ class DemuxerStream {
   bool ReadPacket(AVPacket *packet) {
     auto ret = packet_queue_->Get(packet, false, nullptr, nullptr, nullptr);
     if (ret <= 0) {
-      continue_read_thread_->notify_all();
     }
     return ret > 0;
   }
@@ -72,15 +75,29 @@ class DemuxerStream {
 
   VideoDecodeConfig video_decode_config();
 
+  double duration();
+
+  void SetEndOfStream() {
+    end_of_stream_ = true;
+  }
+
+  // Returns the value associated with |key| in the metadata for the avstream.
+  // Returns an empty string if the key is not present.
+  std::string GetMetadata(const char *key) const;
+
+  // Empties the queues and ignores any additional calls to Read().
+  void Stop();
+
+  bool HasAvailableCapacity();
+
  private:
 
+  Demuxer *demuxer_;
   AVStream *stream_;
   PacketQueue *packet_queue_;
   std::unique_ptr<AudioDecodeConfig> audio_decode_config_;
   std::unique_ptr<VideoDecodeConfig> video_decode_config_;
   Type type_;
-
-  std::shared_ptr<std::condition_variable_any> continue_read_thread_;
 
   std::shared_ptr<DecoderBufferQueue> buffer_queue_;
 
@@ -95,8 +112,6 @@ class DemuxerStream {
   ReadCallback read_callback_;
 
   void SatisfyPendingRead();
-
-  bool HasAvailableCapacity();
 
 };
 
