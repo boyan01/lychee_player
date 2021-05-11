@@ -64,6 +64,10 @@ class DemuxerStream {
 
   void EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> packet);
 
+  Type type() {
+    return type_;
+  }
+
   AudioDecodeConfig audio_decode_config();
 
   VideoDecodeConfig video_decode_config();

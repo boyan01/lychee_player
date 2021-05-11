@@ -12,12 +12,12 @@
 
 #include "base/basictypes.h"
 
-#include "decoder/media_track.h"
+#include "media_track.h"
 
 namespace media {
 
-class AudioDecoderConfig;
-class VideoDecoderConfig;
+class AudioDecodeConfig;
+class VideoDecodeConfig;
 
 class MediaTracks {
  public:
@@ -28,14 +28,14 @@ class MediaTracks {
 
   // Adds a new audio track. The |bytestreamTrackId| must uniquely identify the
   // track within the bytestream.
-  MediaTrack *AddAudioTrack(const AudioDecoderConfig &config,
+  MediaTrack *AddAudioTrack(const AudioDecodeConfig &config,
                             MediaTrack::TrackId bytestream_track_id,
                             const MediaTrack::Kind &kind,
                             const MediaTrack::Label &label,
                             const MediaTrack::Language &language);
   // Adds a new video track. The |bytestreamTrackId| must uniquely identify the
   // track within the bytestream.
-  MediaTrack *AddVideoTrack(const VideoDecoderConfig &config,
+  MediaTrack *AddVideoTrack(const VideoDecodeConfig &config,
                             MediaTrack::TrackId bytestream_track_id,
                             const MediaTrack::Kind &kind,
                             const MediaTrack::Label &label,
@@ -43,15 +43,15 @@ class MediaTracks {
 
   const MediaTracksCollection &tracks() const { return tracks_; }
 
-  const AudioDecoderConfig &getAudioConfig(
+  const AudioDecodeConfig &getAudioConfig(
       MediaTrack::TrackId bytestream_track_id) const;
-  const VideoDecoderConfig &getVideoConfig(
+  const VideoDecodeConfig &getVideoConfig(
       MediaTrack::TrackId bytestream_track_id) const;
 
  private:
   MediaTracksCollection tracks_;
-  std::map<MediaTrack::TrackId, AudioDecoderConfig> audio_configs_;
-  std::map<MediaTrack::TrackId, VideoDecoderConfig> video_configs_;
+  std::map<MediaTrack::TrackId, AudioDecodeConfig> audio_configs_;
+  std::map<MediaTrack::TrackId, VideoDecodeConfig> video_configs_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaTracks);
 };

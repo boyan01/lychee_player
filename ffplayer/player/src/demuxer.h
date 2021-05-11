@@ -9,16 +9,17 @@
 
 #include "base/message_loop.h"
 
-#include "demuxer/demuxer_stream.h"
-#include "source/data_source.h"
-#include "ffmpeg/ffmpeg_glue.h"
-#include "ffmpeg/blocking_url_protocol.h"
-#include "decoder/media_tracks.h"
-#include "pipeline/pipeline_status.h"
+#include "demuxer_stream.h"
+#include "media_tracks.h"
 
 namespace media {
 
-typedef PipelineStatusCallback PipelineStatusCB;
+constexpr double kNoTimestamp() {
+  return 0;
+}
+
+typedef int PipelineStatus;
+typedef std::function<void(bool)> PipelineStatusCB;
 
 class DemuxerHost {
  public:
@@ -116,7 +117,7 @@ class Demuxer : std::enable_shared_from_this<Demuxer> {
 
   std::shared_ptr<base::MessageLoop> task_runner_;
   DataSource *data_source_;
-  TimeDelta duration_ = kNoTimestamp();
+  double duration_ = kNoTimestamp();
 
   // FFmpeg context handle.
   AVFormatContext *format_context_;
@@ -150,7 +151,7 @@ class Demuxer : std::enable_shared_from_this<Demuxer> {
   // The first timestamp of the opened media file. This is used to set the
   // starting clock value to match the timestamps in the media file. Default
   // is 0.
-  chrono::microseconds start_time_;
+  double start_time_;
 
   MediaTracksUpdatedCB media_tracks_updated_cb_;
 

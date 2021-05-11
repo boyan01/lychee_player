@@ -4,7 +4,7 @@
 
 #include "base/logging.h"
 
-#include "demuxer/demuxer.h"
+#include "demuxer.h"
 #include <ffmpeg/blocking_url_protocol.h>
 
 namespace media {
@@ -50,7 +50,7 @@ void Demuxer::DemuxTask() {
     if (!duration_known_) {
       // Search streams for AUDIO one.
       for (auto &stream : streams_) {
-        if (stream && stream->type() == DemuxerStream::AUDIO) {
+        if (stream && stream->type() == DemuxerStream::Audio) {
           auto duration = stream->GetElapsedTime();
           if (duration != kNoTimestamp() && duration > TimeDelta()) {
             host_->SetDuration(duration);
@@ -71,7 +71,7 @@ void Demuxer::DemuxTask() {
   DCHECK_LT(packet->stream_index, static_cast<int>(streams_.size()));
 
   if (packet->stream_index >= 0 && packet->stream_index < streams_.size() && streams_[packet->stream_index]
-      && (!audio_disabled_ || streams_[packet->stream_index]->type() != DemuxerStream::AUDIO)) {
+      && (!audio_disabled_ || streams_[packet->stream_index]->type() != DemuxerStream::Audio)) {
     auto demuxer_stream = streams_[packet->stream_index];
     demuxer_stream->EnqueuePacket(std::move(packet));
   }

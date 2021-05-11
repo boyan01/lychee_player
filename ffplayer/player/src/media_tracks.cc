@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "decoder/media_tracks.h"
+#include "media_tracks.h"
 
 #include <memory>
 
 #include "base/logging.h"
 
-#include "decoder/audio_decoder_config.h"
-#include "decoder/video_decoder_config.h"
+#include "audio_decode_config.h"
+#include "video_decode_config.h"
 
 namespace media {
 
@@ -18,12 +18,11 @@ MediaTracks::MediaTracks() = default;
 MediaTracks::~MediaTracks() = default;
 
 MediaTrack *MediaTracks::AddAudioTrack(
-    const AudioDecoderConfig &config,
+    const AudioDecodeConfig &config,
     MediaTrack::TrackId bytestream_track_id,
     const MediaTrack::Kind &kind,
     const MediaTrack::Label &label,
     const MediaTrack::Language &language) {
-  DCHECK(config.IsValidConfig());
   CHECK(audio_configs_.find(bytestream_track_id) == audio_configs_.end());
   std::unique_ptr<MediaTrack> track = std::make_unique<MediaTrack>(
       MediaTrack::Audio, bytestream_track_id, kind, label, language);
@@ -34,12 +33,11 @@ MediaTrack *MediaTracks::AddAudioTrack(
 }
 
 MediaTrack *MediaTracks::AddVideoTrack(
-    const VideoDecoderConfig &config,
+    const VideoDecodeConfig &config,
     MediaTrack::TrackId bytestream_track_id,
     const MediaTrack::Kind &kind,
     const MediaTrack::Label &label,
     const MediaTrack::Language &language) {
-  DCHECK(config.IsValidConfig());
   CHECK(video_configs_.find(bytestream_track_id) == video_configs_.end());
   std::unique_ptr<MediaTrack> track = std::make_unique<MediaTrack>(
       MediaTrack::Video, bytestream_track_id, kind, label, language);
@@ -49,21 +47,21 @@ MediaTrack *MediaTracks::AddVideoTrack(
   return track_ptr;
 }
 
-const AudioDecoderConfig &MediaTracks::getAudioConfig(
+const AudioDecodeConfig &MediaTracks::getAudioConfig(
     MediaTrack::TrackId bytestream_track_id) const {
   auto it = audio_configs_.find(bytestream_track_id);
   if (it != audio_configs_.end())
     return it->second;
-  static AudioDecoderConfig invalidConfig;
+  static AudioDecodeConfig invalidConfig;
   return invalidConfig;
 }
 
-const VideoDecoderConfig &MediaTracks::getVideoConfig(
+const VideoDecodeConfig &MediaTracks::getVideoConfig(
     MediaTrack::TrackId bytestream_track_id) const {
   auto it = video_configs_.find(bytestream_track_id);
   if (it != video_configs_.end())
     return it->second;
-  static VideoDecoderConfig invalidConfig;
+  static VideoDecodeConfig invalidConfig;
   return invalidConfig;
 }
 
