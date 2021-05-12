@@ -11,13 +11,14 @@ namespace media {
 FileDataSource::FileDataSource()
     : force_read_errors_(false),
       force_streaming_(false),
-      bytes_read_(0) {
+      bytes_read_(0),
+      file_(nullptr) {
 }
 
 bool FileDataSource::Initialize(const std::string &file_path) {
-  DCHECK(!file_stream_.is_open());
-  file_stream_ = std::ifstream(file_path, std::ios::binary);
-  return file_stream_.is_open();
+  DCHECK(!file_);
+  file_ = fopen(file_path.c_str(), "rb");
+  return file_;
 }
 
 void FileDataSource::Stop() {}
@@ -28,7 +29,7 @@ void FileDataSource::Read(int64_t position,
                           int size,
                           uint8_t *data,
                           DataSource::ReadCB read_cb) {
-  if (force_read_errors_ || !file_stream_.is_open()) {
+  if (force_read_errors_ || !file_) {
     std::move(read_cb)(kReadError);
     return;
   }
@@ -45,19 +46,23 @@ void FileDataSource::Read(int64_t position,
   int64_t clamped_size =
       std::min(static_cast<int64_t>(size), file_size - position);
 
-  file_stream_.seekg(position);
-  file_stream_.read(reinterpret_cast<char *>(data), clamped_size);
+  auto ret = fseek(file_, position, SEEK_SET);
+  DCHECK_EQ(ret, 0);
+  fread(data, sizeof(char), clamped_size, file_);
 
   bytes_read_ += clamped_size;
   std::move(read_cb)(clamped_size);
 }
 
 bool FileDataSource::GetSize(int64_t *size_out) {
-  if (file_stream_.is_open()) {
+  if (!file_) {
     return false;
   }
-  file_stream_.seekg(0, std::ios::end);
-  *size_out = file_stream_.tellg();
+  auto ret = fseek(file_, 0, SEEK_END);
+  if (ret != 0) {
+    return false;
+  }
+  *size_out = ftell(file_);
   return true;
 }
 

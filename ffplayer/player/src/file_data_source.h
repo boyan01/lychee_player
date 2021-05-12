@@ -40,7 +40,7 @@ class FileDataSource : public DataSource {
 
  private:
 
-  std::ifstream file_stream_;
+  FILE *file_;
 
   bool force_read_errors_;
   bool force_streaming_;
