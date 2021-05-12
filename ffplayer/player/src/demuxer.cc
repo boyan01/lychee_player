@@ -6,6 +6,8 @@
 
 #include "demuxer.h"
 
+#include "base/bind_to_current_loop.h"
+
 namespace media {
 
 const int PIPELINE_ERROR_ABORT = -1;
@@ -86,10 +88,13 @@ void Demuxer::DemuxTask() {
 }
 
 void Demuxer::Initialize(DemuxerHost *host, PipelineStatusCB status_cb) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
-
   host_ = host;
+  init_callback_ = BindToCurrentLoop(std::move(status_cb));
 
+  task_runner_->PostTask(FROM_HERE, std::bind(&Demuxer::InitializeTask, this));
+}
+
+void Demuxer::InitializeTask() {
   url_protocol_ = std::make_unique<BlockingUrlProtocol>(
       data_source_,
       [weak_this(std::weak_ptr<Demuxer>(shared_from_this()))]() {
@@ -112,8 +117,7 @@ void Demuxer::Initialize(DemuxerHost *host, PipelineStatusCB status_cb) {
   // streams from being detected properly; this value was chosen arbitrarily.
   format_context->max_analyze_duration = 60 * AV_TIME_BASE;
 
-  OnOpenContextDone(glue_->OpenContext(is_local_file_), std::move(status_cb));
-
+  OnOpenContextDone(glue_->OpenContext(is_local_file_));
 }
 
 static double ExtractStartTime(AVStream *stream) {
@@ -173,20 +177,20 @@ static int CalculateBitrate(
   return int(bytes * 8000000.0 / duration_us);
 }
 
-void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
+void Demuxer::OnOpenContextDone(bool open) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   if (stopped_) {
-    status_cb(PIPELINE_ERROR_ABORT);
+    init_callback_(PIPELINE_ERROR_ABORT);
     return;
   }
   if (!open) {
-    status_cb(PIPELINE_ERROR_ABORT);
+    init_callback_(PIPELINE_ERROR_ABORT);
     return;
   }
 
   auto result = avformat_find_stream_info(glue_->format_context(), nullptr);
   if (result < 0) {
-    status_cb(PIPELINE_ERROR_ABORT);
+    init_callback_(PIPELINE_ERROR_ABORT);
     return;
   }
 
@@ -195,6 +199,7 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
   // for it in this release?). Unsupported streams are skipped, allowing for
   // partial playback. At least one audio or video stream must be playable.
   AVFormatContext *format_context = glue_->format_context();
+  format_context_ = format_context;
   streams_.resize(format_context->nb_streams);
 
   std::unique_ptr<MediaTracks> media_tracks = std::make_unique<MediaTracks>();
@@ -221,9 +226,9 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
     }
 
     if (codec_type == AVMEDIA_TYPE_AUDIO) {
-      DLOG(INFO) << "Media.DetectedAudioCodec" << codec_id;
+      DLOG(INFO) << "Media.DetectedAudioCodec: " << avcodec_get_name(codec_id);
     } else if (codec_type == AVMEDIA_TYPE_VIDEO) {
-      DLOG(INFO) << "Media.DetectedVideoCodec" << codec_id;
+      DLOG(INFO) << "Media.DetectedVideoCodec: " << avcodec_get_name(codec_id);
     } else if (codec_type == AVMEDIA_TYPE_SUBTITLE) {
       stream->discard = AVDISCARD_ALL;
       continue;
@@ -265,17 +270,6 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
 //      streams_[i]->SetEnabled(supported_video_track_count == 1,
 //                              base::TimeDelta());
 //    }
-
-    // TODO(chcunningham): Remove the IsValidConfig() checks below. If the
-    // config isn't valid we shouldn't have created a demuxer stream nor
-    // an entry in |media_tracks|, so the check should always be true.
-    if ((codec_type == AVMEDIA_TYPE_AUDIO &&
-        media_tracks->getAudioConfig(track_id).IsValidConfig()) ||
-        (codec_type == AVMEDIA_TYPE_VIDEO &&
-            media_tracks->getVideoConfig(track_id).IsValidConfig())) {
-      DLOG(INFO) << GetDisplayName() << ": skipping duplicate media stream id=" << track_id;
-      continue;
-    }
 
     // Note when we find our audio/video stream (we only want one of each) and
     // record src= playback UMA stats for the stream's decoder config.
@@ -329,7 +323,7 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
 
   if (media_tracks->tracks().empty()) {
     LOG(ERROR) << GetDisplayName() << ": no supported streams";
-    status_cb(PIPELINE_ERROR_ABORT);
+    init_callback_(PIPELINE_ERROR_ABORT);
     return;
   }
 
@@ -391,7 +385,7 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
 
   media_tracks_updated_cb_(std::move(media_tracks));
 
-  status_cb(PIPELINE_OK);
+  init_callback_(PIPELINE_OK);
 
 }
 
@@ -473,7 +467,7 @@ DemuxerStream *Demuxer::GetFirstStream(DemuxerStream::Type type) {
 }
 
 std::vector<DemuxerStream *> Demuxer::GetAllStreams() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+//  DCHECK(task_runner_->BelongsToCurrentThread());
   std::vector<DemuxerStream *> result;
   // Put enabled streams at the beginning of the list so that
   // MediaResource::GetFirstStream returns the enabled stream if there is one.

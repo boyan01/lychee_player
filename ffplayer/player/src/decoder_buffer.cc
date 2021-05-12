@@ -10,7 +10,7 @@ namespace media {
 
 // static
 std::shared_ptr<DecoderBuffer> DecoderBuffer::CreateEOSBuffer() {
-  return std::shared_ptr<DecoderBuffer>(nullptr);
+  return std::make_shared<DecoderBuffer>(nullptr);
 }
 
 DecoderBuffer::DecoderBuffer(std::unique_ptr<AVPacket, AVPacketDeleter> av_packet)

@@ -52,11 +52,13 @@ void DecoderStream<StreamType>::Read(DecoderStream::ReadCallback read_callback) 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::ReadFromDemuxerStream() {
   if (CanDecodeMore()) {
+    demuxer_stream_->Read(bind_weak(&DecoderStream<StreamType>::OnBufferReady, this->shared_from_this()));
   }
 }
 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::OnBufferReady(std::shared_ptr<DecoderBuffer> buffer) {
+  DCHECK(buffer);
   task_runner_->PostTask(FROM_HERE,
                          [weak_this(std::weak_ptr<DecoderStream<StreamType>>(this->shared_from_this())), buffer]() {
                            auto ptr = weak_this.lock();
@@ -69,6 +71,12 @@ void DecoderStream<StreamType>::OnBufferReady(std::shared_ptr<DecoderBuffer> buf
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::DecodeTask(std::shared_ptr<DecoderBuffer> decoder_buffer) {
   DCHECK(task_runner_->BelongsToCurrentThread());
+
+  if (decoder_buffer->end_of_stream()) {
+    DLOG(WARNING) << "an end stream decode buffer";
+    //TODO
+    return;
+  }
 
   if (!CanDecodeMore()) {
     return;

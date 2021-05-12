@@ -46,7 +46,7 @@ std::shared_ptr<DecoderBuffer> DecoderBufferQueue::Pop() {
   queue_.pop_front();
 
   auto buffer_data_size = buffer->data_size();
-  DCHECK_LT(buffer_data_size, data_size_);
+  DCHECK_LE(buffer_data_size, data_size_);
   data_size_ -= buffer_data_size;
 
   if (!in_order_queue_.empty() && in_order_queue_.front() == buffer) {

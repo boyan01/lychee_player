@@ -22,7 +22,7 @@ constexpr double kNoTimestamp() {
 }
 
 typedef int PipelineStatus;
-typedef std::function<void(bool)> PipelineStatusCB;
+typedef std::function<void(int)> PipelineStatusCB;
 
 class DemuxerHost {
  public:
@@ -87,6 +87,8 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
 
  private:
 
+  void InitializeTask();
+
   // Carries out demuxing and satisfying stream reads on the demuxer thread.
   void DemuxTask();
 
@@ -106,9 +108,10 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
   // read or kReadError in case of error.
   virtual void SignalReadCompleted(int size);
 
-  void OnOpenContextDone(bool result, PipelineStatusCB status_cb);
+  void OnOpenContextDone(bool open);
 
   DemuxerHost *host_;
+  PipelineStatusCB init_callback_;
 
   std::unique_ptr<BlockingUrlProtocol> url_protocol_;
 

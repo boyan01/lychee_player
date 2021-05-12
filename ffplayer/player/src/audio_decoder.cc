@@ -64,7 +64,6 @@ int AudioDecoder2::Initialize(const AudioDecodeConfig &config, DemuxerStream *st
 
   stream_ = stream;
   stream_->stream()->discard = AVDISCARD_DEFAULT;
-  stream->packet_queue()->Start();
 
   return 0;
 }

@@ -90,7 +90,7 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
 
   void OpenDataSourceTask(const char *filename);
 
-  void OnDataSourceOpen(bool open_status);
+  void OnDataSourceOpen(int open_status);
 
   void InitVideoRender();
 

@@ -68,8 +68,6 @@ int VideoDecoder2::Initialize(VideoDecodeConfig config,
   stream_ = stream;
 
   stream_->stream()->discard = AVDISCARD_DEFAULT;
-  stream_->packet_queue()->Start();
-
   return 0;
 }
 

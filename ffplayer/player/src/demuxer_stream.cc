@@ -33,26 +33,24 @@ std::shared_ptr<DemuxerStream> DemuxerStream::Create(media::Demuxer *demuxer, AV
       break;
   }
 
-  return std::make_shared<DemuxerStream>(stream,
-                                         nullptr,
-                                         type,
+  return std::make_shared<DemuxerStream>(stream, demuxer, type,
                                          std::move(audio_decode_config),
-                                         std::move(video_decode_config),
-                                         nullptr);
+                                         std::move(video_decode_config));
 }
 
 DemuxerStream::DemuxerStream(
     AVStream *stream,
-    PacketQueue *packet_queue,
+    Demuxer *demuxer,
     Type type,
     std::unique_ptr<AudioDecodeConfig> audio_decode_config,
-    std::unique_ptr<VideoDecodeConfig> video_decode_config,
-    std::shared_ptr<std::condition_variable_any> continue_read_thread
+    std::unique_ptr<VideoDecodeConfig> video_decode_config
 ) : stream_(stream),
-    packet_queue_(packet_queue),
+    demuxer_(demuxer),
     type_(type),
     audio_decode_config_(std::move(audio_decode_config)),
-    video_decode_config_(std::move(video_decode_config)) {
+    video_decode_config_(std::move(video_decode_config)),
+    task_runner_(TaskRunner::current()),
+    buffer_queue_(std::make_shared<DecoderBufferQueue>()){
 
 }
 
@@ -70,6 +68,8 @@ void DemuxerStream::EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> pac
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(packet->size);
   DCHECK(packet->data);
+
+  DLOG(INFO) << __func__;
 
   const bool is_audio = type_ == Audio;
 

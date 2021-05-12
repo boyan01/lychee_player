@@ -146,25 +146,25 @@ void MediaPlayer::OpenDataSourceTask(const char *filename) {
   DCHECK(ret) << "open file failed";
 
   state_ = kPreparing;
-  demuxer_ = std::make_shared<Demuxer>(task_runner_, file_data_source, [](std::unique_ptr<MediaTracks> tracks) {
+  demuxer_ = std::make_shared<Demuxer>(decoder_task_runner_, file_data_source, [](std::unique_ptr<MediaTracks> tracks) {
     DLOG(INFO) << "on tracks update.";
   });
   demuxer_->Initialize(this, bind_weak(&MediaPlayer::OnDataSourceOpen, shared_from_this()));
-  MediaPlayer::OnDataSourceOpen(true);
 }
 
-void MediaPlayer::OnDataSourceOpen(bool open_status) {
+void MediaPlayer::OnDataSourceOpen(int open_status) {
   DCHECK_EQ(state_, kPreparing);
-  if (open_status) {
+  if (open_status >= 0) {
     DLOG(INFO) << "Open DataSource Succeed";
     task_runner_->PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitVideoRender, shared_from_this()));
   } else {
     state_ = kIdle;
+    DLOG(ERROR) << "Open DataSource Failed";
   }
 }
 
 void MediaPlayer::InitVideoRender() {
-  auto stream = demuxer_->GetFirstStream(DemuxerStream::Audio);
+  auto stream = demuxer_->GetFirstStream(DemuxerStream::Video);
   if (stream) {
     video_renderer_->Initialize(stream,
                                 clock_context,
@@ -184,7 +184,7 @@ void MediaPlayer::OnVideoRendererInitialized(bool success) {
 }
 
 void MediaPlayer::InitAudioRender() {
-  auto stream = demuxer_->GetFirstStream(DemuxerStream::Video);
+  auto stream = demuxer_->GetFirstStream(DemuxerStream::Audio);
   if (stream) {
     audio_renderer_->Initialize(stream, clock_context,
                                 bind_weak(&MediaPlayer::OnAudioRendererInitialized, shared_from_this()));
@@ -192,7 +192,7 @@ void MediaPlayer::InitAudioRender() {
 }
 
 void MediaPlayer::OnAudioRendererInitialized(bool success) {
-  DLOG(INFO) << success;
+  DLOG(INFO) << __func__ << " : " << success;
   if (success) {
     state_ = kPrepared;
     if (play_when_ready_) {

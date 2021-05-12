@@ -12,7 +12,7 @@
 
 extern "C" {
 #include "libavformat/avformat.h"
-};
+}
 
 #include "ffp_packet_queue.h"
 #include "audio_decode_config.h"
@@ -39,27 +39,15 @@ class DemuxerStream {
   };
 
   DemuxerStream(AVStream *stream,
-                PacketQueue *packet_queue,
+                Demuxer *demuxer,
                 Type type,
                 std::unique_ptr<AudioDecodeConfig> audio_decode_config,
-                std::unique_ptr<VideoDecodeConfig> video_decode_config,
-                std::shared_ptr<std::condition_variable_any> continue_read_thread);
+                std::unique_ptr<VideoDecodeConfig> video_decode_config);
 
   static std::shared_ptr<DemuxerStream> Create(media::Demuxer *demuxer, AVStream *stream);
 
   AVStream *stream() const {
     return stream_;
-  }
-
-  PacketQueue *packet_queue() const {
-    return packet_queue_;
-  }
-
-  bool ReadPacket(AVPacket *packet) {
-    auto ret = packet_queue_->Get(packet, false, nullptr, nullptr, nullptr);
-    if (ret <= 0) {
-    }
-    return ret > 0;
   }
 
   using ReadCallback = OnceCallback<void(std::shared_ptr<DecoderBuffer>)>;
@@ -94,7 +82,6 @@ class DemuxerStream {
 
   Demuxer *demuxer_;
   AVStream *stream_;
-  PacketQueue *packet_queue_;
   std::unique_ptr<AudioDecodeConfig> audio_decode_config_;
   std::unique_ptr<VideoDecodeConfig> video_decode_config_;
   Type type_;

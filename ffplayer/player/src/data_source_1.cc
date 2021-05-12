@@ -247,9 +247,9 @@ void DataSource1::InitVideoDecoder(int stream_index) {
       av_guess_frame_rate(format_ctx_, stream, nullptr),
       max_frame_duration);
   video_decode_config_ = *video_decode_config;
-  video_demuxer_stream_ = std::make_shared<DemuxerStream>(
-      stream, video_queue.get(), DemuxerStream::Video, nullptr,
-      std::move(video_decode_config), continue_read_thread_);
+//  video_demuxer_stream_ = std::make_shared<DemuxerStream>(
+//      stream, video_queue.get(), DemuxerStream::Video, nullptr,
+//      std::move(video_decode_config), continue_read_thread_);
 }
 
 void DataSource1::InitAudioDecoder(int stream_index) {
@@ -265,11 +265,11 @@ void DataSource1::InitAudioDecoder(int stream_index) {
   audio_stream_ = stream;
   audio_queue->time_base = stream->time_base;
 
-  audio_decode_config_ = AudioDecodeConfig(*stream->codecpar, stream->time_base);
-  audio_demuxer_stream_ = std::make_shared<DemuxerStream>(
-      stream, audio_queue.get(), DemuxerStream::Audio,
-      std::make_unique<AudioDecodeConfig>(*stream->codecpar, stream->time_base),
-      nullptr, continue_read_thread_);
+//  audio_decode_config_ = AudioDecodeConfig(*stream->codecpar, stream->time_base);
+//  audio_demuxer_stream_ = std::make_shared<DemuxerStream>(
+//      stream, audio_queue.get(), DemuxerStream::Audio,
+//      std::make_unique<AudioDecodeConfig>(*stream->codecpar, stream->time_base),
+//      nullptr, continue_read_thread_);
 
 }
 
