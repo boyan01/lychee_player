@@ -51,7 +51,8 @@ DemuxerStream::DemuxerStream(
     video_decode_config_(std::move(video_decode_config)),
     task_runner_(TaskRunner::current()),
     buffer_queue_(std::make_shared<DecoderBufferQueue>()),
-    end_of_stream_(false) {
+    end_of_stream_(false),
+    waiting_for_key_frame_(false) {
 
 }
 
@@ -86,7 +87,7 @@ void DemuxerStream::EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> pac
     if (packet->flags & AV_PKT_FLAG_KEY) {
       waiting_for_key_frame_ = false;
     } else {
-      DLOG(INFO) << "Dropped non-keyframe pts = " << packet->pts;
+      DLOG(INFO) << "Dropped non-keyframe pts = " << ffmpeg::ConvertFromTimeBase(stream_->time_base, packet->pts);
       return;
     }
   }
@@ -98,7 +99,7 @@ void DemuxerStream::EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> pac
   }
 
   std::shared_ptr<DecoderBuffer> buffer = std::make_shared<DecoderBuffer>(std::move(packet));
-  buffer->set_timestamp(av_q2d(stream_->time_base) * double(pkt_pts));
+  buffer->set_timestamp(ffmpeg::ConvertFromTimeBase(stream_->time_base, pkt_pts));
 
   buffer_queue_->Push(std::move(buffer));
 
