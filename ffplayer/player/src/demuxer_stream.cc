@@ -50,7 +50,8 @@ DemuxerStream::DemuxerStream(
     audio_decode_config_(std::move(audio_decode_config)),
     video_decode_config_(std::move(video_decode_config)),
     task_runner_(TaskRunner::current()),
-    buffer_queue_(std::make_shared<DecoderBufferQueue>()){
+    buffer_queue_(std::make_shared<DecoderBufferQueue>()),
+    end_of_stream_(false) {
 
 }
 
@@ -68,8 +69,6 @@ void DemuxerStream::EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> pac
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(packet->size);
   DCHECK(packet->data);
-
-  DLOG(INFO) << __func__;
 
   const bool is_audio = type_ == Audio;
 
@@ -103,6 +102,7 @@ void DemuxerStream::EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> pac
 
   buffer_queue_->Push(std::move(buffer));
 
+  SatisfyPendingRead();
 }
 
 void DemuxerStream::SatisfyPendingRead() {
