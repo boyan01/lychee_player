@@ -30,9 +30,9 @@ void DecoderBufferQueue::Push(std::shared_ptr<DecoderBuffer> buffer) {
   }
 
   if (buffer->timestamp() < earliest_valid_timestamp_) {
-    DLOG(WARNING) << "Out of order timestamps: "
-                  << buffer->timestamp() << " vs. "
-                  << earliest_valid_timestamp_;
+//    DLOG(WARNING) << "Out of order timestamps: "
+//                  << buffer->timestamp() << " vs. "
+//                  << earliest_valid_timestamp_;
     return;
   }
 
