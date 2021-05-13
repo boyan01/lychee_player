@@ -78,6 +78,8 @@ class DemuxerStream {
 
   bool HasAvailableCapacity();
 
+  void SetEnabled(bool enabled, double timestamp);
+
  private:
 
   Demuxer *demuxer_;

@@ -27,6 +27,12 @@ void MediaTrack::set_id(const MediaTrack::Id &id) {
   id_ = id;
 }
 
+std::ostream &operator<<(std::ostream &os, const MediaTrack &track) {
+  os << "type_: " << track.type_ << " bytestream_track_id_: " << track.bytestream_track_id_ << " id_: " << track.id_
+     << " kind_: " << track.kind_ << " label_: " << track.label_ << " language_: " << track.language_;
+  return os;
+}
+
 MediaTrack::~MediaTrack() = default;
 
 const char *TrackTypeToStr(MediaTrack::Type type) {

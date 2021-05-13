@@ -140,14 +140,12 @@ void MediaPlayer::OpenDataSourceTask(const char *filename) {
   DCHECK_EQ(state_, kIdle);
 
   DLOG(INFO) << "open file: " << filename;
-
-  auto file_data_source = new FileDataSource();
-  auto ret = file_data_source->Initialize(filename);
-  DCHECK(ret) << "open file failed";
-
   state_ = kPreparing;
-  demuxer_ = std::make_shared<Demuxer>(decoder_task_runner_, file_data_source, [](std::unique_ptr<MediaTracks> tracks) {
+  demuxer_ = std::make_shared<Demuxer>(decoder_task_runner_, filename, [](std::unique_ptr<MediaTracks> tracks) {
     DLOG(INFO) << "on tracks update.";
+    for (auto &track: tracks->tracks()) {
+      DLOG(INFO) << "track: " << track;
+    }
   });
   demuxer_->Initialize(this, bind_weak(&MediaPlayer::OnDataSourceOpen, shared_from_this()));
 }

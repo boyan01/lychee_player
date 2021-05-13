@@ -6,6 +6,7 @@
 #define MEDIA_BASE_MEDIA_TRACK_H_
 
 #include <string>
+#include <ostream>
 
 #include "base/basictypes.h"
 
@@ -40,6 +41,8 @@ class MediaTrack {
 
   Id id() const { return id_; }
   void set_id(const Id &id);
+
+  friend std::ostream &operator<<(std::ostream &os, const MediaTrack &track);
 
  private:
   Type type_;

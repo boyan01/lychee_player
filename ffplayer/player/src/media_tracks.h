@@ -53,7 +53,7 @@ class MediaTracks {
   std::map<MediaTrack::TrackId, AudioDecodeConfig> audio_configs_;
   std::map<MediaTrack::TrackId, VideoDecodeConfig> video_configs_;
 
-  DISALLOW_COPY_AND_ASSIGN(MediaTracks);
+  DELETE_COPY_AND_ASSIGN(MediaTracks);
 };
 
 }  // namespace media

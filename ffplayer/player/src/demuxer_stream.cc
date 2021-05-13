@@ -164,4 +164,8 @@ void DemuxerStream::Stop() {
 
 }
 
+void DemuxerStream::SetEnabled(bool enabled, double timestamp) {
+
+}
+
 } // namespace media

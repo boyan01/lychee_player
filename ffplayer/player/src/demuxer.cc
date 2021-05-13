@@ -14,19 +14,21 @@ const int PIPELINE_ERROR_ABORT = -1;
 const int PIPELINE_OK = 0;
 
 Demuxer::Demuxer(base::MessageLoop *task_runner,
-                 DataSource *data_source,
+                 std::string url,
                  MediaTracksUpdatedCB media_tracks_updated_cb)
     : task_runner_(task_runner),
-      data_source_(data_source),
       media_tracks_updated_cb_(std::move(media_tracks_updated_cb)),
       host_(nullptr),
       format_context_(nullptr),
-      bitrate_(0),
       start_time_(kNoTimestamp()),
       audio_disabled_(false),
-      duration_known_(false) {
+      duration_known_(false),
+      url_(std::move(url)),
+      abort_request_(false),
+      read_has_failed_(false),
+      read_position_(0),
+      last_read_bytes_(0) {
   DCHECK(task_runner_);
-  DCHECK(data_source_);
 }
 
 void Demuxer::PostDemuxTask() {
@@ -95,29 +97,32 @@ void Demuxer::Initialize(DemuxerHost *host, PipelineStatusCB status_cb) {
 }
 
 void Demuxer::InitializeTask() {
-  url_protocol_ = std::make_unique<BlockingUrlProtocol>(
-      data_source_,
-      [weak_this(std::weak_ptr<Demuxer>(shared_from_this()))]() {
-        DLOG(WARNING) << ": data source error";
-        if (auto demuxer = weak_this.lock()) {
-          demuxer->host_->OnDemuxerError(PIPELINE_ERROR_ABORT);
-        }
-      });
-  glue_ = std::make_unique<FFmpegGlue>(url_protocol_.get());
-  AVFormatContext *format_context = glue_->format_context();
+
+  format_context_ = avformat_alloc_context();
+
+  format_context_->interrupt_callback.opaque = this;
+  format_context_->interrupt_callback.callback = [](void *opaque) -> int {
+    auto demuxer = static_cast<Demuxer *>(opaque);
+    return demuxer->abort_request_;
+  };
 
   // Disable ID3v1 tag reading to avoid costly seeks to end of file for data we
   // don't use.  FFmpeg will only read ID3v1 tags if no other metadata is
   // available, so add a metadata entry to ensure some is always present.
-  av_dict_set(&format_context->metadata, "skip_id3v1_tags", "", 0);
+  av_dict_set(&format_context_->metadata, "skip_id3v1_tags", "", 0);
 
   // Ensure ffmpeg doesn't give up too early while looking for stream params;
   // this does not increase the amount of data downloaded.  The default value
   // is 5 AV_TIME_BASE units (1 second each), which prevents some oddly muxed
   // streams from being detected properly; this value was chosen arbitrarily.
-  format_context->max_analyze_duration = 60 * AV_TIME_BASE;
+  format_context_->max_analyze_duration = 60 * AV_TIME_BASE;
 
-  OnOpenContextDone(glue_->OpenContext(is_local_file_));
+  auto ret = avformat_open_input(&format_context_, url_.c_str(), nullptr, nullptr);
+  if (ret < 0) {
+    DLOG(ERROR) << "failed to open avformat context. " << ffmpeg::AVErrorToString(ret);
+  }
+
+  OnOpenContextDone(ret >= 0);
 }
 
 static double ExtractStartTime(AVStream *stream) {
@@ -179,6 +184,7 @@ static int CalculateBitrate(
 
 void Demuxer::OnOpenContextDone(bool open) {
   DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(format_context_);
   if (stopped_) {
     init_callback_(PIPELINE_ERROR_ABORT);
     return;
@@ -188,8 +194,9 @@ void Demuxer::OnOpenContextDone(bool open) {
     return;
   }
 
-  auto result = avformat_find_stream_info(glue_->format_context(), nullptr);
+  auto result = avformat_find_stream_info(format_context_, nullptr);
   if (result < 0) {
+    DLOG(ERROR) << "find stream info failed.";
     init_callback_(PIPELINE_ERROR_ABORT);
     return;
   }
@@ -198,9 +205,7 @@ void Demuxer::OnOpenContextDone(bool open) {
   // is examined to determine if it is supported or not (is the codec enabled
   // for it in this release?). Unsupported streams are skipped, allowing for
   // partial playback. At least one audio or video stream must be playable.
-  AVFormatContext *format_context = glue_->format_context();
-  format_context_ = format_context;
-  streams_.resize(format_context->nb_streams);
+  streams_.resize(format_context_->nb_streams);
 
   std::unique_ptr<MediaTracks> media_tracks = std::make_unique<MediaTracks>();
 
@@ -214,8 +219,8 @@ void Demuxer::OnOpenContextDone(bool open) {
   int supported_video_track_count = 0;
   bool has_opus_or_vorbis_audio = false;
   bool needs_negative_timestamp_fixup = false;
-  for (size_t i = 0; i < format_context->nb_streams; ++i) {
-    AVStream *stream = format_context->streams[i];
+  for (size_t i = 0; i < format_context_->nb_streams; ++i) {
+    AVStream *stream = format_context_->streams[i];
     const AVCodecParameters *codec_parameters = stream->codecpar;
     const AVMediaType codec_type = codec_parameters->codec_type;
     const AVCodecID codec_id = codec_parameters->codec_id;
@@ -261,15 +266,13 @@ void Demuxer::OnOpenContextDone(bool open) {
 //    if (glue_->container() == container_names::CONTAINER_WEBM)
 //      track_label = MediaTrack::Label(streams_[i]->GetMetadata("title"));
 
-//    if (codec_type == AVMEDIA_TYPE_AUDIO) {
-//      ++supported_audio_track_count;
-//      streams_[i]->SetEnabled(supported_audio_track_count == 1,
-//                              base::TimeDelta());
-//    } else if (codec_type == AVMEDIA_TYPE_VIDEO) {
-//      ++supported_video_track_count;
-//      streams_[i]->SetEnabled(supported_video_track_count == 1,
-//                              base::TimeDelta());
-//    }
+    if (codec_type == AVMEDIA_TYPE_AUDIO) {
+      ++supported_audio_track_count;
+      streams_[i]->SetEnabled(supported_audio_track_count == 1, 0);
+    } else if (codec_type == AVMEDIA_TYPE_VIDEO) {
+      ++supported_video_track_count;
+      streams_[i]->SetEnabled(supported_video_track_count == 1, 0);
+    }
 
     // Note when we find our audio/video stream (we only want one of each) and
     // record src= playback UMA stats for the stream's decoder config.
@@ -327,11 +330,11 @@ void Demuxer::OnOpenContextDone(bool open) {
     return;
   }
 
-  if (format_context->duration != AV_NOPTS_VALUE) {
+  if (format_context_->duration != AV_NOPTS_VALUE) {
     // If there is a duration value in the container use that to find the
     // maximum between it and the duration from A/V streams.
     const AVRational av_time_base = {1, AV_TIME_BASE};
-    max_duration = std::max(max_duration, ffmpeg::ConvertFromTimeBase(av_time_base, format_context->duration));
+    max_duration = std::max(max_duration, ffmpeg::ConvertFromTimeBase(av_time_base, format_context_->duration));
   } else {
     // The duration is unknown, in which case this is likely a live stream.
     max_duration = std::numeric_limits<double>::max();
@@ -377,12 +380,6 @@ void Demuxer::OnOpenContextDone(bool open) {
   duration_ = max_duration;
   duration_known_ = (max_duration != std::numeric_limits<double>::max());
 
-  int64_t filesize_in_bytes = 0;
-  url_protocol_->GetSize(&filesize_in_bytes);
-  bitrate_ = CalculateBitrate(format_context, max_duration, filesize_in_bytes);
-  if (bitrate_ > 0)
-    data_source_->SetBitrate(bitrate_);
-
   media_tracks_updated_cb_(std::move(media_tracks));
 
   init_callback_(PIPELINE_OK);
@@ -415,22 +412,13 @@ void Demuxer::NotifyBufferingChanged() {
 //  }
 }
 
-std::shared_ptr<DemuxerStream> Demuxer::GetFFmpegStream(DemuxerStream::Type type) const {
-  for (auto &stream : streams_) {
-    if (stream->type() == type) {
-      return stream;
-    }
-  }
-  return nullptr;
-}
-
-void Demuxer::Stop(const std::function<void(void)> &callback) {
+void Demuxer::Stop(std::function<void(void)> callback) {
   task_runner_->PostTask(FROM_HERE, [&]() {
     StopTask(callback);
   });
 
   // Then wakes up the thread from reading.
-  SignalReadCompleted(DataSource::kReadError);
+//  SignalReadCompleted(DataSource::kReadError);
 }
 
 void Demuxer::StopTask(const std::function<void(void)> &callback) {
@@ -440,11 +428,8 @@ void Demuxer::StopTask(const std::function<void(void)> &callback) {
       stream->Stop();
     }
   }
-  if (data_source_) {
-    data_source_->Stop();
-  } else {
-    callback();
-  }
+  abort_request_ = true;
+  callback();
 }
 
 void Demuxer::SignalReadCompleted(int size) {

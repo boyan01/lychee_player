@@ -13,7 +13,6 @@
 #include "media_tracks.h"
 #include "ffmpeg_glue.h"
 #include "blocking_url_protocol.h"
-#include "data_source.h"
 
 namespace media {
 
@@ -49,13 +48,10 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
 
  public:
 
-  // Notifies demuxer clients that media track configuration has been updated
-// (e.g. the initial stream metadata has been parsed successfully, or a new
-// init segment has been parsed successfully in MSE case).
   using MediaTracksUpdatedCB = std::function<void(std::unique_ptr<MediaTracks>)>;
 
   Demuxer(base::MessageLoop *task_runner,
-          DataSource *data_source,
+          std::string url,
           MediaTracksUpdatedCB media_tracks_updated_cb);
 
   TaskRunner *message_loop() { return task_runner_; }
@@ -73,7 +69,7 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
 
   // The pipeline is being stopped either as a result of an error or because
   // the client called Stop().
-  virtual void Stop(const std::function<void(void)> &callback);
+  virtual void Stop(std::function<void(void)> callback);
 
   DemuxerStream *GetFirstStream(DemuxerStream::Type type);
 
@@ -87,6 +83,8 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
 
  private:
 
+  bool abort_request_;
+
   void InitializeTask();
 
   // Carries out demuxing and satisfying stream reads on the demuxer thread.
@@ -97,10 +95,6 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
   // Must be called on the demuxer thread.
   void StreamHasEnded();
 
-  // Returns the stream from |streams_| that matches |type| as an
-  // DemuxerStream.
-  std::shared_ptr<DemuxerStream> GetFFmpegStream(DemuxerStream::Type type) const;
-
   // Carries out stopping the demuxer streams on the demuxer thread.
   void StopTask(const std::function<void(void)> &callback);
 
@@ -110,13 +104,15 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
 
   void OnOpenContextDone(bool open);
 
+  bool StreamsHaveAvailableCapacity();
+
   DemuxerHost *host_;
   PipelineStatusCB init_callback_;
 
-  std::unique_ptr<BlockingUrlProtocol> url_protocol_;
-
   TaskRunner *task_runner_;
-  DataSource *data_source_;
+
+  std::string url_;
+
   double duration_ = kNoTimestamp();
 
   // FFmpeg context handle.
@@ -145,9 +141,6 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
   int last_read_bytes_;
   int64 read_position_;
 
-  // Derived bitrate after initialization has completed.
-  int bitrate_;
-
   // The first timestamp of the opened media file. This is used to set the
   // starting clock value to match the timestamps in the media file. Default
   // is 0.
@@ -163,13 +156,8 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
   // stream -- at this moment we definitely know duration.
   bool duration_known_;
 
-  bool is_local_file_;
+  DELETE_COPY_AND_ASSIGN(Demuxer);
 
-  std::unique_ptr<FFmpegGlue> glue_;
-
-  DISALLOW_COPY_AND_ASSIGN(Demuxer);
-
-  bool StreamsHaveAvailableCapacity();
 };
 
 } // namespace media
