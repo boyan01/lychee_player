@@ -4,15 +4,18 @@ Pod::Spec.new do |s|
     s.summary      = "MediaPlayer"
     s.description  = "MediaPlayer"
     s.homepage     = "https://github.com/boyan01/media_player"
-    s.license	   = { :type => 'MIT', :file => 'LICENSE.txt' }
-    s.source       = { :path => '.' }
+    # s.license	   = { :type => 'MIT', :file => 'LICENSE.txt' }
+    s.source       = { :path => 'Library' }
+    s.source_files = 'Classes/**/*'
+    s.dependency 'FlutterMacOS'
   
     s.authors       =  { 'Bin Yang' => 'yangbinyhbn@gmail.com'}
                      
     s.requires_arc = true
     s.cocoapods_version = '>= 1.9'
-    s.ios.deployment_target = '10.0'
-    s.osx.deployment_target = '10.10'
-    s.vendored_frameworks = './Frameworks/libmedia_player.a'
-    s.public_header_files = './Frameworks/include/*.h'
+    s.pod_target_xcconfig = { "HEADER_SEARCH_PATHS" => $dir}
+    s.vendored_library = 'Frameworks/lib/*.dylib'
+#    s.private_header_files = 'Frameworks/include/*.h'
+    s.macos.public_header_files = 'Frameworks/**/*.{h}'
+
   end
