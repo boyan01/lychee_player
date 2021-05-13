@@ -19,12 +19,12 @@ extern "C" {
 
 namespace media {
 
-class VideoDecoder2 {
+class VideoDecoder {
 
  public:
-  VideoDecoder2();
+  VideoDecoder();
 
-  virtual ~VideoDecoder2();
+  virtual ~VideoDecoder();
 
   using OutputCallback = std::function<void(std::shared_ptr<VideoFrame>)>;
 
@@ -43,7 +43,7 @@ class VideoDecoder2 {
 
   bool OnFrameAvailable(AVFrame *frame);
 
-  DISALLOW_COPY_AND_ASSIGN(VideoDecoder2);
+  DISALLOW_COPY_AND_ASSIGN(VideoDecoder);
 
 };
 

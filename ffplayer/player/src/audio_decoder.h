@@ -24,13 +24,13 @@ extern "C" {
 
 namespace media {
 
-class AudioDecoder2 {
+class AudioDecoder {
 
  public:
 
-  explicit AudioDecoder2();
+  explicit AudioDecoder();
 
-  virtual ~AudioDecoder2();
+  virtual ~AudioDecoder();
 
   using OutputCallback = std::function<void(std::shared_ptr<AudioBuffer>)>;
 
@@ -57,7 +57,7 @@ class AudioDecoder2 {
 
   static int64 GetChannelLayout(AVFrame *frame);
 
-  DISALLOW_COPY_AND_ASSIGN(AudioDecoder2);
+  DISALLOW_COPY_AND_ASSIGN(AudioDecoder);
 
 };
 

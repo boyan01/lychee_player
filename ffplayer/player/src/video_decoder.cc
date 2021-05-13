@@ -10,17 +10,13 @@
 
 namespace media {
 
-VideoDecoder2::VideoDecoder2() {
+VideoDecoder::VideoDecoder() = default;
 
-}
+VideoDecoder::~VideoDecoder() = default;
 
-VideoDecoder2::~VideoDecoder2() {
-
-}
-
-int VideoDecoder2::Initialize(VideoDecodeConfig config,
-                              DemuxerStream *stream,
-                              VideoDecoder2::OutputCallback output_callback) {
+int VideoDecoder::Initialize(VideoDecodeConfig config,
+                             DemuxerStream *stream,
+                             VideoDecoder::OutputCallback output_callback) {
   DCHECK(!codec_context_);
   DCHECK(output_callback);
 
@@ -67,13 +63,12 @@ int VideoDecoder2::Initialize(VideoDecodeConfig config,
 
   stream_ = stream;
 
-  stream_->stream()->discard = AVDISCARD_DEFAULT;
   return 0;
 }
 
-void VideoDecoder2::Decode(const AVPacket *packet) {
+void VideoDecoder::Decode(const AVPacket *packet) {
   switch (ffmpeg_decoding_loop_->DecodePacket(
-      packet, std::bind(&VideoDecoder2::OnFrameAvailable, this, std::placeholders::_1))) {
+      packet, std::bind(&VideoDecoder::OnFrameAvailable, this, std::placeholders::_1))) {
     case FFmpegDecodingLoop::DecodeStatus::kFrameProcessingFailed :return;
     case FFmpegDecodingLoop::DecodeStatus::kSendPacketFailed: {
       DLOG(ERROR) << "Failed to send video packet for decoding";
@@ -88,7 +83,7 @@ void VideoDecoder2::Decode(const AVPacket *packet) {
   }
 }
 
-bool VideoDecoder2::OnFrameAvailable(AVFrame *frame) {
+bool VideoDecoder::OnFrameAvailable(AVFrame *frame) {
   auto frame_rate = video_decode_config_.frame_rate();
   auto duration = (frame_rate.num && frame_rate.den ? av_q2d(AVRational{frame_rate.den, frame_rate.num}) : 0);
   auto pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : double(frame->pts) * av_q2d(video_decode_config_.time_base());

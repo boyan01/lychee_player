@@ -21,10 +21,10 @@ template<>
 class DecoderStreamTraits<DemuxerStream::Video> {
  public:
   using OutputType = VideoFrame;
-  using DecoderType = VideoDecoder2;
+  using DecoderType = VideoDecoder;
   using DecoderConfigType = VideoDecodeConfig;
 
-  using OutputCallback = VideoDecoder2::OutputCallback;
+  using OutputCallback = VideoDecoder::OutputCallback;
 
   ~DecoderStreamTraits();
 
@@ -36,10 +36,10 @@ template<>
 class DecoderStreamTraits<DemuxerStream::Audio> {
  public:
   using OutputType = AudioBuffer;
-  using DecoderType = AudioDecoder2;
+  using DecoderType = AudioDecoder;
   using DecoderConfigType = AudioDecodeConfig;
 
-  using OutputCallback = AudioDecoder2::OutputCallback;
+  using OutputCallback = AudioDecoder::OutputCallback;
 
   ~DecoderStreamTraits();
 
