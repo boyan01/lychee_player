@@ -30,14 +30,16 @@ add_subdirectory(base)
 
 target_link_libraries(media_flutter PUBLIC media_flutter_base ${media_flutter_libs})
 
-install(TARGETS ${PROJECT_NAME}
-        LIBRARY DESTINATION lib
-        PUBLIC_HEADER DESTINATION include
-        )
+if (APPLE)
+    install(TARGETS ${PROJECT_NAME}
+            LIBRARY DESTINATION lib
+            PUBLIC_HEADER DESTINATION include
+            )
 
-install(DIRECTORY "${PROJECT_SOURCE_DIR}/"
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-        FILES_MATCHING PATTERN "ffp_flutter.h")
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/"
+            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+            FILES_MATCHING PATTERN "ffp_flutter.h")
+endif ()
 
 #if (APPLE)
 #    set_target_properties(media_flutter PROPERTIES
