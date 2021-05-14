@@ -16,7 +16,7 @@ DecoderStream<StreamType>::DecoderStream(
     std::unique_ptr<DecoderStreamTraits<StreamType>> traits,
     TaskRunner *task_runner
 ) : traits_(std::move(traits)), task_runner_(task_runner),
-    outputs_(30000), pending_decode_requests_(0),
+    outputs_(9), pending_decode_requests_(0),
     read_callback_(nullptr) {
 }
 
@@ -51,7 +51,8 @@ void DecoderStream<StreamType>::Read(DecoderStream::ReadCallback read_callback) 
 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::ReadFromDemuxerStream() {
-  if (CanDecodeMore()) {
+  if (CanDecodeMore() && !reading_demuxer_stream_) {
+    reading_demuxer_stream_ = true;
     demuxer_stream_->Read(bind_weak(&DecoderStream<StreamType>::OnBufferReady, this->shared_from_this()));
   }
 }
@@ -59,6 +60,8 @@ void DecoderStream<StreamType>::ReadFromDemuxerStream() {
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::OnBufferReady(std::shared_ptr<DecoderBuffer> buffer) {
   DCHECK(buffer);
+  DCHECK(reading_demuxer_stream_);
+  reading_demuxer_stream_ = false;
   task_runner_->PostTask(FROM_HERE,
                          [weak_this(std::weak_ptr<DecoderStream<StreamType>>(this->shared_from_this())), buffer]() {
                            auto ptr = weak_this.lock();

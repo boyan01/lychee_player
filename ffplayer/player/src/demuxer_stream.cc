@@ -129,11 +129,10 @@ void DemuxerStream::SatisfyPendingRead() {
 bool DemuxerStream::HasAvailableCapacity() {
   // Try to have two second's worth of encoded data per stream.
   const double kCapacity = 2;
-  return buffer_queue_->IsEmpty() || buffer_queue_->Duration() < kCapacity;
+  return read_callback_ && buffer_queue_->IsEmpty() || buffer_queue_->Duration() < kCapacity;
 }
 
 void DemuxerStream::Read(std::function<void(std::shared_ptr<DecoderBuffer>)> read_callback) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(!read_callback_) << "Overlapping reads are not supported.";
   read_callback_ = BindToCurrentLoop(std::move(read_callback));
 
@@ -142,7 +141,7 @@ void DemuxerStream::Read(std::function<void(std::shared_ptr<DecoderBuffer>)> rea
     read_callback_ = nullptr;
     return;
   }
-  SatisfyPendingRead();
+  task_runner_->PostTask(FROM_HERE, std::bind(&DemuxerStream::SatisfyPendingRead, this));
 }
 
 double DemuxerStream::duration() {

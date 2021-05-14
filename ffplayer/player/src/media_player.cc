@@ -141,12 +141,13 @@ void MediaPlayer::OpenDataSourceTask(const char *filename) {
 
   DLOG(INFO) << "open file: " << filename;
   state_ = kPreparing;
-  demuxer_ = std::make_shared<Demuxer>(decoder_task_runner_, filename, [](std::unique_ptr<MediaTracks> tracks) {
-    DLOG(INFO) << "on tracks update.";
-    for (auto &track: tracks->tracks()) {
-      DLOG(INFO) << "track: " << track;
-    }
-  });
+  demuxer_ = std::make_shared<Demuxer>(TaskRunner::prepare_looper("demuxer"), filename,
+                                       [](std::unique_ptr<MediaTracks> tracks) {
+                                         DLOG(INFO) << "on tracks update.";
+                                         for (auto &track: tracks->tracks()) {
+                                           DLOG(INFO) << "track: " << track;
+                                         }
+                                       });
   demuxer_->Initialize(this, bind_weak(&MediaPlayer::OnDataSourceOpen, shared_from_this()));
 }
 

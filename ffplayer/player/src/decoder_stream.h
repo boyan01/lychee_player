@@ -50,6 +50,8 @@ class DecoderStream : public std::enable_shared_from_this<DecoderStream<StreamTy
 
   int pending_decode_requests_;
 
+  bool reading_demuxer_stream_ = false;
+
   void ReadFromDemuxerStream();
 
   void OnBufferReady(std::shared_ptr<DecoderBuffer> buffer);
@@ -62,7 +64,7 @@ class DecoderStream : public std::enable_shared_from_this<DecoderStream<StreamTy
 
   bool CanDecodeMore();
 
-  DISALLOW_COPY_AND_ASSIGN(DecoderStream);
+  DELETE_COPY_AND_ASSIGN(DecoderStream);
 
 };
 
