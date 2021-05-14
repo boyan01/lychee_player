@@ -14,9 +14,17 @@ std::shared_ptr<DecoderBuffer> DecoderBuffer::CreateEOSBuffer() {
 }
 
 DecoderBuffer::DecoderBuffer(std::unique_ptr<AVPacket, AVPacketDeleter> av_packet)
-    : av_packet_(std::move(av_packet)),
-      timestamp_(-1) {
+    : timestamp_(-1) {
+  if (av_packet) {
+    av_packet_ = new AVPacket;
+    *av_packet_ = *av_packet;
+    av_packet_ref(av_packet_, av_packet.get());
+  }
+}
 
+DecoderBuffer::~DecoderBuffer() {
+  av_packet_unref(av_packet_);
+  delete av_packet_;
 }
 
 size_t DecoderBuffer::data_size() {

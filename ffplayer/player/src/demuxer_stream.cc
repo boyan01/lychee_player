@@ -11,7 +11,9 @@
 
 namespace media {
 
-std::shared_ptr<DemuxerStream> DemuxerStream::Create(media::Demuxer *demuxer, AVStream *stream) {
+std::shared_ptr<DemuxerStream> DemuxerStream::Create(media::Demuxer *demuxer,
+                                                     AVStream *stream,
+                                                     AVFormatContext *format_context) {
   Type type;
   std::unique_ptr<AudioDecodeConfig> audio_decode_config;
   std::unique_ptr<VideoDecodeConfig> video_decode_config;
@@ -24,7 +26,7 @@ std::shared_ptr<DemuxerStream> DemuxerStream::Create(media::Demuxer *demuxer, AV
     case AVMEDIA_TYPE_VIDEO: {
       type = Video;
       video_decode_config = std::make_unique<VideoDecodeConfig>(*stream->codecpar, stream->time_base,
-                                                                stream->avg_frame_rate,
+                                                                av_guess_frame_rate(format_context, stream, nullptr),
                                                                 10);
       break;
     }
@@ -92,7 +94,7 @@ void DemuxerStream::EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> pac
     }
   }
 
-  auto pkt_pts = packet->pts;
+  auto pkt_pts = packet->pts == AV_NOPTS_VALUE ? packet->dts : packet_dts;
   if (pkt_pts == AV_NOPTS_VALUE) {
     DLOG(WARNING) << "FFmpegDemuxer: PTS is not defined";
     return;
@@ -111,8 +113,10 @@ void DemuxerStream::SatisfyPendingRead() {
   if (read_callback_) {
     if (!buffer_queue_->IsEmpty()) {
       std::move(read_callback_)(buffer_queue_->Pop());
+      read_callback_ = nullptr;
     } else if (end_of_stream_) {
       std::move(read_callback_)(DecoderBuffer::CreateEOSBuffer());
+      read_callback_ = nullptr;
     }
   }
 
@@ -131,10 +135,11 @@ bool DemuxerStream::HasAvailableCapacity() {
 void DemuxerStream::Read(std::function<void(std::shared_ptr<DecoderBuffer>)> read_callback) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(!read_callback_) << "Overlapping reads are not supported.";
-  read_callback_ = ReadCallback(std::move(BindToCurrentLoop(std::move(read_callback))));
+  read_callback_ = BindToCurrentLoop(std::move(read_callback));
 
   if (!stream_) {
     std::move(read_callback_)(DecoderBuffer::CreateEOSBuffer());
+    read_callback_ = nullptr;
     return;
   }
   SatisfyPendingRead();
@@ -160,6 +165,7 @@ void DemuxerStream::Stop() {
 
   if (read_callback_) {
     std::move(read_callback_)(DecoderBuffer::CreateEOSBuffer());
+    read_callback_ = nullptr;
   }
 
 }

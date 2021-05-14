@@ -36,7 +36,7 @@ class AudioDecoder {
 
   int Initialize(const AudioDecodeConfig &config, DemuxerStream *stream, OutputCallback output_callback);
 
-  void Decode(const AVPacket *packet);
+  void Decode(std::shared_ptr<DecoderBuffer> decoder_buffer);
 
  private:
 

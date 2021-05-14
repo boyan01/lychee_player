@@ -16,7 +16,7 @@ DecoderStream<StreamType>::DecoderStream(
     std::unique_ptr<DecoderStreamTraits<StreamType>> traits,
     TaskRunner *task_runner
 ) : traits_(std::move(traits)), task_runner_(task_runner),
-    outputs_(15), pending_decode_requests_(0),
+    outputs_(3), pending_decode_requests_(0),
     read_callback_(nullptr) {
 }
 
@@ -88,7 +88,7 @@ void DecoderStream<StreamType>::DecodeTask(std::shared_ptr<DecoderBuffer> decode
   DCHECK_LT(pending_decode_requests_, GetMaxDecodeRequests());
 
   ++pending_decode_requests_;
-  decoder_->Decode(decoder_buffer->av_packet());
+  decoder_->Decode(std::move(decoder_buffer));
   --pending_decode_requests_;
 
   ReadFromDemuxerStream();

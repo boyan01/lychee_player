@@ -85,6 +85,8 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
 
   bool abort_request_;
 
+  bool pending_read_ = false;
+
   void InitializeTask();
 
   // Carries out demuxing and satisfying stream reads on the demuxer thread.

@@ -64,12 +64,12 @@ int AudioDecoder::Initialize(const AudioDecodeConfig &config, DemuxerStream *str
   return 0;
 }
 
-void AudioDecoder::Decode(const AVPacket *packet) {
+void AudioDecoder::Decode(std::shared_ptr<DecoderBuffer> decoder_buffer) {
   DCHECK(stream_);
   DCHECK(ffmpeg_decoding_loop_);
 
   switch (ffmpeg_decoding_loop_->DecodePacket(
-      packet, std::bind(&AudioDecoder::OnFrameAvailable, this, std::placeholders::_1))) {
+      decoder_buffer->av_packet(), std::bind(&AudioDecoder::OnFrameAvailable, this, std::placeholders::_1))) {
     case FFmpegDecodingLoop::DecodeStatus::kFrameProcessingFailed :return;
     case FFmpegDecodingLoop::DecodeStatus::kSendPacketFailed: {
       DLOG(ERROR) << "Failed to send video packet for decoding";

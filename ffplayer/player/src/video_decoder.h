@@ -30,7 +30,7 @@ class VideoDecoder {
 
   int Initialize(VideoDecodeConfig video_decode_config, DemuxerStream *stream, OutputCallback output_callback);
 
-  void Decode(const AVPacket *packet);
+  void Decode(std::shared_ptr<DecoderBuffer> decoder_buffer);
 
  private:
 

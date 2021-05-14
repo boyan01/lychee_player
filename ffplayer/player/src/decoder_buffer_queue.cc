@@ -21,7 +21,7 @@ void DecoderBufferQueue::Push(std::shared_ptr<DecoderBuffer> buffer) {
   data_size_ += buffer->data_size();
 
   if (buffer->timestamp() < 0) {
-    DLOG(WARNING) << "Buffer has no timestamp";
+    DLOG(WARNING) << "Buffer has no timestamp: " << buffer->timestamp();
     return;
   }
 

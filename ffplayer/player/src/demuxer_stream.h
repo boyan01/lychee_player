@@ -44,13 +44,15 @@ class DemuxerStream {
                 std::unique_ptr<AudioDecodeConfig> audio_decode_config,
                 std::unique_ptr<VideoDecodeConfig> video_decode_config);
 
-  static std::shared_ptr<DemuxerStream> Create(media::Demuxer *demuxer, AVStream *stream);
+  static std::shared_ptr<DemuxerStream> Create(media::Demuxer *demuxer,
+                                               AVStream *stream,
+                                               AVFormatContext *format_context);
 
   AVStream *stream() const {
     return stream_;
   }
 
-  using ReadCallback = OnceCallback<void(std::shared_ptr<DecoderBuffer>)>;
+  using ReadCallback = std::function<void(std::shared_ptr<DecoderBuffer>)>;
   void Read(std::function<void(std::shared_ptr<DecoderBuffer>)> read_callback);
 
   void EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> packet);

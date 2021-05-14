@@ -32,14 +32,15 @@ class DecoderBuffer {
   }
 
   AVPacket *av_packet() {
-    return av_packet_.get();
+    return av_packet_;
   }
 
   bool end_of_stream();
+  virtual ~DecoderBuffer();
 
  private:
 
-  std::unique_ptr<AVPacket, AVPacketDeleter> av_packet_;
+  AVPacket* av_packet_;
 
   // pts.
   double timestamp_;

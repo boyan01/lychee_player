@@ -40,8 +40,8 @@ int VideoDecoder::Initialize(VideoDecodeConfig config,
   codec_context_->codec_id = codec->id;
   int stream_lower = config.low_res();
   DCHECK_LE(stream_lower, codec->max_lowres)
-    << "The maximum value for lowres supported by the decoder is " << codec->max_lowres
-    << ", but is " << stream_lower;
+      << "The maximum value for lowres supported by the decoder is " << codec->max_lowres
+      << ", but is " << stream_lower;
   if (stream_lower > codec->max_lowres) {
     stream_lower = codec->max_lowres;
   }
@@ -66,9 +66,10 @@ int VideoDecoder::Initialize(VideoDecodeConfig config,
   return 0;
 }
 
-void VideoDecoder::Decode(const AVPacket *packet) {
+void VideoDecoder::Decode(std::shared_ptr<DecoderBuffer> decoder_buffer) {
+  DCHECK(!decoder_buffer->end_of_stream());
   switch (ffmpeg_decoding_loop_->DecodePacket(
-      packet, std::bind(&VideoDecoder::OnFrameAvailable, this, std::placeholders::_1))) {
+      decoder_buffer->av_packet(), std::bind(&VideoDecoder::OnFrameAvailable, this, std::placeholders::_1))) {
     case FFmpegDecodingLoop::DecodeStatus::kFrameProcessingFailed :return;
     case FFmpegDecodingLoop::DecodeStatus::kSendPacketFailed: {
       DLOG(ERROR) << "Failed to send video packet for decoding";

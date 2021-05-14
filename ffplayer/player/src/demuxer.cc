@@ -13,6 +13,24 @@ namespace media {
 const int PIPELINE_ERROR_ABORT = -1;
 const int PIPELINE_OK = 0;
 
+static int ReadFrameAndDiscardEmpty(AVFormatContext *context,
+                                    AVPacket *packet) {
+  // Skip empty packets in a tight loop to avoid timing out fuzzers.
+  int result;
+  bool drop_packet;
+  do {
+    result = av_read_frame(context, packet);
+    drop_packet = (!packet->data || !packet->size) && result >= 0;
+    if (drop_packet) {
+      av_packet_unref(packet);
+      DLOG(WARNING) << "Dropping empty packet, size: " << packet->size
+                    << ", data: " << static_cast<void *>(packet->data);
+    }
+  } while (drop_packet);
+
+  return result;
+}
+
 Demuxer::Demuxer(base::MessageLoop *task_runner,
                  std::string url,
                  MediaTracksUpdatedCB media_tracks_updated_cb)
@@ -47,8 +65,7 @@ void Demuxer::DemuxTask() {
 
   // Allocate and read an AVPacket from the media.
   std::unique_ptr<AVPacket, AVPacketDeleter> packet(new AVPacket());
-  // TODO ignore empty packet.
-  int result = av_read_frame(format_context_, packet.get());
+  int result = ReadFrameAndDiscardEmpty(format_context_, packet.get());
   if (result < 0) {
     // Update the duration based on the audio stream if it was previously unknown.
     // http://crbug.com/86830
@@ -109,13 +126,13 @@ void Demuxer::InitializeTask() {
   // Disable ID3v1 tag reading to avoid costly seeks to end of file for data we
   // don't use.  FFmpeg will only read ID3v1 tags if no other metadata is
   // available, so add a metadata entry to ensure some is always present.
-  av_dict_set(&format_context_->metadata, "skip_id3v1_tags", "", 0);
+//  av_dict_set(&format_context_->metadata, "skip_id3v1_tags", "", 0);
 
   // Ensure ffmpeg doesn't give up too early while looking for stream params;
   // this does not increase the amount of data downloaded.  The default value
   // is 5 AV_TIME_BASE units (1 second each), which prevents some oddly muxed
   // streams from being detected properly; this value was chosen arbitrarily.
-  format_context_->max_analyze_duration = 60 * AV_TIME_BASE;
+//  format_context_->max_analyze_duration = 60 * AV_TIME_BASE;
 
   auto ret = avformat_open_input(&format_context_, url_.c_str(), nullptr, nullptr);
   if (ret < 0) {
@@ -194,6 +211,8 @@ void Demuxer::OnOpenContextDone(bool open) {
     return;
   }
 
+  av_format_inject_global_side_data(format_context_);
+
   auto result = avformat_find_stream_info(format_context_, nullptr);
   if (result < 0) {
     DLOG(ERROR) << "find stream info failed.";
@@ -232,8 +251,10 @@ void Demuxer::OnOpenContextDone(bool open) {
 
     if (codec_type == AVMEDIA_TYPE_AUDIO) {
       DLOG(INFO) << "Media.DetectedAudioCodec: " << avcodec_get_name(codec_id);
+      stream->discard = AVDISCARD_DEFAULT;
     } else if (codec_type == AVMEDIA_TYPE_VIDEO) {
       DLOG(INFO) << "Media.DetectedVideoCodec: " << avcodec_get_name(codec_id);
+      stream->discard = AVDISCARD_DEFAULT;
     } else if (codec_type == AVMEDIA_TYPE_SUBTITLE) {
       stream->discard = AVDISCARD_ALL;
       continue;
@@ -245,7 +266,7 @@ void Demuxer::OnOpenContextDone(bool open) {
     // Attempt to create a FFmpegDemuxerStream from the AVStream. This will
     // return nullptr if the AVStream is invalid. Validity checks will verify
     // things like: codec, channel layout, sample/pixel format, etc...
-    auto demuxer_stream = DemuxerStream::Create(this, stream);
+    auto demuxer_stream = DemuxerStream::Create(this, stream, format_context_);
     if (demuxer_stream) {
       streams_[i] = std::move(demuxer_stream);
     } else {
