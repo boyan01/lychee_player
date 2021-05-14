@@ -1,8 +1,8 @@
 Pod::Spec.new do |s|
-    s.name         = "MediaPlayer"
+    s.name         = "LycheePlayer"
     s.version      = "0.0.1"
-    s.summary      = "MediaPlayer"
-    s.description  = "MediaPlayer"
+    s.summary      = "LycheePlayer"
+    s.description  = "LycheePlayer"
     s.homepage     = "https://github.com/boyan01/media_player"
     # s.license	   = { :type => 'MIT', :file => 'LICENSE.txt' }
     s.source       = { :path => 'Library' }
@@ -13,9 +13,10 @@ Pod::Spec.new do |s|
                      
     s.requires_arc = true
     s.cocoapods_version = '>= 1.9'
-    s.pod_target_xcconfig = { "HEADER_SEARCH_PATHS" => $dir}
+    s.pod_target_xcconfig = { "HEADER_SEARCH_PATHS" => "$(SRCROOT)/Library/MediaPlayer/Frameworks/include"}
     s.vendored_library = 'Frameworks/lib/*.dylib'
 #    s.private_header_files = 'Frameworks/include/*.h'
-    s.macos.public_header_files = 'Frameworks/**/*.{h}'
+    s.macos.public_header_files = 'Frameworks/include/*.{h}'
+    s.libraries = "c++"
 
   end

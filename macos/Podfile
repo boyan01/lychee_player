@@ -30,7 +30,7 @@ target 'Runner' do
   use_frameworks!
   use_modular_headers!
   
-  pod 'MediaPlayer', :path => './Library/MediaPlayer'
+  pod 'LycheePlayer', :path => './Library/LycheePlayer'
 
   flutter_install_all_macos_pods File.dirname(File.realpath(__FILE__))
 end
