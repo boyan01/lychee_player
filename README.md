@@ -17,7 +17,7 @@ This is my training project when I was learning C++.
 | -------- | ------------ |
 | Windows  | ✅            |
 | Linux    | ⭕ audio only |
-| macOS    | ⭕            |
+| macOS    | ⭕ audio only |
 | Android  | ✅            |
 | iOS      | ⭕            |
 
@@ -29,7 +29,7 @@ requirement:
 
 * flutter version: 2.0
 
-#### Desktop
+#### Desktop (Windows/Linux/macOS)
 
 1. set up your enviorenment for desktop build. see more [ffplayer](ffplayer/README.md)
 2. install flutter.
