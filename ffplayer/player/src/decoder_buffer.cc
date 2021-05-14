@@ -19,12 +19,16 @@ DecoderBuffer::DecoderBuffer(std::unique_ptr<AVPacket, AVPacketDeleter> av_packe
     av_packet_ = new AVPacket;
     *av_packet_ = *av_packet;
     av_packet_ref(av_packet_, av_packet.get());
+  } else {
+    av_packet_ = nullptr;
   }
 }
 
 DecoderBuffer::~DecoderBuffer() {
-  av_packet_unref(av_packet_);
-  delete av_packet_;
+  if (av_packet_) {
+    av_packet_unref(av_packet_);
+    delete av_packet_;
+  }
 }
 
 size_t DecoderBuffer::data_size() {

@@ -16,7 +16,7 @@ DecoderStream<StreamType>::DecoderStream(
     std::unique_ptr<DecoderStreamTraits<StreamType>> traits,
     TaskRunner *task_runner
 ) : traits_(std::move(traits)), task_runner_(task_runner),
-    outputs_(3), pending_decode_requests_(0),
+    outputs_(30000), pending_decode_requests_(0),
     read_callback_(nullptr) {
 }
 

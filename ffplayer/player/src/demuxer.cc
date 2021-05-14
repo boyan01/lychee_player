@@ -499,7 +499,7 @@ bool Demuxer::StreamsHaveAvailableCapacity() {
 
 void Demuxer::NotifyCapacityAvailable() {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  DemuxTask();
+  PostDemuxTask();
 }
 
 }
