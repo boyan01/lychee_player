@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "ffplayer.h"
-#include "ffp_packet_queue.h"
 #include "media_clock.h"
 #include "data_source.h"
 #include "task_runner.h"
@@ -53,10 +52,6 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
   };
 
   State state_ = kUninitialized;
-
-  std::shared_ptr<PacketQueue> audio_pkt_queue;
-  std::shared_ptr<PacketQueue> video_pkt_queue;
-  std::shared_ptr<PacketQueue> subtitle_pkt_queue;
 
   std::shared_ptr<MediaClock> clock_context;
 

@@ -14,7 +14,6 @@ extern "C" {
 #include "libavformat/avformat.h"
 }
 
-#include "ffp_packet_queue.h"
 #include "audio_decode_config.h"
 #include "video_decode_config.h"
 #include "decoder_buffer.h"

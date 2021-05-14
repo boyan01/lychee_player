@@ -7,7 +7,6 @@
 
 #include "media_player.h"
 
-#include "ffp_utils.h"
 #include "ffp_define.h"
 
 extern "C" {
@@ -36,10 +35,6 @@ void MediaPlayer::Initialize() {
   DCHECK_EQ(state_, kUninitialized);
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  audio_pkt_queue = std::make_shared<PacketQueue>();
-  video_pkt_queue = std::make_shared<PacketQueue>();
-  subtitle_pkt_queue = std::make_shared<PacketQueue>();
-
   auto sync_type_confirm = [this](int av_sync_type) -> int {
     return AV_SYNC_AUDIO_MASTER;
 //    if (data_source == nullptr) {
@@ -61,7 +56,7 @@ void MediaPlayer::Initialize() {
 //      return AV_SYNC_EXTERNAL_CLOCK;
 //    }
   };
-  clock_context = std::make_shared<MediaClock>(&audio_pkt_queue->serial, &video_pkt_queue->serial,
+  clock_context = std::make_shared<MediaClock>(nullptr, nullptr,
                                                sync_type_confirm);
   task_runner_->PostTask(FROM_HERE, std::bind(&MediaPlayer::DumpMediaClockStatus, this));
 
@@ -329,10 +324,6 @@ void MediaPlayer::StartRenders() {
   }
 }
 
-static inline bool check_queue_is_ready(const std::shared_ptr<PacketQueue> &queue, bool has_stream) {
-  static const int min_frames = 2;
-  return queue->nb_packets > min_frames || !has_stream || queue->abort_request;
-}
 
 void MediaPlayer::OnFirstFrameLoaded(int width, int height) {
   if (on_video_size_changed_) {
