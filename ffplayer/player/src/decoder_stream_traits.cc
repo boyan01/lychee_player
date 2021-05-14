@@ -11,7 +11,7 @@ DecoderStreamTraits<DemuxerStream::Video>::~DecoderStreamTraits() {
 }
 
 void DecoderStreamTraits<DemuxerStream::Video>::InitializeDecoder(
-    VideoDecoder2 *decoder,
+    VideoDecoder *decoder,
     DemuxerStream *stream,
     OutputCallback output_callback
 ) {

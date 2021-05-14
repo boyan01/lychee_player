@@ -16,6 +16,7 @@
 #define _MEDIA_AUDIO_USE_SDL
 #elif defined(_FLUTTER_MEDIA_MACOS)
 #define _MEDIA_AUDIO_USE_SDL
+#include "null_video_renderer_sink.h"
 #endif
 
 // Use SDL2 to render audio.
@@ -164,8 +165,9 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
   video_render = std::make_unique<media::AndroidVideoRendererSink>();
   audio_render = std::make_unique<media::OboeAudioRendererSink>();
 #else
-  video_render = nullptr;
-  audio_render = std::make_unique<AudioRenderSdl>();
+  //(TODO yangbin) temp solution for platform which didn't implement video renderer.
+  video_render = std::make_unique<media::NullVideoRendererSink>();
+  audio_render = std::make_unique<media::SdlAudioRendererSink>();
 #endif
   auto player = std::make_shared<MediaPlayer>(std::move(video_render), std::move(audio_render));
   player->SetPlayWhenReady(true);

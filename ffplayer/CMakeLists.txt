@@ -85,6 +85,7 @@ elseif (CMAKE_FLUTTER_MEDIA_ANDROID)
 elseif (CMAKE_FLUTTER_MEDIA_MACOS)
     set(MEDIA_USE_SDL "1")
     set(CMAKE_FLUTTER_MEDIA "1")
+    set(DISABLE_MEDIA_TEST 1)
     add_compile_definitions(_FLUTTER_MEDIA_MACOS)
 endif ()
 

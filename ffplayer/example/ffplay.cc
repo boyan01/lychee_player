@@ -288,21 +288,6 @@ static void check_screen_size(int &width, int &height) {
 
 static void on_message(MediaPlayer *player, int what, int64_t arg1, int64_t arg2) {
 //    av_log(nullptr, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n", what, arg1, arg2);
-  switch (what) {
-    case FFP_MSG_PLAYBACK_STATE_CHANGED:printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %ld \n", arg1);
-      break;
-    case FFP_MSG_BUFFERING_TIME_UPDATE:
-      printf("FFP_MSG_BUFFERING_TIME_UPDATE: %f.  %f:%f \n", arg1 / 1000.0, player->GetCurrentPosition(),
-             player->GetDuration());
-      break;
-    case FFP_MSG_AV_METADATA_LOADED: {
-      const char *title = player->GetMetadataDict("title");
-      if (!window_title && title)
-        window_title = av_asprintf("%s - %s", title, player->GetUrl());
-      break;
-    }
-    default:break;
-  }
 }
 
 void OnVideoSizeChanged(std::shared_ptr<MediaPlayer> media_player, int video_width, int video_height) {

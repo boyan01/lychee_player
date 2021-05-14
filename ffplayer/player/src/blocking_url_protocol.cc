@@ -7,8 +7,8 @@
 
 #include "base/logging.h"
 
-#include "source/data_source.h"
-#include "ffmpeg/blocking_url_protocol.h"
+#include "data_source.h"
+#include "blocking_url_protocol.h"
 
 namespace media {
 

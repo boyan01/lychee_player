@@ -49,9 +49,8 @@ void AudioRenderer::OnDecoderStreamInitialized(bool success) {
       audio_config.samples_per_second(),
       this);
 
-  auto callback = std::move(init_callback_);
+  std::move(init_callback_)(true);
   init_callback_ = nullptr;
-  std::move(callback)(true);
 
   task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
 
@@ -69,9 +68,14 @@ void AudioRenderer::AttemptReadFrame() {
 }
 
 void AudioRenderer::OnNewFrameAvailable(AudioDecoderStream::ReadResult result) {
-  reading_ = false;
-  DLOG_IF(WARNING, audio_buffer_.IsFull()) << "OnNewFrameAvailable is full";
-  audio_buffer_.InsertLast(std::move(result));
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(reading_);
+  {
+    std::lock_guard<std::mutex> auto_lock(mutex_);
+    reading_ = false;
+    DLOG_IF(WARNING, audio_buffer_.IsFull()) << "OnNewFrameAvailable is full";
+    audio_buffer_.InsertLast(std::move(result));
+  }
   if (NeedReadStream()) {
     AttemptReadFrame();
   }
@@ -87,7 +91,9 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
 
   auto len_flush = 0;
   while (len_flush < len) {
+    std::lock_guard<std::mutex> auto_lock(mutex_);
     if (audio_buffer_.IsEmpty()) {
+      task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
       break;
     }
     auto buffer = audio_buffer_.GetFront();

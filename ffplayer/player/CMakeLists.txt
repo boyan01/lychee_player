@@ -24,3 +24,11 @@ install(TARGETS ${PROJECT_NAME}
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/src/"
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
         FILES_MATCHING PATTERN "*.h*")
+
+if (NOT DISABLE_MEDIA_TEST)
+    add_executable(media_player_test
+            test/file_data_source_test.cc
+            )
+    target_link_libraries(media_player_test media_player gtest_main)
+    add_test(NAME media_player_test COMMAND media_player)
+endif ()

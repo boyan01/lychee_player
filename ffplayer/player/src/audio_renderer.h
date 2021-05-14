@@ -22,7 +22,7 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
 
   explicit AudioRenderer(TaskRunner *task_runner, std::shared_ptr<AudioRendererSink> sink);
 
-  virtual ~AudioRenderer();
+  ~AudioRenderer() override;
 
   using InitCallback = std::function<void(bool success)>;
   void Initialize(DemuxerStream *decoder_stream, std::shared_ptr<MediaClock> media_clock, InitCallback init_callback);
@@ -52,6 +52,8 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
 
   bool reading_ = false;
 
+  std::mutex mutex_;
+
   void OnDecoderStreamInitialized(bool success);
 
   void AttemptReadFrame();
@@ -60,7 +62,7 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
 
   bool NeedReadStream();
 
-  DISALLOW_COPY_AND_ASSIGN(AudioRenderer);
+  DELETE_COPY_AND_ASSIGN(AudioRenderer);
 
 };
 

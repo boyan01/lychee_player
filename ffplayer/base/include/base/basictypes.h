@@ -41,6 +41,10 @@ typedef unsigned int uint32;
   TypeName(const TypeName&);               \
   void operator=(const TypeName&)
 
+#define DELETE_COPY_AND_ASSIGN(TypeName)  \
+  TypeName(const TypeName&) = delete;     \
+  void operator=(const TypeName&) = delete
+
 // A macro to disallow all the implicit constructors, namely the
 // default constructor, copy constructor and operator= functions.
 //

@@ -10,14 +10,14 @@
 #include <utility>
 
 #include "ffplayer.h"
-#include "ffp_packet_queue.h"
 #include "media_clock.h"
-#include "data_source_1.h"
+#include "data_source.h"
 #include "task_runner.h"
 #include "audio_renderer.h"
 #include "video_renderer.h"
 #include "audio_decoder.h"
 #include "decoder_stream.h"
+#include "demuxer.h"
 
 namespace media {
 
@@ -28,7 +28,7 @@ enum class MediaPlayerState {
   END
 };
 
-class MediaPlayer : public std::enable_shared_from_this<MediaPlayer> {
+class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public DemuxerHost {
 
  public:
 
@@ -53,13 +53,9 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer> {
 
   State state_ = kUninitialized;
 
-  std::shared_ptr<PacketQueue> audio_pkt_queue;
-  std::shared_ptr<PacketQueue> video_pkt_queue;
-  std::shared_ptr<PacketQueue> subtitle_pkt_queue;
-
   std::shared_ptr<MediaClock> clock_context;
 
-  std::unique_ptr<DataSource1> data_source{nullptr};
+  std::shared_ptr<Demuxer> demuxer_;
 
   std::shared_ptr<AudioRenderer> audio_renderer_;
   std::shared_ptr<VideoRenderer> video_renderer_;
@@ -79,8 +75,6 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer> {
 
   void Initialize();
 
-  void DoSomeWork();
-
   void StopRenders();
 
   void StartRenders();
@@ -88,10 +82,6 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer> {
   void ChangePlaybackState(MediaPlayerState state);
 
   void PauseClock(bool pause);
-
-  bool ShouldTransitionToReadyState(bool render_allow_play);
-
-  void CheckBuffering();
 
   void OpenDataSourceTask(const char *filename);
 
@@ -104,6 +94,10 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer> {
   void InitAudioRender();
 
   void OnAudioRendererInitialized(bool success);
+
+ public:
+  void SetDuration(double duration) override;
+  void OnDemuxerError(PipelineStatus error) override;
 
  public:
   PlayerConfiguration start_configuration{};
@@ -142,7 +136,7 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer> {
 
   const char *GetMetadataDict(const char *key);
 
-  VideoRendererSink* GetVideoRenderSink() {
+  VideoRendererSink *GetVideoRenderSink() {
     return video_renderer_->video_renderer_sink();
   }
 

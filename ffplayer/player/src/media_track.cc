@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "media_track.h"
 
 #include <utility>
 
 #include "base/logging.h"
-#include "decoder/media_track.h"
 
 namespace media {
 
@@ -25,6 +25,12 @@ void MediaTrack::set_id(const MediaTrack::Id &id) {
   DCHECK(id_.empty());
   DCHECK(!id.empty());
   id_ = id;
+}
+
+std::ostream &operator<<(std::ostream &os, const MediaTrack &track) {
+  os << "type_: " << track.type_ << " bytestream_track_id_: " << track.bytestream_track_id_ << " id_: " << track.id_
+     << " kind_: " << track.kind_ << " label_: " << track.label_ << " language_: " << track.language_;
+  return os;
 }
 
 MediaTrack::~MediaTrack() = default;

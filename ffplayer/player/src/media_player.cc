@@ -2,17 +2,19 @@
 // Created by yangbin on 2021/2/13.
 //
 
-#include "media_player.h"
-
-#include "ffp_utils.h"
-#include "ffp_define.h"
-
 #include "base/logging.h"
 #include "base/lambda.h"
+
+#include "media_player.h"
+
+#include "ffp_define.h"
 
 extern "C" {
 #include "libavutil/bprint.h"
 }
+
+#include "blocking_url_protocol.h"
+#include "file_data_source.h"
 
 namespace media {
 
@@ -24,42 +26,37 @@ MediaPlayer::MediaPlayer(
   task_runner_->PostTask(FROM_HERE, [&]() {
     Initialize();
   });
-//  decoder_task_runner_ = TaskRunner::prepare_looper("decoder");
-  audio_renderer_ =
-      std::make_shared<AudioRenderer>(TaskRunner::prepare_looper("audio_decoder"), std::move(audio_renderer_sink));
-  video_renderer_ =
-      std::make_shared<VideoRenderer>(TaskRunner::prepare_looper("video_decoder"), std::move(video_renderer_sink));
+  decoder_task_runner_ = TaskRunner::prepare_looper("decoder");
+  audio_renderer_ = std::make_shared<AudioRenderer>(decoder_task_runner_, std::move(audio_renderer_sink));
+  video_renderer_ = std::make_shared<VideoRenderer>(decoder_task_runner_, std::move(video_renderer_sink));
 }
 
 void MediaPlayer::Initialize() {
   DCHECK_EQ(state_, kUninitialized);
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  audio_pkt_queue = std::make_shared<PacketQueue>();
-  video_pkt_queue = std::make_shared<PacketQueue>();
-  subtitle_pkt_queue = std::make_shared<PacketQueue>();
-
   auto sync_type_confirm = [this](int av_sync_type) -> int {
-    if (data_source == nullptr) {
-      return av_sync_type;
-    }
-    if (av_sync_type == AV_SYNC_VIDEO_MASTER) {
-      if (data_source->ContainVideoStream()) {
-        return AV_SYNC_VIDEO_MASTER;
-      } else {
-        return AV_SYNC_AUDIO_MASTER;
-      }
-    } else if (av_sync_type == AV_SYNC_AUDIO_MASTER) {
-      if (data_source->ContainAudioStream()) {
-        return AV_SYNC_AUDIO_MASTER;
-      } else {
-        return AV_SYNC_EXTERNAL_CLOCK;
-      }
-    } else {
-      return AV_SYNC_EXTERNAL_CLOCK;
-    }
+    return AV_SYNC_AUDIO_MASTER;
+//    if (data_source == nullptr) {
+//      return av_sync_type;
+//    }
+//    if (av_sync_type == AV_SYNC_VIDEO_MASTER) {
+//      if (data_source->ContainVideoStream()) {
+//        return AV_SYNC_VIDEO_MASTER;
+//      } else {
+//        return AV_SYNC_AUDIO_MASTER;
+//      }
+//    } else if (av_sync_type == AV_SYNC_AUDIO_MASTER) {
+//      if (data_source->ContainAudioStream()) {
+//        return AV_SYNC_AUDIO_MASTER;
+//      } else {
+//        return AV_SYNC_EXTERNAL_CLOCK;
+//      }
+//    } else {
+//      return AV_SYNC_EXTERNAL_CLOCK;
+//    }
   };
-  clock_context = std::make_shared<MediaClock>(&audio_pkt_queue->serial, &video_pkt_queue->serial,
+  clock_context = std::make_shared<MediaClock>(nullptr, nullptr,
                                                sync_type_confirm);
   task_runner_->PostTask(FROM_HERE, std::bind(&MediaPlayer::DumpMediaClockStatus, this));
 
@@ -69,7 +66,7 @@ void MediaPlayer::Initialize() {
 
 MediaPlayer::~MediaPlayer() {
   task_runner_->Quit();
-};
+}
 
 void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
   std::lock_guard<std::mutex> lock_guard(player_mutex_);
@@ -87,8 +84,8 @@ void MediaPlayer::SetPlayWhenReadyTask(bool play_when_ready) {
     return;
   }
   play_when_ready_ = play_when_ready;
-  if (data_source) {
-    data_source->paused = !play_when_ready;
+  if (demuxer_) {
+//    data_source->paused = !play_when_ready;
   }
   if (state_ != kPrepared) {
     return;
@@ -108,9 +105,9 @@ void MediaPlayer::PauseClock(bool pause) {
     if (video_renderer_) {
 //      video_renderer_->frame_timer_ += get_relative_time() - clock_context->GetVideoClock()->last_updated;
     }
-    if (data_source && data_source->read_pause_return != AVERROR(ENOSYS)) {
-      clock_context->GetVideoClock()->paused = 0;
-    }
+//    if (data_source && data_source->read_pause_return != AVERROR(ENOSYS)) {
+//      clock_context->GetVideoClock()->paused = 0;
+//    }
     clock_context->GetVideoClock()->SetClock(clock_context->GetVideoClock()->GetClock(),
                                              clock_context->GetVideoClock()->serial);
   }
@@ -123,7 +120,7 @@ void MediaPlayer::PauseClock(bool pause) {
 }
 
 int MediaPlayer::OpenDataSource(const char *filename) {
-  if (data_source) {
+  if (demuxer_) {
     av_log(nullptr, AV_LOG_ERROR, "can not open file multi-times.\n");
     return -1;
   }
@@ -135,25 +132,18 @@ int MediaPlayer::OpenDataSource(const char *filename) {
 
 void MediaPlayer::OpenDataSourceTask(const char *filename) {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  DCHECK(!data_source) << "can not open file multi-times.";
   DCHECK_EQ(state_, kIdle);
 
   DLOG(INFO) << "open file: " << filename;
-
-  data_source = std::make_unique<DataSource1>(filename, nullptr);
-  data_source->configuration = start_configuration;
-  data_source->audio_queue = audio_pkt_queue;
-  data_source->video_queue = video_pkt_queue;
-  data_source->subtitle_queue = subtitle_pkt_queue;
-  data_source->ext_clock = clock_context->GetAudioClock();
-
-  data_source->on_new_packet_send_ = [this]() {
-    CheckBuffering();
-  };
-
-  data_source->Open(bind_weak(&MediaPlayer::OnDataSourceOpen, shared_from_this()));
-  ChangePlaybackState(MediaPlayerState::BUFFERING);
   state_ = kPreparing;
+  demuxer_ = std::make_shared<Demuxer>(TaskRunner::prepare_looper("demuxer"), filename,
+                                       [](std::unique_ptr<MediaTracks> tracks) {
+                                         DLOG(INFO) << "on tracks update.";
+                                         for (auto &track: tracks->tracks()) {
+                                           DLOG(INFO) << "track: " << track;
+                                         }
+                                       });
+  demuxer_->Initialize(this, bind_weak(&MediaPlayer::OnDataSourceOpen, shared_from_this()));
 }
 
 void MediaPlayer::OnDataSourceOpen(int open_status) {
@@ -163,12 +153,14 @@ void MediaPlayer::OnDataSourceOpen(int open_status) {
     task_runner_->PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitVideoRender, shared_from_this()));
   } else {
     state_ = kIdle;
+    DLOG(ERROR) << "Open DataSource Failed";
   }
 }
 
 void MediaPlayer::InitVideoRender() {
-  if (data_source->ContainVideoStream()) {
-    video_renderer_->Initialize(data_source->video_demuxer_stream(),
+  auto stream = demuxer_->GetFirstStream(DemuxerStream::Video);
+  if (stream) {
+    video_renderer_->Initialize(stream,
                                 clock_context,
                                 bind_weak(&MediaPlayer::OnVideoRendererInitialized, shared_from_this()));
   } else {
@@ -186,14 +178,15 @@ void MediaPlayer::OnVideoRendererInitialized(bool success) {
 }
 
 void MediaPlayer::InitAudioRender() {
-  if (data_source->ContainAudioStream()) {
-    audio_renderer_->Initialize(data_source->audio_demuxer_stream(), clock_context,
+  auto stream = demuxer_->GetFirstStream(DemuxerStream::Audio);
+  if (stream) {
+    audio_renderer_->Initialize(stream, clock_context,
                                 bind_weak(&MediaPlayer::OnAudioRendererInitialized, shared_from_this()));
   }
 }
 
 void MediaPlayer::OnAudioRendererInitialized(bool success) {
-  DLOG(INFO) << success;
+  DLOG(INFO) << __func__ << " : " << success;
   if (success) {
     state_ = kPrepared;
     if (play_when_ready_) {
@@ -205,66 +198,6 @@ void MediaPlayer::OnAudioRendererInitialized(bool success) {
 }
 
 void MediaPlayer::DumpStatus() {
-  AVBPrint buf;
-  static int64_t last_time;
-  int64_t cur_time;
-  int aqsize, vqsize, sqsize;
-  double av_diff;
-
-  cur_time = av_gettime_relative();
-  if (!last_time || (cur_time - last_time) >= 30000) {
-    aqsize = 0;
-    vqsize = 0;
-    sqsize = 0;
-    if (data_source->ContainAudioStream())
-      aqsize = audio_pkt_queue->size;
-    if (data_source->ContainVideoStream())
-      vqsize = video_pkt_queue->size;
-    if (data_source->ContainSubtitleStream())
-      sqsize = subtitle_pkt_queue->size;
-    av_diff = 0;
-    if (data_source->ContainAudioStream() && data_source->ContainVideoStream())
-      av_diff = clock_context->GetAudioClock()->GetClock() -
-          clock_context->GetVideoClock()->GetClock();
-    else if (data_source->ContainVideoStream())
-      av_diff = clock_context->GetMasterClock() - clock_context->GetVideoClock()->GetClock();
-    else if (data_source->ContainAudioStream())
-      av_diff = clock_context->GetMasterClock() - clock_context->GetAudioClock()->GetClock();
-
-    av_bprint_init(&buf, 0, AV_BPRINT_SIZE_AUTOMATIC);
-    av_bprintf(&buf,
-               "%7.2f/%7.2f %s:%7.3f fd=%4d aq=%5dKB vq=%5dKB sq=%5dB f=%"
-               PRId64
-               "/%"
-               PRId64
-               "   \r",
-               GetCurrentPosition(), GetDuration(),
-               (data_source->ContainAudioStream()
-                   && data_source->ContainAudioStream()) ? "A-V"
-                                                         : (data_source->ContainVideoStream()
-                                                            ? "M-V"
-                                                            : (data_source->ContainAudioStream()
-                                                               ? "M-A"
-                                                               : "   ")),
-               av_diff,
-        /*video_render->frame_drop_count + video_render->frame_drop_count_pre*/ 0,
-               aqsize / 1024,
-               vqsize / 1024,
-               sqsize,
-        /*data_source->ContainVideoStream() ? decoder_context->.avctx->pts_correction_num_faulty_dts :*/
-               0ll,
-        /* is->video_st ? is->viddec.avctx->pts_correction_num_faulty_pts :*/ 0ll);
-
-    if (start_configuration.show_status == 1 && AV_LOG_INFO > av_log_get_level())
-      fprintf(stderr, "%s", buf.str);
-    else
-      av_log(nullptr, AV_LOG_INFO, "%s", buf.str);
-
-    fflush(stderr);
-    av_bprint_finalize(&buf, nullptr);
-
-    last_time = cur_time;
-  }
 
 }
 
@@ -275,8 +208,8 @@ double MediaPlayer::GetCurrentPosition() {
 
   double position = clock_context->GetMasterClock();
   if (isnan(position)) {
-    if (data_source) {
-      position = (double) data_source->GetSeekPosition() / AV_TIME_BASE;
+    if (demuxer_) {
+//      position = (double) data_source->GetSeekPosition() / AV_TIME_BASE;
     } else {
       position = 0;
     }
@@ -305,30 +238,33 @@ bool MediaPlayer::IsMuted() {
 }
 
 double MediaPlayer::GetDuration() {
-  CHECK_VALUE_WITH_RETURN(data_source, -1);
-  return data_source->GetDuration();
+//  CHECK_VALUE_WITH_RETURN(data_source, -1);
+//  return data_source->GetDuration();
+  return 100;
 }
 
 void MediaPlayer::Seek(double position) {
-  CHECK_VALUE(data_source);
+//  CHECK_VALUE(data_source);
   ChangePlaybackState(MediaPlayerState::BUFFERING);
-  data_source->Seek(position);
+//  data_source->Seek(position);
 }
 
 void MediaPlayer::SeekToChapter(int chapter) {
-  CHECK_VALUE(data_source);
-  data_source->SeekToChapter(chapter);
+//  CHECK_VALUE(data_source);
+//  data_source->SeekToChapter(chapter);
 }
 
 int MediaPlayer::GetCurrentChapter() {
-  CHECK_VALUE_WITH_RETURN(data_source, -1);
+//  CHECK_VALUE_WITH_RETURN(data_source, -1);
   int64_t pos = GetCurrentPosition() * AV_TIME_BASE;
-  return data_source->GetChapterByPosition(pos);
+//  return data_source->GetChapterByPosition(pos);
+  return -1;
 }
 
 int MediaPlayer::GetChapterCount() {
-  CHECK_VALUE_WITH_RETURN(data_source, -1);
-  return data_source->GetChapterCount();
+//  CHECK_VALUE_WITH_RETURN(data_source, -1);
+//  return data_source->GetChapterCount();
+  return -1;
 }
 
 void MediaPlayer::SetMessageHandleCallback(std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback) {
@@ -336,13 +272,15 @@ void MediaPlayer::SetMessageHandleCallback(std::function<void(int what, int64_t 
 }
 
 const char *MediaPlayer::GetUrl() {
-  CHECK_VALUE_WITH_RETURN(data_source, nullptr);
-  return data_source->GetFileName();
+//  CHECK_VALUE_WITH_RETURN(data_source, nullptr);
+//  return data_source->GetFileName();
+  return "";
 }
 
 const char *MediaPlayer::GetMetadataDict(const char *key) {
-  CHECK_VALUE_WITH_RETURN(data_source, nullptr);
-  return data_source->GetMetadataDict(key);
+//  CHECK_VALUE_WITH_RETURN(data_source, nullptr);
+//  return data_source->GetMetadataDict(key);
+  return "";
 }
 
 void MediaPlayer::GlobalInit() {
@@ -354,27 +292,6 @@ void MediaPlayer::GlobalInit() {
 #endif
   avformat_network_init();
 
-}
-
-void MediaPlayer::DoSomeWork() {
-  std::lock_guard<std::mutex> lock(player_mutex_);
-  bool render_allow_playback = true;
-  if (audio_renderer_) {
-//    render_allow_playback &= audio_render_->IsReady();
-  }
-  if (video_renderer_) {
-//    render_allow_playback &= video_renderer_->IsReady();
-  }
-
-  if (player_state_ == MediaPlayerState::READY && !render_allow_playback) {
-    ChangePlaybackState(MediaPlayerState::BUFFERING);
-    StopRenders();
-  } else if (player_state_ == MediaPlayerState::BUFFERING && ShouldTransitionToReadyState(render_allow_playback)) {
-    ChangePlaybackState(MediaPlayerState::READY);
-    if (play_when_ready_) {
-      StartRenders();
-    }
-  }
 }
 
 void MediaPlayer::ChangePlaybackState(MediaPlayerState state) {
@@ -401,105 +318,13 @@ void MediaPlayer::StartRenders() {
   if (audio_renderer_) {
     audio_renderer_->Start();
   }
-  if (video_renderer_ && data_source->ContainVideoStream()) {
+  // TODO fixme
+  if (video_renderer_ && demuxer_->GetFirstStream(DemuxerStream::Video)) {
     video_renderer_->Start();
   }
 }
 
-bool MediaPlayer::ShouldTransitionToReadyState(bool render_allow_play) {
-  if (!render_allow_play) {
-    return false;
-  }
-  if (data_source->IsReadComplete()) {
-    return true;
-  }
 
-  bool ready = true;
-  if (audio_renderer_ && data_source->ContainAudioStream()) {
-    ready &= audio_pkt_queue->nb_packets > 2;
-  }
-  if (video_renderer_ && data_source->ContainVideoStream()) {
-    ready &= video_pkt_queue->nb_packets > 2;
-  }
-  return ready;
-}
-
-static inline bool check_queue_is_ready(const std::shared_ptr<PacketQueue> &queue, bool has_stream) {
-  static const int min_frames = 2;
-  return queue->nb_packets > min_frames || !has_stream || queue->abort_request;
-}
-
-void MediaPlayer::CheckBuffering() {
-  if (data_source->IsReadComplete()) {
-    double duration = GetDuration();
-    if (duration <= 0 && audio_pkt_queue->last_pkt) {
-      auto d = audio_pkt_queue->last_pkt->pkt.pts + audio_pkt_queue->last_pkt->pkt.duration;
-      duration = av_q2d(audio_pkt_queue->time_base) * d;
-    }
-    if (duration <= 0 && video_pkt_queue->last_pkt) {
-      duration = av_q2d(video_pkt_queue->time_base) *
-          (int64_t) (video_pkt_queue->last_pkt->pkt.pts + video_pkt_queue->last_pkt->pkt.duration);
-    }
-    buffered_position_ = duration;
-    ChangePlaybackState(MediaPlayerState::READY);
-    return;
-  }
-
-  static const double BUFFERING_CHECK_DELAY = (0.500);
-  static const double BUFFERING_CHECK_NO_RENDERING_DELAY = (0.020);
-
-  auto current_time = get_relative_time();
-  auto step = player_state_ == MediaPlayerState::BUFFERING ? BUFFERING_CHECK_NO_RENDERING_DELAY : BUFFERING_CHECK_DELAY;
-  if (current_time - buffering_check_last_stamp_ < step) {
-    // It is not time to check buffering state.
-    return;
-  }
-  if (player_state_ == MediaPlayerState::END || player_state_ == MediaPlayerState::IDLE) {
-    return;
-  }
-  buffering_check_last_stamp_ = current_time;
-
-  auto check_packet = [](const std::shared_ptr<PacketQueue> &queue, int &nb_packets, double &cached_position) {
-    nb_packets = FFMIN(nb_packets, queue->nb_packets);
-    auto last_position = queue->last_pkt->pkt.pts * av_q2d(queue->time_base);
-    cached_position = FFMIN(cached_position, last_position);
-  };
-
-  double cached_position = INT_MAX;
-  int nb_packets = INT_MAX;
-
-  if (data_source->ContainAudioStream() && audio_pkt_queue->last_pkt) {
-    check_packet(audio_pkt_queue, nb_packets, cached_position);
-  }
-  if (data_source->ContainVideoStream() && video_pkt_queue->last_pkt) {
-    check_packet(video_pkt_queue, nb_packets, cached_position);
-  }
-
-  if (cached_position == INT_MAX) {
-//    av_log(nullptr, AV_LOG_WARNING, "can not determine buffering position");
-    return;
-  }
-
-  buffered_position_ = cached_position;
-#if 0
-  av_log(nullptr,
-         AV_LOG_INFO,
-         "video_pkt_queue: packets number = %d, duration = %lf s , size = %d\n",
-         video_pkt_queue->nb_packets,
-         video_pkt_queue->duration * av_q2d(video_pkt_queue->time_base),
-         video_pkt_queue->size);
-  video_render_->DumpDebugInformation();
-#endif
-
-  if (check_queue_is_ready(video_pkt_queue, data_source->ContainVideoStream())
-      && check_queue_is_ready(audio_pkt_queue, data_source->ContainAudioStream())) {
-    ChangePlaybackState(MediaPlayerState::READY);
-    if (play_when_ready_) {
-//      StartRenders();
-    }
-  }
-
-}
 void MediaPlayer::OnFirstFrameLoaded(int width, int height) {
   if (on_video_size_changed_) {
     on_video_size_changed_(width, height);
@@ -519,6 +344,14 @@ void MediaPlayer::DumpMediaClockStatus() {
              << clock_context->GetMasterClock();
 
   task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(1000000), std::bind(&MediaPlayer::DumpMediaClockStatus, this));
+}
+
+void MediaPlayer::SetDuration(double duration) {
+
+}
+
+void MediaPlayer::OnDemuxerError(PipelineStatus error) {
+
 }
 
 }

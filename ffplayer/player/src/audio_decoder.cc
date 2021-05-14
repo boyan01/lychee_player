@@ -5,22 +5,19 @@
 #include "audio_decoder.h"
 
 #include "base/logging.h"
-#include "base/bind_to_current_loop.h"
 #include "base/lambda.h"
 
 #include "ffp_utils.h"
 
 namespace media {
 
-AudioDecoder2::AudioDecoder2() : audio_decode_config_(), audio_device_info_() {
+AudioDecoder::AudioDecoder() : audio_decode_config_(), audio_device_info_() {
 
 }
 
-AudioDecoder2::~AudioDecoder2() {
+AudioDecoder::~AudioDecoder() = default;
 
-}
-
-int AudioDecoder2::Initialize(const AudioDecodeConfig &config, DemuxerStream *stream, OutputCallback output_callback) {
+int AudioDecoder::Initialize(const AudioDecodeConfig &config, DemuxerStream *stream, OutputCallback output_callback) {
   DCHECK(!codec_context_);
 
   audio_decode_config_ = config;
@@ -34,7 +31,7 @@ int AudioDecoder2::Initialize(const AudioDecodeConfig &config, DemuxerStream *st
   audio_device_info_.frame_size = av_samples_get_buffer_size(
       nullptr, audio_device_info_.channels, 1, audio_device_info_.fmt, 1);
   audio_device_info_.bytes_per_sec = av_samples_get_buffer_size(
-      NULL, audio_device_info_.channels, audio_device_info_.freq, audio_device_info_.fmt, 1);
+      nullptr, audio_device_info_.channels, audio_device_info_.freq, audio_device_info_.fmt, 1);
 
   auto ret = avcodec_parameters_to_context(codec_context_.get(), &config.codec_parameters());
   DCHECK_GE(ret, 0);
@@ -63,18 +60,16 @@ int AudioDecoder2::Initialize(const AudioDecodeConfig &config, DemuxerStream *st
   ffmpeg_decoding_loop_ = std::make_unique<FFmpegDecodingLoop>(codec_context_.get(), true);
 
   stream_ = stream;
-  stream_->stream()->discard = AVDISCARD_DEFAULT;
-  stream->packet_queue()->Start();
 
   return 0;
 }
 
-void AudioDecoder2::Decode(const AVPacket *packet) {
+void AudioDecoder::Decode(std::shared_ptr<DecoderBuffer> decoder_buffer) {
   DCHECK(stream_);
   DCHECK(ffmpeg_decoding_loop_);
 
   switch (ffmpeg_decoding_loop_->DecodePacket(
-      packet, std::bind(&AudioDecoder2::OnFrameAvailable, this, std::placeholders::_1))) {
+      decoder_buffer->av_packet(), std::bind(&AudioDecoder::OnFrameAvailable, this, std::placeholders::_1))) {
     case FFmpegDecodingLoop::DecodeStatus::kFrameProcessingFailed :return;
     case FFmpegDecodingLoop::DecodeStatus::kSendPacketFailed: {
       DLOG(ERROR) << "Failed to send video packet for decoding";
@@ -89,7 +84,7 @@ void AudioDecoder2::Decode(const AVPacket *packet) {
   }
 }
 
-bool AudioDecoder2::OnFrameAvailable(AVFrame *frame) {
+bool AudioDecoder::OnFrameAvailable(AVFrame *frame) {
 
   if (!swr_ctx_) {
 
@@ -151,7 +146,7 @@ bool AudioDecoder2::OnFrameAvailable(AVFrame *frame) {
 }
 
 // static
-int64 AudioDecoder2::GetChannelLayout(AVFrame *frame) {
+int64 AudioDecoder::GetChannelLayout(AVFrame *frame) {
   bool valid = frame->channel_layout && frame->channels == av_get_channel_layout_nb_channels(frame->channel_layout);
   return valid ? int64(frame->channel_layout) : av_get_default_channel_layout(frame->channels);
 }

@@ -4,25 +4,49 @@
 
 #include "base/logging.h"
 
-#include "demuxer/demuxer.h"
-#include <ffmpeg/blocking_url_protocol.h>
+#include "demuxer.h"
+
+#include "base/bind_to_current_loop.h"
 
 namespace media {
 
-Demuxer::Demuxer(std::shared_ptr<base::MessageLoop> message_loop,
-                 DataSource *data_source,
+const int PIPELINE_ERROR_ABORT = -1;
+const int PIPELINE_OK = 0;
+
+static int ReadFrameAndDiscardEmpty(AVFormatContext *context,
+                                    AVPacket *packet) {
+  // Skip empty packets in a tight loop to avoid timing out fuzzers.
+  int result;
+  bool drop_packet;
+  do {
+    result = av_read_frame(context, packet);
+    drop_packet = (!packet->data || !packet->size) && result >= 0;
+    if (drop_packet) {
+      av_packet_unref(packet);
+      DLOG(WARNING) << "Dropping empty packet, size: " << packet->size
+                    << ", data: " << static_cast<void *>(packet->data);
+    }
+  } while (drop_packet);
+
+  return result;
+}
+
+Demuxer::Demuxer(base::MessageLoop *task_runner,
+                 std::string url,
                  MediaTracksUpdatedCB media_tracks_updated_cb)
-    : task_runner_(std::move(message_loop)),
-      data_source_(data_source),
+    : task_runner_(task_runner),
       media_tracks_updated_cb_(std::move(media_tracks_updated_cb)),
       host_(nullptr),
       format_context_(nullptr),
-      bitrate_(0),
       start_time_(kNoTimestamp()),
       audio_disabled_(false),
-      duration_known_(false) {
+      duration_known_(false),
+      url_(std::move(url)),
+      abort_request_(false),
+      read_has_failed_(false),
+      read_position_(0),
+      last_read_bytes_(0) {
   DCHECK(task_runner_);
-  DCHECK(data_source_);
 }
 
 void Demuxer::PostDemuxTask() {
@@ -35,24 +59,22 @@ void Demuxer::DemuxTask() {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
   // Make sure we have work to do before demuxing.
-  if (!StreamsHavePendingReads()) {
+  if (!StreamsHaveAvailableCapacity()) {
     return;
   }
 
   // Allocate and read an AVPacket from the media.
-  unique_ptr_d<AVPacket> packet(new AVPacket(), [](AVPacket *ptr) {
-    delete ptr;
-  });
-  int result = av_read_frame(format_context_, packet.get());
+  std::unique_ptr<AVPacket, AVPacketDeleter> packet(new AVPacket());
+  int result = ReadFrameAndDiscardEmpty(format_context_, packet.get());
   if (result < 0) {
     // Update the duration based on the audio stream if it was previously unknown.
     // http://crbug.com/86830
     if (!duration_known_) {
       // Search streams for AUDIO one.
       for (auto &stream : streams_) {
-        if (stream && stream->type() == DemuxerStream::AUDIO) {
-          auto duration = stream->GetElapsedTime();
-          if (duration != kNoTimestamp() && duration > TimeDelta()) {
+        if (stream && stream->type() == DemuxerStream::Audio) {
+          auto duration = stream->duration();
+          if (duration != kNoTimestamp() && duration > 0) {
             host_->SetDuration(duration);
             duration_known_ = true;
           }
@@ -71,60 +93,58 @@ void Demuxer::DemuxTask() {
   DCHECK_LT(packet->stream_index, static_cast<int>(streams_.size()));
 
   if (packet->stream_index >= 0 && packet->stream_index < streams_.size() && streams_[packet->stream_index]
-      && (!audio_disabled_ || streams_[packet->stream_index]->type() != DemuxerStream::AUDIO)) {
+      && (!audio_disabled_ || streams_[packet->stream_index]->type() != DemuxerStream::Audio)) {
     auto demuxer_stream = streams_[packet->stream_index];
     demuxer_stream->EnqueuePacket(std::move(packet));
   }
 
   // Create a loop by posting another task.  This allows seek and message loop
   // quit tasks to get processed.
-  if (StreamsHavePendingReads()) {
+  if (StreamsHaveAvailableCapacity()) {
     PostDemuxTask();
   }
 
 }
 
-bool Demuxer::StreamsHavePendingReads() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
-  return std::any_of(streams_.begin(), streams_.end(), [](const std::shared_ptr<DemuxerStream> &stream) -> bool {
-    return stream->HasPendingReads();
-  });
+void Demuxer::Initialize(DemuxerHost *host, PipelineStatusCB status_cb) {
+  host_ = host;
+  init_callback_ = BindToCurrentLoop(std::move(status_cb));
+
+  task_runner_->PostTask(FROM_HERE, std::bind(&Demuxer::InitializeTask, this));
 }
 
-void Demuxer::Initialize(DemuxerHost *host, PipelineStatusCB status_cb) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+void Demuxer::InitializeTask() {
 
-  host_ = host;
+  format_context_ = avformat_alloc_context();
 
-  url_protocol_ = std::make_unique<BlockingUrlProtocol>(
-      data_source_,
-      [weak_this(std::weak_ptr<Demuxer>(shared_from_this()))]() {
-        DLOG(WARNING) << ": data source error";
-        if (auto demuxer = weak_this.lock()) {
-          demuxer->host_->OnDemuxerError(PIPELINE_ERROR_ABORT);
-        }
-      });
-  glue_ = std::make_unique<FFmpegGlue>(url_protocol_.get());
-  AVFormatContext *format_context = glue_->format_context();
+  format_context_->interrupt_callback.opaque = this;
+  format_context_->interrupt_callback.callback = [](void *opaque) -> int {
+    auto demuxer = static_cast<Demuxer *>(opaque);
+    return demuxer->abort_request_;
+  };
 
   // Disable ID3v1 tag reading to avoid costly seeks to end of file for data we
   // don't use.  FFmpeg will only read ID3v1 tags if no other metadata is
   // available, so add a metadata entry to ensure some is always present.
-  av_dict_set(&format_context->metadata, "skip_id3v1_tags", "", 0);
+//  av_dict_set(&format_context_->metadata, "skip_id3v1_tags", "", 0);
 
   // Ensure ffmpeg doesn't give up too early while looking for stream params;
   // this does not increase the amount of data downloaded.  The default value
   // is 5 AV_TIME_BASE units (1 second each), which prevents some oddly muxed
   // streams from being detected properly; this value was chosen arbitrarily.
-  format_context->max_analyze_duration = 60 * AV_TIME_BASE;
+//  format_context_->max_analyze_duration = 60 * AV_TIME_BASE;
 
-  OnOpenContextDone(glue_->OpenContext(is_local_file_), std::move(status_cb));
+  auto ret = avformat_open_input(&format_context_, url_.c_str(), nullptr, nullptr);
+  if (ret < 0) {
+    DLOG(ERROR) << "failed to open avformat context. " << ffmpeg::AVErrorToString(ret);
+  }
 
+  OnOpenContextDone(ret >= 0);
 }
 
-static TimeDelta ExtractStartTime(AVStream *stream) {
+static double ExtractStartTime(AVStream *stream) {
   // The default start time is zero.
-  TimeDelta start_time;
+  double start_time;
 
   // First try to use  the |start_time| value as is.
   if (stream->start_time != AV_NOPTS_VALUE)
@@ -136,7 +156,7 @@ static TimeDelta ExtractStartTime(AVStream *stream) {
       stream->codecpar->codec_id != AV_CODEC_ID_HEVC &&
       stream->codecpar->codec_id != AV_CODEC_ID_H264 &&
       stream->codecpar->codec_id != AV_CODEC_ID_MPEG4) {
-    const TimeDelta first_pts =
+    const double first_pts =
         ffmpeg::ConvertFromTimeBase(stream->time_base, stream->first_dts);
     if (first_pts < start_time)
       start_time = first_pts;
@@ -151,50 +171,52 @@ static TimeDelta ExtractStartTime(AVStream *stream) {
 // Returns 0 if a bitrate could not be determined.
 static int CalculateBitrate(
     AVFormatContext *format_context,
-    const TimeDelta &duration,
+    const double &duration,
     int64 filesize_in_bytes) {
   // If there is a bitrate set on the container, use it.
   if (format_context->bit_rate > 0)
-    return format_context->bit_rate;
+    return int(format_context->bit_rate);
 
   // Then try to sum the bitrates individually per stream.
   int bitrate = 0;
   for (size_t i = 0; i < format_context->nb_streams; ++i) {
     auto *codec_par = format_context->streams[i]->codecpar;
-    bitrate += codec_par->bit_rate;
+    bitrate += int(codec_par->bit_rate);
   }
   if (bitrate > 0)
     return bitrate;
 
   // See if we can approximate the bitrate as long as we have a filesize and
   // valid duration.
-  if (duration.count() <= 0 ||
-      duration == kInfiniteDuration() ||
-      filesize_in_bytes == 0) {
+  if (duration <= 0 || filesize_in_bytes == 0) {
     return 0;
   }
 
   // Do math in floating point as we'd overflow an int64 if the filesize was
   // larger than ~1073GB.
-  double bytes = filesize_in_bytes;
-  double duration_us = duration.count();
+  auto bytes = double(filesize_in_bytes);
+  double duration_us = duration * 1000000000;
   return int(bytes * 8000000.0 / duration_us);
 }
 
-void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
+void Demuxer::OnOpenContextDone(bool open) {
   DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(format_context_);
   if (stopped_) {
-    status_cb(PIPELINE_ERROR_ABORT);
+    init_callback_(PIPELINE_ERROR_ABORT);
     return;
   }
   if (!open) {
-    status_cb(PIPELINE_ERROR_ABORT);
+    init_callback_(PIPELINE_ERROR_ABORT);
     return;
   }
 
-  auto result = avformat_find_stream_info(glue_->format_context(), nullptr);
+  av_format_inject_global_side_data(format_context_);
+
+  auto result = avformat_find_stream_info(format_context_, nullptr);
   if (result < 0) {
-    status_cb(PIPELINE_ERROR_ABORT);
+    DLOG(ERROR) << "find stream info failed.";
+    init_callback_(PIPELINE_ERROR_ABORT);
     return;
   }
 
@@ -202,23 +224,22 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
   // is examined to determine if it is supported or not (is the codec enabled
   // for it in this release?). Unsupported streams are skipped, allowing for
   // partial playback. At least one audio or video stream must be playable.
-  AVFormatContext *format_context = glue_->format_context();
-  streams_.resize(format_context->nb_streams);
+  streams_.resize(format_context_->nb_streams);
 
   std::unique_ptr<MediaTracks> media_tracks = std::make_unique<MediaTracks>();
 
   DCHECK(track_id_to_demux_stream_map_.empty());
 
   // If available, |start_time_| will be set to the lowest stream start time.
-  start_time_ = kInfiniteDuration();
+  start_time_ = -1;
 
-  TimeDelta max_duration;
+  double max_duration;
   int supported_audio_track_count = 0;
   int supported_video_track_count = 0;
   bool has_opus_or_vorbis_audio = false;
   bool needs_negative_timestamp_fixup = false;
-  for (size_t i = 0; i < format_context->nb_streams; ++i) {
-    AVStream *stream = format_context->streams[i];
+  for (size_t i = 0; i < format_context_->nb_streams; ++i) {
+    AVStream *stream = format_context_->streams[i];
     const AVCodecParameters *codec_parameters = stream->codecpar;
     const AVMediaType codec_type = codec_parameters->codec_type;
     const AVCodecID codec_id = codec_parameters->codec_id;
@@ -229,9 +250,11 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
     }
 
     if (codec_type == AVMEDIA_TYPE_AUDIO) {
-      DLOG(INFO) << "Media.DetectedAudioCodec" << codec_id;
+      DLOG(INFO) << "Media.DetectedAudioCodec: " << avcodec_get_name(codec_id);
+      stream->discard = AVDISCARD_DEFAULT;
     } else if (codec_type == AVMEDIA_TYPE_VIDEO) {
-      DLOG(INFO) << "Media.DetectedVideoCodec" << codec_id;
+      DLOG(INFO) << "Media.DetectedVideoCodec: " << avcodec_get_name(codec_id);
+      stream->discard = AVDISCARD_DEFAULT;
     } else if (codec_type == AVMEDIA_TYPE_SUBTITLE) {
       stream->discard = AVDISCARD_ALL;
       continue;
@@ -243,7 +266,7 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
     // Attempt to create a FFmpegDemuxerStream from the AVStream. This will
     // return nullptr if the AVStream is invalid. Validity checks will verify
     // things like: codec, channel layout, sample/pixel format, etc...
-    auto demuxer_stream = DemuxerStream::Create(this, stream);
+    auto demuxer_stream = DemuxerStream::Create(this, stream, format_context_);
     if (demuxer_stream) {
       streams_[i] = std::move(demuxer_stream);
     } else {
@@ -264,32 +287,19 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
 //    if (glue_->container() == container_names::CONTAINER_WEBM)
 //      track_label = MediaTrack::Label(streams_[i]->GetMetadata("title"));
 
-//    if (codec_type == AVMEDIA_TYPE_AUDIO) {
-//      ++supported_audio_track_count;
-//      streams_[i]->SetEnabled(supported_audio_track_count == 1,
-//                              base::TimeDelta());
-//    } else if (codec_type == AVMEDIA_TYPE_VIDEO) {
-//      ++supported_video_track_count;
-//      streams_[i]->SetEnabled(supported_video_track_count == 1,
-//                              base::TimeDelta());
-//    }
-
-    // TODO(chcunningham): Remove the IsValidConfig() checks below. If the
-    // config isn't valid we shouldn't have created a demuxer stream nor
-    // an entry in |media_tracks|, so the check should always be true.
-    if ((codec_type == AVMEDIA_TYPE_AUDIO &&
-        media_tracks->getAudioConfig(track_id).IsValidConfig()) ||
-        (codec_type == AVMEDIA_TYPE_VIDEO &&
-            media_tracks->getVideoConfig(track_id).IsValidConfig())) {
-      DLOG(INFO) << GetDisplayName() << ": skipping duplicate media stream id=" << track_id;
-      continue;
+    if (codec_type == AVMEDIA_TYPE_AUDIO) {
+      ++supported_audio_track_count;
+      streams_[i]->SetEnabled(supported_audio_track_count == 1, 0);
+    } else if (codec_type == AVMEDIA_TYPE_VIDEO) {
+      ++supported_video_track_count;
+      streams_[i]->SetEnabled(supported_video_track_count == 1, 0);
     }
 
     // Note when we find our audio/video stream (we only want one of each) and
     // record src= playback UMA stats for the stream's decoder config.
     MediaTrack *media_track = nullptr;
     if (codec_type == AVMEDIA_TYPE_AUDIO) {
-      AudioDecoderConfig audio_config = streams_[i]->audio_decoder_config();
+      AudioDecodeConfig audio_config = streams_[i]->audio_decode_config();
 
       media_track = media_tracks->AddAudioTrack(audio_config, track_id,
                                                 MediaTrack::Kind("main"),
@@ -299,7 +309,7 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
           track_id_to_demux_stream_map_.end());
       track_id_to_demux_stream_map_[media_track->id()] = streams_[i].get();
     } else if (codec_type == AVMEDIA_TYPE_VIDEO) {
-      VideoDecoderConfig video_config = streams_[i]->video_decoder_config();
+      VideoDecodeConfig video_config = streams_[i]->video_decode_config();
 
       media_track = media_tracks->AddVideoTrack(video_config, track_id,
                                                 MediaTrack::Kind("main"),
@@ -312,7 +322,7 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
 
     max_duration = std::max(max_duration, streams_[i]->duration());
 
-    TimeDelta start_time = ExtractStartTime(stream);
+    double start_time = ExtractStartTime(stream);
 
     // Note: This value is used for seeking, so we must take the true value and
     // not the one possibly clamped to zero below.
@@ -323,13 +333,13 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
     if (!has_opus_or_vorbis_audio)
       has_opus_or_vorbis_audio = is_opus_or_vorbis;
 
-    if (codec_type == AVMEDIA_TYPE_AUDIO && start_time < TimeDelta() &&
+    if (codec_type == AVMEDIA_TYPE_AUDIO && start_time < 0 &&
         is_opus_or_vorbis) {
       needs_negative_timestamp_fixup = true;
 
       // Fixup the seeking information to avoid selecting the audio stream
       // simply because it has a lower starting time.
-      start_time = TimeDelta();
+      start_time = 0;
     }
 
 //    streams_[i]->set_start_time(start_time);
@@ -337,23 +347,23 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
 
   if (media_tracks->tracks().empty()) {
     LOG(ERROR) << GetDisplayName() << ": no supported streams";
-    status_cb(PIPELINE_ERROR_ABORT);
+    init_callback_(PIPELINE_ERROR_ABORT);
     return;
   }
 
-  if (format_context->duration != AV_NOPTS_VALUE) {
+  if (format_context_->duration != AV_NOPTS_VALUE) {
     // If there is a duration value in the container use that to find the
     // maximum between it and the duration from A/V streams.
     const AVRational av_time_base = {1, AV_TIME_BASE};
-    max_duration = std::max(max_duration, ffmpeg::ConvertFromTimeBase(av_time_base, format_context->duration));
+    max_duration = std::max(max_duration, ffmpeg::ConvertFromTimeBase(av_time_base, format_context_->duration));
   } else {
     // The duration is unknown, in which case this is likely a live stream.
-    max_duration = kInfiniteDuration();
+    max_duration = std::numeric_limits<double>::max();
   }
 
   // If no start time could be determined, default to zero.
-  if (start_time_ == kInfiniteDuration())
-    start_time_ = TimeDelta();
+  if (start_time_ == std::numeric_limits<double>::max())
+    start_time_ = 0;
 
   // MPEG-4 B-frames cause grief for a simple container like AVI. Enable PTS
   // generation so we always get timestamps, see http://crbug.com/169570
@@ -389,17 +399,11 @@ void Demuxer::OnOpenContextDone(bool open, PipelineStatusCB status_cb) {
   // initializing.
   host_->SetDuration(max_duration);
   duration_ = max_duration;
-  duration_known_ = (max_duration != kInfiniteDuration());
-
-  int64_t filesize_in_bytes = 0;
-  url_protocol_->GetSize(&filesize_in_bytes);
-  bitrate_ = CalculateBitrate(format_context, max_duration, filesize_in_bytes);
-  if (bitrate_ > 0)
-    data_source_->SetBitrate(bitrate_);
+  duration_known_ = (max_duration != std::numeric_limits<double>::max());
 
   media_tracks_updated_cb_(std::move(media_tracks));
 
-  status_cb(PIPELINE_OK);
+  init_callback_(PIPELINE_OK);
 
 }
 
@@ -414,37 +418,28 @@ void Demuxer::StreamHasEnded() {
 
 void Demuxer::NotifyBufferingChanged() {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  Ranges<TimeDelta> buffered;
-  std::shared_ptr<DemuxerStream> audio = audio_disabled_ ? nullptr : GetFFmpegStream(DemuxerStream::AUDIO);
-  std::shared_ptr<DemuxerStream> video = GetFFmpegStream(DemuxerStream::VIDEO);
-  if (audio && video) {
-    buffered = audio->GetBufferedRanges().IntersectionWith(video->GetBufferedRanges());
-  } else if (audio_disabled_) {
-    buffered = audio->GetBufferedRanges();
-  } else if (video) {
-    buffered = video->GetBufferedRanges();
-  }
-  for (size_t i = 0; i < buffered.size(); ++i) {
+//  Ranges<TimeDelta> buffered;
+//  std::shared_ptr<DemuxerStream> audio = audio_disabled_ ? nullptr : GetFFmpegStream(DemuxerStream::Audio);
+//  std::shared_ptr<DemuxerStream> video = GetFFmpegStream(DemuxerStream::Video);
+//  if (audio && video) {
+//    buffered = audio->GetBufferedRanges().IntersectionWith(video->GetBufferedRanges());
+//  } else if (audio_disabled_) {
+//    buffered = audio->GetBufferedRanges();
+//  } else if (video) {
+//    buffered = video->GetBufferedRanges();
+//  }
+//  for (size_t i = 0; i < buffered.size(); ++i) {
 //    host_->AddBufferedTimeRange(buffered.start(i), buffered.end(i));
-  }
+//  }
 }
 
-std::shared_ptr<DemuxerStream> Demuxer::GetFFmpegStream(DemuxerStream::Type type) const {
-  for (auto &stream : streams_) {
-    if (stream->type() == type) {
-      return stream;
-    }
-  }
-  return nullptr;
-}
-
-void Demuxer::Stop(const std::function<void(void)> &callback) {
+void Demuxer::Stop(std::function<void(void)> callback) {
   task_runner_->PostTask(FROM_HERE, [&]() {
     StopTask(callback);
   });
 
   // Then wakes up the thread from reading.
-  SignalReadCompleted(DataSource::kReadError);
+//  SignalReadCompleted(DataSource::kReadError);
 }
 
 void Demuxer::StopTask(const std::function<void(void)> &callback) {
@@ -454,11 +449,8 @@ void Demuxer::StopTask(const std::function<void(void)> &callback) {
       stream->Stop();
     }
   }
-  if (data_source_) {
-    data_source_->Stop();
-  } else {
-    callback();
-  }
+  abort_request_ = true;
+  callback();
 }
 
 void Demuxer::SignalReadCompleted(int size) {
@@ -481,7 +473,7 @@ DemuxerStream *Demuxer::GetFirstStream(DemuxerStream::Type type) {
 }
 
 std::vector<DemuxerStream *> Demuxer::GetAllStreams() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+//  DCHECK(task_runner_->BelongsToCurrentThread());
   std::vector<DemuxerStream *> result;
   // Put enabled streams at the beginning of the list so that
   // MediaResource::GetFirstStream returns the enabled stream if there is one.
@@ -496,6 +488,18 @@ std::vector<DemuxerStream *> Demuxer::GetAllStreams() {
 //      result.push_back(stream.get());
 //  }
   return result;
+}
+
+bool Demuxer::StreamsHaveAvailableCapacity() {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  return std::any_of(streams_.begin(), streams_.end(), [](const std::shared_ptr<DemuxerStream> &stream) {
+    return stream && stream->HasAvailableCapacity();
+  });
+}
+
+void Demuxer::NotifyCapacityAvailable() {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  PostDemuxTask();
 }
 
 }
