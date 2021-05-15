@@ -10,6 +10,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v2
+        with:
+          lfs: 'true'
       - uses: subosito/flutter-action@v1
         with:
           flutter-version: '2.0.5'
@@ -28,5 +30,6 @@ jobs:
     - run: flutter pub get
     - run: flutter build apk
     - run: flutter config --enable-macos-desktop
+    - run: cd ffplayer && ./macos-flutter-install.sh && cd ..
     - run: flutter build macos
     
