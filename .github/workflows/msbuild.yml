@@ -30,6 +30,7 @@ jobs:
     - run: flutter pub get
     - run: flutter build apk
     - run: flutter config --enable-macos-desktop
+    - run: brew install ffmpeg
     - run: cd ffplayer && ./macos-flutter-install.sh && cd ..
     - run: flutter build macos
     
