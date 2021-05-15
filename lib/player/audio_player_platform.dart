@@ -21,11 +21,13 @@ abstract class AudioPlayer {
 
   set playWhenReady(bool value);
 
-  // from 0 - 100
-  int get volume;
+  // [0, 1].
+  double get volume;
 
-  // from 0 - 100
-  set volume(int volume);
+  /// 
+  /// [volume] [0, 1].
+  /// 
+  set volume(double volume);
 
   /**
    * Current position has been play.

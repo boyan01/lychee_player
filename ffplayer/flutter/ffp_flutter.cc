@@ -48,22 +48,12 @@ void media_set_play_when_ready(MediaPlayer *player, bool play_when_ready) {
   player->SetPlayWhenReady(play_when_ready);
 }
 
-bool ffplayer_is_mute(CPlayer *player) {
-  CHECK_VALUE_WITH_RETURN(player, false);
-  return player->IsMuted();
-}
-
-void ffplayer_set_mute(CPlayer *player, bool mute) {
-  CHECK_VALUE(player);
-  player->SetMute(mute);
-}
-
-void ffp_set_volume(CPlayer *player, int volume) {
+void ffp_set_volume(CPlayer *player, double volume) {
   CHECK_VALUE(player);
   player->SetVolume(volume);
 }
 
-int ffp_get_volume(CPlayer *player) {
+double ffp_get_volume(CPlayer *player) {
   CHECK_VALUE_WITH_RETURN(player, 0);
   return player->GetVolume();
 }

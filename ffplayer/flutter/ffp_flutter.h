@@ -27,10 +27,6 @@ FFPLAYER_EXPORT bool ffplayer_is_paused(CPlayer *player);
 
 FFPLAYER_EXPORT void media_set_play_when_ready(MediaPlayer *player, bool play_when_ready);
 
-FFPLAYER_EXPORT bool ffplayer_is_mute(CPlayer *player);
-
-FFPLAYER_EXPORT void ffplayer_set_mute(CPlayer *player, bool mute);
-
 FFPLAYER_EXPORT int ffplayer_get_current_chapter(CPlayer *player);
 
 FFPLAYER_EXPORT int ffplayer_get_chapter_count(CPlayer *player);
@@ -50,9 +46,9 @@ FFPLAYER_EXPORT const char *ffp_get_metadata_dict(CPlayer *player, const char *k
 /**
  * @param volume from 0 to 100.
  */
-FFPLAYER_EXPORT void ffp_set_volume(CPlayer *player, int volume);
+FFPLAYER_EXPORT void ffp_set_volume(CPlayer *player, double volume);
 
-FFPLAYER_EXPORT int ffp_get_volume(CPlayer *player);
+FFPLAYER_EXPORT double ffp_get_volume(CPlayer *player);
 
 FFPLAYER_EXPORT int ffp_get_state(CPlayer *player);
 

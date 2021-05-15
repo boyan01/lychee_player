@@ -96,7 +96,7 @@ class AudioPlayer implements api.AudioPlayer {
 
 // TODO
   @override
-  int volume = 0;
+  double volume = 0;
 
   void _updateBuffered() {
     final buffered = _audioElement.buffered;
