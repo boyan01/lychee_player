@@ -13,7 +13,12 @@
 namespace media {
 
 AudioRenderer::AudioRenderer(TaskRunner *task_runner, std::shared_ptr<AudioRendererSink> sink)
-    : task_runner_(task_runner), audio_buffer_(3), sink_(std::move(sink)) {}
+    : task_runner_(task_runner),
+      audio_buffer_(3),
+      sink_(std::move(sink)),
+      volume_(1) {
+
+}
 
 AudioRenderer::~AudioRenderer() = default;
 
@@ -102,7 +107,7 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
       audio_clock_time = buffer->PtsFromCursor() - delay;
     }
 
-    auto flushed = buffer->Read(stream + len_flush, len - len_flush);
+    auto flushed = buffer->Read(stream + len_flush, len - len_flush, volume_);
     if (buffer->IsConsumed()) {
       audio_buffer_.DeleteFront();
       task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
@@ -135,6 +140,13 @@ void AudioRenderer::Stop() {
 bool AudioRenderer::NeedReadStream() {
   // FIXME temp solution.
   return !audio_buffer_.IsFull();
+}
+
+void AudioRenderer::SetVolume(double volume) {
+  DCHECK(volume >= 0);
+  DCHECK(volume <= 1);
+  std::lock_guard<std::mutex> auto_lock(mutex_);
+  volume_ = volume;
 }
 
 }

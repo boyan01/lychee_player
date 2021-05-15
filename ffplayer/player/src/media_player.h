@@ -112,13 +112,9 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
 
   void SetPlayWhenReadyTask(bool play_when_ready);
 
-  int GetVolume();
+  double GetVolume();
 
-  void SetVolume(int volume);
-
-  void SetMute(bool mute);
-
-  bool IsMuted();
+  void SetVolume(double volume);
 
   double GetDuration();
 

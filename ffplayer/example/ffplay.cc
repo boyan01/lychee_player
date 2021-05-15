@@ -26,7 +26,7 @@ using namespace media;
 #define FF_MSG_EVENT    (SDL_USEREVENT + 3)
 const int SDL_UPDATE_FRAME_SIZE = SDL_USEREVENT + 4;
 /* Step size for volume control*/
-#define SDL_VOLUME_STEP (10)
+const double kExampleVolumeStep = 0.1;
 
 #define CURSOR_HIDE_DELAY 1000000
 
@@ -51,6 +51,8 @@ static int screen_left = SDL_WINDOWPOS_CENTERED;
 static int screen_top = SDL_WINDOWPOS_CENTERED;
 
 static bool dump_status = false;
+
+static double volume_before_mute = 1;
 
 struct MessageData {
   MediaPlayer *player = nullptr;
@@ -131,13 +133,21 @@ static void event_loop(std::shared_ptr<MediaPlayer> player) {
           player->SetPlayWhenReady(!player->IsPlayWhenReady());
           break;
         }
-        case SDLK_m:player->SetMute(!player->IsMuted());
+        case SDLK_m: {
+          double volume = player->GetVolume();
+          if (volume != 0) {
+            player->SetVolume(0);
+            volume_before_mute = volume;
+          } else {
+            player->SetVolume(volume_before_mute);
+          }
           break;
+        }
         case SDLK_KP_MULTIPLY:
-        case SDLK_0:player->SetVolume(player->GetVolume() + SDL_VOLUME_STEP);
+        case SDLK_0:player->SetVolume(player->GetVolume() + kExampleVolumeStep);
           break;
         case SDLK_KP_DIVIDE:
-        case SDLK_9:player->SetVolume(player->GetVolume() - SDL_VOLUME_STEP);
+        case SDLK_9:player->SetVolume(player->GetVolume() - kExampleVolumeStep);
           break;
         case SDLK_s:  // S: Step to next frame
           step_to_next_frame(player);
@@ -394,7 +404,7 @@ int main(int argc, char *argv[]) {
   auto audio_renderer_sink = std::make_unique<SdlAudioRendererSink>();
   auto player = std::make_shared<MediaPlayer>(std::move(video_renderer_sink), std::move(audio_renderer_sink));
   player->start_configuration = config;
-  player->SetVolume(50);
+  player->SetVolume(0.5);
 
   player->set_on_video_size_changed_callback([player, task_runner](int width, int height) {
     BindToLoop(task_runner, [player, width, height]() {
