@@ -37,7 +37,7 @@ if (APPLE)
             )
 
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/"
-            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+            DESTINATION include
             FILES_MATCHING PATTERN "ffp_flutter.h")
 endif ()
 
