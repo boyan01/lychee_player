@@ -35,6 +35,10 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
 
   void OnRenderError() override;
 
+  void SetVolume(double volume);
+
+  double GetVolume() const { return volume_; };
+
  private:
 
   TaskRunner *task_runner_;
@@ -53,6 +57,8 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
   bool reading_ = false;
 
   std::mutex mutex_;
+
+  double volume_;
 
   void OnDecoderStreamInitialized(bool success);
 

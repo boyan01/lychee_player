@@ -24,7 +24,7 @@ class AudioBuffer {
    * @param size  The size to read.
    * @return The size read done.
    */
-  int Read(uint8 *dest, int size);
+  int Read(uint8 *dest, int size, double volume);
 
   int size() const {
     return size_;

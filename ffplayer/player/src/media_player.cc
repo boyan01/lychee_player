@@ -217,24 +217,25 @@ double MediaPlayer::GetCurrentPosition() {
   return position;
 }
 
-int MediaPlayer::GetVolume() {
-  CHECK_VALUE_WITH_RETURN(audio_renderer_, 0);
-//  return audio_render_->GetVolume();
+double MediaPlayer::GetVolume() {
+  if (!audio_renderer_) {
+    return 0;
+  }
+  audio_renderer_->GetVolume();
 }
 
-void MediaPlayer::SetVolume(int volume) {
-  CHECK_VALUE(audio_renderer_);
-//  audio_render_->SetVolume(volume);
-}
-
-void MediaPlayer::SetMute(bool mute) {
-  CHECK_VALUE(audio_renderer_);
-//  audio_render_->SetMute(mute);
-}
-
-bool MediaPlayer::IsMuted() {
-  CHECK_VALUE_WITH_RETURN(audio_renderer_, true);
-//  return audio_render_->IsMute();
+void MediaPlayer::SetVolume(double volume) {
+  if (!audio_renderer_) {
+    return;
+  }
+  DLOG_IF(WARNING, volume > 1 || volume < 0) << "volume is out of range [0, 1] : " << volume;
+  if (volume < 0) {
+    volume = 0;
+  }
+  if (volume > 1) {
+    volume = 1;
+  }
+  audio_renderer_->SetVolume(volume);
 }
 
 double MediaPlayer::GetDuration() {
@@ -323,7 +324,6 @@ void MediaPlayer::StartRenders() {
     video_renderer_->Start();
   }
 }
-
 
 void MediaPlayer::OnFirstFrameLoaded(int width, int height) {
   if (on_video_size_changed_) {
