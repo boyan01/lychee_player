@@ -13,10 +13,8 @@ Pod::Spec.new do |s|
                      
     s.requires_arc = true
     s.cocoapods_version = '>= 1.9'
-    s.pod_target_xcconfig = { "HEADER_SEARCH_PATHS" => "$(SRCROOT)/Library/MediaPlayer/Frameworks/include"}
-    s.vendored_library = 'Frameworks/lib/*.dylib'
-#    s.private_header_files = 'Frameworks/include/*.h'
-    s.macos.public_header_files = 'Frameworks/include/*.{h}'
+    # s.pod_target_xcconfig = { "HEADER_SEARCH_PATHS" => "$(SRCROOT)/Library/MediaPlayer/Frameworks/include"}
+    s.vendored_framework = 'frameworks/media_flutter.framework'
     s.libraries = "c++"
 
   end
