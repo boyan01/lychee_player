@@ -199,11 +199,11 @@ final ffp_detach_video_render_flutter =
         "ffp_detach_video_render_flutter");
 
 final ffp_get_volume =
-    _library.lookupFunction<Int32 Function(Pointer), int Function(Pointer)>(
+    _library.lookupFunction<Double Function(Pointer), double Function(Pointer)>(
         "ffp_get_volume");
 
-final ffp_set_volume = _library.lookupFunction<Void Function(Pointer, Int32),
-    void Function(Pointer, int)>("ffp_set_volume");
+final ffp_set_volume = _library.lookupFunction<Void Function(Pointer, Double),
+    void Function(Pointer, double)>("ffp_set_volume");
 
 final ffp_get_video_aspect_ratio =
     _library.lookupFunction<Double Function(Pointer), double Function(Pointer)>(
@@ -336,7 +336,7 @@ class FfiAudioPlayer implements AudioPlayer {
   }
 
   @override
-  int get volume {
+  double get volume {
     if (_player == nullptr) {
       return 0;
     }
@@ -344,7 +344,7 @@ class FfiAudioPlayer implements AudioPlayer {
   }
 
   @override
-  set volume(int volume) {
+  set volume(double volume) {
     if (_player == nullptr) {
       return;
     }
