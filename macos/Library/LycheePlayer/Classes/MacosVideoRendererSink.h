@@ -11,6 +11,6 @@
 
 __BEGIN_DECLS
 
-void reigsterMedaiFramework();
+void reigsterMedaiFramework(id<FlutterTextureRegistry> textures);
 
 __END_DECLS

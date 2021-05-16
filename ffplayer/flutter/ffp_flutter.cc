@@ -17,6 +17,7 @@
 #elif defined(_FLUTTER_MEDIA_MACOS)
 #define _MEDIA_AUDIO_USE_SDL
 #include "null_video_renderer_sink.h"
+#include "video_renderer_sink_impl.h"
 #endif
 
 // Use SDL2 to render audio.
@@ -154,9 +155,9 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
 #elif _FLUTTER_MEDIA_ANDROID
   video_render = std::make_unique<media::AndroidVideoRendererSink>();
   audio_render = std::make_unique<media::OboeAudioRendererSink>();
-#else
+#elif _FLUTTER_MEDIA_MACOS
   //(TODO yangbin) temp solution for platform which didn't implement video renderer.
-  video_render = std::make_unique<media::NullVideoRendererSink>();
+  video_render = std::make_unique<media::VideoRendererSinkImpl>();
   audio_render = std::make_unique<media::SdlAudioRendererSink>();
 #endif
   auto player = std::make_shared<MediaPlayer>(std::move(video_render), std::move(audio_render));
@@ -186,16 +187,8 @@ const char *ffp_get_metadata_dict(CPlayer *player, const char *key) {
 }
 
 int64_t ffp_attach_video_render_flutter(CPlayer *player) {
-  int64_t texture_id = -1;
-#ifdef _FLUTTER_MEDIA_WINDOWS
-  auto *video_render = dynamic_cast<FlutterVideoRendererSink *>(player->GetVideoRenderSink());
-  texture_id = video_render->Attach();
-#elif _FLUTTER_MEDIA_ANDROID
-  auto *video_render = dynamic_cast<media::AndroidVideoRendererSink *>(player->GetVideoRenderSink());
-  texture_id = video_render->Attach();
-#elif _FLUTTER_MEDIA_LINUX
-
-#endif
+  auto *video_render_sink = dynamic_cast<media::FlutterVideoRendererSink *>(player->GetVideoRenderSink());
+  auto texture_id = video_render_sink->Attach();
   av_log(nullptr, AV_LOG_INFO, "ffp_attach_video_render_flutter: id = %lld\n", texture_id);
   return texture_id;
 }
@@ -229,5 +222,9 @@ void ffp_detach_video_render_flutter(CPlayer *player) {
 }
 
 extern void register_flutter_texture_factory(FlutterTextureAdapterFactory factory) {
-  DLOG(WARNING) << "register_flutter_texture_factory" << factory();
+#ifdef _FLUTTER_MEDIA_MACOS
+  DCHECK(factory) << "can not register flutter texture factory with nullptr";
+  DCHECK(!VideoRendererSinkImpl::factory_) << "can not register more than once";
+  VideoRendererSinkImpl::factory_ = factory;
+#endif
 }

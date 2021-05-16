@@ -6,7 +6,9 @@ add_library(media_flutter SHARED
         ffp_flutter.cc
         ffp_flutter.h
         media_api.h
-        third_party/dart/dart_api_dl.c)
+        third_party/dart/dart_api_dl.c
+        video_renderer_sink_impl.cc
+        video_renderer_sink_impl.h)
 
 target_include_directories(media_flutter PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} third_party)
 

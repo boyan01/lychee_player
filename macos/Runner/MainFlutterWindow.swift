@@ -10,7 +10,8 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     
-    reigsterMedaiFramework()
+    let mediaPlugin = flutterViewController.registrar(forPlugin: "media_flutter");
+    reigsterMedaiFramework(mediaPlugin.textures)
 
     super.awakeFromNib()
   }

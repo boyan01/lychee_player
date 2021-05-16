@@ -22,9 +22,7 @@ class FlutterMediaTexture {
 
   virtual void Release() = 0;
 
-  virtual void Render() = 0;
-
-  virtual uint8_t *GetOutputBuffer() = 0;
+  virtual void Render(uint8_t *data[8], int line_size[8], int width, int height) = 0;
 
   virtual int GetWidth() = 0;
 
