@@ -2,7 +2,11 @@ cmake_minimum_required(VERSION 3.10)
 
 project("media_flutter")
 
-add_library(media_flutter SHARED ffp_flutter.cc ffp_flutter.h third_party/dart/dart_api_dl.c)
+add_library(media_flutter SHARED
+        ffp_flutter.cc
+        ffp_flutter.h
+        media_api.h
+        third_party/dart/dart_api_dl.c)
 
 target_include_directories(media_flutter PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} third_party)
 
@@ -32,7 +36,7 @@ if (APPLE)
     set_target_properties(media_flutter PROPERTIES
             FRAMEWORK TRUE
             MACOSX_FRAMEWORK_IDENTIFIER tech.soit.flutter.media
-            PUBLIC_HEADER "ffp_flutter.h"
+            PUBLIC_HEADER "media_api.h"
             )
 
     install(TARGETS ${PROJECT_NAME}

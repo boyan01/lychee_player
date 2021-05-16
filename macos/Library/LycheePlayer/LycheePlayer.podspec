@@ -16,5 +16,6 @@ Pod::Spec.new do |s|
     # s.pod_target_xcconfig = { "HEADER_SEARCH_PATHS" => "$(SRCROOT)/Library/MediaPlayer/Frameworks/include"}
     s.vendored_framework = 'frameworks/media_flutter.framework'
     s.libraries = "c++"
+    s.frameworks = 'media_flutter'
 
   end

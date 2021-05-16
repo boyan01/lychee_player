@@ -227,3 +227,7 @@ void ffp_detach_video_render_flutter(CPlayer *player) {
   video_render->Detach();
 #endif
 }
+
+extern void register_flutter_texture_factory(FlutterTextureAdapterFactory factory) {
+  DLOG(WARNING) << "register_flutter_texture_factory" << factory();
+}
