@@ -240,9 +240,7 @@ void MediaPlayer::SetVolume(double volume) {
 }
 
 double MediaPlayer::GetDuration() {
-//  CHECK_VALUE_WITH_RETURN(data_source, -1);
-//  return data_source->GetDuration();
-  return 100;
+  return duration_;
 }
 
 void MediaPlayer::Seek(double position) {
@@ -336,7 +334,7 @@ void MediaPlayer::DumpMediaClockStatus() {
 }
 
 void MediaPlayer::SetDuration(double duration) {
-
+  duration_ = duration;
 }
 
 void MediaPlayer::OnDemuxerError(PipelineStatus error) {

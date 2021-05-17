@@ -149,6 +149,8 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
 
   OnVideoSizeChangeCallback on_video_size_changed_;
 
+  double duration_ = -1;
+
   void OnFirstFrameLoaded(int width, int height);
 
   void OnFirstFrameRendered(int width, int height);

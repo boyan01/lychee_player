@@ -13,24 +13,6 @@ namespace media {
 const int PIPELINE_ERROR_ABORT = -1;
 const int PIPELINE_OK = 0;
 
-static int ReadFrameAndDiscardEmpty(AVFormatContext *context,
-                                    AVPacket *packet) {
-  // Skip empty packets in a tight loop to avoid timing out fuzzers.
-  int result;
-  bool drop_packet;
-  do {
-    result = av_read_frame(context, packet);
-    drop_packet = (!packet->data || !packet->size) && result >= 0;
-    if (drop_packet) {
-      av_packet_unref(packet);
-      DLOG(WARNING) << "Dropping empty packet, size: " << packet->size
-                    << ", data: " << static_cast<void *>(packet->data);
-    }
-  } while (drop_packet);
-
-  return result;
-}
-
 Demuxer::Demuxer(base::MessageLoop *task_runner,
                  std::string url,
                  MediaTracksUpdatedCB media_tracks_updated_cb)
@@ -65,7 +47,7 @@ void Demuxer::DemuxTask() {
 
   // Allocate and read an AVPacket from the media.
   std::unique_ptr<AVPacket, AVPacketDeleter> packet(new AVPacket());
-  int result = ReadFrameAndDiscardEmpty(format_context_, packet.get());
+  int result = ffmpeg::ReadFrameAndDiscardEmpty(format_context_, packet.get());
   if (result < 0) {
     // Update the duration based on the audio stream if it was previously unknown.
     // http://crbug.com/86830
