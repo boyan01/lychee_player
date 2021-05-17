@@ -134,7 +134,7 @@ void AudioRenderer::Start() {
 }
 
 void AudioRenderer::Stop() {
-
+  sink_->Pause();
 }
 
 bool AudioRenderer::NeedReadStream() {

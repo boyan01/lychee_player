@@ -86,6 +86,7 @@ void MediaPlayer::SetPlayWhenReadyTask(bool play_when_ready) {
   play_when_ready_ = play_when_ready;
   if (demuxer_) {
 //    data_source->paused = !play_when_ready;
+//    demuxer_->Pause();
   }
   if (state_ != kPrepared) {
     return;
@@ -294,7 +295,7 @@ void MediaPlayer::StopRenders() {
   av_log(nullptr, AV_LOG_INFO, "StopRenders\n");
   PauseClock(true);
   if (audio_renderer_) {
-//    audio_render_->Stop();
+    audio_renderer_->Stop();
   }
   if (video_renderer_) {
     video_renderer_->Stop();
