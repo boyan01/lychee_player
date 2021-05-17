@@ -9,15 +9,23 @@
 
 #include "media_api.h"
 
+extern "C" {
+#include "libswscale/swscale.h"
+}
+
 namespace media {
 
 class VideoRendererSinkImpl : public FlutterVideoRendererSink {
 
  public:
 
+  static FlutterTextureAdapterFactory factory_;
+
+  static AVPixelFormat GetPixelFormat(FlutterMediaTexture::PixelFormat format);
+
   VideoRendererSinkImpl();
 
-  static FlutterTextureAdapterFactory factory_;
+  ~VideoRendererSinkImpl() override;
 
   int64_t Attach() override;
 
@@ -30,6 +38,8 @@ class VideoRendererSinkImpl : public FlutterVideoRendererSink {
  private:
 
   std::unique_ptr<FlutterMediaTexture> texture_;
+
+  struct SwsContext *img_convert_ctx_ = nullptr;
 
 };
 

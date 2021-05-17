@@ -16,7 +16,7 @@ static id<FlutterTextureRegistry> textures_registry;
 
 @interface FlutterTextureImpl : NSObject<FlutterTexture>
 
-@property CVPixelBufferRef pixelBuffer;
+@property CVPixelBufferRef copyPixelBuffer;
 
 @end
 
@@ -31,13 +31,6 @@ static id<FlutterTextureRegistry> textures_registry;
 	return self;
 }
 
-
-
-- (CVPixelBufferRef _Nullable)copyPixelBuffer {
-//	NSLog(@" copyPixelBuffer _pixelBuffer = %d", _pixelBuffer == nullptr);
-	return self->_pixelBuffer;
-}
-
 @end
 
 class MacosFlutterTexture: public FlutterMediaTexture {
@@ -47,7 +40,7 @@ public:
 	                    FlutterTextureImpl* texture)
 		: texture_id_(texture_id),
 		texture_(texture),
-		cv_pixel_buffer_ref_(nullptr) {
+		cv_pixel_buffer_ref_(nullptr){
 	}
 
 	~MacosFlutterTexture() override = default;
@@ -59,75 +52,54 @@ public:
 
 	int GetWidth() override
 	{
-		return 0;
+		return (int)CVPixelBufferGetWidth(cv_pixel_buffer_ref_);
 	}
 
 	int GetHeight() override
 	{
-		return 0;
+		return (int)CVPixelBufferGetHeight(cv_pixel_buffer_ref_);
 	}
 
-	void Render(uint8_t **data, int *line_size, int width, int height) override {
+	PixelFormat GetSupportFormat() override {
+		return kFormat_32_BGRA;
+	}
 
-		if (!data[0]) {
-			NSLog(@"data[0] check failed.");
-			return;
-		}
-
-		NSDictionary *options = [NSDictionary dictionaryWithObjectsAndKeys:
-		                         [NSNumber numberWithBool:YES], kCVPixelBufferCGImageCompatibilityKey,
-		                         //                             [NSNumber numberWithBool:YES], kCVPixelBufferCGBitmapContextCompatibilityKey,
-		                         @(line_size[0]), kCVPixelBufferBytesPerRowAlignmentKey,
-//		                         [NSNumber numberWithBool:YES], kCVPixelBufferOpenGLESCompatibilityKey,
-		                         [NSDictionary dictionary], kCVPixelBufferIOSurfacePropertiesKey,
-		                         nil];
-
-		if (line_size[1] != line_size[2]) {
-			NSLog(@"line size is invalid. %d vs %d", line_size[1], line_size[2]);
-			return;
-		}
-
-		size_t srcPlaneSize = line_size[1]*height/2;
-		size_t dstPlaneSize = srcPlaneSize *2;
-		uint8_t *dstPlane = static_cast<uint8_t*>(malloc(dstPlaneSize));
-
-		// interleave Cb and Cr plane
-		for(size_t i = 0; i<srcPlaneSize; i++) {
-			dstPlane[2*i  ]=data[1][i];
-			dstPlane[2*i+1]=data[2][i];
-		}
-
-
-		int ret = CVPixelBufferCreate(kCFAllocatorDefault,
-		                              width,
-		                              height,
-		                              kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-		                              (__bridge CFDictionaryRef)(options),
-		                              &cv_pixel_buffer_ref_);
-
-		CVPixelBufferLockBaseAddress(cv_pixel_buffer_ref_, 0);
-
-		size_t bytePerRowY = CVPixelBufferGetBytesPerRowOfPlane(cv_pixel_buffer_ref_, 0);
-		size_t bytesPerRowUV = CVPixelBufferGetBytesPerRowOfPlane(cv_pixel_buffer_ref_, 1);
-
-		void* base =  CVPixelBufferGetBaseAddressOfPlane(cv_pixel_buffer_ref_, 0);
-		memcpy(base, data[0], bytePerRowY*height);
-
-		base = CVPixelBufferGetBaseAddressOfPlane(cv_pixel_buffer_ref_, 1);
-		memcpy(base, dstPlane, bytesPerRowUV*height/2);
-
-
-		CVPixelBufferUnlockBaseAddress(cv_pixel_buffer_ref_, 0);
-
-		free(dstPlane);
-
+	void MaybeInitPixelBuffer(int width, int height) override {
+		auto ret = CVPixelBufferCreate(kCFAllocatorDefault,
+		                               width,
+		                               height,
+		                               kCVPixelFormatType_32BGRA,
+		                               nullptr,
+		                               &cv_pixel_buffer_ref_);
 		if (ret != kCVReturnSuccess) {
 			NSLog(@"create pixle buffer failed. error : %d", ret);
-			[texture_ setPixelBuffer: nullptr];
 		} else {
-			[texture_ setPixelBuffer: cv_pixel_buffer_ref_];
-			[textures_registry textureFrameAvailable: texture_id_];
+
 		}
+	}
+
+	void LockBuffer() override {
+		if (cv_pixel_buffer_ref_) {
+			CVPixelBufferLockBaseAddress(cv_pixel_buffer_ref_, 0);
+		}
+	}
+
+	void UnlockBuffer() override {
+		if (cv_pixel_buffer_ref_) {
+			CVPixelBufferUnlockBaseAddress(cv_pixel_buffer_ref_, 0);
+		}
+	}
+
+	void NotifyBufferUpdate() override {
+		[texture_ setCopyPixelBuffer: cv_pixel_buffer_ref_];
+		[textures_registry textureFrameAvailable: texture_id_];
+	}
+
+	uint8_t * GetBuffer() override {
+		if (cv_pixel_buffer_ref_) {
+			return (uint8_t *)CVPixelBufferGetBaseAddress(cv_pixel_buffer_ref_);
+		}
+		return nullptr;
 	}
 
 	void Release() override
@@ -142,6 +114,7 @@ private:
 	int64_t texture_id_;
 
 	FlutterTextureImpl *texture_;
+
 };
 
 std::unique_ptr<FlutterMediaTexture> texture_factory()
