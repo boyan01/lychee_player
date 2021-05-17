@@ -144,11 +144,17 @@ static void event_loop(std::shared_ptr<MediaPlayer> player) {
           break;
         }
         case SDLK_KP_MULTIPLY:
-        case SDLK_0:player->SetVolume(player->GetVolume() + kExampleVolumeStep);
+        case SDLK_0: {
+          player->SetVolume(player->GetVolume() + kExampleVolumeStep);
+          DLOG(INFO) << "update volume to: " << player->GetVolume();
           break;
+        }
         case SDLK_KP_DIVIDE:
-        case SDLK_9:player->SetVolume(player->GetVolume() - kExampleVolumeStep);
+        case SDLK_9: {
+          player->SetVolume(player->GetVolume() - kExampleVolumeStep);
+          DLOG(INFO) << "update volume to: " << player->GetVolume();
           break;
+        }
         case SDLK_s:  // S: Step to next frame
           step_to_next_frame(player);
           break;

@@ -221,7 +221,7 @@ double MediaPlayer::GetVolume() {
   if (!audio_renderer_) {
     return 0;
   }
-  audio_renderer_->GetVolume();
+  return audio_renderer_->GetVolume();
 }
 
 void MediaPlayer::SetVolume(double volume) {
