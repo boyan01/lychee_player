@@ -48,14 +48,16 @@ class _VideoViewState extends State<VideoView> {
       texture = AnimatedBuilder(
         animation: widget.player.aspectRatio,
         builder: (context, child) {
-          final aspectRatio = widget.player.aspectRatio.value;
-          debugPrint("aspectRatio = ${aspectRatio}");
-          if (aspectRatio.isInfinite || aspectRatio <= 0) {
-            return Center(child: child);
-          }
+          // FIXME: player widget aspect ratio.
+          // final aspectRatio = widget.player.aspectRatio.value;
+          // debugPrint("aspectRatio = ${aspectRatio}");
+          // if (aspectRatio.isInfinite || aspectRatio <= 0) {
+          //   return Center(child: child);
+          // }
           return Center(
             child: AspectRatio(
-              aspectRatio: widget.player.aspectRatio.value,
+              // aspectRatio: widget.player.aspectRatio.value,
+              aspectRatio: 16.0 / 9.0,
               child: child,
             ),
           );
@@ -63,6 +65,6 @@ class _VideoViewState extends State<VideoView> {
         child: Texture(textureId: _textureId),
       );
     }
-    return Container(color: Colors.black, child: texture);
+    return Container(color: Colors.white, child: texture);
   }
 }

@@ -8,6 +8,7 @@
 #include "ffplayer.h"
 #include "ffp_define.h"
 #include "media_player.h"
+#include "media_api.h"
 
 #include "dart/dart_api_dl.h"
 
