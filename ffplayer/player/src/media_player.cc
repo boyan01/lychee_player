@@ -272,18 +272,6 @@ void MediaPlayer::SetMessageHandleCallback(std::function<void(int what, int64_t 
   message_callback_external_ = std::move(message_callback);
 }
 
-const char *MediaPlayer::GetUrl() {
-//  CHECK_VALUE_WITH_RETURN(data_source, nullptr);
-//  return data_source->GetFileName();
-  return "";
-}
-
-const char *MediaPlayer::GetMetadataDict(const char *key) {
-//  CHECK_VALUE_WITH_RETURN(data_source, nullptr);
-//  return data_source->GetMetadataDict(key);
-  return "";
-}
-
 void MediaPlayer::GlobalInit() {
   av_log_set_flags(AV_LOG_SKIP_REPEATED);
   av_log_set_level(AV_LOG_INFO);

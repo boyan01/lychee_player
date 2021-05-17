@@ -59,7 +59,6 @@ struct MessageData {
   int32_t what = 0;
   int64_t arg1 = 0;
   int64_t arg2 = 0;
-
 };
 
 static void on_message(MediaPlayer *player, int what, int64_t arg1, int64_t arg2);
@@ -316,7 +315,7 @@ void OnVideoSizeChanged(std::shared_ptr<MediaPlayer> media_player, int video_wid
   h = screen_height ? screen_height : default_height;
 
   if (!window_title)
-    window_title = media_player->GetUrl();
+    window_title = "Lychee";
   SDL_SetWindowTitle(window, window_title);
 
   DLOG(INFO) << "set_default_window_size width = " << w << ", height = " << h;
@@ -333,6 +332,8 @@ int main(int argc, char *argv[]) {
     LOG(FATAL) << "An input file must be specified";
     exit(1);
   }
+
+  window_title = input_file;
 
   MediaPlayer::GlobalInit();
   media::sdl::InitSdlAudio();
