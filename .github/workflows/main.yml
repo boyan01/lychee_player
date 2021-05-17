@@ -1,0 +1,59 @@
+name: CI
+
+on: [ push ]
+
+env:
+  BUILD_CONFIGURATION: Release
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          lfs: 'true'
+      - uses: subosito/flutter-action@v1
+        with:
+          flutter-version: '2.0.5'
+      - run: flutter config --enable-windows-desktop
+      - run: flutter build windows
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-java@v1
+        with:
+          java-version: '12.x'
+      - uses: subosito/flutter-action@v1
+        with:
+          flutter-version: '2.0.5'
+      - run: flutter config --enable-macos-desktop
+      - run: flutter pub get
+      - run: brew install ffmpeg
+      - run: cd ffplayer && ./macos-flutter-install.sh && cd ..
+      - run: flutter build macos
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-java@v1
+        with:
+          java-version: '12.x'
+      - uses: subosito/flutter-action@v1
+        with:
+          flutter-version: '2.0.5'
+      - run: flutter pub get
+      - run: flutter build apk
+# TODO: add linux CI
+#  linux:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v2
+#      - uses: actions/setup-java@v1
+#        with:
+#          java-version: '12.x'
+#      - uses: subosito/flutter-action@v1
+#        with:
+#          flutter-version: '2.0.5'
+#      - run: flutter config --enable-linux-desktop
+#      - run: flutter build linux
