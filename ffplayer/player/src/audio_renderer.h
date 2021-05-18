@@ -39,6 +39,8 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
 
   double GetVolume() const { return volume_; };
 
+  void Flush();
+
  private:
 
   TaskRunner *task_runner_;

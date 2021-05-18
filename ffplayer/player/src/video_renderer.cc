@@ -22,9 +22,7 @@ VideoRenderer::VideoRenderer(
   DCHECK(sink_);
 }
 
-VideoRenderer::~VideoRenderer() {
-
-}
+VideoRenderer::~VideoRenderer() = default;
 
 void VideoRenderer::Initialize(DemuxerStream *stream, std::shared_ptr<MediaClock> media_clock,
                                VideoRenderer::InitCallback init_callback) {
@@ -135,6 +133,11 @@ void VideoRenderer::OnFrameDrop() {
 double VideoRenderer::GetDrawingClock() {
   DCHECK(media_clock_);
   return media_clock_->GetMasterClock();
+}
+
+void VideoRenderer::Flush() {
+  ready_frames_.Clear();
+  decoder_stream_->Flush();
 }
 
 }

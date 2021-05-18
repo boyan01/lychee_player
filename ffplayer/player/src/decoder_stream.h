@@ -35,6 +35,8 @@ class DecoderStream : public std::enable_shared_from_this<DecoderStream<StreamTy
   using InitCallback = std::function<void(bool success)>;
   void Initialize(DemuxerStream *stream, InitCallback init_callback);
 
+  void Flush();
+
  private:
 
   std::unique_ptr<Decoder> decoder_;

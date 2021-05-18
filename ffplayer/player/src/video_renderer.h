@@ -19,7 +19,7 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
 
   VideoRenderer(TaskRunner *task_runner, std::shared_ptr<VideoRendererSink> video_renderer_sink);
 
-  virtual ~VideoRenderer();
+  ~VideoRenderer() override;
 
   using InitCallback = std::function<void(bool success)>;
 
@@ -33,9 +33,11 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
 
   void Stop();
 
-  VideoRendererSink* video_renderer_sink() {
+  VideoRendererSink *video_renderer_sink() {
     return sink_.get();
   }
+
+  void Flush();
 
  private:
 

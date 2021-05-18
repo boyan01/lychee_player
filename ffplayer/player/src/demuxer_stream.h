@@ -81,6 +81,10 @@ class DemuxerStream {
 
   void SetEnabled(bool enabled, double timestamp);
 
+  void Abort();
+
+  void FlushBuffers();
+
  private:
 
   Demuxer *demuxer_;
@@ -100,6 +104,8 @@ class DemuxerStream {
   bool waiting_for_key_frame_;
 
   ReadCallback read_callback_;
+
+  bool abort_;
 
   void SatisfyPendingRead();
 

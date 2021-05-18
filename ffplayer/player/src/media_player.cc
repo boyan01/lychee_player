@@ -247,6 +247,15 @@ void MediaPlayer::Seek(double position) {
 //  CHECK_VALUE(data_source);
   ChangePlaybackState(MediaPlayerState::BUFFERING);
 //  data_source->Seek(position);
+  demuxer_->AbortPendingReads();
+
+  if (audio_renderer_) {
+    audio_renderer_->Flush();
+  }
+  if (video_renderer_) {
+    video_renderer_->Flush();
+  }
+  demuxer_->SeekTo(position, std::bind(&MediaPlayer::OnSeekCompleted, this));
 }
 
 void MediaPlayer::SeekToChapter(int chapter) {
@@ -339,6 +348,10 @@ void MediaPlayer::SetDuration(double duration) {
 
 void MediaPlayer::OnDemuxerError(PipelineStatus error) {
 
+}
+
+void MediaPlayer::OnSeekCompleted() {
+  DLOG(INFO) << "OnSeekCompleted";
 }
 
 }

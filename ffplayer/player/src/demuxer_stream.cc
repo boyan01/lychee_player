@@ -136,7 +136,7 @@ void DemuxerStream::Read(std::function<void(std::shared_ptr<DecoderBuffer>)> rea
   DCHECK(!read_callback_) << "Overlapping reads are not supported.";
   read_callback_ = BindToCurrentLoop(std::move(read_callback));
 
-  if (!stream_) {
+  if (!stream_ || abort_) {
     std::move(read_callback_)(DecoderBuffer::CreateEOSBuffer());
     read_callback_ = nullptr;
     return;
@@ -171,6 +171,22 @@ void DemuxerStream::Stop() {
 
 void DemuxerStream::SetEnabled(bool enabled, double timestamp) {
 
+}
+
+void DemuxerStream::FlushBuffers() {
+  DCHECK(!read_callback_);
+
+  buffer_queue_->Clear();
+  end_of_stream_ = false;
+  abort_ = false;
+}
+
+void DemuxerStream::Abort() {
+  abort_ = true;
+  if (read_callback_) {
+    read_callback_(DecoderBuffer::CreateEOSBuffer());
+    read_callback_ = nullptr;
+  }
 }
 
 } // namespace media

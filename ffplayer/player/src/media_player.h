@@ -157,6 +157,8 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
 
   void DumpMediaClockStatus();
 
+  void OnSeekCompleted();
+
 };
 
 } // namespace media

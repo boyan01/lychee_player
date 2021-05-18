@@ -7,6 +7,7 @@
 #include "demuxer.h"
 
 #include "base/bind_to_current_loop.h"
+#include "base/lambda.h"
 
 namespace media {
 
@@ -482,6 +483,47 @@ bool Demuxer::StreamsHaveAvailableCapacity() {
 void Demuxer::NotifyCapacityAvailable() {
   DCHECK(task_runner_->BelongsToCurrentThread());
   PostDemuxTask();
+}
+
+void Demuxer::SeekTo(double position, SeekCallback seek_callback) {
+  DCHECK(!seek_callback_);
+
+  seek_callback_ = BindToCurrentLoop(std::move(seek_callback));
+  pending_seek_position_ = position;
+  task_runner_->PostTask(FROM_HERE, bind_weak(&Demuxer::SeekTask, shared_from_this()));
+}
+
+void Demuxer::SeekTask() {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(seek_callback_);
+
+  DLOG(INFO) << "do seek to " << pending_seek_position_;
+
+  auto ret = avformat_seek_file(format_context_, -1, INT64_MIN,
+                                int64_t(pending_seek_position_ * AV_TIME_BASE), INT64_MAX, 0);
+
+  DLOG_IF(ERROR, ret < 0) << "failed seek to " << pending_seek_position_ << " reason: " << ffmpeg::AVErrorToString(ret);
+
+  seek_callback_();
+  seek_callback_ = nullptr;
+
+  // Tell streams to flush buffers due to seeking.
+  for (const auto& stream : streams_) {
+    if (stream)
+      stream->FlushBuffers();
+  }
+
+  PostDemuxTask();
+}
+
+void Demuxer::AbortPendingReads() {
+  auto streams = GetAllStreams();
+  for (auto stream : streams) {
+    if (stream) {
+      stream->Abort();
+    }
+  }
+
 }
 
 }

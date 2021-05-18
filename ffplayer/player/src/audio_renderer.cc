@@ -149,4 +149,9 @@ void AudioRenderer::SetVolume(double volume) {
   volume_ = volume;
 }
 
+void AudioRenderer::Flush() {
+  audio_buffer_.Clear();
+  decoder_stream_->Flush();
+}
+
 }

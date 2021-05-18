@@ -124,6 +124,11 @@ int DecoderStream<StreamType>::GetMaxDecodeRequests() {
   return 1;
 }
 
+template<DemuxerStream::Type StreamType>
+void DecoderStream<StreamType>::Flush() {
+//  outputs_.Clear();
+}
+
 template
 class DecoderStream<DemuxerStream::Video>;
 template

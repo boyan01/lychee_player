@@ -77,6 +77,11 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
 
   void NotifyCapacityAvailable();
 
+  using SeekCallback = std::function<void()>;
+  void SeekTo(double position, SeekCallback seek_callback);
+
+  void AbortPendingReads();
+
  protected:
 
   virtual std::string GetDisplayName() const;
@@ -99,6 +104,8 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
 
   // Carries out stopping the demuxer streams on the demuxer thread.
   void StopTask(const std::function<void(void)> &callback);
+
+  void SeekTask();
 
   // Signal the blocked thread that the read has completed, with |size| bytes
   // read or kReadError in case of error.
@@ -157,6 +164,9 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
   // Set if we know duration of the audio stream. Used when processing end of
   // stream -- at this moment we definitely know duration.
   bool duration_known_;
+
+  double pending_seek_position_;
+  SeekCallback seek_callback_;
 
   DELETE_COPY_AND_ASSIGN(Demuxer);
 
