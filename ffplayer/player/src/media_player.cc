@@ -248,13 +248,6 @@ void MediaPlayer::Seek(double position) {
   ChangePlaybackState(MediaPlayerState::BUFFERING);
 //  data_source->Seek(position);
   demuxer_->AbortPendingReads();
-
-  if (audio_renderer_) {
-    audio_renderer_->Flush();
-  }
-  if (video_renderer_) {
-    video_renderer_->Flush();
-  }
   demuxer_->SeekTo(position, std::bind(&MediaPlayer::OnSeekCompleted, this));
 }
 
@@ -335,9 +328,12 @@ void MediaPlayer::OnFirstFrameRendered(int width, int height) {
 }
 
 void MediaPlayer::DumpMediaClockStatus() {
+//
+//  DLOG(INFO) << "DumpMediaClockStatus: master clock = "
+//             << clock_context->GetMasterClock();
 
-  DLOG(INFO) << "DumpMediaClockStatus: master clock = "
-             << clock_context->GetMasterClock();
+  DLOG(INFO) << "AudioRenderer" << *audio_renderer_ << "  "
+             << "VideoRenderer" << *video_renderer_;
 
   task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(1000000), std::bind(&MediaPlayer::DumpMediaClockStatus, this));
 }
@@ -352,6 +348,12 @@ void MediaPlayer::OnDemuxerError(PipelineStatus error) {
 
 void MediaPlayer::OnSeekCompleted() {
   DLOG(INFO) << "OnSeekCompleted";
+  if (audio_renderer_) {
+    audio_renderer_->Flush();
+  }
+  if (video_renderer_) {
+    video_renderer_->Flush();
+  }
 }
 
 }

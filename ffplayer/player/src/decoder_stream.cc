@@ -16,7 +16,7 @@ DecoderStream<StreamType>::DecoderStream(
     std::unique_ptr<DecoderStreamTraits<StreamType>> traits,
     TaskRunner *task_runner
 ) : traits_(std::move(traits)), task_runner_(task_runner),
-    outputs_(9), pending_decode_requests_(0),
+    outputs_(), pending_decode_requests_(0),
     read_callback_(nullptr) {
 }
 
@@ -35,22 +35,21 @@ void DecoderStream<StreamType>::Initialize(DemuxerStream *stream, DecoderStream:
 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::Read(DecoderStream::ReadCallback read_callback) {
-  if (read_callback_) {
-    DCHECK(false);
-  }
   DCHECK(!read_callback_);
-
-  auto read_callback_bound = BindToCurrentLoop(read_callback);
-  if (outputs_.IsEmpty()) {
-    read_callback_ = std::move(read_callback);
-  } else {
-    read_callback_bound(std::move(outputs_.PopFront()));
+  read_callback_ = BindToCurrentLoop(read_callback);
+  if (!outputs_.empty()) {
+    read_callback_(std::move(outputs_.front()));
+    outputs_.pop_front();
+    read_callback_ = nullptr;
+    return;
   }
-  ReadFromDemuxerStream();
+  task_runner_->PostTask(FROM_HERE,
+                         bind_weak(&DecoderStream<StreamType>::ReadFromDemuxerStream, this->shared_from_this()));
 }
 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::ReadFromDemuxerStream() {
+  DCHECK(task_runner_->BelongsToCurrentThread());
   if (CanDecodeMore() && !reading_demuxer_stream_) {
     reading_demuxer_stream_ = true;
     demuxer_stream_->Read(bind_weak(&DecoderStream<StreamType>::OnBufferReady, this->shared_from_this()));
@@ -77,6 +76,8 @@ void DecoderStream<StreamType>::DecodeTask(std::shared_ptr<DecoderBuffer> decode
 
   if (decoder_buffer->end_of_stream()) {
     DLOG(WARNING) << "an end stream decode buffer";
+    task_runner_->PostTask(FROM_HERE,
+                           bind_weak(&DecoderStream<StreamType>::ReadFromDemuxerStream, this->shared_from_this()));
     //TODO
     return;
   }
@@ -94,29 +95,31 @@ void DecoderStream<StreamType>::DecodeTask(std::shared_ptr<DecoderBuffer> decode
   decoder_->Decode(std::move(decoder_buffer));
   --pending_decode_requests_;
 
-  ReadFromDemuxerStream();
+  task_runner_->PostTask(FROM_HERE,
+                         bind_weak(&DecoderStream<StreamType>::ReadFromDemuxerStream, this->shared_from_this()));
 
 }
 
 template<DemuxerStream::Type StreamType>
 bool DecoderStream<StreamType>::CanDecodeMore() {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  return pending_decode_requests_ < GetMaxDecodeRequests() && !outputs_.IsFull();
+  return pending_decode_requests_ < GetMaxDecodeRequests() && outputs_.size() <= 9;
 }
 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::OnFrameAvailable(std::shared_ptr<Output> output) {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  DLOG_IF(WARNING, outputs_.IsFull()) << "OnFrameAvailable but outputs pool is full";
-
-  outputs_.InsertLast(output);
+  DLOG_IF(WARNING, outputs_.size() > 9) << "outputs is full enough. " << outputs_.size();
+  outputs_.emplace_back(std::move(output));
   if (read_callback_) {
-    auto read_cb = std::move(read_callback_);
+    std::shared_ptr<Output> front = std::move(outputs_.front());
+    outputs_.pop_front();
+    read_callback_(std::move(front));
     read_callback_ = nullptr;
-    read_cb(std::move(outputs_.PopFront()));
   }
-  ReadFromDemuxerStream();
+  task_runner_->PostTask(FROM_HERE,
+                         bind_weak(&DecoderStream<StreamType>::ReadFromDemuxerStream, this->shared_from_this()));
 }
 
 template<DemuxerStream::Type StreamType>
@@ -126,7 +129,7 @@ int DecoderStream<StreamType>::GetMaxDecodeRequests() {
 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::Flush() {
-//  outputs_.Clear();
+  outputs_.clear();
 }
 
 template

@@ -504,14 +504,15 @@ void Demuxer::SeekTask() {
 
   DLOG_IF(ERROR, ret < 0) << "failed seek to " << pending_seek_position_ << " reason: " << ffmpeg::AVErrorToString(ret);
 
+  // Tell streams to flush buffers due to seeking.
+  for (const auto &stream : streams_) {
+    if (stream) {
+      stream->FlushBuffers();
+    }
+  }
+
   seek_callback_();
   seek_callback_ = nullptr;
-
-  // Tell streams to flush buffers due to seeking.
-  for (const auto& stream : streams_) {
-    if (stream)
-      stream->FlushBuffers();
-  }
 
   PostDemuxTask();
 }

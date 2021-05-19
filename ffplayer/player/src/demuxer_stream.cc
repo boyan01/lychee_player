@@ -54,7 +54,8 @@ DemuxerStream::DemuxerStream(
     task_runner_(TaskRunner::current()),
     buffer_queue_(std::make_shared<DecoderBufferQueue>()),
     end_of_stream_(false),
-    waiting_for_key_frame_(false) {
+    waiting_for_key_frame_(false),
+    abort_(false) {
 
 }
 
@@ -75,10 +76,12 @@ void DemuxerStream::EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> pac
 
   const bool is_audio = type_ == Audio;
 
+  DLOG(INFO) << __func__ << " audio ? " << is_audio;
+
   auto packet_dts = packet->dts == AV_NOPTS_VALUE ? packet->pts : packet->dts;
 
   if (end_of_stream_) {
-    NOTREACHED() << "Attempted to enqueue packet on a stooped stream";
+    NOTREACHED() << "  to enqueue packet on a stooped stream";
     return;
   }
 
@@ -110,12 +113,16 @@ void DemuxerStream::EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> pac
 
 void DemuxerStream::SatisfyPendingRead() {
   DCHECK(task_runner_->BelongsToCurrentThread());
+  if (abort_) {
+    return;
+  }
+
   if (read_callback_) {
     if (!buffer_queue_->IsEmpty()) {
-      std::move(read_callback_)(buffer_queue_->Pop());
+      read_callback_(buffer_queue_->Pop());
       read_callback_ = nullptr;
     } else if (end_of_stream_) {
-      std::move(read_callback_)(DecoderBuffer::CreateEOSBuffer());
+      read_callback_(DecoderBuffer::CreateEOSBuffer());
       read_callback_ = nullptr;
     }
   }
@@ -129,7 +136,7 @@ void DemuxerStream::SatisfyPendingRead() {
 bool DemuxerStream::HasAvailableCapacity() {
   // Try to have two second's worth of encoded data per stream.
   const double kCapacity = 2;
-  return read_callback_ && buffer_queue_->IsEmpty() || buffer_queue_->Duration() < kCapacity;
+  return !abort_ && read_callback_ && buffer_queue_->IsEmpty() || buffer_queue_->Duration() < kCapacity;
 }
 
 void DemuxerStream::Read(std::function<void(std::shared_ptr<DecoderBuffer>)> read_callback) {
@@ -137,7 +144,7 @@ void DemuxerStream::Read(std::function<void(std::shared_ptr<DecoderBuffer>)> rea
   read_callback_ = BindToCurrentLoop(std::move(read_callback));
 
   if (!stream_ || abort_) {
-    std::move(read_callback_)(DecoderBuffer::CreateEOSBuffer());
+    read_callback_(DecoderBuffer::CreateEOSBuffer());
     read_callback_ = nullptr;
     return;
   }
@@ -163,7 +170,7 @@ void DemuxerStream::Stop() {
   end_of_stream_ = true;
 
   if (read_callback_) {
-    std::move(read_callback_)(DecoderBuffer::CreateEOSBuffer());
+    read_callback_(DecoderBuffer::CreateEOSBuffer());
     read_callback_ = nullptr;
   }
 
