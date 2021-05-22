@@ -75,9 +75,9 @@ void AudioRenderer::AttemptReadFrame() {
 void AudioRenderer::OnNewFrameAvailable(AudioDecoderStream::ReadResult result) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(reading_);
+  reading_ = false;
   {
     std::lock_guard<std::mutex> auto_lock(mutex_);
-    reading_ = false;
     DLOG_IF(WARNING, audio_buffer_.size() > 3) << "audio buffer is enough: " << audio_buffer_.size();
     audio_buffer_.emplace_back(std::move(result));
   }

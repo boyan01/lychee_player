@@ -28,7 +28,8 @@ Demuxer::Demuxer(base::MessageLoop *task_runner,
       abort_request_(false),
       read_has_failed_(false),
       read_position_(0),
-      last_read_bytes_(0) {
+      last_read_bytes_(0),
+      pending_seek_position_(0) {
   DCHECK(task_runner_);
 }
 

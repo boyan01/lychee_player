@@ -41,7 +41,8 @@ class DecoderStream : public std::enable_shared_from_this<DecoderStream<StreamTy
   friend std::ostream &operator<<(std::ostream &os, const DecoderStream<StreamType> &stream) {
     os << " outputs_: " << stream.outputs_.size()
        << " pending_decode_requests_: " << stream.pending_decode_requests_
-       << " reading_demuxer_stream_: " << stream.reading_demuxer_stream_;
+       << " reading_demuxer_stream_: " << stream.reading_demuxer_stream_
+       << " read_callback_: " << (stream.read_callback_ != nullptr);
     return os;
   }
 

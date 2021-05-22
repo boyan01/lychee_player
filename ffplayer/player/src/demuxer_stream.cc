@@ -76,8 +76,6 @@ void DemuxerStream::EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> pac
 
   const bool is_audio = type_ == Audio;
 
-  DLOG(INFO) << __func__ << " audio ? " << is_audio;
-
   auto packet_dts = packet->dts == AV_NOPTS_VALUE ? packet->pts : packet->dts;
 
   if (end_of_stream_) {
@@ -114,6 +112,10 @@ void DemuxerStream::EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> pac
 void DemuxerStream::SatisfyPendingRead() {
   DCHECK(task_runner_->BelongsToCurrentThread());
   if (abort_) {
+    if (read_callback_) {
+      read_callback_(DecoderBuffer::CreateEOSBuffer());
+      read_callback_ = nullptr;
+    }
     return;
   }
 
@@ -139,10 +141,15 @@ bool DemuxerStream::HasAvailableCapacity() {
   return !abort_ && read_callback_ && buffer_queue_->IsEmpty() || buffer_queue_->Duration() < kCapacity;
 }
 
-void DemuxerStream::Read(std::function<void(std::shared_ptr<DecoderBuffer>)> read_callback) {
+void DemuxerStream::Read(ReadCallback read_callback) {
   DCHECK(!read_callback_) << "Overlapping reads are not supported.";
-  read_callback_ = BindToCurrentLoop(std::move(read_callback));
+  task_runner_->PostTask(FROM_HERE,
+                         std::bind(&DemuxerStream::ReadTask, this, BindToCurrentLoop(std::move(read_callback))));
+}
 
+void DemuxerStream::ReadTask(DemuxerStream::ReadCallback read_callback) {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  read_callback_ = std::move(read_callback);
   if (!stream_ || abort_) {
     read_callback_(DecoderBuffer::CreateEOSBuffer());
     read_callback_ = nullptr;
@@ -190,10 +197,16 @@ void DemuxerStream::FlushBuffers() {
 
 void DemuxerStream::Abort() {
   abort_ = true;
-  if (read_callback_) {
-    read_callback_(DecoderBuffer::CreateEOSBuffer());
-    read_callback_ = nullptr;
-  }
+  task_runner_->PostTask(FROM_HERE, std::bind(&DemuxerStream::SatisfyPendingRead, this));
+}
+
+std::ostream &operator<<(std::ostream &os, const DemuxerStream &stream) {
+  os << "type_: " << stream.type_
+     << " buffer_queue_: " << stream.buffer_queue_->data_size()
+     << " end_of_stream_: " << stream.end_of_stream_
+     << " read_callback_: " << (stream.read_callback_ != nullptr)
+     << " abort_: " << stream.abort_;
+  return os;
 }
 
 } // namespace media

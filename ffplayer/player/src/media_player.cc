@@ -332,8 +332,14 @@ void MediaPlayer::DumpMediaClockStatus() {
 //  DLOG(INFO) << "DumpMediaClockStatus: master clock = "
 //             << clock_context->GetMasterClock();
 
-  DLOG(INFO) << "AudioRenderer" << *audio_renderer_ << "  "
-             << "VideoRenderer" << *video_renderer_;
+  DLOG(INFO) << "AudioRenderer" << *audio_renderer_
+             << " VideoRenderer" << *video_renderer_;
+  if (demuxer_) {
+    auto audio_stream = demuxer_->GetFirstStream(DemuxerStream::Audio);
+    if (audio_stream) {
+      DLOG(INFO) << " audio_stream: " << *audio_stream;
+    }
+  }
 
   task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(1000000), std::bind(&MediaPlayer::DumpMediaClockStatus, this));
 }

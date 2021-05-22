@@ -5,6 +5,7 @@
 #include "decoder_stream.h"
 
 #include <utility>
+#include "functional"
 
 #include "base/bind_to_current_loop.h"
 #include "base/lambda.h"
@@ -35,6 +36,8 @@ void DecoderStream<StreamType>::Initialize(DemuxerStream *stream, DecoderStream:
 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::Read(DecoderStream::ReadCallback read_callback) {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+
   DCHECK(!read_callback_);
   read_callback_ = BindToCurrentLoop(read_callback);
   if (!outputs_.empty()) {
@@ -52,7 +55,7 @@ void DecoderStream<StreamType>::ReadFromDemuxerStream() {
   DCHECK(task_runner_->BelongsToCurrentThread());
   if (CanDecodeMore() && !reading_demuxer_stream_) {
     reading_demuxer_stream_ = true;
-    demuxer_stream_->Read(bind_weak(&DecoderStream<StreamType>::OnBufferReady, this->shared_from_this()));
+    demuxer_stream_->Read(std::bind(&DecoderStream<StreamType>::OnBufferReady, this, std::placeholders::_1));
   }
 }
 
