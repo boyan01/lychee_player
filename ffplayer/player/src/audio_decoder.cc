@@ -151,4 +151,8 @@ int64 AudioDecoder::GetChannelLayout(AVFrame *frame) {
   return valid ? int64(frame->channel_layout) : av_get_default_channel_layout(frame->channels);
 }
 
+void AudioDecoder::Flush() {
+  avcodec_flush_buffers(codec_context_.get());
+}
+
 } // namespace media

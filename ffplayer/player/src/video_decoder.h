@@ -32,6 +32,8 @@ class VideoDecoder {
 
   void Decode(std::shared_ptr<DecoderBuffer> decoder_buffer);
 
+  void Flush();
+
  private:
 
   std::unique_ptr<FFmpegDecodingLoop> ffmpeg_decoding_loop_;

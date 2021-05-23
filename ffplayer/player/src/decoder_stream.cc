@@ -132,6 +132,7 @@ int DecoderStream<StreamType>::GetMaxDecodeRequests() {
 
 template<DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::Flush() {
+  decoder_->Flush();
   outputs_.clear();
 }
 

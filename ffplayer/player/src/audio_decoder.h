@@ -38,6 +38,8 @@ class AudioDecoder {
 
   void Decode(std::shared_ptr<DecoderBuffer> decoder_buffer);
 
+  void Flush();
+
  private:
 
   AudioDecodeConfig audio_decode_config_;

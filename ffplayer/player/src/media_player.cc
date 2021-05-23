@@ -332,12 +332,16 @@ void MediaPlayer::DumpMediaClockStatus() {
 //  DLOG(INFO) << "DumpMediaClockStatus: master clock = "
 //             << clock_context->GetMasterClock();
 
-  DLOG(INFO) << "AudioRenderer" << *audio_renderer_
-             << " VideoRenderer" << *video_renderer_;
+  DLOG(INFO) << "AudioRenderer" << *audio_renderer_;
+  DLOG(INFO) << "VideoRenderer" << *video_renderer_;
   if (demuxer_) {
     auto audio_stream = demuxer_->GetFirstStream(DemuxerStream::Audio);
     if (audio_stream) {
       DLOG(INFO) << " audio_stream: " << *audio_stream;
+    }
+    auto video_stream = demuxer_->GetFirstStream(DemuxerStream::Video);
+    if (video_stream) {
+      DLOG(INFO) << " video_stream: " << *video_stream;
     }
   }
 
