@@ -19,6 +19,8 @@ if (CMAKE_FLUTTER_MEDIA_WINDOWS)
     list(APPEND media_flutter_libs media_flutter_windows)
 elseif (CMAKE_FLUTTER_MEDIA_LINUX)
     list(APPEND media_flutter_libs flutter)
+elseif (CMAKE_FLUTTER_MEDIA_MACOS)
+    list(APPEND media_flutter_libs media_macos)
 endif ()
 
 if (CMAKE_FLUTTER_MEDIA_ANDROID)

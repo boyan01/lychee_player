@@ -24,7 +24,14 @@ add_executable(${EXAMPLE_BIN_NAME} ${EXAMPLE_SOURCES})
 
 target_include_directories(${EXAMPLE_BIN_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(${EXAMPLE_BIN_NAME} PUBLIC media_player media_sdl SDL2main)
+
+list(APPEND EXAMPLE_LIBRARIES media_player media_sdl SDL2main)
+
+if (APPLE)
+    list(APPEND EXAMPLE_LIBRARIES media_macos)
+endif ()
+
+target_link_libraries(${EXAMPLE_BIN_NAME} PUBLIC ${EXAMPLE_LIBRARIES})
 
 if (WIN32)
     if (CMAKE_FLUTTER_WINDOWS)

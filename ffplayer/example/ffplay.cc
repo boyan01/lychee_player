@@ -1,6 +1,10 @@
 ﻿// ffplayer.cpp: 定义应用程序的入口点。
 //
 
+#if __APPLE__
+#include "macos_audio_renderer_sink.h"
+#endif
+
 #include <csignal>
 #include <iostream>
 #include <cstdint>
@@ -336,7 +340,9 @@ int main(int argc, char *argv[]) {
   window_title = input_file;
 
   MediaPlayer::GlobalInit();
+#ifndef __APPLE__
   media::sdl::InitSdlAudio();
+#endif
 
   signal(SIGINT, sigterm_handler);  /* Interrupt (ANSI).    */
   signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */
@@ -408,7 +414,11 @@ int main(int argc, char *argv[]) {
   task_runner->Prepare();
 
   auto video_renderer_sink = std::make_unique<SdlVideoRendererSink>(task_runner, std::move(renderer));
+#if __APPLE__
+  auto audio_renderer_sink = std::make_unique<MacosAudioRendererSink>();
+#else
   auto audio_renderer_sink = std::make_unique<SdlAudioRendererSink>();
+#endif
   auto player = std::make_shared<MediaPlayer>(std::move(video_renderer_sink), std::move(audio_renderer_sink));
   player->start_configuration = config;
   player->SetVolume(0.5);
