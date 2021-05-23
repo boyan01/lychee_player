@@ -2,6 +2,8 @@
 // Created by yangbin on 2021/5/1.
 //
 
+#include "cmath"
+
 #include "base/logging.h"
 #include "base/lambda.h"
 #include "base/bind_to_current_loop.h"
