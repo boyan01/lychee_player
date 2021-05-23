@@ -5,6 +5,7 @@
 #ifndef MEDIA_PLAYER_SRC_VIDEO_RENDERER_H_
 #define MEDIA_PLAYER_SRC_VIDEO_RENDERER_H_
 
+#include <ostream>
 #include "task_runner.h"
 #include "video_renderer_sink.h"
 #include "demuxer_stream.h"
@@ -19,7 +20,7 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
 
   VideoRenderer(TaskRunner *task_runner, std::shared_ptr<VideoRendererSink> video_renderer_sink);
 
-  virtual ~VideoRenderer();
+  ~VideoRenderer() override;
 
   using InitCallback = std::function<void(bool success)>;
 
@@ -33,9 +34,13 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
 
   void Stop();
 
-  VideoRendererSink* video_renderer_sink() {
+  VideoRendererSink *video_renderer_sink() {
     return sink_.get();
   }
+
+  void Flush();
+
+  friend std::ostream &operator<<(std::ostream &os, const VideoRenderer &renderer);
 
  private:
 
@@ -50,7 +55,7 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
 
   std::shared_ptr<VideoDecoderStream> decoder_stream_;
 
-  CircularDeque<std::shared_ptr<VideoFrame>> ready_frames_;
+  std::deque<std::shared_ptr<VideoFrame>> ready_frames_;
 
   std::shared_ptr<MediaClock> media_clock_;
 
@@ -71,7 +76,7 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
   // To get current clock time in seconds.
   double GetDrawingClock();
 
-  DISALLOW_COPY_AND_ASSIGN(VideoRenderer);
+  DELETE_COPY_AND_ASSIGN(VideoRenderer);
 
 };
 

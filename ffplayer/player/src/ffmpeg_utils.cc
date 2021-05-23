@@ -34,5 +34,24 @@ std::string AVErrorToString(int err_num) {
   return std::string(err_buf);
 }
 
+
+int ReadFrameAndDiscardEmpty(AVFormatContext *context, AVPacket *packet) {
+  // Skip empty packets in a tight loop to avoid timing out fuzzers.
+  int result;
+  bool drop_packet;
+  do {
+    result = av_read_frame(context, packet);
+    drop_packet = (!packet->data || !packet->size) && result >= 0;
+    if (drop_packet) {
+      av_packet_unref(packet);
+      DLOG(WARNING) << "Dropping empty packet, size: " << packet->size
+                    << ", data: " << static_cast<void *>(packet->data);
+    }
+  } while (drop_packet);
+
+  return result;
 }
+
+}
+
 }

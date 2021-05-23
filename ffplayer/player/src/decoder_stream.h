@@ -5,6 +5,7 @@
 #ifndef MEDIA_PLAYER_SRC_DECODER_STREAM_H_
 #define MEDIA_PLAYER_SRC_DECODER_STREAM_H_
 
+#include <ostream>
 #include "memory"
 #include "functional"
 
@@ -35,6 +36,16 @@ class DecoderStream : public std::enable_shared_from_this<DecoderStream<StreamTy
   using InitCallback = std::function<void(bool success)>;
   void Initialize(DemuxerStream *stream, InitCallback init_callback);
 
+  void Flush();
+
+  friend std::ostream &operator<<(std::ostream &os, const DecoderStream<StreamType> &stream) {
+    os << " outputs_: " << stream.outputs_.size()
+       << " pending_decode_requests_: " << stream.pending_decode_requests_
+       << " reading_demuxer_stream_: " << stream.reading_demuxer_stream_
+       << " read_callback_: " << (stream.read_callback_ != nullptr);
+    return os;
+  }
+
  private:
 
   std::unique_ptr<Decoder> decoder_;
@@ -42,7 +53,7 @@ class DecoderStream : public std::enable_shared_from_this<DecoderStream<StreamTy
 
   DemuxerStream *demuxer_stream_ = nullptr;
 
-  CircularDeque<std::shared_ptr<Output>> outputs_;
+  std::deque<std::shared_ptr<Output>> outputs_;
 
   ReadCallback read_callback_;
 

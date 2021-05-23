@@ -40,10 +40,6 @@ FFPLAYER_EXPORT void ffplayer_seek_to_position(CPlayer *player, double position)
 
 FFPLAYER_EXPORT double ffplayer_get_duration(CPlayer *player);
 
-FFPLAYER_EXPORT const char *ffp_get_file_name(CPlayer *player);
-
-FFPLAYER_EXPORT const char *ffp_get_metadata_dict(CPlayer *player, const char *key);
-
 /**
  * @param volume from 0 to 100.
  */

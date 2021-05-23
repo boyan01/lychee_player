@@ -28,8 +28,9 @@ std::unique_ptr<AVCodecContext, AVCodecContextDeleter> AVStreamToAVCodecContext(
 
 std::string AVErrorToString(int err_num);
 
-}
+int ReadFrameAndDiscardEmpty(AVFormatContext *context, AVPacket *packet);
 
-}
+} // namespace ffmpeg
+} // namespace media
 
 #endif //MEDIA_PLAYER_FFMPEG_FFMPEG_UTILS_H_

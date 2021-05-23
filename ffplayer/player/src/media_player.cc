@@ -86,6 +86,7 @@ void MediaPlayer::SetPlayWhenReadyTask(bool play_when_ready) {
   play_when_ready_ = play_when_ready;
   if (demuxer_) {
 //    data_source->paused = !play_when_ready;
+//    demuxer_->Pause();
   }
   if (state_ != kPrepared) {
     return;
@@ -136,7 +137,7 @@ void MediaPlayer::OpenDataSourceTask(const char *filename) {
 
   DLOG(INFO) << "open file: " << filename;
   state_ = kPreparing;
-  demuxer_ = std::make_shared<Demuxer>(TaskRunner::prepare_looper("demuxer"), filename,
+  demuxer_ = std::make_shared<Demuxer>(decoder_task_runner_, filename,
                                        [](std::unique_ptr<MediaTracks> tracks) {
                                          DLOG(INFO) << "on tracks update.";
                                          for (auto &track: tracks->tracks()) {
@@ -221,7 +222,7 @@ double MediaPlayer::GetVolume() {
   if (!audio_renderer_) {
     return 0;
   }
-  audio_renderer_->GetVolume();
+  return audio_renderer_->GetVolume();
 }
 
 void MediaPlayer::SetVolume(double volume) {
@@ -239,15 +240,15 @@ void MediaPlayer::SetVolume(double volume) {
 }
 
 double MediaPlayer::GetDuration() {
-//  CHECK_VALUE_WITH_RETURN(data_source, -1);
-//  return data_source->GetDuration();
-  return 100;
+  return duration_;
 }
 
 void MediaPlayer::Seek(double position) {
 //  CHECK_VALUE(data_source);
   ChangePlaybackState(MediaPlayerState::BUFFERING);
 //  data_source->Seek(position);
+  demuxer_->AbortPendingReads();
+  demuxer_->SeekTo(position, std::bind(&MediaPlayer::OnSeekCompleted, this));
 }
 
 void MediaPlayer::SeekToChapter(int chapter) {
@@ -272,18 +273,6 @@ void MediaPlayer::SetMessageHandleCallback(std::function<void(int what, int64_t 
   message_callback_external_ = std::move(message_callback);
 }
 
-const char *MediaPlayer::GetUrl() {
-//  CHECK_VALUE_WITH_RETURN(data_source, nullptr);
-//  return data_source->GetFileName();
-  return "";
-}
-
-const char *MediaPlayer::GetMetadataDict(const char *key) {
-//  CHECK_VALUE_WITH_RETURN(data_source, nullptr);
-//  return data_source->GetMetadataDict(key);
-  return "";
-}
-
 void MediaPlayer::GlobalInit() {
   av_log_set_flags(AV_LOG_SKIP_REPEATED);
   av_log_set_level(AV_LOG_INFO);
@@ -306,7 +295,7 @@ void MediaPlayer::StopRenders() {
   av_log(nullptr, AV_LOG_INFO, "StopRenders\n");
   PauseClock(true);
   if (audio_renderer_) {
-//    audio_render_->Stop();
+    audio_renderer_->Stop();
   }
   if (video_renderer_) {
     video_renderer_->Stop();
@@ -339,19 +328,42 @@ void MediaPlayer::OnFirstFrameRendered(int width, int height) {
 }
 
 void MediaPlayer::DumpMediaClockStatus() {
+//
+//  DLOG(INFO) << "DumpMediaClockStatus: master clock = "
+//             << clock_context->GetMasterClock();
 
-  DLOG(INFO) << "DumpMediaClockStatus: master clock = "
-             << clock_context->GetMasterClock();
+  DLOG(INFO) << "AudioRenderer" << *audio_renderer_;
+  DLOG(INFO) << "VideoRenderer" << *video_renderer_;
+  if (demuxer_) {
+    auto audio_stream = demuxer_->GetFirstStream(DemuxerStream::Audio);
+    if (audio_stream) {
+      DLOG(INFO) << " audio_stream: " << *audio_stream;
+    }
+    auto video_stream = demuxer_->GetFirstStream(DemuxerStream::Video);
+    if (video_stream) {
+      DLOG(INFO) << " video_stream: " << *video_stream;
+    }
+  }
 
   task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(1000000), std::bind(&MediaPlayer::DumpMediaClockStatus, this));
 }
 
 void MediaPlayer::SetDuration(double duration) {
-
+  duration_ = duration;
 }
 
 void MediaPlayer::OnDemuxerError(PipelineStatus error) {
 
+}
+
+void MediaPlayer::OnSeekCompleted() {
+  DLOG(INFO) << "OnSeekCompleted";
+  if (audio_renderer_) {
+    audio_renderer_->Flush();
+  }
+  if (video_renderer_) {
+    video_renderer_->Flush();
+  }
 }
 
 }

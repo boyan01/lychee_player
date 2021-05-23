@@ -5,6 +5,7 @@
 #ifndef MEDIA_PLAYER_SRC_DEMUXER_STREAM_H_
 #define MEDIA_PLAYER_SRC_DEMUXER_STREAM_H_
 
+#include <ostream>
 #include "functional"
 
 #include "base/basictypes.h"
@@ -52,7 +53,7 @@ class DemuxerStream {
   }
 
   using ReadCallback = std::function<void(std::shared_ptr<DecoderBuffer>)>;
-  void Read(std::function<void(std::shared_ptr<DecoderBuffer>)> read_callback);
+  void Read(ReadCallback read_callback);
 
   void EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> packet);
 
@@ -81,6 +82,12 @@ class DemuxerStream {
 
   void SetEnabled(bool enabled, double timestamp);
 
+  void Abort();
+
+  void FlushBuffers();
+
+  friend std::ostream &operator<<(std::ostream &os, const DemuxerStream &stream);
+
  private:
 
   Demuxer *demuxer_;
@@ -100,6 +107,10 @@ class DemuxerStream {
   bool waiting_for_key_frame_;
 
   ReadCallback read_callback_;
+
+  bool abort_;
+
+  void ReadTask(ReadCallback read_callback);
 
   void SatisfyPendingRead();
 

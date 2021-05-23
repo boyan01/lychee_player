@@ -30,6 +30,9 @@ class AudioBuffer {
     return size_;
   }
 
+  /**
+   * Presentation timestamp. Could be NAN.
+   */
   double pts() const {
     return pts_;
   }

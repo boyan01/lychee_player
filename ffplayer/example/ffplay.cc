@@ -59,7 +59,6 @@ struct MessageData {
   int32_t what = 0;
   int64_t arg1 = 0;
   int64_t arg2 = 0;
-
 };
 
 static void on_message(MediaPlayer *player, int what, int64_t arg1, int64_t arg2);
@@ -144,11 +143,17 @@ static void event_loop(std::shared_ptr<MediaPlayer> player) {
           break;
         }
         case SDLK_KP_MULTIPLY:
-        case SDLK_0:player->SetVolume(player->GetVolume() + kExampleVolumeStep);
+        case SDLK_0: {
+          player->SetVolume(player->GetVolume() + kExampleVolumeStep);
+          DLOG(INFO) << "update volume to: " << player->GetVolume();
           break;
+        }
         case SDLK_KP_DIVIDE:
-        case SDLK_9:player->SetVolume(player->GetVolume() - kExampleVolumeStep);
+        case SDLK_9: {
+          player->SetVolume(player->GetVolume() - kExampleVolumeStep);
+          DLOG(INFO) << "update volume to: " << player->GetVolume();
           break;
+        }
         case SDLK_s:  // S: Step to next frame
           step_to_next_frame(player);
           break;
@@ -310,7 +315,7 @@ void OnVideoSizeChanged(std::shared_ptr<MediaPlayer> media_player, int video_wid
   h = screen_height ? screen_height : default_height;
 
   if (!window_title)
-    window_title = media_player->GetUrl();
+    window_title = "Lychee";
   SDL_SetWindowTitle(window, window_title);
 
   DLOG(INFO) << "set_default_window_size width = " << w << ", height = " << h;
@@ -327,6 +332,8 @@ int main(int argc, char *argv[]) {
     LOG(FATAL) << "An input file must be specified";
     exit(1);
   }
+
+  window_title = input_file;
 
   MediaPlayer::GlobalInit();
   media::sdl::InitSdlAudio();

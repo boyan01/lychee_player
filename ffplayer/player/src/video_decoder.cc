@@ -94,4 +94,8 @@ bool VideoDecoder::OnFrameAvailable(AVFrame *frame) {
   return false;
 }
 
+void VideoDecoder::Flush() {
+  avcodec_flush_buffers(codec_context_.get());
+}
+
 } // namespace media

@@ -176,16 +176,6 @@ double ffp_get_video_aspect_ratio(CPlayer *player) {
   return 16.0 / 9;
 }
 
-const char *ffp_get_file_name(CPlayer *player) {
-  CHECK_VALUE_WITH_RETURN(player, nullptr);
-  return player->GetUrl();
-}
-
-const char *ffp_get_metadata_dict(CPlayer *player, const char *key) {
-  CHECK_VALUE_WITH_RETURN(player, nullptr);
-  return player->GetMetadataDict(key);
-}
-
 int64_t ffp_attach_video_render_flutter(CPlayer *player) {
   auto *video_render_sink = dynamic_cast<media::FlutterVideoRendererSink *>(player->GetVideoRenderSink());
   auto texture_id = video_render_sink->Attach();

@@ -2,6 +2,8 @@
 // Created by yangbin on 2021/5/1.
 //
 
+#include "cmath"
+
 #include "base/logging.h"
 #include "base/lambda.h"
 #include "base/bind_to_current_loop.h"
@@ -14,7 +16,7 @@ namespace media {
 
 AudioRenderer::AudioRenderer(TaskRunner *task_runner, std::shared_ptr<AudioRendererSink> sink)
     : task_runner_(task_runner),
-      audio_buffer_(3),
+      audio_buffer_(),
       sink_(std::move(sink)),
       volume_(1) {
 
@@ -75,11 +77,11 @@ void AudioRenderer::AttemptReadFrame() {
 void AudioRenderer::OnNewFrameAvailable(AudioDecoderStream::ReadResult result) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(reading_);
+  reading_ = false;
   {
     std::lock_guard<std::mutex> auto_lock(mutex_);
-    reading_ = false;
-    DLOG_IF(WARNING, audio_buffer_.IsFull()) << "OnNewFrameAvailable is full";
-    audio_buffer_.InsertLast(std::move(result));
+    DLOG_IF(WARNING, audio_buffer_.size() > 3) << "audio buffer is enough: " << audio_buffer_.size();
+    audio_buffer_.emplace_back(std::move(result));
   }
   if (NeedReadStream()) {
     AttemptReadFrame();
@@ -97,19 +99,19 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
   auto len_flush = 0;
   while (len_flush < len) {
     std::lock_guard<std::mutex> auto_lock(mutex_);
-    if (audio_buffer_.IsEmpty()) {
+    if (audio_buffer_.empty()) {
       task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
       break;
     }
-    auto buffer = audio_buffer_.GetFront();
+    auto buffer = audio_buffer_.front();
     DCHECK(buffer);
-    if (audio_clock_time == 0) {
+    if (audio_clock_time == 0 && !std::isnan(buffer->pts())) {
       audio_clock_time = buffer->PtsFromCursor() - delay;
     }
 
     auto flushed = buffer->Read(stream + len_flush, len - len_flush, volume_);
     if (buffer->IsConsumed()) {
-      audio_buffer_.DeleteFront();
+      audio_buffer_.pop_front();
       task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
     }
     len_flush += flushed;
@@ -134,12 +136,12 @@ void AudioRenderer::Start() {
 }
 
 void AudioRenderer::Stop() {
-
+  sink_->Pause();
 }
 
 bool AudioRenderer::NeedReadStream() {
   // FIXME temp solution.
-  return !audio_buffer_.IsFull();
+  return audio_buffer_.size() < 3;
 }
 
 void AudioRenderer::SetVolume(double volume) {
@@ -147,6 +149,25 @@ void AudioRenderer::SetVolume(double volume) {
   DCHECK(volume <= 1);
   std::lock_guard<std::mutex> auto_lock(mutex_);
   volume_ = volume;
+}
+
+void AudioRenderer::Flush() {
+  task_runner_->PostTask(FROM_HERE, [&]() {
+    std::lock_guard<std::mutex> auto_lock(mutex_);
+    audio_buffer_.clear();
+    decoder_stream_->Flush();
+  });
+
+}
+
+std::ostream &operator<<(std::ostream &os, const AudioRenderer &renderer) {
+  os << " audio_buffer_: " << renderer.audio_buffer_.size()
+     << " reading_: " << renderer.reading_
+     << " volume_: " << renderer.volume_;
+  if (renderer.decoder_stream_) {
+    os << " decoder_stream( " << *renderer.decoder_stream_ << " )";
+  }
+  return os;
 }
 
 }

@@ -5,6 +5,7 @@
 #ifndef MEDIA_PLAYER_SRC_AUDIO_RENDERER_H_
 #define MEDIA_PLAYER_SRC_AUDIO_RENDERER_H_
 
+#include <ostream>
 #include "memory"
 
 #include "base/basictypes.h"
@@ -39,6 +40,10 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
 
   double GetVolume() const { return volume_; };
 
+  void Flush();
+
+  friend std::ostream &operator<<(std::ostream &os, const AudioRenderer &renderer);
+
  private:
 
   TaskRunner *task_runner_;
@@ -50,7 +55,7 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
 
   std::shared_ptr<MediaClock> media_clock_;
 
-  CircularDeque<std::shared_ptr<AudioBuffer>> audio_buffer_;
+  std::deque<std::shared_ptr<AudioBuffer>> audio_buffer_;
 
   InitCallback init_callback_;
 

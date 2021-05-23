@@ -103,7 +103,7 @@ bool AudioDecoder::OnFrameAvailable(AVFrame *frame) {
                   << av_get_sample_fmt_name(static_cast<AVSampleFormat>(frame->format))
                   << frame->channels << " channels to "
                   << audio_device_info_.freq << " Hz "
-                  << av_get_sample_fmt_name(audio_device_info_.fmt) << "%s "
+                  << av_get_sample_fmt_name(audio_device_info_.fmt) << " "
                   << audio_device_info_.channels << " channels!";
       swr_free(&swr_ctx_);
       return false;
@@ -139,9 +139,8 @@ bool AudioDecoder::OnFrameAvailable(AVFrame *frame) {
     memcpy(data, frame->data[0], data_size);
   }
 
-  output_callback_(std::make_shared<AudioBuffer>(
-      data, data_size, av_q2d(audio_decode_config_.time_base()) * double(frame->pts),
-      audio_device_info_.bytes_per_sec));
+  double pts = frame->pts == AV_NOPTS_VALUE ? NAN : av_q2d(audio_decode_config_.time_base()) * double(frame->pts);
+  output_callback_(std::make_shared<AudioBuffer>(data, data_size, pts, audio_device_info_.bytes_per_sec));
   return true;
 }
 
@@ -149,6 +148,10 @@ bool AudioDecoder::OnFrameAvailable(AVFrame *frame) {
 int64 AudioDecoder::GetChannelLayout(AVFrame *frame) {
   bool valid = frame->channel_layout && frame->channels == av_get_channel_layout_nb_channels(frame->channel_layout);
   return valid ? int64(frame->channel_layout) : av_get_default_channel_layout(frame->channels);
+}
+
+void AudioDecoder::Flush() {
+  avcodec_flush_buffers(codec_context_.get());
 }
 
 } // namespace media

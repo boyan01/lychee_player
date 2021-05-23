@@ -40,7 +40,7 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
   MediaPlayer(std::unique_ptr<VideoRendererSink> video_renderer_sink,
               std::shared_ptr<AudioRendererSink> audio_renderer_sink);
 
-  ~MediaPlayer();
+  ~MediaPlayer() override;
 
  private:
 
@@ -128,10 +128,6 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
 
   void SetMessageHandleCallback(std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback);
 
-  const char *GetUrl();
-
-  const char *GetMetadataDict(const char *key);
-
   VideoRendererSink *GetVideoRenderSink() {
     return video_renderer_->video_renderer_sink();
   }
@@ -153,11 +149,15 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
 
   OnVideoSizeChangeCallback on_video_size_changed_;
 
+  double duration_ = -1;
+
   void OnFirstFrameLoaded(int width, int height);
 
   void OnFirstFrameRendered(int width, int height);
 
   void DumpMediaClockStatus();
+
+  void OnSeekCompleted();
 
 };
 
