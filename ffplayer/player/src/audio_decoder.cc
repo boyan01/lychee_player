@@ -103,7 +103,7 @@ bool AudioDecoder::OnFrameAvailable(AVFrame *frame) {
                   << av_get_sample_fmt_name(static_cast<AVSampleFormat>(frame->format))
                   << frame->channels << " channels to "
                   << audio_device_info_.freq << " Hz "
-                  << av_get_sample_fmt_name(audio_device_info_.fmt) << "%s "
+                  << av_get_sample_fmt_name(audio_device_info_.fmt) << " "
                   << audio_device_info_.channels << " channels!";
       swr_free(&swr_ctx_);
       return false;
