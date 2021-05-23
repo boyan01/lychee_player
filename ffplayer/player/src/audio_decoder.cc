@@ -139,9 +139,8 @@ bool AudioDecoder::OnFrameAvailable(AVFrame *frame) {
     memcpy(data, frame->data[0], data_size);
   }
 
-  output_callback_(std::make_shared<AudioBuffer>(
-      data, data_size, av_q2d(audio_decode_config_.time_base()) * double(frame->pts),
-      audio_device_info_.bytes_per_sec));
+  double pts = frame->pts == AV_NOPTS_VALUE ? NAN : av_q2d(audio_decode_config_.time_base()) * double(frame->pts);
+  output_callback_(std::make_shared<AudioBuffer>(data, data_size, pts, audio_device_info_.bytes_per_sec));
   return true;
 }
 

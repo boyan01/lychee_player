@@ -103,7 +103,7 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
     }
     auto buffer = audio_buffer_.front();
     DCHECK(buffer);
-    if (audio_clock_time == 0) {
+    if (audio_clock_time == 0 && !std::isnan(buffer->pts())) {
       audio_clock_time = buffer->PtsFromCursor() - delay;
     }
 
