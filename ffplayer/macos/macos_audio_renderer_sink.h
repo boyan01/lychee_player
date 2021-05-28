@@ -7,6 +7,8 @@
 
 #include "AudioToolbox/AudioQueue.h"
 
+#include "mutex"
+
 #include "audio_renderer_sink.h"
 
 #include "task_runner.h"
@@ -33,7 +35,7 @@ class MacosAudioRendererSink : public AudioRendererSink {
 
   void Stop() override;
 
-  int ReadAudioData(uint8 *stream, int len);
+  uint32 ReadAudioData(uint8 *stream, uint32 len);
 
  private:
 
@@ -41,7 +43,16 @@ class MacosAudioRendererSink : public AudioRendererSink {
 
   RenderCallback *render_callback_ = nullptr;
 
-  TaskRunner *task_runner_;
+  // size of buffer_;
+  int buffer_size_;
+  uint32 buffer_offset_;
+  uint8 *buffer_;
+
+  int audio_buffer_num_;
+
+  std::vector<AudioQueueBufferRef> audio_buffer_;
+
+  std::mutex mutex_;
 
   DELETE_COPY_AND_ASSIGN(MacosAudioRendererSink);
 

@@ -65,6 +65,9 @@ int SdlAudioRendererSink::OpenAudioDevices(int wanted_nb_channels, int wanted_sa
   }
 
   sample_rate_ = spec.freq;
+
+  DLOG(INFO) << "SDL open complete, buffer size: " << spec.size;
+
   return int(spec.size);
 }
 
