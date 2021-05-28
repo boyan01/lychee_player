@@ -9,7 +9,7 @@ This is my training project when I was learning C++.
 * audio/video demux by ffmpeg.
 
 * audio render by [SDL2](https://github.com/libsdl-org/SDL) (Windows, Linux), [Oboe](https://github.com/google/oboe) (
-  Android).
+  Android), AudioQueue(macos).
 
 * video render by SDL2(example) / `TextureWidget`(flutter).
 

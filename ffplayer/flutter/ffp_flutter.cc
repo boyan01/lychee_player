@@ -1,11 +1,5 @@
 #include <list>
 
-#include "ffplayer.h"
-#include "media_player.h"
-
-#include "ffp_flutter.h"
-#include "dart/dart_api_dl.h"
-
 #if defined(_FLUTTER_MEDIA_WINDOWS)
 #include "windows_video_render_sink.h"
 #define _MEDIA_AUDIO_USE_SDL
@@ -15,10 +9,15 @@
 #elif defined(_FLUTTER_MEDIA_LINUX)
 #define _MEDIA_AUDIO_USE_SDL
 #elif defined(_FLUTTER_MEDIA_MACOS)
-#define _MEDIA_AUDIO_USE_SDL
-#include "null_video_renderer_sink.h"
+#include "macos_audio_renderer_sink.h"
 #include "video_renderer_sink_impl.h"
 #endif
+
+#include "ffplayer.h"
+#include "media_player.h"
+
+#include "ffp_flutter.h"
+#include "dart/dart_api_dl.h"
 
 // Use SDL2 to render audio.
 #ifdef _MEDIA_AUDIO_USE_SDL
@@ -158,7 +157,7 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
 #elif _FLUTTER_MEDIA_MACOS
   //(TODO yangbin) temp solution for platform which didn't implement video renderer.
   video_render = std::make_unique<media::VideoRendererSinkImpl>();
-  audio_render = std::make_unique<media::SdlAudioRendererSink>();
+  audio_render = std::make_unique<media::MacosAudioRendererSink>();
 #endif
   auto player = std::make_shared<MediaPlayer>(std::move(video_render), std::move(audio_render));
   player->SetPlayWhenReady(true);
