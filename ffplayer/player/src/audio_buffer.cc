@@ -4,6 +4,8 @@
 
 #include "audio_buffer.h"
 
+#include "cstring"
+
 #include "base/logging.h"
 
 namespace media {
