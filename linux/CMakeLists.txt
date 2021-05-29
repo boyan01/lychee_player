@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
 project(runner LANGUAGES CXX)
 
-set(BINARY_NAME "media_player")
-set(APPLICATION_ID "tech.soit.flutter.lychee.media_player")
+set(BINARY_NAME "lychee")
+set(APPLICATION_ID "tech.soit.flutter.lychee")
+
+set(CMAKE_CXX_FLAGS  "-fPIC ${CMAKE_CXX_FLAGS}")
 
 cmake_policy(SET CMP0063 NEW)
 
@@ -29,6 +31,15 @@ set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 # Flutter library and tool build rules.
 add_subdirectory(${FLUTTER_MANAGED_DIR})
 
+# media_framework
+set(CMAKE_FLUTTER_MEDIA "1")
+set(CMAKE_FLUTTER_MEDIA_LINUX "1")
+set(MEDIA_USE_SDL "1")
+
+add_compile_definitions(_FLUTTER_MEDIA_)
+add_compile_definitions(_FLUTTER_MEDIA_LINUX)
+add_subdirectory(../ffplayer media_framework)
+
 # System-level dependencies.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
@@ -43,7 +54,7 @@ add_executable(${BINARY_NAME}
 )
 apply_standard_settings(${BINARY_NAME})
 target_link_libraries(${BINARY_NAME} PRIVATE flutter)
-target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK)
+target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK media_flutter)
 add_dependencies(${BINARY_NAME} flutter_assemble)
 # Only the install-generated bundle's copy of the executable will launch
 # correctly, since the resources must in the right relative locations. To avoid
@@ -83,6 +94,19 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
 
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
+
+# Install media libraries to bundle lib dir.
+set(media_libraries
+        "$<TARGET_FILE:media_flutter>"
+        "$<TARGET_FILE:SDL2>"
+        "$<TARGET_FILE:avutil>"
+        "$<TARGET_FILE:avcodec>"
+        "$<TARGET_FILE:avformat>"
+        "$<TARGET_FILE:swresample>"
+        "$<TARGET_FILE:swscale>")
+install(FILES "${media_libraries}"
+        DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+        COMPONENT Runtime)
 
 if(PLUGIN_BUNDLED_LIBRARIES)
   install(FILES "${PLUGIN_BUNDLED_LIBRARIES}"

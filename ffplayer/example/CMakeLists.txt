@@ -20,6 +20,13 @@ if (APPLE)
             IMPORTED_LOCATION "/usr/local/lib/libSDL2main.a")
 endif ()
 
+if (LINUX)
+    # TODO import libs
+#    add_library(SDL2main STATIC IMPORTED)
+#    set_target_properties(SDL2main PROPERTIES
+#            IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/libs/linux/libSDL2main.a")
+endif ()
+
 add_executable(${EXAMPLE_BIN_NAME} ${EXAMPLE_SOURCES})
 
 target_include_directories(${EXAMPLE_BIN_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

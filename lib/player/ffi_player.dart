@@ -136,7 +136,10 @@ class _PlayerConfiguration extends Struct {
 }
 
 DynamicLibrary _openLibrary() {
-  if (Platform.isLinux || Platform.isAndroid) {
+  if (Platform.isAndroid) {
+    return DynamicLibrary.open("libmedia_flutter.so");
+  }
+  if (Platform.isLinux) {
     return DynamicLibrary.open("libmedia_flutter.so");
   }
   if (Platform.isWindows) {

@@ -7,6 +7,7 @@
 #include "android_video_renderer_sink.h"
 #include "oboe_audio_renderer_sink.h"
 #elif defined(_FLUTTER_MEDIA_LINUX)
+#include "null_video_renderer_sink.h"
 #define _MEDIA_AUDIO_USE_SDL
 #elif defined(_FLUTTER_MEDIA_MACOS)
 #include "macos_audio_renderer_sink.h"
@@ -158,6 +159,9 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
   //(TODO yangbin) temp solution for platform which didn't implement video renderer.
   video_render = std::make_unique<media::VideoRendererSinkImpl>();
   audio_render = std::make_unique<media::MacosAudioRendererSink>();
+#elif _FLUTTER_MEDIA_LINUX
+  video_render = std::make_unique<media::NullVideoRendererSink>();
+  audio_render = std::make_unique<media::SdlAudioRendererSink>();
 #endif
   auto player = std::make_shared<MediaPlayer>(std::move(video_render), std::move(audio_render));
   player->SetPlayWhenReady(true);
@@ -178,7 +182,7 @@ double ffp_get_video_aspect_ratio(CPlayer *player) {
 int64_t ffp_attach_video_render_flutter(CPlayer *player) {
   auto *video_render_sink = dynamic_cast<media::FlutterVideoRendererSink *>(player->GetVideoRenderSink());
   auto texture_id = video_render_sink->Attach();
-  av_log(nullptr, AV_LOG_INFO, "ffp_attach_video_render_flutter: id = %lld\n", texture_id);
+  DLOG(INFO) << "ffp_attach_video_render_flutter: id = " << texture_id;
   return texture_id;
 }
 
