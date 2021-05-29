@@ -98,12 +98,13 @@ install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
 # Install media libraries to bundle lib dir.
 set(media_libraries
         "$<TARGET_FILE:media_flutter>"
-        "$<TARGET_FILE:SDL2>"
-        "$<TARGET_FILE:avutil>"
-        "$<TARGET_FILE:avcodec>"
-        "$<TARGET_FILE:avformat>"
-        "$<TARGET_FILE:swresample>"
-        "$<TARGET_FILE:swscale>")
+#        "$<TARGET_FILE:SDL2>"
+#        "$<TARGET_FILE:avutil>"
+#        "$<TARGET_FILE:avcodec>"
+#        "$<TARGET_FILE:avformat>"
+#        "$<TARGET_FILE:swresample>"
+#        "$<TARGET_FILE:swscale>"
+        )
 install(FILES "${media_libraries}"
         DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
         COMPONENT Runtime)

@@ -59,12 +59,13 @@ if (NOT DEFINED FFP_LIBS)
         add_macos_lib(SDL2)
 
     endif ()
-    # TODO imported libs.
+#    # TODO more imported libs.
 #    if (UNIX AND NOT APPLE)
 #        set(LINUX_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libs/linux")
 #        function(add_linux_lib NAME)
+#            find_library(lib_${NAME} ${NAME} REQUIRED)
 #            add_library(${NAME} SHARED IMPORTED GLOBAL)
-#            set_target_properties(${NAME} PROPERTIES IMPORTED_LOCATION ${LINUX_LIB_PATH}/lib${NAME}.so)
+#            set_target_properties(${NAME} PROPERTIES IMPORTED_LOCATION ${lib_${NAME}})
 #        endfunction()
 #        add_linux_lib(avutil)
 #        add_linux_lib(avcodec)
