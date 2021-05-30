@@ -8,6 +8,7 @@ import Flutter
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    reigsterMediaFramework(registrar(forPlugin: "media_flutter")?.textures())
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }

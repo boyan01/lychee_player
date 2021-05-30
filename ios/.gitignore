@@ -30,3 +30,7 @@ Runner/GeneratedPluginRegistrant.*
 !default.mode2v3
 !default.pbxuser
 !default.perspectivev3
+
+
+Library/LycheePlayer/include/*
+Library/LycheePlayer/lib/*

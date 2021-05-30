@@ -12,6 +12,9 @@
 #elif defined(_FLUTTER_MEDIA_MACOS)
 #include "macos_audio_renderer_sink.h"
 #include "video_renderer_sink_impl.h"
+#elif defined(_FLUTTER_MEDIA_IOS)
+#include "macos_audio_renderer_sink.h"
+#include "null_video_renderer_sink.h"
 #endif
 
 #include "ffplayer.h"
@@ -162,6 +165,9 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
 #elif _FLUTTER_MEDIA_LINUX
   video_render = std::make_unique<media::NullVideoRendererSink>();
   audio_render = std::make_unique<media::SdlAudioRendererSink>();
+#elif _FLUTTER_MEDIA_IOS
+  video_render = std::make_unique<media::NullVideoRendererSink>();
+  audio_render = std::make_unique<media::MacosAudioRendererSink>();
 #endif
   auto player = std::make_shared<MediaPlayer>(std::move(video_render), std::move(audio_render));
   player->SetPlayWhenReady(true);

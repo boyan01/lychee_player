@@ -145,7 +145,7 @@ DynamicLibrary _openLibrary() {
   if (Platform.isWindows) {
     return DynamicLibrary.open("media_flutter.dll");
   }
-  if (Platform.isMacOS) {
+  if (Platform.isMacOS || Platform.isIOS) {
     return DynamicLibrary.process();
   }
   throw UnimplementedError(
