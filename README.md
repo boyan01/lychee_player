@@ -19,27 +19,34 @@ This is my training project when I was learning C++.
 | Linux    | ⭕ audio only |
 | macOS    | ✅            |
 | Android  | ✅            |
-| iOS      | ⭕            |
+| iOS      | ⭕ audio only |
 
 ## Getting Started
 
-### How to Build Porject?
+### How to Build Project?
 
 requirement:
 
-* flutter version: 2.0
+* flutter version: 2.2 (latest stable version)
 
 #### Desktop (Windows/Linux/macOS)
 
-1. set up your enviorenment for desktop build. see more [ffplayer](ffplayer/README.md)
-  * for macos, you need go to `/ffplayer` run `./macos-flutter-install.sh`.
-2. install flutter.
-3. `flutter run`
+1. set up your environment for desktop build. see more [ffplayer](ffplayer/README.md)
+
+* for macOS, you need go to `/ffplayer` run `./macos-flutter-install.sh`.
+
+2. `flutter run`
 
 #### Android
 
-1. install flutter
-2. `flutter build apk`
+1. `flutter build apk`
+
+#### iOS
+
+1. `flutter pub get`
+2. `cd ios && pod install && cd ..` (to download ffmpeg-kit-ios)
+3. `cd ffplay && ./ios-flutter-install.sh && cd ..`(to generate ios static libraries.)
+4. `flutter build ios`
 
 ## Dev Tips
 

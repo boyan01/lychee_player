@@ -2,16 +2,6 @@ cmake_minimum_required(VERSION 3.10)
 
 project("media_flutter")
 
-add_library(media_flutter SHARED
-        ffp_flutter.cc
-        ffp_flutter.h
-        media_api.h
-        third_party/dart/dart_api_dl.c
-        video_renderer_sink_impl.cc
-        video_renderer_sink_impl.h)
-
-target_include_directories(media_flutter PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} third_party)
-
 list(APPEND media_flutter_libs media_player)
 
 if (CMAKE_FLUTTER_MEDIA_WINDOWS)
@@ -21,6 +11,9 @@ elseif (CMAKE_FLUTTER_MEDIA_LINUX)
     list(APPEND media_flutter_libs flutter)
 elseif (CMAKE_FLUTTER_MEDIA_MACOS)
     list(APPEND media_flutter_libs media_macos)
+elseif (CMAKE_FLUTTER_MEDIA_IOS)
+    list(APPEND media_flutter_libs media_macos)
+    set(MEDIA_BUILD_STATIC 1)
 endif ()
 
 if (CMAKE_FLUTTER_MEDIA_ANDROID)
@@ -34,18 +27,47 @@ endif ()
 
 add_subdirectory(base)
 
-target_link_libraries(media_flutter PUBLIC media_flutter_base ${media_flutter_libs})
+list(APPEND media_flutter_sources
+        ffp_flutter.cc
+        ffp_flutter.h
+        media_api.h
+        third_party/dart/dart_api_dl.c
+        video_renderer_sink_impl.cc
+        video_renderer_sink_impl.h
+        )
 
-if (APPLE)
+if (MEDIA_BUILD_STATIC)
+    add_library(media_flutter STATIC ${media_flutter_sources})
+else ()
+    add_library(media_flutter SHARED ${media_flutter_sources})
+endif ()
+
+target_include_directories(media_flutter PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} third_party)
+target_link_libraries(media_flutter PUBLIC media_flutter_base ${media_flutter_libs})
+if (CMAKE_FLUTTER_MEDIA_IOS)
+    target_link_libraries(media_flutter PUBLIC
+            "-framework VideoToolbox"
+            "-framework CoreVideo"
+            "-framework Kernel"
+            )
+endif ()
+
+if (APPLE AND NOT MEDIA_BUILD_STATIC)
     set_target_properties(media_flutter PROPERTIES
             FRAMEWORK TRUE
             MACOSX_FRAMEWORK_IDENTIFIER tech.soit.flutter.media
             PUBLIC_HEADER "media_api.h"
             )
-
-    install(TARGETS ${PROJECT_NAME}
+    install(TARGETS media_flutter
             LIBRARY DESTINATION lib
             FRAMEWORK DESTINATION frameworks
             PUBLIC_HEADER DESTINATION include
             )
+endif ()
+
+if (MEDIA_BUILD_STATIC)
+    install(TARGETS media_base media_flutter ${media_flutter_libs} media_flutter_base
+            LIBRARY DESTINATION lib)
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/media_api.h
+            DESTINATION include)
 endif ()
