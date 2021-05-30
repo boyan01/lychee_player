@@ -19,5 +19,6 @@ Pod::Spec.new do |s|
     s.vendored_libraries = 'lib/libmedia_flutter.a', 'lib/libmedia_base.a', 'lib/libmedia_macos.a', 'lib/libmedia_player.a', 'lib/libmedia_flutter_base.a'
     s.platform = :ios, '10.0'
     s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'VALID_ARCHS[sdk=iphonesimulator*]' => 'x86_64' }
-
+    s.static_framework = true
+  
   end

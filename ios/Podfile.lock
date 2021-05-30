@@ -1,6 +1,8 @@
 PODS:
+  - ffmpeg-kit-ios-full (4.4.LTS)
   - Flutter (1.0.0)
   - LycheePlayer (0.0.1):
+    - ffmpeg-kit-ios-full (~> 4.4.LTS)
     - Flutter
   - path_provider (0.0.1):
     - Flutter
@@ -13,6 +15,10 @@ DEPENDENCIES:
   - path_provider (from `.symlinks/plugins/path_provider/ios`)
   - permission_handler (from `.symlinks/plugins/permission_handler/ios`)
 
+SPEC REPOS:
+  trunk:
+    - ffmpeg-kit-ios-full
+
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
@@ -24,11 +30,12 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/permission_handler/ios"
 
 SPEC CHECKSUMS:
+  ffmpeg-kit-ios-full: 88c9e9666f4cf582d1a5c319e42a31c8a78125d6
   Flutter: 434fef37c0980e73bb6479ef766c45957d4b510c
-  LycheePlayer: 824df5245afb68dd0ae96be7dfb6b2220514986e
+  LycheePlayer: 25b894ddca02efa2522fdaecf511e41a14a055b9
   path_provider: abfe2b5c733d04e238b0d8691db0cfd63a27a93c
   permission_handler: ccb20a9fad0ee9b1314a52b70b76b473c5f8dab0
 
-PODFILE CHECKSUM: ce82eb0cd54987e382bf64c168708a853a8820c3
+PODFILE CHECKSUM: 76f76dceed2fcd137a976cb60219c9d016397020
 
 COCOAPODS: 1.10.1
