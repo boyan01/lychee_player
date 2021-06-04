@@ -59,7 +59,7 @@ class FlutterMediaTexture {
 
 };
 
-typedef std::unique_ptr<FlutterMediaTexture>(*FlutterTextureAdapterFactory)();
+typedef void(*FlutterTextureAdapterFactory)(std::function<void(std::unique_ptr<FlutterMediaTexture>)> callback);
 
 API_EXPORT void register_flutter_texture_factory(FlutterTextureAdapterFactory factory);
 

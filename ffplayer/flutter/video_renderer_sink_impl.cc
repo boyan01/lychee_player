@@ -14,22 +14,28 @@ AVPixelFormat VideoRendererSinkImpl::GetPixelFormat(FlutterMediaTexture::PixelFo
   return AV_PIX_FMT_BGRA;
 }
 
-VideoRendererSinkImpl::VideoRendererSinkImpl() = default;
+VideoRendererSinkImpl::VideoRendererSinkImpl() {
+  DCHECK(factory_) << "factory_ do not register yet.";
+  // FIXME bind weak.
+  factory_(std::bind(&VideoRendererSinkImpl::OnTextureAvailable, this, std::placeholders::_1));
+}
 
 VideoRendererSinkImpl::~VideoRendererSinkImpl() {
   sws_freeContext(img_convert_ctx_);
+  if (texture_) {
+    texture_->Release();
+  }
 }
 
 int64_t VideoRendererSinkImpl::Attach() {
-  DCHECK(!texture_);
-  texture_ = factory_();
-  DCHECK(texture_);
+  if (!texture_) {
+    return -1;
+  }
   return texture_->GetTextureId();
 }
 
 void VideoRendererSinkImpl::Detach() {
-  DCHECK(texture_);
-  texture_->Release();
+
 }
 
 void VideoRendererSinkImpl::DoRender(std::shared_ptr<VideoFrame> frame) {
@@ -69,6 +75,11 @@ void VideoRendererSinkImpl::DoRender(std::shared_ptr<VideoFrame> frame) {
 
   texture_->NotifyBufferUpdate();
 
+}
+
+void VideoRendererSinkImpl::OnTextureAvailable(std::unique_ptr<FlutterMediaTexture> texture) {
+  DLOG_IF(WARNING, !texture) << "register texture failed!";
+  texture_ = std::move(texture);
 }
 
 } // namespace media
