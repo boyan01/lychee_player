@@ -12,10 +12,9 @@
 
 #if TARGET_OS_IPHONE
 #include <Flutter/Flutter.h>
-#elif TAGET_OS_MACOS
-#import <FlutterMacOS/FlutterTexture.h>
+#else
+#import <FlutterMacOS/FlutterMacOS.h>
 #endif
-
 
 __BEGIN_DECLS
 

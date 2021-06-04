@@ -66,10 +66,20 @@ void VideoRendererSinkImpl::DoRender(std::shared_ptr<VideoFrame> frame) {
     return;
   }
 
+#if 1
   auto *av_frame = frame->frame();
   int linesize[4] = {4 * texture_->GetWidth()};
   uint8_t *bgr_buffer[8] = {static_cast<uint8_t *>(output)};
   sws_scale(img_convert_ctx_, av_frame->data, av_frame->linesize, 0, av_frame->height, bgr_buffer, linesize);
+#endif
+
+#if 0
+  auto bitmap = reinterpret_cast<uint32_t *>(output);
+  for (unsigned long i = 0; i < texture_->GetWidth() * texture_->GetHeight(); i++) {
+    bitmap[i] = 0x000000ff;
+  }
+  DLOG(INFO) << "render bitmap: width = " << texture_->GetWidth() << " height = " << texture_->GetHeight();
+#endif
 
   texture_->UnlockBuffer();
 

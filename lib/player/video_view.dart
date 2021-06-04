@@ -22,13 +22,14 @@ class _VideoViewState extends State<VideoView> {
   void initState() {
     super.initState();
     _textureId = widget.player.attachVideoRender();
+    debugPrint('attached video render: $_textureId');
   }
 
   @override
   void didUpdateWidget(covariant VideoView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.player != widget.player) {
-      if (_textureId > 0) {
+      if (_textureId >= 0) {
         oldWidget.player.detachVideoRender();
       }
       _textureId = widget.player.attachVideoRender();
@@ -62,7 +63,10 @@ class _VideoViewState extends State<VideoView> {
             ),
           );
         },
-        child: Texture(textureId: _textureId),
+        child: Container(
+          color: Colors.black,
+          child: Texture(textureId: _textureId),
+        ),
       );
     }
     return Container(color: Colors.white, child: texture);

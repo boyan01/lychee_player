@@ -40,9 +40,6 @@ static id<FlutterTextureRegistry> textures_registry;
 
 	@synchronized (self) {
 		buffer = _pixelBuffer;
-		if (buffer != nil) {
-			NSLog(@"copyPixelBuffer: ref count = %ld, format = %u ", CFGetRetainCount(buffer), CVPixelBufferGetPixelFormatType(buffer));
-		}
 		_pixelBuffer = nil;
 	}
 
@@ -125,7 +122,6 @@ public:
 		if (!cv_pixel_buffer_ref_) {
 			return;
 		}
-		NSLog(@"NotifyBufferUpdate to %ld", CFGetRetainCount(cv_pixel_buffer_ref_));
 		[texture_ setPixelBuffer: cv_pixel_buffer_ref_];
 		CVPixelBufferRelease(cv_pixel_buffer_ref_);
 		[textures_registry textureFrameAvailable: texture_id_];

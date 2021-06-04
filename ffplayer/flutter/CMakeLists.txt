@@ -9,9 +9,7 @@ if (CMAKE_FLUTTER_MEDIA_WINDOWS)
     list(APPEND media_flutter_libs media_flutter_windows)
 elseif (CMAKE_FLUTTER_MEDIA_LINUX)
     list(APPEND media_flutter_libs flutter)
-elseif (CMAKE_FLUTTER_MEDIA_MACOS)
-    list(APPEND media_flutter_libs media_macos)
-elseif (CMAKE_FLUTTER_MEDIA_IOS)
+elseif (CMAKE_FLUTTER_MEDIA_MACOS OR CMAKE_FLUTTER_MEDIA_IOS)
     list(APPEND media_flutter_libs media_macos)
     set(MEDIA_BUILD_STATIC 1)
 endif ()
@@ -44,30 +42,17 @@ endif ()
 
 target_include_directories(media_flutter PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} third_party)
 target_link_libraries(media_flutter PUBLIC media_flutter_base ${media_flutter_libs})
-if (CMAKE_FLUTTER_MEDIA_IOS)
-    target_link_libraries(media_flutter PUBLIC
-            "-framework VideoToolbox"
-            "-framework CoreVideo"
-            "-framework Kernel"
-            )
-endif ()
-
-if (APPLE AND NOT MEDIA_BUILD_STATIC)
-    set_target_properties(media_flutter PROPERTIES
-            FRAMEWORK TRUE
-            MACOSX_FRAMEWORK_IDENTIFIER tech.soit.flutter.media
-            PUBLIC_HEADER "media_api.h"
-            )
-    install(TARGETS media_flutter
-            LIBRARY DESTINATION lib
-            FRAMEWORK DESTINATION frameworks
-            PUBLIC_HEADER DESTINATION include
-            )
-endif ()
 
 if (MEDIA_BUILD_STATIC)
+    if (CMAKE_FLUTTER_MEDIA_MACOS)
+        set(LIB_DEST lib_osx)
+    elseif (CMAKE_FLUTTER_MEDIA_IOS)
+        set(LIB_DEST lib_ios)
+    else ()
+        set(LIB_DEST lib)
+    endif ()
     install(TARGETS media_base media_flutter ${media_flutter_libs} media_flutter_base
-            LIBRARY DESTINATION lib)
+            ARCHIVE DESTINATION ${LIB_DEST})
     install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/media_api.h
             DESTINATION include)
 endif ()
