@@ -169,20 +169,20 @@ static void event_loop(std::shared_ptr<MediaPlayer> player) {
         case SDLK_c:break;
         case SDLK_t:break;
         case SDLK_w:break;
-        case SDLK_PAGEUP:
-          if (player->GetChapterCount() <= 1) {
-            incr = 600.0;
-            goto do_seek;
-          }
-          player->SeekToChapter(player->GetChapterCount() + 1);
-          break;
-        case SDLK_PAGEDOWN:
-          if (player->GetChapterCount() <= 1) {
-            incr = -600.0;
-            goto do_seek;
-          }
-          player->SeekToChapter(player->GetChapterCount() - 1);
-          break;
+//        case SDLK_PAGEUP:
+//          if (player->GetChapterCount() <= 1) {
+//            incr = 600.0;
+//            goto do_seek;
+//          }
+//          player->SeekToChapter(player->GetChapterCount() + 1);
+//          break;
+//        case SDLK_PAGEDOWN:
+//          if (player->GetChapterCount() <= 1) {
+//            incr = -600.0;
+//            goto do_seek;
+//          }
+//          player->SeekToChapter(player->GetChapterCount() - 1);
+//          break;
         case SDLK_LEFT:incr = -seek_interval;
           goto do_seek;
         case SDLK_RIGHT:incr = seek_interval;

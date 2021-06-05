@@ -13,7 +13,6 @@ extern "C" {
 #include "libavutil/bprint.h"
 }
 
-#include "blocking_url_protocol.h"
 #include "file_data_source.h"
 
 namespace media {
@@ -84,10 +83,6 @@ void MediaPlayer::SetPlayWhenReadyTask(bool play_when_ready) {
     return;
   }
   play_when_ready_ = play_when_ready;
-  if (demuxer_) {
-//    data_source->paused = !play_when_ready;
-//    demuxer_->Pause();
-  }
   if (state_ != kPrepared) {
     return;
   }
@@ -239,38 +234,16 @@ void MediaPlayer::SetVolume(double volume) {
   audio_renderer_->SetVolume(volume);
 }
 
-double MediaPlayer::GetDuration() {
+double MediaPlayer::GetDuration() const {
   return duration_;
 }
 
 void MediaPlayer::Seek(double position) {
-//  CHECK_VALUE(data_source);
-  ChangePlaybackState(MediaPlayerState::BUFFERING);
-//  data_source->Seek(position);
-  demuxer_->AbortPendingReads();
-  demuxer_->SeekTo(position, std::bind(&MediaPlayer::OnSeekCompleted, this));
-}
-
-void MediaPlayer::SeekToChapter(int chapter) {
-//  CHECK_VALUE(data_source);
-//  data_source->SeekToChapter(chapter);
-}
-
-int MediaPlayer::GetCurrentChapter() {
-//  CHECK_VALUE_WITH_RETURN(data_source, -1);
-  int64_t pos = GetCurrentPosition() * AV_TIME_BASE;
-//  return data_source->GetChapterByPosition(pos);
-  return -1;
-}
-
-int MediaPlayer::GetChapterCount() {
-//  CHECK_VALUE_WITH_RETURN(data_source, -1);
-//  return data_source->GetChapterCount();
-  return -1;
-}
-
-void MediaPlayer::SetMessageHandleCallback(std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback) {
-  message_callback_external_ = std::move(message_callback);
+  task_runner_->PostTask(FROM_HERE, [&, position]() {
+    ChangePlaybackState(MediaPlayerState::BUFFERING);
+    demuxer_->AbortPendingReads();
+    demuxer_->SeekTo(position, std::bind(&MediaPlayer::OnSeekCompleted, this));
+  });
 }
 
 void MediaPlayer::GlobalInit() {
@@ -292,7 +265,7 @@ void MediaPlayer::ChangePlaybackState(MediaPlayerState state) {
 }
 
 void MediaPlayer::StopRenders() {
-  av_log(nullptr, AV_LOG_INFO, "StopRenders\n");
+  DLOG(INFO) << "StopRenders";
   PauseClock(true);
   if (audio_renderer_) {
     audio_renderer_->Stop();
@@ -332,6 +305,7 @@ void MediaPlayer::DumpMediaClockStatus() {
 //  DLOG(INFO) << "DumpMediaClockStatus: master clock = "
 //             << clock_context->GetMasterClock();
 
+#if 0
   if (audio_renderer_) {
     DLOG(INFO) << "AudioRenderer" << *audio_renderer_;
   }
@@ -350,6 +324,7 @@ void MediaPlayer::DumpMediaClockStatus() {
   }
 
   task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(1000000), std::bind(&MediaPlayer::DumpMediaClockStatus, this));
+#endif
 }
 
 void MediaPlayer::SetDuration(double duration) {

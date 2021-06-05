@@ -20,6 +20,8 @@ class TaskRunner {
 
   explicit TaskRunner(MessageLoop *looper = nullptr);
 
+  virtual ~TaskRunner();
+
   void PostTask(const tracked_objects::Location &from_here, const TaskClosure &task);
 
   void PostDelayedTask(const tracked_objects::Location &from_here,

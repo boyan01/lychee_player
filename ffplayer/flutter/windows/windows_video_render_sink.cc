@@ -51,7 +51,7 @@ void WindowsVideoRenderSink::Detach() {
 }
 
 void WindowsVideoRenderSink::DoRender(std::shared_ptr<VideoFrame> frame) {
-  if (!pixel_buffer_) {
+  if (!pixel_buffer_ || frame->IsEmpty()) {
     return;
   }
   if (!pixel_buffer_->buffer) {

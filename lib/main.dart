@@ -16,9 +16,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final urls = await UrlStores.instance.getUrls();
   urls.addAll({
+    "http://music.163.com/song/media/outer/url?id=1451998397.mp3": PlayType.url,
     "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4":
         PlayType.url,
-    "http://music.163.com/song/media/outer/url?id=1451998397.mp3": PlayType.url,
     "tracks/rise.mp3": PlayType.asset,
     "https://storage.googleapis.com/exoplayer-test-media-0/play.mp3":
         PlayType.url,

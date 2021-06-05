@@ -68,22 +68,6 @@ bool ffplayer_is_paused(CPlayer *player) {
   return player->IsPlayWhenReady();
 }
 
-int ffplayer_get_chapter_count(CPlayer *player) {
-  CHECK_VALUE_WITH_RETURN(player, -1);
-  return player->GetChapterCount();
-}
-
-int ffplayer_get_current_chapter(CPlayer *player) {
-  CHECK_VALUE_WITH_RETURN(player, -1);
-  return player->GetCurrentChapter();
-
-}
-
-void ffplayer_seek_to_chapter(CPlayer *player, int chapter) {
-  CHECK_VALUE(player);
-  player->SeekToChapter(chapter);
-}
-
 int ffplayer_open_file(CPlayer *player, const char *filename) {
   CHECK_VALUE_WITH_RETURN(player, -1);
   CHECK_VALUE_WITH_RETURN(filename, -1);
@@ -190,20 +174,20 @@ int64_t ffp_attach_video_render_flutter(CPlayer *player) {
 }
 
 void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
-  player->SetMessageHandleCallback([send_port](int32_t what, int64_t arg1, int64_t arg2) {
-    // dart do not support int64_t array yet.
-    // thanks https://github.com/dart-lang/sdk/issues/44384#issuecomment-738708448
-    // so we pass an uint8_t array to dart isolate.
-    int64_t arrays[] = {what, arg1, arg2};
-    Dart_CObject dart_args = {};
-    memset(&dart_args, 0, sizeof(Dart_CObject));
-
-    dart_args.type = Dart_CObject_kTypedData;
-    dart_args.value.as_typed_data.type = Dart_TypedData_kUint8;
-    dart_args.value.as_typed_data.length = 3 * sizeof(int64_t);
-    dart_args.value.as_typed_data.values = (uint8_t *) arrays;
-    Dart_PostCObject_DL(send_port, &dart_args);
-  });
+//  player->SetMessageHandleCallback([send_port](int32_t what, int64_t arg1, int64_t arg2) {
+//    // dart do not support int64_t array yet.
+//    // thanks https://github.com/dart-lang/sdk/issues/44384#issuecomment-738708448
+//    // so we pass an uint8_t array to dart isolate.
+//    int64_t arrays[] = {what, arg1, arg2};
+//    Dart_CObject dart_args = {};
+//    memset(&dart_args, 0, sizeof(Dart_CObject));
+//
+//    dart_args.type = Dart_CObject_kTypedData;
+//    dart_args.value.as_typed_data.type = Dart_TypedData_kUint8;
+//    dart_args.value.as_typed_data.length = 3 * sizeof(int64_t);
+//    dart_args.value.as_typed_data.values = (uint8_t *) arrays;
+//    Dart_PostCObject_DL(send_port, &dart_args);
+//  });
 }
 
 void ffp_detach_video_render_flutter(CPlayer *player) {

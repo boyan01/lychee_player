@@ -22,7 +22,7 @@ AndroidVideoRendererSink::~AndroidVideoRendererSink() {
 }
 
 void AndroidVideoRendererSink::DoRender(std::shared_ptr<VideoFrame> frame) {
-  if (!texture_) {
+  if (!texture_ || frame->IsEmpty()) {
     return;
   }
 
