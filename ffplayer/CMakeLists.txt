@@ -89,8 +89,8 @@ if (NOT DEFINED FFP_LIBS)
                 # set_target_properties(${NAME} PROPERTIES
                 #         IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/libs/ios/lib/lib${NAME}.a)
             else ()
-                #                add_library(${NAME} SHARED IMPORTED GLOBAL)
-                #                set_target_properties(${NAME} PROPERTIES IMPORTED_LOCATION /usr/local/lib/lib${NAME}.dylib)
+                add_library(${NAME} SHARED IMPORTED GLOBAL)
+                set_target_properties(${NAME} PROPERTIES IMPORTED_LOCATION /usr/local/lib/lib${NAME}.dylib)
             endif ()
         endfunction()
 
