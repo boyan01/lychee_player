@@ -11,6 +11,12 @@ namespace media {
 FlutterTextureAdapterFactory VideoRendererSinkImpl::factory_ = nullptr;
 
 AVPixelFormat VideoRendererSinkImpl::GetPixelFormat(FlutterMediaTexture::PixelFormat format) {
+  switch (format) {
+    case FlutterMediaTexture::kFormat_32_ARGB: return AV_PIX_FMT_ARGB;
+    case FlutterMediaTexture::kFormat_32_BGRA: return AV_PIX_FMT_BGRA;
+    case FlutterMediaTexture::kFormat_32_RGBA: return AV_PIX_FMT_RGBA;
+  }
+  NOTREACHED();
   return AV_PIX_FMT_BGRA;
 }
 

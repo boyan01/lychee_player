@@ -1,0 +1,1 @@
+export 'src/media_player.dart';

@@ -5,7 +5,7 @@
 #endif
 
 #if defined(_FLUTTER_MEDIA_WINDOWS)
-#include "windows_video_render_sink.h"
+#include "video_renderer_sink_impl.h"
 #define _MEDIA_AUDIO_USE_SDL
 #elif defined(_FLUTTER_MEDIA_ANDROID)
 #include "android_video_renderer_sink.h"
@@ -138,7 +138,7 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
   std::unique_ptr<VideoRendererSink> video_render;
   std::unique_ptr<AudioRendererSink> audio_render;
 #ifdef _FLUTTER_MEDIA_WINDOWS
-  video_render = std::make_unique<WindowsVideoRenderSink>();
+  video_render = std::make_unique<VideoRendererSinkImpl>();
   audio_render = std::make_unique<SdlAudioRendererSink>();
 #elif _FLUTTER_MEDIA_ANDROID
   video_render = std::make_unique<media::AndroidVideoRendererSink>();
@@ -202,7 +202,7 @@ void ffp_detach_video_render_flutter(CPlayer *player) {
 }
 
 extern void register_flutter_texture_factory(FlutterTextureAdapterFactory factory) {
-#if defined(_FLUTTER_MEDIA_DARWIN)
+#if defined(_FLUTTER_MEDIA_DARWIN) || defined(_FLUTTER_MEDIA_WINDOWS)
   DCHECK(factory) << "can not register flutter texture factory with nullptr";
   DCHECK(!VideoRendererSinkImpl::factory_) << "can not register more than once";
   VideoRendererSinkImpl::factory_ = factory;
