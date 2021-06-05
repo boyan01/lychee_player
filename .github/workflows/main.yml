@@ -32,7 +32,7 @@ jobs:
       - run: flutter config --enable-macos-desktop
       - run: flutter pub get
       - run: cd macos && pod install && cd ..
-      - run: cd ffplayer && ./apple-flutter-install.sh && cd ..
+      - run: cd ffplayer && ./apple-flutter-install.sh macos && cd ..
       - run: flutter build macos
 
   android:
