@@ -14,22 +14,28 @@ AVPixelFormat VideoRendererSinkImpl::GetPixelFormat(FlutterMediaTexture::PixelFo
   return AV_PIX_FMT_BGRA;
 }
 
-VideoRendererSinkImpl::VideoRendererSinkImpl() = default;
+VideoRendererSinkImpl::VideoRendererSinkImpl() {
+  DCHECK(factory_) << "factory_ do not register yet.";
+  // FIXME bind weak.
+  factory_(std::bind(&VideoRendererSinkImpl::OnTextureAvailable, this, std::placeholders::_1));
+}
 
 VideoRendererSinkImpl::~VideoRendererSinkImpl() {
   sws_freeContext(img_convert_ctx_);
+  if (texture_) {
+    texture_->Release();
+  }
 }
 
 int64_t VideoRendererSinkImpl::Attach() {
-  DCHECK(!texture_);
-  texture_ = factory_();
-  DCHECK(texture_);
+  if (!texture_) {
+    return -1;
+  }
   return texture_->GetTextureId();
 }
 
 void VideoRendererSinkImpl::Detach() {
-  DCHECK(texture_);
-  texture_->Release();
+
 }
 
 void VideoRendererSinkImpl::DoRender(std::shared_ptr<VideoFrame> frame) {
@@ -60,15 +66,30 @@ void VideoRendererSinkImpl::DoRender(std::shared_ptr<VideoFrame> frame) {
     return;
   }
 
+#if 1
   auto *av_frame = frame->frame();
   int linesize[4] = {4 * texture_->GetWidth()};
   uint8_t *bgr_buffer[8] = {static_cast<uint8_t *>(output)};
   sws_scale(img_convert_ctx_, av_frame->data, av_frame->linesize, 0, av_frame->height, bgr_buffer, linesize);
+#endif
+
+#if 0
+  auto bitmap = reinterpret_cast<uint32_t *>(output);
+  for (unsigned long i = 0; i < texture_->GetWidth() * texture_->GetHeight(); i++) {
+    bitmap[i] = 0x000000ff;
+  }
+  DLOG(INFO) << "render bitmap: width = " << texture_->GetWidth() << " height = " << texture_->GetHeight();
+#endif
 
   texture_->UnlockBuffer();
 
   texture_->NotifyBufferUpdate();
 
+}
+
+void VideoRendererSinkImpl::OnTextureAvailable(std::unique_ptr<FlutterMediaTexture> texture) {
+  DLOG_IF(WARNING, !texture) << "register texture failed!";
+  texture_ = std::move(texture);
 }
 
 } // namespace media

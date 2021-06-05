@@ -41,6 +41,8 @@ class VideoRendererSinkImpl : public FlutterVideoRendererSink {
 
   struct SwsContext *img_convert_ctx_ = nullptr;
 
+  void OnTextureAvailable(std::unique_ptr<FlutterMediaTexture> texture);
+
 };
 
 }

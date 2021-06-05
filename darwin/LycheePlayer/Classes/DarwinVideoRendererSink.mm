@@ -1,22 +1,26 @@
 //
-//  MacosVideoRendererSink.m
+//  IOSVideoRendererSink.cpp
 //  LycheePlayer
 //
-//  Created by 杨彬 on 2021/5/15.
+//  Created by Bin Yang on 2021/5/30.
 //
 
-#import "MacosVideoRendererSink.h"
+#import "DarwinVideoRendererSink.h"
+
+#include <Foundation/Foundation.h>
+#include <iostream>
+
+#include "media_api.h"
+
 
 #import <Foundation/Foundation.h>
-#import <FlutterMacOS/FlutterTexture.h>
 
-#include "media_flutter/media_api.h"
 
 static id<FlutterTextureRegistry> textures_registry;
 
 @interface FlutterTextureImpl : NSObject<FlutterTexture>
 
-@property CVPixelBufferRef copyPixelBuffer;
+@property(nonatomic) CVPixelBufferRef pixelBuffer;
 
 @end
 
@@ -29,6 +33,29 @@ static id<FlutterTextureRegistry> textures_registry;
 		NSLog(@"init FlutterTextureImpl obj");
 	}
 	return self;
+}
+
+- (CVPixelBufferRef)copyPixelBuffer {
+	CVPixelBufferRef buffer;
+
+	@synchronized (self) {
+		buffer = _pixelBuffer;
+		_pixelBuffer = nil;
+	}
+
+	return buffer;
+}
+
+- (void)setPixelBuffer:(CVPixelBufferRef)pixelBuffer {
+  
+  @synchronized (self) {
+    if (_pixelBuffer != nil) {
+      CVPixelBufferRelease(_pixelBuffer);
+    }
+    _pixelBuffer = pixelBuffer;
+    CVPixelBufferRetain(_pixelBuffer);
+  }
+
 }
 
 @end
@@ -72,6 +99,7 @@ public:
 		                               nullptr,
 		                               &cv_pixel_buffer_ref_);
 		if (ret != kCVReturnSuccess) {
+			cv_pixel_buffer_ref_ = nullptr;
 			NSLog(@"create pixle buffer failed. error : %d", ret);
 		} else {
 
@@ -91,7 +119,11 @@ public:
 	}
 
 	void NotifyBufferUpdate() override {
-		[texture_ setCopyPixelBuffer: cv_pixel_buffer_ref_];
+		if (!cv_pixel_buffer_ref_) {
+			return;
+		}
+		[texture_ setPixelBuffer: cv_pixel_buffer_ref_];
+		CVPixelBufferRelease(cv_pixel_buffer_ref_);
 		[textures_registry textureFrameAvailable: texture_id_];
 	}
 
@@ -117,16 +149,43 @@ private:
 
 };
 
-std::unique_ptr<FlutterMediaTexture> texture_factory()
+void texture_factory(std::function<void(std::unique_ptr<FlutterMediaTexture>)> callback)
 {
-	FlutterTextureImpl *texture = [[FlutterTextureImpl alloc] init];
+	dispatch_async(dispatch_get_main_queue(), ^{
+		FlutterTextureImpl *texture = [[FlutterTextureImpl alloc] init];
 
-	int64_t texture_id = [textures_registry registerTexture: texture];
-	return std::make_unique<MacosFlutterTexture>(texture_id, texture);
+		int64_t texture_id = [textures_registry registerTexture: texture];
+
+#if 0
+		CVPixelBufferRef pixel_buffer;
+		CVPixelBufferCreate(kCFAllocatorDefault,
+		                    1280,
+		                    720,
+		                    kCVPixelFormatType_32BGRA,
+		                    nullptr,
+		                    &pixel_buffer);
+		CVPixelBufferLockBaseAddress(pixel_buffer, 0);
+		auto buffer = (uint8_t *)CVPixelBufferGetBaseAddress(pixel_buffer);
+		for ( unsigned long i = 0; i < 1280 * 720; i++ )
+		{
+			buffer[i] = CFSwapInt32HostToBig(0x000000ff);
+		}
+		CVPixelBufferUnlockBaseAddress(pixel_buffer, 0);
+		texture.copyPixelBuffer = pixel_buffer;
+#endif
+
+		NSLog(@"register texture: %lld.", texture_id);
+		callback(std::make_unique<MacosFlutterTexture>(texture_id, texture));
+
+	});
+
 }
 
-void reigsterMedaiFramework(id<FlutterTextureRegistry> textures)
+void reigsterMediaFramework(id<FlutterTextureRegistry> textures)
 {
+	if (!textures) {
+		NSLog(@"null textures");
+	}
 	textures_registry = textures;
 	register_flutter_texture_factory(texture_factory);
 }

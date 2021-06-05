@@ -5,11 +5,16 @@
 //  Created by Bin Yang on 2021/5/30.
 //
 
-#ifndef IOSVideoRendererSink_hpp
-#define IOSVideoRendererSink_hpp
+#ifndef DarwinVideoRendererSink_hpp
+#define DarwinVideoRendererSink_hpp
 
 #include <stdio.h>
+
+#if TARGET_OS_IPHONE
 #include <Flutter/Flutter.h>
+#else
+#import <FlutterMacOS/FlutterMacOS.h>
+#endif
 
 __BEGIN_DECLS
 
@@ -17,4 +22,4 @@ void reigsterMediaFramework(id<FlutterTextureRegistry> textures);
 
 __END_DECLS
 
-#endif /* IOSVideoRendererSink_hpp */
+#endif /* DarwinVideoRendererSink_hpp */

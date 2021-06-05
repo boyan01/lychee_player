@@ -1,5 +1,9 @@
 #include <list>
 
+#if defined(_FLUTTER_MEDIA_MACOS) || defined(_FLUTTER_MEDIA_IOS)
+#define _FLUTTER_MEDIA_DARWIN 1
+#endif
+
 #if defined(_FLUTTER_MEDIA_WINDOWS)
 #include "windows_video_render_sink.h"
 #define _MEDIA_AUDIO_USE_SDL
@@ -9,12 +13,9 @@
 #elif defined(_FLUTTER_MEDIA_LINUX)
 #include "null_video_renderer_sink.h"
 #define _MEDIA_AUDIO_USE_SDL
-#elif defined(_FLUTTER_MEDIA_MACOS)
+#elif defined(_FLUTTER_MEDIA_DARWIN)
 #include "macos_audio_renderer_sink.h"
 #include "video_renderer_sink_impl.h"
-#elif defined(_FLUTTER_MEDIA_IOS)
-#include "macos_audio_renderer_sink.h"
-#include "null_video_renderer_sink.h"
 #endif
 
 #include "ffplayer.h"
@@ -158,16 +159,12 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
 #elif _FLUTTER_MEDIA_ANDROID
   video_render = std::make_unique<media::AndroidVideoRendererSink>();
   audio_render = std::make_unique<media::OboeAudioRendererSink>();
-#elif _FLUTTER_MEDIA_MACOS
-  //(TODO yangbin) temp solution for platform which didn't implement video renderer.
+#elif _FLUTTER_MEDIA_DARWIN
   video_render = std::make_unique<media::VideoRendererSinkImpl>();
   audio_render = std::make_unique<media::MacosAudioRendererSink>();
 #elif _FLUTTER_MEDIA_LINUX
   video_render = std::make_unique<media::NullVideoRendererSink>();
   audio_render = std::make_unique<media::SdlAudioRendererSink>();
-#elif _FLUTTER_MEDIA_IOS
-  video_render = std::make_unique<media::NullVideoRendererSink>();
-  audio_render = std::make_unique<media::MacosAudioRendererSink>();
 #endif
   auto player = std::make_shared<MediaPlayer>(std::move(video_render), std::move(audio_render));
   player->SetPlayWhenReady(true);
@@ -221,7 +218,7 @@ void ffp_detach_video_render_flutter(CPlayer *player) {
 }
 
 extern void register_flutter_texture_factory(FlutterTextureAdapterFactory factory) {
-#ifdef _FLUTTER_MEDIA_MACOS
+#if defined(_FLUTTER_MEDIA_DARWIN)
   DCHECK(factory) << "can not register flutter texture factory with nullptr";
   DCHECK(!VideoRendererSinkImpl::factory_) << "can not register more than once";
   VideoRendererSinkImpl::factory_ = factory;

@@ -1,3 +1,3 @@
 #import "GeneratedPluginRegistrant.h"
 
-#import "IOSVideoRendererSink.h"
+#import "DarwinVideoRendererSink.h"

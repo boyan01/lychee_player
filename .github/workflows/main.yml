@@ -31,8 +31,8 @@ jobs:
           flutter-version: '2.0.5'
       - run: flutter config --enable-macos-desktop
       - run: flutter pub get
-      - run: brew install ffmpeg
-      - run: cd ffplayer && ./macos-flutter-install.sh && cd ..
+      - run: cd macos && pod install && cd ..
+      - run: cd ffplayer && ./apple-flutter-install.sh macos && cd ..
       - run: flutter build macos
 
   android:

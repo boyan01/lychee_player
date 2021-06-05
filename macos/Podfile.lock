@@ -1,28 +1,37 @@
 PODS:
+  - ffmpeg-kit-macos-full (4.4.LTS)
   - FlutterMacOS (1.0.0)
   - LycheePlayer (0.0.1):
+    - ffmpeg-kit-ios-full (~> 4.4.LTS)
+    - ffmpeg-kit-macos-full (~> 4.4.LTS)
+    - Flutter
     - FlutterMacOS
   - path_provider_macos (0.0.1):
     - FlutterMacOS
 
 DEPENDENCIES:
   - FlutterMacOS (from `Flutter/ephemeral`)
-  - LycheePlayer (from `./Library/LycheePlayer`)
+  - LycheePlayer (from `../darwin/LycheePlayer`)
   - path_provider_macos (from `Flutter/ephemeral/.symlinks/plugins/path_provider_macos/macos`)
+
+SPEC REPOS:
+  trunk:
+    - ffmpeg-kit-macos-full
 
 EXTERNAL SOURCES:
   FlutterMacOS:
     :path: Flutter/ephemeral
   LycheePlayer:
-    :path: "./Library/LycheePlayer"
+    :path: "../darwin/LycheePlayer"
   path_provider_macos:
     :path: Flutter/ephemeral/.symlinks/plugins/path_provider_macos/macos
 
 SPEC CHECKSUMS:
+  ffmpeg-kit-macos-full: 578f89931c88d0df654bfe63a4deea939f04901c
   FlutterMacOS: 57701585bf7de1b3fc2bb61f6378d73bbdea8424
-  LycheePlayer: 519ab9ce8e66a56049e4072017771d2235f87cd9
+  LycheePlayer: 0374db27059755274465b95f2123d11918e60c7e
   path_provider_macos: a0a3fd666cb7cd0448e936fb4abad4052961002b
 
-PODFILE CHECKSUM: ab2474f7a3c4ea249bf867eb9f15b30b28678231
+PODFILE CHECKSUM: f3b9add2cc790d4b39e2585d38e5ea89129dfd7d
 
 COCOAPODS: 1.10.1
