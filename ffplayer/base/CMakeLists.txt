@@ -12,7 +12,8 @@ add_library(media_base
         src/size.cc
         src/rect.cc
         src/channel_layout.cc
-        src/circular_deque.cc)
+        src/circular_deque.cc
+        src/task_runner.cc)
 
 target_include_directories(media_base PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
