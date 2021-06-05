@@ -5,7 +5,7 @@
 #endif
 
 #if defined(_FLUTTER_MEDIA_WINDOWS)
-#include "windows_video_render_sink.h"
+#include "video_renderer_sink_impl.h"
 #define _MEDIA_AUDIO_USE_SDL
 #elif defined(_FLUTTER_MEDIA_ANDROID)
 #include "android_video_renderer_sink.h"
@@ -66,22 +66,6 @@ double ffp_get_volume(CPlayer *player) {
 bool ffplayer_is_paused(CPlayer *player) {
   CHECK_VALUE_WITH_RETURN(player, false);
   return player->IsPlayWhenReady();
-}
-
-int ffplayer_get_chapter_count(CPlayer *player) {
-  CHECK_VALUE_WITH_RETURN(player, -1);
-  return player->GetChapterCount();
-}
-
-int ffplayer_get_current_chapter(CPlayer *player) {
-  CHECK_VALUE_WITH_RETURN(player, -1);
-  return player->GetCurrentChapter();
-
-}
-
-void ffplayer_seek_to_chapter(CPlayer *player, int chapter) {
-  CHECK_VALUE(player);
-  player->SeekToChapter(chapter);
 }
 
 int ffplayer_open_file(CPlayer *player, const char *filename) {
@@ -154,7 +138,7 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
   std::unique_ptr<VideoRendererSink> video_render;
   std::unique_ptr<AudioRendererSink> audio_render;
 #ifdef _FLUTTER_MEDIA_WINDOWS
-  video_render = std::make_unique<WindowsVideoRenderSink>();
+  video_render = std::make_unique<VideoRendererSinkImpl>();
   audio_render = std::make_unique<SdlAudioRendererSink>();
 #elif _FLUTTER_MEDIA_ANDROID
   video_render = std::make_unique<media::AndroidVideoRendererSink>();
@@ -190,20 +174,20 @@ int64_t ffp_attach_video_render_flutter(CPlayer *player) {
 }
 
 void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
-  player->SetMessageHandleCallback([send_port](int32_t what, int64_t arg1, int64_t arg2) {
-    // dart do not support int64_t array yet.
-    // thanks https://github.com/dart-lang/sdk/issues/44384#issuecomment-738708448
-    // so we pass an uint8_t array to dart isolate.
-    int64_t arrays[] = {what, arg1, arg2};
-    Dart_CObject dart_args = {};
-    memset(&dart_args, 0, sizeof(Dart_CObject));
-
-    dart_args.type = Dart_CObject_kTypedData;
-    dart_args.value.as_typed_data.type = Dart_TypedData_kUint8;
-    dart_args.value.as_typed_data.length = 3 * sizeof(int64_t);
-    dart_args.value.as_typed_data.values = (uint8_t *) arrays;
-    Dart_PostCObject_DL(send_port, &dart_args);
-  });
+//  player->SetMessageHandleCallback([send_port](int32_t what, int64_t arg1, int64_t arg2) {
+//    // dart do not support int64_t array yet.
+//    // thanks https://github.com/dart-lang/sdk/issues/44384#issuecomment-738708448
+//    // so we pass an uint8_t array to dart isolate.
+//    int64_t arrays[] = {what, arg1, arg2};
+//    Dart_CObject dart_args = {};
+//    memset(&dart_args, 0, sizeof(Dart_CObject));
+//
+//    dart_args.type = Dart_CObject_kTypedData;
+//    dart_args.value.as_typed_data.type = Dart_TypedData_kUint8;
+//    dart_args.value.as_typed_data.length = 3 * sizeof(int64_t);
+//    dart_args.value.as_typed_data.values = (uint8_t *) arrays;
+//    Dart_PostCObject_DL(send_port, &dart_args);
+//  });
 }
 
 void ffp_detach_video_render_flutter(CPlayer *player) {
@@ -218,7 +202,7 @@ void ffp_detach_video_render_flutter(CPlayer *player) {
 }
 
 extern void register_flutter_texture_factory(FlutterTextureAdapterFactory factory) {
-#if defined(_FLUTTER_MEDIA_DARWIN)
+#if defined(_FLUTTER_MEDIA_DARWIN) || defined(_FLUTTER_MEDIA_WINDOWS)
   DCHECK(factory) << "can not register flutter texture factory with nullptr";
   DCHECK(!VideoRendererSinkImpl::factory_) << "can not register more than once";
   VideoRendererSinkImpl::factory_ = factory;

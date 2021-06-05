@@ -7,6 +7,9 @@
 
 #if defined(__ANDROID__)
 #include "android/log.h"
+#elif defined(WIN32)
+#include <Windows.h>
+#include <debugapi.h>
 #endif
 
 namespace logging {
@@ -69,7 +72,7 @@ LogMessage::~LogMessage() {
 
   if (logging_destination == LOG_ONLY_TO_SYSTEM_DEBUG_LOG ||
       logging_destination == LOG_TO_BOTH_FILE_AND_SYSTEM_DEBUG_LOG) {
-#if defined(OS_WIN)
+#if defined(WIN32)
     OutputDebugStringA(str_newline.c_str());
 #elif defined(__ANDROID__)
     android_LogPriority priority = ANDROID_LOG_UNKNOWN;

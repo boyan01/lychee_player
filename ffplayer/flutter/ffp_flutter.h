@@ -28,12 +28,6 @@ FFPLAYER_EXPORT bool ffplayer_is_paused(CPlayer *player);
 
 FFPLAYER_EXPORT void media_set_play_when_ready(MediaPlayer *player, bool play_when_ready);
 
-FFPLAYER_EXPORT int ffplayer_get_current_chapter(CPlayer *player);
-
-FFPLAYER_EXPORT int ffplayer_get_chapter_count(CPlayer *player);
-
-FFPLAYER_EXPORT void ffplayer_seek_to_chapter(CPlayer *player, int chapter);
-
 FFPLAYER_EXPORT double ffplayer_get_current_position(CPlayer *player);
 
 FFPLAYER_EXPORT void ffplayer_seek_to_position(CPlayer *player, double position);

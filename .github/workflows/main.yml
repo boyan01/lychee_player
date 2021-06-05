@@ -1,6 +1,10 @@
 name: CI
 
-on: [ push ]
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 env:
   BUILD_CONFIGURATION: Release
@@ -17,7 +21,9 @@ jobs:
         with:
           channel: 'stable'
       - run: flutter config --enable-windows-desktop
-      - run: flutter build windows
+      - name: build example app
+        working-directory: example
+        run: flutter build windows
 
   macos:
     runs-on: macos-latest
@@ -31,9 +37,15 @@ jobs:
           flutter-version: '2.0.5'
       - run: flutter config --enable-macos-desktop
       - run: flutter pub get
-      - run: cd macos && pod install && cd ..
-      - run: cd ffplayer && ./apple-flutter-install.sh macos && cd ..
-      - run: flutter build macos
+      - name: install pods
+        working-directory: example/macos
+        run: pod install
+      - name: build macos static libraries
+        working-directory: ffplayer
+        run: ./apple-flutter-install.sh macos
+      - name: build example app
+        working-directory: example
+        run: flutter build macos
 
   android:
     runs-on: ubuntu-latest
@@ -46,7 +58,9 @@ jobs:
         with:
           channel: 'stable'
       - run: flutter pub get
-      - run: flutter build apk
+      - name: build example app
+        working-directory: example
+        run: flutter build apk
 
   linux:
     runs-on: ubuntu-latest
@@ -69,4 +83,6 @@ jobs:
       - run: sudo apt install libavcodec-dev libavformat-dev libavdevice-dev
       - run: sudo apt install libsdl2-dev
       - run: flutter config --enable-linux-desktop
-      - run: flutter build linux
+      - name: build example app
+        working-directory: example
+        run: flutter build linux

@@ -1,25 +1,32 @@
-name: media_player
-description: A media player for flutter.
-
-publish_to: 'none'
-
-version: 1.0.0+1
+name: lychee_player
+description: A new flutter plugin project.
+version: 0.0.1
+homepage:
 
 environment:
-  sdk: '>=2.12.0 <3.0.0'
+  sdk: ">=2.12.0 <3.0.0"
+  flutter: ">=1.20.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.2
-  sembast: ^3.0.0+4
-  overlay_support: ^1.2.0
-  permission_handler: ^6.1.1
-  path_provider: ^2.0.1
-
+  ffi: ^1.1.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
 flutter:
-  uses-material-design: true
+  plugin:
+    platforms:
+      # https://flutter.dev/docs/development/packages-and-plugins/developing-packages#plugin-platforms
+      windows:
+        pluginClass: LycheePlayerPlugin
+      android:
+        package: com.github.boyan01.lychee
+        pluginClass: LycheePlayerPlugin
+      linux:
+        pluginClass: LycheePlayerPlugin
+      ios:
+        pluginClass: LycheePlayerPlugin
+      macos:
+        pluginClass: LycheePlayerPlugin

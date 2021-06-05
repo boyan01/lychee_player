@@ -33,7 +33,10 @@ void FlutterVideoRendererSink::RenderTask() {
   if (render_callback_ == nullptr) {
     return;
   }
-  DoRender(std::move(render_callback_->Render()));
+  auto frame = render_callback_->Render();
+  if (!frame->IsEmpty()) {
+    DoRender(std::move(frame));
+  }
   // schedule next frame after 10 ms.
   task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(10000), std::bind(&FlutterVideoRendererSink::RenderTask, this));
 }

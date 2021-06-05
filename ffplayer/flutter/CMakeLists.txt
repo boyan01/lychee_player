@@ -44,15 +44,8 @@ target_include_directories(media_flutter PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} thir
 target_link_libraries(media_flutter PUBLIC media_flutter_base ${media_flutter_libs})
 
 if (MEDIA_BUILD_STATIC)
-    if (CMAKE_FLUTTER_MEDIA_MACOS)
-        set(LIB_DEST lib_osx)
-    elseif (CMAKE_FLUTTER_MEDIA_IOS)
-        set(LIB_DEST lib_ios)
-    else ()
-        set(LIB_DEST lib)
-    endif ()
     install(TARGETS media_base media_flutter ${media_flutter_libs} media_flutter_base
-            ARCHIVE DESTINATION ${LIB_DEST})
+            ARCHIVE DESTINATION lib)
     install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/media_api.h
             DESTINATION include)
 endif ()

@@ -36,7 +36,7 @@ elseif (CMAKE_FLUTTER_MEDIA_MACOS)
     set(DISABLE_MEDIA_TEST 1)
     add_compile_definitions(_FLUTTER_MEDIA_MACOS)
 
-    find_library(FFmpegKit NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../macos/Pods/ffmpeg-kit-macos-full REQUIRED)
+    find_library(FFmpegKit NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../example/macos/Pods/ffmpeg-kit-macos-full REQUIRED)
     list(APPEND FFP_LIBS ${FFmpegKit})
 
 elseif (CMAKE_FLUTTER_MEDIA_IOS)
@@ -45,7 +45,7 @@ elseif (CMAKE_FLUTTER_MEDIA_IOS)
     set(DISABLE_MEDIA_TEST 1)
     add_compile_definitions(_FLUTTER_MEDIA_IOS)
 
-    find_library(FFmpegKit NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../ios/Pods/ffmpeg-kit-ios-full REQUIRED)
+    find_library(FFmpegKit NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../example/ios/Pods/ffmpeg-kit-ios-full REQUIRED)
     list(APPEND FFP_LIBS ${FFmpegKit})
 endif ()
 

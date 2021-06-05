@@ -19,10 +19,9 @@ class FlutterMediaTexture {
  public:
 
   enum PixelFormat {
-    /**
-     * for macos.
-     */
     kFormat_32_BGRA,
+    kFormat_32_ARGB,
+    kFormat_32_RGBA,
   };
 
   virtual int64_t GetTextureId() = 0;

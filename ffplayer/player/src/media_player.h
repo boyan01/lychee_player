@@ -63,8 +63,6 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
   MediaPlayerState player_state_ = MediaPlayerState::IDLE;
   std::mutex player_mutex_;
 
-  std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback_external_;
-
   double buffering_check_last_stamp_ = 0;
 
   bool play_when_ready_ = false;
@@ -116,17 +114,9 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
 
   void SetVolume(double volume);
 
-  double GetDuration();
+  double GetDuration() const;
 
   void Seek(double position);
-
-  void SeekToChapter(int chapter);
-
-  int GetCurrentChapter();
-
-  int GetChapterCount();
-
-  void SetMessageHandleCallback(std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback);
 
   VideoRendererSink *GetVideoRenderSink() {
     return video_renderer_->video_renderer_sink();

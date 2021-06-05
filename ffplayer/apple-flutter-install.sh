@@ -7,11 +7,13 @@ case "$1" in
   build_dir="${current_dir}/build-darwin-macos"
   build_type="CMAKE_FLUTTER_MEDIA_MACOS"
   platform="MAC"
+  lib_prefix="${current_dir}/../macos"
   ;;
 "ios")
   build_dir="${current_dir}/build-darwin-ios"
   build_type="CMAKE_FLUTTER_MEDIA_IOS"
-  case "$2" in
+  lib_prefix="${current_dir}/../ios"
+ case "$2" in
   "all")
     platform="OS64COMBINED"
     ;;
@@ -38,4 +40,4 @@ cmake "$current_dir" -B "$build_dir" -G Xcode -DCMAKE_INSTALL_PREFIX="" -D${buil
 # install build output to default dir.
 cd "$build_dir" || exit
 cmake --build "$build_dir" --config Release
-cmake --install "$build_dir" --config Release --prefix "${current_dir}/../darwin/LycheePlayer"
+cmake --install "$build_dir" --config Release --prefix ${lib_prefix}
