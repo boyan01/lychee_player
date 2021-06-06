@@ -6,7 +6,10 @@ message("ANDROID_STL = ${ANDROID_STL}")
 
 add_library(lychee_player SHARED
         media_player_plugin.h
-        media_player_plugin.cpp)
+        media_player_plugin.cpp
+        flutter_texture_entry.h
+        flutter_texture_entry.cc
+        )
 
 find_library(LOG_LIB log REQUIRED)
 
