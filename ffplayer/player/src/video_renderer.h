@@ -18,7 +18,7 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
 
  public:
 
-  VideoRenderer(TaskRunner *task_runner, std::shared_ptr<VideoRendererSink> video_renderer_sink);
+  VideoRenderer(std::shared_ptr<TaskRunner> task_runner, std::shared_ptr<VideoRendererSink> video_renderer_sink);
 
   ~VideoRenderer() override;
 
@@ -49,7 +49,7 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
   };
   State state_ = kUnInitialized;
 
-  TaskRunner *task_runner_;
+  std::shared_ptr<TaskRunner> task_runner_;
 
   std::shared_ptr<VideoRendererSink> sink_;
 

@@ -32,6 +32,7 @@ void SdlVideoRendererSink::Start(VideoRendererSink::RenderCallback *callback) {
 
 void SdlVideoRendererSink::Stop() {
   DCHECK_EQ(state_, kRunning);
+  // TODO remove all pending task.
   render_task_runner_->PostTask(FROM_HERE, [&]() {
     render_callback_ = nullptr;
     state_ = kIdle;

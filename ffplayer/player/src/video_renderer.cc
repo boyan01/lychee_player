@@ -13,9 +13,9 @@
 namespace media {
 
 VideoRenderer::VideoRenderer(
-    TaskRunner *task_runner,
+    std::shared_ptr<TaskRunner> task_runner,
     std::shared_ptr<VideoRendererSink> video_renderer_sink
-) : task_runner_(task_runner),
+) : task_runner_(std::move(task_runner)),
     sink_(std::move(video_renderer_sink)),
     ready_frames_() {
   DCHECK(task_runner_);

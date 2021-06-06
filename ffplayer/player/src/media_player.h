@@ -135,7 +135,7 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
  private:
 
   TaskRunner *task_runner_;
-  TaskRunner *decoder_task_runner_;
+  std::shared_ptr<TaskRunner> decoder_task_runner_;
 
   OnVideoSizeChangeCallback on_video_size_changed_;
 

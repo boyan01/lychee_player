@@ -16,10 +16,10 @@ namespace media {
 const int PIPELINE_ERROR_ABORT = -1;
 const int PIPELINE_OK = 0;
 
-Demuxer::Demuxer(base::MessageLoop *task_runner,
+Demuxer::Demuxer(std::shared_ptr<TaskRunner> task_runner,
                  std::string url,
                  MediaTracksUpdatedCB media_tracks_updated_cb)
-    : task_runner_(task_runner),
+    : task_runner_(std::move(task_runner)),
       media_tracks_updated_cb_(std::move(media_tracks_updated_cb)),
       host_(nullptr),
       format_context_(nullptr),

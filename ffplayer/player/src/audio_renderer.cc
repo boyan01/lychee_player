@@ -14,15 +14,20 @@
 
 namespace media {
 
-AudioRenderer::AudioRenderer(TaskRunner *task_runner, std::shared_ptr<AudioRendererSink> sink)
-    : task_runner_(task_runner),
+AudioRenderer::AudioRenderer(std::shared_ptr<TaskRunner> task_runner, std::shared_ptr<AudioRendererSink> sink)
+    : task_runner_(std::move(task_runner)),
       audio_buffer_(),
       sink_(std::move(sink)),
       volume_(1) {
 
 }
 
-AudioRenderer::~AudioRenderer() = default;
+AudioRenderer::~AudioRenderer() {
+  std::lock_guard<std::mutex> auto_lock(mutex_);
+  if (sink_) {
+    sink_->Stop();
+  }
+}
 
 void AudioRenderer::Initialize(DemuxerStream *stream,
                                std::shared_ptr<MediaClock> media_clock,

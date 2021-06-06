@@ -25,7 +25,15 @@ MediaPlayer::MediaPlayer(
   task_runner_->PostTask(FROM_HERE, [&]() {
     Initialize();
   });
-  decoder_task_runner_ = TaskRunner::prepare_looper("decoder");
+  decoder_task_runner_ = std::shared_ptr<TaskRunner>(
+      TaskRunner::prepare_looper("decoder"),
+      [](TaskRunner *ptr) {
+        ptr->PostTask(FROM_HERE_WITH_EXPLICIT_FUNCTION("DELETER"), [ptr]() {
+          ptr->Quit();
+          delete ptr;
+        });
+
+      });
   audio_renderer_ = std::make_shared<AudioRenderer>(decoder_task_runner_, std::move(audio_renderer_sink));
   video_renderer_ = std::make_shared<VideoRenderer>(decoder_task_runner_, std::move(video_renderer_sink));
 }
