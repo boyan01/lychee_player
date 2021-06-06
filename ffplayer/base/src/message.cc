@@ -11,19 +11,15 @@ namespace base {
 
 Message::Message(TaskClosure task,
                  const media::tracked_objects::Location &posted_from,
-                 TimeDelta delayed_run_time)
+                 TimeDelta delayed_run_time,
+                 TaskRunner *task_runner,
+                 int task_id)
     : task(std::move(task)),
       posted_from(posted_from),
       when(std::chrono::system_clock::now() + delayed_run_time),
-      sequence_num(0) {
-
-}
-
-Message::Message(TaskClosure task, const tracked_objects::Location &posted_from)
-    : task(std::move(task)),
-      posted_from(posted_from),
       sequence_num(0),
-      when(std::chrono::system_clock::now()) {
+      task_runner_(task_runner),
+      task_id_(task_id) {
 
 }
 

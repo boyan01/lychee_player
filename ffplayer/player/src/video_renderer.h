@@ -5,8 +5,9 @@
 #ifndef MEDIA_PLAYER_SRC_VIDEO_RENDERER_H_
 #define MEDIA_PLAYER_SRC_VIDEO_RENDERER_H_
 
+#include "base/task_runner.h"
+
 #include <ostream>
-#include "task_runner.h"
 #include "video_renderer_sink.h"
 #include "demuxer_stream.h"
 #include "media_clock.h"

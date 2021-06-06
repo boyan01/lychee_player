@@ -12,40 +12,29 @@ namespace media {
 
 namespace base {
 
-thread_local MessageLoop *MessageLoop::thread_local_message_loop_;
+thread_local MessageLooper *MessageLooper::thread_local_message_loop_;
 
-MessageLoop::MessageLoop(const char *loop_name) : loop_name_(loop_name) {
-
+MessageLooper::MessageLooper(const char *loop_name)
+    : loop_name_(loop_name),
+      message_queue_(std::make_unique<MessageQueue>()) {
 }
 
-MessageLoop::~MessageLoop() {
+MessageLooper::~MessageLooper() {
   DCHECK_EQ(this, current());
 }
 
-void MessageLoop::PostTask(const tracked_objects::Location &from_here, const TaskClosure &task) {
-  Message message(task, from_here);
-  message_queue_.EnqueueMessage(message);
-}
-
-void MessageLoop::PostDelayedTask(const tracked_objects::Location &from_here,
-                                  TimeDelta delay,
-                                  const TaskClosure &task) {
-  Message message(task, from_here, delay);
-  message_queue_.EnqueueMessage(message);
-}
-
-void MessageLoop::Prepare() {
+void MessageLooper::Prepare() {
   DCHECK(!prepared_);
   prepared_ = true;
   utility::update_thread_name(loop_name_);
   thread_local_message_loop_ = this;
 }
 
-void MessageLoop::Loop() {
+void MessageLooper::Loop() {
   for (;;) {
-    Message *msg = message_queue_.next();
+    Message *msg = message_queue_->next();
     if (msg == nullptr) {
-      DLOG(INFO) << "MessageLoop over.";
+      DLOG(INFO) << "MessageLoop " << loop_name_ << " over.";
       return;
     }
 
@@ -57,19 +46,31 @@ void MessageLoop::Loop() {
   }
 }
 
-MessageLoop *MessageLoop::current() {
+void MessageLooper::PostTask(const tracked_objects::Location &from_here, const TaskClosure &task) {
+  static const TimeDelta delay(0);
+  PostDelayedTask(from_here, delay, task);
+}
+void MessageLooper::PostDelayedTask(const tracked_objects::Location &from_here,
+                                    TimeDelta delay,
+                                    const TaskClosure &task_closure) {
+  Message message(task_closure, from_here, delay, nullptr, 0);
+  message_queue_->EnqueueMessage(message);
+}
+
+MessageLooper *MessageLooper::current() {
   return thread_local_message_loop_;
 }
 
-void MessageLoop::Quit() {
-  message_queue_.Quit();
+void MessageLooper::Quit() {
+  message_queue_->Quit();
 }
 
-MessageLoop *MessageLoop::prepare_looper(const char *loop_name) {
-  auto *looper = new MessageLoop(loop_name);
+MessageLooper *MessageLooper::prepare_looper(const char *loop_name) {
+  auto *looper = new MessageLooper(loop_name);
   std::thread looper_th([looper]() {
     looper->Prepare();
     looper->Loop();
+    delete looper;
   });
   looper_th.detach();
   return looper;

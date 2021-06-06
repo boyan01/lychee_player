@@ -157,7 +157,7 @@ class SdlLycheePlayerExample : public std::enable_shared_from_this<SdlLycheePlay
 
   std::vector<std::string> input_files_;
   int playing_file_index_;
-  TaskRunner *task_runner_;
+  std::unique_ptr<TaskRunner> task_runner_;
 
   std::shared_ptr<SDL_Renderer> renderer_;
 
@@ -175,7 +175,7 @@ class SdlLycheePlayerExample : public std::enable_shared_from_this<SdlLycheePlay
   }
 
   void PlayItem(const std::string &input_file) {
-    auto video_renderer_sink = std::make_unique<SdlVideoRendererSink>(task_runner_, renderer_);
+    auto video_renderer_sink = std::make_unique<SdlVideoRendererSink>(*task_runner_, renderer_);
 #if __APPLE__
     auto audio_renderer_sink = std::make_unique<MacosAudioRendererSink>();
 #else
@@ -205,7 +205,7 @@ SdlLycheePlayerExample::SdlLycheePlayerExample(
     : input_files_(input_files),
       renderer_(std::move(renderer)),
       playing_file_index_(0),
-      task_runner_(TaskRunner::current()) {
+      task_runner_(std::make_unique<TaskRunner>(base::MessageLooper::current())) {
   DCHECK(!input_files.empty());
   DCHECK(task_runner_);
 }
@@ -473,12 +473,11 @@ int main(int argc, char *argv[]) {
         << "Failed to create window or renderer: " << SDL_GetError();
   }
 
-  auto *task_runner = new TaskRunner("main_task");
-  task_runner->Prepare();
-
+  auto *looper = new base::MessageLooper("main_task");
+  looper->Prepare();
   auto player = make_shared<SdlLycheePlayerExample>(input_files, renderer);
-  task_runner->PostTask(FROM_HERE, std::bind(&SdlLycheePlayerExample::Start, player));
-  task_runner->Loop();
+  looper->PostTask(FROM_HERE, std::bind(&SdlLycheePlayerExample::Start, player));
+  looper->Loop();
 
   return 0;
 }

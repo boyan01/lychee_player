@@ -51,7 +51,7 @@ DemuxerStream::DemuxerStream(
     type_(type),
     audio_decode_config_(std::move(audio_decode_config)),
     video_decode_config_(std::move(video_decode_config)),
-    task_runner_(TaskRunner::current()),
+    task_runner_(std::make_unique<TaskRunner>(MessageLooper::current())),
     buffer_queue_(std::make_shared<DecoderBufferQueue>()),
     end_of_stream_(false),
     waiting_for_key_frame_(false),

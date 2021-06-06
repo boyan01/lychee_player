@@ -11,14 +11,14 @@ namespace base {
 MessageQueue::MessageQueue() = default;
 
 MessageQueue::~MessageQueue() {
-  Quit();
+  DCHECK(quitting_);
 }
 
 bool MessageQueue::EnqueueMessage(const Message &message) {
   std::unique_lock<std::recursive_mutex> auto_lock(message_queue_lock_);
 
   if (quitting_) {
-    NOTREACHED() << "sending message on a dead thread";
+    DLOG(WARNING) << "sending message on a dead thread";
     return false;
   }
   auto *msg = new Message(message);
@@ -89,6 +89,69 @@ Message *MessageQueue::next() {
 
   }
   return nullptr;
+}
+
+void MessageQueue::RemoveTask(TaskRunner *task_runner) {
+  if (!task_runner) {
+    return;
+  }
+  std::lock_guard<std::recursive_mutex> auto_lock(message_queue_lock_);
+
+  Message *p = messages_;
+
+  // Remove all messages at front.
+  while (p != nullptr && p->task_runner_ == task_runner) {
+    Message *n = p->next;
+    messages_ = n;
+    delete p;
+    p = n;
+  }
+
+  // Remove all message after front
+  while (p != nullptr) {
+    Message *n = p->next;
+    if (n) {
+      if (n->task_runner_ == task_runner) {
+        Message *nn = n->next;
+        delete n;
+        p->next = nn;
+        continue;
+      }
+    }
+    p = n;
+  }
+
+}
+
+void MessageQueue::RemoveTask(TaskRunner *task_runner, int task_id) {
+  if (!task_runner) {
+    return;
+  }
+  std::lock_guard<std::recursive_mutex> auto_lock(message_queue_lock_);
+  Message *p = messages_;
+
+  // Remove all messages at front.
+  while (p != nullptr && p->task_runner_ == task_runner && p->task_id_ == task_id) {
+    Message *n = p->next;
+    messages_ = n;
+    delete p;
+    p = n;
+  }
+
+  // Remove all message after front
+  while (p != nullptr) {
+    Message *n = p->next;
+    if (n) {
+      if (n->task_runner_ == task_runner && n->task_id_ == task_id) {
+        Message *nn = n->next;
+        delete n;
+        p->next = nn;
+        continue;
+      }
+    }
+    p = n;
+  }
+
 }
 
 void MessageQueue::Wake() {

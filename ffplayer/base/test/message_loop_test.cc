@@ -10,7 +10,7 @@
 #include "base/message_loop.h"
 #include "base/bind_to_current_loop.h"
 
-using media::base::MessageLoop;
+using media::base::MessageLooper;
 
 typedef testing::MockFunction<void(void)> MockTask;
 
@@ -18,7 +18,7 @@ class MessageLoopTest : public testing::Test {
 
  public:
   MessageLoopTest() {
-    message_loop_ = MessageLoop::prepare_looper("test_looper");
+    message_loop_ = MessageLooper::prepare_looper("test_looper");
   }
 
   ~MessageLoopTest() override {
@@ -27,16 +27,16 @@ class MessageLoopTest : public testing::Test {
   }
 
  protected:
-  MessageLoop *message_loop_ = nullptr;
+  MessageLooper *message_loop_ = nullptr;
 };
 
-static void quit_message_loop_with_wait(MessageLoop *message_loop) {
+static void quit_message_loop_with_wait(MessageLooper *message_loop) {
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
   message_loop->Quit();
 }
 
-static MessageLoop *create_test_looper() {
-  return MessageLoop::prepare_looper("test_loop");
+static MessageLooper *create_test_looper() {
+  return MessageLooper::prepare_looper("test_loop");
 }
 
 #define TEST_MESSAGE_LOOP_START(test_name) \
@@ -57,7 +57,7 @@ TEST_MESSAGE_LOOP_END()
 TEST_MESSAGE_LOOP_START(RunnerMessageLoop)
   MockTask task;
   EXPECT_CALL(task, Call()).Times(1).WillOnce([&]() {
-    EXPECT_EQ(MessageLoop::current(), message_loop);
+    EXPECT_EQ(MessageLooper::current(), message_loop);
   });
   message_loop->PostTask(FROM_HERE, task.AsStdFunction());
 TEST_MESSAGE_LOOP_END()

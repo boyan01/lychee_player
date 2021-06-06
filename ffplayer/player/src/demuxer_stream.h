@@ -10,6 +10,7 @@
 
 #include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/task_runner.h"
 
 extern "C" {
 #include "libavformat/avformat.h"
@@ -19,7 +20,6 @@ extern "C" {
 #include "video_decode_config.h"
 #include "decoder_buffer.h"
 #include "decoder_buffer_queue.h"
-#include "task_runner.h"
 
 namespace media {
 
@@ -98,7 +98,7 @@ class DemuxerStream {
 
   std::shared_ptr<DecoderBufferQueue> buffer_queue_;
 
-  TaskRunner *task_runner_;
+  std::unique_ptr<TaskRunner> task_runner_;
   bool end_of_stream_;
 
   int64 last_packet_pos_;

@@ -14,7 +14,7 @@ int SdlVideoRendererSink::screen_height = 0;
 int SdlVideoRendererSink::screen_width = 0;
 
 SdlVideoRendererSink::SdlVideoRendererSink(
-    TaskRunner *render_task_runner,
+    const TaskRunner &render_task_runner,
     std::shared_ptr<SDL_Renderer> renderer
 ) : render_task_runner_(render_task_runner),
     renderer_(std::move(renderer)) {
@@ -27,13 +27,13 @@ void SdlVideoRendererSink::Start(VideoRendererSink::RenderCallback *callback) {
 
   render_callback_ = callback;
   state_ = kRunning;
-  render_task_runner_->PostTask(FROM_HERE, std::bind(&SdlVideoRendererSink::RenderInternal, this));
+  render_task_runner_.PostTask(FROM_HERE, std::bind(&SdlVideoRendererSink::RenderInternal, this));
 }
 
 void SdlVideoRendererSink::Stop() {
   DCHECK_EQ(state_, kRunning);
   // TODO remove all pending task.
-  render_task_runner_->PostTask(FROM_HERE, [&]() {
+  render_task_runner_.PostTask(FROM_HERE, [&]() {
     render_callback_ = nullptr;
     state_ = kIdle;
   });
@@ -50,7 +50,7 @@ void SdlVideoRendererSink::RenderInternal() {
 
   // delay 10ms to draw next frame.
   // FIXME we need calculate a more effective time.
-  render_task_runner_->PostDelayedTask(
+  render_task_runner_.PostDelayedTask(
       FROM_HERE, TimeDelta(10000),
       std::bind(&SdlVideoRendererSink::RenderInternal, this));
 
