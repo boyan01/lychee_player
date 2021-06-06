@@ -26,6 +26,7 @@ class FlutterMediaTexture {
 
   virtual int64_t GetTextureId() = 0;
 
+  [[deprecated]]
   virtual void Release() = 0;
 
   /**

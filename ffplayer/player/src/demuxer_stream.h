@@ -98,7 +98,7 @@ class DemuxerStream {
 
   std::shared_ptr<DecoderBufferQueue> buffer_queue_;
 
-  std::unique_ptr<TaskRunner> task_runner_;
+  TaskRunner task_runner_;
   bool end_of_stream_;
 
   int64 last_packet_pos_;

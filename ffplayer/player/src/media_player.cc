@@ -66,9 +66,11 @@ void MediaPlayer::Initialize() {
 MediaPlayer::~MediaPlayer() {
   task_runner_ = nullptr;
   decoder_task_runner_ = nullptr;
-// TODO quit looper?
-//  looper_->Quit();
-//  decoder_looper_->Quit();
+  demuxer_ = nullptr;
+  audio_renderer_ = nullptr;
+  video_renderer_ = nullptr;
+  looper_->Quit();
+  decoder_looper_->Quit();
 }
 
 void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
