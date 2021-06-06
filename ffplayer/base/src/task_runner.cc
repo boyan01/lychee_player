@@ -5,6 +5,8 @@
 #include <base/task_runner.h>
 #include <base/logging.h>
 
+#include <utility>
+
 namespace media {
 
 TaskRunner::TaskRunner(MessageLoop *looper) : looper_(looper) {
@@ -26,4 +28,5 @@ void TaskRunner::PostDelayedTask(const tracked_objects::Location &from_here,
   looper_->PostDelayedTask(from_here, delay, task_closure);
 }
 
+TaskRunner::Task::Task(TaskClosure task_closure) : task_closure_(std::move(task_closure)) {}
 }

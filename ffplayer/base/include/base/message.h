@@ -39,7 +39,11 @@ struct Message {
 
   std::chrono::time_point<std::chrono::system_clock> when;
 
+ private:
   Message *next = nullptr;
+
+  friend class MessageQueue;
+  friend class MessageLoop;
 
 };
 

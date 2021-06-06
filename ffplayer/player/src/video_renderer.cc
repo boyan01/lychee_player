@@ -22,7 +22,9 @@ VideoRenderer::VideoRenderer(
   DCHECK(sink_);
 }
 
-VideoRenderer::~VideoRenderer() = default;
+VideoRenderer::~VideoRenderer() {
+  sink_->Stop();
+}
 
 void VideoRenderer::Initialize(DemuxerStream *stream, std::shared_ptr<MediaClock> media_clock,
                                VideoRenderer::InitCallback init_callback) {
