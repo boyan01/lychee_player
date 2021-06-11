@@ -9,7 +9,7 @@ import io.flutter.view.TextureRegistry
 
 @Keep
 class FlutterTexture(
-    private val texture: TextureRegistry.SurfaceTextureEntry
+        private val texture: TextureRegistry.SurfaceTextureEntry
 ) {
 
     companion object {
@@ -31,6 +31,7 @@ class FlutterTexture(
     }
 
     fun release() {
+        Log.i(TAG, "release: $this");
         surface.release()
         Handler(Looper.getMainLooper()).post {
             texture.release()

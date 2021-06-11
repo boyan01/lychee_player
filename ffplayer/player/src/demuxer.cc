@@ -16,10 +16,10 @@ namespace media {
 const int PIPELINE_ERROR_ABORT = -1;
 const int PIPELINE_OK = 0;
 
-Demuxer::Demuxer(std::shared_ptr<TaskRunner> task_runner,
+Demuxer::Demuxer(const TaskRunner &task_runner,
                  std::string url,
                  MediaTracksUpdatedCB media_tracks_updated_cb)
-    : task_runner_(std::move(task_runner)),
+    : task_runner_(task_runner),
       media_tracks_updated_cb_(std::move(media_tracks_updated_cb)),
       host_(nullptr),
       format_context_(nullptr),
@@ -32,17 +32,16 @@ Demuxer::Demuxer(std::shared_ptr<TaskRunner> task_runner,
       read_position_(0),
       last_read_bytes_(0),
       pending_seek_position_(0) {
-  DCHECK(task_runner_);
 }
 
 void Demuxer::PostDemuxTask() {
-  task_runner_->PostTask(FROM_HERE, [this]() {
+  task_runner_.PostTask(FROM_HERE, [this]() {
     DemuxTask();
   });
 }
 
 void Demuxer::DemuxTask() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
 
   // Make sure we have work to do before demuxing.
   if (!StreamsHaveAvailableCapacity()) {
@@ -96,7 +95,7 @@ void Demuxer::Initialize(DemuxerHost *host, PipelineStatusCB status_cb) {
   host_ = host;
   init_callback_ = BindToCurrentLoop(std::move(status_cb));
 
-  task_runner_->PostTask(FROM_HERE, std::bind(&Demuxer::InitializeTask, this));
+  task_runner_.PostTask(FROM_HERE, std::bind(&Demuxer::InitializeTask, this));
 }
 
 void Demuxer::InitializeTask() {
@@ -186,7 +185,7 @@ static int CalculateBitrate(
 }
 
 void Demuxer::OnOpenContextDone(bool open) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
   if (stopped_) {
     init_callback_(PIPELINE_ERROR_ABORT);
     return;
@@ -394,7 +393,7 @@ void Demuxer::OnOpenContextDone(bool open) {
 }
 
 void Demuxer::StreamHasEnded() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
   for (auto &stream: streams_) {
     if (stream) {
       stream->SetEndOfStream();
@@ -403,7 +402,7 @@ void Demuxer::StreamHasEnded() {
 }
 
 void Demuxer::NotifyBufferingChanged() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
 //  Ranges<TimeDelta> buffered;
 //  std::shared_ptr<DemuxerStream> audio = audio_disabled_ ? nullptr : GetFFmpegStream(DemuxerStream::Audio);
 //  std::shared_ptr<DemuxerStream> video = GetFFmpegStream(DemuxerStream::Video);
@@ -420,7 +419,7 @@ void Demuxer::NotifyBufferingChanged() {
 }
 
 void Demuxer::Stop(std::function<void(void)> callback) {
-  task_runner_->PostTask(FROM_HERE, [&]() {
+  task_runner_.PostTask(FROM_HERE, [&]() {
     StopTask(callback);
   });
 
@@ -429,7 +428,7 @@ void Demuxer::Stop(std::function<void(void)> callback) {
 }
 
 void Demuxer::StopTask(const std::function<void(void)> &callback) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
   for (auto &stream: streams_) {
     if (stream) {
       stream->Stop();
@@ -459,7 +458,7 @@ DemuxerStream *Demuxer::GetFirstStream(DemuxerStream::Type type) {
 }
 
 std::vector<DemuxerStream *> Demuxer::GetAllStreams() {
-//  DCHECK(task_runner_->BelongsToCurrentThread());
+//  DCHECK(task_runner_.BelongsToCurrentThread());
   std::vector<DemuxerStream *> result;
   // Put enabled streams at the beginning of the list so that
   // MediaResource::GetFirstStream returns the enabled stream if there is one.
@@ -477,14 +476,14 @@ std::vector<DemuxerStream *> Demuxer::GetAllStreams() {
 }
 
 bool Demuxer::StreamsHaveAvailableCapacity() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
   return std::any_of(streams_.begin(), streams_.end(), [](const std::shared_ptr<DemuxerStream> &stream) {
     return stream && stream->HasAvailableCapacity();
   });
 }
 
 void Demuxer::NotifyCapacityAvailable() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
   PostDemuxTask();
 }
 
@@ -493,11 +492,11 @@ void Demuxer::SeekTo(double position, SeekCallback seek_callback) {
 
   seek_callback_ = BindToCurrentLoop(std::move(seek_callback));
   pending_seek_position_ = position;
-  task_runner_->PostTask(FROM_HERE, bind_weak(&Demuxer::SeekTask, shared_from_this()));
+  task_runner_.PostTask(FROM_HERE, bind_weak(&Demuxer::SeekTask, shared_from_this()));
 }
 
 void Demuxer::SeekTask() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
   DCHECK(seek_callback_);
 
   DLOG(INFO) << "do seek to " << pending_seek_position_;

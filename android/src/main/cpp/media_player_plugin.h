@@ -7,4 +7,6 @@
 
 #include "jni.h"
 
+extern JavaVM *g_vm;
+
 #endif //ANDROID_AV_PLAYER_PLUGIN_H
