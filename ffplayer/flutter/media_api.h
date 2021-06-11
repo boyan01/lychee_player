@@ -26,6 +26,7 @@ class FlutterMediaTexture {
 
   virtual int64_t GetTextureId() = 0;
 
+  [[deprecated]]
   virtual void Release() = 0;
 
   /**
@@ -43,6 +44,7 @@ class FlutterMediaTexture {
    */
   virtual PixelFormat GetSupportFormat() = 0;
 
+  // TODO lock return bool
   virtual void LockBuffer() = 0;
 
   virtual void UnlockBuffer() = 0;

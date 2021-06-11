@@ -29,7 +29,7 @@ class DecoderStream : public std::enable_shared_from_this<DecoderStream<StreamTy
   using ReadResult = std::shared_ptr<Output>;
   using ReadCallback = std::function<void(ReadResult)>;
 
-  explicit DecoderStream(std::unique_ptr<DecoderStreamTraits<StreamType>> traits, TaskRunner *task_runner);
+  explicit DecoderStream(std::unique_ptr<DecoderStreamTraits<StreamType>> traits, std::shared_ptr<TaskRunner> task_runner);
 
   void Read(ReadCallback read_callback);
 
@@ -57,7 +57,7 @@ class DecoderStream : public std::enable_shared_from_this<DecoderStream<StreamTy
 
   ReadCallback read_callback_;
 
-  TaskRunner *task_runner_;
+  std::shared_ptr<TaskRunner> task_runner_;
 
   int pending_decode_requests_;
 

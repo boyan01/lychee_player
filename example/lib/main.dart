@@ -1,15 +1,17 @@
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:overlay_support/overlay_support.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:lychee_player/lychee_player.dart';
 
-import 'full_screen_player.dart';
+// ignore: implementation_imports
 import 'package:lychee_player/src/ffi_player.dart';
+import 'package:overlay_support/overlay_support.dart';
+import 'package:permission_handler/permission_handler.dart';
 
+import 'full_screen_player.dart';
 import 'stores.dart';
 import 'widgets/player_components.dart';
 
@@ -42,7 +44,7 @@ class _MyAppState extends State<MyApp> {
   AudioPlayer? player;
   String? url;
 
-  Map<String, PlayType> urls = {};
+  Map<String, PlayType> urls = <String, PlayType>{};
 
   @override
   void initState() {
@@ -107,29 +109,36 @@ class _MyAppState extends State<MyApp> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        appBar: HomeAppBar(add: (added) {
-          setState(() {
-            urls.addEntries([added]);
-            UrlStores.instance.put(added.key, added.value);
-          });
-        }),
-        body: Column(
-          children: [
-            SmallVideo(player: player),
-            _PlayerUi(player: player, url: this.url),
-            Expanded(
-                child: ListView(
-              children: [
-                for (var item in urls.keys) buildListTile(context, item)
-              ],
-            )),
-          ],
+  Widget build(BuildContext context) => MaterialApp(
+        home: Scaffold(
+          appBar: HomeAppBar(add: (added) {
+            setState(() {
+              urls.addEntries([added]);
+              UrlStores.instance.put(added.key, added.value);
+            });
+          }),
+          body: Column(
+            children: [
+              SmallVideo(player: player),
+              _PlayerUi(player: player, url: this.url),
+              Expanded(
+                  child: ListView(
+                children: [
+                  for (var item in urls.keys) buildListTile(context, item)
+                ],
+              )),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties
+      ..add(DiagnosticsProperty<AudioPlayer?>('player', player))
+      ..add(StringProperty('url', url))
+      ..add(DiagnosticsProperty<Map<String, PlayType>>('urls', urls));
   }
 }
 

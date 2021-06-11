@@ -20,12 +20,12 @@ namespace media {
 MediaPlayer::MediaPlayer(
     std::unique_ptr<VideoRendererSink> video_renderer_sink,
     std::shared_ptr<AudioRendererSink> audio_renderer_sink
-) {
-  task_runner_ = TaskRunner::prepare_looper("media_player");
+) : looper_(MessageLooper::prepare_looper("media_player")), decoder_looper_(MessageLooper::prepare_looper("decoder")) {
+  task_runner_ = std::make_unique<TaskRunner>(looper_);
   task_runner_->PostTask(FROM_HERE, [&]() {
     Initialize();
   });
-  decoder_task_runner_ = TaskRunner::prepare_looper("decoder");
+  decoder_task_runner_ = std::make_shared<TaskRunner>(decoder_looper_);
   audio_renderer_ = std::make_shared<AudioRenderer>(decoder_task_runner_, std::move(audio_renderer_sink));
   video_renderer_ = std::make_shared<VideoRenderer>(decoder_task_runner_, std::move(video_renderer_sink));
 }
@@ -64,7 +64,13 @@ void MediaPlayer::Initialize() {
 }
 
 MediaPlayer::~MediaPlayer() {
-  task_runner_->Quit();
+  task_runner_ = nullptr;
+  decoder_task_runner_ = nullptr;
+  demuxer_ = nullptr;
+  audio_renderer_ = nullptr;
+  video_renderer_ = nullptr;
+  looper_->Quit();
+  decoder_looper_->Quit();
 }
 
 void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {

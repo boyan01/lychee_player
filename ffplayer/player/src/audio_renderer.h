@@ -21,7 +21,7 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
 
  public:
 
-  explicit AudioRenderer(TaskRunner *task_runner, std::shared_ptr<AudioRendererSink> sink);
+  AudioRenderer(std::shared_ptr<TaskRunner> task_runner, std::shared_ptr<AudioRendererSink> sink);
 
   ~AudioRenderer() override;
 
@@ -46,7 +46,7 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
 
  private:
 
-  TaskRunner *task_runner_;
+  std::shared_ptr<TaskRunner> task_runner_;
   DemuxerStream *demuxer_stream_ = nullptr;
 
   std::shared_ptr<AudioDecoderStream> decoder_stream_;

@@ -11,7 +11,7 @@ extern "C" {
 }
 
 #include "video_renderer_sink.h"
-#include "task_runner.h"
+#include "base/task_runner.h"
 
 namespace media {
 
@@ -22,7 +22,7 @@ class SdlVideoRendererSink : public VideoRendererSink {
   static int screen_width;
   static int screen_height;
 
-  SdlVideoRendererSink(TaskRunner *render_task_runner, std::shared_ptr<SDL_Renderer> renderer);
+  SdlVideoRendererSink(const TaskRunner &render_task_runner, std::shared_ptr<SDL_Renderer> renderer);
 
   void Start(RenderCallback *callback) override;
 
@@ -35,7 +35,7 @@ class SdlVideoRendererSink : public VideoRendererSink {
     kRunning,
   };
 
-  TaskRunner *render_task_runner_;
+  TaskRunner render_task_runner_;
 
   std::shared_ptr<SDL_Renderer> renderer_;
 

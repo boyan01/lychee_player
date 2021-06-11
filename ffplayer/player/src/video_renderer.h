@@ -5,8 +5,9 @@
 #ifndef MEDIA_PLAYER_SRC_VIDEO_RENDERER_H_
 #define MEDIA_PLAYER_SRC_VIDEO_RENDERER_H_
 
+#include "base/task_runner.h"
+
 #include <ostream>
-#include "task_runner.h"
 #include "video_renderer_sink.h"
 #include "demuxer_stream.h"
 #include "media_clock.h"
@@ -18,7 +19,7 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
 
  public:
 
-  VideoRenderer(TaskRunner *task_runner, std::shared_ptr<VideoRendererSink> video_renderer_sink);
+  VideoRenderer(std::shared_ptr<TaskRunner> task_runner, std::shared_ptr<VideoRendererSink> video_renderer_sink);
 
   ~VideoRenderer() override;
 
@@ -49,7 +50,7 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
   };
   State state_ = kUnInitialized;
 
-  TaskRunner *task_runner_;
+  std::shared_ptr<TaskRunner> task_runner_;
 
   std::shared_ptr<VideoRendererSink> sink_;
 

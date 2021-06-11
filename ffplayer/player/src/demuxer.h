@@ -50,11 +50,11 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
 
   using MediaTracksUpdatedCB = std::function<void(std::unique_ptr<MediaTracks>)>;
 
-  Demuxer(base::MessageLoop *task_runner,
+  Demuxer(std::shared_ptr<TaskRunner> task_runner,
           std::string url,
           MediaTracksUpdatedCB media_tracks_updated_cb);
 
-  TaskRunner *message_loop() { return task_runner_; }
+  TaskRunner *message_loop() { return task_runner_.get(); }
 
   void Initialize(DemuxerHost *host, PipelineStatusCB status_cb);
 
@@ -118,7 +118,7 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
   DemuxerHost *host_;
   PipelineStatusCB init_callback_;
 
-  TaskRunner *task_runner_;
+  std::shared_ptr<TaskRunner> task_runner_;
 
   std::string url_;
 

@@ -24,6 +24,8 @@ class SdlAudioRendererSink : public AudioRendererSink {
   void Pause() override;
   void Stop() override;
 
+  ~SdlAudioRendererSink() override;
+
  private:
 
   RenderCallback *render_callback_;

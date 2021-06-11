@@ -9,10 +9,11 @@
 #include <functional>
 #include <utility>
 
+#include "base/task_runner.h"
+
 #include "ffplayer.h"
 #include "media_clock.h"
 #include "data_source.h"
-#include "task_runner.h"
 #include "audio_renderer.h"
 #include "video_renderer.h"
 #include "audio_decoder.h"
@@ -134,8 +135,11 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
 
  private:
 
-  TaskRunner *task_runner_;
-  TaskRunner *decoder_task_runner_;
+  MessageLooper *looper_;
+  MessageLooper *decoder_looper_;
+
+  std::unique_ptr<TaskRunner> task_runner_;
+  std::shared_ptr<TaskRunner> decoder_task_runner_;
 
   OnVideoSizeChangeCallback on_video_size_changed_;
 

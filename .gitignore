@@ -12,6 +12,8 @@ build/
 
 macos/Flutter/ephemeral
 
+android/.cxx
+
 .idea/*
 
 pubspec.lock

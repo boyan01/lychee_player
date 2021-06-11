@@ -23,6 +23,7 @@ if (NOT DISABLE_MEDIA_TEST)
             test/message_queue_test.cc
             test/message_loop_test.cc
             test/circular_deque_test.cc
+            test/task_runner_test.cc
             )
     target_link_libraries(media_base_test media_base gtest_main gmock_main)
 

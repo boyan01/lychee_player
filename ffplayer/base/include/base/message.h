@@ -12,6 +12,9 @@
 #include "base/location.h"
 
 namespace media {
+
+class TaskRunner;
+
 namespace base {
 
 typedef std::function<void(void)> TaskClosure;
@@ -19,11 +22,10 @@ typedef std::function<void(void)> TaskClosure;
 struct Message {
 
   Message(TaskClosure task,
-          const tracked_objects::Location &posted_from);
-
-  Message(TaskClosure task,
           const tracked_objects::Location &posted_from,
-          TimeDelta when);
+          TimeDelta when,
+          TaskRunner *task_runner,
+          int task_id);
 
   ~Message();
 
@@ -39,7 +41,13 @@ struct Message {
 
   std::chrono::time_point<std::chrono::system_clock> when;
 
+ private:
   Message *next = nullptr;
+  TaskRunner* task_runner_;
+  int task_id_;
+
+  friend class MessageQueue;
+  friend class MessageLooper;
 
 };
 

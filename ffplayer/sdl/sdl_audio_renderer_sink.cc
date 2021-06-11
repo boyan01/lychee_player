@@ -30,6 +30,14 @@ void SdlAudioRendererSink::Initialize(int wanted_nb_channels, int wanted_sample_
 
 }
 
+SdlAudioRendererSink::~SdlAudioRendererSink() {
+  if (audio_device_id_ > 0) {
+    SDL_LockAudioDevice(audio_device_id_);
+    SDL_CloseAudioDevice(audio_device_id_);
+    SDL_UnlockAudioDevice(audio_device_id_);
+  }
+}
+
 bool SdlAudioRendererSink::SetVolume(double volume) {
   return false;
 }
@@ -72,7 +80,7 @@ int SdlAudioRendererSink::OpenAudioDevices(int wanted_nb_channels, int wanted_sa
 }
 
 void SdlAudioRendererSink::ReadAudioData(Uint8 *stream, int len) {
-  DCHECK_GT(sample_rate_, 0) << "Invalid sample rate. " << sample_rate_;
+  DCHECK_GT(sample_rate_, 0) << "Invalid sample rate. ";
   auto read = 0;
 
   while (read < len) {
@@ -104,7 +112,10 @@ void SdlAudioRendererSink::Pause() {
 
 void SdlAudioRendererSink::Stop() {
   DCHECK_GT(audio_device_id_, 0);
+  SDL_LockAudioDevice(audio_device_id_);
   SDL_CloseAudioDevice(audio_device_id_);
+  audio_device_id_ = -1;
+  SDL_UnlockAudioDevice(audio_device_id_);
 }
 
 }

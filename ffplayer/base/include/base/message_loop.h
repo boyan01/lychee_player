@@ -15,7 +15,7 @@
 namespace media {
 namespace base {
 
-class MessageLoop {
+class MessageLooper {
 
  public:
 
@@ -26,16 +26,16 @@ class MessageLoop {
    * @param loop_name the name of [MessageLoop]
    * @return created MessageLoop.
    */
-  static MessageLoop *prepare_looper(const char *loop_name);
+  static MessageLooper *prepare_looper(const char *loop_name);
 
-  explicit MessageLoop(const char *loop_name);
+  explicit MessageLooper(const char *loop_name);
 
   void Prepare();
 
-  virtual ~MessageLoop();
+  virtual ~MessageLooper();
 
   // Returns the MessageLoop object for the current thread, or null if none.
-  static MessageLoop *current();
+  static MessageLooper *current();
 
   void PostTask(const tracked_objects::Location &from_here, const TaskClosure &task);
 
@@ -47,7 +47,7 @@ class MessageLoop {
    * @return true if the current thread is a thread on which is running current looper.
    */
   bool BelongsToCurrentThread() {
-    return MessageLoop::current() == this;
+    return MessageLooper::current() == this;
   }
 
   void Loop();
@@ -56,15 +56,17 @@ class MessageLoop {
 
  private:
 
+  friend class ::media::TaskRunner;
+
   bool prepared_ = false;
 
   const char *loop_name_;
 
-  MessageQueue message_queue_;
+  std::unique_ptr<MessageQueue> message_queue_;
 
-  DISALLOW_COPY_AND_ASSIGN(MessageLoop);
+  DELETE_COPY_AND_ASSIGN(MessageLooper);
 
-  static thread_local MessageLoop *thread_local_message_loop_;
+  static thread_local MessageLooper *thread_local_message_loop_;
 
 };
 

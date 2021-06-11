@@ -16,10 +16,10 @@ namespace media {
 const int PIPELINE_ERROR_ABORT = -1;
 const int PIPELINE_OK = 0;
 
-Demuxer::Demuxer(base::MessageLoop *task_runner,
+Demuxer::Demuxer(std::shared_ptr<TaskRunner> task_runner,
                  std::string url,
                  MediaTracksUpdatedCB media_tracks_updated_cb)
-    : task_runner_(task_runner),
+    : task_runner_(std::move(task_runner)),
       media_tracks_updated_cb_(std::move(media_tracks_updated_cb)),
       host_(nullptr),
       format_context_(nullptr),
@@ -187,7 +187,6 @@ static int CalculateBitrate(
 
 void Demuxer::OnOpenContextDone(bool open) {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  DCHECK(format_context_);
   if (stopped_) {
     init_callback_(PIPELINE_ERROR_ABORT);
     return;
@@ -196,6 +195,7 @@ void Demuxer::OnOpenContextDone(bool open) {
     init_callback_(PIPELINE_ERROR_ABORT);
     return;
   }
+  DCHECK(format_context_);
 
   av_format_inject_global_side_data(format_context_);
 

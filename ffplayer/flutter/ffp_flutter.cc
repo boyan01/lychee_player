@@ -8,7 +8,8 @@
 #include "video_renderer_sink_impl.h"
 #define _MEDIA_AUDIO_USE_SDL
 #elif defined(_FLUTTER_MEDIA_ANDROID)
-#include "android_video_renderer_sink.h"
+#include "android/log.h"
+#include "video_renderer_sink_impl.h"
 #include "oboe_audio_renderer_sink.h"
 #elif defined(_FLUTTER_MEDIA_LINUX)
 #include "null_video_renderer_sink.h"
@@ -141,7 +142,7 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
   video_render = std::make_unique<VideoRendererSinkImpl>();
   audio_render = std::make_unique<SdlAudioRendererSink>();
 #elif _FLUTTER_MEDIA_ANDROID
-  video_render = std::make_unique<media::AndroidVideoRendererSink>();
+  video_render = std::make_unique<media::VideoRendererSinkImpl>();
   audio_render = std::make_unique<media::OboeAudioRendererSink>();
 #elif _FLUTTER_MEDIA_DARWIN
   video_render = std::make_unique<media::VideoRendererSinkImpl>();
@@ -192,17 +193,12 @@ void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
 
 void ffp_detach_video_render_flutter(CPlayer *player) {
   CHECK_VALUE(player);
-#ifdef _FLUTTER_MEDIA_WINDOWS
   auto *video_render = dynamic_cast<FlutterVideoRendererSink *>(player->GetVideoRenderSink());
   video_render->Detach();
-#elif _FLUTTER_MEDIA_ANDROID
-  auto *video_render = dynamic_cast<media::AndroidVideoRendererSink *>(player->GetVideoRenderSink());
-  video_render->Detach();
-#endif
 }
 
 extern void register_flutter_texture_factory(FlutterTextureAdapterFactory factory) {
-#if defined(_FLUTTER_MEDIA_DARWIN) || defined(_FLUTTER_MEDIA_WINDOWS)
+#if defined(_FLUTTER_MEDIA_DARWIN) || defined(_FLUTTER_MEDIA_WINDOWS) || defined(_FLUTTER_MEDIA_ANDROID)
   DCHECK(factory) << "can not register flutter texture factory with nullptr";
   DCHECK(!VideoRendererSinkImpl::factory_) << "can not register more than once";
   VideoRendererSinkImpl::factory_ = factory;

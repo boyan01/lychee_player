@@ -15,8 +15,8 @@ namespace media {
 template<DemuxerStream::Type StreamType>
 DecoderStream<StreamType>::DecoderStream(
     std::unique_ptr<DecoderStreamTraits<StreamType>> traits,
-    TaskRunner *task_runner
-) : traits_(std::move(traits)), task_runner_(task_runner),
+    std::shared_ptr<TaskRunner> task_runner
+) : traits_(std::move(traits)), task_runner_(std::move(task_runner)),
     outputs_(), pending_decode_requests_(0),
     read_callback_(nullptr) {
 }
@@ -30,7 +30,7 @@ void DecoderStream<StreamType>::Initialize(DemuxerStream *stream, DecoderStream:
   traits_->InitializeDecoder(
       decoder_.get(), stream,
       bind_weak(&DecoderStream<StreamType>::OnFrameAvailable, this->shared_from_this()));
-  auto init_callback_bound = BindToLoop(task_runner_, std::move(init_callback));
+  auto init_callback_bound = BindToRunner(task_runner_.get(), std::move(init_callback));
   init_callback_bound(true);
 }
 

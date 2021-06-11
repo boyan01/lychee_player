@@ -304,10 +304,14 @@ class FfiAudioPlayer implements AudioPlayer {
   @override
   Duration get currentTime {
     if (_player == nullptr) {
-      return const Duration(microseconds: 0);
+      return const Duration();
+    }
+    final seconds = ffplayer_get_current_position(_player);
+    if (seconds.isNaN) {
+      return const Duration();
     }
     return Duration(
-      milliseconds: (ffplayer_get_current_position(_player) * 1000).ceil(),
+      milliseconds: (seconds * 1000).ceil(),
     );
   }
 

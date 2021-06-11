@@ -18,19 +18,34 @@ class TaskRunner {
 
  public:
 
-  explicit TaskRunner(MessageLoop *looper = nullptr);
+  explicit TaskRunner(MessageLooper *looper = nullptr);
 
   virtual ~TaskRunner();
 
   void PostTask(const tracked_objects::Location &from_here, const TaskClosure &task);
 
+  void PostTask(const tracked_objects::Location &from_here, int task_id, const TaskClosure &task);
+
   void PostDelayedTask(const tracked_objects::Location &from_here,
                        TimeDelta delay,
                        const TaskClosure &task_closure);
 
+  void PostDelayedTask(const tracked_objects::Location &from_here,
+                       TimeDelta delay,
+                       int task_id,
+                       const TaskClosure &task_closure);
+
+  void RemoveTask(int task_id);
+
+  void RemoveAllTasks();
+
+  bool BelongsToCurrentThread();
+
  private:
 
-  MessageLoop *looper_;
+  MessageLooper *looper_;
+
+  MessageQueue *message_queue_;
 
 };
 

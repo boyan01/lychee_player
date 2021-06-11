@@ -24,6 +24,10 @@ class MessageQueue {
 
   bool EnqueueMessage(const Message &message);
 
+  void RemoveTask(TaskRunner *task_runner);
+
+  void RemoveTask(TaskRunner *task_runner, int task_id);
+
   Message *next();
 
   void Quit();
@@ -44,7 +48,7 @@ class MessageQueue {
 
   void PollOnce(std::chrono::milliseconds wait_duration);
 
-  DISALLOW_COPY_AND_ASSIGN(MessageQueue);
+  DELETE_COPY_AND_ASSIGN(MessageQueue);
 
   void RemoveAllMessageLocked();
 };

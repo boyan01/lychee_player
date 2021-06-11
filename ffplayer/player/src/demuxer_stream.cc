@@ -51,7 +51,7 @@ DemuxerStream::DemuxerStream(
     type_(type),
     audio_decode_config_(std::move(audio_decode_config)),
     video_decode_config_(std::move(video_decode_config)),
-    task_runner_(TaskRunner::current()),
+    task_runner_(MessageLooper::current()),
     buffer_queue_(std::make_shared<DecoderBufferQueue>()),
     end_of_stream_(false),
     waiting_for_key_frame_(false),
@@ -70,7 +70,7 @@ VideoDecodeConfig DemuxerStream::video_decode_config() {
 }
 
 void DemuxerStream::EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> packet) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
   DCHECK(packet->size);
   DCHECK(packet->data);
 
@@ -110,7 +110,7 @@ void DemuxerStream::EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> pac
 }
 
 void DemuxerStream::SatisfyPendingRead() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
   if (abort_) {
     if (read_callback_) {
       read_callback_(DecoderBuffer::CreateEOSBuffer());
@@ -143,19 +143,19 @@ bool DemuxerStream::HasAvailableCapacity() {
 
 void DemuxerStream::Read(ReadCallback read_callback) {
   DCHECK(!read_callback_) << "Overlapping reads are not supported.";
-  task_runner_->PostTask(FROM_HERE,
-                         std::bind(&DemuxerStream::ReadTask, this, BindToCurrentLoop(std::move(read_callback))));
+  task_runner_.PostTask(FROM_HERE,
+                        std::bind(&DemuxerStream::ReadTask, this, BindToCurrentLoop(std::move(read_callback))));
 }
 
 void DemuxerStream::ReadTask(DemuxerStream::ReadCallback read_callback) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
   read_callback_ = std::move(read_callback);
   if (!stream_ || abort_) {
     read_callback_(DecoderBuffer::CreateEOSBuffer());
     read_callback_ = nullptr;
     return;
   }
-  task_runner_->PostTask(FROM_HERE, std::bind(&DemuxerStream::SatisfyPendingRead, this));
+  task_runner_.PostTask(FROM_HERE, std::bind(&DemuxerStream::SatisfyPendingRead, this));
 }
 
 double DemuxerStream::duration() {
@@ -169,7 +169,7 @@ std::string DemuxerStream::GetMetadata(const char *key) const {
 }
 
 void DemuxerStream::Stop() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
 
   buffer_queue_->Clear();
   stream_ = nullptr;
@@ -197,7 +197,7 @@ void DemuxerStream::FlushBuffers() {
 
 void DemuxerStream::Abort() {
   abort_ = true;
-  task_runner_->PostTask(FROM_HERE, std::bind(&DemuxerStream::SatisfyPendingRead, this));
+  task_runner_.PostTask(FROM_HERE, std::bind(&DemuxerStream::SatisfyPendingRead, this));
 }
 
 std::ostream &operator<<(std::ostream &os, const DemuxerStream &stream) {
