@@ -171,7 +171,7 @@ class SdlLycheePlayerExample : public std::enable_shared_from_this<SdlLycheePlay
     if (event_handler_ && SDL_PollEvent(&sdl_event)) {
       event_handler_->HandleSdlEvent(sdl_event);
     }
-    task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(1000), std::bind(&SdlLycheePlayerExample::SdlEventLoop, this));
+    task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(2000), std::bind(&SdlLycheePlayerExample::SdlEventLoop, this));
   }
 
   void PlayItem(const std::string &input_file) {
@@ -228,6 +228,7 @@ void SdlLycheePlayerExample::SkipToPrevious() {
 }
 
 void SdlLycheePlayerExample::SkipToNext() {
+  TRACE_METHOD_DURATION(1000);
   playing_file_index_ = playing_file_index_ + 1;
   if (playing_file_index_ >= input_files_.size()) {
     playing_file_index_ = 0;
@@ -237,10 +238,8 @@ void SdlLycheePlayerExample::SkipToNext() {
 
 // static
 void SDLEventHandler::HandleKeyEvent(SDL_Keycode keycode, const std::shared_ptr<SdlLycheePlayerExample> &player_app) {
-
   /* Step size for volume control*/
   static const double kExampleVolumeStep = 0.1;
-
   auto player = player_app->current_player();
   DCHECK(player);
   switch (keycode) {
@@ -323,6 +322,10 @@ void SDLEventHandler::HandleKeyEvent(SDL_Keycode keycode, const std::shared_ptr<
 }
 
 void SDLEventHandler::HandleSdlEvent(const SDL_Event &event) {
+
+  TRACE_METHOD_DURATION(10000);
+  _logging_trace_method_duration.stream() << event.type;
+
   double x;
 
   auto media = media_player_.lock();

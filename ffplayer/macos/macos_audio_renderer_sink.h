@@ -39,6 +39,12 @@ class MacosAudioRendererSink : public AudioRendererSink {
 
  private:
 
+  enum State {
+    kIdle,
+    kPlaying,
+    kPaused,
+  };
+
   AudioQueueRef audio_queue_ = nullptr;
 
   RenderCallback *render_callback_ = nullptr;
@@ -53,6 +59,8 @@ class MacosAudioRendererSink : public AudioRendererSink {
   std::vector<AudioQueueBufferRef> audio_buffer_;
 
   std::mutex mutex_;
+
+  State state_;
 
   DELETE_COPY_AND_ASSIGN(MacosAudioRendererSink);
 

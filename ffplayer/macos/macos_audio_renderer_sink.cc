@@ -41,7 +41,8 @@ MacosAudioRendererSink::MacosAudioRendererSink()
     : buffer_size_(-1),
       buffer_offset_(0),
       audio_buffer_num_(2),
-      buffer_(nullptr) {
+      buffer_(nullptr),
+      state_(kIdle) {
 
 }
 
@@ -54,6 +55,7 @@ MacosAudioRendererSink::~MacosAudioRendererSink() {
 void MacosAudioRendererSink::Initialize(int wanted_nb_channels,
                                         int wanted_sample_rate,
                                         AudioRendererSink::RenderCallback *render_callback) {
+  DCHECK_EQ(state_, kIdle);
   DCHECK(render_callback);
   render_callback_ = render_callback;
   AudioStreamBasicDescription description{};
@@ -122,6 +124,7 @@ void MacosAudioRendererSink::Initialize(int wanted_nb_channels,
 
   DLOG(INFO) << "Audio Buffer Size: " << buffer_size_ << " audio_buffer_num_: " << audio_buffer_num_;
 
+  state_ = kPaused;
 }
 
 uint32 MacosAudioRendererSink::ReadAudioData(uint8 *stream, uint32 len) {
@@ -129,6 +132,12 @@ uint32 MacosAudioRendererSink::ReadAudioData(uint8 *stream, uint32 len) {
   auto remaining = len;
 
   while (remaining > 0) {
+    if (state_ == kIdle) {
+      memset(stream, 0, remaining);
+      remaining = 0;
+      break;
+    }
+
     uint32 read;
     if (buffer_offset_ >= buffer_size_) {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -164,6 +173,7 @@ void MacosAudioRendererSink::Start() {
 }
 
 void MacosAudioRendererSink::Play() {
+  DCHECK_EQ(state_, kPaused);
   DCHECK(audio_queue_);
 
   for (auto i = 0; i < audio_buffer_num_; i++) {
@@ -179,17 +189,21 @@ void MacosAudioRendererSink::Play() {
   }
 
   AudioQueueStart(audio_queue_, nullptr);
-
+  state_ = kPlaying;
 }
 
 void MacosAudioRendererSink::Pause() {
   DCHECK(audio_queue_);
+  state_ = kPaused;
   AudioQueuePause(audio_queue_);
 }
 
 void MacosAudioRendererSink::Stop() {
   DCHECK(audio_queue_);
-  AudioQueueDispose(audio_queue_, true);
+  AudioQueueDispose(audio_queue_, false);
+  audio_queue_ = nullptr;
+  audio_buffer_.clear();
+  state_ = kIdle;
 }
 
 }
