@@ -42,6 +42,8 @@ class FlutterVideoRendererSink : public VideoRendererSink {
   TaskRunner task_runner_;
   RenderCallback *render_callback_;
 
+  std::mutex render_mutex_;
+
   void RenderTask();
 
   DELETE_COPY_AND_ASSIGN(FlutterVideoRendererSink);

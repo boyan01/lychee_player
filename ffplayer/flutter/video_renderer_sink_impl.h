@@ -43,6 +43,8 @@ class VideoRendererSinkImpl : public FlutterVideoRendererSink {
 
   void OnTextureAvailable(std::unique_ptr<FlutterMediaTexture> texture);
 
+  int attached_count_;
+
 };
 
 }

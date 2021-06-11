@@ -64,6 +64,8 @@ void MediaPlayer::Initialize() {
 }
 
 MediaPlayer::~MediaPlayer() {
+  std::lock_guard<std::mutex> lock_guard(player_mutex_);
+  DLOG(INFO) << "Destroy Media Player " << this;
   task_runner_ = nullptr;
   decoder_task_runner_ = nullptr;
   demuxer_ = nullptr;
@@ -138,7 +140,7 @@ void MediaPlayer::OpenDataSourceTask(const char *filename) {
 
   DLOG(INFO) << "open file: " << filename;
   state_ = kPreparing;
-  demuxer_ = std::make_shared<Demuxer>(decoder_task_runner_, filename,
+  demuxer_ = std::make_shared<Demuxer>(*decoder_task_runner_, filename,
                                        [](std::unique_ptr<MediaTracks> tracks) {
                                          DLOG(INFO) << "on tracks update.";
                                          for (auto &track: tracks->tracks()) {

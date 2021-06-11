@@ -27,7 +27,7 @@ class FlutterMediaTexture {
   virtual int64_t GetTextureId() = 0;
 
   [[deprecated]]
-  virtual void Release() = 0;
+  virtual void Release() {}
 
   /**
    * @param width the video frame width
@@ -45,7 +45,12 @@ class FlutterMediaTexture {
   virtual PixelFormat GetSupportFormat() = 0;
 
   // TODO lock return bool
-  virtual void LockBuffer() = 0;
+  virtual void LockBuffer() {}
+
+  virtual bool TryLockBuffer() {
+    LockBuffer();
+    return true;
+  }
 
   virtual void UnlockBuffer() = 0;
 

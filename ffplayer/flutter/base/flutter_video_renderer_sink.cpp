@@ -15,6 +15,7 @@ FlutterVideoRendererSink::FlutterVideoRendererSink()
 }
 
 FlutterVideoRendererSink::~FlutterVideoRendererSink() {
+  std::lock_guard<std::mutex> lock_guard(render_mutex_);
   looper_->PostTask(FROM_HERE, [looper(looper_)]() {
     looper->Quit();
   });
@@ -29,7 +30,9 @@ void FlutterVideoRendererSink::Start(VideoRendererSink::RenderCallback *callback
 }
 
 void FlutterVideoRendererSink::Stop() {
-  DCHECK_EQ(state_, kRunning);
+  if (state_ == kIdle) {
+    return;
+  }
   task_runner_.RemoveAllTasks();
   task_runner_.PostTask(FROM_HERE, [&]() {
     render_callback_ = nullptr;
@@ -41,6 +44,7 @@ void FlutterVideoRendererSink::RenderTask() {
   if (render_callback_ == nullptr) {
     return;
   }
+  std::lock_guard<std::mutex> lock_guard(render_mutex_);
   DCHECK_NE(state_, kIdle);
   auto frame = render_callback_->Render();
   if (!frame->IsEmpty()) {

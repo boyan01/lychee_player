@@ -20,7 +20,7 @@ AVPixelFormat VideoRendererSinkImpl::GetPixelFormat(FlutterMediaTexture::PixelFo
   return AV_PIX_FMT_BGRA;
 }
 
-VideoRendererSinkImpl::VideoRendererSinkImpl() {
+VideoRendererSinkImpl::VideoRendererSinkImpl() : attached_count_(0) {
   DCHECK(factory_) << "factory_ do not register yet.";
   // FIXME bind weak.
   factory_(std::bind(&VideoRendererSinkImpl::OnTextureAvailable, this, std::placeholders::_1));
@@ -28,37 +28,40 @@ VideoRendererSinkImpl::VideoRendererSinkImpl() {
 
 VideoRendererSinkImpl::~VideoRendererSinkImpl() {
   sws_freeContext(img_convert_ctx_);
-  if (texture_) {
-    texture_->Release();
-  }
+  texture_.reset(nullptr);
+  DLOG(INFO) << "~VideoRendererSinkImpl";
 }
 
 int64_t VideoRendererSinkImpl::Attach() {
   if (!texture_) {
     return -1;
   }
+  attached_count_++;
   return texture_->GetTextureId();
 }
 
 void VideoRendererSinkImpl::Detach() {
-
+  attached_count_--;
 }
 
 void VideoRendererSinkImpl::DoRender(std::shared_ptr<VideoFrame> frame) {
+  if (attached_count_ < 0) {
+    DLOG(WARNING) << "skip frame due to no display attached.";
+    return;
+  }
   if (!texture_ || frame->IsEmpty()) {
     return;
   }
 
   texture_->MaybeInitPixelBuffer(frame->Width(), frame->Height());
 
-  texture_->LockBuffer();
-
-  auto *output = texture_->GetBuffer();
-  if (!output) {
-    DLOG(WARNING) << "texture buffer is empty.";
-    texture_->UnlockBuffer();
+  if (!texture_->TryLockBuffer()) {
+    DLOG(WARNING) << "failed to lock buffer, skip render this frame.";
     return;
   }
+
+  auto *output = texture_->GetBuffer();
+  DCHECK(output);
 
   img_convert_ctx_ = sws_getCachedContext(
       img_convert_ctx_, frame->Width(), frame->Height(), AVPixelFormat(frame->frame()->format),

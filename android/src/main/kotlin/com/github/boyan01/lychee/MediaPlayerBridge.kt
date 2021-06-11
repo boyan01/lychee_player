@@ -43,14 +43,6 @@ object MediaPlayerBridge {
         return FlutterTexture(texture!!)
     }
 
-
-    @Keep
-    @JvmStatic
-    fun openAudioDevice() {
-        // TODO add audio player.
-    }
-
-
     @Keep
     @JvmStatic
     private external fun setupJNI();

@@ -10,12 +10,14 @@
 #include "android/log.h"
 #include "android/native_window.h"
 
+#include "base/basictypes.h"
+
 namespace media {
 
 class FlutterTextureEntry {
 
  private:
-  JNIEnv *env;
+  JNIEnv *jni_env_;
 
   jobject j_texture_entry_;
 
@@ -24,7 +26,7 @@ class FlutterTextureEntry {
 
   ANativeWindow *native_window_;
 
-  bool released_ = false;
+  DELETE_COPY_AND_ASSIGN(FlutterTextureEntry);
 
  public:
 
@@ -36,9 +38,9 @@ class FlutterTextureEntry {
     return id_;
   }
 
-  ANativeWindow *native_window() const { return native_window_; };
-
-  void Release();
+  ANativeWindow *native_window() const {
+    return native_window_;
+  };
 
 };
 

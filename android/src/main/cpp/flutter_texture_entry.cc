@@ -8,10 +8,12 @@
 
 #include "base/logging.h"
 
+#include "media_player_plugin.h"
+
 namespace media {
 
 FlutterTextureEntry::FlutterTextureEntry(JNIEnv *env, jobject texture)
-    : j_texture_entry_(texture), env(env) {
+    : j_texture_entry_(texture), jni_env_(env) {
   DCHECK(texture);
   DCHECK(env);
   jclass clazz = env->GetObjectClass(texture);
@@ -22,24 +24,17 @@ FlutterTextureEntry::FlutterTextureEntry(JNIEnv *env, jobject texture)
   DCHECK(surface);
   native_window_ = ANativeWindow_fromSurface(env, surface);
   DCHECK(native_window_);
-  ANativeWindow_setBuffersGeometry(native_window_, 1280, 720, AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM);
+  ANativeWindow_setBuffersGeometry(native_window_,
+                                   1280,
+                                   720,
+                                   WINDOW_FORMAT_RGBA_8888);
 }
 
 FlutterTextureEntry::~FlutterTextureEntry() {
-  if (!released_) {
-    Release();
-  }
-}
-
-void FlutterTextureEntry::Release() {
-  if (released_) {
-    return;
-  }
-  released_ = true;
-  if (native_window_) {
-    ANativeWindow_release(native_window_);
-  }
-  env->CallVoidMethod(j_texture_entry_, release_);
+  DLOG(INFO) << "~FlutterTextureEntry";
+  ANativeWindow_release(native_window_);
+  jni_env_->CallVoidMethod(j_texture_entry_, release_);
+  g_vm->DetachCurrentThread();
 }
 
 }

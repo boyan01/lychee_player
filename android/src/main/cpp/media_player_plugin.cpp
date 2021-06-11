@@ -4,21 +4,22 @@
 
 #include <iostream>
 #include <exception>
+#include <jni.h>
 
 #include <android/log.h>
+#include <android/native_window_jni.h>
+
+#include "base/logging.h"
 
 #include "media_player_plugin.h"
 #include "flutter_texture_entry.h"
 
-#include <jni.h>
-#include <jni.h>
-
 #include <media_api.h>
-#include <android/native_window_jni.h>
+
+JavaVM *g_vm;
 
 namespace {
 
-JavaVM *g_vm;
 jclass bridge_class;
 
 class AndroidMediaTexture : public FlutterMediaTexture {
@@ -29,14 +30,16 @@ class AndroidMediaTexture : public FlutterMediaTexture {
       : texture_(std::move(texture)), window_buffer_() {
   }
 
-  ~AndroidMediaTexture() override = default;
+  ~AndroidMediaTexture() override {
+    std::lock_guard<std::mutex> lock_guard(pixel_mutex_);
+    texture_.reset(nullptr);
+    DLOG(INFO) << "~AndroidMediaTexture";
+  }
 
   int64_t GetTextureId() override {
     return texture_->id();
   }
-  void Release() override {
-    texture_->Release();
-  }
+
   void MaybeInitPixelBuffer(int width, int height) override {
 
   }
@@ -53,15 +56,24 @@ class AndroidMediaTexture : public FlutterMediaTexture {
     return kFormat_32_RGBA;
   }
 
-  void LockBuffer() override {
-    auto ret = ANativeWindow_lock(texture_->native_window(), &window_buffer_, nullptr);
+  bool TryLockBuffer() override {
+    pixel_mutex_.lock();
+    DLOG(INFO) << "TryLockBuffer";
+    auto ret = ANativeWindow_lock(texture_->native_window(),
+                                  &window_buffer_, nullptr);
+
     if (ret < 0) {
-      __android_log_print(ANDROID_LOG_INFO, "MediaPlayerPlugin", "LockBuffer: %d", ret);
+      pixel_mutex_.unlock();
+      DLOG(ERROR) << "LockBuffer failed: " << ret;
+      return false;
     }
+    return true;
   }
 
   void UnlockBuffer() override {
+    pixel_mutex_.unlock();
     ANativeWindow_unlockAndPost(texture_->native_window());
+    DLOG(INFO) << "UnlockBuffer";
   }
 
   void NotifyBufferUpdate() override {
@@ -75,6 +87,8 @@ class AndroidMediaTexture : public FlutterMediaTexture {
  private:
   ANativeWindow_Buffer window_buffer_;
   std::unique_ptr<media::FlutterTextureEntry> texture_;
+
+  std::mutex pixel_mutex_;
 
 };
 
@@ -90,13 +104,11 @@ void flutter_texture_factory(std::function<void(std::unique_ptr<FlutterMediaText
                                                           "()Lcom/github/boyan01/lychee/FlutterTexture;");
   jobject j_texture_obj = g_env->CallStaticObjectMethod(bridge_class, register_method_id);
 
-  callback(
-      std::make_unique<AndroidMediaTexture>(
-          std::make_unique<media::FlutterTextureEntry>(
-              g_env,
-              j_texture_obj
-          )
-      )
+  callback(std::make_unique<AndroidMediaTexture>(
+      std::make_unique<media::FlutterTextureEntry>(
+          g_env,
+          j_texture_obj
+      ))
   );
 }
 
