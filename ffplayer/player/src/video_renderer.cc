@@ -89,7 +89,7 @@ void VideoRenderer::Stop() {
 }
 
 std::shared_ptr<VideoFrame> VideoRenderer::Render() {
-
+  TRACE_METHOD_DURATION(2);
   if (ready_frames_.empty()) {
     task_runner_->PostTask(FROM_HERE, bind_weak(&VideoRenderer::AttemptReadFrame, shared_from_this()));
     return VideoFrame::CreateEmptyFrame();

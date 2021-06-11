@@ -8,6 +8,7 @@
 #include <sstream>
 
 #include "basictypes.h"
+#include "location.h"
 
 namespace logging {
 
@@ -290,6 +291,30 @@ DEFINE_CHECK_OP_IMPL(GT, >)
 inline void LogAtLevel(int const log_level, std::string const &msg) {
   LogMessage(__FILE__, __LINE__, log_level).stream() << msg;
 }
+
+class MethodTimeTracingObject {
+
+ public:
+
+  MethodTimeTracingObject(chrono::milliseconds expect_max_duration, media::tracked_objects::Location location);
+
+  MethodTimeTracingObject(MethodTimeTracingObject const &object);
+
+  virtual ~MethodTimeTracingObject();
+
+  std::ostream &stream() { return stream_; }
+
+ private:
+  chrono::milliseconds expected_duration_;
+  chrono::time_point<chrono::system_clock> start_time_;
+  media::tracked_objects::Location location_;
+  std::ostringstream stream_;
+};
+
+#define TRACE_METHOD_DURATION(DURATION_IN_MS) TRACE_METHOD_DURATION_WITH_LOCATION(DURATION_IN_MS, FROM_HERE)
+
+#define TRACE_METHOD_DURATION_WITH_LOCATION(DURATION_IN_MS, from_here) \
+auto _logging_trace_method_duration = logging::MethodTimeTracingObject(chrono::milliseconds(DURATION_IN_MS), from_here)
 
 } // namespace logging
 

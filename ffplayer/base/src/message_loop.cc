@@ -40,8 +40,8 @@ void MessageLooper::Loop() {
 
     DCHECK(msg->next == nullptr);
 
+    TRACE_METHOD_DURATION_WITH_LOCATION(16, msg->posted_from);
     msg->task();
-
     delete msg;
   }
 }

@@ -3,6 +3,7 @@
 //
 
 #include <iomanip>
+#include <iostream>
 #include "base/logging.h"
 
 #if defined(__ANDROID__)
@@ -148,6 +149,32 @@ void LogMessage::Init(const char *file, int line) {
 
 int GetMinLogLevel() {
   return min_log_level;
+}
+
+MethodTimeTracingObject::~MethodTimeTracingObject() {
+  auto duration = chrono::system_clock::now() - start_time_;
+  if (duration > expected_duration_) {
+    std::cout << location_.ToShortString()
+              << " method out of time. expected: "
+              << expected_duration_.count() << " ms, but "
+              << chrono::duration_cast<chrono::milliseconds>(duration).count() << " ms. "
+              << stream_.str() << std::endl;
+  }
+
+}
+
+MethodTimeTracingObject::MethodTimeTracingObject(
+    chrono::milliseconds expect_max_duration,
+    media::tracked_objects::Location location
+) : expected_duration_(expect_max_duration),
+    start_time_(chrono::system_clock::now()),
+    location_(location) {
+}
+
+MethodTimeTracingObject::MethodTimeTracingObject(MethodTimeTracingObject const &object) {
+  expected_duration_ = object.expected_duration_;
+  start_time_ = object.start_time_;
+  location_ = object.location_;
 }
 
 }

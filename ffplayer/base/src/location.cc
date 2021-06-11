@@ -30,6 +30,15 @@ std::string Location::ToString() const {
       std::to_string(line_number_);
 }
 
+std::string Location::ToShortString() const {
+  std::string filename(file_name_);
+  size_t last_slash_pos = filename.find_last_of("\\/");
+  if (last_slash_pos != std::string::npos) {
+    filename = filename.substr(last_slash_pos + 1);
+  }
+  return "[" + filename + ":" + std::to_string(line_number_) + "]@" + std::string(function_name_);
+}
+
 const void *GetProgramCounter() {
 #if defined(COMPILER_MSVC)
   return _ReturnAddress();

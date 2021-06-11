@@ -51,6 +51,8 @@ class Location {
 
   std::string ToString() const;
 
+  std::string ToShortString() const;
+
  private:
   const char *function_name_;
   const char *file_name_;
