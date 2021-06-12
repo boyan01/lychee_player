@@ -45,11 +45,13 @@ class _VideoViewState extends State<VideoView> {
       // player texture is unavaliable. we should not to use it.
       setState(() {
         player.detachVideoRender();
+        debugPrint("detach texture $_textureId when player idle");
         _textureId = null;
       });
     } else if (_textureId == null) {
       setState(() {
         _textureId = player.attachVideoRender();
+        debugPrint('attach video texture: $_textureId');
       });
     }
   }
@@ -59,8 +61,11 @@ class _VideoViewState extends State<VideoView> {
       return;
     }
     _player?.detachVideoRender();
-    _textureId = null;
-    _player = player;
+    _player?.onStateChanged.removeListener(_onPlayerStatusChanged);
+    setState(() {
+      _textureId = null;
+      _player = player;
+    });
     player.onStatusChanged.addListener(_onPlayerStatusChanged);
     _onPlayerStatusChanged();
   }
@@ -76,8 +81,24 @@ class _VideoViewState extends State<VideoView> {
   Widget build(BuildContext context) {
     return Container(
         color: Colors.white,
-        child: _VideoTexture(
-          textureId: _textureId,
+        child: Stack(
+          children: [
+            _VideoTexture(
+              textureId: _textureId,
+            ),
+            Align(
+              alignment: Alignment.topRight,
+              child: Container(
+                  color: Colors.black,
+                  padding: const EdgeInsets.all(4),
+                  child: Text(
+                    "$_textureId",
+                    style: const TextStyle(
+                      color: Colors.white,
+                    ),
+                  )),
+            ),
+          ],
         ));
   }
 }
@@ -98,7 +119,12 @@ class _VideoTexture extends StatelessWidget {
         aspectRatio: 16.0 / 9.0,
         child: Container(
           color: Colors.black,
-          child: textureId == null ? null : Texture(textureId: textureId!),
+          child: textureId == null
+              ? const Text('frame not availible')
+              : Texture(
+                  textureId: textureId!,
+                  key: ValueKey(textureId),
+                ),
         ),
       ),
     );

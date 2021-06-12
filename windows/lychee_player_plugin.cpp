@@ -25,6 +25,7 @@ class WindowsMediaTexture : public FlutterMediaTexture {
   WindowsMediaTexture() : pixel_buffer_(new FlutterDesktopPixelBuffer) {
     texture_ = std::make_unique<flutter::TextureVariant>(flutter::PixelBufferTexture(
         [&](size_t width, size_t height) -> const FlutterDesktopPixelBuffer * {
+          std::lock_guard<std::mutex> lock(render_mutex_);
           return pixel_buffer_;
         }));
     texture_id_ = texture_registrar_->RegisterTexture(texture_.get());
@@ -36,10 +37,11 @@ class WindowsMediaTexture : public FlutterMediaTexture {
   ~WindowsMediaTexture() override {
     std::lock_guard<std::mutex> lock(render_mutex_);
     texture_.reset(nullptr);
-    DLOG(INFO) << "UnregisterTexture: " << texture_id_;
-    texture_registrar_->UnregisterTexture(texture_id_);
     delete[] pixel_buffer_->buffer;
     delete pixel_buffer_;
+    pixel_buffer_ = nullptr;
+    // FIXME unregister texture.
+//    texture_registrar_->UnregisterTexture(texture_id_);
   }
 
   int64_t GetTextureId() override {

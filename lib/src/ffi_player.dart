@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
@@ -248,7 +249,9 @@ class FfiAudioPlayer implements AudioPlayer {
       });
     ffp_set_message_callback(_player, cppInteractPort.sendPort.nativePort);
     ffplayer_open_file(_player, uri.toNativeUtf8());
-    debugPrint("player ${_player}");
+
+    // FIXME remove this lately.
+    _status.value = PlayerStatus.Ready;
   }
 
   void _onMessage(int what, int arg1, int arg2) {

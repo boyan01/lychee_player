@@ -58,7 +58,6 @@ class AndroidMediaTexture : public FlutterMediaTexture {
 
   bool TryLockBuffer() override {
     pixel_mutex_.lock();
-    DLOG(INFO) << "TryLockBuffer";
     auto ret = ANativeWindow_lock(texture_->native_window(),
                                   &window_buffer_, nullptr);
 
@@ -73,7 +72,6 @@ class AndroidMediaTexture : public FlutterMediaTexture {
   void UnlockBuffer() override {
     pixel_mutex_.unlock();
     ANativeWindow_unlockAndPost(texture_->native_window());
-    DLOG(INFO) << "UnlockBuffer";
   }
 
   void NotifyBufferUpdate() override {
