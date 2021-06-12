@@ -6,6 +6,8 @@
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/standard_method_codec.h>
 
+#include "base/logging.h"
+
 #include <media_api.h>
 
 #include <map>
@@ -23,7 +25,6 @@ class WindowsMediaTexture : public FlutterMediaTexture {
   WindowsMediaTexture() : pixel_buffer_(new FlutterDesktopPixelBuffer) {
     texture_ = std::make_unique<flutter::TextureVariant>(flutter::PixelBufferTexture(
         [&](size_t width, size_t height) -> const FlutterDesktopPixelBuffer * {
-          std::lock_guard<std::mutex> lock(render_mutex_);
           return pixel_buffer_;
         }));
     texture_id_ = texture_registrar_->RegisterTexture(texture_.get());
@@ -34,9 +35,11 @@ class WindowsMediaTexture : public FlutterMediaTexture {
 
   ~WindowsMediaTexture() override {
     std::lock_guard<std::mutex> lock(render_mutex_);
-//    texture_registrar_->UnregisterTexture(texture_id_);
-//    delete[] pixel_buffer_->buffer;
-//    delete pixel_buffer_;
+    texture_.reset(nullptr);
+    DLOG(INFO) << "UnregisterTexture: " << texture_id_;
+    texture_registrar_->UnregisterTexture(texture_id_);
+    delete[] pixel_buffer_->buffer;
+    delete pixel_buffer_;
   }
 
   int64_t GetTextureId() override {
@@ -64,8 +67,7 @@ class WindowsMediaTexture : public FlutterMediaTexture {
   }
 
   bool TryLockBuffer() override {
-    render_mutex_.lock();
-    return true;
+    return render_mutex_.try_lock();
   }
 
   void UnlockBuffer() override {
@@ -85,7 +87,6 @@ class WindowsMediaTexture : public FlutterMediaTexture {
   std::unique_ptr<flutter::TextureVariant> texture_;
 
   std::mutex render_mutex_;
-
 
 };
 

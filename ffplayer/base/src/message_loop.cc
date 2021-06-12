@@ -2,8 +2,6 @@
 // Created by boyan on 2021/3/27.
 //
 
-#include <thread>
-
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/utility.h"

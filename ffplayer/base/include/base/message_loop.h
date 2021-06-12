@@ -8,6 +8,7 @@
 #include <functional>
 #include <mutex>
 #include <condition_variable>
+#include <thread>
 
 #include "location.h"
 #include "message_queue.h"

@@ -15,15 +15,15 @@ import 'full_screen_player.dart';
 import 'stores.dart';
 import 'widgets/player_components.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final urls = await UrlStores.instance.getUrls();
   urls.addAll({
-    "http://music.163.com/song/media/outer/url?id=1451998397.mp3": PlayType.url,
-    "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4":
+    'http://music.163.com/song/media/outer/url?id=1451998397.mp3': PlayType.url,
+    'http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4':
         PlayType.url,
-    "tracks/rise.mp3": PlayType.asset,
-    "https://storage.googleapis.com/exoplayer-test-media-0/play.mp3":
+    'tracks/rise.mp3': PlayType.asset,
+    'https://storage.googleapis.com/exoplayer-test-media-0/play.mp3':
         PlayType.url,
   });
   runApp(OverlaySupport.global(child: MyApp(urls)));
@@ -75,7 +75,7 @@ class _MyAppState extends State<MyApp> {
     this.url = uri;
     player!.onStateChanged.addListener(() {
       debugPrint(
-          "state change: ${player!.status} playing: ${player!.isPlaying}");
+          'state change: ${player!.status} playing: ${player!.isPlaying}');
     });
     player!.playWhenReady = true;
     player!.volume = 20;
@@ -159,7 +159,7 @@ class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
             }),
         IconButton(
             icon: Icon(Icons.add),
-            tooltip: "Add custom video/audio uri",
+            tooltip: 'Add custom video/audio uri',
             onPressed: () async {
               final MapEntry<String, PlayType>? result = await showDialog(
                   context: context,
@@ -184,7 +184,7 @@ class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
         IconButton(
             icon: Icon(Icons.more_vert),
             onPressed: () {
-              toast("more clicked");
+              toast('more clicked');
             })
       ],
     );
@@ -207,11 +207,11 @@ class _PathInputDialogState extends State<PathInputDialog> {
   @override
   Widget build(BuildContext context) {
     return SimpleDialog(
-      title: Text("input url or file path"),
+      title: Text('input url or file path'),
       children: [
         TextField(controller: _controller),
         TextButton(
-            child: Text("FILE"),
+            child: Text('FILE'),
             onPressed: () async {
               if (Platform.isAndroid) {
                 if (!(await Permission.storage.isGranted)) {
@@ -222,13 +222,13 @@ class _PathInputDialogState extends State<PathInputDialog> {
                   .pop(MapEntry(_controller.text, PlayType.file));
             }),
         TextButton(
-            child: Text("URL"),
+            child: Text('URL'),
             onPressed: () {
               Navigator.of(context)
                   .pop(MapEntry(_controller.text, PlayType.url));
             }),
         TextButton(
-            child: Text("Cancel"),
+            child: Text('Cancel'),
             onPressed: () {
               Navigator.of(context).pop();
             }),
@@ -278,7 +278,7 @@ class _PlayerUi extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            "playing: $url",
+            'playing: $url',
             softWrap: false,
             overflow: TextOverflow.fade,
           ),
@@ -348,9 +348,9 @@ class _TickedPlayerStateState extends State<TickedPlayerState>
 
   Widget _buildProgressText() {
     return Text(
-        " ${(widget.player.currentTime.inMilliseconds / 1000.0).toStringAsFixed(2)}"
-        "/${(widget.player.duration.inMilliseconds / 1000.0).toStringAsFixed(2)}"
-        " - ${(widget.player.buffered.value.max.inMilliseconds / 1000).toStringAsFixed(2)}");
+        ' ${(widget.player.currentTime.inMilliseconds / 1000.0).toStringAsFixed(2)}'
+        '/${(widget.player.duration.inMilliseconds / 1000.0).toStringAsFixed(2)}'
+        ' - ${(widget.player.buffered.value.max.inMilliseconds / 1000).toStringAsFixed(2)}');
   }
 
   @override
