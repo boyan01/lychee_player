@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
@@ -248,7 +249,9 @@ class FfiAudioPlayer implements AudioPlayer {
       });
     ffp_set_message_callback(_player, cppInteractPort.sendPort.nativePort);
     ffplayer_open_file(_player, uri.toNativeUtf8());
-    debugPrint("player ${_player}");
+
+    // FIXME remove this lately.
+    _status.value = PlayerStatus.Ready;
   }
 
   void _onMessage(int what, int arg1, int arg2) {
@@ -362,14 +365,12 @@ class FfiAudioPlayer implements AudioPlayer {
 
   ValueNotifier<double> get aspectRatio {
     assert(_player != nullptr);
-    if (_aspectRatio == null) {
-      _aspectRatio = _videoSize.map((size) {
-        if (size == Size.zero) {
-          return 0.0;
-        }
-        return size.aspectRatio;
-      });
-    }
+    _aspectRatio ??= _videoSize.map((size) {
+      if (size == Size.zero) {
+        return 0.0;
+      }
+      return size.aspectRatio;
+    });
     return _aspectRatio!;
   }
 
@@ -386,9 +387,7 @@ class FfiAudioPlayer implements AudioPlayer {
 
   @override
   Listenable get onStateChanged {
-    if (_onStateChanged == null) {
-      _onStateChanged = Listenable.merge([_status, _playWhenReady]);
-    }
+    _onStateChanged ??= Listenable.merge([_status, _playWhenReady]);
     return _onStateChanged!;
   }
 

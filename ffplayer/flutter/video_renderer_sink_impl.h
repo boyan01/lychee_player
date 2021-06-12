@@ -31,9 +31,9 @@ class VideoRendererSinkImpl : public FlutterVideoRendererSink {
 
   void Detach() override;
 
- protected:
+  void Start(RenderCallback *callback) override;
 
-  void DoRender(std::shared_ptr<VideoFrame> frame) override;
+  void Stop() override;
 
  private:
 
@@ -44,6 +44,23 @@ class VideoRendererSinkImpl : public FlutterVideoRendererSink {
   void OnTextureAvailable(std::unique_ptr<FlutterMediaTexture> texture);
 
   int attached_count_;
+
+  bool destroyed_;
+
+  enum State { kIdle, kRunning };
+  State state_ = kIdle;
+
+  // FIXME: maybe we can share with a global looper?
+  base::MessageLooper *looper_;
+
+  std::unique_ptr<TaskRunner> task_runner_;
+  RenderCallback *render_callback_;
+
+  std::mutex render_mutex_;
+
+  void RenderTask();
+
+  void DoRender(std::shared_ptr<VideoFrame> frame);
 
 };
 

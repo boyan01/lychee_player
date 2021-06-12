@@ -21,8 +21,4 @@ void NullVideoRendererSink::Detach() {
 
 }
 
-void NullVideoRendererSink::DoRender(std::shared_ptr<VideoFrame> frame) {
-
-}
-
 }

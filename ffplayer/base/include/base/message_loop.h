@@ -8,6 +8,7 @@
 #include <functional>
 #include <mutex>
 #include <condition_variable>
+#include <thread>
 
 #include "location.h"
 #include "message_queue.h"
@@ -63,6 +64,8 @@ class MessageLooper {
   const char *loop_name_;
 
   std::unique_ptr<MessageQueue> message_queue_;
+
+  std::unique_ptr<std::thread> thread_;
 
   DELETE_COPY_AND_ASSIGN(MessageLooper);
 

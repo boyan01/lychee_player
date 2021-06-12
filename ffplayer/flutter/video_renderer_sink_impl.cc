@@ -8,8 +8,10 @@
 
 namespace media {
 
+// static
 FlutterTextureAdapterFactory VideoRendererSinkImpl::factory_ = nullptr;
 
+// static
 AVPixelFormat VideoRendererSinkImpl::GetPixelFormat(FlutterMediaTexture::PixelFormat format) {
   switch (format) {
     case FlutterMediaTexture::kFormat_32_ARGB: return AV_PIX_FMT_ARGB;
@@ -20,16 +22,40 @@ AVPixelFormat VideoRendererSinkImpl::GetPixelFormat(FlutterMediaTexture::PixelFo
   return AV_PIX_FMT_BGRA;
 }
 
-VideoRendererSinkImpl::VideoRendererSinkImpl() : attached_count_(0) {
+VideoRendererSinkImpl::VideoRendererSinkImpl()
+    : attached_count_(0),
+      destroyed_(false),
+      looper_(base::MessageLooper::prepare_looper("video_render")),
+      task_runner_(std::make_unique<TaskRunner>(looper_)),
+      render_callback_(nullptr) {
   DCHECK(factory_) << "factory_ do not register yet.";
   // FIXME bind weak.
   factory_(std::bind(&VideoRendererSinkImpl::OnTextureAvailable, this, std::placeholders::_1));
 }
 
+void VideoRendererSinkImpl::Start(VideoRendererSink::RenderCallback *callback) {
+  std::lock_guard<std::mutex> lock_guard(render_mutex_);
+  DCHECK_EQ(state_, kIdle);
+  render_callback_ = callback;
+  state_ = kRunning;
+  task_runner_->PostTask(FROM_HERE, std::bind(&VideoRendererSinkImpl::RenderTask, this));
+}
+
+void VideoRendererSinkImpl::Stop() {
+  std::lock_guard<std::mutex> lock_guard(render_mutex_);
+  render_callback_ = nullptr;
+  state_ = kIdle;
+  task_runner_->RemoveAllTasks();
+}
+
 VideoRendererSinkImpl::~VideoRendererSinkImpl() {
+  std::lock_guard<std::mutex> lock_guard(render_mutex_);
+  task_runner_.reset(nullptr);
+  looper_->Quit();
+  delete looper_;
   sws_freeContext(img_convert_ctx_);
   texture_.reset(nullptr);
-  DLOG(INFO) << "~VideoRendererSinkImpl";
+  destroyed_ = true;
 }
 
 int64_t VideoRendererSinkImpl::Attach() {
@@ -45,7 +71,9 @@ void VideoRendererSinkImpl::Detach() {
 }
 
 void VideoRendererSinkImpl::DoRender(std::shared_ptr<VideoFrame> frame) {
-  if (attached_count_ < 0) {
+  DCHECK(!destroyed_);
+
+  if (attached_count_ <= 0) {
     DLOG(WARNING) << "skip frame due to no display attached.";
     return;
   }
@@ -99,6 +127,20 @@ void VideoRendererSinkImpl::DoRender(std::shared_ptr<VideoFrame> frame) {
 void VideoRendererSinkImpl::OnTextureAvailable(std::unique_ptr<FlutterMediaTexture> texture) {
   DLOG_IF(WARNING, !texture) << "register texture failed!";
   texture_ = std::move(texture);
+}
+
+void VideoRendererSinkImpl::RenderTask() {
+  if (render_callback_ == nullptr) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock_guard(render_mutex_);
+  DCHECK_NE(state_, kIdle);
+  auto frame = render_callback_->Render();
+  if (!frame->IsEmpty()) {
+    DoRender(std::move(frame));
+  }
+  // schedule next frame after 10 ms.
+  task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(10000), std::bind(&VideoRendererSinkImpl::RenderTask, this));
 }
 
 } // namespace media

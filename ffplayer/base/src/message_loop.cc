@@ -2,8 +2,6 @@
 // Created by boyan on 2021/3/27.
 //
 
-#include <thread>
-
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/utility.h"
@@ -20,7 +18,7 @@ MessageLooper::MessageLooper(const char *loop_name)
 }
 
 MessageLooper::~MessageLooper() {
-  DCHECK_EQ(this, current());
+  thread_->join();
 }
 
 void MessageLooper::Prepare() {
@@ -67,12 +65,11 @@ void MessageLooper::Quit() {
 
 MessageLooper *MessageLooper::prepare_looper(const char *loop_name) {
   auto *looper = new MessageLooper(loop_name);
-  std::thread looper_th([looper]() {
+  auto thread = std::make_unique<std::thread>([looper]() {
     looper->Prepare();
     looper->Loop();
-    delete looper;
   });
-  looper_th.detach();
+  looper->thread_ = std::move(thread);
   return looper;
 }
 
