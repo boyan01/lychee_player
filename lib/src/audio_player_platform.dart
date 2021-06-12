@@ -1,18 +1,25 @@
 import 'package:flutter/foundation.dart';
 
 import 'audio_player_common.dart';
+import 'ffi_player.dart';
+
+enum DataSourceType { url, file, asset }
 
 abstract class AudioPlayer {
   factory AudioPlayer.file(String path) {
-    throw UnimplementedError();
+    return AudioPlayer._create(path, DataSourceType.file);
   }
 
   factory AudioPlayer.url(String url) {
-    throw UnimplementedError();
+    return AudioPlayer._create(url, DataSourceType.url);
   }
 
   factory AudioPlayer.asset(String name) {
-    throw UnimplementedError();
+    return AudioPlayer._create(name, DataSourceType.asset);
+  }
+
+  factory AudioPlayer._create(String uri, DataSourceType type) {
+    return LycheePlayer(uri, type);
   }
 
   void seek(Duration duration);
@@ -24,9 +31,9 @@ abstract class AudioPlayer {
   // [0, 1].
   double get volume;
 
-  /// 
+  ///
   /// [volume] [0, 1].
-  /// 
+  ///
   set volume(double volume);
 
   /**

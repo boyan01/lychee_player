@@ -6,10 +6,10 @@ import 'audio_player_platform.dart';
 import 'ffi_player.dart';
 
 class VideoView extends StatefulWidget {
-  final FfiAudioPlayer player;
+  final LycheePlayer player;
 
   const VideoView({Key? key, required AudioPlayer player})
-      : player = player as FfiAudioPlayer,
+      : player = player as LycheePlayer,
         super(key: key);
 
   @override
@@ -19,7 +19,7 @@ class VideoView extends StatefulWidget {
 class _VideoViewState extends State<VideoView> {
   int? _textureId;
 
-  FfiAudioPlayer? _player;
+  LycheePlayer? _player;
 
   @override
   void initState() {
@@ -41,7 +41,7 @@ class _VideoViewState extends State<VideoView> {
       assert(false);
       return;
     }
-    if (player.status == PlayerStatus.Idle) {
+    if (player.status == PlayerStatus.idle) {
       // player texture is unavaliable. we should not to use it.
       setState(() {
         player.detachVideoRender();
@@ -56,7 +56,7 @@ class _VideoViewState extends State<VideoView> {
     }
   }
 
-  void _initPlayerTextures(FfiAudioPlayer player) {
+  void _initPlayerTextures(LycheePlayer player) {
     if (player == _player) {
       return;
     }

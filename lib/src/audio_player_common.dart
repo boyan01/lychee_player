@@ -1,11 +1,11 @@
 import 'package:flutter/foundation.dart';
-import 'media_player.dart';
+import 'package:lychee_player/src/ffi_player.dart';
 
 enum PlayerStatus {
-  Idle,
-  Buffering,
-  Ready,
-  End,
+  idle,
+  buffering,
+  ready,
+  end,
 }
 
 class DurationRange {
@@ -71,9 +71,9 @@ class _EmptyAudioPlayerDisposable implements AudioPlayerDisposable {
   void dispose() {}
 }
 
-extension AudioPlayerCommon on AudioPlayer {
+extension AudioPlayerCommon on LycheePlayer {
   AudioPlayerDisposable onReady(VoidCallback action) {
-    if (status == PlayerStatus.Ready) {
+    if (status == PlayerStatus.ready) {
       action();
       return AudioPlayerDisposable.empty();
     } else {
@@ -91,7 +91,7 @@ class _AudioPlayerReadyListener implements AudioPlayerDisposable {
   }
 
   void _onChanged() {
-    if (status.value == PlayerStatus.Ready) {
+    if (status.value == PlayerStatus.ready) {
       callback();
     }
   }

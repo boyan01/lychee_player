@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 extension ValueNotifierExt<T> on ValueNotifier<T> {
-  ValueNotifier<R> map<R>(R map(T)) {
+  ValueNotifier<R> map<R>(R Function(T) map) {
     return _MappedValueNotifier(map, this);
   }
 }
