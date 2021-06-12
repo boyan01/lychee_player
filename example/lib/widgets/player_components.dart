@@ -57,7 +57,7 @@ class PlaybackStatefulButton extends StatelessWidget {
               return Icon(Icons.pause);
             } else if (player!.hasError) {
               return Icon(Icons.error);
-            } else if (player!.status == PlayerStatus.Buffering) {
+            } else if (player!.status == PlayerStatus.buffering) {
               return Container(
                 height: 24,
                 width: 24,
@@ -68,7 +68,7 @@ class PlaybackStatefulButton extends StatelessWidget {
             }
           }),
       onPressed: () {
-        if (player!.status == PlayerStatus.End) {
+        if (player!.status == PlayerStatus.end) {
           player!.seek(Duration.zero);
         }
         player!.playWhenReady = !player!.playWhenReady;
