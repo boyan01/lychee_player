@@ -27,7 +27,7 @@ class MessageLooper {
    * @param loop_name the name of [MessageLoop]
    * @return created MessageLoop.
    */
-  static MessageLooper *prepare_looper(const char *loop_name);
+  static MessageLooper *PrepareLooper(const char *loop_name);
 
   explicit MessageLooper(const char *loop_name);
 

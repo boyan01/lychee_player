@@ -20,7 +20,7 @@ namespace media {
 MediaPlayer::MediaPlayer(
     std::unique_ptr<VideoRendererSink> video_renderer_sink,
     std::shared_ptr<AudioRendererSink> audio_renderer_sink
-) : looper_(MessageLooper::prepare_looper("media_player")), decoder_looper_(MessageLooper::prepare_looper("decoder")) {
+) : looper_(MessageLooper::PrepareLooper("media_player")), decoder_looper_(MessageLooper::PrepareLooper("decoder")) {
   task_runner_ = std::make_unique<TaskRunner>(looper_);
   task_runner_->PostTask(FROM_HERE, [&]() {
     Initialize();

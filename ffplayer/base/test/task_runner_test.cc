@@ -30,7 +30,7 @@ class TaskRunnerTest : public testing::Test {
     looper_ = nullptr;
   }
   void SetUp() override {
-    looper_ = MessageLooper::prepare_looper("test_looper");
+    looper_ = MessageLooper::PrepareLooper("test_looper");
     task_runner_ = new TaskRunner(looper_);
   }
 

@@ -18,7 +18,7 @@ class MessageLoopTest : public testing::Test {
 
  public:
   MessageLoopTest() {
-    message_loop_ = MessageLooper::prepare_looper("test_looper");
+    message_loop_ = MessageLooper::PrepareLooper("test_looper");
   }
 
   ~MessageLoopTest() override {
@@ -36,7 +36,7 @@ static void quit_message_loop_with_wait(MessageLooper *message_loop) {
 }
 
 static MessageLooper *create_test_looper() {
-  return MessageLooper::prepare_looper("test_loop");
+  return MessageLooper::PrepareLooper("test_loop");
 }
 
 #define TEST_MESSAGE_LOOP_START(test_name) \

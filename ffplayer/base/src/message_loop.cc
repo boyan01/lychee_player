@@ -63,7 +63,7 @@ void MessageLooper::Quit() {
   message_queue_->Quit();
 }
 
-MessageLooper *MessageLooper::prepare_looper(const char *loop_name) {
+MessageLooper *MessageLooper::PrepareLooper(const char *loop_name) {
   auto *looper = new MessageLooper(loop_name);
   auto thread = std::make_unique<std::thread>([looper]() {
     looper->Prepare();

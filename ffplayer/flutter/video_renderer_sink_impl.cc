@@ -25,7 +25,7 @@ AVPixelFormat VideoRendererSinkImpl::GetPixelFormat(FlutterMediaTexture::PixelFo
 VideoRendererSinkImpl::VideoRendererSinkImpl()
     : attached_count_(0),
       destroyed_(false),
-      looper_(base::MessageLooper::prepare_looper("video_render")),
+      looper_(base::MessageLooper::PrepareLooper("video_render")),
       task_runner_(std::make_unique<TaskRunner>(looper_)),
       render_callback_(nullptr) {
   DCHECK(factory_) << "factory_ do not register yet.";
