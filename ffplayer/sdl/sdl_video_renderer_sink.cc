@@ -57,6 +57,8 @@ void SdlVideoRendererSink::RenderInternal() {
 }
 
 void SdlVideoRendererSink::RenderPicture(std::shared_ptr<VideoFrame> frame) {
+  TRACE_METHOD_DURATION(10);
+
   if (frame->IsEmpty()) {
     return;
   }

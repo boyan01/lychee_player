@@ -476,7 +476,7 @@ int main(int argc, char *argv[]) {
         << "Failed to create window or renderer: " << SDL_GetError();
   }
 
-  auto *looper = new base::MessageLooper("main_task");
+  auto *looper = new base::MessageLooper("main_task", 16);
   looper->Prepare();
   auto player = make_shared<SdlLycheePlayerExample>(input_files, renderer);
   looper->PostTask(FROM_HERE, std::bind(&SdlLycheePlayerExample::Start, player));

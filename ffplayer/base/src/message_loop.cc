@@ -12,9 +12,10 @@ namespace base {
 
 thread_local MessageLooper *MessageLooper::thread_local_message_loop_;
 
-MessageLooper::MessageLooper(const char *loop_name)
+MessageLooper::MessageLooper(const char *loop_name, int message_handle_timeout_ms)
     : loop_name_(loop_name),
-      message_queue_(std::make_unique<MessageQueue>()) {
+      message_queue_(std::make_unique<MessageQueue>()),
+      message_handle_expect_duration_(message_handle_timeout_ms) {
 }
 
 MessageLooper::~MessageLooper() {
@@ -38,7 +39,7 @@ void MessageLooper::Loop() {
 
     DCHECK(msg->next == nullptr);
 
-    TRACE_METHOD_DURATION_WITH_LOCATION(16, msg->posted_from);
+    TRACE_METHOD_DURATION_WITH_LOCATION(message_handle_expect_duration_, msg->posted_from);
     msg->task();
     delete msg;
   }
@@ -63,8 +64,9 @@ void MessageLooper::Quit() {
   message_queue_->Quit();
 }
 
-MessageLooper *MessageLooper::PrepareLooper(const char *loop_name) {
-  auto *looper = new MessageLooper(loop_name);
+// static
+MessageLooper *MessageLooper::PrepareLooper(const char *loop_name, int message_handle_expect_duration_) {
+  auto *looper = new MessageLooper(loop_name, message_handle_expect_duration_);
   auto thread = std::make_unique<std::thread>([looper]() {
     looper->Prepare();
     looper->Loop();

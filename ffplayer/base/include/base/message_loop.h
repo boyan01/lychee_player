@@ -27,9 +27,15 @@ class MessageLooper {
    * @param loop_name the name of [MessageLoop]
    * @return created MessageLoop.
    */
-  static MessageLooper *PrepareLooper(const char *loop_name);
+  static MessageLooper *PrepareLooper(
+      const char *loop_name,
+      int message_handle_expect_duration_ = std::numeric_limits<int>::max()
+  );
 
-  explicit MessageLooper(const char *loop_name);
+  explicit MessageLooper(
+      const char *loop_name,
+      int message_handle_timeout_ms = std::numeric_limits<int>::max()
+  );
 
   void Prepare();
 
@@ -66,6 +72,8 @@ class MessageLooper {
   std::unique_ptr<MessageQueue> message_queue_;
 
   std::unique_ptr<std::thread> thread_;
+
+  int message_handle_expect_duration_;
 
   DELETE_COPY_AND_ASSIGN(MessageLooper);
 
