@@ -1,10 +1,6 @@
 #include "include/lychee_player/lychee_player_plugin.h"
 
-// This must be included before many other Windows headers.
 #include <windows.h>
-
-// For getPlatformVersion; remove unless needed for your plugin implementation.
-#include <VersionHelpers.h>
 
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
@@ -14,7 +10,6 @@
 
 #include <map>
 #include <memory>
-#include <sstream>
 #include <mutex>
 
 namespace {
@@ -39,17 +34,13 @@ class WindowsMediaTexture : public FlutterMediaTexture {
 
   ~WindowsMediaTexture() override {
     std::lock_guard<std::mutex> lock(render_mutex_);
-    texture_registrar_->UnregisterTexture(texture_id_);
-    delete[] pixel_buffer_->buffer;
-    delete pixel_buffer_;
+//    texture_registrar_->UnregisterTexture(texture_id_);
+//    delete[] pixel_buffer_->buffer;
+//    delete pixel_buffer_;
   }
 
   int64_t GetTextureId() override {
     return texture_id_;
-  }
-
-  void Release() override {
-
   }
 
   void MaybeInitPixelBuffer(int width, int height) override {
@@ -72,9 +63,11 @@ class WindowsMediaTexture : public FlutterMediaTexture {
     return kFormat_32_RGBA;
   }
 
-  void LockBuffer() override {
+  bool TryLockBuffer() override {
     render_mutex_.lock();
+    return true;
   }
+
   void UnlockBuffer() override {
     render_mutex_.unlock();
   }

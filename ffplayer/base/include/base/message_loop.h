@@ -64,6 +64,8 @@ class MessageLooper {
 
   std::unique_ptr<MessageQueue> message_queue_;
 
+  std::unique_ptr<std::thread> thread_;
+
   DELETE_COPY_AND_ASSIGN(MessageLooper);
 
   static thread_local MessageLooper *thread_local_message_loop_;

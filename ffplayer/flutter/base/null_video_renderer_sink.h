@@ -19,8 +19,6 @@ class NullVideoRendererSink : public FlutterVideoRendererSink {
 
   int64_t Attach() override;
   void Detach() override;
- protected:
-  void DoRender(std::shared_ptr<VideoFrame> frame) override;
 
 };
 

@@ -4,7 +4,6 @@ project("media_flutter_base")
 
 add_library(media_flutter_base
         flutter_video_renderer_sink.h
-        flutter_video_renderer_sink.cpp
         null_video_renderer_sink.h
         null_video_renderer_sink.cc
         )

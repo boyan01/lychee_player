@@ -44,6 +44,7 @@ void DecoderBufferQueue::Push(std::shared_ptr<DecoderBuffer> buffer) {
 std::shared_ptr<DecoderBuffer> DecoderBufferQueue::Pop() {
   DCHECK(!queue_.empty());
 
+  // FIXME crash here. queue_ size == 0
   auto buffer = std::move(queue_.front());
   queue_.pop_front();
 
