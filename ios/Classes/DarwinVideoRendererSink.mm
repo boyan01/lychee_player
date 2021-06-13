@@ -47,14 +47,14 @@ static id<FlutterTextureRegistry> textures_registry;
 }
 
 - (void)setPixelBuffer:(CVPixelBufferRef)pixelBuffer {
-  
-  @synchronized (self) {
-    if (_pixelBuffer != nil) {
-      CVPixelBufferRelease(_pixelBuffer);
-    }
-    _pixelBuffer = pixelBuffer;
-    CVPixelBufferRetain(_pixelBuffer);
-  }
+
+	@synchronized (self) {
+		if (_pixelBuffer != nil) {
+			CVPixelBufferRelease(_pixelBuffer);
+		}
+		_pixelBuffer = pixelBuffer;
+		CVPixelBufferRetain(_pixelBuffer);
+	}
 
 }
 
@@ -68,9 +68,12 @@ public:
 		: texture_id_(texture_id),
 		texture_(texture),
 		cv_pixel_buffer_ref_(nullptr){
+
 	}
 
-	~MacosFlutterTexture() override = default;
+	~MacosFlutterTexture() override {
+
+	}
 
 	int64_t GetTextureId() override
 	{
@@ -92,11 +95,15 @@ public:
 	}
 
 	void MaybeInitPixelBuffer(int width, int height) override {
+		NSDictionary* cvBufferProperties = @{
+			(__bridge NSString*)kCVPixelBufferOpenGLCompatibilityKey : @YES,
+			(__bridge NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
+		};
 		auto ret = CVPixelBufferCreate(kCFAllocatorDefault,
 		                               width,
 		                               height,
 		                               kCVPixelFormatType_32BGRA,
-		                               nullptr,
+		                               (__bridge CFDictionaryRef) cvBufferProperties,
 		                               &cv_pixel_buffer_ref_);
 		if (ret != kCVReturnSuccess) {
 			cv_pixel_buffer_ref_ = nullptr;
