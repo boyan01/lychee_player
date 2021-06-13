@@ -46,7 +46,7 @@ class MessageQueue {
 
   void Wake();
 
-  void PollOnce(std::chrono::milliseconds wait_duration);
+  void PollOnce(TimeDelta wait_duration);
 
   DELETE_COPY_AND_ASSIGN(MessageQueue);
 

@@ -51,7 +51,7 @@ void SdlVideoRendererSink::RenderInternal() {
   // delay 10ms to draw next frame.
   // FIXME we need calculate a more effective time.
   render_task_runner_.PostDelayedTask(
-      FROM_HERE, TimeDelta(10000),
+      FROM_HERE, TimeDelta::FromMilliseconds(10),
       std::bind(&SdlVideoRendererSink::RenderInternal, this));
 
 }

@@ -5,7 +5,7 @@
 #ifndef MEDIA_PLAYER_FFMPEG_FFMPEG_UTILS_H_
 #define MEDIA_PLAYER_FFMPEG_FFMPEG_UTILS_H_
 
-#include "base/timestamps.h"
+#include "base/time_delta.h"
 
 #include "video_decode_config.h"
 #include "audio_decode_config.h"

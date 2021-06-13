@@ -8,7 +8,8 @@
 #include <queue>
 #include <functional>
 
-#include "base/timestamps.h"
+#include "base/time_delta.h"
+#include "base/time_ticks.h"
 #include "base/location.h"
 
 namespace media {
@@ -23,7 +24,7 @@ struct Message {
 
   Message(TaskClosure task,
           const tracked_objects::Location &posted_from,
-          TimeDelta when,
+          TimeDelta delay,
           TaskRunner *task_runner,
           int task_id);
 
@@ -39,7 +40,7 @@ struct Message {
 
   int sequence_num;
 
-  std::chrono::time_point<std::chrono::system_clock> when;
+  TimeTicks when;
 
  private:
   Message *next = nullptr;

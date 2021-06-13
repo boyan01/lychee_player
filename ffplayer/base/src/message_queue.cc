@@ -56,19 +56,19 @@ Message *MessageQueue::next() {
     return nullptr;
   }
 
-  std::chrono::milliseconds next_poll_timeout_mills(0);
+  TimeDelta next_poll_timeout_mills;
   for (;;) {
     PollOnce(next_poll_timeout_mills);
     {
       std::lock_guard<std::recursive_mutex> auto_lock(message_queue_lock_);
 
-      auto now = std::chrono::system_clock::now();
+      auto now = TimeTicks::Now();
 
       Message *msg = messages_;
 
       if (msg != nullptr) {
         if (now < msg->when) {
-          next_poll_timeout_mills = std::chrono::duration_cast<std::chrono::milliseconds>(msg->when - now);
+          next_poll_timeout_mills = msg->when - now;
         } else {
           blocked_ = false;
           messages_ = msg->next;
@@ -76,7 +76,7 @@ Message *MessageQueue::next() {
           return msg;
         }
       } else {
-        next_poll_timeout_mills = std::chrono::milliseconds(-1);
+        next_poll_timeout_mills = TimeDelta::Max();
       }
 
       if (quitting_) {
@@ -159,10 +159,10 @@ void MessageQueue::Wake() {
   message_wait_condition_.notify_one();
 }
 
-void MessageQueue::PollOnce(std::chrono::milliseconds wait_duration) {
+void MessageQueue::PollOnce(TimeDelta wait_duration) {
   std::unique_lock<std::mutex> condition_lock(message_wait_lock_);
-  if (wait_duration >= std::chrono::milliseconds::zero()) {
-    message_wait_condition_.wait_for(condition_lock, wait_duration);
+  if (!wait_duration.is_inf()) {
+    message_wait_condition_.wait_for(condition_lock, std::chrono::microseconds(wait_duration.InMicroseconds()));
   } else {
     message_wait_condition_.wait(condition_lock);
   }

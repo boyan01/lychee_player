@@ -32,7 +32,7 @@ void TaskRunner::PostTask(const tracked_objects::Location &from_here, const Task
 }
 
 void TaskRunner::PostTask(const tracked_objects::Location &from_here, int task_id, const TaskClosure &task) {
-  static const TimeDelta delay(0);
+  static const TimeDelta delay;
   PostDelayedTask(from_here, delay, task_id, task);
 }
 

@@ -17,7 +17,7 @@ double ConvertFromTimeBase(const AVRational &time_base, int64 timestamp) {
 }
 
 int64 ConvertToTimeBase(const AVRational &time_base, const TimeDelta &timestamp) {
-  return av_rescale_q(timestamp.count(), kMicrosBase, time_base);
+  return av_rescale_q(timestamp.InMicroseconds(), kMicrosBase, time_base);
 }
 
 std::unique_ptr<AVCodecContext, AVCodecContextDeleter> AVStreamToAVCodecContext(const AVStream *stream) {
@@ -33,7 +33,6 @@ std::string AVErrorToString(int err_num) {
   av_strerror(err_num, err_buf, AV_ERROR_MAX_STRING_SIZE);
   return std::string(err_buf);
 }
-
 
 int ReadFrameAndDiscardEmpty(AVFormatContext *context, AVPacket *packet) {
   // Skip empty packets in a tight loop to avoid timing out fuzzers.

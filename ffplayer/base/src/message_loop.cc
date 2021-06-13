@@ -47,7 +47,7 @@ void MessageLooper::Loop() {
 }
 
 void MessageLooper::PostTask(const tracked_objects::Location &from_here, const TaskClosure &task) {
-  static const TimeDelta delay(0);
+  static const TimeDelta delay;
   PostDelayedTask(from_here, delay, task);
 }
 void MessageLooper::PostDelayedTask(const tracked_objects::Location &from_here,

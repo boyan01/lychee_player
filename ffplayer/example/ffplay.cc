@@ -171,7 +171,9 @@ class SdlLycheePlayerExample : public std::enable_shared_from_this<SdlLycheePlay
     if (event_handler_ && SDL_PollEvent(&sdl_event)) {
       event_handler_->HandleSdlEvent(sdl_event);
     }
-    task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(2000), std::bind(&SdlLycheePlayerExample::SdlEventLoop, this));
+    task_runner_->PostDelayedTask(FROM_HERE,
+                                  TimeDelta::FromMilliseconds(2),
+                                  std::bind(&SdlLycheePlayerExample::SdlEventLoop, this));
   }
 
   void PlayItem(const std::string &input_file) {
@@ -187,7 +189,7 @@ class SdlLycheePlayerExample : public std::enable_shared_from_this<SdlLycheePlay
         TaskRunner::CreateFromCurrent());
     player->SetVolume(0.5);
     // TODO temp solution.
-    task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(3000), [player]() {
+    task_runner_->PostDelayedTask(FROM_HERE, TimeDelta::FromMilliseconds(30), [player]() {
       OnVideoSizeChanged(player, 1280, 720);
     });
 

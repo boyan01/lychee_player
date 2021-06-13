@@ -11,12 +11,12 @@ namespace base {
 
 Message::Message(TaskClosure task,
                  const media::tracked_objects::Location &posted_from,
-                 TimeDelta delayed_run_time,
+                 TimeDelta delay,
                  TaskRunner *task_runner,
                  int task_id)
     : task(std::move(task)),
       posted_from(posted_from),
-      when(std::chrono::system_clock::now() + delayed_run_time),
+      when(TimeTicks::Now() + delay),
       sequence_num(0),
       task_runner_(task_runner),
       task_id_(task_id) {
