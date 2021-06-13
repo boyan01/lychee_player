@@ -50,9 +50,6 @@ class VideoRendererSinkImpl : public FlutterVideoRendererSink {
   enum State { kIdle, kRunning };
   State state_ = kIdle;
 
-  // FIXME: maybe we can share with a global looper?
-  base::MessageLooper *looper_;
-
   std::unique_ptr<TaskRunner> task_runner_;
   RenderCallback *render_callback_;
 

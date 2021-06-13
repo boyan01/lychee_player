@@ -25,8 +25,8 @@ AVPixelFormat VideoRendererSinkImpl::GetPixelFormat(FlutterMediaTexture::PixelFo
 VideoRendererSinkImpl::VideoRendererSinkImpl()
     : attached_count_(0),
       destroyed_(false),
-      looper_(base::MessageLooper::PrepareLooper("video_render")),
-      task_runner_(std::make_unique<TaskRunner>(looper_)),
+    // TODO maybe we can use a global render thread?
+      task_runner_(std::make_unique<TaskRunner>(base::MessageLooper::PrepareLooper("video_render"))),
       render_callback_(nullptr) {
   DCHECK(factory_) << "factory_ do not register yet.";
   // FIXME bind weak.
@@ -51,8 +51,6 @@ void VideoRendererSinkImpl::Stop() {
 VideoRendererSinkImpl::~VideoRendererSinkImpl() {
   std::lock_guard<std::mutex> lock_guard(render_mutex_);
   task_runner_.reset(nullptr);
-  looper_->Quit();
-  delete looper_;
   sws_freeContext(img_convert_ctx_);
   texture_.reset(nullptr);
   destroyed_ = true;

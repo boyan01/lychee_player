@@ -151,7 +151,9 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
   video_render = std::make_unique<media::NullVideoRendererSink>();
   audio_render = std::make_unique<media::SdlAudioRendererSink>();
 #endif
-  auto player = std::make_shared<MediaPlayer>(std::move(video_render), std::move(audio_render));
+  auto player = std::make_shared<MediaPlayer>(
+      std::move(video_render), std::move(audio_render),
+      TaskRunner(MessageLooper::PrepareLooper("media_player")));
   player->SetPlayWhenReady(true);
   av_log(nullptr, AV_LOG_INFO, "malloc player, %p\n", player.get());
   player->start_configuration = *config;
