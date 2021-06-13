@@ -20,6 +20,7 @@ std::function<void(Args...)> BindToLoop(
     const std::shared_ptr<base::MessageLooper>& loop,
     std::function<void(Args...)> cb
 ) {
+  DCHECK(loop);
   std::function<void(Args...)> func = [loop, callback(std::move(cb))](Args... args) {
     loop->PostTask(
         FROM_HERE_WITH_EXPLICIT_FUNCTION("BindToLoop"),
@@ -43,6 +44,7 @@ template<typename Args = void>
 std::function<void(void)> BindToLoop(const std::shared_ptr<base::MessageLooper>& loop, std::function<void(void)> cb) {
   DCHECK(loop);
   std::function<void(void)> func = [loop, callback(std::move(cb))]() {
+    DCHECK(loop);
     loop->PostTask(
         FROM_HERE_WITH_EXPLICIT_FUNCTION("BindToLoop"),
         callback);

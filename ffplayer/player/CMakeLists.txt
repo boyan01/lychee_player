@@ -19,7 +19,9 @@ target_link_libraries(media_player PUBLIC ${FFP_LIBS} media_base)
 if (NOT DISABLE_MEDIA_TEST)
     add_executable(media_player_test
             test/file_data_source_test.cc
+            test/demuxer_stream_test.cc
+            test/demuxer_test.cc
             )
-    target_link_libraries(media_player_test media_player gtest_main)
+    target_link_libraries(media_player_test media_player gtest_main gmock_main)
     add_test(NAME media_player_test COMMAND media_player)
 endif ()
