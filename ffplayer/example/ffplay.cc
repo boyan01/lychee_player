@@ -181,7 +181,10 @@ class SdlLycheePlayerExample : public std::enable_shared_from_this<SdlLycheePlay
 #else
     auto audio_renderer_sink = std::make_unique<SdlAudioRendererSink>();
 #endif
-    auto player = std::make_shared<MediaPlayer>(std::move(video_renderer_sink), std::move(audio_renderer_sink));
+    auto player = std::make_shared<MediaPlayer>(
+        std::move(video_renderer_sink),
+        std::move(audio_renderer_sink),
+        TaskRunner::CreateFromCurrent());
     player->SetVolume(0.5);
     // TODO temp solution.
     task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(3000), [player]() {
@@ -205,7 +208,7 @@ SdlLycheePlayerExample::SdlLycheePlayerExample(
     : input_files_(input_files),
       renderer_(std::move(renderer)),
       playing_file_index_(0),
-      task_runner_(std::make_unique<TaskRunner>(base::MessageLooper::current())) {
+      task_runner_(std::make_unique<TaskRunner>(base::MessageLooper::Current())) {
   DCHECK(!input_files.empty());
   DCHECK(task_runner_);
 }
@@ -476,7 +479,7 @@ int main(int argc, char *argv[]) {
         << "Failed to create window or renderer: " << SDL_GetError();
   }
 
-  auto *looper = new base::MessageLooper("main_task", 16);
+  auto looper = base::MessageLooper::Create("main_task", 16);
   looper->Prepare();
   auto player = make_shared<SdlLycheePlayerExample>(input_files, renderer);
   looper->PostTask(FROM_HERE, std::bind(&SdlLycheePlayerExample::Start, player));

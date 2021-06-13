@@ -79,8 +79,8 @@ void DecoderStream<StreamType>::DecodeTask(std::shared_ptr<DecoderBuffer> decode
 
   if (decoder_buffer->end_of_stream()) {
     DLOG(WARNING) << "an end stream decode buffer";
-    task_runner_->PostTask(FROM_HERE,
-                           bind_weak(&DecoderStream<StreamType>::ReadFromDemuxerStream, this->shared_from_this()));
+//    task_runner_->PostTask(FROM_HERE,
+//                           bind_weak(&DecoderStream<StreamType>::ReadFromDemuxerStream, this->shared_from_this()));
     //TODO
     return;
   }

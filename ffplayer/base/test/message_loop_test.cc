@@ -23,25 +23,25 @@ class MessageLoopTest : public testing::Test {
 
   ~MessageLoopTest() override {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    message_loop_->Quit();
+    message_loop_ = nullptr;
   }
 
  protected:
-  MessageLooper *message_loop_ = nullptr;
+  std::shared_ptr<MessageLooper> message_loop_;
 };
 
-static void quit_message_loop_with_wait(MessageLooper *message_loop) {
+static void quit_message_loop_with_wait(std::shared_ptr<MessageLooper> message_loop) {
+  message_loop.reset();
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  message_loop->Quit();
 }
 
-static MessageLooper *create_test_looper() {
+static std::shared_ptr<MessageLooper> create_test_looper() {
   return MessageLooper::PrepareLooper("test_loop");
 }
 
 #define TEST_MESSAGE_LOOP_START(test_name) \
 TEST(MessageLoop, test_name) {             \
-auto *message_loop = create_test_looper(); \
+auto message_loop = create_test_looper(); \
 
 
 #define TEST_MESSAGE_LOOP_END()            \
@@ -57,7 +57,7 @@ TEST_MESSAGE_LOOP_END()
 TEST_MESSAGE_LOOP_START(RunnerMessageLoop)
   MockTask task;
   EXPECT_CALL(task, Call()).Times(1).WillOnce([&]() {
-    EXPECT_EQ(MessageLooper::current(), message_loop);
+    EXPECT_EQ(MessageLooper::Current(), message_loop);
   });
   message_loop->PostTask(FROM_HERE, task.AsStdFunction());
 TEST_MESSAGE_LOOP_END()

@@ -13,16 +13,14 @@ extern "C" {
 #include "libavutil/bprint.h"
 }
 
-#include "file_data_source.h"
-
 namespace media {
 
 MediaPlayer::MediaPlayer(
     std::unique_ptr<VideoRendererSink> video_renderer_sink,
-    std::shared_ptr<AudioRendererSink> audio_renderer_sink
-) : looper_(MessageLooper::PrepareLooper("media_player")), decoder_looper_(MessageLooper::PrepareLooper("decoder")) {
-  task_runner_ = std::make_unique<TaskRunner>(looper_);
-  task_runner_->PostTask(FROM_HERE, [&]() {
+    std::shared_ptr<AudioRendererSink> audio_renderer_sink,
+    const TaskRunner &task_runner
+) : task_runner_(task_runner), decoder_looper_(MessageLooper::PrepareLooper("decoder")) {
+  task_runner_.PostTask(FROM_HERE, [&]() {
     Initialize();
   });
   decoder_task_runner_ = std::make_shared<TaskRunner>(decoder_looper_);
@@ -32,7 +30,7 @@ MediaPlayer::MediaPlayer(
 
 void MediaPlayer::Initialize() {
   DCHECK_EQ(state_, kUninitialized);
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
 
   auto sync_type_confirm = [this](int av_sync_type) -> int {
     return AV_SYNC_AUDIO_MASTER;
@@ -57,7 +55,7 @@ void MediaPlayer::Initialize() {
   };
   clock_context = std::make_shared<MediaClock>(nullptr, nullptr,
                                                sync_type_confirm);
-  task_runner_->PostTask(FROM_HERE, std::bind(&MediaPlayer::DumpMediaClockStatus, this));
+  task_runner_.PostTask(FROM_HERE, std::bind(&MediaPlayer::DumpMediaClockStatus, this));
 
   state_ = kIdle;
 
@@ -71,8 +69,7 @@ MediaPlayer::~MediaPlayer() {
   demuxer_ = nullptr;
   audio_renderer_ = nullptr;
   video_renderer_ = nullptr;
-  looper_->Quit();
-  decoder_looper_->Quit();
+  decoder_looper_ = nullptr;
 }
 
 void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
@@ -81,7 +78,7 @@ void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
     return;
   }
   play_when_ready_pending_ = play_when_ready;
-  task_runner_->PostTask(FROM_HERE, [&]() {
+  task_runner_.PostTask(FROM_HERE, [&]() {
     SetPlayWhenReadyTask(play_when_ready_pending_);
   });
 }
@@ -128,14 +125,14 @@ int MediaPlayer::OpenDataSource(const char *filename) {
     av_log(nullptr, AV_LOG_ERROR, "can not open file multi-times.\n");
     return -1;
   }
-  task_runner_->PostTask(FROM_HERE, [&, filename]() {
+  task_runner_.PostTask(FROM_HERE, [&, filename]() {
     OpenDataSourceTask(filename);
   });
   return 0;
 }
 
 void MediaPlayer::OpenDataSourceTask(const char *filename) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_.BelongsToCurrentThread());
   DCHECK_EQ(state_, kIdle);
 
   DLOG(INFO) << "open file: " << filename;
@@ -154,7 +151,7 @@ void MediaPlayer::OnDataSourceOpen(int open_status) {
   DCHECK_EQ(state_, kPreparing);
   if (open_status >= 0) {
     DLOG(INFO) << "Open DataSource Succeed";
-    task_runner_->PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitVideoRender, shared_from_this()));
+    task_runner_.PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitVideoRender, shared_from_this()));
   } else {
     state_ = kIdle;
     DLOG(ERROR) << "Open DataSource Failed";
@@ -169,7 +166,7 @@ void MediaPlayer::InitVideoRender() {
                                 bind_weak(&MediaPlayer::OnVideoRendererInitialized, shared_from_this()));
   } else {
     DLOG(WARNING) << "data source does not contains video stream";
-    task_runner_->PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitAudioRender, shared_from_this()));
+    task_runner_.PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitAudioRender, shared_from_this()));
   }
 }
 
@@ -178,7 +175,7 @@ void MediaPlayer::OnVideoRendererInitialized(bool success) {
     state_ = kIdle;
     return;
   }
-  task_runner_->PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitAudioRender, shared_from_this()));
+  task_runner_.PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitAudioRender, shared_from_this()));
 }
 
 void MediaPlayer::InitAudioRender() {
@@ -247,7 +244,7 @@ double MediaPlayer::GetDuration() const {
 }
 
 void MediaPlayer::Seek(double position) {
-  task_runner_->PostTask(FROM_HERE, [&, position]() {
+  task_runner_.PostTask(FROM_HERE, [&, position]() {
     ChangePlaybackState(MediaPlayerState::BUFFERING);
     demuxer_->AbortPendingReads();
     demuxer_->SeekTo(position, std::bind(&MediaPlayer::OnSeekCompleted, this));
@@ -331,7 +328,7 @@ void MediaPlayer::DumpMediaClockStatus() {
     }
   }
 
-  task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(1000000), std::bind(&MediaPlayer::DumpMediaClockStatus, this));
+  task_runner_.PostDelayedTask(FROM_HERE, TimeDelta(1000000), std::bind(&MediaPlayer::DumpMediaClockStatus, this));
 #endif
 }
 

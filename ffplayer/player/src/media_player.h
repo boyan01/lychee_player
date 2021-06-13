@@ -38,8 +38,11 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
    */
   static void GlobalInit();
 
-  MediaPlayer(std::unique_ptr<VideoRendererSink> video_renderer_sink,
-              std::shared_ptr<AudioRendererSink> audio_renderer_sink);
+  MediaPlayer(
+      std::unique_ptr<VideoRendererSink> video_renderer_sink,
+      std::shared_ptr<AudioRendererSink> audio_renderer_sink,
+      const TaskRunner &task_runner
+  );
 
   ~MediaPlayer() override;
 
@@ -135,10 +138,9 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
 
  private:
 
-  MessageLooper *looper_;
-  MessageLooper *decoder_looper_;
+  std::shared_ptr<MessageLooper> decoder_looper_;
 
-  std::unique_ptr<TaskRunner> task_runner_;
+  TaskRunner task_runner_;
   std::shared_ptr<TaskRunner> decoder_task_runner_;
 
   OnVideoSizeChangeCallback on_video_size_changed_;

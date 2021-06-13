@@ -7,16 +7,23 @@
 
 namespace media {
 
-TaskRunner::TaskRunner(MessageLooper *looper) : looper_(looper), message_queue_(nullptr) {
-  if (looper_ == nullptr) {
-    looper_ = MessageLooper::current();
-  }
-  CHECK(looper_) << "can not obtain looper from current thread.";
-  message_queue_ = looper_->message_queue_.get();
-  CHECK(message_queue_) << "failed to get message queue.";
+TaskRunner TaskRunner::CreateFromCurrent() {
+  auto looper = MessageLooper::Current();
+  DCHECK(looper) << "failed to obtain looper in current thread.";
+  return TaskRunner(looper);
 }
 
+TaskRunner::TaskRunner(std::shared_ptr<MessageLooper> looper) : looper_(std::move(looper)) {
+}
+
+TaskRunner::TaskRunner() = default;
+
+TaskRunner::TaskRunner(const TaskRunner &object) = default;
+
 TaskRunner::~TaskRunner() {
+  if (!looper_) {
+    return;
+  }
   RemoveAllTasks();
 }
 
@@ -40,20 +47,40 @@ void TaskRunner::PostDelayedTask(
     TimeDelta delay,
     int task_id,
     const TaskClosure &task_closure) {
+  if (!looper_) {
+    return;
+  }
   Message message(task_closure, from_here, delay, this, task_id);
-  message_queue_->EnqueueMessage(message);
+  looper_->message_queue_->EnqueueMessage(message);
 }
 
 void TaskRunner::RemoveTask(int task_id) {
-  message_queue_->RemoveTask(this, task_id);
+  if (!looper_) {
+    return;
+  }
+  looper_->message_queue_->RemoveTask(this, task_id);
 }
 
 void TaskRunner::RemoveAllTasks() {
-  message_queue_->RemoveTask(this);
+  if (!looper_) {
+    return;
+  }
+  looper_->message_queue_->RemoveTask(this);
 }
 
 bool TaskRunner::BelongsToCurrentThread() {
+  DCHECK(looper_);
   return looper_->BelongsToCurrentThread();
+}
+
+void TaskRunner::Reset() {
+  RemoveAllTasks();
+  looper_ = nullptr;
+}
+
+TaskRunner &TaskRunner::operator=(nullptr_t) {
+  Reset();
+  return *this;
 }
 
 }

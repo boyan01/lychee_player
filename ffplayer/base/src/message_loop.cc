@@ -10,7 +10,7 @@ namespace media {
 
 namespace base {
 
-thread_local MessageLooper *MessageLooper::thread_local_message_loop_;
+thread_local std::weak_ptr<MessageLooper> MessageLooper::thread_local_message_loop_;
 
 MessageLooper::MessageLooper(const char *loop_name, int message_handle_timeout_ms)
     : loop_name_(loop_name),
@@ -19,6 +19,7 @@ MessageLooper::MessageLooper(const char *loop_name, int message_handle_timeout_m
 }
 
 MessageLooper::~MessageLooper() {
+  message_queue_->Quit();
   thread_->join();
 }
 
@@ -26,7 +27,7 @@ void MessageLooper::Prepare() {
   DCHECK(!prepared_);
   prepared_ = true;
   utility::update_thread_name(loop_name_);
-  thread_local_message_loop_ = this;
+  thread_local_message_loop_ = shared_from_this();
 }
 
 void MessageLooper::Loop() {
@@ -56,22 +57,26 @@ void MessageLooper::PostDelayedTask(const tracked_objects::Location &from_here,
   message_queue_->EnqueueMessage(message);
 }
 
-MessageLooper *MessageLooper::current() {
-  return thread_local_message_loop_;
-}
-
-void MessageLooper::Quit() {
-  message_queue_->Quit();
+std::shared_ptr<MessageLooper> MessageLooper::Current() {
+  return thread_local_message_loop_.lock();
 }
 
 // static
-MessageLooper *MessageLooper::PrepareLooper(const char *loop_name, int message_handle_expect_duration_) {
-  auto *looper = new MessageLooper(loop_name, message_handle_expect_duration_);
+std::shared_ptr<MessageLooper> MessageLooper::PrepareLooper(
+    const char *loop_name,
+    int message_handle_expect_duration_
+) {
+  auto looper = Create(loop_name, message_handle_expect_duration_);
   auto thread = std::make_unique<std::thread>([looper]() {
     looper->Prepare();
     looper->Loop();
   });
   looper->thread_ = std::move(thread);
+  return looper;
+}
+
+std::shared_ptr<MessageLooper> MessageLooper::Create(const char *loop_name, int message_handle_expect_duration_) {
+  std::shared_ptr<MessageLooper> looper(new MessageLooper(loop_name, message_handle_expect_duration_));
   return looper;
 }
 

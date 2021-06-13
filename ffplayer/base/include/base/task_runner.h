@@ -18,7 +18,13 @@ class TaskRunner {
 
  public:
 
-  explicit TaskRunner(MessageLooper *looper = nullptr);
+  static TaskRunner CreateFromCurrent();
+
+  explicit TaskRunner(std::shared_ptr<MessageLooper> looper);
+
+  TaskRunner();
+
+  TaskRunner(const TaskRunner &object);
 
   virtual ~TaskRunner();
 
@@ -41,12 +47,13 @@ class TaskRunner {
 
   bool BelongsToCurrentThread();
 
+  void Reset();
+
+  TaskRunner &operator=(nullptr_t);
+
  private:
 
-  MessageLooper *looper_;
-
-  MessageQueue *message_queue_;
-
+  std::shared_ptr<MessageLooper> looper_;
 };
 
 }
