@@ -24,4 +24,7 @@ if (NOT DISABLE_MEDIA_TEST)
             )
     target_link_libraries(media_player_test media_player gtest_main gmock_main)
     add_test(NAME media_player_test COMMAND media_player)
+    set_tests_properties(media_player_test PROPERTIES
+            ENVIRONMENT
+            LYCHEE_PROJECT_DIR1="${CMAKE_CURRENT_SOURCE_DIR}/../../")
 endif ()
