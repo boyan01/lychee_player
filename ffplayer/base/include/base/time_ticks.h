@@ -20,13 +20,9 @@ class TimeTicks {
 
   static TimeTicks Now();
 
-  TimeTicks operator+(const TimeDelta &time_delta) const {
-    return TimeTicks(us_ + time_delta.InMicroseconds());
-  }
+  TimeTicks operator+(const TimeDelta &time_delta) const;
 
-  TimeDelta operator-(const TimeTicks &time_ticks) const {
-    return TimeDelta::FromMicroseconds(us_ - time_ticks.us_);
-  }
+  TimeDelta operator-(const TimeTicks &time_ticks) const;
 
   bool operator<(const TimeTicks &rhs) const;
   bool operator>(const TimeTicks &rhs) const;

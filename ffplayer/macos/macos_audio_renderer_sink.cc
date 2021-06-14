@@ -40,21 +40,27 @@ const int kAudioMaxCallbacksPerSec = 30;
 MacosAudioRendererSink::MacosAudioRendererSink()
     : buffer_size_(-1),
       buffer_offset_(0),
-      audio_buffer_num_(2),
       buffer_(nullptr),
       state_(kIdle) {
 
 }
 
 MacosAudioRendererSink::~MacosAudioRendererSink() {
+  std::lock_guard<std::mutex> lock(mutex_);
   if (buffer_) {
     free(buffer_);
+  }
+  if (audio_queue_) {
+    AudioQueueDispose(audio_queue_, false);
+    audio_queue_ = nullptr;
+    audio_buffer_.clear();
   }
 }
 
 void MacosAudioRendererSink::Initialize(int wanted_nb_channels,
                                         int wanted_sample_rate,
                                         AudioRendererSink::RenderCallback *render_callback) {
+  std::lock_guard<std::mutex> lock(mutex_);
   DCHECK_EQ(state_, kIdle);
   DCHECK(render_callback);
   render_callback_ = render_callback;
@@ -116,15 +122,32 @@ void MacosAudioRendererSink::Initialize(int wanted_nb_channels,
   double MINIMUM_AUDIO_BUFFER_TIME_MS = 15.0;
   const double msecs = (samples / ((double) wanted_sample_rate)) * 1000.0;
 
+  int audio_buffer_num = 2;
   if (MINIMUM_AUDIO_BUFFER_TIME_MS < msecs) {
-    audio_buffer_num_ = (int) std::ceil(MINIMUM_AUDIO_BUFFER_TIME_MS / msecs) * 2;
+    audio_buffer_num = (int) std::ceil(MINIMUM_AUDIO_BUFFER_TIME_MS / msecs) * 2;
   }
-  DCHECK_GT(audio_buffer_num_, 0);
-  audio_buffer_.resize(audio_buffer_num_);
-
-  DLOG(INFO) << "Audio Buffer Size: " << buffer_size_ << " audio_buffer_num_: " << audio_buffer_num_;
+  DLOG(INFO) << "Audio Buffer Size: " << buffer_size_ << " audio_buffer_num: " << audio_buffer_num;
+  InitializeBuffer(audio_buffer_num);
 
   state_ = kPaused;
+}
+
+void MacosAudioRendererSink::InitializeBuffer(int audio_buffer_nb) {
+  DCHECK(audio_queue_);
+  DCHECK_GT(audio_buffer_nb, 0);
+
+  audio_buffer_.resize(audio_buffer_nb);
+  for (auto i = 0; i < audio_buffer_nb; i++) {
+    auto result = AudioQueueAllocateBuffer(audio_queue_, buffer_size_, &audio_buffer_[i]);
+    DCHECK_EQ(result, noErr) << "AudioQueueAllocateBuffer";
+    memset(audio_buffer_[i]->mAudioData,
+           0,
+           audio_buffer_[i]->mAudioDataBytesCapacity);
+    audio_buffer_[i]->mAudioDataByteSize = audio_buffer_[i]->mAudioDataBytesCapacity;
+    /* !!! FIXME: should we use AudioQueueEnqueueBufferWithParameters and specify all frames be "trimmed" so these are immediately ready to refill with SDL callback data? */
+    result = AudioQueueEnqueueBuffer(audio_queue_, audio_buffer_[i], 0, nullptr);
+    DCHECK_EQ(result, noErr) << "AudioQueueEnqueueBuffer";
+  }
 }
 
 uint32 MacosAudioRendererSink::ReadAudioData(uint8 *stream, uint32 len) {
@@ -140,7 +163,6 @@ uint32 MacosAudioRendererSink::ReadAudioData(uint8 *stream, uint32 len) {
 
     uint32 read;
     if (buffer_offset_ >= buffer_size_) {
-      std::lock_guard<std::mutex> lock(mutex_);
       render_callback_->Render(0, buffer_, buffer_size_);
       buffer_offset_ = 0;
     }
@@ -169,41 +191,20 @@ bool MacosAudioRendererSink::SetVolume(double volume) {
   return false;
 }
 
-void MacosAudioRendererSink::Start() {
-}
-
 void MacosAudioRendererSink::Play() {
+  std::lock_guard<std::mutex> lock(mutex_);
   DCHECK_EQ(state_, kPaused);
   DCHECK(audio_queue_);
-
-  for (auto i = 0; i < audio_buffer_num_; i++) {
-    auto result = AudioQueueAllocateBuffer(audio_queue_, buffer_size_, &audio_buffer_[i]);
-    DCHECK_EQ(result, noErr) << "AudioQueueAllocateBuffer";
-    memset(audio_buffer_[i]->mAudioData,
-           0,
-           audio_buffer_[i]->mAudioDataBytesCapacity);
-    audio_buffer_[i]->mAudioDataByteSize = audio_buffer_[i]->mAudioDataBytesCapacity;
-    /* !!! FIXME: should we use AudioQueueEnqueueBufferWithParameters and specify all frames be "trimmed" so these are immediately ready to refill with SDL callback data? */
-    result = AudioQueueEnqueueBuffer(audio_queue_, audio_buffer_[i], 0, nullptr);
-    DCHECK_EQ(result, noErr) << "AudioQueueEnqueueBuffer";
-  }
 
   AudioQueueStart(audio_queue_, nullptr);
   state_ = kPlaying;
 }
 
 void MacosAudioRendererSink::Pause() {
+  std::lock_guard<std::mutex> lock(mutex_);
   DCHECK(audio_queue_);
   state_ = kPaused;
   AudioQueuePause(audio_queue_);
-}
-
-void MacosAudioRendererSink::Stop() {
-  DCHECK(audio_queue_);
-  AudioQueueDispose(audio_queue_, false);
-  audio_queue_ = nullptr;
-  audio_buffer_.clear();
-  state_ = kIdle;
 }
 
 }

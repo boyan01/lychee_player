@@ -24,9 +24,7 @@ AudioRenderer::AudioRenderer(std::shared_ptr<TaskRunner> task_runner, std::share
 
 AudioRenderer::~AudioRenderer() {
   std::lock_guard<std::mutex> auto_lock(mutex_);
-  if (sink_) {
-    sink_->Stop();
-  }
+  sink_ = nullptr;
 }
 
 void AudioRenderer::Initialize(DemuxerStream *stream,

@@ -27,13 +27,9 @@ class MacosAudioRendererSink : public AudioRendererSink {
 
   bool SetVolume(double volume) override;
 
-  void Start() override;
-
   void Play() override;
 
   void Pause() override;
-
-  void Stop() override;
 
   uint32 ReadAudioData(uint8 *stream, uint32 len);
 
@@ -54,13 +50,13 @@ class MacosAudioRendererSink : public AudioRendererSink {
   uint32 buffer_offset_;
   uint8 *buffer_;
 
-  int audio_buffer_num_;
-
   std::vector<AudioQueueBufferRef> audio_buffer_;
 
   std::mutex mutex_;
 
   State state_;
+
+  void InitializeBuffer(int audio_buffer_nb);
 
   DELETE_COPY_AND_ASSIGN(MacosAudioRendererSink);
 

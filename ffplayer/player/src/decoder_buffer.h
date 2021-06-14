@@ -14,9 +14,6 @@ namespace media {
 class DecoderBuffer {
 
  public:
-
-  DELETE_COPY_AND_ASSIGN(DecoderBuffer);
-
   explicit DecoderBuffer(std::unique_ptr<AVPacket, AVPacketDeleter> av_packet);
 
   static std::shared_ptr<DecoderBuffer> CreateEOSBuffer();
@@ -40,10 +37,12 @@ class DecoderBuffer {
 
  private:
 
-  AVPacket* av_packet_;
+  AVPacket *av_packet_;
 
   // pts.
   double timestamp_;
+
+  DELETE_COPY_AND_ASSIGN(DecoderBuffer);
 
 };
 

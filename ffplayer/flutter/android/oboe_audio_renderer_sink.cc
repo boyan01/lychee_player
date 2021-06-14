@@ -10,7 +10,7 @@ namespace media {
 
 OboeAudioRendererSink::~OboeAudioRendererSink() {
   if (audio_stream_) {
-    audio_stream_->stop();
+    audio_stream_->stop(0);
     audio_stream_->close();
   }
 }
@@ -41,10 +41,6 @@ bool OboeAudioRendererSink::SetVolume(double volume) {
   return false;
 }
 
-void OboeAudioRendererSink::Start() {
-
-}
-
 void OboeAudioRendererSink::Play() {
   if (!audio_stream_) {
     return;
@@ -57,13 +53,6 @@ void OboeAudioRendererSink::Pause() {
     return;
   }
   audio_stream_->requestPause();
-}
-
-void OboeAudioRendererSink::Stop() {
-  if (!audio_stream_) {
-    return;
-  }
-  audio_stream_->requestStop();
 }
 
 oboe::DataCallbackResult OboeAudioRendererSink::onAudioReady(

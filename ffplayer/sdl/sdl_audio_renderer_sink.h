@@ -19,10 +19,8 @@ class SdlAudioRendererSink : public AudioRendererSink {
 
   bool SetVolume(double volume) override;
 
-  void Start() override;
   void Play() override;
   void Pause() override;
-  void Stop() override;
 
   ~SdlAudioRendererSink() override;
 
@@ -30,14 +28,14 @@ class SdlAudioRendererSink : public AudioRendererSink {
 
   RenderCallback *render_callback_;
 
-  SDL_AudioDeviceID  audio_device_id_;
+  SDL_AudioDeviceID audio_device_id_;
 
   int hw_audio_buffer_size_;
   int sample_rate_;
 
   int OpenAudioDevices(int wanted_nb_channels, int wanted_sample_rate);
 
-  void ReadAudioData(Uint8* stream, int len);
+  void ReadAudioData(Uint8 *stream, int len);
 
 };
 

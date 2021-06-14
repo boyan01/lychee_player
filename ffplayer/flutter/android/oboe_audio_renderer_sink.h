@@ -21,13 +21,9 @@ class OboeAudioRendererSink : public AudioRendererSink, public oboe::AudioStream
 
   bool SetVolume(double volume) override;
 
-  void Start() override;
-
   void Play() override;
 
   void Pause() override;
-
-  void Stop() override;
 
   oboe::DataCallbackResult onAudioReady(oboe::AudioStream *audioStream, void *audioData, int32_t numFrames) override;
 

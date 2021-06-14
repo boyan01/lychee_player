@@ -33,13 +33,19 @@ class AudioRendererSink {
    */
   virtual bool SetVolume(double volume) = 0;
 
-  virtual void Start() = 0;
-
+  /**
+   * 开始播放音乐。如果当前处于播放状态，则无反应。
+   *
+   * 必须 [Initialize] 之后才能调用。
+   */
   virtual void Play() = 0;
 
+  /**
+   * 当处于播放时，暂停播放音乐
+   *
+   * 必须 [Initialize] 之后才能调用。
+   */
   virtual void Pause() = 0;
-
-  virtual void Stop() = 0;
 
   virtual ~AudioRendererSink() = default;
 

@@ -9,7 +9,6 @@ extern "C" {
 
 namespace media {
 
-void update_thread_name(const char *name);
 
 const char *av_err_to_str(int errnum);
 

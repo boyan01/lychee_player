@@ -9,7 +9,6 @@ extern "C" {
 }
 
 #include "base/logging.h"
-#include "base/bind_to_current_loop.h"
 
 #include "ffp_utils.h"
 
@@ -96,10 +95,6 @@ void SdlAudioRendererSink::ReadAudioData(Uint8 *stream, int len) {
 
 }
 
-void SdlAudioRendererSink::Start() {
-
-}
-
 void SdlAudioRendererSink::Play() {
   DCHECK_GT(audio_device_id_, 0);
   SDL_PauseAudioDevice(audio_device_id_, 0);
@@ -108,14 +103,6 @@ void SdlAudioRendererSink::Play() {
 void SdlAudioRendererSink::Pause() {
   DCHECK_GT(audio_device_id_, 0);
   SDL_PauseAudioDevice(audio_device_id_, 1);
-}
-
-void SdlAudioRendererSink::Stop() {
-  DCHECK_GT(audio_device_id_, 0);
-  SDL_LockAudioDevice(audio_device_id_);
-  SDL_CloseAudioDevice(audio_device_id_);
-  audio_device_id_ = -1;
-  SDL_UnlockAudioDevice(audio_device_id_);
 }
 
 }

@@ -73,7 +73,7 @@ class VideoFrame {
   double duration_;
   int serial_;
 
-  DISALLOW_COPY_AND_ASSIGN(VideoFrame);
+  DELETE_COPY_AND_ASSIGN(VideoFrame);
 
 };
 

@@ -138,7 +138,9 @@ void VideoRendererSinkImpl::RenderTask() {
     DoRender(std::move(frame));
   }
   // schedule next frame after 10 ms.
-  task_runner_->PostDelayedTask(FROM_HERE, TimeDelta(10000), std::bind(&VideoRendererSinkImpl::RenderTask, this));
+  task_runner_->PostDelayedTask(FROM_HERE,
+                                TimeDelta::FromMilliseconds(10),
+                                std::bind(&VideoRendererSinkImpl::RenderTask, this));
 }
 
 } // namespace media

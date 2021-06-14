@@ -40,4 +40,12 @@ bool TimeTicks::operator>=(const TimeTicks &rhs) const {
   return us_ >= rhs.us_;
 }
 
+TimeTicks TimeTicks::operator+(const TimeDelta &time_delta) const {
+  return TimeTicks(us_ + time_delta.InMicroseconds());
+}
+
+TimeDelta TimeTicks::operator-(const TimeTicks &time_ticks) const {
+  return TimeDelta::FromMicroseconds(us_ - time_ticks.us_);
+}
+
 }
