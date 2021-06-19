@@ -19,7 +19,11 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
 
  public:
 
-  VideoRenderer(std::shared_ptr<TaskRunner> task_runner, std::shared_ptr<VideoRendererSink> video_renderer_sink);
+  VideoRenderer(
+      const TaskRunner& media_task_runner,
+      std::shared_ptr<TaskRunner> decode_task_runner,
+      std::shared_ptr<VideoRendererSink> video_renderer_sink
+  );
 
   ~VideoRenderer() override;
 
@@ -27,7 +31,7 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
 
   void Initialize(DemuxerStream *stream, std::shared_ptr<MediaClock> media_clock, InitCallback init_callback);
 
-  std::shared_ptr<VideoFrame> Render() override;
+  std::shared_ptr<VideoFrame> Render(TimeDelta &next_frame_delay) override;
 
   void OnFrameDrop() override;
 
@@ -50,7 +54,8 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
   };
   State state_ = kUnInitialized;
 
-  std::shared_ptr<TaskRunner> task_runner_;
+  TaskRunner media_task_runner_;
+  std::shared_ptr<TaskRunner> decode_task_runner_;
 
   std::shared_ptr<VideoRendererSink> sink_;
 

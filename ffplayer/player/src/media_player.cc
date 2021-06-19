@@ -8,6 +8,7 @@
 #include "media_player.h"
 
 #include "ffp_define.h"
+#include "ffp_utils.h"
 
 extern "C" {
 #include "libavutil/bprint.h"
@@ -25,7 +26,9 @@ MediaPlayer::MediaPlayer(
   });
   decoder_task_runner_ = std::make_shared<TaskRunner>(decoder_looper_);
   audio_renderer_ = std::make_shared<AudioRenderer>(decoder_task_runner_, std::move(audio_renderer_sink));
-  video_renderer_ = std::make_shared<VideoRenderer>(decoder_task_runner_, std::move(video_renderer_sink));
+  video_renderer_ = std::make_shared<VideoRenderer>(
+      task_runner_,
+      decoder_task_runner_, std::move(video_renderer_sink));
 }
 
 void MediaPlayer::Initialize() {
@@ -328,7 +331,7 @@ void MediaPlayer::DumpMediaClockStatus() {
     }
   }
 
-  task_runner_.PostDelayedTask(FROM_HERE, TimeDelta(1000000), std::bind(&MediaPlayer::DumpMediaClockStatus, this));
+  decode_task_runner_.PostDelayedTask(FROM_HERE, TimeDelta(1000000), std::bind(&MediaPlayer::DumpMediaClockStatus, this));
 #endif
 }
 

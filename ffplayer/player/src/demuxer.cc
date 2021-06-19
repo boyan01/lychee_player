@@ -458,7 +458,7 @@ DemuxerStream *Demuxer::GetFirstStream(DemuxerStream::Type type) {
 }
 
 std::vector<DemuxerStream *> Demuxer::GetAllStreams() {
-//  DCHECK(task_runner_.BelongsToCurrentThread());
+//  DCHECK(decode_task_runner_.BelongsToCurrentThread());
   std::vector<DemuxerStream *> result;
   // Put enabled streams at the beginning of the list so that
   // MediaResource::GetFirstStream returns the enabled stream if there is one.

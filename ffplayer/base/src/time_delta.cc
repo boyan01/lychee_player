@@ -49,6 +49,9 @@ int64_t TimeDelta::InMillisecondsRoundedUp() const {
   return delta_;
 }
 
-
+std::ostream &operator<<(std::ostream &os, const TimeDelta &delta) {
+  os << delta.InMilliseconds();
+  return os;
+}
 
 }

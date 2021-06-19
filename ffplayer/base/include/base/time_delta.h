@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <ostream>
 
 #include "base/logging.h"
 
@@ -177,6 +178,8 @@ class TimeDelta {
   constexpr bool operator>=(TimeDelta other) const {
     return delta_ >= other.delta_;
   }
+
+  friend std::ostream &operator<<(std::ostream &os, const TimeDelta &delta);
 
  private:
 

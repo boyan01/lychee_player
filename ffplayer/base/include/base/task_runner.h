@@ -51,6 +51,10 @@ class TaskRunner {
 
   TaskRunner &operator=(nullptr_t);
 
+  explicit operator bool() const {
+    return bool(looper_);
+  }
+
  private:
 
   std::shared_ptr<MessageLooper> looper_;

@@ -49,7 +49,7 @@ class SdlVideoRendererSink : public VideoRendererSink {
 
   void RenderInternal();
 
-  void RenderPicture(std::shared_ptr<VideoFrame> frame);
+  void RenderPicture(const std::shared_ptr<VideoFrame>& frame);
 
   int ReAllocTexture(Uint32 new_format, int new_width, int new_height,
                      SDL_BlendMode blendmode, int init_texture);

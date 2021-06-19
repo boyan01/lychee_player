@@ -125,7 +125,7 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
     media_clock_->GetExtClock()->Sync(media_clock_->GetAudioClock());
   }
 
-//  task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
+//  decode_task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
 
   return len_flush;
 }

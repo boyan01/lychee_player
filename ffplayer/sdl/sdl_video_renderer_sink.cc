@@ -44,19 +44,19 @@ void SdlVideoRendererSink::RenderInternal() {
     return;
   }
 
-  auto frame = render_callback_->Render();
+  TimeDelta delay;
+  auto frame = render_callback_->Render(delay);
 
-  RenderPicture(std::move(frame));
+  RenderPicture(frame);
 
-  // delay 10ms to draw next frame.
-  // FIXME we need calculate a more effective time.
+  DLOG(WARNING) << "next frame delay: " << delay;
   render_task_runner_.PostDelayedTask(
-      FROM_HERE, TimeDelta::FromMilliseconds(10),
+      FROM_HERE, delay,
       std::bind(&SdlVideoRendererSink::RenderInternal, this));
 
 }
 
-void SdlVideoRendererSink::RenderPicture(std::shared_ptr<VideoFrame> frame) {
+void SdlVideoRendererSink::RenderPicture(const std::shared_ptr<VideoFrame> &frame) {
   TRACE_METHOD_DURATION(10);
 
   if (frame->IsEmpty()) {
