@@ -96,6 +96,8 @@ public:
 
 	void MaybeInitPixelBuffer(int width, int height) override {
 		NSDictionary* cvBufferProperties = @{
+			(__bridge NSString*)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
+            (__bridge NSString*)kCVPixelBufferIOSurfacePropertiesKey: @{},
 			(__bridge NSString*)kCVPixelBufferOpenGLCompatibilityKey : @YES,
 			(__bridge NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
 		};
