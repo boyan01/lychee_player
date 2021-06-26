@@ -79,6 +79,12 @@ void VideoRendererSinkImpl::DoRender(std::shared_ptr<VideoFrame> frame) {
     return;
   }
 
+  if (frame->frame()->hw_frames_ctx != nullptr) {
+    DLOG(WARNING) << "DoRender with hardware accel";
+    texture_->RenderWithHWAccel(frame->frame()->data[3]);
+    return;
+  }
+
   texture_->MaybeInitPixelBuffer(frame->Width(), frame->Height());
 
   if (!texture_->TryLockBuffer()) {
@@ -96,7 +102,7 @@ void VideoRendererSinkImpl::DoRender(std::shared_ptr<VideoFrame> frame) {
       nullptr, nullptr, nullptr);
 
   if (!img_convert_ctx_) {
-    DLOG(ERROR) << "can not init image convert context";
+    DLOG(ERROR) << "can not init image convert context: " << AVPixelFormat(frame->frame()->format);
     texture_->UnlockBuffer();
     return;
   }

@@ -144,7 +144,10 @@ std::shared_ptr<VideoFrame> VideoRenderer::Render(TimeDelta &next_frame_delay) {
         const std::shared_ptr<VideoFrame> &next_frame = ready_frames_.front();
         next_frame_delay = TimeDelta::FromSecondsD(std::min(next_frame->pts() - clock,
                                                             clock - current_frame->pts() + current_frame->duration()));
-        DCHECK_GT(next_frame_delay, TimeDelta::FromMicroseconds(-1));
+//        DCHECK_GT(next_frame_delay, TimeDelta::FromMicroseconds(-1));
+        if (next_frame_delay < TimeDelta()) {
+          next_frame_delay = TimeDelta();
+        }
       }
       ready_frames_.push_front(current_frame);
     }

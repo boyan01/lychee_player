@@ -41,11 +41,13 @@ class VideoDecoder {
   DemuxerStream *stream_ = nullptr;
   OutputCallback output_callback_;
 
+  AVBufferRef *hw_device_context_;
+
   VideoDecodeConfig video_decode_config_;
 
   bool OnFrameAvailable(AVFrame *frame);
 
-  DISALLOW_COPY_AND_ASSIGN(VideoDecoder);
+  DELETE_COPY_AND_ASSIGN(VideoDecoder);
 
 };
 

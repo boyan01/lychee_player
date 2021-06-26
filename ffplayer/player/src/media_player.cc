@@ -20,15 +20,17 @@ MediaPlayer::MediaPlayer(
     std::unique_ptr<VideoRendererSink> video_renderer_sink,
     std::shared_ptr<AudioRendererSink> audio_renderer_sink,
     const TaskRunner &task_runner
-) : task_runner_(task_runner), decoder_looper_(MessageLooper::PrepareLooper("decoder")) {
+) : task_runner_(task_runner) {
   task_runner_.PostTask(FROM_HERE, [&]() {
     Initialize();
   });
-  decoder_task_runner_ = std::make_shared<TaskRunner>(decoder_looper_);
-  audio_renderer_ = std::make_shared<AudioRenderer>(decoder_task_runner_, std::move(audio_renderer_sink));
+  auto decoder_looper = MessageLooper::PrepareLooper("audio_decoder");
+  auto decoder_task_runner = std::make_shared<TaskRunner>(decoder_looper);
+  audio_renderer_ = std::make_shared<AudioRenderer>(decoder_task_runner, std::move(audio_renderer_sink));
   video_renderer_ = std::make_shared<VideoRenderer>(
       task_runner_,
-      decoder_task_runner_, std::move(video_renderer_sink));
+      std::make_shared<TaskRunner>(MessageLooper::PrepareLooper("video_decoder")),
+      std::move(video_renderer_sink));
 }
 
 void MediaPlayer::Initialize() {
@@ -68,11 +70,9 @@ MediaPlayer::~MediaPlayer() {
   std::lock_guard<std::mutex> lock_guard(player_mutex_);
   DLOG(INFO) << "Destroy Media Player " << this;
   task_runner_ = nullptr;
-  decoder_task_runner_ = nullptr;
   demuxer_ = nullptr;
   audio_renderer_ = nullptr;
   video_renderer_ = nullptr;
-  decoder_looper_ = nullptr;
 }
 
 void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
@@ -140,7 +140,7 @@ void MediaPlayer::OpenDataSourceTask(const char *filename) {
 
   DLOG(INFO) << "open file: " << filename;
   state_ = kPreparing;
-  demuxer_ = std::make_shared<Demuxer>(*decoder_task_runner_, filename,
+  demuxer_ = std::make_shared<Demuxer>(TaskRunner(MessageLooper::PrepareLooper("demux")), filename,
                                        [](std::unique_ptr<MediaTracks> tracks) {
                                          DLOG(INFO) << "on tracks update.";
                                          for (auto &track: tracks->tracks()) {

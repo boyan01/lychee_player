@@ -35,6 +35,7 @@ elseif (CMAKE_FLUTTER_MEDIA_MACOS)
     set(CMAKE_FLUTTER_MEDIA "1")
     set(DISABLE_MEDIA_TEST 1)
     add_compile_definitions(_FLUTTER_MEDIA_MACOS)
+    add_compile_definitions(_MEDIA_ENABLE_HW_ACCEL)
 
     find_library(FFmpegKit NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../example/macos/Pods/ffmpeg-kit-macos-full REQUIRED)
     list(APPEND FFP_LIBS ${FFmpegKit})

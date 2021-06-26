@@ -8,11 +8,87 @@
 
 #include "ffp_utils.h"
 
+extern "C" {
+#include "libavutil/pixdesc.h"
+}
+
+namespace {
+
+#if 1
+enum AVPixelFormat lychee_avcodec_get_format(struct AVCodecContext *avctx,
+                                             const enum AVPixelFormat *fmt) {
+  const AVPixFmtDescriptor *desc;
+  const AVCodecHWConfig *config;
+  int i, n;
+
+  // If a device was supplied when the codec was opened, assume that the
+  // user wants to use it.
+  if (avctx->hw_device_ctx && avctx->codec->hw_configs) {
+    AVHWDeviceContext *device_ctx =
+        (AVHWDeviceContext *) avctx->hw_device_ctx->data;
+    for (i = 0;; i++) {
+      config = avcodec_get_hw_config(avctx->codec, i);
+      if (!config)
+        break;
+      if (!(config->methods &
+          AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX))
+        continue;
+      if (device_ctx->type != config->device_type)
+        continue;
+      for (n = 0; fmt[n] != AV_PIX_FMT_NONE; n++) {
+        if (config->pix_fmt == fmt[n])
+          return fmt[n];
+      }
+    }
+  }
+  // No device or other setup, so we have to choose from things which
+  // don't any other external information.
+
+  // If the last element of the list is a software format, choose it
+  // (this should be best software format if any exist).
+  for (n = 0; fmt[n] != AV_PIX_FMT_NONE; n++);
+  desc = av_pix_fmt_desc_get(fmt[n - 1]);
+  if (!(desc->flags & AV_PIX_FMT_FLAG_HWACCEL))
+    return fmt[n - 1];
+
+  // Finally, traverse the list in order and choose the first entry
+  // with no external dependencies (if there is no hardware configuration
+  // information available then this just picks the first entry).
+  for (n = 0; fmt[n] != AV_PIX_FMT_NONE; n++) {
+    for (i = 0;; i++) {
+      config = avcodec_get_hw_config(avctx->codec, i);
+      if (!config)
+        break;
+      if (config->pix_fmt == fmt[n])
+        break;
+    }
+    if (!config) {
+      // No specific config available, so the decoder must be able
+      // to handle this format without any additional setup.
+      return fmt[n];
+    }
+    if (config->methods & AV_CODEC_HW_CONFIG_METHOD_INTERNAL) {
+      // Usable with only internal setup.
+      return fmt[n];
+    }
+  }
+
+  // Nothing is usable, give up.
+  return AV_PIX_FMT_NONE;
+}
+#endif
+}
+
 namespace media {
 
-VideoDecoder::VideoDecoder() = default;
+VideoDecoder::VideoDecoder() : hw_device_context_(nullptr) {};
 
-VideoDecoder::~VideoDecoder() = default;
+VideoDecoder::~VideoDecoder() {
+  if (hw_device_context_) {
+    av_buffer_unref(&hw_device_context_);
+  }
+  DCHECK(!hw_device_context_);
+};
 
 int VideoDecoder::Initialize(VideoDecodeConfig config,
                              DemuxerStream *stream,
@@ -30,7 +106,7 @@ int VideoDecoder::Initialize(VideoDecodeConfig config,
   codec_context_->pkt_timebase = config.time_base();
 
   auto *codec = avcodec_find_decoder(config.codec_id());
-  DCHECK(codec) << "No decoder could be found for CodecId:" << avcodec_get_name(config.codec_id());
+  DCHECK(codec) << "no decoder could be found" << avcodec_get_name(config.codec_id());
 
   if (codec == nullptr) {
     codec_context_.reset();
@@ -39,9 +115,9 @@ int VideoDecoder::Initialize(VideoDecodeConfig config,
 
   codec_context_->codec_id = codec->id;
   int stream_lower = config.low_res();
-  DCHECK_LE(stream_lower, codec->max_lowres)
+  DCHECK_LE(stream_lower, int(codec->max_lowres))
       << "The maximum value for lowres supported by the decoder is " << codec->max_lowres
-      << ", but is " << stream_lower;
+      << ", but is " << int(codec->max_lowres);
   if (stream_lower > codec->max_lowres) {
     stream_lower = codec->max_lowres;
   }
@@ -50,6 +126,19 @@ int VideoDecoder::Initialize(VideoDecodeConfig config,
     codec_context_->flags2 |= AV_CODEC_FLAG2_FAST;
   }
 
+#if defined(_MEDIA_ENABLE_HW_ACCEL)
+  auto *hw_config = avcodec_get_hw_config(codec, 0);
+  if (hw_config) {
+    DLOG(WARNING) << "hw_config: " << hw_config->pix_fmt;
+    DLOG(WARNING) << "hw_config: " << hw_config->device_type;
+  }
+  ret = av_hwdevice_ctx_create(&hw_device_context_, AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX, nullptr, nullptr, 0);
+  if (ret < 0) {
+    DLOG(INFO) << "failed to create hw device_context" << av_err_to_str(ret);
+  } else {
+    codec_context_->hw_device_ctx = av_buffer_ref(hw_device_context_);
+  }
+#endif
   ret = avcodec_open2(codec_context_.get(), codec, nullptr);
   DCHECK_GE(ret, 0) << "can not open avcodec, reason: " << av_err_to_str(ret);
   if (ret < 0) {

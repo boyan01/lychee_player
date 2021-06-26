@@ -97,7 +97,7 @@ public:
 	void MaybeInitPixelBuffer(int width, int height) override {
 		NSDictionary* cvBufferProperties = @{
 			(__bridge NSString*)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
-            (__bridge NSString*)kCVPixelBufferIOSurfacePropertiesKey: @{},
+			(__bridge NSString*)kCVPixelBufferIOSurfacePropertiesKey: @{},
 			(__bridge NSString*)kCVPixelBufferOpenGLCompatibilityKey : @YES,
 			(__bridge NSString*)kCVPixelBufferMetalCompatibilityKey : @YES,
 		};
@@ -147,6 +147,18 @@ public:
 	{
 		[textures_registry unregisterTexture: texture_id_];
 	}
+
+	void RenderWithHWAccel(void *pixel_buffer) override {
+		auto cv_pixel_buffer = static_cast<CVPixelBufferRef>(pixel_buffer);
+//		auto format = CVPixelBufferGetPixelFormatType(cv_pixel_buffer);
+//		auto dict = CVPixelFormatDescriptionCreateWithPixelFormatType(kCFAllocatorDefault, kCVPixelFormatType_32BGRA);
+//		NSLog(@"format %d, %d = %@",format, kCVPixelFormatType_32BGRA, dict);
+//		CFRelease(dict);
+    NSLog(@"cv_pixel_buffer = %p", cv_pixel_buffer);
+    [texture_ setPixelBuffer: cv_pixel_buffer];
+    [textures_registry textureFrameAvailable: texture_id_];
+	}
+
 
 private:
 

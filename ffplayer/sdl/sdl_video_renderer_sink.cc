@@ -49,7 +49,6 @@ void SdlVideoRendererSink::RenderInternal() {
 
   RenderPicture(frame);
 
-  DLOG(WARNING) << "next frame delay: " << delay;
   render_task_runner_.PostDelayedTask(
       FROM_HERE, delay,
       std::bind(&SdlVideoRendererSink::RenderInternal, this));

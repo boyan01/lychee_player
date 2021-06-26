@@ -63,6 +63,8 @@ class FlutterMediaTexture {
 
   virtual ~FlutterMediaTexture() = default;
 
+  virtual void RenderWithHWAccel(void *pixel_buffer) {}
+
 };
 
 typedef void(*FlutterTextureAdapterFactory)(std::function<void(std::unique_ptr<FlutterMediaTexture>)> callback);
