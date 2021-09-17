@@ -21,3 +21,13 @@ pubspec.lock
 flutter_*.log
 
 .fvm
+
+ffplayer
+preview
+example
+.github
+test
+
+# todo: add more platform support
+windows
+linux
