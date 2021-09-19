@@ -15,7 +15,7 @@ using namespace std::chrono;
 
 static const Message &obtain_emtpy_message() {
   const static auto empty_lambda = []() {};
-  const static Message message(empty_lambda, FROM_HERE, media::TimeDelta(0), nullptr, 0);
+  const static Message message(empty_lambda, FROM_HERE, media::TimeDelta::FromMicroseconds(0), nullptr, 0);
   return message;
 }
 

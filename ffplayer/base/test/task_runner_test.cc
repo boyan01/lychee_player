@@ -50,7 +50,7 @@ TEST_F(TaskRunnerTest, PostTask) {
 TEST_F(TaskRunnerTest, PostTaskDelay) {
   MockTask task;
   EXPECT_CALL(task, Call()).Times(1);
-  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta(1000), task.AsStdFunction());
+  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta::FromMicroseconds(1000), task.AsStdFunction());
   WaitSeconds();
 }
 
@@ -78,8 +78,8 @@ TEST_F(TaskRunnerTest, BelongToCurrentThread) {
 TEST_F(TaskRunnerTest, RemoveTask) {
   MockTask task;
   EXPECT_CALL(task, Call()).Times(0);
-  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta(100), task.AsStdFunction());
-  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta(100), task.AsStdFunction());
+  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta::FromMicroseconds(100), task.AsStdFunction());
+  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta::FromMicroseconds(100), task.AsStdFunction());
   task_runner_.RemoveAllTasks();
   WaitSeconds();
 }
@@ -89,8 +89,8 @@ TEST_F(TaskRunnerTest, RemoveTaskWithTaskId) {
 
   MockTask task;
   EXPECT_CALL(task, Call()).Times(1);
-  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta(100), task.AsStdFunction());
-  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta(100), kTaskId, task.AsStdFunction());
+  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta::FromMicroseconds(100), task.AsStdFunction());
+  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta::FromMicroseconds(100), kTaskId, task.AsStdFunction());
   task_runner_.RemoveTask(kTaskId);
   WaitSeconds();
 }
