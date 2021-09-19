@@ -11,10 +11,15 @@
 #include "base/bind_to_current_loop.h"
 #include "base/lambda.h"
 
-namespace media {
+namespace {
+const auto kSeekTaskId = 100;
 
 const int PIPELINE_ERROR_ABORT = -1;
 const int PIPELINE_OK = 0;
+
+}
+
+namespace media {
 
 Demuxer::Demuxer(const TaskRunner &task_runner,
                  std::string url,
@@ -56,7 +61,7 @@ void Demuxer::DemuxTask() {
     // http://crbug.com/86830
     if (!duration_known_) {
       // Search streams for AUDIO one.
-      for (auto &stream : streams_) {
+      for (auto &stream: streams_) {
         if (stream && stream->type() == DemuxerStream::Audio) {
           auto duration = stream->duration();
           if (duration != kNoTimestamp() && duration > 0) {
@@ -463,7 +468,7 @@ std::vector<DemuxerStream *> Demuxer::GetAllStreams() {
   // Put enabled streams at the beginning of the list so that
   // MediaResource::GetFirstStream returns the enabled stream if there is one.
   // TODO(servolk): Revisit this after media track switching is supported.
-  for (const auto &stream : streams_) {
+  for (const auto &stream: streams_) {
     if (stream)
       result.push_back(stream.get());
   }
@@ -487,41 +492,39 @@ void Demuxer::NotifyCapacityAvailable() {
   PostDemuxTask();
 }
 
-void Demuxer::SeekTo(double position, SeekCallback seek_callback) {
-  DCHECK(!seek_callback_);
-
-  seek_callback_ = BindToCurrentLoop(std::move(seek_callback));
-  pending_seek_position_ = position;
-  task_runner_.PostTask(FROM_HERE, bind_weak(&Demuxer::SeekTask, shared_from_this()));
+void Demuxer::SeekTo(double position, const SeekCallback &seek_callback) {
+  task_runner_.RemoveTask(kSeekTaskId);
+  task_runner_.PostTask(FROM_HERE,
+                        kSeekTaskId,
+                        std::bind(&Demuxer::SeekTask, this, TimeDelta::FromSecondsD(position), seek_callback));
 }
 
-void Demuxer::SeekTask() {
+void Demuxer::SeekTask(TimeDelta dest, const SeekCallback &seek_callback) {
   DCHECK(task_runner_.BelongsToCurrentThread());
-  DCHECK(seek_callback_);
 
-  DLOG(INFO) << "do seek to " << pending_seek_position_;
+  DLOG(INFO) << "do seek to: " << dest.InSecondsF();
 
   auto ret = avformat_seek_file(format_context_, -1, INT64_MIN,
-                                int64_t(pending_seek_position_ * AV_TIME_BASE), INT64_MAX, 0);
+                                dest.InMicroseconds(), INT64_MAX, 0);
 
-  DLOG_IF(ERROR, ret < 0) << "failed seek to " << pending_seek_position_ << " reason: " << ffmpeg::AVErrorToString(ret);
+  DLOG_IF(ERROR, ret < 0) << "failed seek to " << dest.InSecondsF() << " reason: " << ffmpeg::AVErrorToString(ret);
 
   // Tell streams to flush buffers due to seeking.
-  for (const auto &stream : streams_) {
+  for (const auto &stream: streams_) {
     if (stream) {
       stream->FlushBuffers();
     }
   }
 
-  seek_callback_();
-  seek_callback_ = nullptr;
+  // Notify seek completed.
+  seek_callback();
 
   PostDemuxTask();
 }
 
 void Demuxer::AbortPendingReads() {
   auto streams = GetAllStreams();
-  for (auto stream : streams) {
+  for (auto stream: streams) {
     if (stream) {
       stream->Abort();
     }

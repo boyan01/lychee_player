@@ -31,7 +31,7 @@ std::unique_ptr<AVCodecContext, AVCodecContextDeleter> AVStreamToAVCodecContext(
 std::string AVErrorToString(int err_num) {
   char err_buf[AV_ERROR_MAX_STRING_SIZE] = {0};
   av_strerror(err_num, err_buf, AV_ERROR_MAX_STRING_SIZE);
-  return std::string(err_buf);
+  return {err_buf};
 }
 
 int ReadFrameAndDiscardEmpty(AVFormatContext *context, AVPacket *packet) {

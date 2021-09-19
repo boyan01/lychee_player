@@ -18,13 +18,6 @@ constexpr int TimeDelta::InMinutes() const {
   return static_cast<int>(delta_ / kMicrosecondsPerMinute);
 }
 
-constexpr double TimeDelta::InSecondsF() const {
-  if (!is_inf())
-    return static_cast<double>(delta_) / kMicrosecondsPerSecond;
-  return (delta_ < 0) ? -std::numeric_limits<double>::infinity()
-                      : std::numeric_limits<double>::infinity();
-}
-
 constexpr int64_t TimeDelta::InSeconds() const {
   return is_inf() ? delta_ : (delta_ / kMicrosecondsPerSecond);
 }

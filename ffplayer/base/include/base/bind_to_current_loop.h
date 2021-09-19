@@ -17,7 +17,7 @@ namespace media {
 
 template<typename... Args>
 std::function<void(Args...)> BindToLoop(
-    const std::shared_ptr<base::MessageLooper>& loop,
+    const std::shared_ptr<base::MessageLooper> &loop,
     std::function<void(Args...)> cb
 ) {
   DCHECK(loop);
@@ -41,7 +41,7 @@ std::function<void(Args...)> BindToRunner(TaskRunner *runner, std::function<void
 }
 
 template<typename Args = void>
-std::function<void(void)> BindToLoop(const std::shared_ptr<base::MessageLooper>& loop, std::function<void(void)> cb) {
+std::function<void(void)> BindToLoop(const std::shared_ptr<base::MessageLooper> &loop, std::function<void(void)> cb) {
   DCHECK(loop);
   std::function<void(void)> func = [loop, callback(std::move(cb))]() {
     DCHECK(loop);
@@ -54,6 +54,11 @@ std::function<void(void)> BindToLoop(const std::shared_ptr<base::MessageLooper>&
 
 template<typename... Args>
 std::function<void(Args...)> BindToCurrentLoop(std::function<void(Args...)> cb) {
+  return BindToLoop(base::MessageLooper::Current(), std::move(cb));
+}
+
+template<typename Args = void>
+std::function<void(void)> BindToCurrentLoop(std::function<void(void)> cb) {
   return BindToLoop(base::MessageLooper::Current(), std::move(cb));
 }
 

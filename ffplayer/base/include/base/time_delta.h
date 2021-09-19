@@ -293,6 +293,13 @@ constexpr TimeDelta TimeDelta::operator-(TimeDelta other) const {
   return (other.delta_ < 0) ? Max() : Min();
 }
 
+inline constexpr double TimeDelta::InSecondsF() const {
+  if (!is_inf())
+    return static_cast<double>(delta_) / kMicrosecondsPerSecond;
+  return (delta_ < 0) ? -std::numeric_limits<double>::infinity()
+                      : std::numeric_limits<double>::infinity();
+}
+
 } // namespace media
 
 #endif //MEDIA_BASE_TIME_DELTA_H_

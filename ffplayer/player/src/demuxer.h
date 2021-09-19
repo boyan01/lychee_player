@@ -8,6 +8,7 @@
 #include "memory"
 
 #include "base/message_loop.h"
+#include "base/time_delta.h"
 
 #include "demuxer_stream.h"
 #include "media_tracks.h"
@@ -50,7 +51,7 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
 
   using MediaTracksUpdatedCB = std::function<void(std::unique_ptr<MediaTracks>)>;
 
-  Demuxer(const TaskRunner& task_runner,
+  Demuxer(const TaskRunner &task_runner,
           std::string url,
           MediaTracksUpdatedCB media_tracks_updated_cb);
 
@@ -76,7 +77,7 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
   void NotifyCapacityAvailable();
 
   using SeekCallback = std::function<void()>;
-  void SeekTo(double position, SeekCallback seek_callback);
+  void SeekTo(double position, const SeekCallback &seek_callback);
 
   void AbortPendingReads();
 
@@ -103,7 +104,7 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
   // Carries out stopping the demuxer streams on the demuxer thread.
   void StopTask(const std::function<void(void)> &callback);
 
-  void SeekTask();
+  void SeekTask(TimeDelta dest, const SeekCallback &seek_callback);
 
   // Signal the blocked thread that the read has completed, with |size| bytes
   // read or kReadError in case of error.
@@ -163,8 +164,8 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
   // stream -- at this moment we definitely know duration.
   bool duration_known_;
 
+  // FIXME this seems useless.
   double pending_seek_position_;
-  SeekCallback seek_callback_;
 
   DELETE_COPY_AND_ASSIGN(Demuxer);
 

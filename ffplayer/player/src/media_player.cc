@@ -2,6 +2,7 @@
 // Created by yangbin on 2021/2/13.
 //
 
+#include <base/bind_to_current_loop.h>
 #include "base/logging.h"
 #include "base/lambda.h"
 
@@ -250,7 +251,7 @@ void MediaPlayer::Seek(double position) {
   task_runner_.PostTask(FROM_HERE, [&, position]() {
     ChangePlaybackState(MediaPlayerState::BUFFERING);
     demuxer_->AbortPendingReads();
-    demuxer_->SeekTo(position, std::bind(&MediaPlayer::OnSeekCompleted, this));
+    demuxer_->SeekTo(position, BindToCurrentLoop(bind_weak(&MediaPlayer::OnSeekCompleted, shared_from_this())));
   });
 }
 
