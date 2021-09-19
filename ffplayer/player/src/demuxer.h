@@ -76,10 +76,12 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
 
   void NotifyCapacityAvailable();
 
-  using SeekCallback = std::function<void()>;
-  void SeekTo(double position, const SeekCallback &seek_callback);
+  using SeekCallback = std::function<void(bool)>;
+  void SeekTo(TimeDelta position, SeekCallback seek_callback);
 
   void AbortPendingReads();
+
+  TimeDelta GetPendingSeekingPosition() { return pending_seek_position_; }
 
  protected:
 
@@ -104,7 +106,7 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
   // Carries out stopping the demuxer streams on the demuxer thread.
   void StopTask(const std::function<void(void)> &callback);
 
-  void SeekTask(TimeDelta dest, const SeekCallback &seek_callback);
+  void SeekTask();
 
   // Signal the blocked thread that the read has completed, with |size| bytes
   // read or kReadError in case of error.
@@ -164,8 +166,10 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
   // stream -- at this moment we definitely know duration.
   bool duration_known_;
 
-  // FIXME this seems useless.
-  double pending_seek_position_;
+  TimeDelta pending_seek_position_;
+  SeekCallback seek_callback_;
+
+  std::mutex seek_mutex_;
 
   DELETE_COPY_AND_ASSIGN(Demuxer);
 

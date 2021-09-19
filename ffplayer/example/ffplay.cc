@@ -307,11 +307,11 @@ void SDLEventHandler::HandleKeyEvent(SDL_Keycode keycode, const std::shared_ptr<
 //          player->SeekToChapter(player->GetChapterCount() - 1);
 //          break;
     case SDLK_LEFT: {
-      player->Seek(player->GetCurrentPosition() - 10.0);
+      player->Seek(std::max(player->GetCurrentPosition() - TimeDelta::FromSeconds(10), TimeDelta::Zero()));
       break;
     }
     case SDLK_RIGHT: {
-      player->Seek(player->GetCurrentPosition() + 10.0);
+      player->Seek(player->GetCurrentPosition() + TimeDelta::FromSeconds(10));
       break;
     }
     case SDLK_UP: {
@@ -375,7 +375,7 @@ void SDLEventHandler::HandleSdlEvent(const SDL_Event &event) {
       }
       {
         double dest = (x / screen_width) * player->GetDuration();
-        player->Seek(dest);
+        player->Seek(TimeDelta::FromSecondsD(dest));
       }
       break;
     case SDL_WINDOWEVENT:

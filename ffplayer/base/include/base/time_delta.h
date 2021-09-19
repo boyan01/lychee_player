@@ -58,6 +58,8 @@ class TimeDelta {
   static constexpr TimeDelta FromNanosecondsD(double ns);
   static constexpr TimeDelta FromNanoseconds(int64_t ns);
 
+  static constexpr TimeDelta Zero() { return TimeDelta(0); }
+
   // Returns the maximum time delta, which should be greater than any reasonable
   // time delta we might compare it to. Adding or subtracting the maximum time
   // delta to a time or another time delta has an undefined result.
@@ -75,6 +77,8 @@ class TimeDelta {
   constexpr bool is_max() const { return *this == Max(); }
   constexpr bool is_min() const { return *this == Min(); }
   constexpr bool is_inf() const { return is_min() || is_max(); }
+
+  constexpr bool is_positive() const { return delta_ > 0; }
 
   constexpr int InHours() const;
   constexpr int InMinutes() const;

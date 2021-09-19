@@ -13,9 +13,12 @@
 
 namespace {
 const auto kSeekTaskId = 100;
+const auto kDemuxTaskId = 101;
 
 const int PIPELINE_ERROR_ABORT = -1;
 const int PIPELINE_OK = 0;
+
+const media::TimeDelta kInvalidTimeStamp = media::TimeDelta::FromMicroseconds(-1);
 
 }
 
@@ -36,13 +39,12 @@ Demuxer::Demuxer(const TaskRunner &task_runner,
       read_has_failed_(false),
       read_position_(0),
       last_read_bytes_(0),
-      pending_seek_position_(0) {
+      pending_seek_position_(kInvalidTimeStamp),
+      seek_mutex_() {
 }
 
 void Demuxer::PostDemuxTask() {
-  task_runner_.PostTask(FROM_HERE, [this]() {
-    DemuxTask();
-  });
+  task_runner_.PostTask(FROM_HERE, kDemuxTaskId, std::bind(&Demuxer::DemuxTask, this));
 }
 
 void Demuxer::DemuxTask() {
@@ -492,15 +494,39 @@ void Demuxer::NotifyCapacityAvailable() {
   PostDemuxTask();
 }
 
-void Demuxer::SeekTo(double position, const SeekCallback &seek_callback) {
+void Demuxer::SeekTo(TimeDelta position, SeekCallback seek_callback) {
+  task_runner_.RemoveTask(kDemuxTaskId);
   task_runner_.RemoveTask(kSeekTaskId);
+
+  if (!seek_mutex_.try_lock()) {
+    DLOG(WARNING) << "seek processing, we should handle it lately. ";
+    task_runner_.PostTask(FROM_HERE, std::bind(&Demuxer::SeekTo, this, position, seek_callback));
+    return;
+  }
+
+  if (seek_callback_) {
+    seek_callback_(false);
+  }
+
+  pending_seek_position_ = position;
+  seek_callback_ = std::move(seek_callback);
+
   task_runner_.PostTask(FROM_HERE,
                         kSeekTaskId,
-                        std::bind(&Demuxer::SeekTask, this, TimeDelta::FromSecondsD(position), seek_callback));
+                        std::bind(&Demuxer::SeekTask, this));
+  seek_mutex_.unlock();
 }
 
-void Demuxer::SeekTask(TimeDelta dest, const SeekCallback &seek_callback) {
+void Demuxer::SeekTask() {
   DCHECK(task_runner_.BelongsToCurrentThread());
+  DCHECK(pending_seek_position_.is_positive());
+  DCHECK(seek_callback_);
+
+  std::lock_guard<std::mutex> lock(seek_mutex_);
+
+  TimeDelta dest;
+  dest = pending_seek_position_;
+  pending_seek_position_ = kInvalidTimeStamp;
 
   DLOG(INFO) << "do seek to: " << dest.InSecondsF();
 
@@ -517,7 +543,8 @@ void Demuxer::SeekTask(TimeDelta dest, const SeekCallback &seek_callback) {
   }
 
   // Notify seek completed.
-  seek_callback();
+  seek_callback_(true);
+  seek_callback_ = nullptr;
 
   PostDemuxTask();
 }

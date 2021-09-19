@@ -206,20 +206,20 @@ void MediaPlayer::DumpStatus() {
 
 }
 
-double MediaPlayer::GetCurrentPosition() {
+TimeDelta MediaPlayer::GetCurrentPosition() {
   if (state_ == kUninitialized) {
-    return 0;
+    return TimeDelta::Zero();
   }
 
   double position = clock_context->GetMasterClock();
   if (isnan(position)) {
-    if (demuxer_) {
-//      position = (double) data_source->GetSeekPosition() / AV_TIME_BASE;
+    if (demuxer_ && demuxer_->GetPendingSeekingPosition().is_positive()) {
+      return demuxer_->GetPendingSeekingPosition();
     } else {
-      position = 0;
+      return TimeDelta::Zero();
     }
   }
-  return position;
+  return TimeDelta::FromSecondsD(position);
 }
 
 double MediaPlayer::GetVolume() {
@@ -247,7 +247,11 @@ double MediaPlayer::GetDuration() const {
   return duration_;
 }
 
-void MediaPlayer::Seek(double position) {
+void MediaPlayer::Seek(TimeDelta position) {
+  if (position < TimeDelta::Zero()) {
+    DLOG(WARNING) << "invalid seek position: " << position.InSecondsF();
+    return;
+  }
   task_runner_.PostTask(FROM_HERE, [&, position]() {
     ChangePlaybackState(MediaPlayerState::BUFFERING);
     demuxer_->AbortPendingReads();
@@ -344,8 +348,11 @@ void MediaPlayer::OnDemuxerError(PipelineStatus error) {
 
 }
 
-void MediaPlayer::OnSeekCompleted() {
-  DLOG(INFO) << "OnSeekCompleted";
+void MediaPlayer::OnSeekCompleted(bool succeed) {
+  DLOG(INFO) << "OnSeekCompleted: " << succeed;
+  if (!succeed) {
+    return;
+  }
   if (audio_renderer_) {
     audio_renderer_->Flush();
   }

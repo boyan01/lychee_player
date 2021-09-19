@@ -36,12 +36,12 @@ static std::list<std::shared_ptr<CPlayer>> players_;
 
 void ffplayer_seek_to_position(CPlayer *player, double position) {
   CHECK_VALUE(player);
-  player->Seek(position);
+  player->Seek(TimeDelta::FromSecondsD(position));
 }
 
 double ffplayer_get_current_position(CPlayer *player) {
   CHECK_VALUE_WITH_RETURN(player, 0);
-  return player->GetCurrentPosition();
+  return player->GetCurrentPosition().InSecondsF();
 }
 
 double ffplayer_get_duration(CPlayer *player) {
@@ -128,7 +128,7 @@ void ffplayer_global_init(void *arg) {
 
   Dart_InitializeApiDL(arg);
 
-  for (const auto &player : players_) {
+  for (const auto &player: players_) {
     av_log(nullptr, AV_LOG_INFO, "free play, close stream %p by flutter global \n", player.get());
     release_player(player.get());
   }

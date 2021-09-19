@@ -106,7 +106,7 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
 
   int OpenDataSource(const char *filename);
 
-  double GetCurrentPosition();
+  TimeDelta GetCurrentPosition();
 
   bool IsPlayWhenReady() const { return play_when_ready_; }
 
@@ -120,7 +120,7 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
 
   double GetDuration() const;
 
-  void Seek(double position);
+  void Seek(TimeDelta position);
 
   VideoRendererSink *GetVideoRenderSink() {
     return video_renderer_->video_renderer_sink();
@@ -150,7 +150,7 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
 
   void DumpMediaClockStatus();
 
-  void OnSeekCompleted();
+  void OnSeekCompleted(bool succeed);
 
 };
 

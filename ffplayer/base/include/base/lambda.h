@@ -61,7 +61,7 @@ class WeakBind {
 };
 
 template<class Class, class ...Args>
-WeakBind0<Class, Args...> bind_weak(
+std::function<void(Args...)> bind_weak(
     void (Class::*callback)(Args...),
     std::shared_ptr<Class> ptr
 ) {
