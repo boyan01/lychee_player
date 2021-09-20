@@ -24,6 +24,7 @@ FFmpegDecodingLoop::DecodeStatus FFmpegDecodingLoop::DecodePacket(
   bool sent_packet = false, frames_remaining = true, decoder_error = false;
   while (!sent_packet || frames_remaining) {
     if (!sent_packet) {
+      // FIXME Maybe raise a BAD ACCESS Exception when fast seek.
       const int result = avcodec_send_packet(context_, packet);
       if (result < 0 && result != AVERROR(EAGAIN) && result != AVERROR_EOF) {
         DLOG(ERROR) << "Failed to send packet for decoding: " << av_err_to_str(result);
