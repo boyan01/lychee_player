@@ -17,10 +17,9 @@ endif ()
 
 add_executable(${EXAMPLE_BIN_NAME}
         media_player_example.cc
-        media_player_controller.h
-        media_player_controller.cc
         skia_media_texture.h
         skia_media_texture.cc
+        app_window.h
         )
 set_property(TARGET ${EXAMPLE_BIN_NAME} PROPERTY CXX_STANDARD 17)
 

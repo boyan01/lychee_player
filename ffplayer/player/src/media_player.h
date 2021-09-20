@@ -112,8 +112,6 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
 
   void SetPlayWhenReady(bool play_when_ready);
 
-  void SetPlayWhenReadyTask(bool play_when_ready);
-
   double GetVolume();
 
   void SetVolume(double volume);
@@ -151,6 +149,9 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
   void DumpMediaClockStatus();
 
   void OnSeekCompleted(bool succeed);
+
+  void SetPlayWhenReadyTask(bool play_when_ready);
+
 
 };
 

@@ -5,6 +5,7 @@
 #include "map"
 
 #include "skia_media_texture.h"
+#include "app_window.h"
 
 namespace {
 
@@ -68,6 +69,7 @@ bool SkiaMediaTexture::TryLockBuffer() {
 
 void SkiaMediaTexture::NotifyBufferUpdate() {
   surface_->flush();
+  window::RefreshScreen();
 }
 
 uint8_t *SkiaMediaTexture::GetBuffer() {
