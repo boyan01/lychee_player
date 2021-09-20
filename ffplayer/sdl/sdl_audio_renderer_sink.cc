@@ -6,11 +6,10 @@
 
 extern "C" {
 #include <libavutil/common.h>
+#include <libavutil/time.h>
 }
 
 #include "base/logging.h"
-
-#include "ffp_utils.h"
 
 namespace media {
 

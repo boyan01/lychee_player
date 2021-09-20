@@ -8,9 +8,6 @@
 
 #include "media_player.h"
 
-#include "ffp_define.h"
-#include "ffp_utils.h"
-
 extern "C" {
 #include "libavutil/bprint.h"
 }

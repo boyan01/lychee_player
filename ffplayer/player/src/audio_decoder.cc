@@ -7,7 +7,7 @@
 #include "base/logging.h"
 #include "base/lambda.h"
 
-#include "ffp_utils.h"
+#include "ffmpeg_utils.h"
 
 namespace media {
 
@@ -51,7 +51,7 @@ int AudioDecoder::Initialize(const AudioDecodeConfig &config, DemuxerStream *str
   // TODO low_res and fast flag.
 
   ret = avcodec_open2(codec_context_.get(), codec, nullptr);
-  DCHECK_GE(ret, 0) << "can not open avcodec, reason: " << av_err_to_str(ret);
+  DCHECK_GE(ret, 0) << "can not open avcodec, reason: " << ffmpeg::AVErrorToString(ret);
   if (ret < 0) {
     codec_context_.reset();
     return ret;
@@ -77,7 +77,7 @@ void AudioDecoder::Decode(std::shared_ptr<DecoderBuffer> decoder_buffer) {
     }
     case FFmpegDecodingLoop::DecodeStatus::kDecodeFrameFailed: {
       DLOG(ERROR) << " failed to decode a video frame: "
-                  << av_err_to_str(ffmpeg_decoding_loop_->last_av_error_code());
+                  << ffmpeg::AVErrorToString(ffmpeg_decoding_loop_->last_av_error_code());
       return;
     }
     case FFmpegDecodingLoop::DecodeStatus::kOkay:break;

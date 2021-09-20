@@ -8,7 +8,7 @@
 #include "base/lambda.h"
 #include "base/bind_to_current_loop.h"
 
-#include "ffp_utils.h"
+#include "ffmpeg_utils.h"
 
 #include "audio_renderer.h"
 
@@ -97,7 +97,7 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
   DCHECK(stream);
 
   double audio_clock_time = 0;
-  auto render_callback_time = get_relative_time();
+  auto render_callback_time = av_gettime_relative() / 1000000.0;
 
   auto len_flush = 0;
   while (len_flush < len) {

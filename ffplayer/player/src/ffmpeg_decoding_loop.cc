@@ -5,7 +5,7 @@
 #include "ffmpeg_decoding_loop.h"
 
 #include "base/logging.h"
-#include "ffp_utils.h"
+#include "ffmpeg_utils.h"
 
 namespace media {
 
@@ -27,7 +27,7 @@ FFmpegDecodingLoop::DecodeStatus FFmpegDecodingLoop::DecodePacket(
       // FIXME Maybe raise a BAD ACCESS Exception when fast seek.
       const int result = avcodec_send_packet(context_, packet);
       if (result < 0 && result != AVERROR(EAGAIN) && result != AVERROR_EOF) {
-        DLOG(ERROR) << "Failed to send packet for decoding: " << av_err_to_str(result);
+        DLOG(ERROR) << "Failed to send packet for decoding: " << ffmpeg::AVErrorToString(result);
         return DecodeStatus::kSendPacketFailed;
       }
 

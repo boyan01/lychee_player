@@ -18,7 +18,6 @@
 #include "ffplayer.h"
 #include "media_player.h"
 #include "external_video_renderer_sink.h"
-#include "ffp_define.h"
 
 #include "ffp_flutter.h"
 #include "dart/dart_api_dl.h"
@@ -28,6 +27,18 @@
 #include "sdl_audio_renderer_sink.h"
 #include "sdl_utils.h"
 #endif
+
+#define CHECK_VALUE_WITH_RETURN(VALUE, RETURN)\
+if(!(VALUE)) {\
+    av_log(nullptr, AV_LOG_ERROR, "check %s value failed in %s\n", #VALUE, __FUNCTION__);\
+    return RETURN;\
+}\
+
+#define CHECK_VALUE(VALUE)\
+if(!(VALUE)) {\
+    av_log(nullptr, AV_LOG_ERROR, "check %s value failed in %s\n", #VALUE, __FUNCTION__);\
+    return;\
+}                         \
 
 // hold all player instance. destroy all play when flutter app hot reloaded.
 static std::list<std::shared_ptr<CPlayer>> players_;
