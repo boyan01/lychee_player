@@ -2,11 +2,12 @@
 // Created by yangbin on 2021/5/16.
 //
 
-#ifndef MEDIA_FLUTTER_MEDIA_API_H_
-#define MEDIA_FLUTTER_MEDIA_API_H_
+#ifndef MEDIA_FLUTTER_EXTERNAL_MEDIA_TEXTURE_H_
+#define MEDIA_FLUTTER_EXTERNAL_MEDIA_TEXTURE_H_
 
 #include "cinttypes"
 #include "memory"
+#include "functional"
 
 #ifdef _WIN32
 #define API_EXPORT extern "C"  __declspec(dllexport)
@@ -14,7 +15,7 @@
 #define API_EXPORT extern "C" __attribute__((visibility("default"))) __attribute__((used))
 #endif
 
-class FlutterMediaTexture {
+class ExternalMediaTexture {
 
  public:
 
@@ -61,14 +62,14 @@ class FlutterMediaTexture {
    */
   virtual uint8_t *GetBuffer() = 0;
 
-  virtual ~FlutterMediaTexture() = default;
+  virtual ~ExternalMediaTexture() = default;
 
   virtual void RenderWithHWAccel(void *pixel_buffer) {}
 
 };
 
-typedef void(*FlutterTextureAdapterFactory)(std::function<void(std::unique_ptr<FlutterMediaTexture>)> callback);
+typedef void(*FlutterTextureAdapterFactory)(std::function<void(std::unique_ptr<ExternalMediaTexture>)> callback);
 
-API_EXPORT void register_flutter_texture_factory(FlutterTextureAdapterFactory factory);
+API_EXPORT void register_external_texture_factory(FlutterTextureAdapterFactory factory);
 
-#endif //MEDIA_FLUTTER_MEDIA_API_H_
+#endif //MEDIA_FLUTTER_EXTERNAL_MEDIA_TEXTURE_H_

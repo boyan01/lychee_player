@@ -5,12 +5,17 @@
 #if !defined(FF_PLAYER_FLUTTER_H)
 #define FF_PLAYER_FLUTTER_H
 
-#include "ffplayer.h"
-#include "ffp_define.h"
-#include "media_player.h"
-#include "media_api.h"
+#ifdef _WIN32
+#define FFPLAYER_EXPORT extern "C"  __declspec(dllexport)
+#else
+#define FFPLAYER_EXPORT extern "C" __attribute__((visibility("default"))) __attribute__((used))
+#endif
 
-#include "dart/dart_api_dl.h"
+
+namespace media {
+class MediaPlayer;
+struct PlayerConfiguration;
+}
 
 using namespace media;
 
@@ -52,7 +57,7 @@ FFPLAYER_EXPORT double ffp_get_video_aspect_ratio(CPlayer *player);
 /**
  * Set Message callback for dart. Post message to dart isolate by @param send_port.
  */
-FFPLAYER_EXPORT void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port);
+FFPLAYER_EXPORT void ffp_set_message_callback_dart(CPlayer *player, int64_t send_port);
 
 /**
  * Attach flutter render texture.

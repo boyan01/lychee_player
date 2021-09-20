@@ -14,7 +14,7 @@
 #include "media_player_plugin.h"
 #include "flutter_texture_entry.h"
 
-#include <media_api.h>
+#include <external_media_texture.h>
 
 JavaVM *g_vm;
 
@@ -22,7 +22,7 @@ namespace {
 
 jclass bridge_class;
 
-class AndroidMediaTexture : public FlutterMediaTexture {
+class AndroidMediaTexture : public ExternalMediaTexture {
 
  public:
 
@@ -90,7 +90,7 @@ class AndroidMediaTexture : public FlutterMediaTexture {
 
 };
 
-void flutter_texture_factory(std::function<void(std::unique_ptr<FlutterMediaTexture>)> callback) {
+void flutter_texture_factory(std::function<void(std::unique_ptr<ExternalMediaTexture>)> callback) {
   JNIEnv *g_env;
   if (g_vm->AttachCurrentThread(&g_env, nullptr) != 0) {
     std::cout << "Failed to attach" << std::endl;
@@ -126,6 +126,6 @@ JNIEXPORT void JNICALL
 Java_com_github_boyan01_lychee_MediaPlayerBridge_setupJNI(JNIEnv *env, jclass clazz) {
   __android_log_print(ANDROID_LOG_INFO, "MediaPlayerPlugin", "MediaPlayerBridge_SetupJNI");
   bridge_class = reinterpret_cast<jclass>(env->NewGlobalRef(clazz));
-  register_flutter_texture_factory(flutter_texture_factory);
+  register_external_texture_factory(flutter_texture_factory);
 }
 

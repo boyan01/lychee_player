@@ -10,7 +10,8 @@
 #include <Foundation/Foundation.h>
 #include <iostream>
 
-#include "media_api.h"
+#include "external_media_texture.h"
+#include "ffp_flutter.h"
 
 
 #import <Foundation/Foundation.h>
@@ -60,7 +61,7 @@ static id<FlutterTextureRegistry> textures_registry;
 
 @end
 
-class MacosFlutterTexture: public FlutterMediaTexture {
+class MacosFlutterTexture: public ExternalMediaTexture {
 public:
 
 	MacosFlutterTexture(int64_t texture_id,
@@ -170,7 +171,7 @@ private:
 
 };
 
-void texture_factory(std::function<void(std::unique_ptr<FlutterMediaTexture>)> callback)
+void texture_factory(std::function<void(std::unique_ptr<ExternalMediaTexture>)> callback)
 {
 	dispatch_async(dispatch_get_main_queue(), ^{
 		FlutterTextureImpl *texture = [[FlutterTextureImpl alloc] init];
@@ -208,5 +209,10 @@ void reigsterMediaFramework(id<FlutterTextureRegistry> textures)
 		NSLog(@"null textures");
 	}
 	textures_registry = textures;
-	register_flutter_texture_factory(texture_factory);
+	register_external_texture_factory(texture_factory);
+}
+
+void avoidMediaFlutterShrink()
+{
+  ffplayer_global_init(NULL);
 }

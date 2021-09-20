@@ -4,41 +4,44 @@ project("media_player_example")
 
 set(EXAMPLE_BIN_NAME ${PROJECT_NAME})
 
-aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} EXAMPLE_SOURCES)
-
 if (WIN32)
-    set(EXAMPLE_WINDOWS_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libs")
-    add_library(SDL2main STATIC IMPORTED)
-    set_target_properties(SDL2main PROPERTIES
-            IMPORTED_LINK_INTERFACE_LANGUAGES_DEBUG "C"
-            IMPORTED_LOCATION "${EXAMPLE_WINDOWS_LIB_PATH}/SDL2main.lib")
+elseif (APPLE)
+    # TODO auto download from https://github.com/JetBrains/skia-build/releases
+    # https://github.com/aseprite/skia/releases
+    # example: https://github.com/JetBrains/skija/blob/master/script/build.py
+    set(SKIA_ARCH "x64")
+    set(SKIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/Skia-macOS-Release-${SKIA_ARCH}")
+    set(SKIA_LIBRARY_DIR "${SKIA_DIR}/out/Release-x64")
+elseif (LINUX)
 endif ()
 
-if (APPLE)
-    add_library(SDL2main STATIC IMPORTED)
-    set_target_properties(SDL2main PROPERTIES
-            IMPORTED_LOCATION "/usr/local/lib/libSDL2main.a")
-endif ()
+add_executable(${EXAMPLE_BIN_NAME}
+        media_player_example.cc
+        media_player_controller.h
+        media_player_controller.cc
+        skia_media_texture.h
+        skia_media_texture.cc
+        )
+set_property(TARGET ${EXAMPLE_BIN_NAME} PROPERTY CXX_STANDARD 17)
 
-if (LINUX)
-    # TODO import libs
-#    add_library(SDL2main STATIC IMPORTED)
-#    set_target_properties(SDL2main PROPERTIES
-#            IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/libs/linux/libSDL2main.a")
-endif ()
-
-add_executable(${EXAMPLE_BIN_NAME} ${EXAMPLE_SOURCES})
-
-target_include_directories(${EXAMPLE_BIN_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-
-
-list(APPEND EXAMPLE_LIBRARIES media_player media_sdl SDL2main)
+list(APPEND EXAMPLE_LIBRARIES media_player)
 
 if (APPLE)
     list(APPEND EXAMPLE_LIBRARIES media_macos)
 endif ()
 
-target_link_libraries(${EXAMPLE_BIN_NAME} PUBLIC ${EXAMPLE_LIBRARIES})
+
+set(LAF_WITH_TESTS OFF)
+set(DLAF_WITH_EXAMPLES OFF)
+include(FetchContent)
+FetchContent_Declare(
+        laf
+        GIT_REPOSITORY https://github.com/aseprite/laf.git
+        GIT_TAG f58ece8248e2ebf6124b28ec49044be913f57292
+)
+FetchContent_MakeAvailable(laf)
+
+target_link_libraries(${EXAMPLE_BIN_NAME} PUBLIC laf-os ${EXAMPLE_LIBRARIES})
 
 if (WIN32)
     if (CMAKE_FLUTTER_WINDOWS)

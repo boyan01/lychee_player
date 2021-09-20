@@ -17,7 +17,7 @@ A new flutter plugin project.
   s.public_header_files = 'Classes/**/*.h'
   s.dependency 'FlutterMacOS'
   s.osx.dependency 'ffmpeg-kit-macos-full', '~> 4.4.LTS'
-  s.osx.vendored_libraries = 'lib/libmedia_flutter.a', 'lib/libmedia_base.a', 'lib/libmedia_macos.a', 'lib/libmedia_player.a', 'lib/libmedia_flutter_base.a'
+  s.osx.vendored_libraries = ['lib/libmedia_flutter.a', 'lib/libmedia_base.a', 'lib/libmedia_macos.a', 'lib/libmedia_player.a']
 
 
   s.platform = :osx, '10.11'

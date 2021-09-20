@@ -20,6 +20,9 @@ __BEGIN_DECLS
 
 void reigsterMediaFramework(id<FlutterTextureRegistry> textures);
 
+// Add this to void static library didn't pack media_flutter.a to app bundle.
+void avoidMediaFlutterShrink(void);
+
 __END_DECLS
 
 #endif /* DarwinVideoRendererSink_hpp */

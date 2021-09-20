@@ -5,22 +5,20 @@
 #endif
 
 #if defined(_FLUTTER_MEDIA_WINDOWS)
-#include "video_renderer_sink_impl.h"
 #define _MEDIA_AUDIO_USE_SDL
 #elif defined(_FLUTTER_MEDIA_ANDROID)
 #include "android/log.h"
-#include "video_renderer_sink_impl.h"
 #include "oboe_audio_renderer_sink.h"
 #elif defined(_FLUTTER_MEDIA_LINUX)
-#include "null_video_renderer_sink.h"
 #define _MEDIA_AUDIO_USE_SDL
 #elif defined(_FLUTTER_MEDIA_DARWIN)
 #include "macos_audio_renderer_sink.h"
-#include "video_renderer_sink_impl.h"
 #endif
 
 #include "ffplayer.h"
 #include "media_player.h"
+#include "external_video_renderer_sink.h"
+#include "ffp_define.h"
 
 #include "ffp_flutter.h"
 #include "dart/dart_api_dl.h"
@@ -139,13 +137,13 @@ CPlayer *ffp_create_player(PlayerConfiguration *config) {
   std::unique_ptr<VideoRendererSink> video_render;
   std::unique_ptr<AudioRendererSink> audio_render;
 #ifdef _FLUTTER_MEDIA_WINDOWS
-  video_render = std::make_unique<VideoRendererSinkImpl>();
+  video_render = std::make_unique<ExternalVideoRendererSink>();
   audio_render = std::make_unique<SdlAudioRendererSink>();
 #elif _FLUTTER_MEDIA_ANDROID
-  video_render = std::make_unique<media::VideoRendererSinkImpl>();
+  video_render = std::make_unique<media::ExternalVideoRendererSink>();
   audio_render = std::make_unique<media::OboeAudioRendererSink>();
 #elif _FLUTTER_MEDIA_DARWIN
-  video_render = std::make_unique<media::VideoRendererSinkImpl>();
+  video_render = std::make_unique<media::ExternalVideoRendererSink>();
   audio_render = std::make_unique<media::MacosAudioRendererSink>();
 #elif _FLUTTER_MEDIA_LINUX
   video_render = std::make_unique<media::NullVideoRendererSink>();
@@ -169,9 +167,10 @@ double ffp_get_video_aspect_ratio(CPlayer *player) {
   return 16.0 / 9;
 }
 
+// TODO rename this
 int64_t ffp_attach_video_render_flutter(CPlayer *player) {
-  auto *video_render_sink = dynamic_cast<media::FlutterVideoRendererSink *>(player->GetVideoRenderSink());
-  auto texture_id = video_render_sink->Attach();
+  auto *video_render_sink = dynamic_cast<media::ExternalVideoRendererSink *>(player->GetVideoRenderSink());
+  auto texture_id = video_render_sink->texture_id();
   DLOG(INFO) << "ffp_attach_video_render_flutter: id = " << texture_id;
   return texture_id;
 }
@@ -193,16 +192,7 @@ void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
 //  });
 }
 
+// TODO remove this method.
 void ffp_detach_video_render_flutter(CPlayer *player) {
-  CHECK_VALUE(player);
-  auto *video_render = dynamic_cast<FlutterVideoRendererSink *>(player->GetVideoRenderSink());
-  video_render->Detach();
-}
-
-extern void register_flutter_texture_factory(FlutterTextureAdapterFactory factory) {
-#if defined(_FLUTTER_MEDIA_DARWIN) || defined(_FLUTTER_MEDIA_WINDOWS) || defined(_FLUTTER_MEDIA_ANDROID)
-  DCHECK(factory) << "can not register flutter texture factory with nullptr";
-  DCHECK(!VideoRendererSinkImpl::factory_) << "can not register more than once";
-  VideoRendererSinkImpl::factory_ = factory;
-#endif
+  //  DO NOTHING. since we do not support remove textures dynamic.
 }

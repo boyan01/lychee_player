@@ -9,4 +9,4 @@ add_library(media_flutter_android
 
 target_include_directories(media_flutter_android PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(media_flutter_android PUBLIC media_player media_flutter_base)
+target_link_libraries(media_flutter_android PUBLIC media_player)

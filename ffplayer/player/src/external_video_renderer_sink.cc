@@ -2,53 +2,52 @@
 // Created by yangbin on 2021/5/16.
 //
 
-#include "video_renderer_sink_impl.h"
+#include "external_video_renderer_sink.h"
 
 #include "base/logging.h"
 
 namespace media {
 
 // static
-FlutterTextureAdapterFactory VideoRendererSinkImpl::factory_ = nullptr;
+FlutterTextureAdapterFactory ExternalVideoRendererSink::factory_ = nullptr;
 
 // static
-AVPixelFormat VideoRendererSinkImpl::GetPixelFormat(FlutterMediaTexture::PixelFormat format) {
+AVPixelFormat ExternalVideoRendererSink::GetPixelFormat(ExternalMediaTexture::PixelFormat format) {
   switch (format) {
-    case FlutterMediaTexture::kFormat_32_ARGB: return AV_PIX_FMT_ARGB;
-    case FlutterMediaTexture::kFormat_32_BGRA: return AV_PIX_FMT_BGRA;
-    case FlutterMediaTexture::kFormat_32_RGBA: return AV_PIX_FMT_RGBA;
+    case ExternalMediaTexture::kFormat_32_ARGB: return AV_PIX_FMT_ARGB;
+    case ExternalMediaTexture::kFormat_32_BGRA: return AV_PIX_FMT_BGRA;
+    case ExternalMediaTexture::kFormat_32_RGBA: return AV_PIX_FMT_RGBA;
   }
   NOTREACHED();
   return AV_PIX_FMT_BGRA;
 }
 
-VideoRendererSinkImpl::VideoRendererSinkImpl()
-    : attached_count_(0),
-      destroyed_(false),
+ExternalVideoRendererSink::ExternalVideoRendererSink()
+    : destroyed_(false),
     // TODO maybe we can use a global render thread?
       task_runner_(std::make_unique<TaskRunner>(base::MessageLooper::PrepareLooper("video_render"))),
       render_callback_(nullptr) {
   DCHECK(factory_) << "factory_ do not register yet.";
   // FIXME bind weak.
-  factory_(std::bind(&VideoRendererSinkImpl::OnTextureAvailable, this, std::placeholders::_1));
+  factory_(std::bind(&ExternalVideoRendererSink::OnTextureAvailable, this, std::placeholders::_1));
 }
 
-void VideoRendererSinkImpl::Start(VideoRendererSink::RenderCallback *callback) {
+void ExternalVideoRendererSink::Start(VideoRendererSink::RenderCallback *callback) {
   std::lock_guard<std::mutex> lock_guard(render_mutex_);
   DCHECK_EQ(state_, kIdle);
   render_callback_ = callback;
   state_ = kRunning;
-  task_runner_->PostTask(FROM_HERE, std::bind(&VideoRendererSinkImpl::RenderTask, this));
+  task_runner_->PostTask(FROM_HERE, std::bind(&ExternalVideoRendererSink::RenderTask, this));
 }
 
-void VideoRendererSinkImpl::Stop() {
+void ExternalVideoRendererSink::Stop() {
   std::lock_guard<std::mutex> lock_guard(render_mutex_);
   render_callback_ = nullptr;
   state_ = kIdle;
   task_runner_->RemoveAllTasks();
 }
 
-VideoRendererSinkImpl::~VideoRendererSinkImpl() {
+ExternalVideoRendererSink::~ExternalVideoRendererSink() {
   std::lock_guard<std::mutex> lock_guard(render_mutex_);
   task_runner_.reset(nullptr);
   sws_freeContext(img_convert_ctx_);
@@ -56,32 +55,10 @@ VideoRendererSinkImpl::~VideoRendererSinkImpl() {
   destroyed_ = true;
 }
 
-int64_t VideoRendererSinkImpl::Attach() {
-  if (!texture_) {
-    return -1;
-  }
-  attached_count_++;
-  return texture_->GetTextureId();
-}
-
-void VideoRendererSinkImpl::Detach() {
-  attached_count_--;
-}
-
-void VideoRendererSinkImpl::DoRender(std::shared_ptr<VideoFrame> frame) {
+void ExternalVideoRendererSink::DoRender(const std::shared_ptr<VideoFrame> &frame) {
   DCHECK(!destroyed_);
 
-  if (attached_count_ <= 0) {
-    DLOG(WARNING) << "skip frame due to no display attached.";
-    return;
-  }
   if (!texture_ || frame->IsEmpty()) {
-    return;
-  }
-
-  if (frame->frame()->hw_frames_ctx != nullptr) {
-    DLOG(WARNING) << "DoRender with hardware accel";
-    texture_->RenderWithHWAccel(frame->frame()->data[3]);
     return;
   }
 
@@ -102,7 +79,7 @@ void VideoRendererSinkImpl::DoRender(std::shared_ptr<VideoFrame> frame) {
       nullptr, nullptr, nullptr);
 
   if (!img_convert_ctx_) {
-    DLOG(ERROR) << "can not init image convert context: " << AVPixelFormat(frame->frame()->format);
+    DLOG(ERROR) << "can not init image convert context";
     texture_->UnlockBuffer();
     return;
   }
@@ -128,25 +105,25 @@ void VideoRendererSinkImpl::DoRender(std::shared_ptr<VideoFrame> frame) {
 
 }
 
-void VideoRendererSinkImpl::OnTextureAvailable(std::unique_ptr<FlutterMediaTexture> texture) {
+void ExternalVideoRendererSink::OnTextureAvailable(std::unique_ptr<ExternalMediaTexture> texture) {
   DLOG_IF(WARNING, !texture) << "register texture failed!";
   texture_ = std::move(texture);
 }
 
-void VideoRendererSinkImpl::RenderTask() {
+void ExternalVideoRendererSink::RenderTask() {
   if (render_callback_ == nullptr) {
     return;
   }
   std::lock_guard<std::mutex> lock_guard(render_mutex_);
   DCHECK_NE(state_, kIdle);
-  TimeDelta next_frame;
-  auto frame = render_callback_->Render(next_frame);
+  auto frame = render_callback_->Render();
   if (!frame->IsEmpty()) {
-    DoRender(std::move(frame));
+    DoRender(frame);
   }
+  // schedule next frame after 10 ms.
   task_runner_->PostDelayedTask(FROM_HERE,
-                                next_frame,
-                                std::bind(&VideoRendererSinkImpl::RenderTask, this));
+                                TimeDelta::FromMilliseconds(10),
+                                std::bind(&ExternalVideoRendererSink::RenderTask, this));
 }
 
 } // namespace media

@@ -24,11 +24,6 @@ if(!(VALUE)) {\
     return;\
 }                         \
 
-#ifdef _WIN32
-#define FFPLAYER_EXPORT extern "C"  __declspec(dllexport)
-#else
-#define FFPLAYER_EXPORT extern "C" __attribute__((visibility("default"))) __attribute__((used))
-#endif
 
 }
 

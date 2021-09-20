@@ -22,15 +22,10 @@ if (MEDIA_USE_SDL)
     list(APPEND media_flutter_libs media_sdl)
 endif ()
 
-add_subdirectory(base)
-
 list(APPEND media_flutter_sources
         ffp_flutter.cc
         ffp_flutter.h
-        media_api.h
         third_party/dart/dart_api_dl.c
-        video_renderer_sink_impl.cc
-        video_renderer_sink_impl.h
         )
 
 if (MEDIA_BUILD_STATIC)
@@ -40,11 +35,10 @@ else ()
 endif ()
 
 target_include_directories(media_flutter PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} third_party)
-target_link_libraries(media_flutter PUBLIC media_flutter_base ${media_flutter_libs})
+target_link_libraries(media_flutter PUBLIC ${media_flutter_libs})
 
 if (MEDIA_BUILD_STATIC)
-    install(TARGETS media_base media_flutter ${media_flutter_libs} media_flutter_base
-            ARCHIVE DESTINATION lib)
-    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/media_api.h
+    install(TARGETS media_base media_flutter ${media_flutter_libs} ARCHIVE DESTINATION lib)
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/ffp_flutter.h
             DESTINATION include)
 endif ()
