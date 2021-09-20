@@ -116,13 +116,14 @@ void ExternalVideoRendererSink::RenderTask() {
   }
   std::lock_guard<std::mutex> lock_guard(render_mutex_);
   DCHECK_NE(state_, kIdle);
-  auto frame = render_callback_->Render();
+  TimeDelta next_delay;
+  auto frame = render_callback_->Render(next_delay);
   if (!frame->IsEmpty()) {
     DoRender(frame);
   }
   // schedule next frame after 10 ms.
   task_runner_->PostDelayedTask(FROM_HERE,
-                                TimeDelta::FromMilliseconds(10),
+                                next_delay,
                                 std::bind(&ExternalVideoRendererSink::RenderTask, this));
 }
 
