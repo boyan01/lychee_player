@@ -134,7 +134,7 @@ int VideoDecoder::Initialize(VideoDecodeConfig config,
   }
   ret = av_hwdevice_ctx_create(&hw_device_context_, AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX, nullptr, nullptr, 0);
   if (ret < 0) {
-    DLOG(INFO) << "failed to create hw device_context" << av_err_to_str(ret);
+    DLOG(INFO) << "failed to create hw device_context" << ffmpeg::AVErrorToString(ret);
   } else {
     codec_context_->hw_device_ctx = av_buffer_ref(hw_device_context_);
   }

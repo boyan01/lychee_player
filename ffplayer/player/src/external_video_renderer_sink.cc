@@ -69,6 +69,12 @@ void ExternalVideoRendererSink::DoRender(const std::shared_ptr<VideoFrame> &fram
     return;
   }
 
+  if (frame->frame()->hw_frames_ctx != nullptr) {
+    DLOG(WARNING) << "DoRender with hardware accel";
+    texture_->RenderWithHWAccel(frame->frame()->data[3]);
+    return;
+  }
+
   auto *output = texture_->GetBuffer();
   DCHECK(output);
 

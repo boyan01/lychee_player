@@ -1,17 +1,17 @@
 #include <list>
 
-#if defined(_FLUTTER_MEDIA_MACOS) || defined(_FLUTTER_MEDIA_IOS)
-#define _FLUTTER_MEDIA_DARWIN 1
+#if defined(_MEDIA_MACOS) || defined(_MEDIA_IOS)
+#define _MEDIA_DARWIN 1
 #endif
 
-#if defined(_FLUTTER_MEDIA_WINDOWS)
+#if defined(_MEDIA_WINDOWS)
 #define _MEDIA_AUDIO_USE_SDL
-#elif defined(_FLUTTER_MEDIA_ANDROID)
+#elif defined(_MEDIA_ANDROID)
 #include "android/log.h"
 #include "oboe_audio_renderer_sink.h"
-#elif defined(_FLUTTER_MEDIA_LINUX)
+#elif defined(_MEDIA_LINUX)
 #define _MEDIA_AUDIO_USE_SDL
-#elif defined(_FLUTTER_MEDIA_DARWIN)
+#elif defined(_MEDIA_DARWIN)
 #include "macos_audio_renderer_sink.h"
 #endif
 
@@ -147,16 +147,16 @@ void ffplayer_global_init(void *arg) {
 CPlayer *ffp_create_player(PlayerConfiguration *config) {
   std::unique_ptr<VideoRendererSink> video_render;
   std::unique_ptr<AudioRendererSink> audio_render;
-#ifdef _FLUTTER_MEDIA_WINDOWS
+#ifdef _MEDIA_WINDOWS
   video_render = std::make_unique<ExternalVideoRendererSink>();
   audio_render = std::make_unique<SdlAudioRendererSink>();
-#elif _FLUTTER_MEDIA_ANDROID
+#elif _MEDIA_ANDROID
   video_render = std::make_unique<media::ExternalVideoRendererSink>();
   audio_render = std::make_unique<media::OboeAudioRendererSink>();
-#elif _FLUTTER_MEDIA_DARWIN
+#elif _MEDIA_DARWIN
   video_render = std::make_unique<media::ExternalVideoRendererSink>();
   audio_render = std::make_unique<media::MacosAudioRendererSink>();
-#elif _FLUTTER_MEDIA_LINUX
+#elif _MEDIA_LINUX
   video_render = std::make_unique<media::NullVideoRendererSink>();
   audio_render = std::make_unique<media::SdlAudioRendererSink>();
 #endif

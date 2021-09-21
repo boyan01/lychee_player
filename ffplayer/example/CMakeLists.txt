@@ -43,7 +43,7 @@ FetchContent_MakeAvailable(laf)
 target_link_libraries(${EXAMPLE_BIN_NAME} PUBLIC laf-os ${EXAMPLE_LIBRARIES})
 
 if (WIN32)
-    if (CMAKE_FLUTTER_WINDOWS)
+    if (MEDIA_WINDOWS)
         set_property(TARGET ${EXAMPLE_BIN_NAME} APPEND PROPERTY LINK_FLAGS "/NODEFAULTLIB:MSVCRT")
     endif ()
     # Copy vcpkg ffmpeg libs to executable directory.
