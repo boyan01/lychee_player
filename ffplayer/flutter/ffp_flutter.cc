@@ -145,19 +145,15 @@ void ffplayer_global_init(void *arg) {
 }
 
 CPlayer *ffp_create_player(PlayerConfiguration *config) {
-  std::unique_ptr<VideoRendererSink> video_render;
+  std::unique_ptr<VideoRendererSink> video_render = std::make_unique<ExternalVideoRendererSink>();
   std::unique_ptr<AudioRendererSink> audio_render;
 #ifdef _MEDIA_WINDOWS
-  video_render = std::make_unique<ExternalVideoRendererSink>();
   audio_render = std::make_unique<SdlAudioRendererSink>();
 #elif _MEDIA_ANDROID
-  video_render = std::make_unique<media::ExternalVideoRendererSink>();
   audio_render = std::make_unique<media::OboeAudioRendererSink>();
 #elif _MEDIA_DARWIN
-  video_render = std::make_unique<media::ExternalVideoRendererSink>();
   audio_render = std::make_unique<media::MacosAudioRendererSink>();
 #elif _MEDIA_LINUX
-  video_render = std::make_unique<media::NullVideoRendererSink>();
   audio_render = std::make_unique<media::SdlAudioRendererSink>();
 #endif
   auto player = std::make_shared<MediaPlayer>(

@@ -11,13 +11,6 @@ G_BEGIN_DECLS
 #define FLUTTER_PLUGIN_EXPORT
 #endif
 
-typedef struct _LycheePlayerPlugin LycheePlayerPlugin;
-typedef struct {
-  GObjectClass parent_class;
-} LycheePlayerPluginClass;
-
-FLUTTER_PLUGIN_EXPORT GType lychee_player_plugin_get_type();
-
 FLUTTER_PLUGIN_EXPORT void lychee_player_plugin_register_with_registrar(
     FlPluginRegistrar* registrar);
 

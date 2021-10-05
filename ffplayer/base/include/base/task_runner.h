@@ -49,7 +49,7 @@ class TaskRunner {
 
   void Reset();
 
-  TaskRunner &operator=(nullptr_t);
+  TaskRunner &operator=(std::nullptr_t);
 
   explicit operator bool() const {
     return bool(looper_);

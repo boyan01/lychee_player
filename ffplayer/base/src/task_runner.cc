@@ -78,7 +78,7 @@ void TaskRunner::Reset() {
   looper_ = nullptr;
 }
 
-TaskRunner &TaskRunner::operator=(nullptr_t) {
+TaskRunner &TaskRunner::operator=(std::nullptr_t) {
   Reset();
   return *this;
 }

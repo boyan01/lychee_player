@@ -13,12 +13,10 @@ add_library(${PLUGIN_NAME} SHARED
         )
 
 # media_framework
-set(CMAKE_FLUTTER_MEDIA "1")
-set(CMAKE_FLUTTER_MEDIA_LINUX "1")
+set(MEDIA_BUILD_EXAMPLE OFF)
+set(DISABLE_MEDIA_TEST ON)
 set(MEDIA_USE_SDL "1")
 
-add_compile_definitions(_FLUTTER_MEDIA_)
-add_compile_definitions(_FLUTTER_MEDIA_LINUX)
 add_subdirectory(../ffplayer media_framework)
 
 apply_standard_settings(${PLUGIN_NAME})

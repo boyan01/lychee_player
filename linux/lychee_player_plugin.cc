@@ -1,70 +1,98 @@
 #include "include/lychee_player/lychee_player_plugin.h"
+#include "include/lychee_player/fl_media_texture.h"
 
 #include <flutter_linux/flutter_linux.h>
 #include <gtk/gtk.h>
-#include <sys/utsname.h>
 
-#include <cstring>
+#include <base/logging.h>
+#include <external_media_texture.h>
 
-#define LYCHEE_PLAYER_PLUGIN(obj) \
-  (G_TYPE_CHECK_INSTANCE_CAST((obj), lychee_player_plugin_get_type(), \
-                              LycheePlayerPlugin))
+namespace {
 
-struct _LycheePlayerPlugin {
-  GObject parent_instance;
-};
+FlTextureRegistrar *fl_texture_registrar;
 
-G_DEFINE_TYPE(LycheePlayerPlugin, lychee_player_plugin, g_object_get_type())
+class FlExternalMediaTextureImpl : public ExternalMediaTexture {
+ public:
 
-// Called when a method call is received from Flutter.
-static void lychee_player_plugin_handle_method_call(
-    LycheePlayerPlugin* self,
-    FlMethodCall* method_call) {
-  g_autoptr(FlMethodResponse) response = nullptr;
-
-  const gchar* method = fl_method_call_get_name(method_call);
-
-  if (strcmp(method, "getPlatformVersion") == 0) {
-    struct utsname uname_data = {};
-    uname(&uname_data);
-    g_autofree gchar *version = g_strdup_printf("Linux %s", uname_data.version);
-    g_autoptr(FlValue) result = fl_value_new_string(version);
-    response = FL_METHOD_RESPONSE(fl_method_success_response_new(result));
-  } else {
-    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  FlExternalMediaTextureImpl() : media_texture_(fl_media_texture_new()) {
+    DCHECK(fl_texture_registrar);
+    auto success = fl_texture_registrar_register_texture(fl_texture_registrar, FL_TEXTURE(media_texture_));
+    DCHECK(success) << "fl_texture_registrar_register_texture failed.";
+    if (!success) {
+      g_object_unref(media_texture_);
+      media_texture_ = nullptr;
+    } else {
+      media_texture_->texture_id = reinterpret_cast<int64_t>(FL_TEXTURE(media_texture_));
+    }
   }
 
-  fl_method_call_respond(method_call, response, nullptr);
+  ~FlExternalMediaTextureImpl() override {
+    if (media_texture_) {
+      fl_texture_registrar_unregister_texture(fl_texture_registrar, FL_TEXTURE(media_texture_));
+      delete[] media_texture_->buffer;
+      g_object_unref(media_texture_);
+
+    }
+  }
+
+  int64_t GetTextureId() override {
+    return media_texture_ ? media_texture_->texture_id : -1;
+  }
+
+  void MaybeInitPixelBuffer(int width, int height) override {
+    if (media_texture_) {
+      media_texture_->buffer = new uint8_t[width * height * 4];
+      media_texture_->width = width;
+      media_texture_->height = height;
+    }
+  }
+  int GetWidth() override {
+    return media_texture_ ? media_texture_->height : 0;
+  }
+  int GetHeight() override {
+    return media_texture_ ? media_texture_->width : 0;
+  }
+  PixelFormat GetSupportFormat() override {
+    return kFormat_32_RGBA;
+  }
+  void UnlockBuffer() override {
+
+  }
+
+  bool TryLockBuffer() override {
+    if (!media_texture_) {
+      return false;
+    }
+    return true;
+  }
+
+  void NotifyBufferUpdate() override {
+    fl_texture_registrar_mark_texture_frame_available(fl_texture_registrar, FL_TEXTURE(media_texture_));
+  }
+
+  uint8_t *GetBuffer() override {
+    DCHECK(media_texture_);
+    return media_texture_->buffer;
+  }
+
+ private:
+  FlMediaTexture *media_texture_;
+
+};
+
+void fl_external_texture_factory(
+    std::function<void(std::unique_ptr<ExternalMediaTexture>)> callback) {
+
+  if (!fl_texture_registrar || !callback) {
+    callback(std::unique_ptr<ExternalMediaTexture>(nullptr));
+    return;
+  }
+  callback(std::make_unique<FlExternalMediaTextureImpl>());
 }
 
-static void lychee_player_plugin_dispose(GObject* object) {
-  G_OBJECT_CLASS(lychee_player_plugin_parent_class)->dispose(object);
 }
 
-static void lychee_player_plugin_class_init(LycheePlayerPluginClass* klass) {
-  G_OBJECT_CLASS(klass)->dispose = lychee_player_plugin_dispose;
-}
-
-static void lychee_player_plugin_init(LycheePlayerPlugin* self) {}
-
-static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
-                           gpointer user_data) {
-  LycheePlayerPlugin* plugin = LYCHEE_PLAYER_PLUGIN(user_data);
-  lychee_player_plugin_handle_method_call(plugin, method_call);
-}
-
-void lychee_player_plugin_register_with_registrar(FlPluginRegistrar* registrar) {
-  LycheePlayerPlugin* plugin = LYCHEE_PLAYER_PLUGIN(
-      g_object_new(lychee_player_plugin_get_type(), nullptr));
-
-  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
-  g_autoptr(FlMethodChannel) channel =
-      fl_method_channel_new(fl_plugin_registrar_get_messenger(registrar),
-                            "lychee_player",
-                            FL_METHOD_CODEC(codec));
-  fl_method_channel_set_method_call_handler(channel, method_call_cb,
-                                            g_object_ref(plugin),
-                                            g_object_unref);
-
-  g_object_unref(plugin);
+void lychee_player_plugin_register_with_registrar(FlPluginRegistrar *registrar) {
+  fl_texture_registrar = fl_plugin_registrar_get_texture_registrar(registrar);
+  register_external_texture_factory(fl_external_texture_factory);
 }
