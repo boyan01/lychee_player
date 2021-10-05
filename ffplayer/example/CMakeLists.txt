@@ -5,6 +5,9 @@ project("media_player_example")
 set(EXAMPLE_BIN_NAME ${PROJECT_NAME})
 
 if (WIN32)
+    set(SKIA_ARCH "x64")
+    set(SKIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/Skia-Windows-Release-${SKIA_ARCH}")
+    set(SKIA_LIBRARY_DIR "${SKIA_DIR}/out/Release-x64")
 elseif (APPLE)
     # TODO auto download from https://github.com/JetBrains/skia-build/releases
     # https://github.com/aseprite/skia/releases
@@ -27,6 +30,10 @@ list(APPEND EXAMPLE_LIBRARIES media_player)
 
 if (APPLE)
     list(APPEND EXAMPLE_LIBRARIES media_macos)
+endif ()
+
+if (MEDIA_USE_SDL)
+    list(APPEND EXAMPLE_LIBRARIES media_sdl)
 endif ()
 
 

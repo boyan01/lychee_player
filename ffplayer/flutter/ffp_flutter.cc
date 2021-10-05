@@ -207,3 +207,7 @@ void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
 void ffp_detach_video_render_flutter(CPlayer *player) {
   //  DO NOTHING. since we do not support remove textures dynamic.
 }
+
+void windows_register_texture(void *callback) {
+  register_external_texture_factory((FlutterTextureAdapterFactory) callback);
+}

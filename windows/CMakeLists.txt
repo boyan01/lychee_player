@@ -7,12 +7,9 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 set(PLUGIN_NAME "lychee_player_plugin")
 
 
-set(CMAKE_FLUTTER_MEDIA "1")
-set(CMAKE_FLUTTER_MEDIA_WINDOWS "1")
-set(MEDIA_USE_SDL "1")
+set(MEDIA_BUILD_EXAMPLE OFF)
+set(DISABLE_MEDIA_TEST ON)
 
-add_compile_definitions(_FLUTTER_MEDIA_)
-add_compile_definitions(_FLUTTER_MEDIA_WINDOWS)
 add_subdirectory(../ffplayer media_framework)
 
 add_library(${PLUGIN_NAME} SHARED

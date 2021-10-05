@@ -29,5 +29,7 @@ if (NOT DISABLE_MEDIA_TEST)
             LYCHEE_PROJECT_DIR1="${CMAKE_CURRENT_SOURCE_DIR}/../../")
 endif ()
 
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/external_media_texture.h
-        DESTINATION include)
+if (APPLE)
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/external_media_texture.h
+            DESTINATION include)
+endif ()

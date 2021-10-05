@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.10)
+﻿cmake_minimum_required(VERSION 3.15)
 
 option(MEDIA_BUILD_EXAMPLE "Build example project" ON)
 option(DISABLE_MEDIA_TEST "Disable test" OFF)
@@ -8,14 +8,16 @@ if (WIN32)
     #    set(BUILD_SHARED_LIBS TRUE)
     set(CMAKE_SYSTEM_VERSION "10")
     set(CMAKE_SYSTEM_NAME "WindowsStore")
+
+    add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
+    add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 endif ()
 
 project("media" "CXX" "C")
 set(CMAKE_CXX_STANDARD 14)
 
-if (MEDIA_WINDOWS)
+if (WIN32)
     set(MEDIA_USE_SDL 1)
-    set(DISABLE_MEDIA_TEST 1)
     add_compile_definitions(_MEDIA_WINDOWS)
 elseif (MEDIA_LINUX)
     set(DISABLE_MEDIA_TEST 1)
@@ -138,6 +140,7 @@ add_subdirectory(base)
 add_subdirectory(player)
 
 if (MEDIA_USE_SDL)
+    add_compile_definitions(_MEDIA_USE_SDL)
     add_subdirectory(sdl)
 endif ()
 

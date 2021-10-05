@@ -11,7 +11,6 @@
 #define FFPLAYER_EXPORT extern "C" __attribute__((visibility("default"))) __attribute__((used))
 #endif
 
-
 namespace media {
 class MediaPlayer;
 struct PlayerConfiguration;
@@ -67,5 +66,8 @@ FFPLAYER_EXPORT void ffp_set_message_callback_dart(CPlayer *player, int64_t send
 FFPLAYER_EXPORT int64_t ffp_attach_video_render_flutter(CPlayer *player);
 
 FFPLAYER_EXPORT void ffp_detach_video_render_flutter(CPlayer *player);
+
+// TODO remove this when all modules become one.
+FFPLAYER_EXPORT void windows_register_texture(void *);
 
 #endif // FF_PLAYER_FLUTTER_H

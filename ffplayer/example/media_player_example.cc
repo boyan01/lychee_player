@@ -1,6 +1,12 @@
 #include <utility>
 #include <external_video_renderer_sink.h>
+#ifdef _MEDIA_USE_SDL
+#include <sdl_audio_renderer_sink.h>
+#define AudioRendererSinkImpl SdlAudioRendererSink
+#else
 #include <macos_audio_renderer_sink.h>
+#define AudioRendererSinkImpl MacosAudioRendererSink
+#endif
 
 #include "os/os.h"
 
@@ -151,7 +157,7 @@ class MediaPlayerWindow {
 
     player_ = std::make_shared<media::MediaPlayer>(
         std::make_unique<media::ExternalVideoRendererSink>(),
-        std::make_shared<media::MacosAudioRendererSink>(),
+        std::make_shared<media::AudioRendererSinkImpl>(),
         task_runner_);
     player_->OpenDataSource(input_files_[playing_index_].c_str());
     player_->SetPlayWhenReady(true);

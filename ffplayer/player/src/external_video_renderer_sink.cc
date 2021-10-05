@@ -1,10 +1,9 @@
 //
 // Created by yangbin on 2021/5/16.
 //
+#include "base/logging.h"
 
 #include "external_video_renderer_sink.h"
-
-#include "base/logging.h"
 
 namespace media {
 
@@ -85,7 +84,11 @@ void ExternalVideoRendererSink::DoRender(const std::shared_ptr<VideoFrame> &fram
       nullptr, nullptr, nullptr);
 
   if (!img_convert_ctx_) {
-    DLOG(ERROR) << "can not init image convert context";
+    DLOG(ERROR) << "can not init image convert context\n"
+                << "texture: " << texture_->GetWidth() << "x" << texture_->GetHeight() << " " << frame->frame()->format
+                << "\n"
+                << "frame: " << frame->Width() << "x" << frame->Height() << " "
+                << GetPixelFormat(texture_->GetSupportFormat()) << "\n";
     texture_->UnlockBuffer();
     return;
   }
