@@ -6,20 +6,15 @@ A simple audio/video player example for flutter. based on Chromium Media Framewo
 
 This is my training project when I was learning C++.
 
+| platform | status       |  audio renderer | video renderer |
+| -------- | ------------ | --------------  | -------------- |
+| Windows  | ✅           | [SDL2](https://github.com/libsdl-org/SDL)           |   TextureWidget |
+| Linux    | ✅           | [SDL2](https://github.com/libsdl-org/SDL)           |   TextureWidget |
+| macOS    | ✅           | CoreAudio           |   TextureWidget |
+| Android  | ✅           | [Oboe](https://github.com/google/oboe)           |   TextureWidget |
+| iOS      | ✅           | CoreAudio           |   TextureWidget |
+
 * audio/video demux by ffmpeg.
-
-* audio render by [SDL2](https://github.com/libsdl-org/SDL) (Windows, Linux), [Oboe](https://github.com/google/oboe) (
-  Android), CoreAudio(macos).
-
-* video render by SDL2(example) / `TextureWidget`(flutter).
-
-| platform | status       |
-| -------- | ------------ |
-| Windows  | ✅            |
-| Linux    | ⭕ audio only |
-| macOS    | ✅ audio only |
-| Android  | ✅            |
-| iOS      | ⭕ audio only |
 
 ## Getting Started
 
@@ -27,7 +22,7 @@ This is my training project when I was learning C++.
 
 #### requirement:
 
-* flutter version: 2.2 (latest stable version)
+* flutter version: 2.5 (linux required latest master channel)
 * if build for linux, we need these libs:
     1. install ffmpeg dev libs:
        ```
