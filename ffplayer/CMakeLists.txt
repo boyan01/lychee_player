@@ -148,6 +148,11 @@ if (APPLE)
     add_subdirectory(macos)
 endif ()
 
+if (WIN32)
+    # TODO move darwin core audio to this subdir.
+    add_subdirectory(audio)
+endif ()
+
 add_subdirectory(flutter)
 
 if (MEDIA_BUILD_EXAMPLE)
