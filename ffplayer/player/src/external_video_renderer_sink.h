@@ -26,6 +26,8 @@ class ExternalVideoRendererSink : public VideoRendererSink {
 
   ExternalVideoRendererSink();
 
+  explicit ExternalVideoRendererSink(const TaskRunner& task_runner);
+
   ~ExternalVideoRendererSink() override;
 
   int64_t texture_id() { return texture_->GetTextureId(); };
@@ -47,7 +49,7 @@ class ExternalVideoRendererSink : public VideoRendererSink {
   enum State { kIdle, kRunning };
   State state_ = kIdle;
 
-  std::unique_ptr<TaskRunner> task_runner_;
+  TaskRunner task_runner_;
   RenderCallback *render_callback_;
 
   std::mutex render_mutex_;

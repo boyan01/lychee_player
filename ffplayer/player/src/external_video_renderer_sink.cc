@@ -22,10 +22,13 @@ AVPixelFormat ExternalVideoRendererSink::GetPixelFormat(ExternalMediaTexture::Pi
 }
 
 ExternalVideoRendererSink::ExternalVideoRendererSink()
-    : destroyed_(false),
-    // TODO maybe we can use a global render thread?
-      task_runner_(std::make_unique<TaskRunner>(base::MessageLooper::PrepareLooper("video_render"))),
-      render_callback_(nullptr) {
+    : ExternalVideoRendererSink(TaskRunner(base::MessageLooper::PrepareLooper("video_render"))) {
+}
+
+ExternalVideoRendererSink::ExternalVideoRendererSink(const TaskRunner &task_runner) :
+    task_runner_(task_runner),
+    destroyed_(false),
+    render_callback_(nullptr) {
   DCHECK(factory_) << "factory_ do not register yet.";
   // FIXME bind weak.
   factory_(std::bind(&ExternalVideoRendererSink::OnTextureAvailable, this, std::placeholders::_1));
@@ -36,19 +39,19 @@ void ExternalVideoRendererSink::Start(VideoRendererSink::RenderCallback *callbac
   DCHECK_EQ(state_, kIdle);
   render_callback_ = callback;
   state_ = kRunning;
-  task_runner_->PostTask(FROM_HERE, std::bind(&ExternalVideoRendererSink::RenderTask, this));
+  task_runner_.PostTask(FROM_HERE, std::bind(&ExternalVideoRendererSink::RenderTask, this));
 }
 
 void ExternalVideoRendererSink::Stop() {
   std::lock_guard<std::mutex> lock_guard(render_mutex_);
   render_callback_ = nullptr;
   state_ = kIdle;
-  task_runner_->RemoveAllTasks();
+  task_runner_.RemoveAllTasks();
 }
 
 ExternalVideoRendererSink::~ExternalVideoRendererSink() {
+  task_runner_.Reset();
   std::lock_guard<std::mutex> lock_guard(render_mutex_);
-  task_runner_.reset(nullptr);
   sws_freeContext(img_convert_ctx_);
   texture_.reset(nullptr);
   destroyed_ = true;
@@ -131,9 +134,9 @@ void ExternalVideoRendererSink::RenderTask() {
     DoRender(frame);
   }
   // schedule next frame after 10 ms.
-  task_runner_->PostDelayedTask(FROM_HERE,
-                                next_delay,
-                                std::bind(&ExternalVideoRendererSink::RenderTask, this));
+  task_runner_.PostDelayedTask(FROM_HERE,
+                               next_delay,
+                               std::bind(&ExternalVideoRendererSink::RenderTask, this));
 }
 
 } // namespace media

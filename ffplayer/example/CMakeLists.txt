@@ -25,7 +25,13 @@ if (LINUX)
     #            IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/libs/linux/libSDL2main.a")
 endif ()
 
-add_executable(${EXAMPLE_BIN_NAME} ffplay.cc)
+add_executable(${EXAMPLE_BIN_NAME}
+        ffplay.cc
+        app_window.h
+        app_window.cc
+        sdl_media_texture.h
+        sdl_media_texture.cc
+        )
 
 target_include_directories(${EXAMPLE_BIN_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 

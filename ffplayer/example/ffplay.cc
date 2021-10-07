@@ -17,6 +17,10 @@
 #include "sdl_utils.h"
 #include "sdl_audio_renderer_sink.h"
 #include "sdl_video_renderer_sink.h"
+#include "external_media_texture.h"
+#include "external_video_renderer_sink.h"
+#include "sdl_media_texture.h"
+#include "app_window.h"
 
 extern "C" {
 #include "libavutil/avstring.h"
@@ -156,7 +160,7 @@ class SdlLycheePlayerExample : public std::enable_shared_from_this<SdlLycheePlay
 
   std::vector<std::string> input_files_;
   int playing_file_index_;
-  std::unique_ptr<TaskRunner> task_runner_;
+  TaskRunner task_runner_;
 
   std::shared_ptr<SDL_Renderer> renderer_;
 
@@ -165,18 +169,18 @@ class SdlLycheePlayerExample : public std::enable_shared_from_this<SdlLycheePlay
   std::shared_ptr<SDLEventHandler> event_handler_;
 
   void SdlEventLoop() {
-    DCHECK(task_runner_->BelongsToCurrentThread());
+    DCHECK(task_runner_.BelongsToCurrentThread());
     SDL_Event sdl_event;
     if (event_handler_ && SDL_PollEvent(&sdl_event)) {
       event_handler_->HandleSdlEvent(sdl_event);
     }
-    task_runner_->PostDelayedTask(FROM_HERE,
-                                  TimeDelta::FromMilliseconds(2),
-                                  std::bind(&SdlLycheePlayerExample::SdlEventLoop, this));
+    task_runner_.PostDelayedTask(FROM_HERE,
+                                 TimeDelta::FromMilliseconds(2),
+                                 std::bind(&SdlLycheePlayerExample::SdlEventLoop, this));
   }
 
   void PlayItem(const std::string &input_file) {
-    auto video_renderer_sink = std::make_unique<SdlVideoRendererSink>(*task_runner_, renderer_);
+    auto video_renderer_sink = std::make_unique<ExternalVideoRendererSink>(task_runner_);
 #if __APPLE__
     auto audio_renderer_sink = std::make_unique<MacosAudioRendererSink>();
 #else
@@ -188,7 +192,7 @@ class SdlLycheePlayerExample : public std::enable_shared_from_this<SdlLycheePlay
         TaskRunner::CreateFromCurrent());
     player->SetVolume(0.5);
     // TODO temp solution.
-    task_runner_->PostDelayedTask(FROM_HERE, TimeDelta::FromMilliseconds(30), [player]() {
+    task_runner_.PostDelayedTask(FROM_HERE, TimeDelta::FromMilliseconds(30), [player]() {
       OnVideoSizeChanged(player, 1280, 720);
     });
 
@@ -209,7 +213,7 @@ SdlLycheePlayerExample::SdlLycheePlayerExample(
     : input_files_(input_files),
       renderer_(std::move(renderer)),
       playing_file_index_(0),
-      task_runner_(std::make_unique<TaskRunner>(base::MessageLooper::Current())) {
+      task_runner_(TaskRunner::CreateFromCurrent()) {
   DCHECK(!input_files.empty());
   DCHECK(task_runner_);
 }
@@ -220,7 +224,7 @@ void SdlLycheePlayerExample::Start() {
   PlayItem(input_files_[playing_file_index_]);
 
   event_handler_ = std::make_shared<SDLEventHandler>(shared_from_this());
-  task_runner_->PostTask(FROM_HERE, std::bind(&SdlLycheePlayerExample::SdlEventLoop, this));
+  task_runner_.PostTask(FROM_HERE, std::bind(&SdlLycheePlayerExample::SdlEventLoop, this));
 }
 
 void SdlLycheePlayerExample::SkipToPrevious() {
@@ -401,6 +405,10 @@ void SDLEventHandler::HandleSdlEvent(const SDL_Event &event) {
   }
 }
 
+void ExternalTextureFactory(std::function<void(std::unique_ptr<ExternalMediaTexture>)> callback) {
+  callback(std::make_unique<SdlMediaTexture>());
+}
+
 } // namespace
 
 int main(int argc, char *argv[]) {
@@ -411,8 +419,9 @@ int main(int argc, char *argv[]) {
   CHECK_GT(input_files.size(), 0) << "An input file must be specified";
 
   MediaPlayer::GlobalInit();
-#ifndef __APPLE__
+#ifdef _MEDIA_USE_SDL
   media::sdl::InitSdlAudio();
+  register_external_texture_factory(ExternalTextureFactory);
 #endif
 
   signal(SIGINT, sigterm_handler);  /* Interrupt (ANSI).    */
@@ -420,69 +429,13 @@ int main(int argc, char *argv[]) {
 
   PlayerConfiguration config;
 
-  uint32_t flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER;
-  if (config.audio_disable)
-    flags &= ~SDL_INIT_AUDIO;
-  else {
-    /* Try to work around an occasional ALSA buffer underflow issue when the
-     * period size is NPOT due to ALSA resampling by forcing the buffer size. */
-    if (!SDL_getenv("SDL_AUDIO_ALSA_SET_BUFFER_SIZE"))
-      SDL_setenv("SDL_AUDIO_ALSA_SET_BUFFER_SIZE", "1", 1);
-  }
-  if (config.video_disable)
-    flags &= ~SDL_INIT_VIDEO;
-  if (SDL_Init(flags)) {
-    av_log(nullptr, AV_LOG_FATAL, "Could not initialize SDL - %s\n", SDL_GetError());
-    av_log(nullptr, AV_LOG_FATAL, "(Did you set the DISPLAY variable?)\n");
-    exit(1);
-  }
-  SDL_EventState(SDL_SYSWMEVENT, SDL_IGNORE);
-  SDL_EventState(SDL_USEREVENT, SDL_IGNORE);
+  AppWindow::Initialize();
 
-  std::shared_ptr<SDL_Renderer> renderer;
-
-  if (!config.video_disable) {
-    SDL_RendererInfo renderer_info = {nullptr};
-    uint32_t window_flags = SDL_WINDOW_HIDDEN;
-    if (alwaysontop)
-#if SDL_VERSION_ATLEAST(2, 0, 5)
-      window_flags |= SDL_WINDOW_ALWAYS_ON_TOP;
-#else
-    av_log(nullptr, AV_LOG_WARNING, "Your SDL version doesn't support SDL_WINDOW_ALWAYS_ON_TOP. Feature will be inactive.\n");
-#endif
-    if (borderless)
-      window_flags |= SDL_WINDOW_BORDERLESS;
-    else
-      window_flags |= SDL_WINDOW_RESIZABLE;
-    window = SDL_CreateWindow("Lychee", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, default_width,
-                              default_height, window_flags);
-
-    DCHECK(window) << "failed to create window." << SDL_GetError();
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
-    renderer = std::shared_ptr<SDL_Renderer>(
-        SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC),
-        [](SDL_Renderer *ptr) {
-          SDL_DestroyRenderer(ptr);
-        });
-    if (!renderer) {
-      DLOG(WARNING) << "failed to initialize a hardware accelerated renderer: " << SDL_GetError();
-      renderer = std::shared_ptr<SDL_Renderer>(SDL_CreateRenderer(window, -1, 0), [](SDL_Renderer *ptr) {
-        SDL_DestroyRenderer(ptr);
-      });
-    }
-
-    DCHECK(renderer) << "failed to create renderer: " << SDL_GetError();
-
-    if (!SDL_GetRendererInfo(renderer.get(), &renderer_info))
-      av_log(nullptr, AV_LOG_VERBOSE, "Initialized %s renderer.\n", renderer_info.name);
-
-    DCHECK_GT(renderer_info.num_texture_formats, 0)
-        << "Failed to create window or renderer: " << SDL_GetError();
-  }
+  window = AppWindow::Instance()->GetWindow();
 
   auto looper = base::MessageLooper::Create("main_task", 16);
   looper->Prepare();
-  auto player = make_shared<SdlLycheePlayerExample>(input_files, renderer);
+  auto player = make_shared<SdlLycheePlayerExample>(input_files, AppWindow::Instance()->GetRenderer());
   looper->PostTask(FROM_HERE, std::bind(&SdlLycheePlayerExample::Start, player));
   looper->Loop();
 

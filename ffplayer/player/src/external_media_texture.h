@@ -27,9 +27,6 @@ class ExternalMediaTexture {
 
   virtual int64_t GetTextureId() = 0;
 
-  [[deprecated]]
-  virtual void Release() {}
-
   /**
    * @param width the video frame width
    * @param height the video frame height
@@ -45,13 +42,7 @@ class ExternalMediaTexture {
    */
   virtual PixelFormat GetSupportFormat() = 0;
 
-  // TODO lock return bool
-  virtual void LockBuffer() {}
-
-  virtual bool TryLockBuffer() {
-    LockBuffer();
-    return true;
-  }
+  virtual bool TryLockBuffer() = 0;
 
   virtual void UnlockBuffer() = 0;
 
