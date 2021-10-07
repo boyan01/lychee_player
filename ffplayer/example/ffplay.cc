@@ -22,7 +22,9 @@
 #if _WIN32
 #define NOMINMAX
 #include "wasapi_audio_render_sink.h"
-#define AudioRendererSinkImpl WasapiAudioRenderSink
+#include "sdl_audio_renderer_sink.h"
+//#define AudioRendererSinkImpl WasapiAudioRenderSink
+#define AudioRendererSinkImpl SdlAudioRendererSink
 #else
 #include "sdl_audio_renderer_sink.h"
 #define AudioRendererSinkImpl WasapiAudioRenderSink
