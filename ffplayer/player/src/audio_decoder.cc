@@ -117,7 +117,7 @@ bool AudioDecoder::OnFrameAvailable(AVFrame *frame) {
     const auto **in = (const uint8_t **) frame->extended_data;
     int out_count = frame->nb_samples * audio_decode_config_.samples_per_second() / frame->sample_rate + 256;
     int out_size = av_samples_get_buffer_size(
-        nullptr, audio_decode_config_.channels(), out_count, AV_SAMPLE_FMT_S16, 0);
+        nullptr, audio_decode_config_.channels(), out_count, audio_device_info_.fmt, 0);
     DCHECK_GT(out_size, 0) << "av_samples_get_buffer_size() failed";
     data = static_cast<uint8 *>(malloc(sizeof(uint8) * out_size));
     auto out_nb_samples = swr_convert(swr_ctx_, &data, out_size, in, frame->nb_samples);

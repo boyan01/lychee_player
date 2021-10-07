@@ -36,6 +36,7 @@ class WasapiAudioRenderSink : public AudioRendererSink {
 
   RenderCallback *render_callback_;
 
+  IMMDeviceEnumerator *device_enumerator_ = nullptr;
   //
   //  Core Audio Rendering member variables.
   //

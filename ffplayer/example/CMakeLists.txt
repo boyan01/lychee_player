@@ -42,6 +42,10 @@ if (APPLE)
     list(APPEND EXAMPLE_LIBRARIES media_macos)
 endif ()
 
+if (WIN32)
+    list(APPEND EXAMPLE_LIBRARIES media_audio)
+endif ()
+
 target_link_libraries(${EXAMPLE_BIN_NAME} PUBLIC ${EXAMPLE_LIBRARIES})
 
 if (WIN32)

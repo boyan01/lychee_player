@@ -1,11 +1,4 @@
-﻿// ffplayer.cpp: 定义应用程序的入口点。
-//
-
-#if __APPLE__
-#include "macos_audio_renderer_sink.h"
-#endif
-
-#include <csignal>
+﻿#include <csignal>
 #include <iostream>
 #include <cstdint>
 #include <utility>
@@ -15,12 +8,25 @@
 
 #include "media_player.h"
 #include "sdl_utils.h"
-#include "sdl_audio_renderer_sink.h"
 #include "sdl_video_renderer_sink.h"
 #include "external_media_texture.h"
 #include "external_video_renderer_sink.h"
 #include "sdl_media_texture.h"
 #include "app_window.h"
+
+#ifdef __APPLE__
+#include "macos_audio_renderer_sink.h"
+#define AudioRendererSinkImpl MacosAudioRendererSink
+#endif
+
+#if _WIN32
+#define NOMINMAX
+#include "wasapi_audio_render_sink.h"
+#define AudioRendererSinkImpl WasapiAudioRenderSink
+#else
+#include "sdl_audio_renderer_sink.h"
+#define AudioRendererSinkImpl WasapiAudioRenderSink
+#endif
 
 extern "C" {
 #include "libavutil/avstring.h"
@@ -181,11 +187,7 @@ class SdlLycheePlayerExample : public std::enable_shared_from_this<SdlLycheePlay
 
   void PlayItem(const std::string &input_file) {
     auto video_renderer_sink = std::make_unique<ExternalVideoRendererSink>(task_runner_);
-#if __APPLE__
-    auto audio_renderer_sink = std::make_unique<MacosAudioRendererSink>();
-#else
-    auto audio_renderer_sink = std::make_unique<SdlAudioRendererSink>();
-#endif
+    auto audio_renderer_sink = std::make_unique<AudioRendererSinkImpl>();
     auto player = std::make_shared<MediaPlayer>(
         std::move(video_renderer_sink),
         std::move(audio_renderer_sink),
