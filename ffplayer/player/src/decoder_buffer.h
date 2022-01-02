@@ -29,7 +29,7 @@ class DecoderBuffer {
   }
 
   AVPacket *av_packet() {
-    return av_packet_;
+    return av_packet_.get();
   }
 
   bool end_of_stream();
@@ -37,7 +37,7 @@ class DecoderBuffer {
 
  private:
 
-  AVPacket *av_packet_;
+  std::unique_ptr<AVPacket, AVPacketDeleter> av_packet_;
 
   // pts.
   double timestamp_;
