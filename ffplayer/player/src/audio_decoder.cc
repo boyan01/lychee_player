@@ -64,7 +64,7 @@ int AudioDecoder::Initialize(const AudioDecodeConfig &config, DemuxerStream *str
   return 0;
 }
 
-void AudioDecoder::Decode(std::shared_ptr<DecoderBuffer> decoder_buffer) {
+void AudioDecoder::Decode(const std::shared_ptr<DecoderBuffer>& decoder_buffer) {
   DCHECK(stream_);
   DCHECK(ffmpeg_decoding_loop_);
 

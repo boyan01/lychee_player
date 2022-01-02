@@ -155,12 +155,9 @@ void AudioRenderer::SetVolume(double volume) {
 }
 
 void AudioRenderer::Flush() {
-  task_runner_->PostTask(FROM_HERE, [&]() {
-    std::lock_guard<std::mutex> auto_lock(mutex_);
-    audio_buffer_.clear();
-    decoder_stream_->Flush();
-  });
-
+  std::lock_guard<std::mutex> auto_lock(mutex_);
+  audio_buffer_.clear();
+  decoder_stream_->Flush();
 }
 
 std::ostream &operator<<(std::ostream &os, const AudioRenderer &renderer) {

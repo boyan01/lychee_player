@@ -36,9 +36,11 @@ class AudioDecoder {
 
   int Initialize(const AudioDecodeConfig &config, DemuxerStream *stream, OutputCallback output_callback);
 
-  void Decode(std::shared_ptr<DecoderBuffer> decoder_buffer);
+  void Decode(const std::shared_ptr<DecoderBuffer> &decoder_buffer);
 
   void Flush();
+
+  DELETE_COPY_AND_ASSIGN(AudioDecoder);
 
  private:
 
@@ -58,8 +60,6 @@ class AudioDecoder {
   bool OnFrameAvailable(AVFrame *frame);
 
   static int64 GetChannelLayout(AVFrame *frame);
-
-  DISALLOW_COPY_AND_ASSIGN(AudioDecoder);
 
 };
 

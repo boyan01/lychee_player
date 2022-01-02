@@ -173,6 +173,7 @@ double VideoRenderer::GetDrawingClock() {
 void VideoRenderer::Flush() {
   DCHECK(media_task_runner_.BelongsToCurrentThread());
   if (state_ == kFlushing || state_ == kUnInitialized) {
+    DLOG(INFO) << "abort video renderer flush, current state: " << state_;
     return;
   }
   bool playing = state_ == kPlaying;

@@ -73,16 +73,26 @@ void SdlMediaTexture::NotifyBufferUpdate() {
   SDL_SetRenderDrawColor(renderer_.get(), 0, 0, 0, 255);
   SDL_RenderClear(renderer_.get());
   // TODO calculate center rect.
-//  SDL_Rect rect{};
-//  media::sdl::calculate_display_rect(&rect,
-//                                     0,
-//                                     0,
-//                                     1280,
-//                                     720,
-//                                     1280,
-//                                     720,
-//                                     AVRational{16, 9});
-  SDL_RenderCopyEx(renderer_.get(), texture_, nullptr, nullptr, 0, nullptr, SDL_FLIP_NONE);
+  SDL_Rect rect{};
+
+  int frame_width;
+  int frame_height;
+  SDL_QueryTexture(texture_, nullptr, nullptr, &frame_width, &frame_height);
+
+  int window_width;
+  int window_height;
+  SDL_GetWindowSize(AppWindow::Instance()->GetWindow(), &window_width, &window_height);
+
+  media::sdl::calculate_display_rect(&rect,
+                                     0,
+                                     0,
+                                     window_width,
+                                     window_height,
+                                     frame_width,
+                                     frame_height,
+                                     // TODO SAR
+                                     AVRational{1, 1});
+  SDL_RenderCopyEx(renderer_.get(), texture_, nullptr, &rect, 0, nullptr, SDL_FLIP_NONE);
   SDL_RenderPresent(renderer_.get());
 }
 
