@@ -519,7 +519,7 @@ void Demuxer::SeekTo(TimeDelta position, SeekCallback seek_callback) {
 
 void Demuxer::SeekTask() {
   DCHECK(task_runner_.BelongsToCurrentThread());
-  DCHECK(pending_seek_position_.is_positive());
+  DCHECK(pending_seek_position_.is_zero() || pending_seek_position_.is_positive());
   DCHECK(seek_callback_);
 
   std::lock_guard<std::mutex> lock(seek_mutex_);
