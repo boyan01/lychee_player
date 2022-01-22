@@ -1,6 +1,6 @@
 # lychee_player
 
-A simple audio/video player example for flutter. based on Chromium Media Framework.
+A simple audio/video player example for flutter.
 
 ![img](preview/preview.png)
 
@@ -74,4 +74,4 @@ gdbserver :1234 build/linux/debug/bundle/lychee_player_example
 
 # LICENSE
 
-[MIT](LICENSE)
+[AGPL-v3](LICENSE)
