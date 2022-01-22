@@ -13,7 +13,6 @@ extern "C" {
 
 class SdlMediaTexture : public ExternalMediaTexture {
  public:
-
   SdlMediaTexture();
 
   ~SdlMediaTexture() override;
@@ -45,7 +44,6 @@ class SdlMediaTexture : public ExternalMediaTexture {
   void *texture_pixel_;
 
   int texture_pitch_;
-
 };
 
-#endif //MEDIA_EXAMPLE_SDL_MEDIA_TEXTURE_H_
+#endif  // MEDIA_EXAMPLE_SDL_MEDIA_TEXTURE_H_

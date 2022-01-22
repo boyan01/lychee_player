@@ -50,7 +50,7 @@ int GetMinLogLevel();
 // in debug mode.  In particular, CHECK()s will always fire if they
 // fail.
 #define LOG_IS_ON(severity) \
-  ((::logging::LOG_ ## severity) >= ::logging::GetMinLogLevel())
+  ((::logging::LOG_##severity) >= ::logging::GetMinLogLevel())
 
 #define DCHECK_IS_ON() true
 #define DLOG_IS_ON(severity) LOG_IS_ON(severity)
@@ -110,22 +110,22 @@ class LogMessage {
 
 #if defined(OS_WIN)
   // Stores the current value of GetLastError in the constructor and restores
-// it in the destructor by calling SetLastError.
-// This is useful since the LogMessage class uses a lot of Win32 calls
-// that will lose the value of GLE and the code that called the log function
-// will have lost the thread error value when the log call returns.
-class SaveLastError {
- public:
-  SaveLastError();
-  ~SaveLastError();
+  // it in the destructor by calling SetLastError.
+  // This is useful since the LogMessage class uses a lot of Win32 calls
+  // that will lose the value of GLE and the code that called the log function
+  // will have lost the thread error value when the log call returns.
+  class SaveLastError {
+   public:
+    SaveLastError();
+    ~SaveLastError();
 
-  unsigned long get_error() const { return last_error_; }
+    unsigned long get_error() const { return last_error_; }
 
- protected:
-  unsigned long last_error_;
-};
+   protected:
+    unsigned long last_error_;
+  };
 
-SaveLastError last_error_;
+  SaveLastError last_error_;
 #endif
 
   DISALLOW_COPY_AND_ASSIGN(LogMessage);
@@ -143,7 +143,7 @@ class LogMessageVoid {
 };
 
 #define COMPACT_GOOGLE_LOG_EX(ClassName, severity, ...) \
-  logging::ClassName(__FILE__, __LINE__, (severity) , ##__VA_ARGS__)
+  logging::ClassName(__FILE__, __LINE__, (severity), ##__VA_ARGS__)
 
 #define COMPACT_GOOGLE_LOG_FATAL \
   COMPACT_GOOGLE_LOG_EX(LogMessage, logging::LOG_FATAL)
@@ -161,14 +161,14 @@ class LogMessageVoid {
 
 // Helper macro which avoids evaluating the arguments to a stream if
 // the condition doesn't hold.
-#define LAZY_STREAM(stream, condition)                                  \
-  !(condition) ? (void) 0 : ::logging::LogMessageVoid() & (stream)
+#define LAZY_STREAM(stream, condition) \
+  !(condition) ? (void)0 : ::logging::LogMessageVoid() & (stream)
 
 // Build the error message string.  This is separate from the "Impl"
 // function template because it is not performance critical and so can
 // be out of line, while the "Impl" code should be inline.  Caller
 // takes ownership of the returned string.
-template<class t1, class t2>
+template <class t1, class t2>
 std::string *MakeCheckOpString(const t1 &v1, const t2 &v2, const char *names) {
   std::ostringstream ss;
   ss << names << " (" << v1 << " vs. " << v2 << ")";
@@ -181,29 +181,30 @@ std::string *MakeCheckOpString(const t1 &v1, const t2 &v2, const char *names) {
 // macro is used in an 'if' clause such as:
 // if (a == 1)
 //   CHECK_EQ(2, a);
-#define CHECK_OP(name, op, val1, val2)                        \
-  if (std::string* _result =                                  \
-      logging::Check##name##Impl((val1), (val2),              \
-                                 #val1 " " #op " " #val2))    \
-    logging::LogMessage(                                      \
-        __FILE__, __LINE__, ::logging::LOG_DCHECK,            \
-        _result).stream()
-
+#define CHECK_OP(name, op, val1, val2)                                         \
+  if (std::string *_result =                                                   \
+          logging::Check##name##Impl((val1), (val2), #val1 " " #op " " #val2)) \
+  logging::LogMessage(__FILE__, __LINE__, ::logging::LOG_DCHECK, _result)      \
+      .stream()
 
 // Helper functions for CHECK_OP macro.
 // The (int, int) specialization works around the issue that the compiler
 // will not instantiate the template version of the function on values of
 // unnamed enum type - see comment below.
-#define DEFINE_CHECK_OP_IMPL(name, op) \
-  template <class t1, class t2> \
-  inline std::string* Check##name##Impl(const t1& v1, const t2& v2, \
-                                        const char* names) { \
-    if (v1 op v2) return NULL; \
-    else return MakeCheckOpString(v1, v2, names); \
-  } \
-  inline std::string* Check##name##Impl(int v1, int v2, const char* names) { \
-    if (v1 op v2) return NULL; \
-    else return MakeCheckOpString(v1, v2, names); \
+#define DEFINE_CHECK_OP_IMPL(name, op)                                       \
+  template <class t1, class t2>                                              \
+  inline std::string *Check##name##Impl(const t1 &v1, const t2 &v2,          \
+                                        const char *names) {                 \
+    if (v1 op v2)                                                            \
+      return NULL;                                                           \
+    else                                                                     \
+      return MakeCheckOpString(v1, v2, names);                               \
+  }                                                                          \
+  inline std::string *Check##name##Impl(int v1, int v2, const char *names) { \
+    if (v1 op v2)                                                            \
+      return NULL;                                                           \
+    else                                                                     \
+      return MakeCheckOpString(v1, v2, names);                               \
   }
 DEFINE_CHECK_OP_IMPL(EQ, ==)
 DEFINE_CHECK_OP_IMPL(NE, !=)
@@ -216,10 +217,9 @@ DEFINE_CHECK_OP_IMPL(GT, >)
 #define CHECK_EQ(val1, val2) CHECK_OP(EQ, ==, val1, val2)
 #define CHECK_NE(val1, val2) CHECK_OP(NE, !=, val1, val2)
 #define CHECK_LE(val1, val2) CHECK_OP(LE, <=, val1, val2)
-#define CHECK_LT(val1, val2) CHECK_OP(LT, < , val1, val2)
+#define CHECK_LT(val1, val2) CHECK_OP(LT, <, val1, val2)
 #define CHECK_GE(val1, val2) CHECK_OP(GE, >=, val1, val2)
-#define CHECK_GT(val1, val2) CHECK_OP(GT, > , val1, val2)
-
+#define CHECK_GT(val1, val2) CHECK_OP(GT, >, val1, val2)
 
 // We use the preprocessor's merging operator, "##", so that, e.g.,
 // LOG(INFO) becomes the token COMPACT_GOOGLE_LOG_INFO.  There's some funny
@@ -229,34 +229,31 @@ DEFINE_CHECK_OP_IMPL(GT, >)
 // impossible to stream something like a string directly to an unnamed
 // ostream. We employ a neat hack by calling the stream() member
 // function of LogMessage which seems to avoid the problem.
-#define LOG_STREAM(severity) COMPACT_GOOGLE_LOG_ ## severity.stream()
+#define LOG_STREAM(severity) COMPACT_GOOGLE_LOG_##severity.stream()
 
 #define LOG(severity) LAZY_STREAM(LOG_STREAM(severity), LOG_IS_ON(severity))
 #define LOG_IF(severity, condition) \
   LAZY_STREAM(LOG_STREAM(severity), LOG_IS_ON(severity) && (condition))
 
-#define DLOG(severity)                                          \
-  LAZY_STREAM(LOG_STREAM(severity), DLOG_IS_ON(severity))
+#define DLOG(severity) LAZY_STREAM(LOG_STREAM(severity), DLOG_IS_ON(severity))
 #define DLOG_IF(severity, condition) LOG_IF(severity, condition)
 
-#define DCHECK(condition)                                           \
-  LAZY_STREAM(LOG_STREAM(DCHECK), DCHECK_IS_ON() && !(condition))   \
-  << "Check failed: " #condition ". "
+#define DCHECK(condition)                                         \
+  LAZY_STREAM(LOG_STREAM(DCHECK), DCHECK_IS_ON() && !(condition)) \
+      << "Check failed: " #condition ". "
 
 #define CHECK(condition)                       \
   LAZY_STREAM(LOG_STREAM(FATAL), !(condition)) \
-  << "Check failed: " #condition ". "
+      << "Check failed: " #condition ". "
 
 // Helper macro for binary operators.
 // Don't use this macro directly in your code, use DCHECK_EQ et al below.
-#define DCHECK_OP(name, op, val1, val2)                         \
-  if (DCHECK_IS_ON())                                           \
-    if (std::string* _result =                                  \
-        logging::Check##name##Impl((val1), (val2),              \
-                                   #val1 " " #op " " #val2))    \
-      logging::LogMessage(                                      \
-          __FILE__, __LINE__, ::logging::LOG_DCHECK,            \
-          _result).stream()
+#define DCHECK_OP(name, op, val1, val2)                                   \
+  if (DCHECK_IS_ON())                                                     \
+    if (std::string *_result = logging::Check##name##Impl(                \
+            (val1), (val2), #val1 " " #op " " #val2))                     \
+  logging::LogMessage(__FILE__, __LINE__, ::logging::LOG_DCHECK, _result) \
+      .stream()
 
 // Equality/Inequality checks - compare two values, and log a
 // LOG_DCHECK message including the two values when the result is not
@@ -280,9 +277,9 @@ DEFINE_CHECK_OP_IMPL(GT, >)
 #define DCHECK_EQ(val1, val2) DCHECK_OP(EQ, ==, val1, val2)
 #define DCHECK_NE(val1, val2) DCHECK_OP(NE, !=, val1, val2)
 #define DCHECK_LE(val1, val2) DCHECK_OP(LE, <=, val1, val2)
-#define DCHECK_LT(val1, val2) DCHECK_OP(LT, < , val1, val2)
+#define DCHECK_LT(val1, val2) DCHECK_OP(LT, <, val1, val2)
 #define DCHECK_GE(val1, val2) DCHECK_OP(GE, >=, val1, val2)
-#define DCHECK_GT(val1, val2) DCHECK_OP(GT, > , val1, val2)
+#define DCHECK_GT(val1, val2) DCHECK_OP(GT, >, val1, val2)
 
 #define NOTREACHED() DCHECK(false)
 
@@ -293,10 +290,9 @@ inline void LogAtLevel(int const log_level, std::string const &msg) {
 }
 
 class MethodTimeTracingObject {
-
  public:
-
-  MethodTimeTracingObject(chrono::milliseconds expect_max_duration, media::tracked_objects::Location location);
+  MethodTimeTracingObject(chrono::milliseconds expect_max_duration,
+                          media::tracked_objects::Location location);
 
   MethodTimeTracingObject(MethodTimeTracingObject const &object);
 
@@ -311,11 +307,13 @@ class MethodTimeTracingObject {
   std::ostringstream stream_;
 };
 
-#define TRACE_METHOD_DURATION(DURATION_IN_MS) TRACE_METHOD_DURATION_WITH_LOCATION(DURATION_IN_MS, FROM_HERE)
+#define TRACE_METHOD_DURATION(DURATION_IN_MS) \
+  TRACE_METHOD_DURATION_WITH_LOCATION(DURATION_IN_MS, FROM_HERE)
 
-#define TRACE_METHOD_DURATION_WITH_LOCATION(DURATION_IN_MS, from_here) \
-auto _logging_trace_method_duration = logging::MethodTimeTracingObject(chrono::milliseconds(DURATION_IN_MS), from_here)
+#define TRACE_METHOD_DURATION_WITH_LOCATION(DURATION_IN_MS, from_here)    \
+  auto _logging_trace_method_duration = logging::MethodTimeTracingObject( \
+      chrono::milliseconds(DURATION_IN_MS), from_here)
 
-} // namespace logging
+}  // namespace logging
 
-#endif //MEDIA_BASE_LOGGING_H_
+#endif  // MEDIA_BASE_LOGGING_H_

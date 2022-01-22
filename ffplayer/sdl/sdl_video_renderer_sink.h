@@ -10,26 +10,24 @@ extern "C" {
 #include "libswscale/swscale.h"
 }
 
-#include "video_renderer_sink.h"
 #include "base/task_runner.h"
+#include "video_renderer_sink.h"
 
 namespace media {
 
 class SdlVideoRendererSink : public VideoRendererSink {
-
  public:
-
   static int screen_width;
   static int screen_height;
 
-  SdlVideoRendererSink(const TaskRunner &render_task_runner, std::shared_ptr<SDL_Renderer> renderer);
+  SdlVideoRendererSink(const TaskRunner &render_task_runner,
+                       std::shared_ptr<SDL_Renderer> renderer);
 
   void Start(RenderCallback *callback) override;
 
   void Stop() override;
 
  private:
-
   enum State {
     kIdle,
     kRunning,
@@ -49,21 +47,21 @@ class SdlVideoRendererSink : public VideoRendererSink {
 
   void RenderInternal();
 
-  void RenderPicture(const std::shared_ptr<VideoFrame>& frame);
+  void RenderPicture(const std::shared_ptr<VideoFrame> &frame);
 
   int ReAllocTexture(Uint32 new_format, int new_width, int new_height,
                      SDL_BlendMode blendmode, int init_texture);
 
   int UploadTexture(AVFrame *frame);
 
-  static void GetSdlPixFmtAndBlendMode(int format, Uint32 *sdl_pix_fmt, SDL_BlendMode *sdl_blendmode);
+  static void GetSdlPixFmtAndBlendMode(int format, Uint32 *sdl_pix_fmt,
+                                       SDL_BlendMode *sdl_blendmode);
 
   static void SetSdlYuvConversionMode(AVFrame *frame);
 
   DISALLOW_COPY_AND_ASSIGN(SdlVideoRendererSink);
-
 };
 
-} // namespace media
+}  // namespace media
 
-#endif //MEDIA_SDL_SDL_VIDEO_RENDERER_SINK_H_
+#endif  // MEDIA_SDL_SDL_VIDEO_RENDERER_SINK_H_

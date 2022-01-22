@@ -5,11 +5,11 @@
 #ifndef BASE_MEDIA_CLOCK_H
 #define BASE_MEDIA_CLOCK_H
 
-#include <memory>
 #include <functional>
+#include <memory>
 
 extern "C" {
-#include <libavutil/time.h> // NOLINT(modernize-deprecated-headers)
+#include <libavutil/time.h>  // NOLINT(modernize-deprecated-headers)
 };
 
 namespace media {
@@ -31,7 +31,8 @@ struct Clock {
  private:
   double speed_ = 1.0;
 
-  /* pointer to the current packet queue serial, used for obsolete clock detection */
+  /* pointer to the current packet queue serial, used for obsolete clock
+   * detection */
   int *queue_serial_;
 
   /* clock base */
@@ -41,7 +42,6 @@ struct Clock {
   double pts_drift_;
 
  public:
-
   explicit Clock(int *queue_serial);
 
   explicit Clock();
@@ -57,11 +57,9 @@ struct Clock {
   double GetSpeed() const;
 
   void Sync(Clock *secondary);
-
 };
 
 class MediaClock {
-
  public:
   bool paused = true;
 
@@ -75,8 +73,8 @@ class MediaClock {
   std::function<int(int sync_type)> sync_type_confirm_;
 
  public:
-
-  MediaClock(int *audio_queue_serial, int *video_queue_serial, std::function<int(int)> sync_type_confirm);
+  MediaClock(int *audio_queue_serial, int *video_queue_serial,
+             std::function<int(int)> sync_type_confirm);
 
   Clock *GetAudioClock();
 
@@ -87,9 +85,8 @@ class MediaClock {
   int GetMasterSyncType() const;
 
   double GetMasterClock();
-
 };
 
-}
+}  // namespace media
 
-#endif //BASE_MEDIA_CLOCK_H
+#endif  // BASE_MEDIA_CLOCK_H

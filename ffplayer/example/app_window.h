@@ -10,30 +10,22 @@ extern "C" {
 }
 
 class AppWindow {
-
  public:
-
   static AppWindow *Instance();
 
   static void Initialize();
 
-  const std::shared_ptr<SDL_Renderer> &GetRenderer() {
-    return renderer_;
-  }
+  const std::shared_ptr<SDL_Renderer> &GetRenderer() { return renderer_; }
 
-  SDL_Window *GetWindow() {
-    return window_;
-  }
+  SDL_Window *GetWindow() { return window_; }
 
  private:
-
   AppWindow();
 
   static AppWindow *app_window_instance_;
 
   SDL_Window *window_;
   std::shared_ptr<SDL_Renderer> renderer_;
-
 };
 
-#endif //MEDIA_EXAMPLE_APP_WINDOW_H_
+#endif  // MEDIA_EXAMPLE_APP_WINDOW_H_

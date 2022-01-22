@@ -18,6 +18,6 @@ struct PlayerConfiguration {
   int32_t loop = 1;
 };
 
-}
+}  // namespace media
 
 #endif  // FFPLAYER_FFPLAYER_H_

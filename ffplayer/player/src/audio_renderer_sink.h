@@ -10,22 +10,19 @@
 namespace media {
 
 class AudioRendererSink {
-
  public:
   class RenderCallback {
    public:
-
     virtual int Render(double delay, uint8 *stream, int len) = 0;
 
     virtual void OnRenderError() = 0;
 
    protected:
-
     virtual ~RenderCallback() = default;
-
   };
 
-  virtual void Initialize(int wanted_nb_channels, int wanted_sample_rate, RenderCallback *render_callback) = 0;
+  virtual void Initialize(int wanted_nb_channels, int wanted_sample_rate,
+                          RenderCallback *render_callback) = 0;
 
   /**
    * @param volume range in [0, 1].
@@ -48,9 +45,8 @@ class AudioRendererSink {
   virtual void Pause() = 0;
 
   virtual ~AudioRendererSink() = default;
-
 };
 
-}
+}  // namespace media
 
-#endif //MEDIA_PLAYER_SRC_AUDIO_RENDERER_SINK_H_
+#endif  // MEDIA_PLAYER_SRC_AUDIO_RENDERER_SINK_H_

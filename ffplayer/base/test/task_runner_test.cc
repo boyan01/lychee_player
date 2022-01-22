@@ -2,25 +2,23 @@
 // Created by yangbin on 2021/6/6.
 //
 
-#include <thread>
-
-#include "gtest/gtest.h"
-#include "gmock/gmock.h"
-
-#include "base/logging.h"
-#include "base/message_loop.h"
-#include "base/bind_to_current_loop.h"
 #include "base/task_runner.h"
 
-using media::base::MessageLooper;
+#include <thread>
+
+#include "base/bind_to_current_loop.h"
+#include "base/logging.h"
+#include "base/message_loop.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+
 using media::TaskRunner;
+using media::base::MessageLooper;
 
 typedef testing::MockFunction<void(void)> MockTask;
 
 class TaskRunnerTest : public testing::Test {
-
  protected:
-
   std::shared_ptr<MessageLooper> looper_;
   TaskRunner task_runner_;
 
@@ -33,7 +31,6 @@ class TaskRunnerTest : public testing::Test {
     looper_ = MessageLooper::PrepareLooper("test_looper");
     task_runner_ = TaskRunner(looper_);
   }
-
 };
 
 static void WaitSeconds() {
@@ -50,7 +47,9 @@ TEST_F(TaskRunnerTest, PostTask) {
 TEST_F(TaskRunnerTest, PostTaskDelay) {
   MockTask task;
   EXPECT_CALL(task, Call()).Times(1);
-  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta::FromMicroseconds(1000), task.AsStdFunction());
+  task_runner_.PostDelayedTask(FROM_HERE,
+                               media::TimeDelta::FromMicroseconds(1000),
+                               task.AsStdFunction());
   WaitSeconds();
 }
 
@@ -78,8 +77,10 @@ TEST_F(TaskRunnerTest, BelongToCurrentThread) {
 TEST_F(TaskRunnerTest, RemoveTask) {
   MockTask task;
   EXPECT_CALL(task, Call()).Times(0);
-  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta::FromMicroseconds(100), task.AsStdFunction());
-  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta::FromMicroseconds(100), task.AsStdFunction());
+  task_runner_.PostDelayedTask(
+      FROM_HERE, media::TimeDelta::FromMicroseconds(100), task.AsStdFunction());
+  task_runner_.PostDelayedTask(
+      FROM_HERE, media::TimeDelta::FromMicroseconds(100), task.AsStdFunction());
   task_runner_.RemoveAllTasks();
   WaitSeconds();
 }
@@ -89,15 +90,11 @@ TEST_F(TaskRunnerTest, RemoveTaskWithTaskId) {
 
   MockTask task;
   EXPECT_CALL(task, Call()).Times(1);
-  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta::FromMicroseconds(100), task.AsStdFunction());
-  task_runner_.PostDelayedTask(FROM_HERE, media::TimeDelta::FromMicroseconds(100), kTaskId, task.AsStdFunction());
+  task_runner_.PostDelayedTask(
+      FROM_HERE, media::TimeDelta::FromMicroseconds(100), task.AsStdFunction());
+  task_runner_.PostDelayedTask(FROM_HERE,
+                               media::TimeDelta::FromMicroseconds(100), kTaskId,
+                               task.AsStdFunction());
   task_runner_.RemoveTask(kTaskId);
   WaitSeconds();
 }
-
-
-
-
-
-
-

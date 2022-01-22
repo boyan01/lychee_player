@@ -13,7 +13,7 @@ extern "C" {
 
 namespace media {
 
-#define ffmpeg_unique_ptr(type) std::unique_ptr<type,##type##Deleter>
+#define ffmpeg_unique_ptr(type) std::unique_ptr<type, ##type##Deleter>
 
 // Frees an AVCodecContext object in a class that can be passed as a Deleter
 // argument to scoped_ptr_malloc.
@@ -41,6 +41,6 @@ struct AVPacketDeleter {
   }
 };
 
-}
+}  // namespace media
 
-#endif //MEDIA_PLAYER_FFMPEG_FFMPEG_DELETERS_H_
+#endif  // MEDIA_PLAYER_FFMPEG_FFMPEG_DELETERS_H_

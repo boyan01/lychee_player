@@ -2,11 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "vector"
+#include "ffmpeg_glue.h"
 
 #include "base/logging.h"
-
-#include "ffmpeg_glue.h"
+#include "vector"
 
 namespace media {
 
@@ -25,33 +24,35 @@ static int64_t AVIOSeekOperation(void *opaque, int64_t offset, int whence) {
   int64_t new_offset = AVERROR(EIO);
   switch (whence) {
     case SEEK_SET:
-      if (protocol->SetPosition(offset))
-        protocol->GetPosition(&new_offset);
+      if (protocol->SetPosition(offset)) protocol->GetPosition(&new_offset);
       break;
 
-    case SEEK_CUR:int64_t pos;
-      if (!protocol->GetPosition(&pos))
-        break;
+    case SEEK_CUR:
+      int64_t pos;
+      if (!protocol->GetPosition(&pos)) break;
       if (protocol->SetPosition(pos + offset))
         protocol->GetPosition(&new_offset);
       break;
 
-    case SEEK_END:int64_t size;
-      if (!protocol->GetSize(&size))
-        break;
+    case SEEK_END:
+      int64_t size;
+      if (!protocol->GetSize(&size)) break;
       if (protocol->SetPosition(size + offset))
         protocol->GetPosition(&new_offset);
       break;
 
-    case AVSEEK_SIZE:protocol->GetSize(&new_offset);
+    case AVSEEK_SIZE:
+      protocol->GetSize(&new_offset);
       break;
 
-    default:NOTREACHED();
+    default:
+      NOTREACHED();
   }
   return new_offset;
 }
 
-FFmpegGlue::FFmpegGlue(FFmpegURLProtocol *protocol) : avio_context_(nullptr, [](AVIOContext *) {}) {
+FFmpegGlue::FFmpegGlue(FFmpegURLProtocol *protocol)
+    : avio_context_(nullptr, [](AVIOContext *) {}) {
   // Initialize an AVIOContext using our custom read and seek operations.  Don't
   // keep pointers to the buffer since FFmpeg may reallocate it on the fly.  It
   // will be cleaned up
@@ -61,8 +62,7 @@ FFmpegGlue::FFmpegGlue(FFmpegURLProtocol *protocol) : avio_context_(nullptr, [](
       protocol, &AVIOReadOperation, nullptr, &AVIOSeekOperation));
 
   // Ensure FFmpeg only tries to seek on resources we know to be seekable.
-  avio_context_->seekable =
-      protocol->IsStreaming() ? 0 : AVIO_SEEKABLE_NORMAL;
+  avio_context_->seekable = protocol->IsStreaming() ? 0 : AVIO_SEEKABLE_NORMAL;
 
   // Ensure writing is disabled.
   avio_context_->write_flag = 0;
@@ -94,7 +94,8 @@ bool FFmpegGlue::OpenContext(bool is_local_file) {
 
   // By passing nullptr for the filename (second parameter) we are telling
   // FFmpeg to use the AVIO context we setup from the AVFormatContext structure.
-  const int ret = avformat_open_input(&format_context_, nullptr, nullptr, nullptr);
+  const int ret =
+      avformat_open_input(&format_context_, nullptr, nullptr, nullptr);
 
   if (ret < 0) {
     return false;

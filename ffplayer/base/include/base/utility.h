@@ -17,7 +17,7 @@ namespace utility {
  */
 void update_thread_name(const char *name);
 
-} // namespace utility
-} // namespace media
+}  // namespace utility
+}  // namespace media
 
-#endif //MEDIA_BASE_UTILITY_H_
+#endif  // MEDIA_BASE_UTILITY_H_

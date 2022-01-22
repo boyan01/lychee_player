@@ -15,12 +15,11 @@
 #include "macos_audio_renderer_sink.h"
 #endif
 
+#include "dart/dart_api_dl.h"
+#include "external_video_renderer_sink.h"
+#include "ffp_flutter.h"
 #include "ffplayer.h"
 #include "media_player.h"
-#include "external_video_renderer_sink.h"
-
-#include "ffp_flutter.h"
-#include "dart/dart_api_dl.h"
 
 // Use SDL2 to render audio.
 #ifdef _MEDIA_AUDIO_USE_SDL
@@ -28,17 +27,19 @@
 #include "sdl_utils.h"
 #endif
 
-#define CHECK_VALUE_WITH_RETURN(VALUE, RETURN)\
-if(!(VALUE)) {\
-    av_log(nullptr, AV_LOG_ERROR, "check %s value failed in %s\n", #VALUE, __FUNCTION__);\
-    return RETURN;\
-}\
+#define CHECK_VALUE_WITH_RETURN(VALUE, RETURN)                             \
+  if (!(VALUE)) {                                                          \
+    av_log(nullptr, AV_LOG_ERROR, "check %s value failed in %s\n", #VALUE, \
+           __FUNCTION__);                                                  \
+    return RETURN;                                                         \
+  }
 
-#define CHECK_VALUE(VALUE)\
-if(!(VALUE)) {\
-    av_log(nullptr, AV_LOG_ERROR, "check %s value failed in %s\n", #VALUE, __FUNCTION__);\
-    return;\
-}                         \
+#define CHECK_VALUE(VALUE)                                                 \
+  if (!(VALUE)) {                                                          \
+    av_log(nullptr, AV_LOG_ERROR, "check %s value failed in %s\n", #VALUE, \
+           __FUNCTION__);                                                  \
+    return;                                                                \
+  }
 
 // hold all player instance. destroy all play when flutter app hot reloaded.
 static std::list<std::shared_ptr<CPlayer>> players_;
@@ -99,35 +100,43 @@ void ffplayer_free_player(CPlayer *player) {
 void ffplayer_global_init(void *arg) {
   assert(arg);
 #if __ANDROID__
-  av_log_set_callback([](void *ptr, int level, const char *format, va_list v_args) {
-    int prio;
-    switch (level) {
-      case AV_LOG_VERBOSE:prio = ANDROID_LOG_VERBOSE;
-        break;
-      case AV_LOG_DEBUG:prio = ANDROID_LOG_DEBUG;
-        break;
-      case AV_LOG_INFO:prio = ANDROID_LOG_INFO;
-        break;
-      case AV_LOG_WARNING:prio = ANDROID_LOG_WARN;
-        break;
-      case AV_LOG_ERROR:prio = ANDROID_LOG_ERROR;
-        break;
-      case AV_LOG_FATAL:prio = ANDROID_LOG_FATAL;
-        break;
-      default:prio = ANDROID_LOG_UNKNOWN;
-        break;
-    }
+  av_log_set_callback(
+      [](void *ptr, int level, const char *format, va_list v_args) {
+        int prio;
+        switch (level) {
+          case AV_LOG_VERBOSE:
+            prio = ANDROID_LOG_VERBOSE;
+            break;
+          case AV_LOG_DEBUG:
+            prio = ANDROID_LOG_DEBUG;
+            break;
+          case AV_LOG_INFO:
+            prio = ANDROID_LOG_INFO;
+            break;
+          case AV_LOG_WARNING:
+            prio = ANDROID_LOG_WARN;
+            break;
+          case AV_LOG_ERROR:
+            prio = ANDROID_LOG_ERROR;
+            break;
+          case AV_LOG_FATAL:
+            prio = ANDROID_LOG_FATAL;
+            break;
+          default:
+            prio = ANDROID_LOG_UNKNOWN;
+            break;
+        }
 
-    va_list vl2;
-    char *line = static_cast<char *>(malloc(128 * sizeof(char)));
-    static int print_prefix = 1;
-    va_copy(vl2, v_args);
-    av_log_format_line(ptr, level, format, vl2, line, 128, &print_prefix);
-    va_end(vl2);
-    line[127] = '\0';
-    __android_log_print(prio, "FF_PLAYER", "%s", line);
-    free(line);
-  });
+        va_list vl2;
+        char *line = static_cast<char *>(malloc(128 * sizeof(char)));
+        static int print_prefix = 1;
+        va_copy(vl2, v_args);
+        av_log_format_line(ptr, level, format, vl2, line, 128, &print_prefix);
+        va_end(vl2);
+        line[127] = '\0';
+        __android_log_print(prio, "FF_PLAYER", "%s", line);
+        free(line);
+      });
 #endif
   CPlayer::GlobalInit();
 
@@ -137,15 +146,17 @@ void ffplayer_global_init(void *arg) {
 
   Dart_InitializeApiDL(arg);
 
-  for (const auto &player: players_) {
-    av_log(nullptr, AV_LOG_INFO, "free play, close stream %p by flutter global \n", player.get());
+  for (const auto &player : players_) {
+    av_log(nullptr, AV_LOG_INFO,
+           "free play, close stream %p by flutter global \n", player.get());
     release_player(player.get());
   }
   players_.clear();
 }
 
 CPlayer *ffp_create_player(PlayerConfiguration *config) {
-  std::unique_ptr<VideoRendererSink> video_render = std::make_unique<ExternalVideoRendererSink>();
+  std::unique_ptr<VideoRendererSink> video_render =
+      std::make_unique<ExternalVideoRendererSink>();
   std::unique_ptr<AudioRendererSink> audio_render;
 #ifdef _MEDIA_WINDOWS
   audio_render = std::make_unique<SdlAudioRendererSink>();
@@ -176,27 +187,30 @@ double ffp_get_video_aspect_ratio(CPlayer *player) {
 
 // TODO rename this
 int64_t ffp_attach_video_render_flutter(CPlayer *player) {
-  auto *video_render_sink = dynamic_cast<media::ExternalVideoRendererSink *>(player->GetVideoRenderSink());
+  auto *video_render_sink = dynamic_cast<media::ExternalVideoRendererSink *>(
+      player->GetVideoRenderSink());
   auto texture_id = video_render_sink->texture_id();
   DLOG(INFO) << "ffp_attach_video_render_flutter: id = " << texture_id;
   return texture_id;
 }
 
 void ffp_set_message_callback_dart(CPlayer *player, Dart_Port_DL send_port) {
-//  player->SetMessageHandleCallback([send_port](int32_t what, int64_t arg1, int64_t arg2) {
-//    // dart do not support int64_t array yet.
-//    // thanks https://github.com/dart-lang/sdk/issues/44384#issuecomment-738708448
-//    // so we pass an uint8_t array to dart isolate.
-//    int64_t arrays[] = {what, arg1, arg2};
-//    Dart_CObject dart_args = {};
-//    memset(&dart_args, 0, sizeof(Dart_CObject));
-//
-//    dart_args.type = Dart_CObject_kTypedData;
-//    dart_args.value.as_typed_data.type = Dart_TypedData_kUint8;
-//    dart_args.value.as_typed_data.length = 3 * sizeof(int64_t);
-//    dart_args.value.as_typed_data.values = (uint8_t *) arrays;
-//    Dart_PostCObject_DL(send_port, &dart_args);
-//  });
+  //  player->SetMessageHandleCallback([send_port](int32_t what, int64_t arg1,
+  //  int64_t arg2) {
+  //    // dart do not support int64_t array yet.
+  //    // thanks
+  //    https://github.com/dart-lang/sdk/issues/44384#issuecomment-738708448
+  //    // so we pass an uint8_t array to dart isolate.
+  //    int64_t arrays[] = {what, arg1, arg2};
+  //    Dart_CObject dart_args = {};
+  //    memset(&dart_args, 0, sizeof(Dart_CObject));
+  //
+  //    dart_args.type = Dart_CObject_kTypedData;
+  //    dart_args.value.as_typed_data.type = Dart_TypedData_kUint8;
+  //    dart_args.value.as_typed_data.length = 3 * sizeof(int64_t);
+  //    dart_args.value.as_typed_data.values = (uint8_t *) arrays;
+  //    Dart_PostCObject_DL(send_port, &dart_args);
+  //  });
 }
 
 // TODO remove this method.
@@ -205,5 +219,5 @@ void ffp_detach_video_render_flutter(CPlayer *player) {
 }
 
 void windows_register_texture(void *callback) {
-  register_external_texture_factory((FlutterTextureAdapterFactory) callback);
+  register_external_texture_factory((FlutterTextureAdapterFactory)callback);
 }

@@ -2,21 +2,23 @@
 // Created by boyan on 2021/3/27.
 //
 
-#include "base/logging.h"
 #include "base/message_loop.h"
+
+#include "base/logging.h"
 #include "base/utility.h"
 
 namespace media {
 
 namespace base {
 
-thread_local std::weak_ptr<MessageLooper> MessageLooper::thread_local_message_loop_;
+thread_local std::weak_ptr<MessageLooper>
+    MessageLooper::thread_local_message_loop_;
 
-MessageLooper::MessageLooper(const char *loop_name, int message_handle_timeout_ms)
+MessageLooper::MessageLooper(const char *loop_name,
+                             int message_handle_timeout_ms)
     : loop_name_(loop_name),
       message_queue_(std::make_unique<MessageQueue>()),
-      message_handle_expect_duration_(message_handle_timeout_ms) {
-}
+      message_handle_expect_duration_(message_handle_timeout_ms) {}
 
 MessageLooper::~MessageLooper() {
   message_queue_->Quit();
@@ -40,13 +42,15 @@ void MessageLooper::Loop() {
 
     DCHECK(msg->next == nullptr);
 
-    TRACE_METHOD_DURATION_WITH_LOCATION(message_handle_expect_duration_, msg->posted_from);
+    TRACE_METHOD_DURATION_WITH_LOCATION(message_handle_expect_duration_,
+                                        msg->posted_from);
     msg->task();
     delete msg;
   }
 }
 
-void MessageLooper::PostTask(const tracked_objects::Location &from_here, const TaskClosure &task) {
+void MessageLooper::PostTask(const tracked_objects::Location &from_here,
+                             const TaskClosure &task) {
   static const TimeDelta delay;
   PostDelayedTask(from_here, delay, task);
 }
@@ -63,9 +67,7 @@ std::shared_ptr<MessageLooper> MessageLooper::Current() {
 
 // static
 std::shared_ptr<MessageLooper> MessageLooper::PrepareLooper(
-    const char *loop_name,
-    int message_handle_expect_duration_
-) {
+    const char *loop_name, int message_handle_expect_duration_) {
   auto looper = Create(loop_name, message_handle_expect_duration_);
   auto thread = std::make_unique<std::thread>([looper]() {
     looper->Prepare();
@@ -75,10 +77,12 @@ std::shared_ptr<MessageLooper> MessageLooper::PrepareLooper(
   return looper;
 }
 
-std::shared_ptr<MessageLooper> MessageLooper::Create(const char *loop_name, int message_handle_expect_duration_) {
-  std::shared_ptr<MessageLooper> looper(new MessageLooper(loop_name, message_handle_expect_duration_));
+std::shared_ptr<MessageLooper> MessageLooper::Create(
+    const char *loop_name, int message_handle_expect_duration_) {
+  std::shared_ptr<MessageLooper> looper(
+      new MessageLooper(loop_name, message_handle_expect_duration_));
   return looper;
 }
 
-} // namespace base
-} // namespace media
+}  // namespace base
+}  // namespace media

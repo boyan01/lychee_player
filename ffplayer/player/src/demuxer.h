@@ -5,28 +5,23 @@
 #ifndef MEDIA_PLAYER_DEMUXER_DEMUXER_H_
 #define MEDIA_PLAYER_DEMUXER_DEMUXER_H_
 
-#include "memory"
-
 #include "base/message_loop.h"
 #include "base/time_delta.h"
-
-#include "demuxer_stream.h"
-#include "media_tracks.h"
-#include "ffmpeg_glue.h"
 #include "blocking_url_protocol.h"
+#include "demuxer_stream.h"
+#include "ffmpeg_glue.h"
+#include "media_tracks.h"
+#include "memory"
 
 namespace media {
 
-constexpr double kNoTimestamp() {
-  return 0;
-}
+constexpr double kNoTimestamp() { return 0; }
 
 typedef int PipelineStatus;
 typedef std::function<void(int)> PipelineStatusCB;
 
 class DemuxerHost {
  public:
-
   /**
    * Set the duration of media.
    * Duration may be kInfiniteDuration() if the duration is not known.
@@ -40,19 +35,15 @@ class DemuxerHost {
   virtual void OnDemuxerError(PipelineStatus error) = 0;
 
  protected:
-
   virtual ~DemuxerHost() = default;
-
 };
 
 class Demuxer : public std::enable_shared_from_this<Demuxer> {
-
  public:
+  using MediaTracksUpdatedCB =
+      std::function<void(std::unique_ptr<MediaTracks>)>;
 
-  using MediaTracksUpdatedCB = std::function<void(std::unique_ptr<MediaTracks>)>;
-
-  Demuxer(const TaskRunner &task_runner,
-          std::string url,
+  Demuxer(const TaskRunner &task_runner, std::string url,
           MediaTracksUpdatedCB media_tracks_updated_cb);
 
   void Initialize(DemuxerHost *host, PipelineStatusCB status_cb);
@@ -84,11 +75,9 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
   TimeDelta GetPendingSeekingPosition() { return pending_seek_position_; }
 
  protected:
-
   virtual std::string GetDisplayName() const;
 
  private:
-
   bool abort_request_;
 
   bool pending_read_ = false;
@@ -172,8 +161,7 @@ class Demuxer : public std::enable_shared_from_this<Demuxer> {
   std::mutex seek_mutex_;
 
   DELETE_COPY_AND_ASSIGN(Demuxer);
-
 };
 
-} // namespace media
-#endif //MEDIA_PLAYER_DEMUXER_DEMUXER_H_
+}  // namespace media
+#endif  // MEDIA_PLAYER_DEMUXER_DEMUXER_H_

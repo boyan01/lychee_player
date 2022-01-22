@@ -5,12 +5,11 @@
 #ifndef MEDIA_PLAYER_PIPELINE_PIPELINE_STATUS_H_
 #define MEDIA_PLAYER_PIPELINE_PIPELINE_STATUS_H_
 
+#include "base/buffer.h"
+#include "base/timestamps.h"
 #include "functional"
 #include "iosfwd"
 #include "string"
-
-#include "base/timestamps.h"
-#include "base/buffer.h"
 
 namespace media {
 
@@ -63,8 +62,7 @@ std::ostream &operator<<(std::ostream &out, PipelineStatus status);
 
 using PipelineStatusCallback = std::function<void(PipelineStatus)>;
 
-
-template<typename DecoderTypeId>
+template <typename DecoderTypeId>
 struct PipelineDecoderInfo {
   bool is_platform_decoder = false;
   bool has_decrypting_demuxer_stream = false;
@@ -79,7 +77,7 @@ struct PipelineStatistics {
   PipelineStatistics(const PipelineStatistics &other);
   ~PipelineStatistics();
 
-   uint64_t audio_bytes_decoded = 0u;
+  uint64_t audio_bytes_decoded = 0u;
   uint64_t video_bytes_decoded = 0u;
   uint32_t video_frames_decoded = 0u;
   uint32_t video_frames_dropped = 0u;
@@ -111,6 +109,6 @@ bool operator!=(const PipelineStatistics &first,
 // of all attributes since the last update.
 using StatisticsCB = std::function<void(const PipelineStatistics &)>;
 
-}
+}  // namespace media
 
-#endif //MEDIA_PLAYER_PIPELINE_PIPELINE_STATUS_H_
+#endif  // MEDIA_PLAYER_PIPELINE_PIPELINE_STATUS_H_

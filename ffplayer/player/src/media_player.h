@@ -5,55 +5,40 @@
 #ifndef MEDIA_PLAYER_MEDIA_PLAYER_H
 #define MEDIA_PLAYER_MEDIA_PLAYER_H
 
-#include <memory>
 #include <functional>
+#include <memory>
 #include <utility>
 
-#include "base/task_runner.h"
-
-#include "ffplayer.h"
-#include "media_clock.h"
-#include "data_source.h"
-#include "audio_renderer.h"
-#include "video_renderer.h"
 #include "audio_decoder.h"
+#include "audio_renderer.h"
+#include "base/task_runner.h"
+#include "data_source.h"
 #include "decoder_stream.h"
 #include "demuxer.h"
+#include "ffplayer.h"
+#include "media_clock.h"
+#include "video_renderer.h"
 
 namespace media {
 
-enum class MediaPlayerState {
-  IDLE = 0,
-  READY,
-  BUFFERING,
-  END
-};
+enum class MediaPlayerState { IDLE = 0, READY, BUFFERING, END };
 
-class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public DemuxerHost {
-
+class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>,
+                    public DemuxerHost {
  public:
-
   /**
    * Global init player resources.
    */
   static void GlobalInit();
 
-  MediaPlayer(
-      std::unique_ptr<VideoRendererSink> video_renderer_sink,
-      std::shared_ptr<AudioRendererSink> audio_renderer_sink,
-      const TaskRunner &task_runner
-  );
+  MediaPlayer(std::unique_ptr<VideoRendererSink> video_renderer_sink,
+              std::shared_ptr<AudioRendererSink> audio_renderer_sink,
+              const TaskRunner &task_runner);
 
   ~MediaPlayer() override;
 
  private:
-
-  enum State {
-    kUninitialized,
-    kIdle,
-    kPrepared,
-    kPreparing
-  };
+  enum State { kUninitialized, kIdle, kPrepared, kPreparing };
 
   State state_ = kUninitialized;
 
@@ -135,7 +120,6 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
   }
 
  private:
-
   TaskRunner task_runner_;
 
   OnVideoSizeChangeCallback on_video_size_changed_;
@@ -151,10 +135,8 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>, public Dem
   void OnSeekCompleted(bool succeed);
 
   void SetPlayWhenReadyTask(bool play_when_ready);
-
-
 };
 
-} // namespace media
+}  // namespace media
 
-#endif //MEDIA_PLAYER_MEDIA_PLAYER_H
+#endif  // MEDIA_PLAYER_MEDIA_PLAYER_H

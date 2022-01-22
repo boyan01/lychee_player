@@ -5,8 +5,8 @@
 #ifndef MEDIA_BASE_MESSAGE_QUEUE_H_
 #define MEDIA_BASE_MESSAGE_QUEUE_H_
 
-#include <mutex>
 #include <condition_variable>
+#include <mutex>
 
 #include "basictypes.h"
 #include "message.h"
@@ -15,9 +15,7 @@ namespace media {
 namespace base {
 
 class MessageQueue {
-
  public:
-
   MessageQueue();
 
   virtual ~MessageQueue();
@@ -31,8 +29,8 @@ class MessageQueue {
   Message *next();
 
   void Quit();
- private:
 
+ private:
   Message *messages_ = nullptr;
 
   std::recursive_mutex message_queue_lock_;
@@ -53,7 +51,7 @@ class MessageQueue {
   void RemoveAllMessageLocked();
 };
 
-} // namespace base
-} // namespace media
+}  // namespace base
+}  // namespace media
 
-#endif //MEDIA_BASE_MESSAGE_QUEUE_H_
+#endif  // MEDIA_BASE_MESSAGE_QUEUE_H_

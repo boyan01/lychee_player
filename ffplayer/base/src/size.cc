@@ -3,22 +3,23 @@
 //
 
 #include "base/size.h"
+
 #include "base/logging.h"
 
 namespace media {
 
 namespace base {
 
-template<typename Class, typename Type>
+template <typename Class, typename Type>
 SizeBase<Class, Type>::SizeBase(Type width, Type height) {
   set_width(width);
   set_height(height);
 }
 
-template<typename Class, typename Type>
+template <typename Class, typename Type>
 SizeBase<Class, Type>::~SizeBase() = default;
 
-template<typename Class, typename Type>
+template <typename Class, typename Type>
 void SizeBase<Class, Type>::set_width(Type width) {
   if (width < 0) {
     NOTREACHED() << "negative width:" << width;
@@ -27,7 +28,7 @@ void SizeBase<Class, Type>::set_width(Type width) {
   width_ = width;
 }
 
-template<typename Class, typename Type>
+template <typename Class, typename Type>
 void SizeBase<Class, Type>::set_height(Type height) {
   if (height < 0) {
     NOTREACHED() << "negative height:" << height;
@@ -38,8 +39,7 @@ void SizeBase<Class, Type>::set_height(Type height) {
 
 Size::Size(int width, int height) : SizeBase(width, height) {}
 
-Size::Size() : SizeBase<Size, int>(0, 0) {
-}
+Size::Size() : SizeBase<Size, int>(0, 0) {}
 
 std::string Size::ToString() const {
   std::ostringstream stream;
@@ -49,5 +49,5 @@ std::string Size::ToString() const {
 
 Size::~Size() = default;
 
-}
-}
+}  // namespace base
+}  // namespace media

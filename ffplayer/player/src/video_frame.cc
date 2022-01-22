@@ -26,4 +26,4 @@ VideoFrame::~VideoFrame() {
   }
 }
 
-}
+}  // namespace media

@@ -6,19 +6,18 @@
 #define MEDIA_FLUTTER_EXTERNAL_MEDIA_TEXTURE_H_
 
 #include "cinttypes"
-#include "memory"
 #include "functional"
+#include "memory"
 
 #ifdef _WIN32
-#define API_EXPORT extern "C"  __declspec(dllexport)
+#define API_EXPORT extern "C" __declspec(dllexport)
 #else
-#define API_EXPORT extern "C" __attribute__((visibility("default"))) __attribute__((used))
+#define API_EXPORT \
+  extern "C" __attribute__((visibility("default"))) __attribute__((used))
 #endif
 
 class ExternalMediaTexture {
-
  public:
-
   enum PixelFormat {
     kFormat_32_BGRA,
     kFormat_32_ARGB,
@@ -49,18 +48,20 @@ class ExternalMediaTexture {
   virtual void NotifyBufferUpdate() = 0;
 
   /**
-   * @return The pixel buffer which init by [MaybeInitPixelBuffer], could be null.
+   * @return The pixel buffer which init by [MaybeInitPixelBuffer], could be
+   * null.
    */
   virtual uint8_t *GetBuffer() = 0;
 
   virtual ~ExternalMediaTexture() = default;
 
   virtual void RenderWithHWAccel(void *pixel_buffer) {}
-
 };
 
-typedef void(*FlutterTextureAdapterFactory)(std::function<void(std::unique_ptr<ExternalMediaTexture>)> callback);
+typedef void (*FlutterTextureAdapterFactory)(
+    std::function<void(std::unique_ptr<ExternalMediaTexture>)> callback);
 
-API_EXPORT void register_external_texture_factory(FlutterTextureAdapterFactory factory);
+API_EXPORT void register_external_texture_factory(
+    FlutterTextureAdapterFactory factory);
 
-#endif //MEDIA_FLUTTER_EXTERNAL_MEDIA_TEXTURE_H_
+#endif  // MEDIA_FLUTTER_EXTERNAL_MEDIA_TEXTURE_H_

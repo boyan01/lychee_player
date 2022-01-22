@@ -5,12 +5,12 @@
 #ifndef MEDIA_BASE_MESSAGE_H_
 #define MEDIA_BASE_MESSAGE_H_
 
-#include <queue>
 #include <functional>
+#include <queue>
 
+#include "base/location.h"
 #include "base/time_delta.h"
 #include "base/time_ticks.h"
-#include "base/location.h"
 
 namespace media {
 
@@ -21,12 +21,8 @@ namespace base {
 typedef std::function<void(void)> TaskClosure;
 
 struct Message {
-
-  Message(TaskClosure task,
-          const tracked_objects::Location &posted_from,
-          TimeDelta delay,
-          TaskRunner *task_runner,
-          int task_id);
+  Message(TaskClosure task, const tracked_objects::Location &posted_from,
+          TimeDelta delay, TaskRunner *task_runner, int task_id);
 
   ~Message();
 
@@ -44,15 +40,14 @@ struct Message {
 
  private:
   Message *next = nullptr;
-  TaskRunner* task_runner_;
+  TaskRunner *task_runner_;
   int task_id_;
 
   friend class MessageQueue;
   friend class MessageLooper;
-
 };
 
-} // namespace base
-} // namespace media
+}  // namespace base
+}  // namespace media
 
-#endif //MEDIA_BASE_MESSAGE_H_
+#endif  // MEDIA_BASE_MESSAGE_H_

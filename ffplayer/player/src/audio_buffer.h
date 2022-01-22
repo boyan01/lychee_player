@@ -10,9 +10,7 @@
 namespace media {
 
 class AudioBuffer {
-
  public:
-
   AudioBuffer(uint8 *data, int size, double pts, int bytes_per_sec);
 
   virtual ~AudioBuffer();
@@ -26,23 +24,17 @@ class AudioBuffer {
    */
   int Read(uint8 *dest, int size, double volume);
 
-  int size() const {
-    return size_;
-  }
+  int size() const { return size_; }
 
   /**
    * Presentation timestamp. Could be NAN.
    */
-  double pts() const {
-    return pts_;
-  }
+  double pts() const { return pts_; }
 
   /**
    * @return true if all data has been read by [Read].
    */
-  bool IsConsumed() const {
-    return size_ == read_cursor_;
-  }
+  bool IsConsumed() const { return size_ == read_cursor_; }
 
   /**
    * The presentation time of start of cursor.
@@ -52,7 +44,6 @@ class AudioBuffer {
   }
 
  private:
-
   uint8 *data_;
   int size_;
 
@@ -61,9 +52,8 @@ class AudioBuffer {
   int read_cursor_ = 0;
 
   int bytes_per_sec_;
-
 };
 
-}
+}  // namespace media
 
-#endif //MEDIA_PLAYER_SRC_AUDIO_BUFFER_H_
+#endif  // MEDIA_PLAYER_SRC_AUDIO_BUFFER_H_

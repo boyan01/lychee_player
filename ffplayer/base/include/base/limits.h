@@ -33,11 +33,11 @@ enum {
   kMaxBytesPerSample = kMaxBitsPerSample / 8,
   kMaxSamplesPerPacket = kMaxSampleRate,
   kMaxPacketSizeInBytes =
-  (kMaxBitsPerSample / 8) * kMaxChannels * kMaxSamplesPerPacket,
+      (kMaxBitsPerSample / 8) * kMaxChannels * kMaxSamplesPerPacket,
 
 };
 
-} // namespace limits
-} // namespace media
+}  // namespace limits
+}  // namespace media
 
-#endif //MEDIA_BASE_LIMITS_H_
+#endif  // MEDIA_BASE_LIMITS_H_

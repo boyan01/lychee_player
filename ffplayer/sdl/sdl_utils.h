@@ -21,12 +21,12 @@ namespace sdl {
  */
 void InitSdlAudio();
 
-void calculate_display_rect(SDL_Rect *rect,
-                            int scr_xleft, int scr_ytop, int scr_width, int scr_height,
-                            int pic_width, int pic_height, AVRational pic_sar);
+void calculate_display_rect(SDL_Rect *rect, int scr_xleft, int scr_ytop,
+                            int scr_width, int scr_height, int pic_width,
+                            int pic_height, AVRational pic_sar);
 
-}
+}  // namespace sdl
 
-}
+}  // namespace media
 
-#endif //MEDIA_SDL_SDL_UTILS_H_
+#endif  // MEDIA_SDL_SDL_UTILS_H_

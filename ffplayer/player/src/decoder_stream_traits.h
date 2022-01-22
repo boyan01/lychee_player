@@ -6,18 +6,15 @@
 #define MEDIA_PLAYER_SRC_DECODER_STREAM_TRAITS_H_
 
 #include "audio_decoder.h"
-#include "video_decoder.h"
-
 #include "demuxer_stream.h"
+#include "video_decoder.h"
 
 namespace media {
 
-template<DemuxerStream::Type StreamType>
-class DecoderStreamTraits {
+template <DemuxerStream::Type StreamType>
+class DecoderStreamTraits {};
 
-};
-
-template<>
+template <>
 class DecoderStreamTraits<DemuxerStream::Video> {
  public:
   using OutputType = VideoFrame;
@@ -28,11 +25,11 @@ class DecoderStreamTraits<DemuxerStream::Video> {
 
   ~DecoderStreamTraits();
 
-  void InitializeDecoder(DecoderType *decoder, DemuxerStream *stream, OutputCallback output_callback);
-
+  void InitializeDecoder(DecoderType *decoder, DemuxerStream *stream,
+                         OutputCallback output_callback);
 };
 
-template<>
+template <>
 class DecoderStreamTraits<DemuxerStream::Audio> {
  public:
   using OutputType = AudioBuffer;
@@ -43,10 +40,10 @@ class DecoderStreamTraits<DemuxerStream::Audio> {
 
   ~DecoderStreamTraits();
 
-  void InitializeDecoder(DecoderType *decoder, DemuxerStream *stream, OutputCallback output_callback);
-
+  void InitializeDecoder(DecoderType *decoder, DemuxerStream *stream,
+                         OutputCallback output_callback);
 };
 
-}
+}  // namespace media
 
-#endif //MEDIA_PLAYER_SRC_DECODER_STREAM_TRAITS_H_
+#endif  // MEDIA_PLAYER_SRC_DECODER_STREAM_TRAITS_H_

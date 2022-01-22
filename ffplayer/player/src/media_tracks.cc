@@ -6,9 +6,8 @@
 
 #include <memory>
 
-#include "base/logging.h"
-
 #include "audio_decode_config.h"
+#include "base/logging.h"
 #include "video_decode_config.h"
 
 namespace media {
@@ -17,12 +16,11 @@ MediaTracks::MediaTracks() = default;
 
 MediaTracks::~MediaTracks() = default;
 
-MediaTrack *MediaTracks::AddAudioTrack(
-    const AudioDecodeConfig &config,
-    MediaTrack::TrackId bytestream_track_id,
-    const MediaTrack::Kind &kind,
-    const MediaTrack::Label &label,
-    const MediaTrack::Language &language) {
+MediaTrack *MediaTracks::AddAudioTrack(const AudioDecodeConfig &config,
+                                       MediaTrack::TrackId bytestream_track_id,
+                                       const MediaTrack::Kind &kind,
+                                       const MediaTrack::Label &label,
+                                       const MediaTrack::Language &language) {
   CHECK(audio_configs_.find(bytestream_track_id) == audio_configs_.end());
   std::unique_ptr<MediaTrack> track = std::make_unique<MediaTrack>(
       MediaTrack::Audio, bytestream_track_id, kind, label, language);
@@ -32,12 +30,11 @@ MediaTrack *MediaTracks::AddAudioTrack(
   return track_ptr;
 }
 
-MediaTrack *MediaTracks::AddVideoTrack(
-    const VideoDecodeConfig &config,
-    MediaTrack::TrackId bytestream_track_id,
-    const MediaTrack::Kind &kind,
-    const MediaTrack::Label &label,
-    const MediaTrack::Language &language) {
+MediaTrack *MediaTracks::AddVideoTrack(const VideoDecodeConfig &config,
+                                       MediaTrack::TrackId bytestream_track_id,
+                                       const MediaTrack::Kind &kind,
+                                       const MediaTrack::Label &label,
+                                       const MediaTrack::Language &language) {
   CHECK(video_configs_.find(bytestream_track_id) == video_configs_.end());
   std::unique_ptr<MediaTrack> track = std::make_unique<MediaTrack>(
       MediaTrack::Video, bytestream_track_id, kind, label, language);
@@ -50,8 +47,7 @@ MediaTrack *MediaTracks::AddVideoTrack(
 const AudioDecodeConfig &MediaTracks::getAudioConfig(
     MediaTrack::TrackId bytestream_track_id) const {
   auto it = audio_configs_.find(bytestream_track_id);
-  if (it != audio_configs_.end())
-    return it->second;
+  if (it != audio_configs_.end()) return it->second;
   static AudioDecodeConfig invalidConfig;
   return invalidConfig;
 }
@@ -59,8 +55,7 @@ const AudioDecodeConfig &MediaTracks::getAudioConfig(
 const VideoDecodeConfig &MediaTracks::getVideoConfig(
     MediaTrack::TrackId bytestream_track_id) const {
   auto it = video_configs_.find(bytestream_track_id);
-  if (it != video_configs_.end())
-    return it->second;
+  if (it != video_configs_.end()) return it->second;
   static VideoDecodeConfig invalidConfig;
   return invalidConfig;
 }

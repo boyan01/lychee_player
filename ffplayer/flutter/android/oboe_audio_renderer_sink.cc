@@ -16,10 +16,8 @@ OboeAudioRendererSink::~OboeAudioRendererSink() {
 }
 
 void OboeAudioRendererSink::Initialize(
-    int wanted_nb_channels,
-    int wanted_sample_rate,
+    int wanted_nb_channels, int wanted_sample_rate,
     AudioRendererSink::RenderCallback *render_callback) {
-
   DCHECK(render_callback);
 
   oboe::AudioStreamBuilder stream_builder;
@@ -37,9 +35,7 @@ void OboeAudioRendererSink::Initialize(
   render_callback_ = render_callback;
 }
 
-bool OboeAudioRendererSink::SetVolume(double volume) {
-  return false;
-}
+bool OboeAudioRendererSink::SetVolume(double volume) { return false; }
 
 void OboeAudioRendererSink::Play() {
   if (!audio_stream_) {
@@ -56,10 +52,7 @@ void OboeAudioRendererSink::Pause() {
 }
 
 oboe::DataCallbackResult OboeAudioRendererSink::onAudioReady(
-    oboe::AudioStream *audioStream,
-    void *audioData,
-    int32_t numFrames) {
-
+    oboe::AudioStream *audioStream, void *audioData, int32_t numFrames) {
   int len = numFrames * audioStream->getBytesPerFrame();
   memset(audioData, 0, len);
 
@@ -71,4 +64,4 @@ oboe::DataCallbackResult OboeAudioRendererSink::onAudioReady(
   return oboe::DataCallbackResult::Continue;
 }
 
-}
+}  // namespace media

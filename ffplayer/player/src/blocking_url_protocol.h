@@ -5,12 +5,11 @@
 #ifndef MEDIA_FILTERS_BLOCKING_URL_PROTOCOL_H_
 #define MEDIA_FILTERS_BLOCKING_URL_PROTOCOL_H_
 
+#include "base/basictypes.h"
+#include "condition_variable"
+#include "ffmpeg_glue.h"
 #include "functional"
 #include "mutex"
-#include "condition_variable"
-
-#include "base/basictypes.h"
-#include "ffmpeg_glue.h"
 
 namespace media {
 
@@ -24,8 +23,7 @@ class BlockingUrlProtocol : public FFmpegURLProtocol {
  public:
   // Implements FFmpegURLProtocol using the given |data_source|. |error_cb| is
   // fired any time DataSource::Read() returns an error.
-  BlockingUrlProtocol(DataSource *data_source,
-                      std::function<void()> error_cb);
+  BlockingUrlProtocol(DataSource *data_source, std::function<void()> error_cb);
   virtual ~BlockingUrlProtocol();
 
   // Aborts any pending reads by returning a read error. After this method

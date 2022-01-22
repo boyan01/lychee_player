@@ -9,25 +9,24 @@
 
 namespace media {
 
-FFmpegDecodingLoop::FFmpegDecodingLoop(AVCodecContext *context, bool continue_on_decoding_errors)
+FFmpegDecodingLoop::FFmpegDecodingLoop(AVCodecContext *context,
+                                       bool continue_on_decoding_errors)
     : context_(context),
       continue_on_decoding_errors_(continue_on_decoding_errors),
-      frame_(av_frame_alloc()) {
-
-}
+      frame_(av_frame_alloc()) {}
 
 FFmpegDecodingLoop::~FFmpegDecodingLoop() = default;
 
 FFmpegDecodingLoop::DecodeStatus FFmpegDecodingLoop::DecodePacket(
-    const AVPacket *packet,
-    const FrameReadyCB &frame_ready_cb) {
+    const AVPacket *packet, const FrameReadyCB &frame_ready_cb) {
   bool sent_packet = false, frames_remaining = true, decoder_error = false;
   while (!sent_packet || frames_remaining) {
     if (!sent_packet) {
       // FIXME Maybe raise a BAD ACCESS Exception when fast seek.
       const int result = avcodec_send_packet(context_, packet);
       if (result < 0 && result != AVERROR(EAGAIN) && result != AVERROR_EOF) {
-        DLOG(ERROR) << "Failed to send packet for decoding: " << ffmpeg::AVErrorToString(result);
+        DLOG(ERROR) << "Failed to send packet for decoding: "
+                    << ffmpeg::AVErrorToString(result);
         return DecodeStatus::kSendPacketFailed;
       }
 
@@ -61,11 +60,10 @@ FFmpegDecodingLoop::DecodeStatus FFmpegDecodingLoop::DecodePacket(
 
     const bool frame_processing_success = frame_ready_cb(frame_.get());
     av_frame_unref(frame_.get());
-    if (!frame_processing_success)
-      return DecodeStatus::kFrameProcessingFailed;
+    if (!frame_processing_success) return DecodeStatus::kFrameProcessingFailed;
   }
 
   return decoder_error ? DecodeStatus::kDecodeFrameFailed : DecodeStatus::kOkay;
 }
 
-} // namespace media
+}  // namespace media

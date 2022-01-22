@@ -5,26 +5,24 @@
 #ifndef MEDIA_AUDIO_WASAPI_AUDIO_RENDER_SINK_H_
 #define MEDIA_AUDIO_WASAPI_AUDIO_RENDER_SINK_H_
 
-#include "base/task_runner.h"
-
-#include "audio_renderer_sink.h"
-
-#include <MMDeviceAPI.h>
 #include <AudioClient.h>
 #include <AudioPolicy.h>
+#include <MMDeviceAPI.h>
+
+#include "audio_renderer_sink.h"
+#include "base/task_runner.h"
 
 namespace media {
 
 // TODO IMPL
 class WasapiAudioRenderSink : public AudioRendererSink {
-
  public:
-
   WasapiAudioRenderSink();
 
   ~WasapiAudioRenderSink() override;
 
-  void Initialize(int wanted_nb_channels, int wanted_sample_rate, RenderCallback *render_callback) override;
+  void Initialize(int wanted_nb_channels, int wanted_sample_rate,
+                  RenderCallback *render_callback) override;
 
   bool SetVolume(double volume) override;
 
@@ -33,7 +31,6 @@ class WasapiAudioRenderSink : public AudioRendererSink {
   void Pause() override;
 
  private:
-
   RenderCallback *render_callback_;
 
   IMMDeviceEnumerator *device_enumerator_ = nullptr;
@@ -66,9 +63,8 @@ class WasapiAudioRenderSink : public AudioRendererSink {
   void WaitDevice();
 
   void DoRenderThread();
-
 };
 
-}
+}  // namespace media
 
-#endif //MEDIA_AUDIO_WASAPI_AUDIO_RENDER_SINK_H_
+#endif  // MEDIA_AUDIO_WASAPI_AUDIO_RENDER_SINK_H_

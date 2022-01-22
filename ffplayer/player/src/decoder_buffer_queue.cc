@@ -8,9 +8,8 @@
 
 namespace media {
 
-DecoderBufferQueue::DecoderBufferQueue() : data_size_(0), earliest_valid_timestamp_(-1) {
-
-}
+DecoderBufferQueue::DecoderBufferQueue()
+    : data_size_(0), earliest_valid_timestamp_(-1) {}
 
 DecoderBufferQueue::~DecoderBufferQueue() = default;
 
@@ -30,15 +29,14 @@ void DecoderBufferQueue::Push(std::shared_ptr<DecoderBuffer> buffer) {
   }
 
   if (buffer->timestamp() < earliest_valid_timestamp_) {
-//    DLOG(WARNING) << "Out of order timestamps: "
-//                  << buffer->timestamp() << " vs. "
-//                  << earliest_valid_timestamp_;
+    //    DLOG(WARNING) << "Out of order timestamps: "
+    //                  << buffer->timestamp() << " vs. "
+    //                  << earliest_valid_timestamp_;
     return;
   }
 
   earliest_valid_timestamp_ = buffer->timestamp();
   in_order_queue_.emplace_back(std::move(buffer));
-
 }
 
 std::shared_ptr<DecoderBuffer> DecoderBufferQueue::Pop() {
@@ -66,9 +64,7 @@ void DecoderBufferQueue::Clear() {
   in_order_queue_.clear();
 }
 
-bool DecoderBufferQueue::IsEmpty() {
-  return queue_.empty();
-}
+bool DecoderBufferQueue::IsEmpty() { return queue_.empty(); }
 
 double DecoderBufferQueue::Duration() {
   if (in_order_queue_.size() < 2) {
@@ -79,4 +75,4 @@ double DecoderBufferQueue::Duration() {
   return end - start;
 }
 
-}
+}  // namespace media

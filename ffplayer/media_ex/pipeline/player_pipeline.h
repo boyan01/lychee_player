@@ -5,24 +5,20 @@
 #ifndef MEDIA_PLAYER_PIPELINE_PLAYER_PIPELINE_H_
 #define MEDIA_PLAYER_PIPELINE_PLAYER_PIPELINE_H_
 
-#include "memory"
-#include "string"
-#include "functional"
-
 #include "base/basictypes.h"
 #include "base/message_loop.h"
-
 #include "decoder/media_tracks.h"
+#include "demuxer/demuxer.h"
+#include "functional"
+#include "memory"
 #include "renderer/renderer.h"
 #include "source/data_source.h"
-#include "demuxer/demuxer.h"
+#include "string"
 
 namespace media {
 
 class PlayerPipeline : public DemuxerHost {
-
  public:
-
   PlayerPipeline();
   ~PlayerPipeline() override;
 
@@ -50,9 +46,8 @@ class PlayerPipeline : public DemuxerHost {
   void OnDemuxerInited();
 
   DISALLOW_COPY_AND_ASSIGN(PlayerPipeline);
-
 };
 
-}
+}  // namespace media
 
-#endif //MEDIA_PLAYER_PIPELINE_PLAYER_PIPELINE_H_
+#endif  // MEDIA_PLAYER_PIPELINE_PLAYER_PIPELINE_H_

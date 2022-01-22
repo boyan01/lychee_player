@@ -5,15 +5,13 @@
 #ifndef MEDIA_PLAYER_FFMPEG_FFMPEG_DECODING_LOOP_H_
 #define MEDIA_PLAYER_FFMPEG_FFMPEG_DECODING_LOOP_H_
 
-#include "functional"
-
 #include "base/basictypes.h"
 #include "ffmpeg_deleters.h"
+#include "functional"
 
 namespace media {
 
 class FFmpegDecodingLoop {
-
  public:
   enum class DecodeStatus {
     // Everything went just okay.
@@ -38,7 +36,7 @@ class FFmpegDecodingLoop {
   // decoding errors should be non-fatal, set |continue_on_decoding_errors| to
   // true; note: send packet failures are always fatal.
   explicit FFmpegDecodingLoop(AVCodecContext *context,
-                     bool continue_on_decoding_errors = false);
+                              bool continue_on_decoding_errors = false);
   ~FFmpegDecodingLoop();
 
   // Callback issued when the decoding loop has produced a frame. |frame| is
@@ -65,9 +63,8 @@ class FFmpegDecodingLoop {
   int last_av_error_code_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(FFmpegDecodingLoop);
-
 };
 
-} // namespace media
+}  // namespace media
 
-#endif //MEDIA_PLAYER_FFMPEG_FFMPEG_DECODING_LOOP_H_
+#endif  // MEDIA_PLAYER_FFMPEG_FFMPEG_DECODING_LOOP_H_

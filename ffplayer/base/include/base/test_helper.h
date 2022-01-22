@@ -11,7 +11,6 @@ namespace media_test {
 
 class CountDownLatch {
  public:
-
   explicit CountDownLatch(int num) : num_(num) {}
 
   void CountDown() {
@@ -24,7 +23,8 @@ class CountDownLatch {
 
   bool Wait(media::TimeDelta time_delta) {
     std::unique_lock<std::mutex> lock(mutex_);
-    auto status = condition_.wait_for(lock, chrono::microseconds(time_delta.InMicroseconds()));
+    auto status = condition_.wait_for(
+        lock, chrono::microseconds(time_delta.InMicroseconds()));
     return status == std::cv_status::no_timeout;
   }
 
@@ -33,9 +33,8 @@ class CountDownLatch {
   std::condition_variable_any condition_;
 
   int num_;
-
 };
 
-}
+}  // namespace media_test
 
-#endif //MEDIA_BASE_TEST_HELPER_H_
+#endif  // MEDIA_BASE_TEST_HELPER_H_

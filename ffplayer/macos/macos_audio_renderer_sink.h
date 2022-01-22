@@ -6,24 +6,20 @@
 #define MEDIA_FLUTTER_MACOS_MACOS_AUDIO_RENDERER_SINK_H_
 
 #include "AudioToolbox/AudioQueue.h"
-
-#include "mutex"
-
 #include "audio_renderer_sink.h"
-
 #include "base/task_runner.h"
+#include "mutex"
 
 namespace media {
 
 class MacosAudioRendererSink : public AudioRendererSink {
-
  public:
-
   MacosAudioRendererSink();
 
   ~MacosAudioRendererSink() override;
 
-  void Initialize(int in_user_data, int audio_queue, RenderCallback *callback) override;
+  void Initialize(int in_user_data, int audio_queue,
+                  RenderCallback *callback) override;
 
   bool SetVolume(double volume) override;
 
@@ -34,7 +30,6 @@ class MacosAudioRendererSink : public AudioRendererSink {
   uint32 ReadAudioData(uint8 *stream, uint32 len);
 
  private:
-
   enum State {
     kIdle,
     kPlaying,
@@ -59,9 +54,8 @@ class MacosAudioRendererSink : public AudioRendererSink {
   void InitializeBuffer(int audio_buffer_nb);
 
   DELETE_COPY_AND_ASSIGN(MacosAudioRendererSink);
-
 };
 
-}
+}  // namespace media
 
-#endif //MEDIA_FLUTTER_MACOS_MACOS_AUDIO_RENDERER_SINK_H_
+#endif  // MEDIA_FLUTTER_MACOS_MACOS_AUDIO_RENDERER_SINK_H_

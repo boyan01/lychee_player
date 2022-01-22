@@ -2,9 +2,9 @@
 // Created by Bin Yang on 2021/9/20.
 //
 
-#include "base/logging.h"
-
 #include "app_window.h"
+
+#include "base/logging.h"
 
 AppWindow *AppWindow::app_window_instance_ = nullptr;
 
@@ -28,22 +28,22 @@ AppWindow::AppWindow() {
   SDL_EventState(SDL_USEREVENT, SDL_IGNORE);
 
   auto window_flags = SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE;
-  window_ = SDL_CreateWindow("Lychee", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                             640, 480, window_flags);
+  window_ = SDL_CreateWindow("Lychee", SDL_WINDOWPOS_UNDEFINED,
+                             SDL_WINDOWPOS_UNDEFINED, 640, 480, window_flags);
   DCHECK(window_) << "failed to create window." << SDL_GetError();
 
   SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
 
   renderer_ = std::shared_ptr<SDL_Renderer>(
-      SDL_CreateRenderer(window_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC),
-      [](SDL_Renderer *ptr) {
-        SDL_DestroyRenderer(ptr);
-      });
+      SDL_CreateRenderer(window_, -1,
+                         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC),
+      [](SDL_Renderer *ptr) { SDL_DestroyRenderer(ptr); });
   if (!renderer_) {
-    DLOG(WARNING) << "failed to initialize a hardware accelerated GetRenderer: " << SDL_GetError();
-    renderer_ = std::shared_ptr<SDL_Renderer>(SDL_CreateRenderer(window_, -1, 0), [](SDL_Renderer *ptr) {
-      SDL_DestroyRenderer(ptr);
-    });
+    DLOG(WARNING) << "failed to initialize a hardware accelerated GetRenderer: "
+                  << SDL_GetError();
+    renderer_ = std::shared_ptr<SDL_Renderer>(
+        SDL_CreateRenderer(window_, -1, 0),
+        [](SDL_Renderer *ptr) { SDL_DestroyRenderer(ptr); });
   }
   DCHECK(renderer_) << "failed to create GetRenderer: " << SDL_GetError();
 
@@ -56,5 +56,4 @@ AppWindow::AppWindow() {
       << "Failed to create window or GetRenderer: " << SDL_GetError();
 
   SDL_ShowWindow(window_);
-
 }

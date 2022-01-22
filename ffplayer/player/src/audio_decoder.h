@@ -12,29 +12,27 @@ extern "C" {
 #include "libswresample/swresample.h"
 }
 
+#include "audio_buffer.h"
+#include "audio_decode_config.h"
+#include "audio_device_info.h"
 #include "base/circular_deque.h"
 #include "base/task_runner.h"
-
-#include "audio_decode_config.h"
 #include "demuxer_stream.h"
-#include "audio_buffer.h"
-#include "ffmpeg_deleters.h"
 #include "ffmpeg_decoding_loop.h"
-#include "audio_device_info.h"
+#include "ffmpeg_deleters.h"
 
 namespace media {
 
 class AudioDecoder {
-
  public:
-
   explicit AudioDecoder();
 
   virtual ~AudioDecoder();
 
   using OutputCallback = std::function<void(std::shared_ptr<AudioBuffer>)>;
 
-  int Initialize(const AudioDecodeConfig &config, DemuxerStream *stream, OutputCallback output_callback);
+  int Initialize(const AudioDecodeConfig &config, DemuxerStream *stream,
+                 OutputCallback output_callback);
 
   void Decode(const std::shared_ptr<DecoderBuffer> &decoder_buffer);
 
@@ -43,7 +41,6 @@ class AudioDecoder {
   DELETE_COPY_AND_ASSIGN(AudioDecoder);
 
  private:
-
   AudioDecodeConfig audio_decode_config_;
   std::unique_ptr<FFmpegDecodingLoop> ffmpeg_decoding_loop_;
 
@@ -60,8 +57,7 @@ class AudioDecoder {
   bool OnFrameAvailable(AVFrame *frame);
 
   static int64 GetChannelLayout(AVFrame *frame);
-
 };
 
-}
-#endif //MEDIA_PLAYER_SRC_AUDIO_DEOCDER_H_
+}  // namespace media
+#endif  // MEDIA_PLAYER_SRC_AUDIO_DEOCDER_H_

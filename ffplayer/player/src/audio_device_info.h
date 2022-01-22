@@ -23,6 +23,6 @@ struct AudioDeviceInfo {
   int bytes_per_sec;
 };
 
-}
+}  // namespace media
 
-#endif //MEDIA_PLAYER_SRC_AUDIO_DEVICE_INFO_H_
+#endif  // MEDIA_PLAYER_SRC_AUDIO_DEVICE_INFO_H_

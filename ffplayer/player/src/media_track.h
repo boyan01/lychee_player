@@ -5,8 +5,8 @@
 #ifndef MEDIA_BASE_MEDIA_TRACK_H_
 #define MEDIA_BASE_MEDIA_TRACK_H_
 
-#include <string>
 #include <ostream>
+#include <string>
 
 #include "base/basictypes.h"
 
@@ -22,19 +22,14 @@ class MediaTrack {
 
   typedef int TrackId;
 
-  MediaTrack(Type type,
-             TrackId bytestream_track_id,
-             Kind kind,
-             Label label,
+  MediaTrack(Type type, TrackId bytestream_track_id, Kind kind, Label label,
              Language lang);
 
   ~MediaTrack();
 
   Type type() const { return type_; }
 
-  TrackId bytestream_track_id() const {
-    return bytestream_track_id_;
-  }
+  TrackId bytestream_track_id() const { return bytestream_track_id_; }
   const Kind &kind() const { return kind_; }
   const Label &label() const { return label_; }
   const Language &language() const { return language_; }

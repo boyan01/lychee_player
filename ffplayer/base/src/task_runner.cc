@@ -2,8 +2,8 @@
 // Created by Bin Yang on 2021/6/5.
 //
 
-#include <base/task_runner.h>
 #include <base/logging.h>
+#include <base/task_runner.h>
 
 namespace media {
 
@@ -13,8 +13,8 @@ TaskRunner TaskRunner::CreateFromCurrent() {
   return TaskRunner(looper);
 }
 
-TaskRunner::TaskRunner(std::shared_ptr<MessageLooper> looper) : looper_(std::move(looper)) {
-}
+TaskRunner::TaskRunner(std::shared_ptr<MessageLooper> looper)
+    : looper_(std::move(looper)) {}
 
 TaskRunner::TaskRunner() = default;
 
@@ -27,11 +27,13 @@ TaskRunner::~TaskRunner() {
   RemoveAllTasks();
 }
 
-void TaskRunner::PostTask(const tracked_objects::Location &from_here, const TaskClosure &task) {
+void TaskRunner::PostTask(const tracked_objects::Location &from_here,
+                          const TaskClosure &task) {
   PostTask(from_here, 0, task);
 }
 
-void TaskRunner::PostTask(const tracked_objects::Location &from_here, int task_id, const TaskClosure &task) {
+void TaskRunner::PostTask(const tracked_objects::Location &from_here,
+                          int task_id, const TaskClosure &task) {
   static const TimeDelta delay;
   PostDelayedTask(from_here, delay, task_id, task);
 }
@@ -42,11 +44,9 @@ void TaskRunner::PostDelayedTask(const tracked_objects::Location &from_here,
   PostDelayedTask(from_here, delay, 0, task_closure);
 }
 
-void TaskRunner::PostDelayedTask(
-    const tracked_objects::Location &from_here,
-    TimeDelta delay,
-    int task_id,
-    const TaskClosure &task_closure) {
+void TaskRunner::PostDelayedTask(const tracked_objects::Location &from_here,
+                                 TimeDelta delay, int task_id,
+                                 const TaskClosure &task_closure) {
   if (!looper_) {
     return;
   }
@@ -83,4 +83,4 @@ TaskRunner &TaskRunner::operator=(std::nullptr_t) {
   return *this;
 }
 
-}
+}  // namespace media

@@ -18,13 +18,10 @@ namespace tracked_objects {
 // significantly brought to life.
 class Location {
  public:
-
   // Constructor should be called with a long-lived char*, such as __FILE__.
   // It assumes the provided value will persist as a global constant, and it
   // will not make a copy of it.
-  Location(const char *function_name,
-           const char *file_name,
-           int line_number,
+  Location(const char *function_name, const char *file_name, int line_number,
            const void *program_counter);
 
   // Provide a default constructor for easy of debugging.
@@ -39,8 +36,7 @@ class Location {
   bool operator<(const Location &other) const {
     if (line_number_ != other.line_number_)
       return line_number_ < other.line_number_;
-    if (file_name_ != other.file_name_)
-      return file_name_ < other.file_name_;
+    if (file_name_ != other.file_name_) return file_name_ < other.file_name_;
     return function_name_ < other.function_name_;
   }
 
@@ -60,20 +56,17 @@ class Location {
   const void *program_counter_;
 };
 
-const void* GetProgramCounter();
-
+const void *GetProgramCounter();
 
 // Define a macro to record the current source location.
 #define FROM_HERE FROM_HERE_WITH_EXPLICIT_FUNCTION(__FUNCTION__)
 
-#define FROM_HERE_WITH_EXPLICIT_FUNCTION(function_name)                               \
-    ::media::tracked_objects::Location(function_name,                                 \
-                                       __FILE__,                                      \
-                                       __LINE__,                                      \
-                                       ::media::tracked_objects::GetProgramCounter())
+#define FROM_HERE_WITH_EXPLICIT_FUNCTION(function_name) \
+  ::media::tracked_objects::Location(                   \
+      function_name, __FILE__, __LINE__,                \
+      ::media::tracked_objects::GetProgramCounter())
 
+}  // namespace tracked_objects
+}  // namespace media
 
-}
-}
-
-#endif //MEDIA_BASE_LOCATION_H_
+#endif  // MEDIA_BASE_LOCATION_H_

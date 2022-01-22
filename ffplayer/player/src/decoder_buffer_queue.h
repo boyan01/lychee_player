@@ -5,16 +5,13 @@
 #ifndef MEDIA_PLAYER_SRC_DECODER_BUFFER_QUEUE_H_
 #define MEDIA_PLAYER_SRC_DECODER_BUFFER_QUEUE_H_
 
-#include "queue"
-
 #include "decoder_buffer.h"
+#include "queue"
 
 namespace media {
 
 class DecoderBufferQueue {
-
  public:
-
   DELETE_COPY_AND_ASSIGN(DecoderBufferQueue);
 
   DecoderBufferQueue();
@@ -34,16 +31,14 @@ class DecoderBufferQueue {
   size_t data_size() const { return data_size_; }
 
  private:
-
   std::deque<std::shared_ptr<DecoderBuffer>> queue_;
   std::deque<std::shared_ptr<DecoderBuffer>> in_order_queue_;
 
   size_t data_size_;
 
   double earliest_valid_timestamp_;
-
 };
 
-} // namespace media
+}  // namespace media
 
-#endif //MEDIA_PLAYER_SRC_DECODER_BUFFER_QUEUE_H_
+#endif  // MEDIA_PLAYER_SRC_DECODER_BUFFER_QUEUE_H_

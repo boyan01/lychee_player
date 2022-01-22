@@ -1,16 +1,17 @@
 //
 // Created by yangbin on 2021/10/7.
 //
+#include "sdl_media_texture.h"
+
 #include <sdl_utils.h>
+
+#include "app_window.h"
 #include "base/logging.h"
 
-#include "sdl_media_texture.h"
-#include "app_window.h"
-
-SdlMediaTexture::SdlMediaTexture() :
-    renderer_(AppWindow::Instance()->GetRenderer()),
-    texture_pixel_(),
-    texture_pitch_() {
+SdlMediaTexture::SdlMediaTexture()
+    : renderer_(AppWindow::Instance()->GetRenderer()),
+      texture_pixel_(),
+      texture_pitch_() {
   DCHECK(renderer_);
 }
 
@@ -19,17 +20,14 @@ SdlMediaTexture::~SdlMediaTexture() {
   DCHECK(!texture_pixel_);
 }
 
-int64_t SdlMediaTexture::GetTextureId() {
-  return 0;
-}
+int64_t SdlMediaTexture::GetTextureId() { return 0; }
 
 void SdlMediaTexture::MaybeInitPixelBuffer(int width, int height) {
   if (texture_) {
     return;
   }
-  texture_ =
-      SDL_CreateTexture(renderer_.get(), SDL_PIXELFORMAT_ARGB8888,
-                        SDL_TEXTUREACCESS_STREAMING, width, height);
+  texture_ = SDL_CreateTexture(renderer_.get(), SDL_PIXELFORMAT_ARGB8888,
+                               SDL_TEXTUREACCESS_STREAMING, width, height);
   DCHECK(texture_) << "failed to create texture: " << SDL_GetError();
   auto ret = SDL_SetTextureBlendMode(texture_, SDL_BLENDMODE_NONE);
   DCHECK_EQ(ret, 0) << "unable set blend mode: " << SDL_GetError();
@@ -41,7 +39,6 @@ void SdlMediaTexture::MaybeInitPixelBuffer(int width, int height) {
   }
   SDL_memset(pixels, 0, pitch * height);
   SDL_UnlockTexture(texture_);
-
 }
 
 int SdlMediaTexture::GetWidth() {
@@ -81,18 +78,15 @@ void SdlMediaTexture::NotifyBufferUpdate() {
 
   int window_width;
   int window_height;
-  SDL_GetWindowSize(AppWindow::Instance()->GetWindow(), &window_width, &window_height);
+  SDL_GetWindowSize(AppWindow::Instance()->GetWindow(), &window_width,
+                    &window_height);
 
-  media::sdl::calculate_display_rect(&rect,
-                                     0,
-                                     0,
-                                     window_width,
-                                     window_height,
-                                     frame_width,
-                                     frame_height,
+  media::sdl::calculate_display_rect(&rect, 0, 0, window_width, window_height,
+                                     frame_width, frame_height,
                                      // TODO SAR
                                      AVRational{1, 1});
-  SDL_RenderCopyEx(renderer_.get(), texture_, nullptr, &rect, 0, nullptr, SDL_FLIP_NONE);
+  SDL_RenderCopyEx(renderer_.get(), texture_, nullptr, &rect, 0, nullptr,
+                   SDL_FLIP_NONE);
   SDL_RenderPresent(renderer_.get());
 }
 
@@ -100,4 +94,3 @@ uint8_t *SdlMediaTexture::GetBuffer() {
   DCHECK(texture_pixel_) << "texture is not locking.";
   return reinterpret_cast<uint8_t *>(texture_pixel_);
 }
-

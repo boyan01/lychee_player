@@ -11,21 +11,16 @@ namespace base {
 
 Message::Message(TaskClosure task,
                  const media::tracked_objects::Location &posted_from,
-                 TimeDelta delay,
-                 TaskRunner *task_runner,
-                 int task_id)
+                 TimeDelta delay, TaskRunner *task_runner, int task_id)
     : task(std::move(task)),
       posted_from(posted_from),
       when(TimeTicks::Now() + delay),
       sequence_num(0),
       task_runner_(task_runner),
-      task_id_(task_id) {
-
-}
+      task_id_(task_id) {}
 
 bool Message::operator<(const Message &other) const {
-  if (when > other.when)
-    return true;
+  if (when > other.when) return true;
 
   // If the times happen to match, then we use the sequence number to decide.
   // Compare the difference to support integer roll-over.
@@ -34,5 +29,5 @@ bool Message::operator<(const Message &other) const {
 
 Message::~Message() = default;
 
-} // namespace base
-} // namespace media
+}  // namespace base
+}  // namespace media

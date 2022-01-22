@@ -2,9 +2,9 @@
 // Created by yangbin on 2021/5/12.
 //
 
-#include "gtest/gtest.h"
-
 #include "file_data_source.h"
+
+#include "gtest/gtest.h"
 
 namespace media {
 
@@ -26,4 +26,4 @@ TEST(FileDataSourceTest, CopyFile) {
   // TODO.
 }
 
-}
+}  // namespace media

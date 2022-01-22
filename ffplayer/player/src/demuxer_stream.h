@@ -6,29 +6,27 @@
 #define MEDIA_PLAYER_SRC_DEMUXER_STREAM_H_
 
 #include <ostream>
-#include "functional"
 
 #include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/task_runner.h"
+#include "functional"
 
 extern "C" {
 #include "libavformat/avformat.h"
 }
 
 #include "audio_decode_config.h"
-#include "video_decode_config.h"
 #include "decoder_buffer.h"
 #include "decoder_buffer_queue.h"
+#include "video_decode_config.h"
 
 namespace media {
 
 class Demuxer;
 
 class DemuxerStream {
-
  public:
-
   DELETE_COPY_AND_ASSIGN(DemuxerStream);
 
   enum Type {
@@ -38,9 +36,7 @@ class DemuxerStream {
     NUM_TYPES,  // Always keep this entry as the last one!
   };
 
-  DemuxerStream(AVStream *stream,
-                Demuxer *demuxer,
-                Type type,
+  DemuxerStream(AVStream *stream, Demuxer *demuxer, Type type,
                 std::unique_ptr<AudioDecodeConfig> audio_decode_config,
                 std::unique_ptr<VideoDecodeConfig> video_decode_config);
 
@@ -48,18 +44,14 @@ class DemuxerStream {
                                                AVStream *stream,
                                                AVFormatContext *format_context);
 
-  AVStream *stream() const {
-    return stream_;
-  }
+  AVStream *stream() const { return stream_; }
 
   using ReadCallback = std::function<void(std::shared_ptr<DecoderBuffer>)>;
   void Read(ReadCallback read_callback);
 
   void EnqueuePacket(std::unique_ptr<AVPacket, AVPacketDeleter> packet);
 
-  Type type() {
-    return type_;
-  }
+  Type type() { return type_; }
 
   AudioDecodeConfig audio_decode_config();
 
@@ -67,9 +59,7 @@ class DemuxerStream {
 
   double duration();
 
-  void SetEndOfStream() {
-    end_of_stream_ = true;
-  }
+  void SetEndOfStream() { end_of_stream_ = true; }
 
   // Returns the value associated with |key| in the metadata for the avstream.
   // Returns an empty string if the key is not present.
@@ -86,10 +76,10 @@ class DemuxerStream {
 
   void FlushBuffers();
 
-  friend std::ostream &operator<<(std::ostream &os, const DemuxerStream &stream);
+  friend std::ostream &operator<<(std::ostream &os,
+                                  const DemuxerStream &stream);
 
  private:
-
   Demuxer *demuxer_;
   AVStream *stream_;
   std::unique_ptr<AudioDecodeConfig> audio_decode_config_;
@@ -113,9 +103,8 @@ class DemuxerStream {
   void ReadTask(ReadCallback read_callback);
 
   void SatisfyPendingRead();
-
 };
 
-} // namespace media
+}  // namespace media
 
-#endif //MEDIA_PLAYER_SRC_DEMUXER_STREAM_H_
+#endif  // MEDIA_PLAYER_SRC_DEMUXER_STREAM_H_

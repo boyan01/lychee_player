@@ -16,10 +16,7 @@ class Insets {
  public:
   Insets() : top_(0), left_(0), bottom_(0), right_(0) {}
   Insets(int top, int left, int bottom, int right)
-      : top_(top),
-        left_(left),
-        bottom_(bottom),
-        right_(right) {}
+      : top_(top), left_(left), bottom_(bottom), right_(right) {}
 
   ~Insets() = default;
 
@@ -36,9 +33,7 @@ class Insets {
   // top and bottom insets.
   int height() const { return top_ + bottom_; }
 
-  Insets Scale(float scale) const {
-    return Scale(scale, scale);
-  }
+  Insets Scale(float scale) const { return Scale(scale, scale); }
 
   Insets Scale(float x_scale, float y_scale) const {
     return Insets(static_cast<int>(top_ * y_scale),
@@ -59,12 +54,10 @@ class Insets {
 
   bool operator==(const Insets &insets) const {
     return top_ == insets.top_ && left_ == insets.left_ &&
-        bottom_ == insets.bottom_ && right_ == insets.right_;
+           bottom_ == insets.bottom_ && right_ == insets.right_;
   }
 
-  bool operator!=(const Insets &insets) const {
-    return !(*this == insets);
-  }
+  bool operator!=(const Insets &insets) const { return !(*this == insets); }
 
   Insets &operator+=(const Insets &insets) {
     top_ += insets.top_;
@@ -74,9 +67,7 @@ class Insets {
     return *this;
   }
 
-  Insets operator-() const {
-    return Insets(-top_, -left_, -bottom_, -right_);
-  }
+  Insets operator-() const { return Insets(-top_, -left_, -bottom_, -right_); }
 
   // Returns a string representation of the insets.
   std::string ToString() const;
@@ -89,7 +80,7 @@ class Insets {
 };
 
 // A point has an x and y coordinate.
-template<typename Class, typename Type>
+template <typename Class, typename Type>
 class PointBase {
  public:
   Type x() const { return x_; }
@@ -108,9 +99,7 @@ class PointBase {
     y_ += delta_y;
   }
 
-  Class Scale(float scale) const {
-    return Scale(scale, scale);
-  }
+  Class Scale(float scale) const { return Scale(scale, scale); }
 
   Class Scale(float x_scale, float y_scale) const {
     return Class(static_cast<Type>(x_ * x_scale),
@@ -139,9 +128,7 @@ class PointBase {
     return x_ == rhs.x_ && y_ == rhs.y_;
   }
 
-  bool operator!=(const Class &rhs) const {
-    return *this != rhs;
-  }
+  bool operator!=(const Class &rhs) const { return *this != rhs; }
 
   // A point is less than another point if its y-value is closer
   // to the origin. If the y-values are the same, then point with
@@ -172,15 +159,12 @@ class Point : public PointBase<Point, int> {
 
   ~Point() = default;
 
-// Returns a string representation of point.
+  // Returns a string representation of point.
   std::string ToString() const;
 };
 
-template<typename Class,
-    typename PointClass,
-    typename SizeClass,
-    typename InsetsClass,
-    typename Type>
+template <typename Class, typename PointClass, typename SizeClass,
+          typename InsetsClass, typename Type>
 class RectBase {
  public:
   Type x() const { return origin_.x(); }
@@ -219,14 +203,10 @@ class RectBase {
 
   // Move the rectangle by a horizontal and vertical distance.
   void Offset(Type horizontal, Type vertical);
-  void Offset(const PointClass &point) {
-    Offset(point.x(), point.y());
-  }
+  void Offset(const PointClass &point) { Offset(point.x(), point.y()); }
 
   /// Scales the rectangle by |scale|.
-  Class Scale(float scale) const {
-    return Scale(scale, scale);
-  }
+  Class Scale(float scale) const { return Scale(scale, scale); }
 
   Class Scale(float x_scale, float y_scale) const {
     return Class(origin_.Scale(x_scale, y_scale),
@@ -234,10 +214,8 @@ class RectBase {
   }
 
   InsetsClass InsetsFrom(const Class &inner) const {
-    return InsetsClass(inner.y() - y(),
-                       inner.x() - x(),
-                       bottom() - inner.bottom(),
-                       right() - inner.right());
+    return InsetsClass(inner.y() - y(), inner.x() - x(),
+                       bottom() - inner.bottom(), right() - inner.right());
   }
 
   // Returns true if the area of the rectangle is zero.
@@ -245,9 +223,7 @@ class RectBase {
 
   bool operator==(const Class &other) const;
 
-  bool operator!=(const Class &other) const {
-    return *this != other;
-  }
+  bool operator!=(const Class &other) const { return *this != other; }
 
   // A rect is less than another rect if its origin is less than
   // the other rect's origin. If the origins are equal, then the
@@ -287,9 +263,7 @@ class RectBase {
   Class Subtract(const Class &rect) const;
 
   // Returns true if this rectangle equals that of the supplied rectangle.
-  bool Equals(const Class &rect) const {
-    return *this == rect;
-  }
+  bool Equals(const Class &rect) const { return *this == rect; }
 
   // Fits as much of the receiving rectangle into the supplied rectangle as
   // possible, returning the result. For example, if the receiver had
@@ -337,11 +311,9 @@ class Rect : public RectBase<Rect, Point, Size, Insets, int> {
   ~Rect();
 
   std::string ToString() const;
-
 };
 
-} // namespace base
-} // namespace media
+}  // namespace base
+}  // namespace media
 
-
-#endif //MEDIA_BASE_RECT_H_
+#endif  // MEDIA_BASE_RECT_H_

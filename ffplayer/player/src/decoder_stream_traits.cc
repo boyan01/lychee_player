@@ -6,29 +6,24 @@
 
 namespace media {
 
-DecoderStreamTraits<DemuxerStream::Video>::~DecoderStreamTraits() {
-
-}
+DecoderStreamTraits<DemuxerStream::Video>::~DecoderStreamTraits() {}
 
 void DecoderStreamTraits<DemuxerStream::Video>::InitializeDecoder(
-    VideoDecoder *decoder,
-    DemuxerStream *stream,
-    OutputCallback output_callback
-) {
-  decoder->Initialize(stream->video_decode_config(), stream, std::move(output_callback));
+    VideoDecoder *decoder, DemuxerStream *stream,
+    OutputCallback output_callback) {
+  decoder->Initialize(stream->video_decode_config(), stream,
+                      std::move(output_callback));
 }
 
-DecoderStreamTraits<DemuxerStream::Audio>::~DecoderStreamTraits() {
-
-}
+DecoderStreamTraits<DemuxerStream::Audio>::~DecoderStreamTraits() {}
 
 void DecoderStreamTraits<DemuxerStream::Audio>::InitializeDecoder(
-    DecoderType *decoder,
-    DemuxerStream *stream,
+    DecoderType *decoder, DemuxerStream *stream,
     OutputCallback output_callback) {
   DCHECK(decoder);
   DCHECK(stream);
-  decoder->Initialize(stream->audio_decode_config(), stream, std::move(output_callback));
+  decoder->Initialize(stream->audio_decode_config(), stream,
+                      std::move(output_callback));
 }
 
-} // namespace media
+}  // namespace media

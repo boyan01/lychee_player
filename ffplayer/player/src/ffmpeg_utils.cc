@@ -2,10 +2,10 @@
 // Created by yangbin on 2021/4/5.
 //
 
-#include "base/logging.h"
-#include "base/channel_layout.h"
-
 #include "ffmpeg_utils.h"
+
+#include "base/channel_layout.h"
+#include "base/logging.h"
 
 namespace media {
 namespace ffmpeg {
@@ -16,13 +16,17 @@ double ConvertFromTimeBase(const AVRational &time_base, int64 timestamp) {
   return av_q2d(time_base) * double(timestamp);
 }
 
-int64 ConvertToTimeBase(const AVRational &time_base, const TimeDelta &timestamp) {
+int64 ConvertToTimeBase(const AVRational &time_base,
+                        const TimeDelta &timestamp) {
   return av_rescale_q(timestamp.InMicroseconds(), kMicrosBase, time_base);
 }
 
-std::unique_ptr<AVCodecContext, AVCodecContextDeleter> AVStreamToAVCodecContext(const AVStream *stream) {
-  std::unique_ptr<AVCodecContext, AVCodecContextDeleter> codec_context(avcodec_alloc_context3(nullptr));
-  if (avcodec_parameters_to_context(codec_context.get(), stream->codecpar) < 0) {
+std::unique_ptr<AVCodecContext, AVCodecContextDeleter> AVStreamToAVCodecContext(
+    const AVStream *stream) {
+  std::unique_ptr<AVCodecContext, AVCodecContextDeleter> codec_context(
+      avcodec_alloc_context3(nullptr));
+  if (avcodec_parameters_to_context(codec_context.get(), stream->codecpar) <
+      0) {
     return nullptr;
   }
   return codec_context;
@@ -51,6 +55,6 @@ int ReadFrameAndDiscardEmpty(AVFormatContext *context, AVPacket *packet) {
   return result;
 }
 
-}
+}  // namespace ffmpeg
 
-}
+}  // namespace media

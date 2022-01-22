@@ -5,31 +5,30 @@
 #ifndef MEDIA_PLAYER_SRC_VIDEO_RENDERER_H_
 #define MEDIA_PLAYER_SRC_VIDEO_RENDERER_H_
 
-#include "base/task_runner.h"
-
 #include <ostream>
-#include "video_renderer_sink.h"
+
+#include "base/task_runner.h"
+#include "decoder_stream.h"
 #include "demuxer_stream.h"
 #include "media_clock.h"
-#include "decoder_stream.h"
+#include "video_renderer_sink.h"
 
 namespace media {
 
-class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enable_shared_from_this<VideoRenderer> {
-
+class VideoRenderer : public VideoRendererSink::RenderCallback,
+                      public std::enable_shared_from_this<VideoRenderer> {
  public:
-
-  VideoRenderer(
-      const TaskRunner& media_task_runner,
-      std::shared_ptr<TaskRunner> decode_task_runner,
-      std::shared_ptr<VideoRendererSink> video_renderer_sink
-  );
+  VideoRenderer(const TaskRunner &media_task_runner,
+                std::shared_ptr<TaskRunner> decode_task_runner,
+                std::shared_ptr<VideoRendererSink> video_renderer_sink);
 
   ~VideoRenderer() override;
 
   using InitCallback = std::function<void(bool success)>;
 
-  void Initialize(DemuxerStream *stream, std::shared_ptr<MediaClock> media_clock, InitCallback init_callback);
+  void Initialize(DemuxerStream *stream,
+                  std::shared_ptr<MediaClock> media_clock,
+                  InitCallback init_callback);
 
   std::shared_ptr<VideoFrame> Render(TimeDelta &next_frame_delay) override;
 
@@ -39,19 +38,15 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
 
   void Stop();
 
-  VideoRendererSink *video_renderer_sink() {
-    return sink_.get();
-  }
+  VideoRendererSink *video_renderer_sink() { return sink_.get(); }
 
   void Flush();
 
-  friend std::ostream &operator<<(std::ostream &os, const VideoRenderer &renderer);
+  friend std::ostream &operator<<(std::ostream &os,
+                                  const VideoRenderer &renderer);
 
  private:
-
-  enum State {
-    kUnInitialized, kInitializing, kFlushing, kFlushed, kPlaying
-  };
+  enum State { kUnInitialized, kInitializing, kFlushing, kFlushed, kPlaying };
   State state_ = kUnInitialized;
 
   TaskRunner media_task_runner_;
@@ -83,9 +78,8 @@ class VideoRenderer : public VideoRendererSink::RenderCallback, public std::enab
   double GetDrawingClock();
 
   DELETE_COPY_AND_ASSIGN(VideoRenderer);
-
 };
 
-} // namespace media
+}  // namespace media
 
-#endif //MEDIA_PLAYER_SRC_VIDEO_RENDERER_H_
+#endif  // MEDIA_PLAYER_SRC_VIDEO_RENDERER_H_

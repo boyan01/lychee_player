@@ -2,9 +2,9 @@
 // Created by yangbin on 2021/4/11.
 //
 
-#include "gtest/gtest.h"
-
 #include "base/circular_deque.h"
+
+#include "gtest/gtest.h"
 
 struct CircularDequeTestValue {
   int value;

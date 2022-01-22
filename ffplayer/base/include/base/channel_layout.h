@@ -85,12 +85,11 @@ enum Channels {
 // position (because the order is L, R, C, LFE, LS, RS), so
 // kChannelOrderings[CHANNEL_LAYOUT_5POINT1][SIDE_LEFT] = 4;
 // Values of -1 mean the channel at that index is not used for that layout.
-extern const int
-    kChannelOrderings[CHANNEL_LAYOUT_MAX][CHANNELS_MAX];
+extern const int kChannelOrderings[CHANNEL_LAYOUT_MAX][CHANNELS_MAX];
 
 // Returns the number of channels in a given ChannelLayout.
 int ChannelLayoutToChannelCount(ChannelLayout layout);
 
-} // namespace media
+}  // namespace media
 
-#endif //MEDIA_PLAYER_CHANNEL_LAYOUT_H_
+#endif  // MEDIA_PLAYER_CHANNEL_LAYOUT_H_

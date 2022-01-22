@@ -4,9 +4,7 @@
 
 #include "demuxer_stream.h"
 
-#include "gtest/gtest.h"
 #include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
-TEST(DemuxerSteram, Read) {
-  
-}
+TEST(DemuxerSteram, Read) {}

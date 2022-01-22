@@ -5,9 +5,8 @@
 #ifndef MEDIA_BASE_TIME_TICKS_H_
 #define MEDIA_BASE_TIME_TICKS_H_
 
-#include "cstdint"
-
 #include "base/time_delta.h"
+#include "cstdint"
 
 namespace media {
 
@@ -15,9 +14,7 @@ namespace media {
  * Represents monotonically non-decreasing clock time.
  */
 class TimeTicks {
-
  public:
-
   static TimeTicks Now();
 
   TimeTicks operator+(const TimeDelta &time_delta) const;
@@ -33,14 +30,12 @@ class TimeTicks {
   bool operator!=(const TimeTicks &rhs) const;
 
  private:
-
   constexpr explicit TimeTicks(int64_t us);
 
   // Time value in a microsecond timebase.
   int64_t us_;
-
 };
 
-}
+}  // namespace media
 
-#endif //MEDIA_BASE_TIME_TICKS_H_
+#endif  // MEDIA_BASE_TIME_TICKS_H_

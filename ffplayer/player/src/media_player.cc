@@ -2,11 +2,12 @@
 // Created by yangbin on 2021/2/13.
 //
 
-#include <base/bind_to_current_loop.h>
-#include "base/logging.h"
-#include "base/lambda.h"
-
 #include "media_player.h"
+
+#include <base/bind_to_current_loop.h>
+
+#include "base/lambda.h"
+#include "base/logging.h"
 
 extern "C" {
 #include "libavutil/bprint.h"
@@ -14,20 +15,19 @@ extern "C" {
 
 namespace media {
 
-MediaPlayer::MediaPlayer(
-    std::unique_ptr<VideoRendererSink> video_renderer_sink,
-    std::shared_ptr<AudioRendererSink> audio_renderer_sink,
-    const TaskRunner &task_runner
-) : task_runner_(task_runner) {
-  task_runner_.PostTask(FROM_HERE, [&]() {
-    Initialize();
-  });
+MediaPlayer::MediaPlayer(std::unique_ptr<VideoRendererSink> video_renderer_sink,
+                         std::shared_ptr<AudioRendererSink> audio_renderer_sink,
+                         const TaskRunner &task_runner)
+    : task_runner_(task_runner) {
+  task_runner_.PostTask(FROM_HERE, [&]() { Initialize(); });
   auto decoder_looper = MessageLooper::PrepareLooper("audio_decoder");
   auto decoder_task_runner = std::make_shared<TaskRunner>(decoder_looper);
-  audio_renderer_ = std::make_shared<AudioRenderer>(decoder_task_runner, std::move(audio_renderer_sink));
+  audio_renderer_ = std::make_shared<AudioRenderer>(
+      decoder_task_runner, std::move(audio_renderer_sink));
   video_renderer_ = std::make_shared<VideoRenderer>(
       task_runner_,
-      std::make_shared<TaskRunner>(MessageLooper::PrepareLooper("video_decoder")),
+      std::make_shared<TaskRunner>(
+          MessageLooper::PrepareLooper("video_decoder")),
       std::move(video_renderer_sink));
 }
 
@@ -37,31 +37,31 @@ void MediaPlayer::Initialize() {
 
   auto sync_type_confirm = [this](int av_sync_type) -> int {
     return AV_SYNC_AUDIO_MASTER;
-//    if (data_source == nullptr) {
-//      return av_sync_type;
-//    }
-//    if (av_sync_type == AV_SYNC_VIDEO_MASTER) {
-//      if (data_source->ContainVideoStream()) {
-//        return AV_SYNC_VIDEO_MASTER;
-//      } else {
-//        return AV_SYNC_AUDIO_MASTER;
-//      }
-//    } else if (av_sync_type == AV_SYNC_AUDIO_MASTER) {
-//      if (data_source->ContainAudioStream()) {
-//        return AV_SYNC_AUDIO_MASTER;
-//      } else {
-//        return AV_SYNC_EXTERNAL_CLOCK;
-//      }
-//    } else {
-//      return AV_SYNC_EXTERNAL_CLOCK;
-//    }
+    //    if (data_source == nullptr) {
+    //      return av_sync_type;
+    //    }
+    //    if (av_sync_type == AV_SYNC_VIDEO_MASTER) {
+    //      if (data_source->ContainVideoStream()) {
+    //        return AV_SYNC_VIDEO_MASTER;
+    //      } else {
+    //        return AV_SYNC_AUDIO_MASTER;
+    //      }
+    //    } else if (av_sync_type == AV_SYNC_AUDIO_MASTER) {
+    //      if (data_source->ContainAudioStream()) {
+    //        return AV_SYNC_AUDIO_MASTER;
+    //      } else {
+    //        return AV_SYNC_EXTERNAL_CLOCK;
+    //      }
+    //    } else {
+    //      return AV_SYNC_EXTERNAL_CLOCK;
+    //    }
   };
-  clock_context = std::make_shared<MediaClock>(nullptr, nullptr,
-                                               sync_type_confirm);
-  task_runner_.PostTask(FROM_HERE, std::bind(&MediaPlayer::DumpMediaClockStatus, this));
+  clock_context =
+      std::make_shared<MediaClock>(nullptr, nullptr, sync_type_confirm);
+  task_runner_.PostTask(FROM_HERE,
+                        std::bind(&MediaPlayer::DumpMediaClockStatus, this));
 
   state_ = kIdle;
-
 }
 
 MediaPlayer::~MediaPlayer() {
@@ -79,9 +79,8 @@ void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
     return;
   }
   play_when_ready_pending_ = play_when_ready;
-  task_runner_.PostTask(FROM_HERE, [&]() {
-    SetPlayWhenReadyTask(play_when_ready_pending_);
-  });
+  task_runner_.PostTask(
+      FROM_HERE, [&]() { SetPlayWhenReadyTask(play_when_ready_pending_); });
 }
 
 void MediaPlayer::SetPlayWhenReadyTask(bool play_when_ready) {
@@ -105,16 +104,20 @@ void MediaPlayer::PauseClock(bool pause) {
   }
   if (clock_context->paused) {
     if (video_renderer_) {
-//      video_renderer_->frame_timer_ += get_relative_time() - clock_context->GetVideoClock()->last_updated;
+      //      video_renderer_->frame_timer_ += get_relative_time() -
+      //      clock_context->GetVideoClock()->last_updated;
     }
-//    if (data_source && data_source->read_pause_return != AVERROR(ENOSYS)) {
-//      clock_context->GetVideoClock()->paused = 0;
-//    }
-    clock_context->GetVideoClock()->SetClock(clock_context->GetVideoClock()->GetClock(),
-                                             clock_context->GetVideoClock()->serial);
+    //    if (data_source && data_source->read_pause_return != AVERROR(ENOSYS))
+    //    {
+    //      clock_context->GetVideoClock()->paused = 0;
+    //    }
+    clock_context->GetVideoClock()->SetClock(
+        clock_context->GetVideoClock()->GetClock(),
+        clock_context->GetVideoClock()->serial);
   }
-  clock_context->GetExtClock()->SetClock(clock_context->GetExtClock()->GetClock(),
-                                         clock_context->GetExtClock()->serial);
+  clock_context->GetExtClock()->SetClock(
+      clock_context->GetExtClock()->GetClock(),
+      clock_context->GetExtClock()->serial);
   clock_context->paused = pause;
   clock_context->GetExtClock()->paused = pause;
   clock_context->GetAudioClock()->paused = pause;
@@ -126,9 +129,8 @@ int MediaPlayer::OpenDataSource(const char *filename) {
     av_log(nullptr, AV_LOG_ERROR, "can not open file multi-times.\n");
     return -1;
   }
-  task_runner_.PostTask(FROM_HERE, [&, filename]() {
-    OpenDataSourceTask(filename);
-  });
+  task_runner_.PostTask(FROM_HERE,
+                        [&, filename]() { OpenDataSourceTask(filename); });
   return 0;
 }
 
@@ -138,21 +140,24 @@ void MediaPlayer::OpenDataSourceTask(const char *filename) {
 
   DLOG(INFO) << "open file: " << filename;
   state_ = kPreparing;
-  demuxer_ = std::make_shared<Demuxer>(TaskRunner(MessageLooper::PrepareLooper("demux")), filename,
-                                       [](std::unique_ptr<MediaTracks> tracks) {
-                                         DLOG(INFO) << "on tracks update.";
-                                         for (auto &track: tracks->tracks()) {
-                                           DLOG(INFO) << "track: " << *track;
-                                         }
-                                       });
-  demuxer_->Initialize(this, bind_weak(&MediaPlayer::OnDataSourceOpen, shared_from_this()));
+  demuxer_ = std::make_shared<Demuxer>(
+      TaskRunner(MessageLooper::PrepareLooper("demux")), filename,
+      [](std::unique_ptr<MediaTracks> tracks) {
+        DLOG(INFO) << "on tracks update.";
+        for (auto &track : tracks->tracks()) {
+          DLOG(INFO) << "track: " << *track;
+        }
+      });
+  demuxer_->Initialize(
+      this, bind_weak(&MediaPlayer::OnDataSourceOpen, shared_from_this()));
 }
 
 void MediaPlayer::OnDataSourceOpen(int open_status) {
   DCHECK_EQ(state_, kPreparing);
   if (open_status >= 0) {
     DLOG(INFO) << "Open DataSource Succeed";
-    task_runner_.PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitVideoRender, shared_from_this()));
+    task_runner_.PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitVideoRender,
+                                               shared_from_this()));
   } else {
     state_ = kIdle;
     DLOG(ERROR) << "Open DataSource Failed";
@@ -162,12 +167,14 @@ void MediaPlayer::OnDataSourceOpen(int open_status) {
 void MediaPlayer::InitVideoRender() {
   auto stream = demuxer_->GetFirstStream(DemuxerStream::Video);
   if (stream) {
-    video_renderer_->Initialize(stream,
-                                clock_context,
-                                bind_weak(&MediaPlayer::OnVideoRendererInitialized, shared_from_this()));
+    video_renderer_->Initialize(
+        stream, clock_context,
+        bind_weak(&MediaPlayer::OnVideoRendererInitialized,
+                  shared_from_this()));
   } else {
     DLOG(WARNING) << "data source does not contains video stream";
-    task_runner_.PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitAudioRender, shared_from_this()));
+    task_runner_.PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitAudioRender,
+                                               shared_from_this()));
   }
 }
 
@@ -176,14 +183,17 @@ void MediaPlayer::OnVideoRendererInitialized(bool success) {
     state_ = kIdle;
     return;
   }
-  task_runner_.PostTask(FROM_HERE, bind_weak(&MediaPlayer::InitAudioRender, shared_from_this()));
+  task_runner_.PostTask(
+      FROM_HERE, bind_weak(&MediaPlayer::InitAudioRender, shared_from_this()));
 }
 
 void MediaPlayer::InitAudioRender() {
   auto stream = demuxer_->GetFirstStream(DemuxerStream::Audio);
   if (stream) {
-    audio_renderer_->Initialize(stream, clock_context,
-                                bind_weak(&MediaPlayer::OnAudioRendererInitialized, shared_from_this()));
+    audio_renderer_->Initialize(
+        stream, clock_context,
+        bind_weak(&MediaPlayer::OnAudioRendererInitialized,
+                  shared_from_this()));
   }
 }
 
@@ -199,9 +209,7 @@ void MediaPlayer::OnAudioRendererInitialized(bool success) {
   }
 }
 
-void MediaPlayer::DumpStatus() {
-
-}
+void MediaPlayer::DumpStatus() {}
 
 TimeDelta MediaPlayer::GetCurrentPosition() {
   if (state_ == kUninitialized) {
@@ -230,7 +238,8 @@ void MediaPlayer::SetVolume(double volume) {
   if (!audio_renderer_) {
     return;
   }
-  DLOG_IF(WARNING, volume > 1 || volume < 0) << "volume is out of range [0, 1] : " << volume;
+  DLOG_IF(WARNING, volume > 1 || volume < 0)
+      << "volume is out of range [0, 1] : " << volume;
   if (volume < 0) {
     volume = 0;
   }
@@ -240,9 +249,7 @@ void MediaPlayer::SetVolume(double volume) {
   audio_renderer_->SetVolume(volume);
 }
 
-double MediaPlayer::GetDuration() const {
-  return duration_;
-}
+double MediaPlayer::GetDuration() const { return duration_; }
 
 void MediaPlayer::Seek(TimeDelta position) {
   if (position < TimeDelta::Zero()) {
@@ -252,7 +259,9 @@ void MediaPlayer::Seek(TimeDelta position) {
   task_runner_.PostTask(FROM_HERE, [&, position]() {
     ChangePlaybackState(MediaPlayerState::BUFFERING);
     demuxer_->AbortPendingReads();
-    demuxer_->SeekTo(position, BindToCurrentLoop(bind_weak(&MediaPlayer::OnSeekCompleted, shared_from_this())));
+    demuxer_->SeekTo(position,
+                     BindToCurrentLoop(bind_weak(&MediaPlayer::OnSeekCompleted,
+                                                 shared_from_this())));
   });
 }
 
@@ -264,7 +273,6 @@ void MediaPlayer::GlobalInit() {
   avdevice_register_all();
 #endif
   avformat_network_init();
-
 }
 
 void MediaPlayer::ChangePlaybackState(MediaPlayerState state) {
@@ -307,13 +315,12 @@ void MediaPlayer::OnFirstFrameRendered(int width, int height) {
   if (on_video_size_changed_) {
     on_video_size_changed_(width, height);
   }
-
 }
 
 void MediaPlayer::DumpMediaClockStatus() {
-//
-//  DLOG(INFO) << "DumpMediaClockStatus: master clock = "
-//             << clock_context->GetMasterClock();
+  //
+  //  DLOG(INFO) << "DumpMediaClockStatus: master clock = "
+  //             << clock_context->GetMasterClock();
 
 #if 0
   if (audio_renderer_) {
@@ -337,13 +344,9 @@ void MediaPlayer::DumpMediaClockStatus() {
 #endif
 }
 
-void MediaPlayer::SetDuration(double duration) {
-  duration_ = duration;
-}
+void MediaPlayer::SetDuration(double duration) { duration_ = duration; }
 
-void MediaPlayer::OnDemuxerError(PipelineStatus error) {
-
-}
+void MediaPlayer::OnDemuxerError(PipelineStatus error) {}
 
 void MediaPlayer::OnSeekCompleted(bool succeed) {
   DLOG(INFO) << "OnSeekCompleted: " << succeed;
@@ -358,4 +361,4 @@ void MediaPlayer::OnSeekCompleted(bool succeed) {
   }
 }
 
-}
+}  // namespace media

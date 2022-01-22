@@ -2,9 +2,9 @@
 // Created by yangbin on 2021/4/7.
 //
 
-#include <base/logging.h>
-
 #include "pipeline/pipeline_status.h"
+
+#include <base/logging.h>
 
 namespace media {
 
@@ -44,13 +44,7 @@ std::ostream &operator<<(std::ostream &out, PipelineStatus status) {
   return out << PipelineStatusToString(status);
 }
 
-PipelineStatistics::PipelineStatistics() {
-
-}
-PipelineStatistics::PipelineStatistics(const PipelineStatistics &other) {
-
-}
-PipelineStatistics::~PipelineStatistics() {
-
-}
-}
+PipelineStatistics::PipelineStatistics() {}
+PipelineStatistics::PipelineStatistics(const PipelineStatistics &other) {}
+PipelineStatistics::~PipelineStatistics() {}
+}  // namespace media

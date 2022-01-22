@@ -4,17 +4,17 @@
 
 #include "audio_buffer.h"
 
-#include "cstring"
-
 #include "base/logging.h"
+#include "cstring"
 
 namespace media {
 
 #define MAX_AUDIO_VOLUME 100
-#define ADJUST_VOLUME(s, v) (s = (s*v)/MAX_AUDIO_VOLUME)
+#define ADJUST_VOLUME(s, v) (s = (s * v) / MAX_AUDIO_VOLUME)
 
 // from SDL_MixAudioFormat#AUDIO_S16LSB
-static void MixAudioVolume(uint8 *dst, const uint8 *src, uint32_t len, int volume) {
+static void MixAudioVolume(uint8 *dst, const uint8 *src, uint32_t len,
+                           int volume) {
   int16_t src1, src2;
   int dst_sample;
   const int max_audioval = ((1 << (16 - 1)) - 1);
@@ -42,9 +42,7 @@ static void MixAudioVolume(uint8 *dst, const uint8 *src, uint32_t len, int volum
 AudioBuffer::AudioBuffer(uint8 *data, int size, double pts, int bytes_per_sec)
     : data_(data), size_(size), pts_(pts), bytes_per_sec_(bytes_per_sec) {}
 
-AudioBuffer::~AudioBuffer() {
-  free(data_);
-}
+AudioBuffer::~AudioBuffer() { free(data_); }
 
 int AudioBuffer::Read(uint8 *dest, int size, double volume) {
   DCHECK_GT(size, 0);
@@ -65,4 +63,4 @@ int AudioBuffer::Read(uint8 *dest, int size, double volume) {
   return flush_size;
 }
 
-}
+}  // namespace media

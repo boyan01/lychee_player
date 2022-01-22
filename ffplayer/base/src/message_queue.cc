@@ -2,17 +2,16 @@
 // Created by boyan on 2021/3/27.
 //
 
-#include "base/logging.h"
 #include "base/message_queue.h"
+
+#include "base/logging.h"
 
 namespace media {
 namespace base {
 
 MessageQueue::MessageQueue() = default;
 
-MessageQueue::~MessageQueue() {
-  DCHECK(quitting_);
-}
+MessageQueue::~MessageQueue() { DCHECK(quitting_); }
 
 bool MessageQueue::EnqueueMessage(const Message &message) {
   std::unique_lock<std::recursive_mutex> auto_lock(message_queue_lock_);
@@ -31,7 +30,8 @@ bool MessageQueue::EnqueueMessage(const Message &message) {
     messages_ = msg;
     needWake = blocked_;
   } else {
-    // Inserted withing the middle of the queue, We don't have to wake up the event queue.
+    // Inserted withing the middle of the queue, We don't have to wake up the
+    // event queue.
     needWake = false;
     Message *prev;
     for (;;) {
@@ -86,7 +86,6 @@ Message *MessageQueue::next() {
       blocked_ = true;
       continue;
     }
-
   }
   return nullptr;
 }
@@ -120,7 +119,6 @@ void MessageQueue::RemoveTask(TaskRunner *task_runner) {
     }
     p = n;
   }
-
 }
 
 void MessageQueue::RemoveTask(TaskRunner *task_runner, int task_id) {
@@ -131,7 +129,8 @@ void MessageQueue::RemoveTask(TaskRunner *task_runner, int task_id) {
   Message *p = messages_;
 
   // Remove all messages at front.
-  while (p != nullptr && p->task_runner_ == task_runner && p->task_id_ == task_id) {
+  while (p != nullptr && p->task_runner_ == task_runner &&
+         p->task_id_ == task_id) {
     Message *n = p->next;
     messages_ = n;
     delete p;
@@ -151,7 +150,6 @@ void MessageQueue::RemoveTask(TaskRunner *task_runner, int task_id) {
     }
     p = n;
   }
-
 }
 
 void MessageQueue::Wake() {
@@ -162,7 +160,9 @@ void MessageQueue::Wake() {
 void MessageQueue::PollOnce(TimeDelta wait_duration) {
   std::unique_lock<std::mutex> condition_lock(message_wait_lock_);
   if (!wait_duration.is_inf()) {
-    message_wait_condition_.wait_for(condition_lock, std::chrono::microseconds(wait_duration.InMicroseconds()));
+    message_wait_condition_.wait_for(
+        condition_lock,
+        std::chrono::microseconds(wait_duration.InMicroseconds()));
   } else {
     message_wait_condition_.wait(condition_lock);
   }
@@ -188,5 +188,5 @@ void MessageQueue::RemoveAllMessageLocked() {
   messages_ = nullptr;
 }
 
-} // namespace base
-} // namespace media
+}  // namespace base
+}  // namespace media

@@ -16,8 +16,7 @@ namespace media {
 static constexpr int64_t kHoursPerDay = 24;
 static constexpr int64_t kSecondsPerMinute = 60;
 static constexpr int64_t kMinutesPerHour = 60;
-static constexpr int64_t kSecondsPerHour =
-    kSecondsPerMinute * kMinutesPerHour;
+static constexpr int64_t kSecondsPerHour = kSecondsPerMinute * kMinutesPerHour;
 static constexpr int64_t kMillisecondsPerSecond = 1000;
 static constexpr int64_t kMillisecondsPerDay =
     kMillisecondsPerSecond * kSecondsPerHour * kHoursPerDay;
@@ -36,7 +35,6 @@ static constexpr int64_t kNanosecondsPerSecond =
     kNanosecondsPerMicrosecond * kMicrosecondsPerSecond;
 
 class TimeDelta {
-
  public:
   constexpr TimeDelta() = default;
 
@@ -105,27 +103,26 @@ class TimeDelta {
     return *this = (*this - other);
   }
   constexpr TimeDelta operator-() const {
-    if (!is_inf())
-      return TimeDelta(-delta_);
+    if (!is_inf()) return TimeDelta(-delta_);
     return (delta_ < 0) ? Max() : Min();
   }
 
   // Computations with numeric types.
-  template<typename T>
+  template <typename T>
   constexpr TimeDelta operator*(T a) const {
     return TimeDelta(delta_ * a);
   }
 
-  template<typename T>
+  template <typename T>
   constexpr TimeDelta operator/(T a) const {
     return TimeDelta(delta_ / a);
   }
 
-  template<typename T>
+  template <typename T>
   constexpr TimeDelta &operator*=(T a) {
     return *this = (*this * a);
   }
-  template<typename T>
+  template <typename T>
   constexpr TimeDelta &operator/=(T a) {
     return *this = (*this / a);
   }
@@ -145,16 +142,15 @@ class TimeDelta {
     return ToDouble() / a.ToDouble();
   }
   constexpr int64_t IntDiv(TimeDelta a) const {
-    if (!is_inf() && !a.is_zero())
-      return delta_ / a.delta_;
+    if (!is_inf() && !a.is_zero()) return delta_ / a.delta_;
 
     // For consistency, use the same edge case CHECKs and behavior as the code
     // above.
     CHECK(!is_zero() || !a.is_zero());
     CHECK(!is_inf() || !a.is_inf());
     return ((delta_ < 0) == (a.delta_ < 0))
-           ? std::numeric_limits<int64_t>::max()
-           : std::numeric_limits<int64_t>::min();
+               ? std::numeric_limits<int64_t>::max()
+               : std::numeric_limits<int64_t>::min();
   }
 
   constexpr TimeDelta operator%(TimeDelta a) const {
@@ -186,14 +182,12 @@ class TimeDelta {
   friend std::ostream &operator<<(std::ostream &os, const TimeDelta &delta);
 
  private:
-
   constexpr explicit TimeDelta(int64_t delta_us) : delta_(delta_us) {}
 
   // Returns a double representation of this TimeDelta's tick count.  In
   // particular, Max()/Min() are converted to +/-infinity.
   constexpr double ToDouble() const {
-    if (!is_inf())
-      return static_cast<double>(delta_);
+    if (!is_inf()) return static_cast<double>(delta_);
     return (delta_ < 0) ? -std::numeric_limits<double>::infinity()
                         : std::numeric_limits<double>::infinity();
   }
@@ -207,28 +201,27 @@ class TimeDelta {
 // static
 constexpr TimeDelta TimeDelta::FromDays(int days) {
   return (days == std::numeric_limits<int>::max())
-         ? Max()
-         : TimeDelta(days * kMicrosecondsPerDay);
+             ? Max()
+             : TimeDelta(days * kMicrosecondsPerDay);
 }
 
 // static
 constexpr TimeDelta TimeDelta::FromHours(int hours) {
   return (hours == std::numeric_limits<int>::max())
-         ? Max()
-         : TimeDelta(hours * kMicrosecondsPerHour);
+             ? Max()
+             : TimeDelta(hours * kMicrosecondsPerHour);
 }
 
 // static
 constexpr TimeDelta TimeDelta::FromMinutes(int minutes) {
   return (minutes == std::numeric_limits<int>::max())
-         ? Max()
-         : TimeDelta(minutes * kMicrosecondsPerMinute);
+             ? Max()
+             : TimeDelta(minutes * kMicrosecondsPerMinute);
 }
 
 // static
 constexpr TimeDelta TimeDelta::FromSecondsD(double secs) {
-  return TimeDelta(
-      static_cast<int64_t>(secs * kMicrosecondsPerSecond));
+  return TimeDelta(static_cast<int64_t>(secs * kMicrosecondsPerSecond));
 }
 
 // static
@@ -238,14 +231,12 @@ constexpr TimeDelta TimeDelta::FromSeconds(int64_t secs) {
 
 // static
 constexpr TimeDelta TimeDelta::FromMillisecondsD(double ms) {
-  return TimeDelta(
-      static_cast<int64_t>(ms * kMicrosecondsPerMillisecond));
+  return TimeDelta(static_cast<int64_t>(ms * kMicrosecondsPerMillisecond));
 }
 
 // static
 constexpr TimeDelta TimeDelta::FromMilliseconds(int64_t ms) {
-  return TimeDelta(
-      int64_t{(ms * kMicrosecondsPerMillisecond)});
+  return TimeDelta(int64_t{(ms * kMicrosecondsPerMillisecond)});
 }
 
 // static
@@ -260,8 +251,7 @@ constexpr TimeDelta TimeDelta::FromMicroseconds(int64_t us) {
 
 // static
 constexpr TimeDelta TimeDelta::FromNanosecondsD(double ns) {
-  return TimeDelta(
-      static_cast<int64_t>(ns / kNanosecondsPerMicrosecond));
+  return TimeDelta(static_cast<int64_t>(ns / kNanosecondsPerMicrosecond));
 }
 
 // static
@@ -280,8 +270,7 @@ constexpr TimeDelta TimeDelta::Min() {
 }
 
 constexpr TimeDelta TimeDelta::operator+(TimeDelta other) const {
-  if (!other.is_inf())
-    return TimeDelta(int64_t{delta_ + other.delta_});
+  if (!other.is_inf()) return TimeDelta(int64_t{delta_ + other.delta_});
 
   // Additions involving two infinities are only valid if signs match.
   CHECK(!is_inf() || (delta_ == other.delta_));
@@ -289,8 +278,7 @@ constexpr TimeDelta TimeDelta::operator+(TimeDelta other) const {
 }
 
 constexpr TimeDelta TimeDelta::operator-(TimeDelta other) const {
-  if (!other.is_inf())
-    return TimeDelta(int64_t{delta_ - other.delta_});
+  if (!other.is_inf()) return TimeDelta(int64_t{delta_ - other.delta_});
 
   // Subtractions involving two infinities are only valid if signs differ.
   CHECK_NE(delta_, other.delta_);
@@ -298,12 +286,11 @@ constexpr TimeDelta TimeDelta::operator-(TimeDelta other) const {
 }
 
 inline constexpr double TimeDelta::InSecondsF() const {
-  if (!is_inf())
-    return static_cast<double>(delta_) / kMicrosecondsPerSecond;
+  if (!is_inf()) return static_cast<double>(delta_) / kMicrosecondsPerSecond;
   return (delta_ < 0) ? -std::numeric_limits<double>::infinity()
                       : std::numeric_limits<double>::infinity();
 }
 
-} // namespace media
+}  // namespace media
 
-#endif //MEDIA_BASE_TIME_DELTA_H_
+#endif  // MEDIA_BASE_TIME_DELTA_H_

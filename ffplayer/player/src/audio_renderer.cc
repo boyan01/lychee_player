@@ -2,25 +2,22 @@
 // Created by yangbin on 2021/5/1.
 //
 
-#include "cmath"
-
-#include "base/logging.h"
-#include "base/lambda.h"
-#include "base/bind_to_current_loop.h"
-
-#include "ffmpeg_utils.h"
-
 #include "audio_renderer.h"
+
+#include "base/bind_to_current_loop.h"
+#include "base/lambda.h"
+#include "base/logging.h"
+#include "cmath"
+#include "ffmpeg_utils.h"
 
 namespace media {
 
-AudioRenderer::AudioRenderer(std::shared_ptr<TaskRunner> task_runner, std::shared_ptr<AudioRendererSink> sink)
+AudioRenderer::AudioRenderer(std::shared_ptr<TaskRunner> task_runner,
+                             std::shared_ptr<AudioRendererSink> sink)
     : task_runner_(std::move(task_runner)),
       audio_buffer_(),
       sink_(std::move(sink)),
-      volume_(1) {
-
-}
+      volume_(1) {}
 
 AudioRenderer::~AudioRenderer() {
   std::lock_guard<std::mutex> auto_lock(mutex_);
@@ -35,11 +32,12 @@ void AudioRenderer::Initialize(DemuxerStream *stream,
   demuxer_stream_ = stream;
   init_callback_ = BindToCurrentLoop(std::move(init_callback));
 
-  decoder_stream_ = std::make_shared<AudioDecoderStream>(std::make_unique<AudioDecoderStream::StreamTraits>(),
-                                                         task_runner_);
+  decoder_stream_ = std::make_shared<AudioDecoderStream>(
+      std::make_unique<AudioDecoderStream::StreamTraits>(), task_runner_);
 
-  decoder_stream_->Initialize(stream, bind_weak(&AudioRenderer::OnDecoderStreamInitialized,
-                                                shared_from_this()));
+  decoder_stream_->Initialize(
+      stream, bind_weak(&AudioRenderer::OnDecoderStreamInitialized,
+                        shared_from_this()));
 }
 
 void AudioRenderer::OnDecoderStreamInitialized(bool success) {
@@ -56,14 +54,13 @@ void AudioRenderer::OnDecoderStreamInitialized(bool success) {
   auto audio_config = demuxer_stream_->audio_decode_config();
   sink_->Initialize(
       av_get_channel_layout_nb_channels(audio_config.channel_layout()),
-      audio_config.samples_per_second(),
-      this);
+      audio_config.samples_per_second(), this);
 
   std::move(init_callback_)(true);
   init_callback_ = nullptr;
 
-  task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
-
+  task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame,
+                                              shared_from_this()));
 }
 
 void AudioRenderer::AttemptReadFrame() {
@@ -74,7 +71,8 @@ void AudioRenderer::AttemptReadFrame() {
   }
 
   reading_ = true;
-  decoder_stream_->Read(bind_weak(&AudioRenderer::OnNewFrameAvailable, shared_from_this()));
+  decoder_stream_->Read(
+      bind_weak(&AudioRenderer::OnNewFrameAvailable, shared_from_this()));
 }
 
 void AudioRenderer::OnNewFrameAvailable(AudioDecoderStream::ReadResult result) {
@@ -83,7 +81,8 @@ void AudioRenderer::OnNewFrameAvailable(AudioDecoderStream::ReadResult result) {
   reading_ = false;
   {
     std::lock_guard<std::mutex> auto_lock(mutex_);
-    DLOG_IF(WARNING, audio_buffer_.size() > 3) << "audio buffer is enough: " << audio_buffer_.size();
+    DLOG_IF(WARNING, audio_buffer_.size() > 3)
+        << "audio buffer is enough: " << audio_buffer_.size();
     audio_buffer_.emplace_back(std::move(result));
   }
   if (NeedReadStream()) {
@@ -92,7 +91,6 @@ void AudioRenderer::OnNewFrameAvailable(AudioDecoderStream::ReadResult result) {
 }
 
 int AudioRenderer::Render(double delay, uint8 *stream, int len) {
-
   DCHECK_GT(len, 0);
   DCHECK(stream);
 
@@ -103,7 +101,9 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
   while (len_flush < len) {
     std::lock_guard<std::mutex> auto_lock(mutex_);
     if (audio_buffer_.empty()) {
-      task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
+      task_runner_->PostTask(
+          FROM_HERE,
+          bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
       break;
     }
     auto buffer = audio_buffer_.front();
@@ -115,32 +115,30 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
     auto flushed = buffer->Read(stream + len_flush, len - len_flush, volume_);
     if (buffer->IsConsumed()) {
       audio_buffer_.pop_front();
-      task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
+      task_runner_->PostTask(
+          FROM_HERE,
+          bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
     }
     len_flush += flushed;
   }
 
   if (audio_clock_time != 0) {
-    media_clock_->GetAudioClock()->SetClockAt(audio_clock_time, 0, render_callback_time);
+    media_clock_->GetAudioClock()->SetClockAt(audio_clock_time, 0,
+                                              render_callback_time);
     media_clock_->GetExtClock()->Sync(media_clock_->GetAudioClock());
   }
 
-//  decode_task_runner_->PostTask(FROM_HERE, bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
+  //  decode_task_runner_->PostTask(FROM_HERE,
+  //  bind_weak(&AudioRenderer::AttemptReadFrame, shared_from_this()));
 
   return len_flush;
 }
 
-void AudioRenderer::OnRenderError() {
+void AudioRenderer::OnRenderError() {}
 
-}
+void AudioRenderer::Start() { sink_->Play(); }
 
-void AudioRenderer::Start() {
-  sink_->Play();
-}
-
-void AudioRenderer::Stop() {
-  sink_->Pause();
-}
+void AudioRenderer::Stop() { sink_->Pause(); }
 
 bool AudioRenderer::NeedReadStream() {
   // FIXME temp solution.
@@ -162,12 +160,11 @@ void AudioRenderer::Flush() {
 
 std::ostream &operator<<(std::ostream &os, const AudioRenderer &renderer) {
   os << " audio_buffer_: " << renderer.audio_buffer_.size()
-     << " reading_: " << renderer.reading_
-     << " volume_: " << renderer.volume_;
+     << " reading_: " << renderer.reading_ << " volume_: " << renderer.volume_;
   if (renderer.decoder_stream_) {
     os << " decoder_stream( " << *renderer.decoder_stream_ << " )";
   }
   return os;
 }
 
-}
+}  // namespace media

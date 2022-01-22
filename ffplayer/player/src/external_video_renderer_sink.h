@@ -5,10 +5,9 @@
 #ifndef MEDIA_FLUTTER_EXTERNAL_VIDEO_RENDERER_SINK_H_
 #define MEDIA_FLUTTER_EXTERNAL_VIDEO_RENDERER_SINK_H_
 
-#include "video_renderer_sink.h"
-#include "external_media_texture.h"
-
 #include "base/task_runner.h"
+#include "external_media_texture.h"
+#include "video_renderer_sink.h"
 
 extern "C" {
 #include "libswscale/swscale.h"
@@ -17,16 +16,14 @@ extern "C" {
 namespace media {
 
 class ExternalVideoRendererSink : public VideoRendererSink {
-
  public:
-
   static FlutterTextureAdapterFactory factory_;
 
   static AVPixelFormat GetPixelFormat(ExternalMediaTexture::PixelFormat format);
 
   ExternalVideoRendererSink();
 
-  explicit ExternalVideoRendererSink(const TaskRunner& task_runner);
+  explicit ExternalVideoRendererSink(const TaskRunner &task_runner);
 
   ~ExternalVideoRendererSink() override;
 
@@ -37,7 +34,6 @@ class ExternalVideoRendererSink : public VideoRendererSink {
   void Stop() override;
 
  private:
-
   std::unique_ptr<ExternalMediaTexture> texture_;
 
   struct SwsContext *img_convert_ctx_ = nullptr;
@@ -57,9 +53,8 @@ class ExternalVideoRendererSink : public VideoRendererSink {
   void RenderTask();
 
   void DoRender(const std::shared_ptr<VideoFrame> &frame);
-
 };
 
-}
+}  // namespace media
 
-#endif //MEDIA_FLUTTER_EXTERNAL_VIDEO_RENDERER_SINK_H_
+#endif  // MEDIA_FLUTTER_EXTERNAL_VIDEO_RENDERER_SINK_H_

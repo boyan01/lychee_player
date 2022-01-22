@@ -5,9 +5,9 @@
 #ifndef MEDIA_BASE_MESSAGE_LOOP_H_
 #define MEDIA_BASE_MESSAGE_LOOP_H_
 
+#include <condition_variable>
 #include <functional>
 #include <mutex>
-#include <condition_variable>
 #include <thread>
 
 #include "location.h"
@@ -17,9 +17,7 @@ namespace media {
 namespace base {
 
 class MessageLooper : public std::enable_shared_from_this<MessageLooper> {
-
  public:
-
   /**
    *
    *  Create MessageLoop and run in new thread.
@@ -29,13 +27,11 @@ class MessageLooper : public std::enable_shared_from_this<MessageLooper> {
    */
   static std::shared_ptr<MessageLooper> PrepareLooper(
       const char *loop_name,
-      int message_handle_expect_duration_ = std::numeric_limits<int>::max()
-  );
+      int message_handle_expect_duration_ = std::numeric_limits<int>::max());
 
   static std::shared_ptr<MessageLooper> Create(
       const char *loop_name,
-      int message_handle_expect_duration_ = std::numeric_limits<int>::max()
-  );
+      int message_handle_expect_duration_ = std::numeric_limits<int>::max());
 
   void Prepare();
 
@@ -44,14 +40,15 @@ class MessageLooper : public std::enable_shared_from_this<MessageLooper> {
   // Returns the MessageLoop object for the current thread, or null if none.
   static std::shared_ptr<MessageLooper> Current();
 
-  void PostTask(const tracked_objects::Location &from_here, const TaskClosure &task);
+  void PostTask(const tracked_objects::Location &from_here,
+                const TaskClosure &task);
 
   void PostDelayedTask(const tracked_objects::Location &from_here,
-                       TimeDelta delay,
-                       const TaskClosure &task_closure);
+                       TimeDelta delay, const TaskClosure &task_closure);
 
   /**
-   * @return true if the current thread is a thread on which is running current looper.
+   * @return true if the current thread is a thread on which is running current
+   * looper.
    */
   bool BelongsToCurrentThread() {
     return MessageLooper::Current().get() == this;
@@ -60,11 +57,9 @@ class MessageLooper : public std::enable_shared_from_this<MessageLooper> {
   void Loop();
 
  private:
-
   explicit MessageLooper(
       const char *loop_name,
-      int message_handle_timeout_ms = std::numeric_limits<int>::max()
-  );
+      int message_handle_timeout_ms = std::numeric_limits<int>::max());
 
   friend class ::media::TaskRunner;
 
@@ -81,10 +76,9 @@ class MessageLooper : public std::enable_shared_from_this<MessageLooper> {
   DELETE_COPY_AND_ASSIGN(MessageLooper);
 
   static thread_local std::weak_ptr<MessageLooper> thread_local_message_loop_;
-
 };
 
-} // namespace base
-} // namespace media
+}  // namespace base
+}  // namespace media
 
-#endif //MEDIA_BASE_MESSAGE_LOOP_H_
+#endif  // MEDIA_BASE_MESSAGE_LOOP_H_

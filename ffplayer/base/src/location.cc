@@ -8,26 +8,22 @@ namespace media {
 
 namespace tracked_objects {
 
-Location::Location(const char *function_name,
-                   const char *file_name,
-                   int line_number,
-                   const void *program_counter)
+Location::Location(const char *function_name, const char *file_name,
+                   int line_number, const void *program_counter)
     : function_name_(function_name),
       file_name_(file_name),
       line_number_(line_number),
-      program_counter_(program_counter) {
-}
+      program_counter_(program_counter) {}
 
 Location::Location()
     : function_name_("Unknown"),
       file_name_("Unknown"),
       line_number_(-1),
-      program_counter_(nullptr) {
-}
+      program_counter_(nullptr) {}
 
 std::string Location::ToString() const {
   return std::string(function_name_) + "@" + file_name_ + ":" +
-      std::to_string(line_number_);
+         std::to_string(line_number_);
 }
 
 std::string Location::ToShortString() const {
@@ -36,7 +32,8 @@ std::string Location::ToShortString() const {
   if (last_slash_pos != std::string::npos) {
     filename = filename.substr(last_slash_pos + 1);
   }
-  return "[" + filename + ":" + std::to_string(line_number_) + "]@" + std::string(function_name_);
+  return "[" + filename + ":" + std::to_string(line_number_) + "]@" +
+         std::string(function_name_);
 }
 
 const void *GetProgramCounter() {
@@ -48,6 +45,5 @@ const void *GetProgramCounter() {
   return nullptr;
 }
 
-}
-}
-
+}  // namespace tracked_objects
+}  // namespace media

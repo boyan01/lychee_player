@@ -11,7 +11,7 @@ namespace media {
 namespace base {
 
 // A size has width and height values.
-template<typename Class, typename Type>
+template <typename Class, typename Type>
 class SizeBase {
  public:
   Type width() const { return width_; }
@@ -29,9 +29,7 @@ class SizeBase {
     set_height(height_ + height);
   }
 
-  Class Scale(float scale) const {
-    return Scale(scale, scale);
-  }
+  Class Scale(float scale) const { return Scale(scale, scale); }
 
   Class Scale(float x_scale, float y_scale) const {
     return Class(static_cast<Type>(width_ * x_scale),
@@ -45,9 +43,7 @@ class SizeBase {
     return width_ == s.width_ && height_ == s.height_;
   }
 
-  bool operator!=(const Class &s) const {
-    return *this != s;
-  }
+  bool operator!=(const Class &s) const { return *this != s; }
 
   bool IsEmpty() const {
     // Size doesn't allow negative dimensions, so testing for 0 is enough.
@@ -74,10 +70,9 @@ class Size : public SizeBase<Size, int> {
   ~Size() override;
 
   std::string ToString() const;
-
 };
 
-} // namespace base
-} // namespace media
+}  // namespace base
+}  // namespace media
 
-#endif //MEDIA_BASE_SIZE_H_
+#endif  // MEDIA_BASE_SIZE_H_

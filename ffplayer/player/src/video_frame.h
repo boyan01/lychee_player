@@ -5,10 +5,9 @@
 #ifndef MEDIA_PLAYER_SRC_VIDEO_FRAME_H_
 #define MEDIA_PLAYER_SRC_VIDEO_FRAME_H_
 
-#include "string"
-#include "sstream"
-
 #include "base/basictypes.h"
+#include "sstream"
+#include "string"
 
 extern "C" {
 #include "libavformat/avformat.h"
@@ -17,42 +16,26 @@ extern "C" {
 namespace media {
 
 class VideoFrame {
-
  public:
-
   static std::shared_ptr<VideoFrame> CreateEmptyFrame();
 
   VideoFrame(AVFrame *frame, double pts, double duration, int serial);
 
   ~VideoFrame();
 
-  AVFrame *frame() {
-    return frame_;
-  }
+  AVFrame *frame() { return frame_; }
 
-  double pts() const {
-    return pts_;
-  }
+  double pts() const { return pts_; }
 
-  double duration() const {
-    return duration_;
-  }
+  double duration() const { return duration_; }
 
-  int serial() const {
-    return serial_;
-  }
+  int serial() const { return serial_; }
 
-  bool IsEmpty() const {
-    return frame_ == nullptr;
-  }
+  bool IsEmpty() const { return frame_ == nullptr; }
 
-  int Width() const {
-    return IsEmpty() ? 0 : frame_->width;
-  }
+  int Width() const { return IsEmpty() ? 0 : frame_->width; }
 
-  int Height() const {
-    return IsEmpty() ? 0 : frame_->height;
-  }
+  int Height() const { return IsEmpty() ? 0 : frame_->height; }
 
   std::string ToString() const {
     std::stringstream ss;
@@ -60,23 +43,22 @@ class VideoFrame {
     if (IsEmpty()) {
       ss << "Empty";
     } else {
-      ss << "W=" << Width() << "H=" << Height() << "D=" << duration() << "P=" << pts();
+      ss << "W=" << Width() << "H=" << Height() << "D=" << duration()
+         << "P=" << pts();
     }
     ss << ")";
     return ss.str();
   }
 
  private:
-
   AVFrame *frame_;
   double pts_;
   double duration_;
   int serial_;
 
   DELETE_COPY_AND_ASSIGN(VideoFrame);
-
 };
 
-}
+}  // namespace media
 
-#endif //MEDIA_PLAYER_SRC_VIDEO_FRAME_H_
+#endif  // MEDIA_PLAYER_SRC_VIDEO_FRAME_H_

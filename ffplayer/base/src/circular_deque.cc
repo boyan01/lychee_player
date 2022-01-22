@@ -4,6 +4,4 @@
 
 #include "base/circular_deque.h"
 
-namespace media {
-
-} // namespace media
+namespace media {}  // namespace media

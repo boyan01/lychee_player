@@ -10,11 +10,8 @@
 
 namespace media {
 
-MediaTrack::MediaTrack(Type type,
-                       TrackId bytestream_track_id,
-                       Kind kind,
-                       Label label,
-                       Language lang)
+MediaTrack::MediaTrack(Type type, TrackId bytestream_track_id, Kind kind,
+                       Label label, Language lang)
     : type_(type),
       bytestream_track_id_(bytestream_track_id),
       kind_(std::move(kind)),
@@ -28,8 +25,10 @@ void MediaTrack::set_id(const MediaTrack::Id &id) {
 }
 
 std::ostream &operator<<(std::ostream &os, const MediaTrack &track) {
-  os << "type_: " << track.type_ << " bytestream_track_id_: " << track.bytestream_track_id_ << " id_: " << track.id_
-     << " kind_: " << track.kind_ << " label_: " << track.label_ << " language_: " << track.language_;
+  os << "type_: " << track.type_
+     << " bytestream_track_id_: " << track.bytestream_track_id_
+     << " id_: " << track.id_ << " kind_: " << track.kind_
+     << " label_: " << track.label_ << " language_: " << track.language_;
   return os;
 }
 
@@ -37,9 +36,12 @@ MediaTrack::~MediaTrack() = default;
 
 const char *TrackTypeToStr(MediaTrack::Type type) {
   switch (type) {
-    case MediaTrack::Audio:return "audio";
-    case MediaTrack::Text:return "text";
-    case MediaTrack::Video:return "video";
+    case MediaTrack::Audio:
+      return "audio";
+    case MediaTrack::Text:
+      return "text";
+    case MediaTrack::Video:
+      return "video";
   }
   NOTREACHED();
   return "INVALID";

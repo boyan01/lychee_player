@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "base/basictypes.h"
-
 #include "media_track.h"
 
 namespace media {

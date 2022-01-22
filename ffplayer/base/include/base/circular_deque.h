@@ -5,22 +5,21 @@
 #ifndef MEDIA_BASE_CIRCULAR_DEQUE_H_
 #define MEDIA_BASE_CIRCULAR_DEQUE_H_
 
-#include "vector"
-
 #include "base/logging.h"
+#include "vector"
 
 namespace media {
 
-template<typename T>
+template <typename T>
 class CircularDeque {
-
  public:
-  explicit CircularDeque(int capacity) : capacity_(capacity),
-                                         deque_(capacity),
-                                         front_(0),
-                                         behind_(0),
-                                         empty_(true),
-                                         full_(false) {
+  explicit CircularDeque(int capacity)
+      : capacity_(capacity),
+        deque_(capacity),
+        front_(0),
+        behind_(0),
+        empty_(true),
+        full_(false) {
     DCHECK_GT(capacity_, 0);
   }
 
@@ -68,16 +67,12 @@ class CircularDeque {
   /**
    * @return The front item from the deque.
    */
-  const T &GetFront() const {
-    return deque_[front_];
-  }
+  const T &GetFront() const { return deque_[front_]; }
 
   /**
    * @return The front item from the deque.
    */
-  T &GetFront() {
-    return deque_[front_];
-  }
+  T &GetFront() { return deque_[front_]; }
 
   /**
    * Get the last item from the deque.
@@ -86,9 +81,7 @@ class CircularDeque {
     return deque_[(behind_ - 1 + capacity_) % capacity_];
   }
 
-  T &GetRear() {
-    return deque_[(behind_ - 1 + capacity_) % capacity_];
-  }
+  T &GetRear() { return deque_[(behind_ - 1 + capacity_) % capacity_]; }
 
   bool IsEmpty() const { return empty_; }
 
@@ -114,9 +107,8 @@ class CircularDeque {
   int behind_;
   bool empty_;
   bool full_;
-
 };
 
-}
+}  // namespace media
 
-#endif //MEDIA_BASE_CIRCULAR_DEQUE_H_
+#endif  // MEDIA_BASE_CIRCULAR_DEQUE_H_

@@ -1,41 +1,39 @@
 //
 // Created by yangbin on 2021/5/5.
 //
-#include "base/logging.h"
-
 #include "video_renderer.h"
-
-#include "cmath"
 
 #include "base/bind_to_current_loop.h"
 #include "base/lambda.h"
+#include "base/logging.h"
+#include "cmath"
 
 namespace {
 // 默认绘制下一帧的延迟时延。
 // TODO: 根据过去播放的平均帧率进行计算？
-const media::TimeDelta kDefaultVideoRenderDelay = media::TimeDelta::FromMilliseconds(10);
-}
+const media::TimeDelta kDefaultVideoRenderDelay =
+    media::TimeDelta::FromMilliseconds(10);
+}  // namespace
 
 namespace media {
 
 VideoRenderer::VideoRenderer(
     const TaskRunner &media_task_runner,
     std::shared_ptr<TaskRunner> decode_task_runner,
-    std::shared_ptr<VideoRendererSink> video_renderer_sink
-) : decode_task_runner_(std::move(decode_task_runner)),
-    media_task_runner_(media_task_runner),
-    sink_(std::move(video_renderer_sink)),
-    ready_frames_() {
+    std::shared_ptr<VideoRendererSink> video_renderer_sink)
+    : decode_task_runner_(std::move(decode_task_runner)),
+      media_task_runner_(media_task_runner),
+      sink_(std::move(video_renderer_sink)),
+      ready_frames_() {
   DCHECK(decode_task_runner_);
   DCHECK(sink_);
   DCHECK(media_task_runner_);
 }
 
-VideoRenderer::~VideoRenderer() {
-  sink_->Stop();
-}
+VideoRenderer::~VideoRenderer() { sink_->Stop(); }
 
-void VideoRenderer::Initialize(DemuxerStream *stream, std::shared_ptr<MediaClock> media_clock,
+void VideoRenderer::Initialize(DemuxerStream *stream,
+                               std::shared_ptr<MediaClock> media_clock,
                                VideoRenderer::InitCallback init_callback) {
   DCHECK(media_task_runner_.BelongsToCurrentThread());
   DCHECK(stream);
@@ -47,10 +45,10 @@ void VideoRenderer::Initialize(DemuxerStream *stream, std::shared_ptr<MediaClock
   init_callback_ = std::move(BindToCurrentLoop(std::move(init_callback)));
   decoder_stream_ = std::make_shared<VideoDecoderStream>(
       std::make_unique<DecoderStreamTraits<DemuxerStream::Video>>(),
-      decode_task_runner_
-  );
-  decoder_stream_->Initialize(stream, bind_weak(&VideoRenderer::OnDecodeStreamInitialized, shared_from_this()));
-
+      decode_task_runner_);
+  decoder_stream_->Initialize(
+      stream,
+      bind_weak(&VideoRenderer::OnDecodeStreamInitialized, shared_from_this()));
 }
 
 void VideoRenderer::OnDecodeStreamInitialized(bool success) {
@@ -61,7 +59,9 @@ void VideoRenderer::OnDecodeStreamInitialized(bool success) {
   if (!success) {
     return;
   }
-  decode_task_runner_->PostTask(FROM_HERE, bind_weak(&VideoRenderer::AttemptReadFrame, shared_from_this()));
+  decode_task_runner_->PostTask(
+      FROM_HERE,
+      bind_weak(&VideoRenderer::AttemptReadFrame, shared_from_this()));
 }
 
 void VideoRenderer::AttemptReadFrame() {
@@ -72,20 +72,22 @@ void VideoRenderer::AttemptReadFrame() {
     return;
   }
   reading_ = true;
-  decoder_stream_->Read(bind_weak(&VideoRenderer::OnNewFrameAvailable, shared_from_this()));
+  decoder_stream_->Read(
+      bind_weak(&VideoRenderer::OnNewFrameAvailable, shared_from_this()));
 }
 
 void VideoRenderer::OnNewFrameAvailable(std::shared_ptr<VideoFrame> frame) {
-  DLOG_IF(WARNING, ready_frames_.size() > 3) << "ready_frames is enough. " << ready_frames_.size();
+  DLOG_IF(WARNING, ready_frames_.size() > 3)
+      << "ready_frames is enough. " << ready_frames_.size();
   reading_ = false;
   ready_frames_.emplace_back(std::move(frame));
 
-  decode_task_runner_->PostTask(FROM_HERE, bind_weak(&VideoRenderer::AttemptReadFrame, shared_from_this()));
+  decode_task_runner_->PostTask(
+      FROM_HERE,
+      bind_weak(&VideoRenderer::AttemptReadFrame, shared_from_this()));
 }
 
-bool VideoRenderer::CanDecodeMore() {
-  return ready_frames_.size() < 3;
-}
+bool VideoRenderer::CanDecodeMore() { return ready_frames_.size() < 3; }
 
 void VideoRenderer::Start() {
   DCHECK(media_task_runner_.BelongsToCurrentThread());
@@ -101,7 +103,6 @@ void VideoRenderer::Stop() {
 }
 
 std::shared_ptr<VideoFrame> VideoRenderer::Render(TimeDelta &next_frame_delay) {
-
   next_frame_delay = kDefaultVideoRenderDelay;
   TRACE_METHOD_DURATION(2);
 
@@ -111,7 +112,9 @@ std::shared_ptr<VideoFrame> VideoRenderer::Render(TimeDelta &next_frame_delay) {
   }
 
   if (ready_frames_.empty()) {
-    decode_task_runner_->PostTask(FROM_HERE, bind_weak(&VideoRenderer::AttemptReadFrame, shared_from_this()));
+    decode_task_runner_->PostTask(
+        FROM_HERE,
+        bind_weak(&VideoRenderer::AttemptReadFrame, shared_from_this()));
     return VideoFrame::CreateEmptyFrame();
   }
 
@@ -125,7 +128,7 @@ std::shared_ptr<VideoFrame> VideoRenderer::Render(TimeDelta &next_frame_delay) {
   // 那么再 check 一下后面的 frame 是否更加适合当前的时间。
   if (last_frame->pts() > clock) {
     // It's not time to display next frame. still display current frame again.
-//    remaining_time = std::min(clock - last_frame->pts(), remaining_time);
+    //    remaining_time = std::min(clock - last_frame->pts(), remaining_time);
   } else if (ready_frames_.size() > 1) {
     ready_frames_.pop_front();
     if (!ready_frames_.empty()) {
@@ -142,9 +145,10 @@ std::shared_ptr<VideoFrame> VideoRenderer::Render(TimeDelta &next_frame_delay) {
       }
       if (!ready_frames_.empty()) {
         const std::shared_ptr<VideoFrame> &next_frame = ready_frames_.front();
-        next_frame_delay = TimeDelta::FromSecondsD(std::min(next_frame->pts() - clock,
-                                                            clock - current_frame->pts() + current_frame->duration()));
-//        DCHECK_GT(next_frame_delay, TimeDelta::FromMicroseconds(-1));
+        next_frame_delay = TimeDelta::FromSecondsD(
+            std::min(next_frame->pts() - clock,
+                     clock - current_frame->pts() + current_frame->duration()));
+        //        DCHECK_GT(next_frame_delay, TimeDelta::FromMicroseconds(-1));
         if (next_frame_delay < TimeDelta()) {
           next_frame_delay = TimeDelta();
         }
@@ -156,14 +160,14 @@ std::shared_ptr<VideoFrame> VideoRenderer::Render(TimeDelta &next_frame_delay) {
   auto frame = ready_frames_.front();
   DCHECK(frame);
 
-  decode_task_runner_->PostTask(FROM_HERE, bind_weak(&VideoRenderer::AttemptReadFrame, shared_from_this()));
+  decode_task_runner_->PostTask(
+      FROM_HERE,
+      bind_weak(&VideoRenderer::AttemptReadFrame, shared_from_this()));
 
   return frame;
 }
 
-void VideoRenderer::OnFrameDrop() {
-
-}
+void VideoRenderer::OnFrameDrop() {}
 
 double VideoRenderer::GetDrawingClock() {
   DCHECK(media_clock_);
@@ -191,4 +195,4 @@ std::ostream &operator<<(std::ostream &os, const VideoRenderer &renderer) {
   return os;
 }
 
-}
+}  // namespace media

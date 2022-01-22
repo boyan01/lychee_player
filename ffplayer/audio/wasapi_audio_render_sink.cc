@@ -2,32 +2,32 @@
 // Created by yangbin on 2021/10/6.
 //
 
+#include "wasapi_audio_render_sink.h"
 
-#include "base/logging.h"
 #include <base/utility.h>
 
-#include "wasapi_audio_render_sink.h"
+#include "base/logging.h"
 
 #undef ERROR
 
-namespace {
-
-}
+namespace {}
 
 namespace media {
 
-WasapiAudioRenderSink::WasapiAudioRenderSink() :
-    audio_client_(nullptr),
-    render_client_(nullptr),
-    buffer_size_(0),
-    render_callback_(nullptr),
-    end_point_(nullptr),
-    wave_format_(nullptr) {
-
-  auto hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_INPROC_SERVER,
-                             IID_PPV_ARGS(&device_enumerator_));
-  DCHECK(device_enumerator_) << "Unable to instantiate device enumerator:" << hr;
-  hr = device_enumerator_->GetDefaultAudioEndpoint(eRender, eMultimedia, &end_point_);
+WasapiAudioRenderSink::WasapiAudioRenderSink()
+    : audio_client_(nullptr),
+      render_client_(nullptr),
+      buffer_size_(0),
+      render_callback_(nullptr),
+      end_point_(nullptr),
+      wave_format_(nullptr) {
+  auto hr =
+      CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+                       CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&device_enumerator_));
+  DCHECK(device_enumerator_)
+      << "Unable to instantiate device enumerator:" << hr;
+  hr = device_enumerator_->GetDefaultAudioEndpoint(eRender, eMultimedia,
+                                                   &end_point_);
   DCHECK(end_point_) << "unable to get default audio endpoint: " << hr;
 }
 
@@ -50,16 +50,16 @@ WasapiAudioRenderSink::~WasapiAudioRenderSink() {
   if (end_point_) {
     end_point_->Release();
   }
-
 }
 
-void WasapiAudioRenderSink::Initialize(int wanted_nb_channels,
-                                       int wanted_sample_rate,
-                                       AudioRendererSink::RenderCallback *render_callback) {
+void WasapiAudioRenderSink::Initialize(
+    int wanted_nb_channels, int wanted_sample_rate,
+    AudioRendererSink::RenderCallback *render_callback) {
   render_callback_ = render_callback;
 
-  auto hr = end_point_->Activate(__uuidof(IAudioClient), CLSCTX_INPROC_SERVER,
-                                 nullptr, reinterpret_cast<void **>(&audio_client_));
+  auto hr =
+      end_point_->Activate(__uuidof(IAudioClient), CLSCTX_INPROC_SERVER,
+                           nullptr, reinterpret_cast<void **>(&audio_client_));
   if (FAILED(hr)) {
     DLOG(INFO) << "unable to activate audio client: " << hr;
     return;
@@ -72,7 +72,8 @@ void WasapiAudioRenderSink::Initialize(int wanted_nb_channels,
     return;
   }
 
-  DLOG(INFO) << "audio format:" << (wave_format_->wFormatTag) << ", bites " << wave_format_->wBitsPerSample;
+  DLOG(INFO) << "audio format:" << (wave_format_->wFormatTag) << ", bites "
+             << wave_format_->wBitsPerSample;
 
   event_ = CreateEventEx(nullptr, nullptr, 0, EVENT_MODIFY_STATE | SYNCHRONIZE);
   if (event_ == nullptr) {
@@ -94,21 +95,19 @@ void WasapiAudioRenderSink::Initialize(int wanted_nb_channels,
   /* Match the callback size to the period size to cut down on the number of
    interrupts waited for in each call to WaitDevice */
   {
-    const float period_millis = (float) default_period / 10000.0f;
-    const float period_frames = period_millis * float(wave_format_->nSamplesPerSec) / 1000.0f;
-    samples_ = (uint16) period_frames;
+    const float period_millis = (float)default_period / 10000.0f;
+    const float period_frames =
+        period_millis * float(wave_format_->nSamplesPerSec) / 1000.0f;
+    samples_ = (uint16)period_frames;
   }
-
 }
 
 bool WasapiAudioRenderSink::InitializeAudioEngine() {
   DCHECK(audio_client_);
-  auto hr = audio_client_->Initialize(AUDCLNT_SHAREMODE_SHARED,
-                                      AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST,
-                                      10,
-                                      0,
-                                      wave_format_,
-                                      nullptr);
+  auto hr = audio_client_->Initialize(
+      AUDCLNT_SHAREMODE_SHARED,
+      AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST, 10, 0,
+      wave_format_, nullptr);
   if (FAILED(hr)) {
     DLOG(WARNING) << "Unable to initialize audio client:" << hr;
     return false;
@@ -136,9 +135,11 @@ bool WasapiAudioRenderSink::InitializeAudioEngine() {
 
 void WasapiAudioRenderSink::StartRender() {
   //
-  //  We want to pre-roll one buffer's worth of silence into the pipeline.  That way the audio engine won't glitch on startup.
-  //  We pre-roll silence instead of audio buffers because our buffer size is significantly smaller than the engine latency
-  //  and we can only pre-roll one buffer's worth of audio samples.
+  //  We want to pre-roll one buffer's worth of silence into the pipeline.  That
+  //  way the audio engine won't glitch on startup. We pre-roll silence instead
+  //  of audio buffers because our buffer size is significantly smaller than the
+  //  engine latency and we can only pre-roll one buffer's worth of audio
+  //  samples.
   //
   //
   {
@@ -148,7 +149,8 @@ void WasapiAudioRenderSink::StartRender() {
       DLOG(WARNING) << "failed to get buffer: " << hr;
       return;
     }
-    hr = render_client_->ReleaseBuffer(buffer_size_, AUDCLNT_BUFFERFLAGS_SILENT);
+    hr =
+        render_client_->ReleaseBuffer(buffer_size_, AUDCLNT_BUFFERFLAGS_SILENT);
     if (FAILED(hr)) {
       DLOG(WARNING) << "failed to release buffer: " << hr;
       return;
@@ -168,21 +170,16 @@ void WasapiAudioRenderSink::StartRender() {
   if (FAILED(hr)) {
     DLOG(WARNING) << "unable to start render client: " << hr;
   }
-
 }
 
-bool WasapiAudioRenderSink::SetVolume(double volume) {
-  return false;
-}
+bool WasapiAudioRenderSink::SetVolume(double volume) { return false; }
 
 void WasapiAudioRenderSink::Play() {
   playing_ = true;
   audio_client_->Start();
 }
 
-void WasapiAudioRenderSink::Pause() {
-  playing_ = false;
-}
+void WasapiAudioRenderSink::Pause() { playing_ = false; }
 
 DWORD WasapiAudioRenderSink::RenderThread(LPVOID context) {
   auto *sink = static_cast<WasapiAudioRenderSink *>(context);
@@ -198,8 +195,10 @@ void WasapiAudioRenderSink::WaitDevice() {
       const UINT32 maxpadding = samples_;
       UINT32 padding = 0;
       if (SUCCEEDED(audio_client_->GetCurrentPadding(&padding))) {
-        /*SDL_Log("WASAPI EVENT! padding=%u maxpadding=%u", (unsigned int)padding, (unsigned int)maxpadding);*/
-//        DLOG(INFO) << "padding= " << padding << " maxpadding=" << maxpadding;
+        /*SDL_Log("WASAPI EVENT! padding=%u maxpadding=%u", (unsigned
+         * int)padding, (unsigned int)maxpadding);*/
+        //        DLOG(INFO) << "padding= " << padding << " maxpadding=" <<
+        //        maxpadding;
         if (padding <= maxpadding) {
           break;
         }
@@ -237,7 +236,6 @@ void WasapiAudioRenderSink::DoRenderThread() {
     render_callback_->Render(0, buffer, samples_ * 4);
     render_client_->ReleaseBuffer(samples_, 0);
   }
-
 }
 
-}
+}  // namespace media

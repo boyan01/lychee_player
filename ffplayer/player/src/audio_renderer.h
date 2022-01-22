@@ -6,27 +6,29 @@
 #define MEDIA_PLAYER_SRC_AUDIO_RENDERER_H_
 
 #include <ostream>
-#include "memory"
 
+#include "audio_decoder.h"
+#include "audio_renderer_sink.h"
 #include "base/basictypes.h"
+#include "decoder_stream.h"
 #include "demuxer_stream.h"
 #include "media_clock.h"
-#include "audio_decoder.h"
-#include "decoder_stream.h"
-#include "audio_renderer_sink.h"
+#include "memory"
 
 namespace media {
 
-class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public AudioRendererSink::RenderCallback {
-
+class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>,
+                      public AudioRendererSink::RenderCallback {
  public:
-
-  AudioRenderer(std::shared_ptr<TaskRunner> task_runner, std::shared_ptr<AudioRendererSink> sink);
+  AudioRenderer(std::shared_ptr<TaskRunner> task_runner,
+                std::shared_ptr<AudioRendererSink> sink);
 
   ~AudioRenderer() override;
 
   using InitCallback = std::function<void(bool success)>;
-  void Initialize(DemuxerStream *decoder_stream, std::shared_ptr<MediaClock> media_clock, InitCallback init_callback);
+  void Initialize(DemuxerStream *decoder_stream,
+                  std::shared_ptr<MediaClock> media_clock,
+                  InitCallback init_callback);
 
   void Start();
 
@@ -42,10 +44,10 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
 
   void Flush();
 
-  friend std::ostream &operator<<(std::ostream &os, const AudioRenderer &renderer);
+  friend std::ostream &operator<<(std::ostream &os,
+                                  const AudioRenderer &renderer);
 
  private:
-
   std::shared_ptr<TaskRunner> task_runner_;
   DemuxerStream *demuxer_stream_ = nullptr;
 
@@ -74,8 +76,7 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>, public
   bool NeedReadStream();
 
   DELETE_COPY_AND_ASSIGN(AudioRenderer);
-
 };
 
-}
-#endif //MEDIA_PLAYER_SRC_AUDIO_RENDERER_H_
+}  // namespace media
+#endif  // MEDIA_PLAYER_SRC_AUDIO_RENDERER_H_

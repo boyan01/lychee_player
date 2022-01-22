@@ -5,9 +5,8 @@
 #ifndef MEDIA_PLAYER_SOURCE_DATA_SOURCE_H_
 #define MEDIA_PLAYER_SOURCE_DATA_SOURCE_H_
 
-#include "functional"
-
 #include "base/basictypes.h"
+#include "functional"
 
 namespace media {
 
@@ -23,9 +22,7 @@ class DataSource {
   // Reads |size| bytes from |position| into |data|. And when the read is done
   // or failed, |read_cb| is called with the number of bytes read or
   // kReadError in case of error.
-  virtual void Read(int64_t position,
-                    int size,
-                    uint8_t *data,
+  virtual void Read(int64_t position, int size, uint8_t *data,
                     DataSource::ReadCB read_cb) = 0;
 
   // Stops the DataSource. Once this is called all future Read() calls will
@@ -50,9 +47,7 @@ class DataSource {
   virtual void SetBitrate(int bitrate) = 0;
 
   // Assume fully buffered by default.
-  virtual bool AssumeFullyBuffered() const {
-    return true;
-  }
+  virtual bool AssumeFullyBuffered() const { return true; }
 
   // By default this just returns GetSize().
   virtual int64_t GetMemoryUsage() {
@@ -64,6 +59,6 @@ class DataSource {
   DELETE_COPY_AND_ASSIGN(DataSource);
 };
 
-} // namespace media
+}  // namespace media
 
-#endif //MEDIA_PLAYER_SOURCE_DATA_SOURCE_H_
+#endif  // MEDIA_PLAYER_SOURCE_DATA_SOURCE_H_

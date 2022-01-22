@@ -5,17 +5,15 @@
 #ifndef MEDIA_SDL_SDL_AUDIO_RENDERER_SINK_H_
 #define MEDIA_SDL_SDL_AUDIO_RENDERER_SINK_H_
 
-#include "audio_renderer_sink.h"
-
 #include "SDL2/SDL.h"
+#include "audio_renderer_sink.h"
 
 namespace media {
 
 class SdlAudioRendererSink : public AudioRendererSink {
-
  public:
-
-  void Initialize(int wanted_nb_channels, int wanted_sample_rate, RenderCallback *render_callback) override;
+  void Initialize(int wanted_nb_channels, int wanted_sample_rate,
+                  RenderCallback *render_callback) override;
 
   bool SetVolume(double volume) override;
 
@@ -25,7 +23,6 @@ class SdlAudioRendererSink : public AudioRendererSink {
   ~SdlAudioRendererSink() override;
 
  private:
-
   RenderCallback *render_callback_;
 
   SDL_AudioDeviceID audio_device_id_;
@@ -36,9 +33,8 @@ class SdlAudioRendererSink : public AudioRendererSink {
   int OpenAudioDevices(int wanted_nb_channels, int wanted_sample_rate);
 
   void ReadAudioData(Uint8 *stream, int len);
-
 };
 
-}
+}  // namespace media
 
-#endif //MEDIA_SDL_SDL_AUDIO_RENDERER_SINK_H_
+#endif  // MEDIA_SDL_SDL_AUDIO_RENDERER_SINK_H_

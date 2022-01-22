@@ -2,9 +2,10 @@
 // Created by boyan on 2021/3/27.
 //
 
+#include "base/logging.h"
+
 #include <iomanip>
 #include <iostream>
-#include "base/logging.h"
 
 #if defined(__ANDROID__)
 #include "android/log.h"
@@ -63,7 +64,7 @@ LogMessage::LogMessage(const char *file, int line, LogSeverity severity,
 LogMessage::~LogMessage() {
   // TODO(port): enable stacktrace generation on LOG_FATAL once backtrace are
   // working in Android.
-#if  !defined(NDEBUG) && !defined(OS_ANDROID) && !defined(OS_NACL)
+#if !defined(NDEBUG) && !defined(OS_ANDROID) && !defined(OS_NACL)
   if (severity_ == LOG_FATAL) {
     // add stack trace to stream.
   }
@@ -78,14 +79,18 @@ LogMessage::~LogMessage() {
 #elif defined(__ANDROID__)
     android_LogPriority priority = ANDROID_LOG_UNKNOWN;
     switch (severity_) {
-      case LOG_INFO:priority = ANDROID_LOG_INFO;
+      case LOG_INFO:
+        priority = ANDROID_LOG_INFO;
         break;
-      case LOG_WARNING:priority = ANDROID_LOG_WARN;
+      case LOG_WARNING:
+        priority = ANDROID_LOG_WARN;
         break;
       case LOG_ERROR:
-      case LOG_ERROR_REPORT:priority = ANDROID_LOG_ERROR;
+      case LOG_ERROR_REPORT:
+        priority = ANDROID_LOG_ERROR;
         break;
-      case LOG_FATAL:priority = ANDROID_LOG_FATAL;
+      case LOG_FATAL:
+        priority = ANDROID_LOG_FATAL;
         break;
     }
     __android_log_write(priority, "media_player", str_newline.c_str());
@@ -98,13 +103,11 @@ LogMessage::~LogMessage() {
     // problems with unit tests, especially on the buildbots.
     fprintf(stderr, "%s", str_newline.c_str());
     fflush(stderr);
-
   }
 
   if (severity_ >= LOG_FATAL) {
     abort();
   }
-
 }
 
 // writes the common header info to the stream
@@ -129,14 +132,10 @@ void LogMessage::Init(const char *file, int line) {
     localtime_r(&t, &local_time);
 #endif
     struct tm *tm_time = &local_time;
-    stream_ << std::setfill('0')
-            << std::setw(2) << 1 + tm_time->tm_mon
-            << std::setw(2) << tm_time->tm_mday
-            << '/'
-            << std::setw(2) << tm_time->tm_hour
-            << std::setw(2) << tm_time->tm_min
-            << std::setw(2) << tm_time->tm_sec
-            << ':';
+    stream_ << std::setfill('0') << std::setw(2) << 1 + tm_time->tm_mon
+            << std::setw(2) << tm_time->tm_mday << '/' << std::setw(2)
+            << tm_time->tm_hour << std::setw(2) << tm_time->tm_min
+            << std::setw(2) << tm_time->tm_sec << ':';
   }
   if (severity_ >= 0)
     stream_ << log_severity_names[severity_];
@@ -144,37 +143,33 @@ void LogMessage::Init(const char *file, int line) {
     stream_ << "VERBOSE" << -severity_;
 
   stream_ << " " << filename << ":" << line << "] ";
-
 }
 
-int GetMinLogLevel() {
-  return min_log_level;
-}
+int GetMinLogLevel() { return min_log_level; }
 
 MethodTimeTracingObject::~MethodTimeTracingObject() {
   auto duration = chrono::system_clock::now() - start_time_;
   if (duration > expected_duration_) {
     std::cout << location_.ToShortString()
-              << " method out of time. expected: "
-              << expected_duration_.count() << " ms, but "
-              << chrono::duration_cast<chrono::milliseconds>(duration).count() << " ms. "
-              << stream_.str() << std::endl;
+              << " method out of time. expected: " << expected_duration_.count()
+              << " ms, but "
+              << chrono::duration_cast<chrono::milliseconds>(duration).count()
+              << " ms. " << stream_.str() << std::endl;
   }
-
 }
 
 MethodTimeTracingObject::MethodTimeTracingObject(
     chrono::milliseconds expect_max_duration,
-    media::tracked_objects::Location location
-) : expected_duration_(expect_max_duration),
-    start_time_(chrono::system_clock::now()),
-    location_(location) {
-}
+    media::tracked_objects::Location location)
+    : expected_duration_(expect_max_duration),
+      start_time_(chrono::system_clock::now()),
+      location_(location) {}
 
-MethodTimeTracingObject::MethodTimeTracingObject(MethodTimeTracingObject const &object) {
+MethodTimeTracingObject::MethodTimeTracingObject(
+    MethodTimeTracingObject const &object) {
   expected_duration_ = object.expected_duration_;
   start_time_ = object.start_time_;
   location_ = object.location_;
 }
 
-}
+}  // namespace logging

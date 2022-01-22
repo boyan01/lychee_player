@@ -24,13 +24,9 @@ bool TimeTicks::operator!=(const TimeTicks &rhs) const {
   return us_ != rhs.us_;
 }
 
-bool TimeTicks::operator<(const TimeTicks &rhs) const {
-  return us_ < rhs.us_;
-}
+bool TimeTicks::operator<(const TimeTicks &rhs) const { return us_ < rhs.us_; }
 
-bool TimeTicks::operator>(const TimeTicks &rhs) const {
-  return us_ > rhs.us_;
-}
+bool TimeTicks::operator>(const TimeTicks &rhs) const { return us_ > rhs.us_; }
 
 bool TimeTicks::operator<=(const TimeTicks &rhs) const {
   return us_ <= rhs.us_;
@@ -48,4 +44,4 @@ TimeDelta TimeTicks::operator-(const TimeTicks &time_ticks) const {
   return TimeDelta::FromMicroseconds(us_ - time_ticks.us_);
 }
 
-}
+}  // namespace media

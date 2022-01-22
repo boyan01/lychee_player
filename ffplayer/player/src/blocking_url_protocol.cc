@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "blocking_url_protocol.h"
 
 #include <utility>
 
 #include "base/logging.h"
-
 #include "data_source.h"
-#include "blocking_url_protocol.h"
 
 namespace media {
 
@@ -29,7 +28,6 @@ void BlockingUrlProtocol::Abort() {
   aborted_ = true;
   read_condition_.notify_one();
   data_source_ = nullptr;
-
 }
 
 int BlockingUrlProtocol::Read(int size, uint8_t *data) {
@@ -43,10 +41,8 @@ int BlockingUrlProtocol::Read(int size, uint8_t *data) {
 
     // Not sure this can happen, but it's unclear from the ffmpeg code, so guard
     // against it.
-    if (size < 0)
-      return AVERROR(EIO);
-    if (!size)
-      return 0;
+    if (size < 0) return AVERROR(EIO);
+    if (!size) return 0;
 
     int64_t file_size;
     if (data_source_->GetSize(&file_size) && read_position_ >= file_size)
@@ -55,21 +51,17 @@ int BlockingUrlProtocol::Read(int size, uint8_t *data) {
     // Blocking read from data source until either:
     //   1) |last_read_bytes_| is set and |read_complete_| is signalled
     //   2) |aborted_| is signalled
-    data_source_->Read(read_position_, size, data, [this](int size) {
-      SignalReadCompleted(size);
-    });
+    data_source_->Read(read_position_, size, data,
+                       [this](int size) { SignalReadCompleted(size); });
   }
 
   {
     std::unique_lock<std::mutex> lock(data_source_lock_);
-    read_condition_.wait(lock, [this] {
-      return aborted_ || read_complete_;
-    });
+    read_condition_.wait(lock, [this] { return aborted_ || read_complete_; });
     read_complete_ = false;
   }
 
-  if (aborted_)
-    return AVERROR(EIO);
+  if (aborted_) return AVERROR(EIO);
 
   if (last_read_bytes_ == DataSource::kReadError) {
     aborted_ = true;
@@ -77,8 +69,7 @@ int BlockingUrlProtocol::Read(int size, uint8_t *data) {
     return AVERROR(EIO);
   }
 
-  if (last_read_bytes_ == DataSource::kAborted)
-    return AVERROR(EIO);
+  if (last_read_bytes_ == DataSource::kAborted) return AVERROR(EIO);
 
   read_position_ += last_read_bytes_;
   return last_read_bytes_;
@@ -108,9 +99,7 @@ bool BlockingUrlProtocol::GetSize(int64_t *size_out) {
   return data_source_ ? data_source_->GetSize(size_out) : 0;
 }
 
-bool BlockingUrlProtocol::IsStreaming() {
-  return is_streaming_;
-}
+bool BlockingUrlProtocol::IsStreaming() { return is_streaming_; }
 
 void BlockingUrlProtocol::SignalReadCompleted(int size) {
   last_read_bytes_ = size;
