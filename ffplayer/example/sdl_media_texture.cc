@@ -39,7 +39,7 @@ void SdlMediaTexture::MaybeInitPixelBuffer(int width, int height) {
   if (SDL_LockTexture(texture_, nullptr, &pixels, &pitch) < 0) {
     NOTREACHED();
   }
-  memset(pixels, 0, pitch * height);
+  SDL_memset(pixels, 0, pitch * height);
   SDL_UnlockTexture(texture_);
 
 }

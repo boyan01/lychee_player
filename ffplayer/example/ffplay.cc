@@ -27,7 +27,7 @@
 #define AudioRendererSinkImpl SdlAudioRendererSink
 #else
 #include "sdl_audio_renderer_sink.h"
-#define AudioRendererSinkImpl WasapiAudioRenderSink
+#define AudioRendererSinkImpl SdlAudioRendererSink
 #endif
 
 extern "C" {
