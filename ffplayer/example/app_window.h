@@ -5,6 +5,8 @@
 #ifndef MEDIA_EXAMPLE_APP_WINDOW_H_
 #define MEDIA_EXAMPLE_APP_WINDOW_H_
 
+#include <memory>
+
 extern "C" {
 #include "SDL2/SDL.h"
 }

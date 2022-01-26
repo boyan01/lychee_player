@@ -5,8 +5,8 @@
 #include "base/utility.h"
 
 #if WIN32
-#include <Windows.h>
-#include <processthreadsapi.h>
+#include "windows.h"
+#include "processthreadsapi.h"
 
 #include <string>
 #else
@@ -17,7 +17,7 @@ namespace media {
 namespace utility {
 
 void update_thread_name(const char *name) {
-#if __linux__ || __ANDROID__
+#if __linux__ || __ANDROID__ || __MINGW32__
   pthread_setname_np(pthread_self(), name);
 #elif WIN32
   int ret =

@@ -126,7 +126,7 @@ void LogMessage::Init(const char *file, int line) {
   {
     time_t t = time(nullptr);
     struct tm local_time = {0};
-#if _MSC_VER >= 1400
+#if _MSC_VER >= 1400 || __MINGW32__
     localtime_s(&local_time, &t);
 #else
     localtime_r(&t, &local_time);

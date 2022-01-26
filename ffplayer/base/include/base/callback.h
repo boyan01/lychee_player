@@ -5,6 +5,8 @@
 #ifndef MEDIA_BASE_BASE_CALLBACK_H_
 #define MEDIA_BASE_BASE_CALLBACK_H_
 
+#include <functional>
+
 namespace media {
 
 template <typename Signature>

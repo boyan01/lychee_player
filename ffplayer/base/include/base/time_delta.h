@@ -8,6 +8,12 @@
 #include <cstdint>
 #include <limits>
 #include <ostream>
+#include <numeric>
+
+#if WIN32
+#undef max
+#undef min
+#endif
 
 #include "base/logging.h"
 
