@@ -256,13 +256,23 @@ void MediaPlayer::Seek(TimeDelta position) {
     DLOG(WARNING) << "invalid seek position: " << position.InSecondsF();
     return;
   }
-  task_runner_.PostTask(FROM_HERE, [&, position]() {
-    ChangePlaybackState(MediaPlayerState::BUFFERING);
-    demuxer_->AbortPendingReads();
-    demuxer_->SeekTo(position,
-                     BindToCurrentLoop(bind_weak(&MediaPlayer::OnSeekCompleted,
-                                                 shared_from_this())));
-  });
+  task_runner_.PostTask(FROM_HERE,
+                        [this, position] { SeekInternal(position); });
+}
+
+void MediaPlayer::SeekInternal(TimeDelta position) {
+  DCHECK(task_runner_.BelongsToCurrentThread());
+  ChangePlaybackState(MediaPlayerState::BUFFERING);
+  demuxer_->AbortPendingReads();
+  if (video_renderer_) {
+    video_renderer_->Flush();
+  }
+  if (audio_renderer_) {
+    audio_renderer_->Flush();
+  }
+  demuxer_->SeekTo(position,
+                   BindToCurrentLoop(bind_weak(&MediaPlayer::OnSeekCompleted,
+                                               shared_from_this())));
 }
 
 void MediaPlayer::GlobalInit() {
@@ -354,10 +364,10 @@ void MediaPlayer::OnSeekCompleted(bool succeed) {
     return;
   }
   if (audio_renderer_) {
-    audio_renderer_->Flush();
+    audio_renderer_->MarkStatePlaying();
   }
   if (video_renderer_) {
-    video_renderer_->Flush();
+    video_renderer_->MarkStatePlaying();
   }
 }
 

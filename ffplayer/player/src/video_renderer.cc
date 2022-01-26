@@ -103,6 +103,7 @@ void VideoRenderer::Stop() {
 }
 
 std::shared_ptr<VideoFrame> VideoRenderer::Render(TimeDelta &next_frame_delay) {
+  std::lock_guard<std::mutex> lock(_render_mutex);
   next_frame_delay = kDefaultVideoRenderDelay;
   TRACE_METHOD_DURATION(2);
 
@@ -176,15 +177,20 @@ double VideoRenderer::GetDrawingClock() {
 
 void VideoRenderer::Flush() {
   DCHECK(media_task_runner_.BelongsToCurrentThread());
+  std::lock_guard<std::mutex> lock(_render_mutex);
   if (state_ == kFlushing || state_ == kUnInitialized) {
     DLOG(INFO) << "abort video renderer flush, current state: " << state_;
     return;
   }
-  bool playing = state_ == kPlaying;
   state_ = kFlushing;
   decoder_stream_->Flush();
   ready_frames_.clear();
-  state_ = playing ? kPlaying : kFlushed;
+  state_ = kFlushed;
+}
+
+void VideoRenderer::MarkStatePlaying() {
+  std::lock_guard<std::mutex> lock(_render_mutex);
+  state_ = kPlaying;
 }
 
 std::ostream &operator<<(std::ostream &os, const VideoRenderer &renderer) {

@@ -147,7 +147,7 @@ int DecoderStream<StreamType>::GetMaxDecodeRequests() {
 
 template <DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::Flush() {
-  decoder_->Flush();
+  task_runner_->PostTask(FROM_HERE, [this] { decoder_->Flush(); });
   outputs_.clear();
 }
 

@@ -94,6 +94,10 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
   DCHECK_GT(len, 0);
   DCHECK(stream);
 
+  if (state_ != kPlaying) {
+    return 0;
+  }
+
   double audio_clock_time = 0;
   auto render_callback_time = av_gettime_relative() / 1000000.0;
 
@@ -136,9 +140,15 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
 
 void AudioRenderer::OnRenderError() {}
 
-void AudioRenderer::Start() { sink_->Play(); }
+void AudioRenderer::Start() {
+  state_ = kPlaying;
+  sink_->Play();
+}
 
-void AudioRenderer::Stop() { sink_->Pause(); }
+void AudioRenderer::Stop() {
+  state_ = kStopped;
+  sink_->Pause();
+}
 
 bool AudioRenderer::NeedReadStream() {
   // FIXME temp solution.
@@ -156,6 +166,12 @@ void AudioRenderer::Flush() {
   std::lock_guard<std::mutex> auto_lock(mutex_);
   audio_buffer_.clear();
   decoder_stream_->Flush();
+  state_ = kFlushed;
+}
+
+void AudioRenderer::MarkStatePlaying() {
+  std::lock_guard<std::mutex> auto_lock(mutex_);
+  state_ = kPlaying;
 }
 
 std::ostream &operator<<(std::ostream &os, const AudioRenderer &renderer) {

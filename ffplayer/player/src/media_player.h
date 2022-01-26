@@ -82,6 +82,8 @@ class MediaPlayer : public std::enable_shared_from_this<MediaPlayer>,
 
   void OnAudioRendererInitialized(bool success);
 
+  void SeekInternal(TimeDelta position);
+
  public:
   void SetDuration(double duration) override;
   void OnDemuxerError(PipelineStatus error) override;

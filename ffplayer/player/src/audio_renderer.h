@@ -44,10 +44,22 @@ class AudioRenderer : public std::enable_shared_from_this<AudioRenderer>,
 
   void Flush();
 
+  void MarkStatePlaying();
+
   friend std::ostream &operator<<(std::ostream &os,
                                   const AudioRenderer &renderer);
 
  private:
+  enum State {
+    kUnInitialized,
+    kInitializing,
+    kFlushed,
+    kPlaying,
+    kStopped
+  };
+
+  State state_ = kUnInitialized;
+
   std::shared_ptr<TaskRunner> task_runner_;
   DemuxerStream *demuxer_stream_ = nullptr;
 

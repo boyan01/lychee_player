@@ -511,8 +511,7 @@ void Demuxer::SeekTo(TimeDelta position, SeekCallback seek_callback) {
   pending_seek_position_ = position;
   seek_callback_ = std::move(seek_callback);
 
-  task_runner_.PostTask(FROM_HERE, kSeekTaskId,
-                        std::bind(&Demuxer::SeekTask, this));
+  task_runner_.PostTask(FROM_HERE, kSeekTaskId, [this] { SeekTask(); });
   seek_mutex_.unlock();
 }
 

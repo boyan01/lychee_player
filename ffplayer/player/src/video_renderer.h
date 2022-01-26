@@ -42,6 +42,8 @@ class VideoRenderer : public VideoRendererSink::RenderCallback,
 
   void Flush();
 
+  void MarkStatePlaying();
+
   friend std::ostream &operator<<(std::ostream &os,
                                   const VideoRenderer &renderer);
 
@@ -61,6 +63,8 @@ class VideoRenderer : public VideoRendererSink::RenderCallback,
   std::shared_ptr<MediaClock> media_clock_;
 
   InitCallback init_callback_;
+
+  std::mutex _render_mutex;
 
   int frame_drop_count_ = 0;
 
