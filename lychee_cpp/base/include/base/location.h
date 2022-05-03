@@ -10,9 +10,7 @@
 
 #include <string>
 
-namespace media {
-
-namespace tracked_objects {
+namespace media::tracked_objects {
 
 // Location provides basic info where of an object was constructed, or was
 // significantly brought to life.
@@ -66,7 +64,6 @@ const void *GetProgramCounter();
       function_name, __FILE__, __LINE__,                \
       ::media::tracked_objects::GetProgramCounter())
 
-}  // namespace tracked_objects
 }  // namespace media
 
 #endif  // MEDIA_BASE_LOCATION_H_

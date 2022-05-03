@@ -7,7 +7,7 @@
 #include "base/logging.h"
 #include "ffmpeg_utils.h"
 
-namespace media {
+namespace lychee {
 
 FFmpegDecodingLoop::FFmpegDecodingLoop(AVCodecContext *context,
                                        bool continue_on_decoding_errors)

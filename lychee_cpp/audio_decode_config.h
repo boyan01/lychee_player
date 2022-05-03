@@ -9,7 +9,7 @@ extern "C" {
 #include "libavformat/avformat.h"
 }
 
-namespace media {
+namespace lychee {
 
 class AudioDecodeConfig {
  public:

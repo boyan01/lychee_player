@@ -7,7 +7,7 @@
 
 #include "base/basictypes.h"
 
-namespace media {
+namespace lychee {
 
 class AudioBuffer {
  public:

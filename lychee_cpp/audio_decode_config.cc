@@ -4,4 +4,4 @@
 
 #include "audio_decode_config.h"
 
-namespace media {}
+namespace lychee {}

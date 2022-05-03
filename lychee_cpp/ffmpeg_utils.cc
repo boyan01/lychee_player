@@ -7,8 +7,7 @@
 #include "base/channel_layout.h"
 #include "base/logging.h"
 
-namespace media {
-namespace ffmpeg {
+namespace lychee::ffmpeg {
 
 static const AVRational kMicrosBase = {1, 1000000};
 
@@ -21,16 +20,16 @@ int64 ConvertToTimeBase(const AVRational &time_base,
   return av_rescale_q(timestamp.InMicroseconds(), kMicrosBase, time_base);
 }
 
-std::unique_ptr<AVCodecContext, AVCodecContextDeleter> AVStreamToAVCodecContext(
-    const AVStream *stream) {
-  std::unique_ptr<AVCodecContext, AVCodecContextDeleter> codec_context(
-      avcodec_alloc_context3(nullptr));
-  if (avcodec_parameters_to_context(codec_context.get(), stream->codecpar) <
-      0) {
-    return nullptr;
-  }
-  return codec_context;
-}
+//std::unique_ptr<AVCodecContext, AVCodecContextDeleter> AVStreamToAVCodecContext(
+//    const AVStream *stream) {
+//  std::unique_ptr<AVCodecContext, AVCodecContextDeleter> codec_context(
+//      avcodec_alloc_context3(nullptr));
+//  if (avcodec_parameters_to_context(codec_context.get(), stream->codecpar) <
+//      0) {
+//    return nullptr;
+//  }
+//  return codec_context;
+//}
 
 std::string AVErrorToString(int err_num) {
   char err_buf[AV_ERROR_MAX_STRING_SIZE] = {0};
@@ -54,7 +53,5 @@ int ReadFrameAndDiscardEmpty(AVFormatContext *context, AVPacket *packet) {
 
   return result;
 }
-
-}  // namespace ffmpeg
 
 }  // namespace media

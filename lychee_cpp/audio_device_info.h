@@ -11,7 +11,7 @@ extern "C" {
 #include "libavformat/avformat.h"
 }
 
-namespace media {
+namespace lychee {
 
 struct AudioDeviceInfo {
   // sample rate.

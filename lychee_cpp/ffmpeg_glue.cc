@@ -7,7 +7,7 @@
 #include "base/logging.h"
 #include "vector"
 
-namespace media {
+namespace lychee {
 
 // Internal buffer size used by AVIO for reading.
 // TODO(dalecurtis): Experiment with this buffer size and measure impact on

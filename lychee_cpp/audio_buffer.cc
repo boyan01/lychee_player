@@ -7,7 +7,7 @@
 #include "base/logging.h"
 #include "cstring"
 
-namespace media {
+namespace lychee {
 
 #define MAX_AUDIO_VOLUME 100
 #define ADJUST_VOLUME(s, v) (s = (s * v) / MAX_AUDIO_VOLUME)

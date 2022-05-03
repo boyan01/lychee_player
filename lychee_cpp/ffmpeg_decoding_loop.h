@@ -9,7 +9,7 @@
 #include "ffmpeg_deleters.h"
 #include "functional"
 
-namespace media {
+namespace lychee {
 
 class FFmpegDecodingLoop {
  public:

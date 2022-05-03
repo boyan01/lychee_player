@@ -19,9 +19,8 @@ extern "C" {
 #include "audio_decode_config.h"
 #include "decoder_buffer.h"
 #include "decoder_buffer_queue.h"
-#include "video_decode_config.h"
 
-namespace media {
+namespace lychee {
 
 class Demuxer;
 
@@ -37,14 +36,15 @@ class DemuxerStream {
   };
 
   DemuxerStream(AVStream *stream, Demuxer *demuxer, Type type,
-                std::unique_ptr<AudioDecodeConfig> audio_decode_config,
-                std::unique_ptr<VideoDecodeConfig> video_decode_config);
+                std::unique_ptr<AudioDecodeConfig> audio_decode_config);
 
-  static std::shared_ptr<DemuxerStream> Create(media::Demuxer *demuxer,
-                                               AVStream *stream,
-                                               AVFormatContext *format_context);
+  static std::shared_ptr<DemuxerStream> Create(
+      Demuxer *demuxer,
+      AVStream *stream,
+      AVFormatContext *format_context
+  );
 
-  AVStream *stream() const { return stream_; }
+  [[nodiscard]] AVStream *stream() const { return stream_; }
 
   using ReadCallback = std::function<void(std::shared_ptr<DecoderBuffer>)>;
   void Read(ReadCallback read_callback);
@@ -54,8 +54,6 @@ class DemuxerStream {
   Type type() { return type_; }
 
   AudioDecodeConfig audio_decode_config();
-
-  VideoDecodeConfig video_decode_config();
 
   double duration();
 
@@ -83,12 +81,11 @@ class DemuxerStream {
   Demuxer *demuxer_;
   AVStream *stream_;
   std::unique_ptr<AudioDecodeConfig> audio_decode_config_;
-  std::unique_ptr<VideoDecodeConfig> video_decode_config_;
   Type type_;
 
   std::shared_ptr<DecoderBufferQueue> buffer_queue_;
 
-  TaskRunner task_runner_;
+  media::TaskRunner task_runner_;
   bool end_of_stream_;
 
   int64 last_packet_pos_;

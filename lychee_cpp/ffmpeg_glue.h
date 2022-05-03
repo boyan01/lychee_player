@@ -29,7 +29,7 @@
 struct AVFormatContext;
 struct AVIOContext;
 
-namespace media {
+namespace lychee {
 
 class FFmpegURLProtocol {
  public:
