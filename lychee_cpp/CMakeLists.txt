@@ -19,14 +19,14 @@ add_library("lychee_player"
   demuxer.cc demuxer.h
   ffmpeg_utils.cc ffmpeg_utils.h
   demuxer_stream.cc demuxer_stream.h
-  audio_decode_config.h audio_decode_config.cc
-  decoder_buffer_queue.cc decoder_buffer_queue.h
+  audio_decode_config.h
+        decoder_buffer_queue.cc decoder_buffer_queue.h
   decoder_buffer.cc decoder_buffer.h
   audio_decoder.cc audio_decoder.h
   audio_buffer.h audio_buffer.cc
   ffmpeg_decoding_loop.h ffmpeg_decoding_loop.cc
   ffmpeg_glue.h ffmpeg_glue.cc
-  audio_device_info.cc audio_device_info.h
+        audio_device_info.h
   )
 
 add_subdirectory(base)
