@@ -38,17 +38,20 @@ double ExtractStartTime(AVStream *stream) {
 
 Demuxer::Demuxer(
     const media::TaskRunner &task_runner,
-    std::string url
+    std::string url,
+    DemuxerHost *demuxer_host
 ) : task_runner_(task_runner),
     url_(std::move(url)),
     format_context_(nullptr),
     abort_request_(false),
-    audio_stream_() {
+    audio_stream_(),
+    host_(demuxer_host) {
 
 }
 
-void Demuxer::Initialize() {
-  task_runner_.PostTask(FROM_HERE, [this]() {
+void Demuxer::Initialize(InitializeCallback callback) {
+  initialize_callback_ = std::move(callback);
+  task_runner_.PostTask(FROM_HERE, [&]() {
     format_context_ = avformat_alloc_context();
     format_context_->interrupt_callback.opaque = this;
     format_context_->interrupt_callback.callback = [](void *opaque) -> int {
@@ -97,6 +100,9 @@ void Demuxer::OnInitializeDone() {
   }
 
   // load stream complete.
+  if (initialize_callback_) {
+    initialize_callback_(audio_stream_);
+  }
 
 }
 
@@ -117,6 +123,10 @@ void Demuxer::DemuxTask() {
     return;
   }
   audio_stream_->EnqueuePacket(std::move(packet));
+
+  if (audio_stream_->HasAvailableCapacity()) {
+    host_->OnDemuxerHasEnoughData();
+  }
 
   task_runner_.PostTask(FROM_HERE_WITH_EXPLICIT_FUNCTION("DemuxTaskLoop"), [this]() {
     DemuxTask();

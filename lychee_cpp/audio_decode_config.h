@@ -21,25 +21,25 @@ class AudioDecodeConfig {
                              AVRational time_base)
       : codec_parameters_(codec_parameters), time_base_(time_base) {}
 
-  ~AudioDecodeConfig() {}
+  ~AudioDecodeConfig() = default;
 
-  AVCodecID CodecId() const { return codec_parameters_.codec_id; }
+  [[nodiscard]] AVCodecID CodecId() const { return codec_parameters_.codec_id; }
 
-  int bytes_per_channel() const { return codec_parameters_.frame_size; }
+  [[nodiscard]] int bytes_per_channel() const { return codec_parameters_.frame_size; }
 
-  uint64_t channel_layout() const { return codec_parameters_.channel_layout; }
+  [[nodiscard]] uint64_t channel_layout() const { return codec_parameters_.channel_layout; }
 
-  int channels() const { return codec_parameters_.channels; }
+  [[nodiscard]] int channels() const { return codec_parameters_.channels; }
 
-  int samples_per_second() const { return codec_parameters_.sample_rate; }
+  [[nodiscard]] int samples_per_second() const { return codec_parameters_.sample_rate; }
 
-  const AVCodecParameters &codec_parameters() const {
+  [[nodiscard]] const AVCodecParameters &codec_parameters() const {
     return codec_parameters_;
   }
 
-  AVRational time_base() const { return time_base_; }
+  [[nodiscard]] AVRational time_base() const { return time_base_; }
 
-  bool IsValidConfig() const { return true; }
+  [[nodiscard]] bool IsValidConfig() const { return true; }
 
  private:
   AVCodecParameters codec_parameters_;

@@ -45,7 +45,8 @@ DemuxerStream::DemuxerStream(
       buffer_queue_(std::make_shared<DecoderBufferQueue>()),
       end_of_stream_(false),
       waiting_for_key_frame_(false),
-      abort_(false) {}
+      abort_(false),
+      read_callback_(nullptr) {}
 
 AudioDecodeConfig DemuxerStream::audio_decode_config() {
   DCHECK_EQ(type_, Audio);
@@ -59,6 +60,7 @@ void DemuxerStream::EnqueuePacket(
   DCHECK(packet->data);
 
   const bool is_audio = type_ == Audio;
+  DCHECK(is_audio);
 
   auto packet_dts = packet->dts == AV_NOPTS_VALUE ? packet->pts : packet->dts;
 
@@ -130,13 +132,13 @@ bool DemuxerStream::HasAvailableCapacity() {
 }
 
 void DemuxerStream::Read(ReadCallback read_callback) {
-  DCHECK(!read_callback_) << "Overlapping reads are not supported.";
   task_runner_.PostTask(
       FROM_HERE, [this, capture0 = media::BindToCurrentLoop(
           std::move(read_callback))] { ReadTask(capture0); });
 }
 
 void DemuxerStream::ReadTask(DemuxerStream::ReadCallback read_callback) {
+  DCHECK(!read_callback_) << "Overlapping reads are not supported.";
   DCHECK(task_runner_.BelongsToCurrentThread());
   read_callback_ = std::move(read_callback);
   if (!stream_ || abort_) {

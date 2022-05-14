@@ -24,23 +24,27 @@ class AudioBuffer {
    */
   int Read(uint8 *dest, int size, double volume);
 
-  int size() const { return size_; }
+  [[nodiscard]] int size() const { return size_; }
 
   /**
    * Presentation timestamp. Could be NAN.
    */
-  double pts() const { return pts_; }
+  [[nodiscard]] double pts() const { return pts_; }
 
   /**
    * @return true if all data has been read by [Read].
    */
-  bool IsConsumed() const { return size_ == read_cursor_; }
+  [[nodiscard]] bool IsConsumed() const { return size_ == read_cursor_; }
 
   /**
    * The presentation time of start of cursor.
    */
-  double PtsFromCursor() const {
+  [[nodiscard]] double PtsFromCursor() const {
     return pts_ + double(read_cursor_) / bytes_per_sec_;
+  }
+
+  [[nodiscard]] double DurationFromCursor() const {
+    return double(size_ - read_cursor_) / bytes_per_sec_;
   }
 
  private:

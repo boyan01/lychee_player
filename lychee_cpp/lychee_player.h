@@ -8,6 +8,10 @@
 #include <string>
 #include <memory>
 
+#include "demuxer.h"
+#include "audio_decoder.h"
+#include "audio_renderer.h"
+
 namespace lychee {
 
 class LycheePlayer;
@@ -21,13 +25,13 @@ class PlayerCallback {
 
 };
 
-class LycheePlayer {
+class LycheePlayer : public DemuxerHost, public AudioRendererHost {
 
  public:
 
   static void GlobalInit();
 
-  explicit LycheePlayer(std::string path);
+  explicit LycheePlayer(const std::string &path);
 
   ~LycheePlayer();
 
@@ -39,8 +43,27 @@ class LycheePlayer {
 
   void SetPlayerCallback(std::unique_ptr<PlayerCallback> callback);
 
+  void OnDemuxerHasEnoughData() override;
+
+  void OnDemuxerBuffering(double progress) override;
+
+  void OnAudioRendererEnded() override;
+  void OnAudioRendererNeedMoreData() override;
+
  private:
   std::unique_ptr<PlayerCallback> callback_;
+
+  std::unique_ptr<Demuxer> demuxer_;
+  std::unique_ptr<AudioDecoder> audio_decoder_;
+  std::shared_ptr<AudioRenderer> audio_renderer_;
+
+  media::TaskRunner task_runner_;
+
+  bool initialized_;
+
+  bool play_when_ready_;
+
+  void Initialize();
 };
 
 } // lychee

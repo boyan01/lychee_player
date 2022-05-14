@@ -17,13 +17,24 @@ extern "C" {
 
 namespace lychee {
 
+class DemuxerHost {
+
+ public:
+
+  virtual void OnDemuxerBuffering(double progress) = 0;
+
+  virtual void OnDemuxerHasEnoughData() = 0;
+
+};
+
 class Demuxer {
 
  public:
 
-  Demuxer(const media::TaskRunner &task_runner, std::string url);
+  Demuxer(const media::TaskRunner &task_runner, std::string url, DemuxerHost* host);
 
-  void Initialize();
+  using InitializeCallback = std::function<void(std::shared_ptr<DemuxerStream>)>;
+  void Initialize(InitializeCallback callback);
 
   void NotifyCapacityAvailable();
 
@@ -37,6 +48,10 @@ class Demuxer {
   bool abort_request_;
 
   std::shared_ptr<DemuxerStream> audio_stream_;
+
+  InitializeCallback initialize_callback_;
+
+  DemuxerHost* host_;
 
   void OnInitializeDone();
 
