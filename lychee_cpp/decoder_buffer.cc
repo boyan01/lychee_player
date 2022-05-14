@@ -9,8 +9,8 @@
 namespace lychee {
 
 // static
-std::shared_ptr<DecoderBuffer> DecoderBuffer::CreateEOSBuffer() {
-  return std::make_shared<DecoderBuffer>(nullptr, -1);
+std::shared_ptr<DecoderBuffer> DecoderBuffer::CreateEOSBuffer(int64_t serial) {
+  return std::make_shared<DecoderBuffer>(nullptr, serial);
 }
 
 DecoderBuffer::DecoderBuffer(

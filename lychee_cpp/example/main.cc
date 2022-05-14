@@ -48,7 +48,7 @@ int main() {
       FROM_HERE,
       media::TimeDelta::FromSeconds(5),
       [&player]() {
-        player->Seek(95);
+        player->Seek(200);
       }
   );
 

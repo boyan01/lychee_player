@@ -15,7 +15,7 @@ class DecoderBuffer {
  public:
   explicit DecoderBuffer(std::unique_ptr<AVPacket, AVPacketDeleter> av_packet, int64_t serial);
 
-  static std::shared_ptr<DecoderBuffer> CreateEOSBuffer();
+  static std::shared_ptr<DecoderBuffer> CreateEOSBuffer(int64_t serial);
 
   size_t data_size();
 

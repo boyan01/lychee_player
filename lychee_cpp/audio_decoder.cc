@@ -78,7 +78,7 @@ void AudioDecoder::Decode(const std::shared_ptr<DecoderBuffer> &decoder_buffer) 
   DCHECK(ffmpeg_decoding_loop_);
 
   if (decoder_buffer->end_of_stream()) {
-    onEndOfStream();
+    onEndOfStream(decoder_buffer->serial());
     return;
   }
 
@@ -106,8 +106,8 @@ void AudioDecoder::Decode(const std::shared_ptr<DecoderBuffer> &decoder_buffer) 
   }
 }
 
-void AudioDecoder::onEndOfStream() {
-  output_callback_(std::make_shared<AudioBuffer>(nullptr, 0, 0, 0, true, 0));
+void AudioDecoder::onEndOfStream(int64_t serial) {
+  output_callback_(std::make_shared<AudioBuffer>(nullptr, 0, 0, 0, true, serial));
 }
 
 bool AudioDecoder::OnFrameAvailable(AVFrame *frame, int64_t serial) {

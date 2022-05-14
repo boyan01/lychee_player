@@ -104,7 +104,7 @@ void DemuxerStream::SatisfyPendingRead() {
   DCHECK(task_runner_.BelongsToCurrentThread());
   if (abort_) {
     if (read_callback_) {
-      read_callback_(DecoderBuffer::CreateEOSBuffer());
+      read_callback_(DecoderBuffer::CreateEOSBuffer(serial_));
       read_callback_ = nullptr;
     }
     return;
@@ -115,7 +115,7 @@ void DemuxerStream::SatisfyPendingRead() {
       read_callback_(buffer_queue_->Pop());
       read_callback_ = nullptr;
     } else if (end_of_stream_) {
-      read_callback_(DecoderBuffer::CreateEOSBuffer());
+      read_callback_(DecoderBuffer::CreateEOSBuffer(serial_));
       read_callback_ = nullptr;
     }
   }
@@ -143,7 +143,7 @@ void DemuxerStream::ReadTask(DemuxerStream::ReadCallback read_callback) {
   DCHECK(task_runner_.BelongsToCurrentThread());
   read_callback_ = std::move(read_callback);
   if (!stream_ || abort_) {
-    read_callback_(DecoderBuffer::CreateEOSBuffer());
+    read_callback_(DecoderBuffer::CreateEOSBuffer(serial_));
     read_callback_ = nullptr;
     return;
   }
@@ -169,7 +169,7 @@ void DemuxerStream::Stop() {
   end_of_stream_ = true;
 
   if (read_callback_) {
-    read_callback_(DecoderBuffer::CreateEOSBuffer());
+    read_callback_(DecoderBuffer::CreateEOSBuffer(serial_));
     read_callback_ = nullptr;
   }
 }

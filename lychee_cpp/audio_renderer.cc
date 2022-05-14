@@ -48,16 +48,19 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
     auto buffer = audio_buffer_.front();
     DCHECK(buffer);
 
-    if (buffer->serial() != host_->GetCurrentAudioStreamSerial()) {
-      // skip this buffer.
-      audio_buffer_.pop_front();
-      continue;
-    }
-
     if (buffer->isEnd()) {
+      DLOG(INFO) << "end audio buffer received";
       audio_buffer_.pop_front();
       ended_ = true;
       break;
+    }
+
+    if (buffer->serial() != host_->GetCurrentAudioStreamSerial()) {
+      // skip this buffer.
+      DLOG(INFO) << "skip this buffer. serial: " << buffer->serial() << ", current serial: "
+                 << host_->GetCurrentAudioStreamSerial();
+      audio_buffer_.pop_front();
+      continue;
     }
 
     if (audio_clock_time == 0 && !std::isnan(buffer->pts())) {

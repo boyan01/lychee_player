@@ -53,7 +53,7 @@ class AudioDecoder {
 
   bool OnFrameAvailable(AVFrame *frame, int64_t serial);
 
-  void onEndOfStream();
+  void onEndOfStream(int64_t serial);
 
   void Decode(const std::shared_ptr<DecoderBuffer> &decoder_buffer);
 
