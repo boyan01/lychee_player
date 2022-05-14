@@ -26,6 +26,7 @@ void PostMessageToDart(Dart_Port_DL send_port, int64_t what, int64_t arg1, int64
 
 void lychee_player_initialize_dart(void *native_port) {
   Dart_InitializeApiDL(native_port);
+  lychee::LycheePlayer::GlobalInit();
 }
 
 void *lychee_player_create(const char *file_path, int64_t send_port) {
@@ -58,6 +59,13 @@ double lychee_player_get_duration(void *player) {
     return 0;
   }
   return ((lychee::LycheePlayer *) player)->GetDuration();
+}
+
+void lychee_player_seek(void *player, double time) {
+  if (!player) {
+    return;
+  }
+  ((lychee::LycheePlayer *) player)->Seek(time);
 }
 
 

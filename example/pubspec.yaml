@@ -13,11 +13,10 @@ dependencies:
     sdk: flutter
   lychee_player:
     path: ../
-  sembast: ^3.0.0+4
-  overlay_support: ^1.2.0
-  permission_handler: ^6.1.1
-  path_provider: ^2.0.1
-  cupertino_icons: ^1.0.2
+  sembast: ^3.2.0
+  overlay_support: ^2.0.0
+  permission_handler: ^9.2.0
+  path_provider: ^2.0.10
 
 dev_dependencies:
   flutter_test:

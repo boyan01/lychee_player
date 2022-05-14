@@ -1,17 +1,12 @@
-import 'dart:ffi';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:lychee_player/lychee_player.dart';
-
-// ignore: implementation_imports
-import 'package:lychee_player/src/ffi_player.dart';
 import 'package:overlay_support/overlay_support.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import 'full_screen_player.dart';
 import 'stores.dart';
 import 'widgets/player_components.dart';
 
@@ -41,7 +36,7 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  AudioPlayer? player;
+  LycheeAudioPlayer? player;
   String? url;
 
   Map<String, PlayType> urls = <String, PlayType>{};
@@ -60,25 +55,18 @@ class _MyAppState extends State<MyApp> {
     if (player != null) {
       player!.dispose();
     }
-    final type = urls[uri!]!;
-    switch (type) {
-      case PlayType.file:
-        player = AudioPlayer.file(uri);
-        break;
-      case PlayType.url:
-        player = AudioPlayer.url(uri);
-        break;
-      case PlayType.asset:
-        player = AudioPlayer.asset(uri);
-        break;
-    }
+    player = LycheeAudioPlayer(uri!);
     this.url = uri;
-    player!.onStateChanged.addListener(() {
+    player!.state.addListener(() {
       debugPrint(
-          'state change: ${player!.status} playing: ${player!.isPlaying}');
+          'state change: ${player!.state.value} playing: ${player!.playWhenReady}');
+      if (player!.state.value == PlayerState.end) {
+        debugPrint('player end');
+        player!.seek(0);
+      }
     });
     player!.playWhenReady = true;
-    player!.volume = 20;
+    // player!.volume = 20;
   }
 
   @override
@@ -119,8 +107,7 @@ class _MyAppState extends State<MyApp> {
           }),
           body: Column(
             children: [
-              SmallVideo(player: player),
-              _PlayerUi(player: player, url: this.url),
+              _PlayerUi(player: player!, url: this.url),
               Expanded(
                   child: ListView(
                 children: [
@@ -136,7 +123,7 @@ class _MyAppState extends State<MyApp> {
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
     super.debugFillProperties(properties);
     properties
-      ..add(DiagnosticsProperty<AudioPlayer?>('player', player))
+      ..add(DiagnosticsProperty<LycheeAudioPlayer?>('player', player))
       ..add(StringProperty('url', url))
       ..add(DiagnosticsProperty<Map<String, PlayType>>('urls', urls));
   }
@@ -152,11 +139,6 @@ class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
     return AppBar(
       title: const Text('Plugin example app'),
       actions: [
-        IconButton(
-            icon: Icon(Icons.refresh),
-            onPressed: () {
-              ffplayer_init(NativeApi.initializeApiDLData);
-            }),
         IconButton(
             icon: Icon(Icons.add),
             tooltip: 'Add custom video/audio uri',
@@ -237,29 +219,6 @@ class _PathInputDialogState extends State<PathInputDialog> {
   }
 }
 
-class SmallVideo extends StatelessWidget {
-  const SmallVideo({
-    Key? key,
-    required this.player,
-  }) : super(key: key);
-
-  final AudioPlayer? player;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (context) => FullScreenPage(player: player!)));
-      },
-      child:
-          SizedBox(height: 200, width: 200, child: VideoView(player: player!)),
-    );
-  }
-}
-
 class _PlayerUi extends StatelessWidget {
   const _PlayerUi({
     Key? key,
@@ -267,7 +226,7 @@ class _PlayerUi extends StatelessWidget {
     required this.url,
   }) : super(key: key);
 
-  final AudioPlayer? player;
+  final LycheeAudioPlayer player;
   final String? url;
 
   @override
@@ -283,7 +242,7 @@ class _PlayerUi extends StatelessWidget {
             overflow: TextOverflow.fade,
           ),
           PlaybackStatefulButton(player: player),
-          TickedPlayerState(player: player!),
+          TickedPlayerState(player: player),
           ForwardRewindButton(player: player)
         ],
       ),
@@ -292,7 +251,7 @@ class _PlayerUi extends StatelessWidget {
 }
 
 class TickedPlayerState extends StatefulWidget {
-  final AudioPlayer player;
+  final LycheeAudioPlayer player;
 
   const TickedPlayerState({Key? key, required this.player}) : super(key: key);
 
@@ -321,9 +280,8 @@ class _TickedPlayerStateState extends State<TickedPlayerState>
 
   Widget _buildProgress() {
     double? progress;
-    if (widget.player.duration > Duration.zero) {
-      progress = widget.player.currentTime.inMilliseconds /
-          widget.player.duration.inMilliseconds;
+    if (widget.player.duration() > 0) {
+      progress = widget.player.currentTime() / widget.player.duration();
     }
     return LinearProgressIndicator(
       value: progress,
@@ -331,26 +289,14 @@ class _TickedPlayerStateState extends State<TickedPlayerState>
   }
 
   Widget _buildBufferedProgress() {
-    double? progress;
-    if (widget.player.duration > Duration.zero) {
-      Duration bufferPosition = widget.player.buffered.value.max;
-      if (bufferPosition <= Duration.zero) {
-        progress = null;
-      } else {
-        progress = bufferPosition.inMilliseconds /
-            widget.player.duration.inMilliseconds;
-      }
-    }
     return LinearProgressIndicator(
-      value: progress,
+      value: 0,
     );
   }
 
   Widget _buildProgressText() {
-    return Text(
-        ' ${(widget.player.currentTime.inMilliseconds / 1000.0).toStringAsFixed(2)}'
-        '/${(widget.player.duration.inMilliseconds / 1000.0).toStringAsFixed(2)}'
-        ' - ${(widget.player.buffered.value.max.inMilliseconds / 1000).toStringAsFixed(2)}');
+    return Text(' ${widget.player.currentTime().toStringAsFixed(2)}'
+        '/${widget.player.duration().toStringAsFixed(2)}');
   }
 
   @override

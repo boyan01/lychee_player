@@ -17,7 +17,8 @@ A new flutter plugin project.
   s.public_header_files = 'Classes/**/*.h'
   s.dependency 'FlutterMacOS'
   s.osx.dependency 'ffmpeg-kit-macos-full', '~> 4.4.LTS'
-  s.osx.vendored_libraries = ['lib/libmedia_flutter.a', 'lib/libmedia_base.a', 'lib/libmedia_macos.a', 'lib/libmedia_player.a']
+  s.osx.vendored_libraries = ['lib/liblychee_base.a', 'lib/liblychee_player.a', 'lib/liblychee_player_plugin.a', 'libs/libSDL2.a']
+  s.osx.frameworks = "Foundation", "CoreHaptics", "GameController", "AVFoundation", "AudioToolbox", "MediaPlayer", "CoreMotion", "ForceFeedback", "Carbon"
 
 
   s.platform = :osx, '10.11'
