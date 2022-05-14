@@ -43,8 +43,8 @@ class LycheeAudioPlayer {
       case MSG_PLAYER_STATE_CHANGED:
         _state.value = const {
           0: PlayerState.idle,
-          1: PlayerState.buffering,
-          2: PlayerState.ready,
+          1: PlayerState.ready,
+          2: PlayerState.buffering,
           3: PlayerState.end,
         }[arg1]!;
         break;
