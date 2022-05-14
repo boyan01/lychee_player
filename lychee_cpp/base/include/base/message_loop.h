@@ -73,6 +73,9 @@ class MessageLooper : public std::enable_shared_from_this<MessageLooper> {
 
   int message_handle_expect_duration_;
 
+  Message *current_processing_message_;
+  std::mutex current_processing_message_mutex_;
+
   DELETE_COPY_AND_ASSIGN(MessageLooper);
 
   static thread_local std::weak_ptr<MessageLooper> thread_local_message_loop_;

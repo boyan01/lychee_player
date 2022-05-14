@@ -21,10 +21,15 @@ TaskRunner::TaskRunner() = default;
 TaskRunner::TaskRunner(const TaskRunner &object) = default;
 
 TaskRunner::~TaskRunner() {
+  quit_ = true;
   if (!looper_) {
     return;
   }
   RemoveAllTasks();
+  if (BelongsToCurrentThread()) {
+    return;
+  }
+  looper_->Current();
 }
 
 void TaskRunner::PostTask(const tracked_objects::Location &from_here,
@@ -47,7 +52,7 @@ void TaskRunner::PostDelayedTask(const tracked_objects::Location &from_here,
 void TaskRunner::PostDelayedTask(const tracked_objects::Location &from_here,
                                  TimeDelta delay, int task_id,
                                  const TaskClosure &task_closure) {
-  if (!looper_) {
+  if (!looper_ || quit_) {
     return;
   }
   Message message(task_closure, from_here, delay, this, task_id);

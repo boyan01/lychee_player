@@ -7,9 +7,7 @@
 #include "base/logging.h"
 #include "base/utility.h"
 
-namespace media {
-
-namespace base {
+namespace media::base {
 
 thread_local std::weak_ptr<MessageLooper>
     MessageLooper::thread_local_message_loop_;
@@ -18,7 +16,9 @@ MessageLooper::MessageLooper(const char *loop_name,
                              int message_handle_timeout_ms)
     : loop_name_(loop_name),
       message_queue_(std::make_unique<MessageQueue>()),
-      message_handle_expect_duration_(message_handle_timeout_ms) {}
+      message_handle_expect_duration_(message_handle_timeout_ms),
+      current_processing_message_mutex_(),
+      current_processing_message_(nullptr) {}
 
 MessageLooper::~MessageLooper() {
   message_queue_->Quit();
@@ -42,9 +42,13 @@ void MessageLooper::Loop() {
 
     DCHECK(msg->next == nullptr);
 
+    std::unique_lock<std::mutex> auto_lock(current_processing_message_mutex_);
+    current_processing_message_ = msg;
+
     TRACE_METHOD_DURATION_WITH_LOCATION(message_handle_expect_duration_,
                                         msg->posted_from);
     msg->task();
+    current_processing_message_ = nullptr;
     delete msg;
   }
 }
@@ -84,5 +88,4 @@ std::shared_ptr<MessageLooper> MessageLooper::Create(
   return looper;
 }
 
-}  // namespace base
 }  // namespace media

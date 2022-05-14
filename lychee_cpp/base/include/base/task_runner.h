@@ -53,6 +53,7 @@ class TaskRunner {
 
  private:
   std::shared_ptr<MessageLooper> looper_;
+  bool quit_ = false;
 };
 
 }  // namespace media
