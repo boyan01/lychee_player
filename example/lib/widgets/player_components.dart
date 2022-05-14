@@ -53,7 +53,10 @@ class PlaybackStatefulButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return IconButton(
       icon: AnimatedBuilder(
-          animation: player.state,
+          animation: Listenable.merge([
+            player.state,
+            player.onPlayWhenReadyChanged,
+          ]),
           builder: (context, child) {
             if (player.state.value == PlayerState.ready) {
               if (player.playWhenReady) {

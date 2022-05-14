@@ -35,7 +35,7 @@ class LycheeAudioPlayer {
   final ReceivePort _port;
   final ValueNotifier<PlayerState> _state = ValueNotifier(PlayerState.idle);
 
-  bool _playWhenReady = false;
+  final _playWhenReady = ValueNotifier(false);
 
   void _handleNativePlayerMessage(int what, int arg1, int arg2) {
     debugPrint('what: $what, arg1: $arg1, arg2: $arg2');
@@ -51,12 +51,14 @@ class LycheeAudioPlayer {
     }
   }
 
+  Listenable get onPlayWhenReadyChanged => _playWhenReady;
+
   ValueListenable<PlayerState> get state => _state;
 
-  bool get playWhenReady => _playWhenReady;
+  bool get playWhenReady => _playWhenReady.value;
 
   set playWhenReady(bool value) {
-    _playWhenReady = value;
+    _playWhenReady.value = value;
     assert(_playerHandle != nullptr, 'player already disposed.');
     _bindings.lychee_player_set_play_when_ready(_playerHandle, value);
   }
