@@ -25,13 +25,15 @@ class DemuxerHost {
 
   virtual void OnDemuxerHasEnoughData() = 0;
 
+  virtual void SetDuration(double duration) = 0;
+
 };
 
 class Demuxer {
 
  public:
 
-  Demuxer(const media::TaskRunner &task_runner, std::string url, DemuxerHost* host);
+  Demuxer(const media::TaskRunner &task_runner, std::string url, DemuxerHost *host);
 
   using InitializeCallback = std::function<void(std::shared_ptr<DemuxerStream>)>;
   void Initialize(InitializeCallback callback);
@@ -51,7 +53,7 @@ class Demuxer {
 
   InitializeCallback initialize_callback_;
 
-  DemuxerHost* host_;
+  DemuxerHost *host_;
 
   void OnInitializeDone();
 

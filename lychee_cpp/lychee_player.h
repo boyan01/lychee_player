@@ -25,6 +25,13 @@ class PlayerCallback {
 
 };
 
+enum SourceState {
+  kSourceUninitialized,
+  kSourceReady,
+  kSourceEnded,
+  kSourceBuffering,
+};
+
 class LycheePlayer : public DemuxerHost, public AudioRendererHost {
 
  public:
@@ -46,9 +53,24 @@ class LycheePlayer : public DemuxerHost, public AudioRendererHost {
   void OnDemuxerHasEnoughData() override;
 
   void OnDemuxerBuffering(double progress) override;
+  void SetDuration(double duration) override;
 
   void OnAudioRendererEnded() override;
   void OnAudioRendererNeedMoreData() override;
+
+  [[nodiscard]] double GetDuration() const;
+
+  [[nodiscard]] double CurrentTime() const;
+
+  enum PlayerState {
+    kPlayerIdle,
+    kPlayerReady,
+    kPlayerBuffering,
+    kPlayerEnded,
+  };
+  using PlayerStateChangedCallback = std::function<void(PlayerState)>;
+  void SetPlayerStateChangedCallback(PlayerStateChangedCallback callback);
+  PlayerState GetPlayerState() const;
 
  private:
   std::unique_ptr<PlayerCallback> callback_;
@@ -59,11 +81,20 @@ class LycheePlayer : public DemuxerHost, public AudioRendererHost {
 
   media::TaskRunner task_runner_;
 
+  PlayerStateChangedCallback player_state_changed_callback_;
+
+  SourceState source_state_;
+  PlayerState player_state_;
+
+  double duration_;
+
   bool initialized_;
 
   bool play_when_ready_;
 
   void Initialize();
+
+  void ChangePlayerState(PlayerState state);
 };
 
 } // lychee

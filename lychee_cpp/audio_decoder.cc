@@ -76,6 +76,12 @@ int64 AudioDecoder::GetChannelLayout(AVFrame *av_frame) {
 void AudioDecoder::Decode(const std::shared_ptr<DecoderBuffer> &decoder_buffer) {
   DCHECK(stream_);
   DCHECK(ffmpeg_decoding_loop_);
+
+  if (decoder_buffer->end_of_stream()) {
+    onEndOfStream();
+    return;
+  }
+
   switch (ffmpeg_decoding_loop_->DecodePacket(decoder_buffer->av_packet(), [this](AVFrame *frame) -> bool {
     return OnFrameAvailable(frame);
   })) {
@@ -96,6 +102,10 @@ void AudioDecoder::Decode(const std::shared_ptr<DecoderBuffer> &decoder_buffer) 
       return;
     }
   }
+}
+
+void AudioDecoder::onEndOfStream() {
+  output_callback_(std::make_shared<AudioBuffer>(nullptr, 0, 0, 0, true));
 }
 
 bool AudioDecoder::OnFrameAvailable(AVFrame *frame) {
@@ -154,7 +164,7 @@ bool AudioDecoder::OnFrameAvailable(AVFrame *frame) {
 
   auto audio_buffer = std::make_shared<AudioBuffer>(
       data, data_size, pts,
-      audio_device_info_.bytes_per_sec);
+      audio_device_info_.bytes_per_sec, false);
   output_callback_(std::move(audio_buffer));
   return true;
 }

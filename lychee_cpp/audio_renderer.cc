@@ -15,7 +15,7 @@ namespace lychee {
 AudioRenderer::AudioRenderer(const media::TaskRunner &task_runner, AudioRendererHost *host)
     : task_runner_(task_runner), host_(host),
       audio_clock_update_time_stamp_(0), audio_clock_time_(0),
-      audio_device_info_() {
+      audio_device_info_(), ended_(false) {
 
 }
 
@@ -24,6 +24,14 @@ AudioRenderer::~AudioRenderer() = default;
 int AudioRenderer::Render(double delay, uint8 *stream, int len) {
   DCHECK_GT(len, 0);
   DCHECK(stream);
+
+  if (ended_) {
+    task_runner_.PostTask(FROM_HERE, [this]() {
+      host_->OnAudioRendererEnded();
+    });
+    ended_ = false;
+    return -1;
+  }
 
   double audio_clock_time = 0;
   auto render_callback_time = (double) av_gettime_relative() / 1000000.0;
@@ -39,11 +47,18 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
     }
     auto buffer = audio_buffer_.front();
     DCHECK(buffer);
-    DCHECK(!buffer->IsConsumed()) << "buffer is consumed";
+
+    if (buffer->isEnd()) {
+      audio_buffer_.pop_front();
+      ended_ = true;
+      break;
+    }
+
     if (audio_clock_time == 0 && !std::isnan(buffer->pts())) {
       audio_clock_time = buffer->PtsFromCursor() - delay;
     }
 
+    DCHECK(!buffer->IsConsumed()) << "buffer is consumed";
     auto flushed = buffer->Read(stream + len_flush, len - len_flush, 1);
     if (buffer->IsConsumed()) {
       audio_buffer_.pop_front();
@@ -56,6 +71,8 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
 
   if (audio_clock_time != 0) {
     audio_clock_time_ = audio_clock_time;
+    audio_clock_update_time_stamp_ = render_callback_time;
+  } else {
     audio_clock_update_time_stamp_ = render_callback_time;
   }
 
@@ -113,6 +130,17 @@ void AudioRenderer::Initialize(const AudioDecodeConfig &decode_config,
         DLOG(INFO) << "OpenDevice ret: " << ret << ", audio_device_info_: " << audio_device_info_.freq;
         audio_device_info_callback(ret ? &audio_device_info_ : nullptr);
       });
+}
+
+double AudioRenderer::CurrentTime() const {
+  if (!IsPlaying()) {
+    return audio_clock_time_;
+  }
+  if (audio_clock_update_time_stamp_ == 0) {
+    return audio_clock_time_;
+  }
+  auto now = (double) av_gettime_relative() / 1000000.0;
+  return audio_clock_time_ + (now - audio_clock_update_time_stamp_);
 }
 
 }

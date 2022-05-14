@@ -34,7 +34,10 @@ void LycheePlayer::GlobalInit() {
 LycheePlayer::LycheePlayer(
     const std::string &path
 ) : demuxer_(), initialized_(false),
-    play_when_ready_(false) {
+    play_when_ready_(false),
+    source_state_(SourceState::kSourceUninitialized),
+    duration_(0), player_state_changed_callback_(nullptr),
+    player_state_(kPlayerBuffering) {
   DLOG(INFO) << "create player: " << path;
   auto media_message_loop = media::MessageLooper::PrepareLooper("media_task_runner");
   task_runner_ = media::TaskRunner(media_message_loop);
@@ -88,6 +91,10 @@ void LycheePlayer::SetPlayWhenReady(bool play_when_ready) {
 
 void LycheePlayer::OnDemuxerHasEnoughData() {
   task_runner_.PostTask(FROM_HERE, [this]() {
+    DLOG_IF(INFO, source_state_ != kSourceBuffering && source_state_ != kSourceReady)
+    << "source state: " << source_state_;
+    source_state_ = SourceState::kSourceReady;
+    ChangePlayerState(kPlayerReady);
     if (play_when_ready_) {
       audio_renderer_->Play();
     }
@@ -95,7 +102,9 @@ void LycheePlayer::OnDemuxerHasEnoughData() {
 }
 
 void LycheePlayer::OnAudioRendererEnded() {
-
+  task_runner_.PostTask(FROM_HERE, [this]() {
+    ChangePlayerState(kPlayerEnded);
+  });
 }
 
 void LycheePlayer::OnAudioRendererNeedMoreData() {
@@ -115,7 +124,45 @@ void LycheePlayer::SetPlayerCallback(std::unique_ptr<PlayerCallback> callback) {
 }
 
 void LycheePlayer::OnDemuxerBuffering(double progress) {
+  source_state_ = kSourceBuffering;
+  ChangePlayerState(kPlayerBuffering);
+}
 
+double LycheePlayer::GetDuration() const {
+  return duration_;
+}
+
+double LycheePlayer::CurrentTime() const {
+  return audio_renderer_->CurrentTime();
+}
+
+void LycheePlayer::SetDuration(double duration) {
+  task_runner_.PostTask(FROM_HERE, [this, duration]() {
+    duration_ = duration;
+    LOG_IF(WARNING, duration_ < 0) << "duration is negative";
+    DLOG_IF(WARNING, source_state_ != SourceState::kSourceUninitialized)
+    << "duration is set after source state is not uninitialized";
+    source_state_ = SourceState::kSourceBuffering;
+    ChangePlayerState(kPlayerBuffering);
+  });
+}
+
+void LycheePlayer::SetPlayerStateChangedCallback(LycheePlayer::PlayerStateChangedCallback callback) {
+  player_state_changed_callback_ = std::move(callback);
+}
+
+void LycheePlayer::ChangePlayerState(LycheePlayer::PlayerState state) {
+  if (player_state_ == state) {
+    return;
+  }
+  player_state_ = state;
+  if (player_state_changed_callback_) {
+    player_state_changed_callback_(state);
+  }
+}
+
+LycheePlayer::PlayerState LycheePlayer::GetPlayerState() const {
+  return player_state_;
 }
 
 LycheePlayer::~LycheePlayer() = default;

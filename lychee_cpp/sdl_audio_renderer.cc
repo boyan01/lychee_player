@@ -84,6 +84,8 @@ void SdlAudioRenderer::ReadAudioData(Uint8 *stream, int length) {
       break;
     }
     read += len;
+    // only read once.
+    break;
   }
   if (read < length) {
     memset(stream + read, 0, length - read);
@@ -96,6 +98,10 @@ SdlAudioRenderer::~SdlAudioRenderer() {
     SDL_CloseAudioDevice(audio_device_id_);
     SDL_UnlockAudioDevice(audio_device_id_);
   }
+}
+
+bool SdlAudioRenderer::IsPlaying() const {
+  return is_playing_;
 }
 
 }

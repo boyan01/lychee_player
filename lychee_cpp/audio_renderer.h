@@ -35,6 +35,10 @@ class AudioRenderer {
 
   virtual void Pause() = 0;
 
+  [[nodiscard]] virtual bool IsPlaying() const = 0;
+
+  [[nodiscard]] double CurrentTime() const;
+
   int Render(double delay, uint8 *stream, int len);
 
   void OnNewFrameAvailable(std::shared_ptr<AudioBuffer> buffer);
@@ -56,6 +60,8 @@ class AudioRenderer {
   std::mutex mutex_;
 
   AudioRendererHost *host_;
+
+  bool ended_;
 
   void AttemptReadFrame();
 

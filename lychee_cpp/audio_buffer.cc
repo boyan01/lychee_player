@@ -39,8 +39,8 @@ static void MixAudioVolume(uint8 *dst, const uint8 *src, uint32_t len,
   }
 }
 
-AudioBuffer::AudioBuffer(uint8 *data, int size, double pts, int bytes_per_sec)
-    : data_(data), size_(size), pts_(pts), bytes_per_sec_(bytes_per_sec) {}
+AudioBuffer::AudioBuffer(uint8 *data, int size, double pts, int bytes_per_sec, bool end)
+    : data_(data), size_(size), pts_(pts), bytes_per_sec_(bytes_per_sec), is_end_(end) {}
 
 AudioBuffer::~AudioBuffer() { free(data_); }
 

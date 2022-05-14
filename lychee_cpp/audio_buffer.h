@@ -11,7 +11,7 @@ namespace lychee {
 
 class AudioBuffer {
  public:
-  AudioBuffer(uint8 *data, int size, double pts, int bytes_per_sec);
+  AudioBuffer(uint8 *data, int size, double pts, int bytes_per_sec, bool end);
 
   virtual ~AudioBuffer();
 
@@ -47,6 +47,8 @@ class AudioBuffer {
     return double(size_ - read_cursor_) / bytes_per_sec_;
   }
 
+  [[nodiscard]] bool isEnd() const { return is_end_; }
+
  private:
   uint8 *data_;
   int size_;
@@ -56,6 +58,8 @@ class AudioBuffer {
   int read_cursor_ = 0;
 
   int bytes_per_sec_;
+
+  bool is_end_;
 };
 
 }  // namespace media

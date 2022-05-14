@@ -53,6 +53,8 @@ class AudioDecoder {
 
   bool OnFrameAvailable(AVFrame *frame);
 
+  void onEndOfStream();
+
   void Decode(const std::shared_ptr<DecoderBuffer> &decoder_buffer);
 
   void DecodeTask();

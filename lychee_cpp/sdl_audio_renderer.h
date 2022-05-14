@@ -23,6 +23,8 @@ class SdlAudioRenderer : public AudioRenderer {
 
   void Pause() override;
 
+  bool IsPlaying() const override;
+
   ~SdlAudioRenderer() override;
 
  protected:

@@ -51,7 +51,7 @@ Demuxer::Demuxer(
 
 void Demuxer::Initialize(InitializeCallback callback) {
   initialize_callback_ = std::move(callback);
-  task_runner_.PostTask(FROM_HERE, [&]() {
+  task_runner_.PostTask(FROM_HERE, [this]() {
     format_context_ = avformat_alloc_context();
     format_context_->interrupt_callback.opaque = this;
     format_context_->interrupt_callback.callback = [](void *opaque) -> int {
@@ -98,6 +98,9 @@ void Demuxer::OnInitializeDone() {
     DLOG(ERROR) << "failed to find audio stream";
     return;
   }
+
+  double duration = audio_stream_->duration();
+  host_->SetDuration(duration);
 
   // load stream complete.
   if (initialize_callback_) {
