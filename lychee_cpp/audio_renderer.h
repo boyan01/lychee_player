@@ -18,6 +18,9 @@ class AudioRendererHost {
  public:
   virtual void OnAudioRendererEnded() = 0;
   virtual void OnAudioRendererNeedMoreData() = 0;
+
+  virtual int64_t GetCurrentAudioStreamSerial() = 0;
+
 };
 
 class AudioRenderer {

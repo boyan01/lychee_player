@@ -10,12 +10,12 @@ namespace lychee {
 
 // static
 std::shared_ptr<DecoderBuffer> DecoderBuffer::CreateEOSBuffer() {
-  return std::make_shared<DecoderBuffer>(nullptr);
+  return std::make_shared<DecoderBuffer>(nullptr, -1);
 }
 
 DecoderBuffer::DecoderBuffer(
-    std::unique_ptr<AVPacket, AVPacketDeleter> av_packet)
-    : timestamp_(-1), av_packet_(std::move(av_packet)) {}
+    std::unique_ptr<AVPacket, AVPacketDeleter> av_packet, int64_t serial)
+    : timestamp_(-1), av_packet_(std::move(av_packet)), serial_(serial) {}
 
 DecoderBuffer::~DecoderBuffer() = default;
 

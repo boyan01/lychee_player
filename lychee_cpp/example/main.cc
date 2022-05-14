@@ -44,6 +44,14 @@ int main() {
     player->SetPlayWhenReady(true);
   });
 
+  task_runner.PostDelayedTask(
+      FROM_HERE,
+      media::TimeDelta::FromSeconds(5),
+      [&player]() {
+        player->Seek(95);
+      }
+  );
+
   printPlayerState(player.get(), task_runner);
 
   message_loop->Loop();

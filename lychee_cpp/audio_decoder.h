@@ -51,7 +51,7 @@ class AudioDecoder {
 
   struct SwrContext *swr_context_;
 
-  bool OnFrameAvailable(AVFrame *frame);
+  bool OnFrameAvailable(AVFrame *frame, int64_t serial);
 
   void onEndOfStream();
 

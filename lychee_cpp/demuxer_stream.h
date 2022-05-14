@@ -57,6 +57,8 @@ class DemuxerStream {
 
   double duration();
 
+  double GetBufferQueueDuration();
+
   void SetEndOfStream() { end_of_stream_ = true; }
 
   // Returns the value associated with |key| in the metadata for the avstream.
@@ -77,6 +79,8 @@ class DemuxerStream {
   friend std::ostream &operator<<(std::ostream &os,
                                   const DemuxerStream &stream);
 
+  [[nodiscard]] int64 GetSerial() const { return serial_; }
+
  private:
   Demuxer *demuxer_;
   AVStream *stream_;
@@ -94,6 +98,8 @@ class DemuxerStream {
   bool waiting_for_key_frame_;
 
   ReadCallback read_callback_;
+
+  int64 serial_;
 
   bool abort_;
 

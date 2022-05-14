@@ -136,4 +136,29 @@ void Demuxer::DemuxTask() {
   });
 }
 
+void Demuxer::SeekTo(double seconds, Demuxer::DemuxerSeekCallback callback) {
+  task_runner_.PostTask(FROM_HERE, [this, seconds, callback(std::move(callback))]() {
+    DCHECK(callback) << "callback is null";
+    DCHECK(format_context_) << "format context is null";
+    auto dest = int64_t(seconds * 1000000);
+    auto ret = avformat_seek_file(format_context_, -1, INT64_MIN,
+                                  dest, INT64_MAX, 0);
+
+    DLOG_IF(ERROR, ret < 0) << "failed seek to " << seconds
+                            << " reason: " << ffmpeg::AVErrorToString(ret);
+
+    audio_stream_->FlushBuffers();
+    task_runner_.PostTask(FROM_HERE_WITH_EXPLICIT_FUNCTION("DemuxTaskLoop"), [ret, callback]() {
+      callback(ret >= 0);
+    });
+    task_runner_.PostTask(FROM_HERE_WITH_EXPLICIT_FUNCTION("DemuxTaskLoop"), [this]() {
+      DemuxTask();
+    });
+  });
+}
+
+int64_t Demuxer::GetCurrentAudioStreamSerial() {
+  return audio_stream_->GetSerial();
+}
+
 } // lychee

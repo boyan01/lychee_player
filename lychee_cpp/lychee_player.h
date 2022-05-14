@@ -57,6 +57,7 @@ class LycheePlayer : public DemuxerHost, public AudioRendererHost {
 
   void OnAudioRendererEnded() override;
   void OnAudioRendererNeedMoreData() override;
+  int64_t GetCurrentAudioStreamSerial() override;
 
   [[nodiscard]] double GetDuration() const;
 

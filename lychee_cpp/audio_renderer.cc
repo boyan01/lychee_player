@@ -48,6 +48,12 @@ int AudioRenderer::Render(double delay, uint8 *stream, int len) {
     auto buffer = audio_buffer_.front();
     DCHECK(buffer);
 
+    if (buffer->serial() != host_->GetCurrentAudioStreamSerial()) {
+      // skip this buffer.
+      audio_buffer_.pop_front();
+      continue;
+    }
+
     if (buffer->isEnd()) {
       audio_buffer_.pop_front();
       ended_ = true;

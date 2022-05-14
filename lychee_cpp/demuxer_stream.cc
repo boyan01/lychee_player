@@ -46,7 +46,8 @@ DemuxerStream::DemuxerStream(
       end_of_stream_(false),
       waiting_for_key_frame_(false),
       abort_(false),
-      read_callback_(nullptr) {}
+      read_callback_(nullptr),
+      serial_(0) {}
 
 AudioDecodeConfig DemuxerStream::audio_decode_config() {
   DCHECK_EQ(type_, Audio);
@@ -90,7 +91,7 @@ void DemuxerStream::EnqueuePacket(
   }
 
   std::shared_ptr<DecoderBuffer> buffer =
-      std::make_shared<DecoderBuffer>(std::move(packet));
+      std::make_shared<DecoderBuffer>(std::move(packet), serial_);
   buffer->set_timestamp(
       ffmpeg::ConvertFromTimeBase(stream_->time_base, pkt_pts));
 
@@ -181,6 +182,7 @@ void DemuxerStream::FlushBuffers() {
   buffer_queue_->Clear();
   end_of_stream_ = false;
   abort_ = false;
+  serial_ += 1;
 }
 
 void DemuxerStream::Abort() {
@@ -196,6 +198,10 @@ std::ostream &operator<<(std::ostream &os, const DemuxerStream &stream) {
      << " read_callback_: " << (stream.read_callback_ != nullptr)
      << " abort_: " << stream.abort_;
   return os;
+}
+
+double DemuxerStream::GetBufferQueueDuration() {
+  return buffer_queue_->Duration();
 }
 
 }  // namespace media

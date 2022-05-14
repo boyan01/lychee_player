@@ -13,7 +13,7 @@ namespace lychee {
 
 class DecoderBuffer {
  public:
-  explicit DecoderBuffer(std::unique_ptr<AVPacket, AVPacketDeleter> av_packet);
+  explicit DecoderBuffer(std::unique_ptr<AVPacket, AVPacketDeleter> av_packet, int64_t serial);
 
   static std::shared_ptr<DecoderBuffer> CreateEOSBuffer();
 
@@ -28,11 +28,15 @@ class DecoderBuffer {
   bool end_of_stream();
   virtual ~DecoderBuffer();
 
+  [[nodiscard]] int64_t serial() const { return serial_; }
+
  private:
   std::unique_ptr<AVPacket, AVPacketDeleter> av_packet_;
 
   // pts.
   double timestamp_;
+
+  int64_t serial_ = 0;
 
   DELETE_COPY_AND_ASSIGN(DecoderBuffer);
 };

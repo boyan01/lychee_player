@@ -40,6 +40,11 @@ class Demuxer {
 
   void NotifyCapacityAvailable();
 
+  using DemuxerSeekCallback = std::function<void(bool)>;
+  void SeekTo(double seconds, DemuxerSeekCallback callback);
+
+  int64_t GetCurrentAudioStreamSerial();
+
  private:
 
   media::TaskRunner task_runner_;

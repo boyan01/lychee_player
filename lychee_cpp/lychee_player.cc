@@ -112,6 +112,17 @@ void LycheePlayer::OnAudioRendererNeedMoreData() {
 }
 
 void LycheePlayer::Seek(double seconds) {
+  if (seconds < 0) {
+    LOG(WARNING) << "seek to negative time";
+    return;
+  }
+  if (!initialized_) {
+    LOG(WARNING) << "seek to " << seconds << " when player is not initialized";
+    return;
+  }
+  demuxer_->SeekTo(seconds, [this](bool succeed) {
+
+  });
 
 }
 
@@ -163,6 +174,10 @@ void LycheePlayer::ChangePlayerState(LycheePlayer::PlayerState state) {
 
 LycheePlayer::PlayerState LycheePlayer::GetPlayerState() const {
   return player_state_;
+}
+
+int64_t LycheePlayer::GetCurrentAudioStreamSerial() {
+  return demuxer_->GetCurrentAudioStreamSerial();
 }
 
 LycheePlayer::~LycheePlayer() = default;

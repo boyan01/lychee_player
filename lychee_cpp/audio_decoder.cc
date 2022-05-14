@@ -82,9 +82,11 @@ void AudioDecoder::Decode(const std::shared_ptr<DecoderBuffer> &decoder_buffer) 
     return;
   }
 
-  switch (ffmpeg_decoding_loop_->DecodePacket(decoder_buffer->av_packet(), [this](AVFrame *frame) -> bool {
-    return OnFrameAvailable(frame);
-  })) {
+  switch (ffmpeg_decoding_loop_->DecodePacket(
+      decoder_buffer->av_packet(),
+      [this, serial(decoder_buffer->serial())](AVFrame *frame) -> bool {
+        return OnFrameAvailable(frame, serial);
+      })) {
     case FFmpegDecodingLoop::DecodeStatus::kOkay: {
       break;
     }
@@ -105,10 +107,10 @@ void AudioDecoder::Decode(const std::shared_ptr<DecoderBuffer> &decoder_buffer) 
 }
 
 void AudioDecoder::onEndOfStream() {
-  output_callback_(std::make_shared<AudioBuffer>(nullptr, 0, 0, 0, true));
+  output_callback_(std::make_shared<AudioBuffer>(nullptr, 0, 0, 0, true, 0));
 }
 
-bool AudioDecoder::OnFrameAvailable(AVFrame *frame) {
+bool AudioDecoder::OnFrameAvailable(AVFrame *frame, int64_t serial) {
   if (!swr_context_) {
     auto decode_channel_layout = GetChannelLayout(frame);
     swr_context_ = swr_alloc_set_opts(
@@ -164,7 +166,7 @@ bool AudioDecoder::OnFrameAvailable(AVFrame *frame) {
 
   auto audio_buffer = std::make_shared<AudioBuffer>(
       data, data_size, pts,
-      audio_device_info_.bytes_per_sec, false);
+      audio_device_info_.bytes_per_sec, false, serial);
   output_callback_(std::move(audio_buffer));
   return true;
 }
@@ -182,6 +184,10 @@ void AudioDecoder::DecodeTask() {
   reading_ = true;
   stream_->Read([this](const std::shared_ptr<DecoderBuffer> &buffer) {
     reading_ = false;
+    if (buffer->serial() != stream_->GetSerial()) {
+      // skip data that belongs to a previous serial.
+      return;
+    }
     Decode(buffer);
   });
 }
