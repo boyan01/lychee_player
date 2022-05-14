@@ -36,3 +36,8 @@ target_include_directories("lychee_player" PUBLIC "third_party" ${CMAKE_CURRENT_
 target_link_libraries("lychee_player" PUBLIC ${MEDIA_THIRD_PARTY_LIBS} lychee_base)
 
 add_subdirectory(example)
+
+add_subdirectory(flutter)
+
+install(TARGETS lychee_player lychee_base lychee_player_plugin ARCHIVE DESTINATION lib)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/flutter/lychee_player_plugin.h DESTINATION include)

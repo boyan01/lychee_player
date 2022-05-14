@@ -71,7 +71,7 @@ class LycheePlayer : public DemuxerHost, public AudioRendererHost {
   };
   using PlayerStateChangedCallback = std::function<void(PlayerState)>;
   void SetPlayerStateChangedCallback(PlayerStateChangedCallback callback);
-  PlayerState GetPlayerState() const;
+  [[nodiscard]] PlayerState GetPlayerState() const;
 
  private:
   std::unique_ptr<PlayerCallback> callback_;
