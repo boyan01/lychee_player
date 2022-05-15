@@ -22,12 +22,7 @@ flutter:
     platforms:
       windows:
         ffiPlugin: true
-      android:
-        package: com.github.boyan01.lychee
-        pluginClass: LycheePlayerPlugin
       linux:
         ffiPlugin: true
-      ios:
-        pluginClass: LycheePlayerPlugin
       macos:
         pluginClass: LycheePlayerPlugin

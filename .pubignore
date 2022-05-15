@@ -28,6 +28,6 @@ example
 .github
 test
 
-# todo: add more platform support
-windows
-linux
+# TODO add android and ios support.
+android
+ios

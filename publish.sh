@@ -11,7 +11,7 @@ cd macos && pod install && cd ..
 
 cd ..
 
-#./ffplayer/apple-flutter-install.sh ios all
-./ffplayer/apple-flutter-install.sh macos
+#./lychee_cpp/apple-flutter-install.sh ios all
+./lychee_cpp/apple-flutter-install.sh macos
 
 flutter pub publish -n
