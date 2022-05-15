@@ -1,0 +1,21 @@
+# Run with `dart run ffigen --config ffigen.yaml`.
+name: LycheePlayerBindings
+description: |
+  Bindings for `lychee_cpp/flutter/lychee_player_plugin.h`.
+  Regenerate bindings with `dart run ffigen --config ffigen.yaml`.
+output: 'lib/src/lychee_player_bindings_generated.dart'
+headers:
+  entry-points:
+    - 'lychee_cpp/flutter/lychee_player_plugin.h'
+  include-directives:
+    - 'lychee_cpp/flutter/lychee_player_plugin.h'
+preamble: |
+  // ignore_for_file: always_specify_types
+  // ignore_for_file: camel_case_types
+  // ignore_for_file: non_constant_identifier_names
+  // ignore_for_file: constant_identifier_names
+comments:
+  style: any
+  length: full
+
+dart-bool: true

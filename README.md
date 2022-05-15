@@ -1,18 +1,12 @@
 # lychee_player
 
-A simple audio/video player example for flutter.
+A simple audio player plugin for flutter.
 
-![img](preview/preview.png)
-
-This is my training project when I was learning C++.
-
-| platform | status       |  audio renderer | video renderer |
-| -------- | ------------ | --------------  | -------------- |
-| Windows  | ✅           | [SDL2](https://github.com/libsdl-org/SDL)           |   TextureWidget |
-| Linux    | ✅           | [SDL2](https://github.com/libsdl-org/SDL)           |   TextureWidget |
-| macOS    | ✅           | CoreAudio           |   TextureWidget |
-| Android  | ✅           | [Oboe](https://github.com/google/oboe)           |   TextureWidget |
-| iOS      | ✅           | CoreAudio           |   TextureWidget |
+| platform | status | audio renderer |
+| -------- | ------------ | -------------- |
+| Windows | ✅ | [SDL2](https://github.com/libsdl-org/SDL)           |
+| Linux | ✅ | [SDL2](https://github.com/libsdl-org/SDL)           |  
+| macOS | ✅ | [SDL2](https://github.com/libsdl-org/SDL) |
 
 * audio/video demux by ffmpeg.
 
@@ -22,7 +16,7 @@ This is my training project when I was learning C++.
 
 #### requirement:
 
-* flutter version: 2.5 (linux required latest master channel)
+* flutter version: 3.0
 * if build for linux, we need these libs:
     1. install ffmpeg dev libs:
        ```
@@ -38,7 +32,7 @@ This is my training project when I was learning C++.
 * `flutter pub get`.
 * if build for macos/ios
     1. go to `example/macos` or `example/ios` run `pod install` to install `ffmpeg-kit`
-    2. go to `ffplayer`, run `./apple-flutter-install.sh macos` or `./apple-flutter-install.sh ios`
+    2. go to `lychee_cpp`, run `./apple-flutter-install.sh macos` or `./apple-flutter-install.sh ios`
 
 * `flutter run -d your_device`
 

@@ -97,8 +97,8 @@ static void check_screen_size(int &width, int &height) {
   auto scale_w = double(width) / display_mode.w;
   auto scale_h = double(height) / display_mode.h;
   auto scale = min(min(scale_h, scale_w), 0.5);
-  width = display_mode.w * scale;
-  height = display_mode.h * scale;
+  width = int(display_mode.w * scale);
+  height = int(display_mode.h * scale);
 }
 
 void OnVideoSizeChanged(std::shared_ptr<MediaPlayer> media_player,
