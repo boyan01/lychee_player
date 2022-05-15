@@ -15,7 +15,7 @@ dependencies:
     path: ../
   sembast: ^3.2.0
   overlay_support: ^2.0.0
-  permission_handler: ^9.2.0
+  permission_handler: ^6.1.1
   path_provider: ^2.0.10
 
 dev_dependencies:

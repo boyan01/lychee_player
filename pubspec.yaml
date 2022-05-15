@@ -21,7 +21,7 @@ flutter:
   plugin:
     platforms:
       windows:
-        pluginClass: LycheePlayerPlugin
+        ffiPlugin: true
       android:
         package: com.github.boyan01.lychee
         pluginClass: LycheePlayerPlugin

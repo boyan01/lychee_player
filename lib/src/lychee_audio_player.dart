@@ -104,7 +104,7 @@ final DynamicLibrary _dylib = () {
     return DynamicLibrary.open('lib$_libName.so');
   }
   if (Platform.isWindows) {
-    return DynamicLibrary.open('$_libName.dll');
+    return DynamicLibrary.open('lychee_player_plugin.dll');
   }
   throw UnsupportedError('Unknown platform: ${Platform.operatingSystem}');
 }();
