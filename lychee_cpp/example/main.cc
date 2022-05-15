@@ -31,7 +31,7 @@ int main() {
   message_loop->Prepare();
   auto task_runner = media::TaskRunner(message_loop);
 
-  auto player = std::make_unique<lychee::LycheePlayer>(R"(C:/Users/yangbin/Videos/badapple_full.mp4)");
+  auto player = std::make_unique<lychee::LycheePlayer>("/home/boyan/Music/example_tracks_bamboo.mp3");
   player->SetPlayerStateChangedCallback([](lychee::LycheePlayer::PlayerState state) {
     std::cout << "player state changed: " << state << std::endl;
     if (state == lychee::LycheePlayer::kPlayerEnded) {

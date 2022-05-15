@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 
 project("lychee_base")
 
-add_library(lychee_base
+add_library(lychee_base STATIC
         src/message_loop.cc
         src/location.cc
         src/message.cc

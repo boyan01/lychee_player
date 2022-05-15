@@ -94,7 +94,7 @@ void _initializeDartApi() {
   _bindings.lychee_player_initialize_dart(NativeApi.initializeApiDLData);
 }
 
-const String _libName = 'lychee_player';
+const String _libName = 'lychee_player_plugin';
 
 final DynamicLibrary _dylib = () {
   if (Platform.isMacOS || Platform.isIOS) {
@@ -104,7 +104,7 @@ final DynamicLibrary _dylib = () {
     return DynamicLibrary.open('lib$_libName.so');
   }
   if (Platform.isWindows) {
-    return DynamicLibrary.open('lychee_player_plugin.dll');
+    return DynamicLibrary.open('$_libName.dll');
   }
   throw UnsupportedError('Unknown platform: ${Platform.operatingSystem}');
 }();

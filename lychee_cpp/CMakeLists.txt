@@ -21,6 +21,10 @@ list(APPEND MEDIA_THIRD_PARTY_LIBS
   SDL2
   )
 
+if (UNIX)
+  list(APPEND MEDIA_THIRD_PARTY_LIBS m pthread)
+endif ()
+
 
 if (WIN32)
   set(WINDOWS_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libs/windows")
@@ -45,7 +49,7 @@ if (WIN32)
 endif ()
 
 
-add_library("lychee_player"
+add_library("lychee_player" STATIC
   lychee_player.h
   lychee_player.cc
   demuxer.cc
