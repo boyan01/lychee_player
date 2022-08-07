@@ -1,12 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.lychee_player_example">
+    package="tech.soit.flutter.media_player_example">
 
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
 
     <application
         android:icon="@mipmap/ic_launcher"
-        android:label="lychee_player_example"
-        android:preserveLegacyExternalStorage="true"
+        android:label="media_player_example"
         android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"

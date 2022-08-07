@@ -4,19 +4,17 @@ project("media_player" "CXX" "C")
 
 message("ANDROID_STL = ${ANDROID_STL}")
 
-add_library(lychee_player SHARED
+add_library(media_player_android SHARED
         media_player_plugin.h
-        media_player_plugin.cpp
-        flutter_texture_entry.h
-        flutter_texture_entry.cc
-        )
+        media_player_plugin.cpp)
 
 find_library(LOG_LIB log REQUIRED)
 
 set(CMAKE_FLUTTER_MEDIA "1")
 set(CMAKE_FLUTTER_MEDIA_ANDROID "1")
 
-set(DISABLE_GOOGLE_TEST 1)
+add_compile_definitions(_FLUTTER_MEDIA_)
+add_compile_definitions(_FLUTTER_MEDIA_ANDROID)
 
 set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} "${CMAKE_SOURCE_DIR}/lib/${CMAKE_ANDROID_ARCH}")
 
@@ -44,10 +42,10 @@ find_package(oboe REQUIRED CONFIG)
 
 list(APPEND FFP_LIBS log cpufeatures_shared android oboe::oboe)
 
-add_subdirectory(../../../../ffplayer media_framework)
+add_subdirectory(../../../../ffplayer ffplayer.out)
 
 target_link_libraries(
-        lychee_player
+        media_player_android
         ${log-lib}
         media_flutter
 )

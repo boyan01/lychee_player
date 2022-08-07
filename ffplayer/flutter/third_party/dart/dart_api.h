@@ -42,7 +42,7 @@
 #else
 #if __GNUC__ >= 4
 #if defined(DART_SHARED_LIB)
-#define DART_EXPORT                                                            \
+#define DART_EXPORT \
   DART_EXTERN_C __attribute__((visibility("default"))) __attribute((used))
 #else
 #define DART_EXPORT DART_EXTERN_C
@@ -319,7 +319,7 @@ DART_EXPORT bool Dart_IsFatalError(Dart_Handle handle);
  *   error. An empty C string ("") if the handle is valid. This C
  *   String is scope allocated and is only valid until the next call
  *   to Dart_ExitScope.
-*/
+ */
 DART_EXPORT const char* Dart_GetError(Dart_Handle handle);
 
 /**
@@ -883,13 +883,12 @@ typedef struct Dart_CodeObserver {
  *   See Dart_IsolateShutdownCallback.
  * \param cleanup A function to be called after an isolate was shutdown.
  *   See Dart_IsolateCleanupCallback.
- * \param cleanup_group A function to be called after an isolate group is shutdown.
- *   See Dart_IsolateGroupCleanupCallback.
- * \param get_service_assets A function to be called by the service isolate when
- *    it requires the vmservice assets archive.
- *    See Dart_GetVMServiceAssetsArchive.
- * \param code_observer An external code observer callback function.
- *    The observer can be invoked as early as during the Dart_Initialize() call.
+ * \param cleanup_group A function to be called after an isolate group is
+ * shutdown. See Dart_IsolateGroupCleanupCallback. \param get_service_assets A
+ * function to be called by the service isolate when it requires the vmservice
+ * assets archive. See Dart_GetVMServiceAssetsArchive. \param code_observer An
+ * external code observer callback function. The observer can be invoked as
+ * early as during the Dart_Initialize() call.
  */
 typedef struct {
   int32_t version;
@@ -975,8 +974,8 @@ DART_EXPORT bool Dart_IsVMFlagSet(const char* flag_name);
  * Requires there to be no current isolate.
  *
  * \param script_uri The main source file or snapshot this isolate will load.
- *   The VM will provide this URI to the Dart_IsolateGroupCreateCallback when a child
- *   isolate is created by Isolate.spawn. The embedder should use a URI that
+ *   The VM will provide this URI to the Dart_IsolateGroupCreateCallback when a
+ * child isolate is created by Isolate.spawn. The embedder should use a URI that
  *   allows it to load the same program into such a child isolate.
  * \param name A short name for the isolate to improve debugging messages.
  *   Typically of the format 'foo.dart:main()'.
@@ -1012,18 +1011,15 @@ Dart_CreateIsolateGroup(const char* script_uri,
  *
  * Requires there to be no current isolate.
  *
- * \param group_member An isolate from the same group into which the newly created
- *   isolate should be born into. Other threads may not have entered / enter this
- *   member isolate.
- * \param name A short name for the isolate for debugging purposes.
- * \param shutdown_callback A callback to be called when the isolate is being
- *   shutdown (may be NULL).
- * \param cleanup_callback A callback to be called when the isolate is being
- *   cleaned up (may be NULL).
- * \param isolate_data The embedder-specific data associated with this isolate.
- * \param error Set to NULL if creation is successful, set to an error
- *   message otherwise. The caller is responsible for calling free() on the
- *   error message.
+ * \param group_member An isolate from the same group into which the newly
+ * created isolate should be born into. Other threads may not have entered /
+ * enter this member isolate. \param name A short name for the isolate for
+ * debugging purposes. \param shutdown_callback A callback to be called when the
+ * isolate is being shutdown (may be NULL). \param cleanup_callback A callback
+ * to be called when the isolate is being cleaned up (may be NULL). \param
+ * isolate_data The embedder-specific data associated with this isolate. \param
+ * error Set to NULL if creation is successful, set to an error message
+ * otherwise. The caller is responsible for calling free() on the error message.
  *
  * \return The newly created isolate on success, or NULL if isolate creation
  *   failed.
@@ -1048,8 +1044,8 @@ Dart_CreateIsolateInGroup(Dart_Isolate group_member,
  * Requires there to be no current isolate.
  *
  * \param script_uri The main source file or snapshot this isolate will load.
- *   The VM will provide this URI to the Dart_IsolateGroupCreateCallback when a child
- *   isolate is created by Isolate.spawn. The embedder should use a URI that
+ *   The VM will provide this URI to the Dart_IsolateGroupCreateCallback when a
+ * child isolate is created by Isolate.spawn. The embedder should use a URI that
  *   allows it to load the same program into such a child isolate.
  * \param name A short name for the isolate to improve debugging messages.
  *   Typically of the format 'foo.dart:main()'.
@@ -1952,8 +1948,8 @@ DART_EXPORT Dart_Handle Dart_NewDouble(double value);
 DART_EXPORT Dart_Handle Dart_DoubleValue(Dart_Handle double_obj, double* value);
 
 /**
- * Returns a closure of static function 'function_name' in the class 'class_name'
- * in the exported namespace of specified 'library'.
+ * Returns a closure of static function 'function_name' in the class
+ * 'class_name' in the exported namespace of specified 'library'.
  *
  * \param library Library object
  * \param cls_type Type object representing a Class
@@ -2310,19 +2306,19 @@ DART_EXPORT Dart_Handle Dart_ListLength(Dart_Handle list, intptr_t* length);
 DART_EXPORT Dart_Handle Dart_ListGetAt(Dart_Handle list, intptr_t index);
 
 /**
-* Gets a range of Objects from a List.
-*
-* If any of the requested index values are out of bounds, an error occurs.
-*
-* May generate an unhandled exception error.
-*
-* \param list A List.
-* \param offset The offset of the first item to get.
-* \param length The number of items to get.
-* \param result A pointer to fill with the objects.
-*
-* \return Success if no error occurs during the operation.
-*/
+ * Gets a range of Objects from a List.
+ *
+ * If any of the requested index values are out of bounds, an error occurs.
+ *
+ * May generate an unhandled exception error.
+ *
+ * \param list A List.
+ * \param offset The offset of the first item to get.
+ * \param length The number of items to get.
+ * \param result A pointer to fill with the objects.
+ *
+ * \return Success if no error occurs during the operation.
+ */
 DART_EXPORT Dart_Handle Dart_ListGetRange(Dart_Handle list,
                                           intptr_t offset,
                                           intptr_t length,
@@ -2860,8 +2856,8 @@ enum {
 };
 
 #define BITMASK(size) ((1 << size) - 1)
-#define DART_NATIVE_ARG_DESCRIPTOR(type, position)                             \
-  (((type & BITMASK(kNativeArgTypeSize)) << kNativeArgTypePos) |               \
+#define DART_NATIVE_ARG_DESCRIPTOR(type, position)               \
+  (((type & BITMASK(kNativeArgTypeSize)) << kNativeArgTypePos) | \
    (position & BITMASK(kNativeArgNumberSize)))
 
 /**
@@ -3766,7 +3762,7 @@ DART_EXPORT Dart_Handle Dart_LoadingUnitLibraryUris(intptr_t loading_unit_id);
 #define kVmSnapshotInstructionsAsmSymbol "_kDartVmSnapshotInstructions"
 #define kVmSnapshotBssAsmSymbol "_kDartVmSnapshotBss"
 #define kIsolateSnapshotDataAsmSymbol "_kDartIsolateSnapshotData"
-#define kIsolateSnapshotInstructionsAsmSymbol                                  \
+#define kIsolateSnapshotInstructionsAsmSymbol \
   "_kDartIsolateSnapshotInstructions"
 #define kIsolateSnapshotBssAsmSymbol "_kDartIsolateSnapshotBss"
 
@@ -3871,8 +3867,8 @@ DART_EXPORT DART_WARN_UNUSED_RESULT Dart_Handle Dart_SortClasses();
  *  startup and quicker warmup in a subsequent process.
  *
  *  Outputs a snapshot in two pieces. The pieces should be passed to
- *  Dart_CreateIsolateGroup in a VM using the same VM snapshot pieces used in the
- *  current VM. The instructions piece must be loaded with read and execute
+ *  Dart_CreateIsolateGroup in a VM using the same VM snapshot pieces used in
+ * the current VM. The instructions piece must be loaded with read and execute
  *  permissions; the data piece may be loaded as read-only.
  *
  *   - Requires the VM to have not been started with --precompilation.

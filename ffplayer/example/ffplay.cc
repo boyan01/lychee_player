@@ -1,33 +1,25 @@
-﻿#include <base/bind_to_current_loop.h>
+﻿// ffplayer.cpp: 定义应用程序的入口点。
+//
 
 #include <csignal>
 #include <cstdint>
 #include <iostream>
 #include <utility>
+#include <vector>
+
+#include "logging.h"
+#include "media_player.h"
+#include "render_video_sdl.h"
+#include "sdl_utils.h"
 
 #include "app_window.h"
-#include "base/logging.h"
-#include "external_media_texture.h"
-#include "external_video_renderer_sink.h"
-#include "media_player.h"
-#include "sdl_media_texture.h"
-#include "sdl_utils.h"
-#include "sdl_video_renderer_sink.h"
 
-#ifdef __APPLE__
-#include "macos_audio_renderer_sink.h"
-#define AudioRendererSinkImpl MacosAudioRendererSink
-#endif
-
-#if _WIN32
-#define NOMINMAX
-#include "sdl_audio_renderer_sink.h"
-#include "wasapi_audio_render_sink.h"
-//#define AudioRendererSinkImpl WasapiAudioRenderSink
-#define AudioRendererSinkImpl SdlAudioRendererSink
-#else
-#include "sdl_audio_renderer_sink.h"
-#define AudioRendererSinkImpl SdlAudioRendererSink
+#ifdef LYCHEE_OSX
+#include "audio_render_core_audio.h"
+#define AudioRenderImpl AudioRenderCoreAudio
+#elif defined(LYCHEE_ENABLE_SDL)
+#define AudioRenderImpl AudioRenderSdl
+#include "audio_render_sdl.h"
 #endif
 
 extern "C" {
@@ -35,13 +27,18 @@ extern "C" {
 }
 
 using namespace std;
-using namespace media;
+
+#define FF_DRAW_EVENT (SDL_USEREVENT + 2)
+#define FF_MSG_EVENT (SDL_USEREVENT + 3)
+/* Step size for volume control*/
+#define SDL_VOLUME_STEP (10)
 
 #define CURSOR_HIDE_DELAY 1000000
 
-static SDL_Window *window;
+static SDL_Window* window;
 
 static float seek_interval = 10;
+static int exit_on_keydown;
 static int exit_on_mousedown;
 static int borderless;
 static int alwaysontop;
@@ -50,7 +47,9 @@ static int cursor_hidden;
 
 static int is_full_screen;
 
-static const char *window_title;
+static int volume_before_mute = 1;
+
+static const char* window_title;
 static int default_width = 640;
 static int default_height = 480;
 static int screen_width = 0;
@@ -60,23 +59,53 @@ static int screen_top = SDL_WINDOWPOS_CENTERED;
 
 static bool dump_status = false;
 
-static double volume_before_mute = 1;
+struct MessageData {
+  MediaPlayer* player = nullptr;
+  int32_t what = 0;
+  int64_t arg1 = 0;
+  int64_t arg2 = 0;
+};
 
-static void sigterm_handler(int sig) { exit(123); }
+static void sigterm_handler(int sig) {
+  exit(123);
+}
 
 static void do_exit() {
-  if (window) SDL_DestroyWindow(window);
+  if (window)
+    SDL_DestroyWindow(window);
 
   SDL_Quit();
   av_log(nullptr, AV_LOG_QUIET, "%s", "");
   exit(0);
 }
 
+static void refresh_loop_wait_event(MediaPlayer* player, SDL_Event* event) {
+  double remaining_time = 0.0;
+  SDL_PumpEvents();
+  while (
+      !SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
+    if (!cursor_hidden &&
+        av_gettime_relative() - cursor_last_shown > CURSOR_HIDE_DELAY) {
+      SDL_ShowCursor(0);
+      cursor_hidden = 1;
+    }
+    if (remaining_time > 0.0)
+      av_usleep((unsigned)(remaining_time * 1000000.0));
+    auto* render = dynamic_cast<SdlVideoRender*>(player->GetVideoRender());
+    remaining_time = render->DrawFrame();
+    if (dump_status) {
+      player->DumpStatus();
+    }
+    SDL_PumpEvents();
+  }
+}
+
 static void set_default_window_size(int width, int height) {
   SDL_Rect rect;
   int max_width = screen_width ? screen_width : INT_MAX;
   int max_height = screen_height ? screen_height : INT_MAX;
-  if (max_width == INT_MAX && max_height == INT_MAX) max_height = height;
+  if (max_width == INT_MAX && max_height == INT_MAX)
+    max_height = height;
   AVRational rational = {1, 1};
   media::sdl::calculate_display_rect(&rect, 0, 0, max_width, max_height, width,
                                      height, rational);
@@ -85,7 +114,7 @@ static void set_default_window_size(int width, int height) {
 }
 
 /// limit max show size to half of screen.
-static void check_screen_size(int &width, int &height) {
+void check_screen_size(int64_t& width, int64_t& height) {
   SDL_DisplayMode display_mode;
 
   int window_index = 0;
@@ -97,30 +126,54 @@ static void check_screen_size(int &width, int &height) {
   auto scale_w = double(width) / display_mode.w;
   auto scale_h = double(height) / display_mode.h;
   auto scale = min(min(scale_h, scale_w), 0.5);
-  width = int(display_mode.w * scale);
-  height = int(display_mode.h * scale);
+  width = int64_t(display_mode.w * scale);
+  height = int64_t(display_mode.h * scale);
 }
 
-void OnVideoSizeChanged(std::shared_ptr<MediaPlayer> media_player,
-                        int video_width, int video_height) {
-  int width = video_width, height = video_height;
-  check_screen_size(width, height);
-  set_default_window_size(width, height);
-  DLOG(INFO) << "on video size changed: width = " << width
-             << "height = " << height;
-  int w, h;
-  w = screen_width ? screen_width : default_width;
-  h = screen_height ? screen_height : default_height;
+static void on_message(MediaPlayer* player,
+                       int what,
+                       int64_t arg1,
+                       int64_t arg2) {
+  //    av_log(nullptr, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n",
+  //    what, arg1, arg2);
+  switch (what) {
+    case FFP_MSG_VIDEO_FRAME_LOADED: {
+      check_screen_size(arg1, arg2);
+      set_default_window_size((int)arg1, (int)arg2);
+      std::cout << "FFP_MSG_VIDEO_FRAME_LOADED: width = " << arg1
+                << "height = " << arg2 << endl;
+      int w, h;
+      w = screen_width ? screen_width : default_width;
+      h = screen_height ? screen_height : default_height;
 
-  if (!window_title) window_title = "Lychee";
-  SDL_SetWindowTitle(window, window_title);
+      window_title = strdup(player->GetUrl());
+      SDL_SetWindowTitle(window, window_title);
 
-  DLOG(INFO) << "set_default_window_size width = " << w << ", height = " << h;
-  SDL_SetWindowSize(window, w, h);
-  SDL_SetWindowPosition(window, screen_left, screen_top);
-  if (is_full_screen)
-    SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-  SDL_ShowWindow(window);
+      printf("set_default_window_size : %d , %d \n", w, h);
+      SDL_SetWindowSize(window, w, h);
+      SDL_SetWindowPosition(window, screen_left, screen_top);
+      if (is_full_screen)
+        SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+      SDL_ShowWindow(window);
+      break;
+    }
+    case MEDIA_MSG_PLAYER_STATE_CHANGED:
+      printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %lld \n", arg1);
+      break;
+    case FFP_MSG_BUFFERING_TIME_UPDATE:
+      printf("FFP_MSG_BUFFERING_TIME_UPDATE: %f.  %f:%f \n",
+             double(arg1) / 1000.0, player->GetCurrentPosition(),
+             player->GetDuration());
+      break;
+    case FFP_MSG_AV_METADATA_LOADED: {
+      const char* title = player->GetMetadataDict("title");
+      if (!window_title && title)
+        window_title = av_asprintf("%s - %s", title, player->GetUrl());
+      break;
+    }
+    default:
+      break;
+  }
 }
 
 namespace {
@@ -129,17 +182,17 @@ class SdlLycheePlayerExample;
 
 class SDLEventHandler {
  public:
-  explicit SDLEventHandler(const weak_ptr<SdlLycheePlayerExample> &media_player)
+  explicit SDLEventHandler(const weak_ptr<SdlLycheePlayerExample>& media_player)
       : media_player_(media_player) {}
 
-  void HandleSdlEvent(const SDL_Event &event);
+  void HandleSdlEvent(const SDL_Event& event);
 
  private:
   std::weak_ptr<SdlLycheePlayerExample> media_player_;
 
   static void HandleKeyEvent(
       SDL_Keycode keycode,
-      const std::shared_ptr<SdlLycheePlayerExample> &player_app);
+      const std::shared_ptr<SdlLycheePlayerExample>& player_app);
 
   static void toggle_full_screen() {
     is_full_screen = !is_full_screen;
@@ -151,12 +204,12 @@ class SDLEventHandler {
 class SdlLycheePlayerExample
     : public std::enable_shared_from_this<SdlLycheePlayerExample> {
  public:
-  explicit SdlLycheePlayerExample(const vector<std::string> &input_files,
+  explicit SdlLycheePlayerExample(const vector<std::string>& input_files,
                                   std::shared_ptr<SDL_Renderer> renderer);
 
   void Start();
 
-  const std::shared_ptr<MediaPlayer> &current_player() {
+  const std::shared_ptr<MediaPlayer>& current_player() {
     return current_player_;
   }
 
@@ -167,7 +220,6 @@ class SdlLycheePlayerExample
  private:
   std::vector<std::string> input_files_;
   int playing_file_index_;
-  TaskRunner task_runner_;
 
   std::shared_ptr<SDL_Renderer> renderer_;
 
@@ -176,58 +228,62 @@ class SdlLycheePlayerExample
   std::shared_ptr<SDLEventHandler> event_handler_;
 
   void SdlEventLoop() {
-    DCHECK(task_runner_.BelongsToCurrentThread());
     SDL_Event sdl_event;
-    if (event_handler_ && SDL_PollEvent(&sdl_event)) {
-      event_handler_->HandleSdlEvent(sdl_event);
+    while (true) {
+      refresh_loop_wait_event(current_player_.get(), &sdl_event);
+      if (event_handler_) {
+        event_handler_->HandleSdlEvent(sdl_event);
+      }
     }
-    task_runner_.PostDelayedTask(
-        FROM_HERE, TimeDelta::FromMilliseconds(2),
-        std::bind(&SdlLycheePlayerExample::SdlEventLoop, this));
   }
 
-  void PlayItem(const std::string &input_file) {
-    auto video_renderer_sink =
-        std::make_unique<ExternalVideoRendererSink>(task_runner_);
-    auto audio_renderer_sink = std::make_unique<AudioRendererSinkImpl>();
-    auto player = std::make_shared<MediaPlayer>(
-        std::move(video_renderer_sink), std::move(audio_renderer_sink),
-        TaskRunner::CreateFromCurrent());
-    player->SetVolume(0.5);
-    // TODO temp solution.
-    task_runner_.PostDelayedTask(
-        FROM_HERE, TimeDelta::FromMilliseconds(30),
-        [player]() { OnVideoSizeChanged(player, 1280, 720); });
+  void PlayItem(const std::string& input_file) {
+    current_player_ = nullptr;
+    SDL_FlushEvent(FF_MSG_EVENT);
 
+    auto video_render = std::make_unique<SdlVideoRender>(renderer_);
+    auto audio_render = std::make_unique<AudioRenderImpl>();
+    auto player = std::make_shared<MediaPlayer>(std::move(video_render),
+                                                std::move(audio_render));
+    player->SetVolume(50);
+    player->SetMessageHandleCallback(
+        [player_ptr(player.get())](int what, int64_t arg1, int64_t arg2) {
+          SDL_Event event;
+          event.type = FF_MSG_EVENT;
+          auto* data = new MessageData;
+          event.user.data1 = data;
+          data->player = player_ptr;
+          data->what = what;
+          data->arg1 = arg1;
+          data->arg2 = arg2;
+          SDL_PushEvent(&event);
+        });
     if (player->OpenDataSource(input_file.c_str()) < 0) {
       LOG(FATAL) << "failed to open file";
       do_exit();
     }
-    // perform play when start.
+    // perform play when started.
     player->SetPlayWhenReady(true);
+
     current_player_ = player;
   }
 };
 
 SdlLycheePlayerExample::SdlLycheePlayerExample(
-    const vector<std::string> &input_files,
+    const vector<std::string>& input_files,
     std::shared_ptr<SDL_Renderer> renderer)
     : input_files_(input_files),
       renderer_(std::move(renderer)),
-      playing_file_index_(0),
-      task_runner_(TaskRunner::CreateFromCurrent()) {
+      playing_file_index_(0) {
   DCHECK(!input_files.empty());
-  DCHECK(task_runner_);
 }
 
 void SdlLycheePlayerExample::Start() {
   DCHECK_GE(playing_file_index_, 0);
   DCHECK_LT(playing_file_index_, input_files_.size());
   PlayItem(input_files_[playing_file_index_]);
-
   event_handler_ = std::make_shared<SDLEventHandler>(shared_from_this());
-  task_runner_.PostTask(FROM_HERE,
-                        std::bind(&SdlLycheePlayerExample::SdlEventLoop, this));
+  SdlLycheePlayerExample::SdlEventLoop();
 }
 
 void SdlLycheePlayerExample::SkipToPrevious() {
@@ -250,9 +306,9 @@ void SdlLycheePlayerExample::SkipToNext() {
 // static
 void SDLEventHandler::HandleKeyEvent(
     SDL_Keycode keycode,
-    const std::shared_ptr<SdlLycheePlayerExample> &player_app) {
+    const std::shared_ptr<SdlLycheePlayerExample>& player_app) {
   /* Step size for volume control*/
-  static const double kExampleVolumeStep = 0.1;
+  static const int kExampleVolumeStep = 10;
   auto player = player_app->current_player();
   DCHECK(player);
   switch (keycode) {
@@ -270,7 +326,7 @@ void SDLEventHandler::HandleKeyEvent(
       break;
     }
     case SDLK_m: {
-      double volume = player->GetVolume();
+      int volume = player->GetVolume();
       if (volume != 0) {
         player->SetVolume(0);
         volume_before_mute = volume;
@@ -305,28 +361,12 @@ void SDLEventHandler::HandleKeyEvent(
       break;
     case SDLK_w:
       break;
-      //        case SDLK_PAGEUP:
-      //          if (player->GetChapterCount() <= 1) {
-      //            incr = 600.0;
-      //            goto do_seek;
-      //          }
-      //          player->SeekToChapter(player->GetChapterCount() + 1);
-      //          break;
-      //        case SDLK_PAGEDOWN:
-      //          if (player->GetChapterCount() <= 1) {
-      //            incr = -600.0;
-      //            goto do_seek;
-      //          }
-      //          player->SeekToChapter(player->GetChapterCount() - 1);
-      //          break;
     case SDLK_LEFT: {
-      player->Seek(
-          std::max(player->GetCurrentPosition() - TimeDelta::FromSeconds(10),
-                   TimeDelta::Zero()));
+      player->Seek(std::max(player->GetCurrentPosition() - 10, 0.0));
       break;
     }
     case SDLK_RIGHT: {
-      player->Seek(player->GetCurrentPosition() + TimeDelta::FromSeconds(10));
+      player->Seek(player->GetCurrentPosition() + 10);
       break;
     }
     case SDLK_UP: {
@@ -342,7 +382,7 @@ void SDLEventHandler::HandleKeyEvent(
   }
 }
 
-void SDLEventHandler::HandleSdlEvent(const SDL_Event &event) {
+void SDLEventHandler::HandleSdlEvent(const SDL_Event& event) {
   TRACE_METHOD_DURATION(10000);
   _logging_trace_method_duration.stream() << event.type;
 
@@ -380,15 +420,17 @@ void SDLEventHandler::HandleSdlEvent(const SDL_Event &event) {
       }
       cursor_last_shown = av_gettime_relative();
       if (event.type == SDL_MOUSEBUTTONDOWN) {
-        if (event.button.button != SDL_BUTTON_RIGHT) break;
+        if (event.button.button != SDL_BUTTON_RIGHT)
+          break;
         x = event.button.x;
       } else {
-        if (!(event.motion.state & SDL_BUTTON_RMASK)) break;
+        if (!(event.motion.state & SDL_BUTTON_RMASK))
+          break;
         x = event.motion.x;
       }
       {
         double dest = (x / screen_width) * player->GetDuration();
-        player->Seek(TimeDelta::FromSecondsD(dest));
+        player->Seek(dest);
       }
       break;
     case SDL_WINDOWEVENT:
@@ -396,13 +438,12 @@ void SDLEventHandler::HandleSdlEvent(const SDL_Event &event) {
         case SDL_WINDOWEVENT_SIZE_CHANGED: {
           screen_width = event.window.data1;
           screen_height = event.window.data2;
-          //          auto *render = dynamic_cast<SdlVideoRender
-          //          *>(player->GetVideoRender()); render->screen_width =
-          //          screen_width; render->screen_height = screen_height;
-          //          render->DestroyTexture();
 
-          SdlVideoRendererSink::screen_height = screen_height;
-          SdlVideoRendererSink::screen_width = screen_width;
+          auto* render =
+              dynamic_cast<SdlVideoRender*>(player->GetVideoRender());
+          render->screen_height = screen_height;
+          render->screen_width = screen_width;
+          render->DestroyTexture();
         }
         case SDL_WINDOWEVENT_EXPOSED:
           //                        is->force_refresh = 1;
@@ -412,47 +453,38 @@ void SDLEventHandler::HandleSdlEvent(const SDL_Event &event) {
     case SDL_QUIT:
       do_exit();
       return;
+    case FF_MSG_EVENT: {
+      auto* msg = static_cast<MessageData*>(event.user.data1);
+      on_message(msg->player, msg->what, msg->arg1, msg->arg2);
+      delete msg;
+      break;
+    }
     default:
       break;
   }
 }
 
-void ExternalTextureFactory(
-    std::function<void(std::unique_ptr<ExternalMediaTexture>)> callback) {
-  callback(std::make_unique<SdlMediaTexture>());
-}
-
 }  // namespace
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   std::vector<std::string> input_files(argc - 1);
   for (int i = 0; i < argc - 1; ++i) {
     input_files[i] = argv[i + 1];
   }
   CHECK_GT(input_files.size(), 0) << "An input file must be specified";
 
-  MediaPlayer::GlobalInit();
-#ifdef _MEDIA_USE_SDL
-  media::sdl::InitSdlAudio();
-  register_external_texture_factory(ExternalTextureFactory);
-#endif
-
   signal(SIGINT, sigterm_handler);  /* Interrupt (ANSI).    */
   signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */
 
-  PlayerConfiguration config;
+  MediaPlayer::GlobalInit();
 
   AppWindow::Initialize();
 
   window = AppWindow::Instance()->GetWindow();
 
-  auto looper = base::MessageLooper::Create("main_task", 16);
-  looper->Prepare();
   auto player = make_shared<SdlLycheePlayerExample>(
       input_files, AppWindow::Instance()->GetRenderer());
-  looper->PostTask(FROM_HERE,
-                   std::bind(&SdlLycheePlayerExample::Start, player));
-  looper->Loop();
+  player->Start();
 
   return 0;
 }

@@ -1,15 +1,32 @@
 cmake_minimum_required(VERSION 3.10)
 
-project("media_player_example")
+project("lychee_player_example")
 
 set(EXAMPLE_BIN_NAME ${PROJECT_NAME})
+
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} EXAMPLE_SOURCES)
+
+if (APPLE)
+    function(add_macos_lib NAME)
+        add_library(${NAME} SHARED IMPORTED GLOBAL)
+        set_target_properties(${NAME} PROPERTIES IMPORTED_LOCATION /usr/local/lib/lib${NAME}.dylib)
+    endfunction()
+
+    add_macos_lib(avutil)
+    add_macos_lib(avcodec)
+    add_macos_lib(avformat)
+    add_macos_lib(swscale)
+    add_macos_lib(swresample)
+    add_macos_lib(SDL2)
+endif ()
 
 if (WIN32)
     set(EXAMPLE_WINDOWS_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libs")
     add_library(SDL2main STATIC IMPORTED)
     set_target_properties(SDL2main PROPERTIES
             IMPORTED_LINK_INTERFACE_LANGUAGES_DEBUG "C"
-            IMPORTED_LOCATION "${EXAMPLE_WINDOWS_LIB_PATH}/SDL2main.lib")
+            IMPORTED_LOCATION "${EXAMPLE_WINDOWS_LIB_PATH}/SDL2main.lib"
+            )
 endif ()
 
 if (APPLE)
@@ -18,35 +35,11 @@ if (APPLE)
             IMPORTED_LOCATION "/usr/local/lib/libSDL2main.a")
 endif ()
 
-if (LINUX)
-    # TODO import libs
-    #    add_library(SDL2main STATIC IMPORTED)
-    #    set_target_properties(SDL2main PROPERTIES
-    #            IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/libs/linux/libSDL2main.a")
-endif ()
-
-add_executable(${EXAMPLE_BIN_NAME}
-        ffplay.cc
-        app_window.h
-        app_window.cc
-        sdl_media_texture.h
-        sdl_media_texture.cc
-        )
+add_executable(${EXAMPLE_BIN_NAME} ${EXAMPLE_SOURCES})
 
 target_include_directories(${EXAMPLE_BIN_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-
-list(APPEND EXAMPLE_LIBRARIES media_player media_sdl SDL2main)
-
-if (APPLE)
-    list(APPEND EXAMPLE_LIBRARIES media_macos)
-endif ()
-
-if (WIN32)
-    list(APPEND EXAMPLE_LIBRARIES media_audio)
-endif ()
-
-target_link_libraries(${EXAMPLE_BIN_NAME} PUBLIC ${EXAMPLE_LIBRARIES})
+target_link_libraries(${EXAMPLE_BIN_NAME} PUBLIC lychee_player SDL2main)
 
 if (WIN32)
     if (CMAKE_FLUTTER_WINDOWS)
@@ -60,5 +53,3 @@ if (WIN32)
                 $<TARGET_FILE_DIR:${EXAMPLE_BIN_NAME}>)
     endforeach ()
 endif ()
-
-install(TARGETS ${PROJECT_NAME} DESTINATION bin)

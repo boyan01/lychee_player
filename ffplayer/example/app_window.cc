@@ -4,7 +4,7 @@
 
 #include "app_window.h"
 
-#include "base/logging.h"
+#include "logging.h"
 
 AppWindow *AppWindow::app_window_instance_ = nullptr;
 

@@ -1,1 +1,3 @@
-<manifest package="com.github.boyan01.lychee" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  package="tech.soit.flutter.media">
+</manifest>

@@ -6,9 +6,11 @@ description: |
 output: 'lib/src/lychee_player_bindings_generated.dart'
 headers:
   entry-points:
-    - 'lychee_cpp/flutter/lychee_player_plugin.h'
+    - 'ffplayer/flutter/lychee_player_plugin.h'
+    - 'ffplayer/media_msg_define.h'
   include-directives:
-    - 'lychee_cpp/flutter/lychee_player_plugin.h'
+    - 'ffplayer/flutter/lychee_player_plugin.h'
+    - 'ffplayer/media_msg_define.h'
 preamble: |
   // ignore_for_file: always_specify_types
   // ignore_for_file: camel_case_types
@@ -17,5 +19,3 @@ preamble: |
 comments:
   style: any
   length: full
-
-dart-bool: true

@@ -6,11 +6,14 @@ PODS:
     - FlutterMacOS
   - path_provider_macos (0.0.1):
     - FlutterMacOS
+  - system_clock (0.0.1):
+    - FlutterMacOS
 
 DEPENDENCIES:
   - FlutterMacOS (from `Flutter/ephemeral`)
   - lychee_player (from `Flutter/ephemeral/.symlinks/plugins/lychee_player/macos`)
   - path_provider_macos (from `Flutter/ephemeral/.symlinks/plugins/path_provider_macos/macos`)
+  - system_clock (from `Flutter/ephemeral/.symlinks/plugins/system_clock/macos`)
 
 SPEC REPOS:
   trunk:
@@ -23,12 +26,15 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral/.symlinks/plugins/lychee_player/macos
   path_provider_macos:
     :path: Flutter/ephemeral/.symlinks/plugins/path_provider_macos/macos
+  system_clock:
+    :path: Flutter/ephemeral/.symlinks/plugins/system_clock/macos
 
 SPEC CHECKSUMS:
   ffmpeg-kit-macos-full: 578f89931c88d0df654bfe63a4deea939f04901c
   FlutterMacOS: 57701585bf7de1b3fc2bb61f6378d73bbdea8424
-  lychee_player: 529082696b590f0cbb3a581d289d026620f115a0
+  lychee_player: 1e542ffa621ed9da529fd19546d66775418176dd
   path_provider_macos: 3c0c3b4b0d4a76d2bf989a913c2de869c5641a19
+  system_clock: d5fdc00655b062d3b748b612ba32549ee8cb4ddb
 
 PODFILE CHECKSUM: 6eac6b3292e5142cfc23bdeb71848a40ec51c14c
 

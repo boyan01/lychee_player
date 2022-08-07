@@ -1,49 +1,14 @@
-﻿cmake_minimum_required(VERSION 3.15)
-
-option(MEDIA_BUILD_EXAMPLE "Build example project" ON)
-option(DISABLE_MEDIA_TEST "Disable test" OFF)
+﻿cmake_minimum_required(VERSION 3.10)
 
 if (WIN32)
     set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
     #    set(BUILD_SHARED_LIBS TRUE)
     set(CMAKE_SYSTEM_VERSION "10")
     set(CMAKE_SYSTEM_NAME "WindowsStore")
-
-    add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
-    add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 endif ()
 
 project("media" "CXX" "C")
 set(CMAKE_CXX_STANDARD 14)
-
-if (WIN32)
-    set(MEDIA_USE_SDL 1)
-    add_compile_definitions(_MEDIA_WINDOWS)
-elseif (UNIX AND NOT APPLE)
-    set(DISABLE_MEDIA_TEST 1)
-    set(MEDIA_USE_SDL 1)
-    add_compile_definitions(_MEDIA_LINUX)
-elseif (MEDIA_ANDROID)
-    set(MEDIA_USE_SDL 0)
-    set(DISABLE_MEDIA_TEST 1)
-    add_compile_definitions(_MEDIA_ANDROID)
-elseif (MEDIA_MACOS)
-    set(MEDIA_USE_SDL 0)
-    set(DISABLE_MEDIA_TEST 1)
-    add_compile_definitions(_MEDIA_MACOS)
-    #    add_compile_definitions(_MEDIA_ENABLE_HW_ACCEL)
-
-    find_library(FFMPEG_KIT NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../example/macos/Pods/ffmpeg-kit-macos-full REQUIRED)
-    list(APPEND FFP_LIBS ${FFmpegKit})
-
-elseif (MEDIA_IOS)
-    set(MEDIA_USE_SDL 0)
-    set(DISABLE_MEDIA_TEST 1)
-    add_compile_definitions(_MEDIA_IOS)
-
-    find_library(FFMPEG_KIT NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../example/ios/Pods/ffmpeg-kit-ios-full REQUIRED)
-    list(APPEND FFP_LIBS ${FFMPEG_KIT})
-endif ()
 
 if (NOT DEFINED FFP_LIBS)
     list(APPEND MEDIA_THIRD_PARTY_LIBS
@@ -52,10 +17,8 @@ if (NOT DEFINED FFP_LIBS)
             avformat
             swscale
             swresample
+            SDL2
             )
-    if (MEDIA_USE_SDL)
-        list(APPEND MEDIA_THIRD_PARTY_LIBS SDL2)
-    endif ()
     if (WIN32)
         set(WINDOWS_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libs/windows")
 
@@ -78,42 +41,6 @@ if (NOT DEFINED FFP_LIBS)
 
     endif ()
 
-    if (APPLE)
-        function(add_macos_lib NAME)
-            if (CMAKE_FLUTTER_MEDIA_IOS)
-                # add_library(${NAME} STATIC IMPORTED GLOBAL)
-                # set_target_properties(${NAME} PROPERTIES
-                #         IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/libs/ios/lib/lib${NAME}.a)
-            else ()
-                add_library(${NAME} SHARED IMPORTED GLOBAL)
-                set_target_properties(${NAME} PROPERTIES IMPORTED_LOCATION /usr/local/lib/lib${NAME}.dylib)
-            endif ()
-        endfunction()
-
-        add_macos_lib(avutil)
-        add_macos_lib(avcodec)
-        add_macos_lib(avformat)
-        add_macos_lib(swscale)
-        add_macos_lib(swresample)
-        add_macos_lib(SDL2)
-
-    endif ()
-    #    # TODO more imported libs.
-    #    if (UNIX AND NOT APPLE)
-    #        set(LINUX_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libs/linux")
-    #        function(add_linux_lib NAME)
-    #            find_library(lib_${NAME} ${NAME} REQUIRED)
-    #            add_library(${NAME} SHARED IMPORTED GLOBAL)
-    #            set_target_properties(${NAME} PROPERTIES IMPORTED_LOCATION ${lib_${NAME}})
-    #        endfunction()
-    #        add_linux_lib(avutil)
-    #        add_linux_lib(avcodec)
-    #        add_linux_lib(avformat)
-    #        add_linux_lib(swscale)
-    #        add_linux_lib(swresample)
-    #        add_linux_lib(SDL2)
-    #    endif ()
-
     list(APPEND FFP_LIBS ${MEDIA_THIRD_PARTY_LIBS})
     if (UNIX)
         # linux do not have math library.
@@ -121,40 +48,81 @@ if (NOT DEFINED FFP_LIBS)
     endif ()
 endif ()
 
-if (NOT DISABLE_MEDIA_TEST)
-    # https://google.github.io/googletest/quickstart-cmake.html#set-up-a-project
-    include(FetchContent)
-    FetchContent_Declare(
-            googletest
-            GIT_REPOSITORY https://github.com/google/googletest
-            GIT_TAG 609281088cfefc76f9d0ce82e1ff6c30cc3591e5
-    )
-    # For Windows: Prevent overriding the parent project's compiler/linker settings
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(googletest)
-endif ()
-
-
-add_subdirectory(base)
-
-add_subdirectory(player)
-
-if (MEDIA_USE_SDL)
-    add_compile_definitions(_MEDIA_USE_SDL)
-    add_subdirectory(sdl)
-endif ()
-
-if (APPLE)
-    add_subdirectory(macos)
-endif ()
-
 if (WIN32)
-    # TODO move darwin core audio to this subdir.
-    add_subdirectory(audio)
+    add_compile_definitions("LYCHEE_ENABLE_SDL")
+elseif (UNIX AND NOT APPLE)
+    add_compile_definitions("LYCHEE_ENABLE_SDL")
+elseif (MEDIA_MACOS)
+    add_compile_definitions("LYCHEE_OSX")
+    find_library(FFMPEG_KIT NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../example/macos/Pods/ffmpeg-kit-macos-full REQUIRED)
+    list(APPEND FFP_LIBS ${FFmpegKit})
+    list(APPEND FFP_LIBS "-framework AudioToolbox")
+elseif (MEDIA_IOS)
+    add_compile_definitions("LYCHEE_OSX")
+    find_library(FFMPEG_KIT NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../example/ios/Pods/ffmpeg-kit-ios-full REQUIRED)
+    list(APPEND FFP_LIBS ${FFMPEG_KIT})
+    list(APPEND FFP_LIBS "-framework AudioToolbox")
 endif ()
+
+
+add_library("lychee_player" STATIC
+        decoder_base.h
+        decoder_base.cc
+        ffp_define.h
+        ffp_frame_queue.h
+        ffp_frame_queue.cc
+        ffp_msg_queue.h
+        ffp_msg_queue.cc
+        ffp_packet_queue.h
+        ffp_packet_queue.cc
+        ffp_utils.h
+        ffp_utils.cc
+        media_clock.h
+        media_clock.cc
+        render_audio_base.h
+        render_audio_base.cc
+        render_video_base.h
+        render_video_base.cc
+        render_base.h
+        render_base.cc
+        data_source.h
+        data_source.cc
+        decoder_ctx.h
+        decoder_ctx.cc
+        ffplayer.h
+        media_player.h
+        media_player.cc
+        decoder_audio.h
+        decoder_audio.cc
+        audio_render_basic.h
+        audio_render_basic.cc
+        audio_render_sdl.h
+        audio_render_sdl.cc
+        decoder_video.h
+        decoder_video.cc
+        location.h
+        location.cc
+        logging.h
+        logging.cc
+        message_queue.h
+        message_queue.cc
+        media_msg_define.h
+        audio_render_core_audio.cc
+        audio_render_core_audio.h
+        )
+
+target_include_directories("lychee_player" PUBLIC "third_party" ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries("lychee_player" PUBLIC ${FFP_LIBS})
 
 add_subdirectory(flutter)
 
-if (MEDIA_BUILD_EXAMPLE)
+if (NOT LYCHEE_PLAYER_BUILD_SHARED_FLUTTER_PLUGIN)
+    message("Building static flutter plugin")
+    install(TARGETS lychee_player lychee_player_flutter ARCHIVE DESTINATION lib)
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/flutter/lychee_player_plugin.h DESTINATION include)
+endif ()
+
+
+if (LYCHEE_PLAYER_BUILD_EXAMPLE)
     add_subdirectory(example)
 endif ()

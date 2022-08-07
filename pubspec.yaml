@@ -1,6 +1,6 @@
 name: lychee_player
 description: A simple audio player plugin for flutter.
-version: 0.1.0
+version: 0.3.0
 repository: https://github.com/boyan01/lychee_player
 
 environment:
@@ -10,19 +10,21 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  ffi: ^1.2.1
+  ffi: ^2.0.1
+  system_clock: ^1.2.0
+
 dev_dependencies:
   flutter_lints: ^2.0.0
   flutter_test:
     sdk: flutter
-  ffigen: ^5.0.0
+  ffigen: ^6.0.1
 
 flutter:
   plugin:
     platforms:
-      windows:
-        ffiPlugin: true
-      linux:
-        ffiPlugin: true
       macos:
         pluginClass: LycheePlayerPlugin
+      windows:
+        pluginClass: MediaPlayerPlugin
+      linux:
+        pluginClass: MediaPlayerPlugin

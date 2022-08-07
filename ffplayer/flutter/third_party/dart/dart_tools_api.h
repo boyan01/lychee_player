@@ -29,7 +29,6 @@
  */
 #define ILLEGAL_ISOLATE_ID ILLEGAL_PORT
 
-
 /*
  * =======
  * Service
@@ -122,13 +121,13 @@ DART_EXPORT void Dart_RegisterRootServiceRequestCallback(
  * The pointers in this structure are not going to be cached or freed by the VM.
  */
 
- #define DART_EMBEDDER_INFORMATION_CURRENT_VERSION (0x00000001)
+#define DART_EMBEDDER_INFORMATION_CURRENT_VERSION (0x00000001)
 
 typedef struct {
   int32_t version;
-  const char* name;  // [optional] The name of the embedder
+  const char* name;     // [optional] The name of the embedder
   int64_t current_rss;  // [optional] the current RSS of the embedder
-  int64_t max_rss;  // [optional] the maximum RSS of the embedder
+  int64_t max_rss;      // [optional] the maximum RSS of the embedder
 } Dart_EmbedderInformation;
 
 /**
@@ -389,10 +388,10 @@ DART_EXPORT int64_t Dart_TimelineGetMicros();
 #define DART_TIMELINE_STREAM_VM (1 << 7)
 
 /** All timeline streams */
-#define DART_TIMELINE_STREAM_ALL                                               \
-  (DART_TIMELINE_STREAM_API | DART_TIMELINE_STREAM_COMPILER |                  \
-   DART_TIMELINE_STREAM_DART | DART_TIMELINE_STREAM_DEBUGGER |                 \
-   DART_TIMELINE_STREAM_EMBEDDER | DART_TIMELINE_STREAM_GC |                   \
+#define DART_TIMELINE_STREAM_ALL                               \
+  (DART_TIMELINE_STREAM_API | DART_TIMELINE_STREAM_COMPILER |  \
+   DART_TIMELINE_STREAM_DART | DART_TIMELINE_STREAM_DEBUGGER | \
+   DART_TIMELINE_STREAM_EMBEDDER | DART_TIMELINE_STREAM_GC |   \
    DART_TIMELINE_STREAM_ISOLATE | DART_TIMELINE_STREAM_VM)
 
 /** Disable all timeline stream recording */
@@ -462,7 +461,8 @@ DART_EXPORT void Dart_SetThreadName(const char* name);
  * Return metrics gathered for the VM and individual isolates.
  *
  * NOTE: Non-heap metrics are not available in PRODUCT builds of Dart.
- * Calling the non-heap metric functions on a PRODUCT build might return invalid metrics.
+ * Calling the non-heap metric functions on a PRODUCT build might return invalid
+ * metrics.
  */
 DART_EXPORT int64_t Dart_VMIsolateCountMetric();  // Counter
 DART_EXPORT int64_t Dart_VMCurrentRSSMetric();    // Byte

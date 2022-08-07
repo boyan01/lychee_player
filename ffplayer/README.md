@@ -26,10 +26,16 @@ sudo apt-get install libsdl2-dev
 
 ### Macos
 
-1. Install ffmpeg.
+1. Install av libs
 
 ```shell
 brew install ffmpeg
+```
+
+2. Install SDL2
+
+```shell
+brew install SDL2
 ```
 
 3. Open Project(`ffplayer`) in Clion/Vscode.

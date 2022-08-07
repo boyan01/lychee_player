@@ -1,6 +1,6 @@
-# lychee_player_example
+# audio_player_example
 
-Demonstrates how to use the lychee_player plugin.
+Demonstrates how to use the audio_player plugin.
 
 ## Getting Started
 

@@ -3,10 +3,11 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  lychee_player
+  system_clock
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
-  lychee_player
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

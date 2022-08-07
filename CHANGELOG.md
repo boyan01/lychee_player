@@ -1,4 +1,3 @@
-## 0.1.0
+## 0.3.0
 
-* initial release.
-* suppot audio play.
+basic audio play support on Windows, Linux, macOS.
