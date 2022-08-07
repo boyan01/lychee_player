@@ -16,7 +16,7 @@ A new flutter plugin project.
   s.source_files     = 'include/*.h', 'Classes/**/*'
   s.public_header_files = 'Classes/**/*.h'
   s.dependency 'FlutterMacOS'
-  s.osx.dependency 'ffmpeg-kit-macos-full', '~> 4.4.LTS'
+  s.osx.dependency 'ffmpeg-kit-macos-full', '= 4.4.LTS'
   s.osx.vendored_libraries = ['lib/liblychee_player.a', 'lib/liblychee_player_flutter.a']
   s.osx.frameworks = "AudioToolbox"
 

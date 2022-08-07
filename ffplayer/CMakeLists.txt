@@ -10,6 +10,24 @@ endif ()
 project("media" "CXX" "C")
 set(CMAKE_CXX_STANDARD 14)
 
+
+if (WIN32)
+    add_compile_definitions("LYCHEE_ENABLE_SDL")
+elseif (UNIX AND NOT APPLE)
+    add_compile_definitions("LYCHEE_ENABLE_SDL")
+elseif (MEDIA_MACOS)
+    add_compile_definitions("LYCHEE_OSX")
+    find_library(FFMPEG_KIT NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../example/macos/Pods/ffmpeg-kit-macos-full REQUIRED)
+    message(STATUS "Found FFmpegKit: ${FFMPEG_KIT}")
+    list(APPEND FFP_LIBS ${FFMPEG_KIT})
+    list(APPEND FFP_LIBS "-framework AudioToolbox")
+elseif (MEDIA_IOS)
+    add_compile_definitions("LYCHEE_OSX")
+    find_library(FFMPEG_KIT NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../example/ios/Pods/ffmpeg-kit-ios-full REQUIRED)
+    list(APPEND FFP_LIBS ${FFMPEG_KIT})
+    list(APPEND FFP_LIBS "-framework AudioToolbox")
+endif ()
+
 if (NOT DEFINED FFP_LIBS)
     list(APPEND MEDIA_THIRD_PARTY_LIBS
             avutil
@@ -48,21 +66,6 @@ if (NOT DEFINED FFP_LIBS)
     endif ()
 endif ()
 
-if (WIN32)
-    add_compile_definitions("LYCHEE_ENABLE_SDL")
-elseif (UNIX AND NOT APPLE)
-    add_compile_definitions("LYCHEE_ENABLE_SDL")
-elseif (MEDIA_MACOS)
-    add_compile_definitions("LYCHEE_OSX")
-    find_library(FFMPEG_KIT NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../example/macos/Pods/ffmpeg-kit-macos-full REQUIRED)
-    list(APPEND FFP_LIBS ${FFmpegKit})
-    list(APPEND FFP_LIBS "-framework AudioToolbox")
-elseif (MEDIA_IOS)
-    add_compile_definitions("LYCHEE_OSX")
-    find_library(FFMPEG_KIT NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../example/ios/Pods/ffmpeg-kit-ios-full REQUIRED)
-    list(APPEND FFP_LIBS ${FFMPEG_KIT})
-    list(APPEND FFP_LIBS "-framework AudioToolbox")
-endif ()
 
 
 add_library("lychee_player" STATIC
@@ -110,6 +113,8 @@ add_library("lychee_player" STATIC
         audio_render_core_audio.cc
         audio_render_core_audio.h
         )
+
+message(STATUS "FFP_LIBS: ${FFP_LIBS}")
 
 target_include_directories("lychee_player" PUBLIC "third_party" ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries("lychee_player" PUBLIC ${FFP_LIBS})

@@ -39,7 +39,7 @@ esac
 # remove cmake install prefix. which default is 'usr/local'
 cmake "$current_dir" -B "$build_dir" -G Xcode -DCMAKE_INSTALL_PREFIX="" -D${build_type}=1 \
   -DCMAKE_TOOLCHAIN_FILE="${current_dir}/ios.toolchain.cmake" -DPLATFORM=${platform} \
-  -DDEPLOYMENT_TARGET=${deploy_target} -DMEDIA_BUILD_EXAMPLE=OFF
+  -DDEPLOYMENT_TARGET=${deploy_target} -DENABLE_BITCODE=FALSE
 # install build output to default dir.
 cd "$build_dir" || exit
 cmake --build "$build_dir" --config Release
