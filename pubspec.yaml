@@ -11,7 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
   ffi: ^2.0.1
-  system_clock: ^1.2.0-nullsafety.1
+  system_clock: ^1.2.0
 
 dev_dependencies:
   flutter_lints: ^2.0.0
