@@ -98,6 +98,10 @@ add_library("lychee_player" STATIC
         audio_render_sdl.cc
         decoder_video.h
         decoder_video.cc
+        location.h
+        location.cc
+        logging.h
+        logging.cc
         )
 
 target_include_directories("lychee_player" PUBLIC "third_party" ${CMAKE_CURRENT_SOURCE_DIR})
@@ -107,7 +111,7 @@ add_subdirectory(flutter)
 
 if (NOT LYCHEE_PLAYER_BUILD_SHARED_FLUTTER_PLUGIN)
     message("Building static flutter plugin")
-    install(TARGETS lychee_player lychee_player_plugin ARCHIVE DESTINATION lib)
+    install(TARGETS lychee_player lychee_player_flutter ARCHIVE DESTINATION lib)
     install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/flutter/lychee_player_plugin.h DESTINATION include)
 endif ()
 

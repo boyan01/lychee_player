@@ -5,6 +5,7 @@
 #include <cmath>
 #include <utility>
 
+#include "logging.h"
 #include "media_clock.h"
 
 Clock::Clock(int* queue_serial)
@@ -20,7 +21,7 @@ Clock::Clock(int* queue_serial)
 Clock::Clock() : Clock(&serial) {}
 
 void Clock::SetClockAt(double pts, int _serial, double time) {
-  pts = pts;
+  pts_ = pts;
   last_updated = time;
   pts_drift_ = pts - time;
   serial = _serial;

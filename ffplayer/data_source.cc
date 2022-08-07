@@ -6,7 +6,7 @@
 #include "ffp_utils.h"
 #include "ffplayer.h"
 
-#include "media_player.h"
+#include "logging.h"
 
 #define MIN_FRAMES 25
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
@@ -525,7 +525,7 @@ void DataSource::Seek(double position) {
 }
 
 double DataSource::GetSeekPosition() const {
-  return seek_position / (double)(AV_TIME_BASE);
+  return double_t(seek_position) / (AV_TIME_BASE);
 }
 
 double DataSource::GetDuration() {

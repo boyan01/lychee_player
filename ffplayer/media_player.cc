@@ -3,6 +3,7 @@
 //
 
 #include "media_player.h"
+#include "logging.h"
 
 #ifndef _FLUTTER_MEDIA_ANDROID
 #define MEDIA_SDL_ENABLE
@@ -214,7 +215,7 @@ double MediaPlayer::GetCurrentPosition() {
   double position = clock_context->GetMasterClock();
   if (isnan(position)) {
     if (data_source) {
-      position = (double)data_source->GetSeekPosition() / AV_TIME_BASE;
+      position = (double)data_source->GetSeekPosition();
     } else {
       position = 0;
     }

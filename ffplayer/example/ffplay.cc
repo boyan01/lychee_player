@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "audio_render_sdl.h"
+#include "logging.h"
 #include "media_player.h"
 #include "render_video_sdl.h"
 #include "sdl_utils.h"
@@ -134,6 +135,7 @@ static void event_loop(MediaPlayer* player) {
           case SDLK_p:
           case SDLK_SPACE: {
             player->SetPlayWhenReady(!player->IsPlayWhenReady());
+            player->DumpStatus();
             break;
           }
           case SDLK_m:
