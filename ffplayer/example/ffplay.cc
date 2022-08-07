@@ -6,6 +6,7 @@
 #include <iostream>
 #include <utility>
 
+#include "audio_render_core_audio.h"
 #include "audio_render_sdl.h"
 #include "logging.h"
 #include "media_player.h"
@@ -431,7 +432,14 @@ int main(int argc, char* argv[]) {
   }
 
   auto video_render = std::make_unique<SdlVideoRender>(std::move(renderer));
-  auto audio_render = std::make_unique<AudioRenderSdl>();
+  std::unique_ptr<BasicAudioRender> audio_render;
+#ifdef LYCHEE_OSX
+  audio_render = std::make_unique<AudioRenderCoreAudio>();
+#elif defined(LYCHEE_ENABLE_SDL)
+  audio_render = std::make_unique<SdlAudioRender>();
+#endif
+
+  DCHECK(audio_render);
   auto* player =
       new MediaPlayer(std::move(video_render), std::move(audio_render));
   player->start_configuration = config;

@@ -294,7 +294,7 @@ void MediaPlayer::GlobalInit() {
 #endif
   avformat_network_init();
 
-#ifdef MEDIA_SDL_ENABLE
+#ifdef LYCHEE_ENABLE_SDL
   if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0)
     av_log(nullptr, AV_LOG_ERROR,
            "SDL fails to initialize audio subsystem!\n%s", SDL_GetError());
@@ -344,7 +344,7 @@ void MediaPlayer::ChangePlaybackState(MediaPlayerState state) {
 }
 
 void MediaPlayer::StopRenders() {
-  av_log(nullptr, AV_LOG_INFO, "StopRenders\n");
+  DLOG(INFO) << "StopRenders";
   PauseClock(true);
   if (audio_render_) {
     audio_render_->Stop();

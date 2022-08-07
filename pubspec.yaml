@@ -22,13 +22,8 @@ dev_dependencies:
 flutter:
   plugin:
     platforms:
-      ios:
-        pluginClass: AudioPlayerPlugin
       macos:
-        pluginClass: SwiftAudioPlayerPlugin
-      android:
-        package: tech.soit.flutter.media
-        pluginClass: MediaPlayerPlugin
+        pluginClass: LycheePlayerPlugin
       windows:
         pluginClass: MediaPlayerPlugin
       linux:

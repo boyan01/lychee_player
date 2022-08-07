@@ -25,7 +25,6 @@ class BaseRender {
   virtual ~BaseRender() = default;
 
   void SetRenderCallback(std::function<void()> render_callback);
-  ;
 
   virtual void Abort() = 0;
 

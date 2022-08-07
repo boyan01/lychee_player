@@ -4,15 +4,12 @@
 #include "dart/dart_api_dl.h"
 #include "lychee_player_plugin.h"
 
-#include "audio_render_sdl.h"
 #include "media_player.h"
 
-#if defined(_FLUTTER_MEDIA_WINDOWS)
-#include "ffp_flutter_windows.h"
-#elif defined(_FLUTTER_MEDIA_ANDROID)
-#include "ffp_flutter_android.h"
-#elif defined(_FLUTTER_MEDIA_LINUX)
+#ifdef LYCHEE_ENABLE_SDL
 #include "audio_render_sdl.h"
+#elif defined(LYCHEE_OSX)
+#include "audio_render_core_audio.h"
 #endif
 
 namespace {
@@ -66,6 +63,8 @@ void* lychee_player_create(const char* file_path, int64_t send_port) {
 #elif _FLUTTER_MEDIA_ANDROID
   video_render = std::make_unique<media::FlutterAndroidVideoRender>();
   audio_render = std::make_unique<media::AudioRenderOboe>();
+#elif defined(LYCHEE_OSX)
+  audio_render = std::make_unique<AudioRenderCoreAudio>();
 #else
   video_render = nullptr;
   audio_render = std::make_unique<AudioRenderSdl>();

@@ -10,7 +10,7 @@ import path_provider_macos
 import system_clock
 
 func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
-  SwiftAudioPlayerPlugin.register(with: registry.registrar(forPlugin: "SwiftAudioPlayerPlugin"))
+  LycheePlayerPlugin.register(with: registry.registrar(forPlugin: "LycheePlayerPlugin"))
   PathProviderPlugin.register(with: registry.registrar(forPlugin: "PathProviderPlugin"))
   SystemClockPlugin.register(with: registry.registrar(forPlugin: "SystemClockPlugin"))
 }

@@ -5,3 +5,4 @@ make-build-debug/
 out
 cmake-build-debug/
 cmake-build-*/
+build-*

@@ -6,6 +6,20 @@ set(EXAMPLE_BIN_NAME ${PROJECT_NAME})
 
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} EXAMPLE_SOURCES)
 
+if (APPLE)
+    function(add_macos_lib NAME)
+        add_library(${NAME} SHARED IMPORTED GLOBAL)
+        set_target_properties(${NAME} PROPERTIES IMPORTED_LOCATION /usr/local/lib/lib${NAME}.dylib)
+    endfunction()
+
+    add_macos_lib(avutil)
+    add_macos_lib(avcodec)
+    add_macos_lib(avformat)
+    add_macos_lib(swscale)
+    add_macos_lib(swresample)
+    add_macos_lib(SDL2)
+endif ()
+
 if (WIN32)
     set(EXAMPLE_WINDOWS_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libs")
     add_library(SDL2main STATIC IMPORTED)
@@ -13,6 +27,12 @@ if (WIN32)
             IMPORTED_LINK_INTERFACE_LANGUAGES_DEBUG "C"
             IMPORTED_LOCATION "${EXAMPLE_WINDOWS_LIB_PATH}/SDL2main.lib"
             )
+endif ()
+
+if (APPLE)
+    add_library(SDL2main STATIC IMPORTED)
+    set_target_properties(SDL2main PROPERTIES
+            IMPORTED_LOCATION "/usr/local/lib/libSDL2main.a")
 endif ()
 
 add_executable(${EXAMPLE_BIN_NAME} ${EXAMPLE_SOURCES})

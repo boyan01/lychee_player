@@ -7,10 +7,6 @@ if (WIN32)
     set(CMAKE_SYSTEM_NAME "WindowsStore")
 endif ()
 
-if (NOT MEDIA_USE_SDL AND NOT CMAKE_FLUTTER_MEDIA)
-    set(MEDIA_USE_SDL "1")
-endif ()
-
 project("media" "CXX" "C")
 set(CMAKE_CXX_STANDARD 14)
 
@@ -58,10 +54,22 @@ else ()
     #    add_subdirectory(example)
 endif ()
 
-
-if (LYCHEE_ENABLE_SDL)
+if (WIN32)
     add_compile_definitions("LYCHEE_ENABLE_SDL")
+elseif (UNIX AND NOT APPLE)
+    add_compile_definitions("LYCHEE_ENABLE_SDL")
+elseif (MEDIA_MACOS)
+    add_compile_definitions("LYCHEE_OSX")
+    find_library(FFMPEG_KIT NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../example/macos/Pods/ffmpeg-kit-macos-full REQUIRED)
+    list(APPEND FFP_LIBS ${FFmpegKit})
+    list(APPEND FFP_LIBS "-framework AudioToolbox")
+elseif (MEDIA_IOS)
+    add_compile_definitions("LYCHEE_OSX")
+    find_library(FFMPEG_KIT NAMES FFmpegKit HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../example/ios/Pods/ffmpeg-kit-ios-full REQUIRED)
+    list(APPEND FFP_LIBS ${FFMPEG_KIT})
+    list(APPEND FFP_LIBS "-framework AudioToolbox")
 endif ()
+
 
 add_library("lychee_player" STATIC
         decoder_base.h
@@ -102,7 +110,12 @@ add_library("lychee_player" STATIC
         location.cc
         logging.h
         logging.cc
-        message_queue.h message_queue.cc media_msg_define.h)
+        message_queue.h
+        message_queue.cc
+        media_msg_define.h
+        audio_render_core_audio.cc
+        audio_render_core_audio.h
+        )
 
 target_include_directories("lychee_player" PUBLIC "third_party" ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries("lychee_player" PUBLIC ${FFP_LIBS})
