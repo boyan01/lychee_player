@@ -47,14 +47,14 @@ typedef void (*Dart_NativeMessageHandler_DL)(Dart_Port_DL dest_port_id,
                                              Dart_CObject* message);
 
 // dart_native_api.h symbols can be called on any thread.
-#define DART_NATIVE_API_DL_SYMBOLS(F)                                          \
-  /***** dart_native_api.h *****/                                              \
-  /* Dart_Port */                                                              \
-  F(Dart_PostCObject, bool, (Dart_Port_DL port_id, Dart_CObject * message))    \
-  F(Dart_PostInteger, bool, (Dart_Port_DL port_id, int64_t message))           \
-  F(Dart_NewNativePort, Dart_Port_DL,                                          \
-    (const char* name, Dart_NativeMessageHandler_DL handler,                   \
-     bool handle_concurrently))                                                \
+#define DART_NATIVE_API_DL_SYMBOLS(F)                                       \
+  /***** dart_native_api.h *****/                                           \
+  /* Dart_Port */                                                           \
+  F(Dart_PostCObject, bool, (Dart_Port_DL port_id, Dart_CObject * message)) \
+  F(Dart_PostInteger, bool, (Dart_Port_DL port_id, int64_t message))        \
+  F(Dart_NewNativePort, Dart_Port_DL,                                       \
+    (const char* name, Dart_NativeMessageHandler_DL handler,                \
+     bool handle_concurrently))                                             \
   F(Dart_CloseNativePort, bool, (Dart_Port_DL native_port_id))
 
 // dart_api.h symbols can only be called on Dart threads.
@@ -105,8 +105,8 @@ typedef void (*Dart_NativeMessageHandler_DL)(Dart_Port_DL dest_port_id,
   F(Dart_EnterScope, void, ())                                                 \
   F(Dart_ExitScope, void, ())
 
-#define DART_API_ALL_DL_SYMBOLS(F)                                             \
-  DART_NATIVE_API_DL_SYMBOLS(F)                                                \
+#define DART_API_ALL_DL_SYMBOLS(F) \
+  DART_NATIVE_API_DL_SYMBOLS(F)    \
   DART_API_DL_SYMBOLS(F)
 // IMPORTANT! Never update these signatures without properly updating
 // DART_API_DL_MAJOR_VERSION and DART_API_DL_MINOR_VERSION.
@@ -114,8 +114,8 @@ typedef void (*Dart_NativeMessageHandler_DL)(Dart_Port_DL dest_port_id,
 // End of verbatim copy.
 // ============================================================================
 
-#define DART_API_DL_DECLARATIONS(name, R, A)                                   \
-  typedef R(*name##_Type) A;                                                   \
+#define DART_API_DL_DECLARATIONS(name, R, A) \
+  typedef R(*name##_Type) A;                 \
   DART_EXTERN name##_Type name##_DL;
 
 DART_API_ALL_DL_SYMBOLS(DART_API_DL_DECLARATIONS)

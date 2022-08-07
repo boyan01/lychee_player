@@ -4,8 +4,8 @@
  * BSD-style license that can be found in the LICENSE file.
  */
 
-#include "dart_api_dl.h"               /* NOLINT */
-#include "dart_version.h"              /* NOLINT */
+#include "dart_api_dl.h"                                /* NOLINT */
+#include "dart_version.h"                               /* NOLINT */
 #include "third_party/dart/internal/dart_api_dl_impl.h" /* NOLINT */
 
 #include <string.h>
@@ -21,7 +21,8 @@ typedef void* DartApiEntry_function;
 DartApiEntry_function FindFunctionPointer(const DartApiEntry* entries,
                                           const char* name) {
   while (entries->name != NULL) {
-    if (strcmp(entries->name, name) == 0) return entries->function;
+    if (strcmp(entries->name, name) == 0)
+      return entries->function;
     entries++;
   }
   return NULL;
@@ -49,8 +50,8 @@ intptr_t Dart_InitializeApiDL(void* data) {
 
   const DartApiEntry* dart_api_function_pointers = dart_api_data->functions;
 
-#define DART_API_DL_INIT(name, R, A)                                           \
-  name##_DL =                                                                  \
+#define DART_API_DL_INIT(name, R, A) \
+  name##_DL =                        \
       (name##_Type)(FindFunctionPointer(dart_api_function_pointers, #name));
   DART_API_ALL_DL_SYMBOLS(DART_API_DL_INIT)
 #undef DART_API_DL_INIT

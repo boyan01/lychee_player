@@ -15,4 +15,3 @@ void BaseRender::NotifyRenderProceed() {
 void BaseRender::SetRenderCallback(std::function<void()> render_callback) {
   render_callback_ = std::move(render_callback);
 }
-

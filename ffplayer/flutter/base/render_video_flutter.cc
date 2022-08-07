@@ -20,7 +20,7 @@ void FlutterVideoRender::RenderThread() {
   double remaining_time = 0.0;
   while (!abort_render_) {
     if (remaining_time > 0.0)
-      av_usleep((int64_t) (remaining_time * 1000000.0));
+      av_usleep((int64_t)(remaining_time * 1000000.0));
     if (abort_render_) {
       break;
     }

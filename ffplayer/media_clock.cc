@@ -7,7 +7,7 @@
 
 #include "media_clock.h"
 
-Clock::Clock(int *queue_serial)
+Clock::Clock(int* queue_serial)
     : queue_serial_(queue_serial),
       speed_(1.0),
       paused(0),
@@ -17,9 +17,7 @@ Clock::Clock(int *queue_serial)
   SetClock(NAN, -1);
 }
 
-Clock::Clock() : Clock(&serial) {
-
-}
+Clock::Clock() : Clock(&serial) {}
 
 void Clock::SetClockAt(double pts, int _serial, double time) {
   pts = pts;
@@ -38,10 +36,12 @@ void Clock::SetSpeed(double speed) {
   speed_ = speed;
 }
 
-void Clock::Sync(Clock *secondary) {
+void Clock::Sync(Clock* secondary) {
   double clock = GetClock();
   double secondary_clock = secondary->GetClock();
-  if (!std::isnan(secondary_clock) && (std::isnan(clock) || fabs(clock - secondary_clock) > AV_NOSYNC_THRESHOLD)) {
+  if (!std::isnan(secondary_clock) &&
+      (std::isnan(clock) ||
+       fabs(clock - secondary_clock) > AV_NOSYNC_THRESHOLD)) {
     SetClock(secondary_clock, secondary->serial);
   }
 }
@@ -61,15 +61,15 @@ double Clock::GetSpeed() const {
   return speed_;
 }
 
-Clock *MediaClock::GetVideoClock() {
+Clock* MediaClock::GetVideoClock() {
   return video_clock_.get();
 }
 
-Clock *MediaClock::GetAudioClock() {
+Clock* MediaClock::GetAudioClock() {
   return audio_clock_.get();
 }
 
-Clock *MediaClock::GetExtClock() {
+Clock* MediaClock::GetExtClock() {
   return ext_clock_.get();
 }
 
@@ -86,17 +86,17 @@ double MediaClock::GetMasterClock() {
     case AV_SYNC_AUDIO_MASTER: {
       return audio_clock_->GetClock();
     }
-    case AV_SYNC_VIDEO_MASTER:return video_clock_->GetClock();
-    default:return ext_clock_->GetClock();
+    case AV_SYNC_VIDEO_MASTER:
+      return video_clock_->GetClock();
+    default:
+      return ext_clock_->GetClock();
   }
 }
 
-MediaClock::MediaClock(
-    int *audio_queue_serial,
-    int *video_queue_serial,
-    std::function<int(int)> sync_type_confirm
-) : sync_type_confirm_(std::move(sync_type_confirm)),
-    audio_clock_(std::make_unique<Clock>(audio_queue_serial)),
-    video_clock_(std::make_unique<Clock>(video_queue_serial)),
-    ext_clock_(std::make_unique<Clock>()) {
-}
+MediaClock::MediaClock(int* audio_queue_serial,
+                       int* video_queue_serial,
+                       std::function<int(int)> sync_type_confirm)
+    : sync_type_confirm_(std::move(sync_type_confirm)),
+      audio_clock_(std::make_unique<Clock>(audio_queue_serial)),
+      video_clock_(std::make_unique<Clock>(video_queue_serial)),
+      ext_clock_(std::make_unique<Clock>()) {}
