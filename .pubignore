@@ -22,7 +22,6 @@ flutter_*.log
 
 .fvm
 
-ffplayer
 preview
 example
 .github
