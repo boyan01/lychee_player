@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <iostream>
 #include <utility>
+#include <vector>
 
 #include "logging.h"
 #include "media_player.h"

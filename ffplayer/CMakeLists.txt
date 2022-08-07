@@ -48,12 +48,6 @@ if (NOT DEFINED FFP_LIBS)
     endif ()
 endif ()
 
-if (CMAKE_FLUTTER_MEDIA)
-    #    add_subdirectory(flutter)
-else ()
-    #    add_subdirectory(example)
-endif ()
-
 if (WIN32)
     add_compile_definitions("LYCHEE_ENABLE_SDL")
 elseif (UNIX AND NOT APPLE)

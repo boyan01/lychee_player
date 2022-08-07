@@ -11,7 +11,6 @@ add_library(${PLUGIN_NAME} SHARED
         )
 apply_standard_settings(${PLUGIN_NAME})
 
-set(LYCHEE_ENABLE_SDL "1")
 set(LYCHEE_PLAYER_BUILD_SHARED_FLUTTER_PLUGIN ON)
 
 add_subdirectory(../ffplayer ffplayer.out)

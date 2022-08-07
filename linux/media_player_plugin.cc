@@ -1,4 +1,4 @@
-#include "include/media_player/media_player_plugin.h"
+#include "include/lychee_player/media_player_plugin.h"
 
 #include <flutter_linux/flutter_linux.h>
 

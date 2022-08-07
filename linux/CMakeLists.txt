@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-set(PROJECT_NAME "media_player")
+set(PROJECT_NAME "lychee_player")
 
 set(CMAKE_CXX_FLAGS  "-fPIC ${CMAKE_CXX_FLAGS}")
 
@@ -15,9 +15,7 @@ add_library(${PLUGIN_NAME} SHARED
         "media_player_plugin.cc"
         )
 
-set(CMAKE_FLUTTER_MEDIA "1")
-set(CMAKE_FLUTTER_MEDIA_LINUX "1")
-set(MEDIA_USE_SDL "1")
+set(LYCHEE_PLAYER_BUILD_SHARED_FLUTTER_PLUGIN ON)
 
 add_compile_definitions(_FLUTTER_MEDIA_)
 add_compile_definitions(_FLUTTER_MEDIA_LINUX)
@@ -32,10 +30,9 @@ target_include_directories(${PLUGIN_NAME} INTERFACE
         "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
-target_link_libraries(${PLUGIN_NAME} PRIVATE media_flutter)
 
 # List of absolute paths to libraries that should be bundled with the plugin
 set(${PROJECT_NAME}_bundled_libraries
-        "$<TARGET_FILE:media_flutter>"
+        "$<TARGET_FILE:lychee_player_flutter>"
         PARENT_SCOPE
         )
