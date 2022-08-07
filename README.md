@@ -2,11 +2,11 @@
 
 A simple audio player plugin for flutter.
 
-| platform | status      | audio renderer                            |
-|----------|-------------|-------------------------------------------|
-| Windows  | ✅           | [SDL2](https://github.com/libsdl-org/SDL) |
-| Linux    | in progress | [SDL2](https://github.com/libsdl-org/SDL) |  
-| macOS    | in progress | [SDL2](https://github.com/libsdl-org/SDL) |
+| platform | status | audio renderer                            |
+|----------|--------|-------------------------------------------|
+| Windows  | ✅      | [SDL2](https://github.com/libsdl-org/SDL) |
+| Linux    | ✅      | [SDL2](https://github.com/libsdl-org/SDL) |  
+| macOS    | ✅      | CoreAudio                                 |
 
 * audio/video demux by ffmpeg.
 
