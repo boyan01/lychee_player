@@ -63,17 +63,17 @@ class LycheePlayerBindings {
   ) {
     return _lychee_player_set_play_when_ready(
       player,
-      play_when_ready ? 1 : 0,
+      play_when_ready,
     );
   }
 
   late final _lychee_player_set_play_when_readyPtr = _lookup<
       ffi.NativeFunction<
           ffi.Void Function(ffi.Pointer<ffi.Void>,
-              ffi.Uint8)>>('lychee_player_set_play_when_ready');
+              ffi.Bool)>>('lychee_player_set_play_when_ready');
   late final _lychee_player_set_play_when_ready =
       _lychee_player_set_play_when_readyPtr
-          .asFunction<void Function(ffi.Pointer<ffi.Void>, int)>();
+          .asFunction<void Function(ffi.Pointer<ffi.Void>, bool)>();
 
   void lychee_player_seek(
     ffi.Pointer<ffi.Void> player,
@@ -136,4 +136,4 @@ class LycheePlayerBindings {
       .asFunction<void Function(ffi.Pointer<ffi.Void>)>();
 }
 
-const int MSG_PLAYER_STATE_CHANGED = 10001;
+const int MEDIA_MSG_PLAYER_STATE_CHANGED = 40001;

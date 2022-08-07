@@ -40,7 +40,7 @@ class LycheeAudioPlayer {
   void _handleNativePlayerMessage(int what, int arg1, int arg2) {
     debugPrint('what: $what, arg1: $arg1, arg2: $arg2');
     switch (what) {
-      case MSG_PLAYER_STATE_CHANGED:
+      case MEDIA_MSG_PLAYER_STATE_CHANGED:
         _state.value = const {
           0: PlayerState.idle,
           1: PlayerState.ready,

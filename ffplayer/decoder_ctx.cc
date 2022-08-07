@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "decoder_ctx.h"
+#include "logging.h"
 
 int DecoderContext::StartDecoder(std::unique_ptr<DecodeParams> decode_params) {
   unique_ptr_d<AVCodecContext> codec_ctx(
@@ -55,9 +56,9 @@ int DecoderContext::StartDecoder(std::unique_ptr<DecodeParams> decode_params) {
       if (!video_render) {
         return -1;
       }
-      video_decoder =
-          new VideoDecoder(std::move(codec_ctx), std::move(decode_params),
-                           video_render, on_decoder_blocking_);
+      stream->discard = AVDISCARD_DEFAULT;
+      video_decoder = new VideoDecoder(std::move(codec_ctx),
+                                       std::move(decode_params), video_render);
       break;
     case AVMEDIA_TYPE_AUDIO: {
       stream->discard = AVDISCARD_DEFAULT;
@@ -99,28 +100,25 @@ int DecoderContext::StartAudioDecoder(
 #else
   sample_rate = codec_ctx->sample_rate;
   nb_channels = codec_ctx->channels;
-  channel_layout = codec_ctx->channel_layout;
+  channel_layout = (int64_t)codec_ctx->channel_layout;
 #endif
   auto ret = audio_render->Open(channel_layout, nb_channels, sample_rate);
   if (ret <= 0) {
     return -1;
   }
 
-  audio_decoder =
-      new AudioDecoder(std::move(codec_ctx), std::move(decode_params),
-                       audio_render, on_decoder_blocking_);
+  audio_decoder = new AudioDecoder(std::move(codec_ctx),
+                                   std::move(decode_params), audio_render);
   audio_render->Start();
   return 0;
 }
 
 DecoderContext::DecoderContext(std::shared_ptr<BasicAudioRender> audio_render_,
                                std::shared_ptr<VideoRenderBase> video_render_,
-                               std::shared_ptr<MediaClock> clock_ctx_,
-                               std::function<void()> on_decoder_blocking)
+                               std::shared_ptr<MediaClock> clock_ctx_)
     : audio_render(std::move(audio_render_)),
       video_render(std::move(video_render_)),
-      clock_ctx(std::move(clock_ctx_)),
-      on_decoder_blocking_(std::move(on_decoder_blocking)) {}
+      clock_ctx(std::move(clock_ctx_)) {}
 
 DecoderContext::~DecoderContext() {
   if (audio_decoder) {

@@ -2,6 +2,7 @@
 // Created by boyan on 2021/2/14.
 //
 #include "decoder_base.h"
+#include "logging.h"
 
 #include <utility>
 
@@ -24,11 +25,9 @@ AVStream* DecodeParams::stream() const {
 }
 
 Decoder::Decoder(unique_ptr_d<AVCodecContext> codec_context,
-                 std::unique_ptr<DecodeParams> decode_params_,
-                 std::function<void()> on_decoder_blocking)
+                 std::unique_ptr<DecodeParams> decode_params_)
     : decode_params(std::move(decode_params_)),
-      avctx(std::move(codec_context)),
-      on_decoder_blocking_(std::move(on_decoder_blocking)) {}
+      avctx(std::move(codec_context)) {}
 
 Decoder::~Decoder() {
   if (decoder_tid) {
@@ -104,9 +103,6 @@ int Decoder::DecodeFrame(AVFrame* frame, AVSubtitle* sub) {
           NotifyQueueEmpty();
           av_log(nullptr, AV_LOG_DEBUG, "%s pending for waiting packets.\n",
                  debug_label());
-          if (on_decoder_blocking_) {
-            on_decoder_blocking_();
-          }
           queue()->cond.wait(lock);
         }
 

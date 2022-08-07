@@ -3,6 +3,7 @@
 //
 
 #include "audio_render_basic.h"
+#include "logging.h"
 
 int BasicAudioRender::Open(int64_t wanted_channel_layout,
                            int wanted_nb_channels,
@@ -64,6 +65,7 @@ void BasicAudioRender::ReadAudioData(uint8_t* stream, int len) {
       } else {
         audio_buf_size = audio_size;
       }
+      message_context_->NotifyMsg(MEDIA_MSG_DO_SOME_WORK);
       audio_buf_index = 0;
     }
     auto len_flush = (audio_buf_size - audio_buf_index);

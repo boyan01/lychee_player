@@ -98,7 +98,7 @@ static void refresh_loop_wait_event(MediaPlayer* player, SDL_Event* event) {
       cursor_hidden = 1;
     }
     if (remaining_time > 0.0)
-      av_usleep((int64_t)(remaining_time * 1000000.0));
+      av_usleep((unsigned)(remaining_time * 1000000.0));
     auto* render = dynamic_cast<SdlVideoRender*>(player->GetVideoRender());
     remaining_time = render->DrawFrame();
     if (dump_status) {
@@ -135,7 +135,6 @@ static void event_loop(MediaPlayer* player) {
           case SDLK_p:
           case SDLK_SPACE: {
             player->SetPlayWhenReady(!player->IsPlayWhenReady());
-            player->DumpStatus();
             break;
           }
           case SDLK_m:
@@ -299,8 +298,8 @@ void check_screen_size(int64_t& width, int64_t& height) {
   auto scale_w = double(width) / display_mode.w;
   auto scale_h = double(height) / display_mode.h;
   auto scale = min(min(scale_h, scale_w), 0.5);
-  width = display_mode.w * scale;
-  height = display_mode.h * scale;
+  width = int64_t(display_mode.w * scale);
+  height = int64_t(display_mode.h * scale);
 }
 
 static void on_message(MediaPlayer* player,
@@ -312,7 +311,7 @@ static void on_message(MediaPlayer* player,
   switch (what) {
     case FFP_MSG_VIDEO_FRAME_LOADED: {
       check_screen_size(arg1, arg2);
-      set_default_window_size(arg1, arg2);
+      set_default_window_size((int)arg1, (int)arg2);
       std::cout << "FFP_MSG_VIDEO_FRAME_LOADED: width = " << arg1
                 << "height = " << arg2 << endl;
       int w, h;
@@ -331,12 +330,13 @@ static void on_message(MediaPlayer* player,
       SDL_ShowWindow(window);
       break;
     }
-    case FFP_MSG_PLAYBACK_STATE_CHANGED:
-      printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %ld \n", arg1);
+    case MEDIA_MSG_PLAYER_STATE_CHANGED:
+      printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %lld \n", arg1);
       break;
     case FFP_MSG_BUFFERING_TIME_UPDATE:
-      printf("FFP_MSG_BUFFERING_TIME_UPDATE: %f.  %f:%f \n", arg1 / 1000.0,
-             player->GetCurrentPosition(), player->GetDuration());
+      printf("FFP_MSG_BUFFERING_TIME_UPDATE: %f.  %f:%f \n",
+             double(arg1) / 1000.0, player->GetCurrentPosition(),
+             player->GetDuration());
       break;
     case FFP_MSG_AV_METADATA_LOADED: {
       const char* title = player->GetMetadataDict("title");

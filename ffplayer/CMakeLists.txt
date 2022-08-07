@@ -102,7 +102,7 @@ add_library("lychee_player" STATIC
         location.cc
         logging.h
         logging.cc
-        )
+        message_queue.h message_queue.cc media_msg_define.h)
 
 target_include_directories("lychee_player" PUBLIC "third_party" ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries("lychee_player" PUBLIC ${FFP_LIBS})

@@ -33,11 +33,9 @@ int AudioDecoder::DecodeThread() {
 
 AudioDecoder::AudioDecoder(unique_ptr_d<AVCodecContext> codec_context_,
                            std::unique_ptr<DecodeParams> decode_params_,
-                           std::shared_ptr<BasicAudioRender> audio_render,
-                           std::function<void()> on_decoder_blocking)
+                           std::shared_ptr<BasicAudioRender> audio_render)
     : Decoder(std::move(codec_context_),
-              std::move(decode_params_),
-              std::move(on_decoder_blocking)),
+              std::move(decode_params_)),
       audio_render_(std::move(audio_render)) {
   if (decode_params->audio_follow_stream_start_pts) {
     start_pts = decode_params->stream()->start_time;

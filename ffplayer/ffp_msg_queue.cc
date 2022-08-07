@@ -4,202 +4,33 @@
 
 #include "ffp_msg_queue.h"
 #include "ffp_utils.h"
+#include "logging.h"
 
 extern "C" {
 #include "libavutil/common.h"
 }
 
-struct Message {
-  int what;
-  int64_t arg1;
-  int64_t arg2;
-  struct Message* next;
-};
-
-struct MessageQueue {
- private:
-  Message *first_ = nullptr, *last_ = nullptr;
-  int nb_messages_ = 0;
-  int abort_request_ = 1;
-  std::recursive_mutex* mutex_ = nullptr;
-  std::condition_variable_any* cond_ = nullptr;
-
-  int PutPrivate(Message* msg);
-
- public:
-  int Init();
-
-  int Put(Message* msg);
-
-  void Flush();
-
-  void Destroy();
-
-  void Abort();
-
-  void Start();
-
-  int Get(Message* msg, int block);
-
-  void Remove(int what);
-};
-
-int MessageQueue::Init() {
-  memset(this, 0, sizeof(MessageQueue));
-  mutex_ = new std::recursive_mutex;
-  cond_ = new std::condition_variable_any;
-  abort_request_ = 1;
-  return 0;
-}
-
-int MessageQueue::Put(Message* msg) {
-  int ret;
-  mutex_->lock();
-  ret = PutPrivate(msg);
-  mutex_->unlock();
-  return ret;
-}
-
-int MessageQueue::PutPrivate(Message* msg) {
-  Message* msg1;
-
-  if (abort_request_)
-    return -1;
-
-  msg1 = (Message*)av_malloc(sizeof(Message));
-  if (!msg1) {
-    av_log(nullptr, AV_LOG_ERROR, "no memory to alloc msg");
-    return -1;
-  }
-
-  *msg1 = *msg;
-  msg1->next = nullptr;
-
-  if (!last_) {
-    first_ = msg1;
-  } else {
-    last_->next = msg1;
-  }
-  nb_messages_++;
-  cond_->notify_all();
-  return 0;
-}
-
-void MessageQueue::Flush() {
-  Message *msg, *msg1;
-
-  mutex_->lock();
-  for (msg = first_; msg; msg = msg1) {
-    msg1 = msg->next;
-    av_freep(&msg);
-  }
-  last_ = nullptr;
-  first_ = nullptr;
-  nb_messages_ = 0;
-  mutex_->unlock();
-}
-
-void MessageQueue::Destroy() {
-  Flush();
-  delete mutex_;
-  delete cond_;
-}
-
-void MessageQueue::Abort() {
-  mutex_->lock();
-
-  abort_request_ = 1;
-
-  cond_->notify_all();
-  mutex_->unlock();
-}
-
-void MessageQueue::Start() {
-  mutex_->lock();
-  abort_request_ = 0;
-  Message msg = {0};
-  msg.what = FFP_MSG_FLUSH;
-  PutPrivate(&msg);
-  mutex_->unlock();
-}
-
-int MessageQueue::Get(Message* msg, int block) {
-  Message* msg1;
-  int ret;
-
-  std::unique_lock<std::recursive_mutex> lock(*mutex_);
-
-  for (;;) {
-    if (abort_request_) {
-      ret = -1;
-      break;
-    }
-
-    msg1 = first_;
-    if (msg1) {
-      first_ = msg1->next;
-      if (!first_) {
-        last_ = nullptr;
-      }
-      nb_messages_--;
-      *msg = *msg1;
-      av_free(msg1);
-      ret = 1;
-      break;
-    } else if (!block) {
-      ret = 0;
-      break;
-    } else {
-      cond_->wait(lock);
-    }
-  }
-
-  return ret;
-}
-
-void MessageQueue::Remove(int what) {
-  Message *p_msg, *msg, *last_msg = nullptr;
-  mutex_->lock();
-
-  if (!abort_request_ && first_) {
-    p_msg = first_;
-    while (p_msg) {
-      msg = p_msg;
-      if (msg->what == what) {
-        p_msg = msg->next;
-        av_free(msg);
-        nb_messages_--;
-      } else {
-        last_msg = msg;
-        p_msg = msg->next;
-      }
-    }
-
-    if (first_) {
-      last_ = last_msg;
-    } else {
-      last_ = nullptr;
-    }
-  }
-
-  mutex_->unlock();
-}
-
 void MessageContext::MessageThread() {
   update_thread_name("message_loop");
+  DLOG(WARNING) << "message_thread start.";
   while (true) {
-    Message msg = {0};
-    if (msg_queue->Get(&msg, true) < 0) {
-      break;
+    auto msg = message_queue_->next();
+    if (msg == nullptr) {
+      DLOG(INFO) << "message_thread over.";
+      return;
     }
+    DCHECK(msg->next == nullptr);
+
     if (message_callback) {
-      message_callback(msg.what, msg.arg1, msg.arg2);
+      message_callback(msg->what, msg->arg1, msg->arg2);
     }
+    delete msg;
   }
+  DLOG(WARNING) << "message_thread quit.";
 }
 
-MessageContext::MessageContext() {
-  msg_queue = std::make_unique<MessageQueue>();
+MessageContext::MessageContext()
+    : message_queue_(std::make_unique<MessageQueue>()) {
   Start();
 }
 
@@ -212,12 +43,10 @@ void MessageContext::Start() {
     return;
   }
   started_ = true;
-  msg_queue->Init();
-  msg_queue->Start();
   thread_ = new std::thread(&MessageContext::MessageThread, this);
 }
 
-void MessageContext::NotifyMsg(int what, int arg1, int arg2) {
+void MessageContext::NotifyMsg(int what, int64_t arg1, int64_t arg2) {
   if (!started_) {
     av_log(nullptr, AV_LOG_WARNING,
            "failed to notify msg to MessageContext which not started.\n");
@@ -228,7 +57,7 @@ void MessageContext::NotifyMsg(int what, int arg1, int arg2) {
   msg.arg1 = arg1;
   msg.arg2 = arg2;
   msg.next = nullptr;
-  msg_queue->Put(&msg);
+  message_queue_->EnqueueMessage(msg);
 }
 
 void MessageContext::NotifyMsg(int what) {
@@ -244,12 +73,9 @@ void MessageContext::StopAndWait() {
     return;
   }
   started_ = false;
-  msg_queue->Abort();
+  message_queue_->Quit();
   if (thread_ && thread_->joinable()) {
     thread_->join();
   }
   delete thread_;
-}
-void MessageContext::RemoveMessage(int what) {
-  msg_queue->Remove(what);
 }

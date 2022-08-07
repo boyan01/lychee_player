@@ -21,6 +21,7 @@ extern "C" {
 #include "ffp_frame_queue.h"
 #include "ffp_packet_queue.h"
 
+#include "logging.h"
 #include "render_base.h"
 
 struct DecodeParams {
@@ -42,8 +43,6 @@ struct DecodeParams {
 
 class Decoder {
  private:
-  // Callback invoked when decode blocking because lack of packets.
-  std::function<void()> on_decoder_blocking_;
 
  protected:
   bool abort_decoder = false;
@@ -81,14 +80,17 @@ class Decoder {
 
  public:
   Decoder(unique_ptr_d<AVCodecContext> codec_context,
-          std::unique_ptr<DecodeParams> decode_params_,
-          std::function<void()> on_decoder_blocking);
+          std::unique_ptr<DecodeParams> decode_params_);
 
   virtual ~Decoder();
 
   void Abort(FrameQueue* fq);
 
   void Join();
+
+  bool IsFinished() {
+    return finished == queue()->serial;
+  }
 };
 
 #endif  // FFP_DECODER_BASE_H

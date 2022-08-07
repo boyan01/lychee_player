@@ -5,7 +5,15 @@
 #ifndef LYCHEE_PLAYER_FLUTTER_LYCHEE_PLAYER_PLUGIN_H_
 #define LYCHEE_PLAYER_FLUTTER_LYCHEE_PLAYER_PLUGIN_H_
 
-#include <cstdint>
+#if _WIN32
+#include <Windows.h>
+#else
+#include <pthread.h>
+#include <unistd.h>
+#endif
+
+#include "stdint.h"
+#include "stdbool.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,8 +24,6 @@ extern "C" {
 #else
 #define FFI_PLUGIN_EXPORT
 #endif
-
-#define MSG_PLAYER_STATE_CHANGED 10001
 
 FFI_PLUGIN_EXPORT void* lychee_player_create(const char* file_path,
                                              int64_t send_port);

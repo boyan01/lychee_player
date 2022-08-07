@@ -29,7 +29,7 @@ MediaPlayer::MediaPlayer(std::unique_ptr<VideoRenderBase> video_render,
                                              int64_t arg2) {
     switch (what) {  // NOLINT(hicpp-multiway-paths-covered)
       case MEDIA_MSG_DO_SOME_WORK: {
-        //        DoSomeWork();
+        DoSomeWork();
         break;
       }
       default: {
@@ -70,7 +70,7 @@ MediaPlayer::MediaPlayer(std::unique_ptr<VideoRenderBase> video_render,
 
   if (audio_render_) {
     audio_render_->SetRenderCallback([this]() {});
-    audio_render_->Init(audio_pkt_queue, clock_context);
+    audio_render_->Init(audio_pkt_queue, clock_context, message_context);
   }
   if (video_render_) {
     video_render_->SetRenderCallback([this]() {});
@@ -78,10 +78,7 @@ MediaPlayer::MediaPlayer(std::unique_ptr<VideoRenderBase> video_render,
   }
 
   decoder_context = std::make_shared<DecoderContext>(
-      audio_render_, video_render_, clock_context, [this]() {
-        ChangePlaybackState(MediaPlayerState::BUFFERING);
-        //    StopRenders();
-      });
+      audio_render_, video_render_, clock_context);
 }
 
 MediaPlayer::~MediaPlayer() = default;
@@ -108,7 +105,7 @@ void MediaPlayer::PauseClock(bool pause) {
   if (clock_context->paused) {
     if (video_render_) {
       video_render_->frame_timer +=
-          av_gettime_relative() / 1000000.0 -
+          (double)av_gettime_relative() / 1000000.0 -
           clock_context->GetVideoClock()->last_updated;
     }
     if (data_source && data_source->read_pause_return != AVERROR(ENOSYS)) {
@@ -141,9 +138,6 @@ int MediaPlayer::OpenDataSource(const char* filename) {
   data_source->ext_clock = clock_context->GetAudioClock();
   data_source->decoder_ctx = decoder_context;
   data_source->msg_ctx = message_context;
-
-  data_source->on_new_packet_send_ = [this]() { CheckBuffering(); };
-
   data_source->Open();
   ChangePlaybackState(MediaPlayerState::BUFFERING);
   return 0;
@@ -261,8 +255,8 @@ void MediaPlayer::SeekToChapter(int chapter) {
 
 int MediaPlayer::GetCurrentChapter() {
   CHECK_VALUE_WITH_RETURN(data_source, -1);
-  int64_t pos = GetCurrentPosition() * AV_TIME_BASE;
-  return data_source->GetChapterByPosition(pos);
+  auto pos = GetCurrentPosition() * AV_TIME_BASE;
+  return data_source->GetChapterByPosition((int64_t)pos);
 }
 
 int MediaPlayer::GetChapterCount() {
@@ -317,22 +311,26 @@ VideoRenderBase* MediaPlayer::GetVideoRender() {
 void MediaPlayer::DoSomeWork() {
   std::lock_guard<std::mutex> lock(player_mutex_);
   bool render_allow_playback = true;
+  bool decoder_finished = true;
   if (audio_render_) {
     render_allow_playback &= audio_render_->IsReady();
+    decoder_finished &= decoder_context->AudioDecoderFinished();
   }
   if (video_render_) {
     render_allow_playback &= video_render_->IsReady();
+    decoder_finished &= decoder_context->VideoDecoderFinished();
+  }
+
+  if (play_when_ready_ && decoder_finished && !render_allow_playback) {
+    ChangePlaybackState(MediaPlayerState::END);
+    return;
   }
 
   if (player_state_ == MediaPlayerState::READY && !render_allow_playback) {
     ChangePlaybackState(MediaPlayerState::BUFFERING);
-    StopRenders();
   } else if (player_state_ == MediaPlayerState::BUFFERING &&
              ShouldTransitionToReadyState(render_allow_playback)) {
     ChangePlaybackState(MediaPlayerState::READY);
-    if (play_when_ready_) {
-      StartRenders();
-    }
   }
 }
 
@@ -341,7 +339,7 @@ void MediaPlayer::ChangePlaybackState(MediaPlayerState state) {
     return;
   }
   player_state_ = state;
-  message_context->NotifyMsg(FFP_MSG_PLAYBACK_STATE_CHANGED,
+  message_context->NotifyMsg(MEDIA_MSG_PLAYER_STATE_CHANGED,
                              int(player_state_));
 }
 

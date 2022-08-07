@@ -163,7 +163,7 @@ void DataSource::OnFormatContextOpen() {
 }
 
 int DataSource::ReadStreamInfo(int st_index[AVMEDIA_TYPE_NB]) {
-  for (int i = 0; i < format_ctx_->nb_streams; ++i) {
+  for (unsigned int i = 0; i < format_ctx_->nb_streams; ++i) {
     auto* st = format_ctx_->streams[i];
     auto type = st->codecpar->codec_type;
     st->discard = AVDISCARD_ALL;
@@ -241,7 +241,7 @@ int DataSource::OpenComponentStream(int stream_index, AVMediaType media_type) {
            stream_index);
     return -1;
   }
-  if (stream_index < 0 || stream_index >= format_ctx_->nb_streams) {
+  if (stream_index < 0 || stream_index >= (int)format_ctx_->nb_streams) {
     return -1;
   }
   auto stream = format_ctx_->streams[stream_index];
@@ -340,6 +340,7 @@ void DataSource::ReadStreams(std::mutex& read_mutex) {
       //        stream_toggle_pause(player->is);
       //      }
     }
+    msg_ctx->NotifyMsg(MEDIA_MSG_DO_SOME_WORK);
     {
       auto ret = ProcessReadFrame(pkt, read_mutex);
       if (ret < 0) {
@@ -350,9 +351,6 @@ void DataSource::ReadStreams(std::mutex& read_mutex) {
     }
 
     ProcessQueuePacket(pkt);
-    if (on_new_packet_send_) {
-      on_new_packet_send_();
-    }
   }
 }
 
@@ -443,13 +441,12 @@ int DataSource::ProcessReadFrame(AVPacket* pkt, std::mutex& read_mutex) {
         video_queue->PutNullPacket(video_stream_index);
       }
       if (audio_stream_index >= 0) {
-        video_queue->PutNullPacket(audio_stream_index);
+        audio_queue->PutNullPacket(audio_stream_index);
       }
       if (subtitle_stream_index >= 0) {
-        video_queue->PutNullPacket(subtitle_stream_index);
+        subtitle_queue->PutNullPacket(subtitle_stream_index);
       }
       eof = true;
-      //                check_buffering(player);
     }
     if (format_ctx_->pb && format_ctx_->pb->error) {
       return -1;
@@ -541,7 +538,7 @@ int DataSource::GetChapterCount() {
 int DataSource::GetChapterByPosition(int64_t position) {
   CHECK_VALUE_WITH_RETURN(format_ctx_, -1);
   CHECK_VALUE_WITH_RETURN(format_ctx_->nb_chapters, -1);
-  for (int i = 0; i < format_ctx_->nb_chapters; i++) {
+  for (int i = 0; i < (int)format_ctx_->nb_chapters; i++) {
     AVChapter* ch = format_ctx_->chapters[i];
     if (av_compare_ts(position, av_time_base_q_, ch->start, ch->time_base) <
         0) {
@@ -555,12 +552,12 @@ int DataSource::GetChapterByPosition(int64_t position) {
 void DataSource::SeekToChapter(int chapter) {
   CHECK_VALUE(format_ctx_);
   CHECK_VALUE(format_ctx_->nb_chapters);
-  if (chapter < 0 || chapter >= format_ctx_->nb_chapters) {
+  if (chapter < 0 || chapter >= (int)format_ctx_->nb_chapters) {
     av_log(nullptr, AV_LOG_ERROR, "chapter out of range: %d", chapter);
     return;
   }
   AVChapter* ac = format_ctx_->chapters[chapter];
-  Seek(av_rescale_q(ac->start, ac->time_base, av_time_base_q_));
+  Seek((double)av_rescale_q(ac->start, ac->time_base, av_time_base_q_));
 }
 
 const char* DataSource::GetFileName() const {

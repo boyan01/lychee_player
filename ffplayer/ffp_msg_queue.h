@@ -9,6 +9,8 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include "media_msg_define.h"
+#include "message_queue.h"
 
 extern "C" {
 #include "libavutil/log.h"
@@ -106,15 +108,13 @@ extern "C" {
 
 const int MEDIA_MSG_DO_SOME_WORK = 30000;
 
-struct MessageQueue;
-
 class MessageContext {
  public:
   std::function<void(int what, int64_t arg1, int64_t arg2)> message_callback{
       nullptr};
 
  private:
-  std::unique_ptr<MessageQueue> msg_queue{};
+  std::unique_ptr<MessageQueue> message_queue_;
   bool started_ = false;
   std::thread* thread_ = nullptr;
 
@@ -130,13 +130,11 @@ class MessageContext {
 
   ~MessageContext();
 
-  void NotifyMsg(int what, int arg1, int arg2);
+  void NotifyMsg(int what, int64_t arg1, int64_t arg2);
 
   void NotifyMsg(int what, int64_t arg1);
 
   void NotifyMsg(int what);
-
-  void RemoveMessage(int what);
 };
 
 #endif  // FFPLAYER_FFP_MSG_QUEUE_H
