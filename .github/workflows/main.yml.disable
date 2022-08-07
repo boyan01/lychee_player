@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  BUILD_CONFIGURATION: Release
+
+jobs:
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          lfs: 'true'
+      - uses: subosito/flutter-action@v1
+        with:
+          channel: 'stable'
+      - run: flutter config --enable-windows-desktop
+      - name: build example app
+        working-directory: example
+        run: flutter build windows
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-java@v1
+        with:
+          java-version: '12.x'
+      - uses: subosito/flutter-action@v1
+        with:
+          flutter-version: '2.0.5'
+      - run: flutter config --enable-macos-desktop
+      - run: flutter pub get
+      - name: install pods
+        working-directory: example/macos
+        run: pod install
+      - name: build macos static libraries
+        working-directory: ffplayer
+        run: ./apple-flutter-install.sh macos
+      - name: build example app
+        working-directory: example
+        run: flutter build macos
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-java@v1
+        with:
+          java-version: '12.x'
+      - uses: subosito/flutter-action@v1
+        with:
+          channel: 'stable'
+      - run: flutter pub get
+      - name: build example app
+        working-directory: example
+        run: flutter build apk
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-java@v1
+        with:
+          java-version: '12.x'
+      - uses: subosito/flutter-action@v1
+        with:
+          channel: 'stable'
+      # flutter build need ninja.
+      # https://github.com/subosito/flutter-action/issues/49
+      - name: Patch for linux build
+        run: |
+          flutter doctor
+          sudo apt-get update -y
+          sudo apt-get install -y ninja-build libgtk-3-dev
+          flutter doctor
+      - run: sudo apt install libavcodec-dev libavformat-dev libavdevice-dev
+      - run: sudo apt install libsdl2-dev
+      - run: flutter config --enable-linux-desktop
+      - name: build example app
+        working-directory: example
+        run: flutter build linux

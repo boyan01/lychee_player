@@ -21,3 +21,13 @@ pubspec.lock
 flutter_*.log
 
 .fvm
+
+ffplayer
+preview
+example
+.github
+test
+
+# TODO add android and ios support.
+android
+ios
