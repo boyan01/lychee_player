@@ -52,18 +52,66 @@ if (NOT DEFINED FFP_LIBS)
     endif ()
 endif ()
 
-add_subdirectory(base)
-add_subdirectory(audio)
-add_subdirectory(video)
-
-if (MEDIA_USE_SDL)
-    add_subdirectory(sdl)
+if (CMAKE_FLUTTER_MEDIA)
+    #    add_subdirectory(flutter)
+else ()
+    #    add_subdirectory(example)
 endif ()
 
-add_subdirectory(player)
 
-if (CMAKE_FLUTTER_MEDIA)
-    add_subdirectory(flutter)
-else ()
+if (LYCHEE_ENABLE_SDL)
+    add_compile_definitions("LYCHEE_ENABLE_SDL")
+endif ()
+
+add_library("lychee_player" STATIC
+        decoder_base.h
+        decoder_base.cc
+        ffp_define.h
+        ffp_frame_queue.h
+        ffp_frame_queue.cc
+        ffp_msg_queue.h
+        ffp_msg_queue.cc
+        ffp_packet_queue.h
+        ffp_packet_queue.cc
+        ffp_utils.h
+        ffp_utils.cc
+        media_clock.h
+        media_clock.cc
+        render_audio_base.h
+        render_audio_base.cc
+        render_video_base.h
+        render_video_base.cc
+        render_base.h
+        render_base.cc
+        data_source.h
+        data_source.cc
+        decoder_ctx.h
+        decoder_ctx.cc
+        ffplayer.h
+        media_player.h
+        media_player.cc
+        decoder_audio.h
+        decoder_audio.cc
+        audio_render_basic.h
+        audio_render_basic.cc
+        audio_render_sdl.h
+        audio_render_sdl.cc
+        decoder_video.h
+        decoder_video.cc
+        )
+
+target_include_directories("lychee_player" PUBLIC "third_party" ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries("lychee_player" PUBLIC ${FFP_LIBS})
+
+add_subdirectory(flutter)
+
+if (NOT LYCHEE_PLAYER_BUILD_SHARED_FLUTTER_PLUGIN)
+    message("Building static flutter plugin")
+    install(TARGETS lychee_player lychee_player_plugin ARCHIVE DESTINATION lib)
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/flutter/lychee_player_plugin.h DESTINATION include)
+endif ()
+
+
+if (LYCHEE_PLAYER_BUILD_EXAMPLE)
     add_subdirectory(example)
 endif ()

@@ -10,7 +10,7 @@
 
 #include "oboe/Oboe.h"
 
-#include "render_audio_base.h"
+#include "../../render_audio_base.h"
 
 namespace media {
 

@@ -8,10 +8,10 @@
 #include "../base/render_video_flutter.h"
 #include "render_audio_android.h"
 
-#include <android/log.h>
+#include "../../ffp_define.h"
 #include "jni.h"
+#include <android/log.h>
 #include <android/native_window.h>
-#include "ffp_define.h"
 
 #include "audio_render_oboe.h"
 

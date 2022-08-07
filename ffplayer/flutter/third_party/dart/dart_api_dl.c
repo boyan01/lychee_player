@@ -6,7 +6,7 @@
 
 #include "dart_api_dl.h"               /* NOLINT */
 #include "dart_version.h"              /* NOLINT */
-#include "internal/dart_api_dl_impl.h" /* NOLINT */
+#include "third_party/dart/internal/dart_api_dl_impl.h" /* NOLINT */
 
 #include <string.h>
 

@@ -1,27 +1,24 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.14)
 
-project("media_flutter")
+project("lychee_player_flutter" "CXX" "C")
 
-aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} MEDIA_FLUTTER_SOURCES)
-
-add_library(media_flutter SHARED ${MEDIA_FLUTTER_SOURCES} third_party/dart/dart_api_dl.c)
-
-target_include_directories(media_flutter PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} third_party)
-
-list(APPEND media_flutter_libs media_player)
-
-if (CMAKE_FLUTTER_MEDIA_WINDOWS)
-    add_subdirectory(windows)
-    list(APPEND media_flutter_libs media_flutter_windows)
-elseif (CMAKE_FLUTTER_MEDIA_LINUX)
-    list(APPEND media_flutter_libs flutter)
+if (LYCHEE_PLAYER_BUILD_SHARED_FLUTTER_PLUGIN)
+    message("Building shared flutter plugin")
+    add_library("lychee_player_flutter" SHARED
+            lychee_player_plugin.h
+            lychee_player_plugin.cc
+            third_party/dart/dart_api_dl.c
+            )
+else ()
+    message("Building static flutter plugin")
+    add_library("lychee_player_flutter" STATIC
+            lychee_player_plugin.h
+            lychee_player_plugin.cc
+            third_party/dart/dart_api_dl.c
+            )
 endif ()
 
-if (CMAKE_FLUTTER_MEDIA_ANDROID)
-    add_subdirectory(android)
-    list(APPEND media_flutter_libs media_flutter_android)
-endif ()
 
-add_subdirectory(base)
+target_link_libraries(lychee_player_flutter PUBLIC "lychee_player")
+target_include_directories(lychee_player_flutter PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} third_party)
 
-target_link_libraries(media_flutter PUBLIC media_flutter_base ${media_flutter_libs})

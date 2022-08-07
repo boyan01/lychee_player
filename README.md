@@ -1,44 +1,40 @@
-# media_player
+# lychee_player
 
-A simple audio/video player example for flutter. based on [ffplay](http://ffmpeg.org/).
+A simple audio player plugin for flutter.
 
-![img](preview/preview.png)
-
-This is my training project when I was learning C++.
+| platform | status      | audio renderer                            |
+|----------|-------------|-------------------------------------------|
+| Windows  | ✅           | [SDL2](https://github.com/libsdl-org/SDL) |
+| Linux    | in progress | [SDL2](https://github.com/libsdl-org/SDL) |  
+| macOS    | in progress | [SDL2](https://github.com/libsdl-org/SDL) |
 
 * audio/video demux by ffmpeg.
 
-* audio render by [SDL2](https://github.com/libsdl-org/SDL) (Windows, Linux), [Oboe](https://github.com/google/oboe) (
-  Android).
-
-* video render by SDL2(example) / `TextureWidget`(flutter).
-
-| platform | status       |
-| -------- | ------------ |
-| Windows  | ✅            |
-| Linux    | ⭕ audio only |
-| macOS    | ⭕            |
-| Android  | ✅            |
-| iOS      | ⭕            |
-
 ## Getting Started
 
-### How to Build Porject?
+### How to Build Project?
 
-requirement:
+#### requirement:
 
-* flutter version: 2.0
+* flutter version: 3.0
+* if build for linux, we need these libs:
+    1. install ffmpeg dev libs:
+       ```
+       sudo apt install libavcodec-dev libavformat-dev libavdevice-dev
+       ```
+    2. install sdl2:
+       ```
+       sudo apt-get install libsdl2-dev
+       ```
 
-#### Desktop
+#### Build for Flutter
 
-1. set up your enviorenment for desktop build. see more [ffplayer](ffplayer/README.md)
-2. install flutter.
-3. `cd example & flutter run`
+* `flutter pub get`.
+* if build for macos/ios
+    1. go to `example/macos` or `example/ios` run `pod install` to install `ffmpeg-kit`
+    2. go to `lychee_cpp`, run `./apple-flutter-install.sh macos` or `./apple-flutter-install.sh ios`
 
-#### Android
-
-1. install flutter
-2. `cd example & flutter build apk`
+* `flutter run -d your_device`
 
 ## Dev Tips
 
@@ -47,29 +43,28 @@ requirement:
 #### Windows
 
 1. run windows app.
+    ```shell
+    flutter run -d windows
+    ```
 
-```shell
-flutter run -d windows
-```
-
-2. open `example/build/windows/media_player_example.sln` by visual studio 2019
-3. mark `media_player_example` as run program. (which ALL_BUILD is default selected, but we can not run it).
+2. open `example/build/windows/lychee_player_example.sln` by visual studio 2019
+3. mark `lychee_player_example` as run program. (which ALL_BUILD is default selected, but we can not run it).
 4. click run with local debug. then waiting for crash.
 
 ##### Linux
 
 1. add remote gdb debug configuration. target remote args set
 
-```
-127.0.0.1:1234
-```
+    ```
+    127.0.0.1:1234
+    ```
 
 2. run the application which flutter build with debug.
 
-```shell
-gdbserver :1234 build/linux/debug/bundle/audio_player_example
-```
+    ```shell
+    gdbserver :1234 build/linux/debug/bundle/lychee_player_example
+    ```
 
 # LICENSE
 
-[MIT](LICENSE)
+[AGPL-v3](LICENSE)

@@ -1,20 +1,23 @@
 import 'package:flutter/material.dart';
-import 'package:media_player/media_player.dart';
+import 'package:lychee_player/lychee_player.dart';
 
-extension DurationClimp on Duration {
-  Duration atMost(Duration duration) {
+extension DurationClimp on double {
+  double atMost(double duration) {
     return this <= duration ? this : duration;
   }
 
-  Duration atLeast(Duration duration) {
+  double atLeast(double duration) {
     return this >= duration ? this : duration;
   }
 }
 
 class ForwardRewindButton extends StatelessWidget {
-  final AudioPlayer? player;
+  const ForwardRewindButton({
+    Key? key,
+    required this.player,
+  }) : super(key: key);
 
-  const ForwardRewindButton({Key? key, this.player}) : super(key: key);
+  final LycheeAudioPlayer player;
 
   @override
   Widget build(BuildContext context) {
@@ -24,18 +27,16 @@ class ForwardRewindButton extends StatelessWidget {
         IconButton(
             icon: Icon(Icons.replay_10),
             onPressed: () {
-              final Duration to =
-                  player!.currentTime - const Duration(seconds: 10);
-              player!.seek(to.atMost(player!.duration));
+              final to = player.currentTime() - 10;
+              player.seek(to.atMost(player.duration()));
             }),
         SizedBox(width: 20),
         IconButton(
             icon: Icon(Icons.forward_10),
             onPressed: () {
-              final Duration to =
-                  player!.currentTime + const Duration(seconds: 10);
-              debugPrint("current = ${player!.currentTime}");
-              player!.seek(to.atLeast(Duration.zero));
+              final to = player.currentTime() + 10;
+              debugPrint("current = ${player.currentTime()}");
+              player.seek(to.atLeast(0));
             }),
       ],
     );
@@ -43,21 +44,27 @@ class ForwardRewindButton extends StatelessWidget {
 }
 
 class PlaybackStatefulButton extends StatelessWidget {
-  final AudioPlayer? player;
+  const PlaybackStatefulButton({Key? key, required this.player})
+      : super(key: key);
 
-  const PlaybackStatefulButton({Key? key, this.player}) : super(key: key);
+  final LycheeAudioPlayer player;
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
       icon: AnimatedBuilder(
-          animation: player!.onStateChanged,
+          animation: Listenable.merge([
+            player.state,
+            player.onPlayWhenReadyChanged,
+          ]),
           builder: (context, child) {
-            if (player!.isPlaying) {
-              return Icon(Icons.pause);
-            } else if (player!.hasError) {
-              return Icon(Icons.error);
-            } else if (player!.status == PlayerStatus.Buffering) {
+            if (player.state.value == PlayerState.ready) {
+              if (player.playWhenReady) {
+                return Icon(Icons.pause);
+              } else {
+                return Icon(Icons.play_arrow);
+              }
+            } else if (player.state.value == PlayerState.buffering) {
               return Container(
                 height: 24,
                 width: 24,
@@ -68,10 +75,10 @@ class PlaybackStatefulButton extends StatelessWidget {
             }
           }),
       onPressed: () {
-        if (player!.status == PlayerStatus.End) {
-          player!.seek(Duration.zero);
+        if (player.state == PlayerState.end) {
+          player.seek(0);
         }
-        player!.playWhenReady = !player!.playWhenReady;
+        player.playWhenReady = !player.playWhenReady;
       },
     );
   }

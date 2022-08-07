@@ -3,8 +3,8 @@
 //
 
 #include "render_video_flutter.h"
-#include "ffp_utils.h"
-#include "ffp_define.h"
+#include "../../ffp_define.h"
+#include "../../ffp_utils.h"
 
 void FlutterVideoRender::StartRenderThread() {
   CHECK_VALUE(!render_started_);

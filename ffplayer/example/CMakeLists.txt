@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-project("media_player_example")
+project("lychee_player_example")
 
 set(EXAMPLE_BIN_NAME ${PROJECT_NAME})
 
@@ -19,7 +19,7 @@ add_executable(${EXAMPLE_BIN_NAME} ${EXAMPLE_SOURCES})
 
 target_include_directories(${EXAMPLE_BIN_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(${EXAMPLE_BIN_NAME} PUBLIC media_player media_sdl SDL2main)
+target_link_libraries(${EXAMPLE_BIN_NAME} PUBLIC lychee_player SDL2main)
 
 if (WIN32)
     if (CMAKE_FLUTTER_WINDOWS)
