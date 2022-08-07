@@ -81,7 +81,9 @@ MediaPlayer::MediaPlayer(std::unique_ptr<VideoRenderBase> video_render,
       audio_render_, video_render_, clock_context);
 }
 
-MediaPlayer::~MediaPlayer() = default;
+MediaPlayer::~MediaPlayer() {
+  message_context->StopAndWait();
+}
 
 void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
   if (play_when_ready_ == play_when_ready) {
@@ -309,7 +311,6 @@ VideoRenderBase* MediaPlayer::GetVideoRender() {
 }
 
 void MediaPlayer::DoSomeWork() {
-  std::lock_guard<std::mutex> lock(player_mutex_);
   bool render_allow_playback = true;
   bool decoder_finished = true;
   if (audio_render_) {

@@ -12,7 +12,6 @@ extern "C" {
 
 void MessageContext::MessageThread() {
   update_thread_name("message_loop");
-  DLOG(WARNING) << "message_thread start.";
   while (true) {
     auto msg = message_queue_->next();
     if (msg == nullptr) {
@@ -36,6 +35,7 @@ MessageContext::MessageContext()
 
 MessageContext::~MessageContext() {
   StopAndWait();
+  DLOG(INFO) << "~MessageContext";
 }
 
 void MessageContext::Start() {

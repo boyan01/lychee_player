@@ -29,6 +29,10 @@ class AudioRenderCoreAudio : public BasicAudioRender {
                       int wanted_sample_rate,
                       AudioParams& device_output) override;
 
+ public:
+  ~AudioRenderCoreAudio() override;
+
+ protected:
   void OnStart() const override;
   void onStop() const override;
 

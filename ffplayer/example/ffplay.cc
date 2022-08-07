@@ -6,12 +6,20 @@
 #include <iostream>
 #include <utility>
 
-#include "audio_render_core_audio.h"
-#include "audio_render_sdl.h"
 #include "logging.h"
 #include "media_player.h"
 #include "render_video_sdl.h"
 #include "sdl_utils.h"
+
+#include "app_window.h"
+
+#ifdef LYCHEE_OSX
+#include "audio_render_core_audio.h"
+#define AudioRenderImpl AudioRenderCoreAudio
+#elif defined(LYCHEE_ENABLE_SDL)
+#define AudioRenderImpl AudioRenderSdl
+#include "audio_render_sdl.h"
+#endif
 
 extern "C" {
 #include "libavutil/avstring.h"
@@ -38,6 +46,8 @@ static int cursor_hidden;
 
 static int is_full_screen;
 
+static int volume_before_mute = 1;
+
 static const char* window_title;
 static int default_width = 640;
 static int default_height = 480;
@@ -55,37 +65,17 @@ struct MessageData {
   int64_t arg2 = 0;
 };
 
-static void on_message(MediaPlayer* player,
-                       int what,
-                       int64_t arg1,
-                       int64_t arg2);
-
 static void sigterm_handler(int sig) {
   exit(123);
 }
 
-static void do_exit(MediaPlayer* player) {
-  delete player;
+static void do_exit() {
   if (window)
     SDL_DestroyWindow(window);
 
   SDL_Quit();
   av_log(nullptr, AV_LOG_QUIET, "%s", "");
   exit(0);
-}
-
-static void toggle_full_screen() {
-  is_full_screen = !is_full_screen;
-  SDL_SetWindowFullscreen(window,
-                          is_full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
-}
-
-static void step_to_next_frame(MediaPlayer* player) {
-  /* if the stream is play_when_ready_ unpause it, then step */
-  //  if (player->IsPaused()) {
-  //    player->TogglePause();
-  //  }
-  //    player->is->step = 1;
 }
 
 static void refresh_loop_wait_event(MediaPlayer* player, SDL_Event* event) {
@@ -106,170 +96,6 @@ static void refresh_loop_wait_event(MediaPlayer* player, SDL_Event* event) {
       player->DumpStatus();
     }
     SDL_PumpEvents();
-  }
-}
-
-/* handle an event sent by the GUI */
-static void event_loop(MediaPlayer* player) {
-  SDL_Event event;
-  double incr;
-
-  for (;;) {
-    double x;
-    refresh_loop_wait_event(player, &event);
-    switch (event.type) {
-      case SDL_KEYDOWN:
-        if (exit_on_keydown || event.key.keysym.sym == SDLK_ESCAPE ||
-            event.key.keysym.sym == SDLK_q) {
-          do_exit(player);
-          break;
-        }
-        // If we don't yet have a window, skip all key events, because
-        // read_thread might still be initializing...
-        if (false)  // TODO check if player render start
-          continue;
-        switch (event.key.keysym.sym) {
-          case SDLK_f:
-            toggle_full_screen();
-            //                        is->force_refresh = 1;
-            break;
-          case SDLK_p:
-          case SDLK_SPACE: {
-            player->SetPlayWhenReady(!player->IsPlayWhenReady());
-            break;
-          }
-          case SDLK_m:
-            player->SetMute(!player->IsMuted());
-            break;
-          case SDLK_KP_MULTIPLY:
-          case SDLK_0:
-            player->SetVolume(player->GetVolume() + SDL_VOLUME_STEP);
-            break;
-          case SDLK_KP_DIVIDE:
-          case SDLK_9:
-            player->SetVolume(player->GetVolume() - SDL_VOLUME_STEP);
-            break;
-          case SDLK_s:  // S: Step to next frame
-            step_to_next_frame(player);
-            break;
-          case SDLK_a:
-            break;
-          case SDLK_v: {
-            dump_status = !dump_status;
-            break;
-          }
-          case SDLK_c:
-            break;
-          case SDLK_t:
-            break;
-          case SDLK_w:
-            break;
-          case SDLK_PAGEUP:
-            if (player->GetChapterCount() <= 1) {
-              incr = 600.0;
-              goto do_seek;
-            }
-            player->SeekToChapter(player->GetChapterCount() + 1);
-            break;
-          case SDLK_PAGEDOWN:
-            if (player->GetChapterCount() <= 1) {
-              incr = -600.0;
-              goto do_seek;
-            }
-            player->SeekToChapter(player->GetChapterCount() - 1);
-            break;
-          case SDLK_LEFT:
-            incr = -seek_interval;
-            goto do_seek;
-          case SDLK_RIGHT:
-            incr = seek_interval;
-            goto do_seek;
-          case SDLK_UP:
-            incr = 60.0;
-            goto do_seek;
-          case SDLK_DOWN:
-            incr = -60.0;
-          do_seek:
-            printf("ffplayer_seek_to_position from: %0.2f , to: %0.2f .\n",
-                   player->GetCurrentPosition(),
-                   player->GetCurrentPosition() + incr);
-            player->Seek(player->GetCurrentPosition() + incr);
-            break;
-          default:
-            break;
-        }
-        break;
-      case SDL_MOUSEBUTTONDOWN:
-        if (exit_on_mousedown) {
-          do_exit(player);
-          break;
-        }
-        if (event.button.button == SDL_BUTTON_LEFT) {
-          static int64_t last_mouse_left_click = 0;
-          if (av_gettime_relative() - last_mouse_left_click <= 500000) {
-            toggle_full_screen();
-            //                        is->force_refresh = 1;
-            last_mouse_left_click = 0;
-          } else {
-            last_mouse_left_click = av_gettime_relative();
-          }
-        }
-      case SDL_MOUSEMOTION:
-        if (cursor_hidden) {
-          SDL_ShowCursor(1);
-          cursor_hidden = 0;
-        }
-        cursor_last_shown = av_gettime_relative();
-        if (event.type == SDL_MOUSEBUTTONDOWN) {
-          if (event.button.button != SDL_BUTTON_RIGHT)
-            break;
-          x = event.button.x;
-        } else {
-          if (!(event.motion.state & SDL_BUTTON_RMASK))
-            break;
-          x = event.motion.x;
-        }
-        {
-          double dest = (x / screen_width) * player->GetDuration();
-          player->Seek(dest);
-        }
-        break;
-      case SDL_WINDOWEVENT:
-        switch (event.window.event) {
-          case SDL_WINDOWEVENT_SIZE_CHANGED: {
-            screen_width = event.window.data1;
-            screen_height = event.window.data2;
-            auto* render =
-                dynamic_cast<SdlVideoRender*>(player->GetVideoRender());
-            render->screen_height = screen_height;
-            render->screen_width = screen_width;
-            render->DestroyTexture();
-          }
-          case SDL_WINDOWEVENT_EXPOSED:
-            //                        is->force_refresh = 1;
-            break;
-        }
-        break;
-      case SDL_QUIT:
-        do_exit(player);
-        return;
-      case FF_DRAW_EVENT: {
-        //                auto *video_render_ctx = static_cast<VideoRenderData
-        //                *>(event.user.data1);
-        //                SDL_RenderPresent(video_render_ctx->renderer);
-        //                cout << "draw delay time: "
-        //                     << (SDL_GetTicks() - event.user.timestamp) << "
-        //                     milliseconds"
-        //                     << endl;
-      } break;
-      case FF_MSG_EVENT: {
-        auto* msg = static_cast<MessageData*>(event.user.data1);
-        on_message(msg->player, msg->what, msg->arg1, msg->arg2);
-        delete msg;
-      } break;
-      default:
-        break;
-    }
   }
 }
 
@@ -319,8 +145,7 @@ static void on_message(MediaPlayer* player,
       w = screen_width ? screen_width : default_width;
       h = screen_height ? screen_height : default_height;
 
-      if (!window_title)
-        window_title = player->GetUrl();
+      window_title = strdup(player->GetUrl());
       SDL_SetWindowTitle(window, window_title);
 
       printf("set_default_window_size : %d , %d \n", w, h);
@@ -350,123 +175,315 @@ static void on_message(MediaPlayer* player,
   }
 }
 
-int main(int argc, char* argv[]) {
-  char* input_file = argv[1];
-  if (!input_file) {
-    av_log(nullptr, AV_LOG_FATAL, "An input file must be specified\n");
-    exit(1);
+namespace {
+
+class SdlLycheePlayerExample;
+
+class SDLEventHandler {
+ public:
+  explicit SDLEventHandler(const weak_ptr<SdlLycheePlayerExample>& media_player)
+      : media_player_(media_player) {}
+
+  void HandleSdlEvent(const SDL_Event& event);
+
+ private:
+  std::weak_ptr<SdlLycheePlayerExample> media_player_;
+
+  static void HandleKeyEvent(
+      SDL_Keycode keycode,
+      const std::shared_ptr<SdlLycheePlayerExample>& player_app);
+
+  static void toggle_full_screen() {
+    is_full_screen = !is_full_screen;
+    SDL_SetWindowFullscreen(window,
+                            is_full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+  }
+};
+
+class SdlLycheePlayerExample
+    : public std::enable_shared_from_this<SdlLycheePlayerExample> {
+ public:
+  explicit SdlLycheePlayerExample(const vector<std::string>& input_files,
+                                  std::shared_ptr<SDL_Renderer> renderer);
+
+  void Start();
+
+  const std::shared_ptr<MediaPlayer>& current_player() {
+    return current_player_;
   }
 
-  MediaPlayer::GlobalInit();
+  void SkipToPrevious();
+
+  void SkipToNext();
+
+ private:
+  std::vector<std::string> input_files_;
+  int playing_file_index_;
+
+  std::shared_ptr<SDL_Renderer> renderer_;
+
+  std::shared_ptr<MediaPlayer> current_player_;
+
+  std::shared_ptr<SDLEventHandler> event_handler_;
+
+  void SdlEventLoop() {
+    SDL_Event sdl_event;
+    while (true) {
+      refresh_loop_wait_event(current_player_.get(), &sdl_event);
+      if (event_handler_) {
+        event_handler_->HandleSdlEvent(sdl_event);
+      }
+    }
+  }
+
+  void PlayItem(const std::string& input_file) {
+    current_player_ = nullptr;
+    SDL_FlushEvent(FF_MSG_EVENT);
+
+    auto video_render = std::make_unique<SdlVideoRender>(renderer_);
+    auto audio_render = std::make_unique<AudioRenderImpl>();
+    auto player = std::make_shared<MediaPlayer>(std::move(video_render),
+                                                std::move(audio_render));
+    player->SetVolume(50);
+    player->SetMessageHandleCallback(
+        [player_ptr(player.get())](int what, int64_t arg1, int64_t arg2) {
+          SDL_Event event;
+          event.type = FF_MSG_EVENT;
+          auto* data = new MessageData;
+          event.user.data1 = data;
+          data->player = player_ptr;
+          data->what = what;
+          data->arg1 = arg1;
+          data->arg2 = arg2;
+          SDL_PushEvent(&event);
+        });
+    if (player->OpenDataSource(input_file.c_str()) < 0) {
+      LOG(FATAL) << "failed to open file";
+      do_exit();
+    }
+    // perform play when started.
+    player->SetPlayWhenReady(true);
+
+    current_player_ = player;
+  }
+};
+
+SdlLycheePlayerExample::SdlLycheePlayerExample(
+    const vector<std::string>& input_files,
+    std::shared_ptr<SDL_Renderer> renderer)
+    : input_files_(input_files),
+      renderer_(std::move(renderer)),
+      playing_file_index_(0) {
+  DCHECK(!input_files.empty());
+}
+
+void SdlLycheePlayerExample::Start() {
+  DCHECK_GE(playing_file_index_, 0);
+  DCHECK_LT(playing_file_index_, input_files_.size());
+  PlayItem(input_files_[playing_file_index_]);
+  event_handler_ = std::make_shared<SDLEventHandler>(shared_from_this());
+  SdlLycheePlayerExample::SdlEventLoop();
+}
+
+void SdlLycheePlayerExample::SkipToPrevious() {
+  playing_file_index_ = playing_file_index_ - 1;
+  if (playing_file_index_ < 0) {
+    playing_file_index_ = (int)input_files_.size() - 1;
+  }
+  PlayItem(input_files_[playing_file_index_]);
+}
+
+void SdlLycheePlayerExample::SkipToNext() {
+  TRACE_METHOD_DURATION(1000);
+  playing_file_index_ = playing_file_index_ + 1;
+  if (playing_file_index_ >= input_files_.size()) {
+    playing_file_index_ = 0;
+  }
+  PlayItem(input_files_[playing_file_index_]);
+}
+
+// static
+void SDLEventHandler::HandleKeyEvent(
+    SDL_Keycode keycode,
+    const std::shared_ptr<SdlLycheePlayerExample>& player_app) {
+  /* Step size for volume control*/
+  static const int kExampleVolumeStep = 10;
+  auto player = player_app->current_player();
+  DCHECK(player);
+  switch (keycode) {
+    case SDLK_ESCAPE:
+    case SDLK_q: {
+      do_exit();
+      return;
+    }
+    case SDLK_f:
+      toggle_full_screen();
+      break;
+    case SDLK_p:
+    case SDLK_SPACE: {
+      player->SetPlayWhenReady(!player->IsPlayWhenReady());
+      break;
+    }
+    case SDLK_m: {
+      int volume = player->GetVolume();
+      if (volume != 0) {
+        player->SetVolume(0);
+        volume_before_mute = volume;
+      } else {
+        player->SetVolume(volume_before_mute);
+      }
+      break;
+    }
+    case SDLK_KP_MULTIPLY:
+    case SDLK_0: {
+      player->SetVolume(player->GetVolume() + kExampleVolumeStep);
+      DLOG(INFO) << "update volume to: " << player->GetVolume();
+      break;
+    }
+    case SDLK_KP_DIVIDE:
+    case SDLK_9: {
+      player->SetVolume(player->GetVolume() - kExampleVolumeStep);
+      DLOG(INFO) << "update volume to: " << player->GetVolume();
+      break;
+    }
+    case SDLK_s:  // S: Step to next frame
+      break;
+    case SDLK_a:
+      break;
+    case SDLK_v: {
+      dump_status = !dump_status;
+      break;
+    }
+    case SDLK_c:
+      break;
+    case SDLK_t:
+      break;
+    case SDLK_w:
+      break;
+    case SDLK_LEFT: {
+      player->Seek(std::max(player->GetCurrentPosition() - 10, 0.0));
+      break;
+    }
+    case SDLK_RIGHT: {
+      player->Seek(player->GetCurrentPosition() + 10);
+      break;
+    }
+    case SDLK_UP: {
+      player_app->SkipToPrevious();
+      break;
+    }
+    case SDLK_DOWN: {
+      player_app->SkipToNext();
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+void SDLEventHandler::HandleSdlEvent(const SDL_Event& event) {
+  TRACE_METHOD_DURATION(10000);
+  _logging_trace_method_duration.stream() << event.type;
+
+  double x;
+
+  auto media = media_player_.lock();
+  if (!media) {
+    return;
+  }
+  auto player = media->current_player();
+
+  switch (event.type) {
+    case SDL_KEYDOWN: {
+      HandleKeyEvent(event.key.keysym.sym, media);
+      break;
+    }
+    case SDL_MOUSEBUTTONDOWN:
+      if (exit_on_mousedown) {
+        do_exit();
+        break;
+      }
+      if (event.button.button == SDL_BUTTON_LEFT) {
+        static int64_t last_mouse_left_click = 0;
+        if (av_gettime_relative() - last_mouse_left_click <= 500000) {
+          toggle_full_screen();
+          last_mouse_left_click = 0;
+        } else {
+          last_mouse_left_click = av_gettime_relative();
+        }
+      }
+    case SDL_MOUSEMOTION:
+      if (cursor_hidden) {
+        SDL_ShowCursor(1);
+        cursor_hidden = 0;
+      }
+      cursor_last_shown = av_gettime_relative();
+      if (event.type == SDL_MOUSEBUTTONDOWN) {
+        if (event.button.button != SDL_BUTTON_RIGHT)
+          break;
+        x = event.button.x;
+      } else {
+        if (!(event.motion.state & SDL_BUTTON_RMASK))
+          break;
+        x = event.motion.x;
+      }
+      {
+        double dest = (x / screen_width) * player->GetDuration();
+        player->Seek(dest);
+      }
+      break;
+    case SDL_WINDOWEVENT:
+      switch (event.window.event) {
+        case SDL_WINDOWEVENT_SIZE_CHANGED: {
+          screen_width = event.window.data1;
+          screen_height = event.window.data2;
+
+          auto* render =
+              dynamic_cast<SdlVideoRender*>(player->GetVideoRender());
+          render->screen_height = screen_height;
+          render->screen_width = screen_width;
+          render->DestroyTexture();
+        }
+        case SDL_WINDOWEVENT_EXPOSED:
+          //                        is->force_refresh = 1;
+          break;
+      }
+      break;
+    case SDL_QUIT:
+      do_exit();
+      return;
+    case FF_MSG_EVENT: {
+      auto* msg = static_cast<MessageData*>(event.user.data1);
+      on_message(msg->player, msg->what, msg->arg1, msg->arg2);
+      delete msg;
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+}  // namespace
+
+int main(int argc, char* argv[]) {
+  std::vector<std::string> input_files(argc - 1);
+  for (int i = 0; i < argc - 1; ++i) {
+    input_files[i] = argv[i + 1];
+  }
+  CHECK_GT(input_files.size(), 0) << "An input file must be specified";
 
   signal(SIGINT, sigterm_handler);  /* Interrupt (ANSI).    */
   signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */
 
-  PlayerConfiguration config;
+  MediaPlayer::GlobalInit();
 
-  uint32_t flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER;
-  if (config.audio_disable)
-    flags &= ~SDL_INIT_AUDIO;
-  else {
-    /* Try to work around an occasional ALSA buffer underflow issue when the
-     * period size is NPOT due to ALSA resampling by forcing the buffer size. */
-    if (!SDL_getenv("SDL_AUDIO_ALSA_SET_BUFFER_SIZE"))
-      SDL_setenv("SDL_AUDIO_ALSA_SET_BUFFER_SIZE", "1", 1);
-  }
-  if (config.video_disable)
-    flags &= ~SDL_INIT_VIDEO;
-  if (SDL_Init(flags)) {
-    av_log(nullptr, AV_LOG_FATAL, "Could not initialize SDL - %s\n",
-           SDL_GetError());
-    av_log(nullptr, AV_LOG_FATAL, "(Did you set the DISPLAY variable?)\n");
-    exit(1);
-  }
-  SDL_EventState(SDL_SYSWMEVENT, SDL_IGNORE);
-  SDL_EventState(SDL_USEREVENT, SDL_IGNORE);
+  AppWindow::Initialize();
 
-  std::shared_ptr<SDL_Renderer> renderer;
+  window = AppWindow::Instance()->GetWindow();
 
-  if (!config.video_disable) {
-    SDL_RendererInfo renderer_info = {nullptr};
-    uint32_t window_flags = SDL_WINDOW_HIDDEN;
-    if (alwaysontop)
-#if SDL_VERSION_ATLEAST(2, 0, 5)
-      window_flags |= SDL_WINDOW_ALWAYS_ON_TOP;
-#else
-      av_log(nullptr, AV_LOG_WARNING,
-             "Your SDL version doesn't support SDL_WINDOW_ALWAYS_ON_TOP. "
-             "Feature will be inactive.\n");
-#endif
-    if (borderless)
-      window_flags |= SDL_WINDOW_BORDERLESS;
-    else
-      window_flags |= SDL_WINDOW_RESIZABLE;
-    window = SDL_CreateWindow("ffplay", SDL_WINDOWPOS_UNDEFINED,
-                              SDL_WINDOWPOS_UNDEFINED, default_width,
-                              default_height, window_flags);
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
-    if (window) {
-      renderer = std::shared_ptr<SDL_Renderer>(
-          SDL_CreateRenderer(
-              window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC),
-          [](SDL_Renderer* ptr) { SDL_DestroyRenderer(ptr); });
-      if (!renderer) {
-        av_log(nullptr, AV_LOG_WARNING,
-               "Failed to initialize a hardware accelerated renderer: %s\n",
-               SDL_GetError());
-        renderer = std::shared_ptr<SDL_Renderer>(
-            SDL_CreateRenderer(window, -1, 0),
-            [](SDL_Renderer* ptr) { SDL_DestroyRenderer(ptr); });
-      }
-      if (renderer) {
-        if (!SDL_GetRendererInfo(renderer.get(), &renderer_info))
-          av_log(nullptr, AV_LOG_VERBOSE, "Initialized %s renderer.\n",
-                 renderer_info.name);
-      }
-    }
-    if (!window || !renderer || !renderer_info.num_texture_formats) {
-      av_log(nullptr, AV_LOG_FATAL, "Failed to create window or renderer: %s",
-             SDL_GetError());
-      do_exit(nullptr);
-    }
-  }
-
-  auto video_render = std::make_unique<SdlVideoRender>(std::move(renderer));
-  std::unique_ptr<BasicAudioRender> audio_render;
-#ifdef LYCHEE_OSX
-  audio_render = std::make_unique<AudioRenderCoreAudio>();
-#elif defined(LYCHEE_ENABLE_SDL)
-  audio_render = std::make_unique<SdlAudioRender>();
-#endif
-
-  DCHECK(audio_render);
-  auto* player =
-      new MediaPlayer(std::move(video_render), std::move(audio_render));
-  player->start_configuration = config;
-  player->SetVolume(50);
-
-  player->SetMessageHandleCallback(
-      [player](int32_t what, int64_t arg1, int64_t arg2) {
-        SDL_Event event;
-        event.type = FF_MSG_EVENT;
-        auto* data = new MessageData;
-        event.user.data1 = data;
-        data->player = player;
-        data->what = what;
-        data->arg1 = arg1;
-        data->arg2 = arg2;
-        SDL_PushEvent(&event);
-      });
-
-  if (player->OpenDataSource(input_file) < 0) {
-    av_log(nullptr, AV_LOG_FATAL, "failed to open file\n");
-    do_exit(nullptr);
-  }
-
-  // perform play when start.
-  player->SetPlayWhenReady(true);
-
-  event_loop(player);
+  auto player = make_shared<SdlLycheePlayerExample>(
+      input_files, AppWindow::Instance()->GetRenderer());
+  player->Start();
 
   return 0;
 }

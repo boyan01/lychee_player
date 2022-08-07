@@ -155,4 +155,11 @@ void AudioRenderCoreAudio::onStop() const {
   }
 }
 
+AudioRenderCoreAudio::~AudioRenderCoreAudio() {
+  if (audio_queue_) {
+    AudioQueueDispose(audio_queue_, true);
+  }
+  audio_buffer_.clear();
+}
+
 #endif

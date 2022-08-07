@@ -121,8 +121,6 @@ class MessageContext {
  private:
   void MessageThread();
 
-  void StopAndWait();
-
   void Start();
 
  public:
@@ -135,6 +133,9 @@ class MessageContext {
   void NotifyMsg(int what, int64_t arg1);
 
   void NotifyMsg(int what);
+
+  void StopAndWait();
+
 };
 
 #endif  // FFPLAYER_FFP_MSG_QUEUE_H
