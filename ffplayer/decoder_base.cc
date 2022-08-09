@@ -150,7 +150,7 @@ int Decoder::DecodeFrame(AVFrame* frame, AVSubtitle* sub) {
       av_packet_unref(&temp_pkt);
     }
   }
-  return 0;
+  return -1;
 }
 
 void Decoder::Start() {
