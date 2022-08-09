@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -261,20 +262,28 @@ class TickedPlayerState extends StatefulWidget {
 
 class _TickedPlayerStateState extends State<TickedPlayerState>
     with SingleTickerProviderStateMixin {
-  late Ticker _ticker;
+  Timer? _timer;
+  Ticker? _ticker;
 
   @override
   void initState() {
-    _ticker = createTicker((elapsed) {
-      setState(() {});
-    });
-    _ticker.start();
+    if (Platform.isLinux) {
+      _timer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+        setState(() {});
+      });
+    } else {
+      _ticker = createTicker((elapsed) {
+        setState(() {});
+      });
+      _ticker?.start();
+    }
     super.initState();
   }
 
   @override
   void dispose() {
-    _ticker.dispose();
+    _timer?.cancel();
+    _ticker?.dispose();
     super.dispose();
   }
 
