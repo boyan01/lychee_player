@@ -92,7 +92,8 @@ void MessageQueue::Wake() {
 
 void MessageQueue::PollOnce() {
   std::unique_lock<std::mutex> condition_lock(message_wait_lock_);
-  message_wait_condition_.wait(condition_lock);
+  message_wait_condition_.wait_for(condition_lock,
+                                   std::chrono::milliseconds(300));
 }
 
 void MessageQueue::Quit() {
