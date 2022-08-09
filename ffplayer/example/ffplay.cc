@@ -130,52 +130,6 @@ void check_screen_size(int64_t& width, int64_t& height) {
   height = int64_t(display_mode.h * scale);
 }
 
-static void on_message(MediaPlayer* player,
-                       int what,
-                       int64_t arg1,
-                       int64_t arg2) {
-  //    av_log(nullptr, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n",
-  //    what, arg1, arg2);
-  switch (what) {
-    case FFP_MSG_VIDEO_FRAME_LOADED: {
-      check_screen_size(arg1, arg2);
-      set_default_window_size((int)arg1, (int)arg2);
-      std::cout << "FFP_MSG_VIDEO_FRAME_LOADED: width = " << arg1
-                << "height = " << arg2 << endl;
-      int w, h;
-      w = screen_width ? screen_width : default_width;
-      h = screen_height ? screen_height : default_height;
-
-      window_title = strdup(player->GetUrl());
-      SDL_SetWindowTitle(window, window_title);
-
-      printf("set_default_window_size : %d , %d \n", w, h);
-      SDL_SetWindowSize(window, w, h);
-      SDL_SetWindowPosition(window, screen_left, screen_top);
-      if (is_full_screen)
-        SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-      SDL_ShowWindow(window);
-      break;
-    }
-    case MEDIA_MSG_PLAYER_STATE_CHANGED:
-      printf("FFP_MSG_PLAYBACK_STATE_CHANGED : %lld \n", arg1);
-      break;
-    case FFP_MSG_BUFFERING_TIME_UPDATE:
-      printf("FFP_MSG_BUFFERING_TIME_UPDATE: %f.  %f:%f \n",
-             double(arg1) / 1000.0, player->GetCurrentPosition(),
-             player->GetDuration());
-      break;
-    case FFP_MSG_AV_METADATA_LOADED: {
-      const char* title = player->GetMetadataDict("title");
-      if (!window_title && title)
-        window_title = av_asprintf("%s - %s", title, player->GetUrl());
-      break;
-    }
-    default:
-      break;
-  }
-}
-
 namespace {
 
 class SdlLycheePlayerExample;
@@ -198,7 +152,14 @@ class SDLEventHandler {
     is_full_screen = !is_full_screen;
     SDL_SetWindowFullscreen(window,
                             is_full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+
+    void OnPlayerMessage(MediaPlayer * player, int what, int64_t arg1,
+                         int64_t arg2);
   }
+  void OnPlayerMessage(MediaPlayer* p_player,
+                       int32_t what,
+                       int64_t arg_1,
+                       int64_t arg_2);
 };
 
 class SdlLycheePlayerExample
@@ -455,8 +416,58 @@ void SDLEventHandler::HandleSdlEvent(const SDL_Event& event) {
       return;
     case FF_MSG_EVENT: {
       auto* msg = static_cast<MessageData*>(event.user.data1);
-      on_message(msg->player, msg->what, msg->arg1, msg->arg2);
+      OnPlayerMessage(msg->player, msg->what, msg->arg1, msg->arg2);
       delete msg;
+      break;
+    }
+    default:
+      break;
+  }
+}
+void SDLEventHandler::OnPlayerMessage(MediaPlayer* player,
+                                      int32_t what,
+                                      int64_t arg1,
+                                      int64_t arg2) {
+  //    av_log(nullptr, AV_LOG_INFO, "on msg(%d): arg1 = %ld, arg2 = %ld \n",
+  //    what, arg1, arg2);
+  switch (what) {
+    case FFP_MSG_VIDEO_FRAME_LOADED: {
+      check_screen_size(arg1, arg2);
+      set_default_window_size((int)arg1, (int)arg2);
+      std::cout << "FFP_MSG_VIDEO_FRAME_LOADED: width = " << arg1
+                << "height = " << arg2 << endl;
+      int w, h;
+      w = screen_width ? screen_width : default_width;
+      h = screen_height ? screen_height : default_height;
+
+      window_title = strdup(player->GetUrl());
+      SDL_SetWindowTitle(window, window_title);
+
+      printf("set_default_window_size : %d , %d \n", w, h);
+      SDL_SetWindowSize(window, w, h);
+      SDL_SetWindowPosition(window, screen_left, screen_top);
+      if (is_full_screen)
+        SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+      SDL_ShowWindow(window);
+      break;
+    }
+    case MEDIA_MSG_PLAYER_STATE_CHANGED:
+      DLOG(INFO) << "FFP_MSG_PLAYBACK_STATE_CHANGED : " << arg1;
+      if (arg1 == 3) {
+        if (auto example = media_player_.lock()) {
+          example->SkipToNext();
+        }
+      }
+      break;
+    case FFP_MSG_BUFFERING_TIME_UPDATE:
+      printf("FFP_MSG_BUFFERING_TIME_UPDATE: %f.  %f:%f \n",
+             double(arg1) / 1000.0, player->GetCurrentPosition(),
+             player->GetDuration());
+      break;
+    case FFP_MSG_AV_METADATA_LOADED: {
+      const char* title = player->GetMetadataDict("title");
+      if (!window_title && title)
+        window_title = av_asprintf("%s - %s", title, player->GetUrl());
       break;
     }
     default:
