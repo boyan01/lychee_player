@@ -313,12 +313,13 @@ VideoRenderBase* MediaPlayer::GetVideoRender() {
 void MediaPlayer::DoSomeWork() {
   bool render_allow_playback = true;
   bool decoder_finished = true;
-  if (audio_render_) {
+  if (audio_render_ && data_source->ContainAudioStream()) {
     render_allow_playback &= audio_render_->IsReady();
     decoder_finished &= decoder_context->AudioDecoderFinished();
   }
-  if (video_render_) {
-    render_allow_playback &= video_render_->IsReady();
+  if (video_render_ && data_source->ContainVideoStream()) {
+    render_allow_playback &=
+        video_render_->IsReady() || data_source->VideoStreamIsAttachedPic();
     decoder_finished &= decoder_context->VideoDecoderFinished();
   }
 
@@ -378,7 +379,8 @@ bool MediaPlayer::ShouldTransitionToReadyState(bool render_allow_play) {
   if (audio_render_ && data_source->ContainAudioStream()) {
     ready &= audio_pkt_queue->nb_packets > 2;
   }
-  if (video_render_ && data_source->ContainVideoStream()) {
+  if (video_render_ && data_source->ContainVideoStream() &&
+      !data_source->VideoStreamIsAttachedPic()) {
     ready &= video_pkt_queue->nb_packets > 2;
   }
   return ready;

@@ -300,6 +300,7 @@ void DataSource::ReadStreams(std::mutex& read_mutex) {
   AVPacket pkt_data, *pkt = &pkt_data;
   for (;;) {
     if (abort_request) {
+      DLOG(INFO) << "abort_request";
       break;
     }
     if (paused != last_paused) {
@@ -344,6 +345,7 @@ void DataSource::ReadStreams(std::mutex& read_mutex) {
     {
       auto ret = ProcessReadFrame(pkt, read_mutex);
       if (ret < 0) {
+        DLOG(INFO) << "ProcessReadFrame failed";
         break;
       } else if (ret > 0) {
         continue;
@@ -571,4 +573,8 @@ const char* DataSource::GetMetadataDict(const char* key) {
     return entry->value;
   }
   return nullptr;
+}
+
+bool DataSource::VideoStreamIsAttachedPic() {
+  return video_stream_ != nullptr && video_stream_->disposition & AV_DISPOSITION_ATTACHED_PIC;
 }

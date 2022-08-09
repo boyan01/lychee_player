@@ -100,6 +100,8 @@ class DataSource {
 
   bool ContainSubtitleStream();
 
+  bool VideoStreamIsAttachedPic();
+
   double GetSeekPosition() const;
 
   const char* GetFileName() const;
