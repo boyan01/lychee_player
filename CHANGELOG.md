@@ -1,3 +1,9 @@
+## 0.3.2
+
+* fix video stream is attached pic make player state can not transfer to ready state.
+* add a workaround for message process maybe blocked.
+* fix video decode thread de-construct may run in dead loop.
+
 ## 0.3.1
 
 * restrict ffmpeg-kit-macos-full to 4.4 on macOS
