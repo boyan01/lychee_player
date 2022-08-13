@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v2
         with:
           lfs: 'true'
-      - uses: subosito/flutter-action@v1
+      - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
       - run: flutter config --enable-windows-desktop
@@ -29,12 +29,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/setup-java@v1
+      - uses: subosito/flutter-action@v2
         with:
-          java-version: '12.x'
-      - uses: subosito/flutter-action@v1
-        with:
-          flutter-version: '2.0.5'
+          channel: 'stable'
       - run: flutter config --enable-macos-desktop
       - run: flutter pub get
       - name: install pods
@@ -48,13 +45,14 @@ jobs:
         run: flutter build macos
 
   android:
+    if: ${{ false }}  # disable for now
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-java@v1
         with:
           java-version: '12.x'
-      - uses: subosito/flutter-action@v1
+      - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
       - run: flutter pub get
@@ -66,10 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/setup-java@v1
-        with:
-          java-version: '12.x'
-      - uses: subosito/flutter-action@v1
+      - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
       # flutter build need ninja.
