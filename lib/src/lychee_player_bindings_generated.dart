@@ -134,6 +134,38 @@ class LycheePlayerBindings {
           'lychee_player_initialize_dart');
   late final _lychee_player_initialize_dart = _lychee_player_initialize_dartPtr
       .asFunction<void Function(ffi.Pointer<ffi.Void>)>();
+
+  void lychee_player_set_volume(
+    ffi.Pointer<ffi.Void> player,
+    int volume,
+  ) {
+    return _lychee_player_set_volume(
+      player,
+      volume,
+    );
+  }
+
+  late final _lychee_player_set_volumePtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(
+              ffi.Pointer<ffi.Void>, ffi.Int)>>('lychee_player_set_volume');
+  late final _lychee_player_set_volume = _lychee_player_set_volumePtr
+      .asFunction<void Function(ffi.Pointer<ffi.Void>, int)>();
+
+  /// get volume
+  int lychee_player_get_volume(
+    ffi.Pointer<ffi.Void> player,
+  ) {
+    return _lychee_player_get_volume(
+      player,
+    );
+  }
+
+  late final _lychee_player_get_volumePtr =
+      _lookup<ffi.NativeFunction<ffi.Int Function(ffi.Pointer<ffi.Void>)>>(
+          'lychee_player_get_volume');
+  late final _lychee_player_get_volume = _lychee_player_get_volumePtr
+      .asFunction<int Function(ffi.Pointer<ffi.Void>)>();
 }
 
 const int MEDIA_MSG_PLAYER_STATE_CHANGED = 40001;

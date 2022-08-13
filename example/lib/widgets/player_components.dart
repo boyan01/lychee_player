@@ -11,8 +11,8 @@ extension DurationClimp on double {
   }
 }
 
-class ForwardRewindButton extends StatelessWidget {
-  const ForwardRewindButton({
+class PlayerControls extends StatefulWidget {
+  const PlayerControls({
     Key? key,
     required this.player,
   }) : super(key: key);
@@ -20,23 +20,46 @@ class ForwardRewindButton extends StatelessWidget {
   final LycheeAudioPlayer player;
 
   @override
+  State<PlayerControls> createState() => _PlayerControlsState();
+}
+
+class _PlayerControlsState extends State<PlayerControls> {
+  double _volume = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _volume = widget.player.volume;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        Slider(
+          value: _volume,
+          onChanged: (value) {
+            setState(() {
+              _volume = value;
+              widget.player.volume = value;
+            });
+          },
+        ),
+        SizedBox(width: 20),
         IconButton(
             icon: Icon(Icons.replay_10),
             onPressed: () {
-              final to = player.currentTime() - 10;
-              player.seek(to.atMost(player.duration()));
+              final to = widget.player.currentTime() - 10;
+              widget.player.seek(to.atMost(widget.player.duration()));
             }),
         SizedBox(width: 20),
         IconButton(
             icon: Icon(Icons.forward_10),
             onPressed: () {
-              final to = player.currentTime() + 10;
-              debugPrint("current = ${player.currentTime()}");
-              player.seek(to.atLeast(0));
+              final to = widget.player.currentTime() + 10;
+              debugPrint("current = ${widget.player.currentTime()}");
+              widget.player.seek(to.atLeast(0));
             }),
       ],
     );

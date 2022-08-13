@@ -244,7 +244,7 @@ class _PlayerUi extends StatelessWidget {
           ),
           PlaybackStatefulButton(player: player),
           TickedPlayerState(player: player),
-          ForwardRewindButton(player: player)
+          PlayerControls(player: player)
         ],
       ),
     );

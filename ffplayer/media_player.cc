@@ -226,6 +226,13 @@ int MediaPlayer::GetVolume() {
 
 void MediaPlayer::SetVolume(int volume) {
   CHECK_VALUE(audio_render_);
+  if (volume < 0) {
+    volume = 0;
+    DLOG(WARNING) << "volume is less than 0, set to 0";
+  } else if (volume > 100) {
+    volume = 100;
+    DLOG(WARNING) << "volume is greater than 100, set to 100";
+  }
   audio_render_->SetVolume(volume);
 }
 

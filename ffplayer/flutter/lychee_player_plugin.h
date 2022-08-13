@@ -12,8 +12,8 @@
 #include <unistd.h>
 #endif
 
-#include "stdint.h"
 #include "stdbool.h"
+#include "stdint.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,6 +40,11 @@ FFI_PLUGIN_EXPORT double lychee_player_get_current_time(void* player);
 FFI_PLUGIN_EXPORT double lychee_player_get_duration(void* player);
 
 FFI_PLUGIN_EXPORT void lychee_player_initialize_dart(void* native_port);
+
+FFI_PLUGIN_EXPORT void lychee_player_set_volume(void* player, int volume);
+
+// get volume
+FFI_PLUGIN_EXPORT int lychee_player_get_volume(void* player);
 
 #ifdef __cplusplus
 }

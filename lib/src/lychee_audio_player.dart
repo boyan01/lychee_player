@@ -63,6 +63,18 @@ class LycheeAudioPlayer {
     _bindings.lychee_player_set_play_when_ready(_playerHandle, value);
   }
 
+  double get volume {
+    assert(_playerHandle != nullptr, 'player already disposed.');
+    final volume = _bindings.lychee_player_get_volume(_playerHandle);
+    return (volume / 100).clamp(0.0, 1.0);
+  }
+
+  set volume(double value) {
+    assert(_playerHandle != nullptr, 'player already disposed.');
+    assert(value >= 0 && value <= 1, 'volume should in [0, 1]');
+    _bindings.lychee_player_set_volume(_playerHandle, (value * 100).ceil());
+  }
+
   double currentTime() {
     assert(_playerHandle != nullptr, 'player already disposed.');
     return _bindings.lychee_player_get_current_time(_playerHandle);

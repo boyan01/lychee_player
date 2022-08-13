@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <iostream>
 #include <list>
 
 #include "dart/dart_api_dl.h"
@@ -124,4 +125,21 @@ double lychee_player_get_duration(void* player) {
   }
   auto* p = static_cast<MediaPlayer*>(player);
   return p->GetDuration();
+}
+
+void lychee_player_set_volume(void* player, int volume) {
+  if (!player) {
+    return;
+  }
+  std::cout << "set volume " << volume << std::endl;
+  auto* p = static_cast<MediaPlayer*>(player);
+  p->SetVolume(volume);
+}
+
+int lychee_player_get_volume(void* player) {
+  if (!player) {
+    return 0;
+  }
+  auto* p = static_cast<MediaPlayer*>(player);
+  return p->GetVolume();
 }
