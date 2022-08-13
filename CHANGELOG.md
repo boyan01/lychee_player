@@ -1,3 +1,8 @@
+## 0.3.3
+
+* fix set playWhenReady to false in initialized state may cause wrong player state.
+* support set/get volume.
+
 ## 0.3.2
 
 * fix video stream is attached pic make player state can not transfer to ready state.

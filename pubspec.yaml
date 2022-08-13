@@ -1,6 +1,6 @@
 name: lychee_player
 description: A simple audio player plugin for flutter.
-version: 0.3.2
+version: 0.3.3
 repository: https://github.com/boyan01/lychee_player
 
 environment:

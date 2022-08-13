@@ -30,9 +30,9 @@ A simple audio player plugin for flutter.
 #### Build for Flutter
 
 * `flutter pub get`.
-* if build for macos/ios
+* if build for macOS/iOS
     1. go to `example/macos` or `example/ios` run `pod install` to install `ffmpeg-kit`
-    2. go to `lychee_cpp`, run `./apple-flutter-install.sh macos` or `./apple-flutter-install.sh ios`
+    2. go to `ffplayer`, run `./apple-flutter-install.sh macos` or `./apple-flutter-install.sh ios`
 
 * `flutter run -d your_device`
 
