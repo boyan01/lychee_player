@@ -6,6 +6,8 @@
 #include <cmath>
 #include <utility>
 
+#include "logging.h"
+
 extern "C" {
 #include "libswresample/swresample.h"
 }

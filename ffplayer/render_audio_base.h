@@ -53,11 +53,10 @@ class AudioRenderBase : public BaseRender {
 
   std::unique_ptr<FrameQueue> sample_queue;
 
+  bool paused_ = false;
+
  public:
   int* audio_queue_serial = nullptr;
-
- private:
-  bool paused_ = false;
 
  protected:
   /**

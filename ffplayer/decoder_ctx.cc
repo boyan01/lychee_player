@@ -109,7 +109,6 @@ int DecoderContext::StartAudioDecoder(
 
   audio_decoder = new AudioDecoder(std::move(codec_ctx),
                                    std::move(decode_params), audio_render);
-  audio_render->Start();
   return 0;
 }
 

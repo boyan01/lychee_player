@@ -44,6 +44,10 @@ int BasicAudioRender::Open(int64_t wanted_channel_layout,
 
   audio_src = audio_tgt;
 
+  if (!paused_) {
+    OnStart();
+  }
+
   // start audio thread
   return buf_size;
 }
@@ -59,9 +63,6 @@ void BasicAudioRender::ReadAudioData(uint8_t* stream, int len) {
         /* if error, just output silence */
         audio_buf = nullptr;
         audio_buf_size = len;
-        av_log(nullptr, AV_LOG_DEBUG,
-               "Decode audio frame failed. audio_size = %d , len = %d \n",
-               audio_size, len);
       } else {
         audio_buf_size = audio_size;
       }

@@ -42,6 +42,8 @@ class _MyAppState extends State<MyApp> {
 
   Map<String, PlayType> urls = <String, PlayType>{};
 
+  bool _playWhenReady = true;
+
   @override
   void initState() {
     super.initState();
@@ -66,8 +68,7 @@ class _MyAppState extends State<MyApp> {
         player!.seek(0);
       }
     });
-    player!.playWhenReady = true;
-    // player!.volume = 20;
+    player!.playWhenReady = _playWhenReady;
   }
 
   @override

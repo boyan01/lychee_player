@@ -86,9 +86,6 @@ MediaPlayer::~MediaPlayer() {
 }
 
 void MediaPlayer::SetPlayWhenReady(bool play_when_ready) {
-  if (play_when_ready_ == play_when_ready) {
-    return;
-  }
   play_when_ready_ = play_when_ready;
   if (data_source) {
     data_source->paused = !play_when_ready;
@@ -142,6 +139,7 @@ int MediaPlayer::OpenDataSource(const char* filename) {
   data_source->msg_ctx = message_context;
   data_source->Open();
   ChangePlaybackState(MediaPlayerState::BUFFERING);
+  SetPlayWhenReady(false);
   return 0;
 }
 
@@ -353,7 +351,6 @@ void MediaPlayer::ChangePlaybackState(MediaPlayerState state) {
 }
 
 void MediaPlayer::StopRenders() {
-  DLOG(INFO) << "StopRenders";
   PauseClock(true);
   if (audio_render_) {
     audio_render_->Stop();
