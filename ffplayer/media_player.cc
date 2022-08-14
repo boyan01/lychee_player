@@ -361,7 +361,6 @@ void MediaPlayer::StopRenders() {
 }
 
 void MediaPlayer::StartRenders() {
-  av_log(nullptr, AV_LOG_INFO, "StartRenders\n");
   PauseClock(false);
   if (audio_render_) {
     audio_render_->Start();

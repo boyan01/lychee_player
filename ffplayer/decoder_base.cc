@@ -157,10 +157,8 @@ void Decoder::Start() {
   decode_params->pkt_queue->Start();
   decoder_tid = new std::thread([this]() {
     update_thread_name(debug_label());
-    av_log(nullptr, AV_LOG_INFO, "start decoder thread: %s.\n", debug_label());
     int ret = DecodeThread();
-    av_log(nullptr, AV_LOG_INFO, "thread: %s done. ret = %d\n", debug_label(),
-           ret);
+    DLOG(INFO) << "decoder thread exited with code " << ret;
   });
 }
 

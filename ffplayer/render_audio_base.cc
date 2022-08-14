@@ -114,10 +114,8 @@ int AudioRenderBase::AudioDecodeFrame() {
           : av_get_default_channel_layout(af->frame->channels);
   auto wanted_nb_samples = SynchronizeAudio(af->frame->nb_samples);
 
-  if (af->frame->format != audio_src.fmt ||
-      dec_channel_layout != audio_src.channel_layout ||
-      af->frame->sample_rate != audio_src.freq ||
-      (wanted_nb_samples != af->frame->nb_samples && !swr_ctx)) {
+  // TODO: might need skip if audio_src fmt info are the same as af->frame fmt
+  if (!swr_ctx) {
     swr_free(&swr_ctx);
     swr_ctx = swr_alloc_set_opts(
         nullptr, audio_tgt.channel_layout, audio_tgt.fmt, audio_tgt.freq,
@@ -135,7 +133,7 @@ int AudioRenderBase::AudioDecodeFrame() {
       swr_free(&swr_ctx);
       return -1;
     }
-    audio_src.channel_layout = dec_channel_layout;
+    audio_src.channel_layout = (int64_t)dec_channel_layout;
     audio_src.channels = af->frame->channels;
     audio_src.freq = af->frame->sample_rate;
     audio_src.fmt = static_cast<AVSampleFormat>(af->frame->format);
