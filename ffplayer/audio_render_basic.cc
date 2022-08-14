@@ -21,13 +21,13 @@ int BasicAudioRender::Open(int64_t wanted_channel_layout,
     return -1;
   }
 
-  av_log(nullptr, AV_LOG_INFO,
-         "open device success. wanted(%d,%d,%d), actual(%d,%d), %d bytes/s "
-         "frame_size: %d, freq = %d, buf_size = %d \n",
-         int(wanted_channel_layout), wanted_nb_channels, wanted_sample_rate,
-         int(audio_tgt.channel_layout), audio_tgt.channels,
-         audio_tgt.bytes_per_sec, audio_tgt.frame_size, audio_tgt.freq,
-         buf_size);
+  DLOG(INFO) << "open device success. wanted(" << int(wanted_channel_layout)
+             << "," << wanted_nb_channels << "," << wanted_sample_rate
+             << "), actual(" << int(audio_tgt.channel_layout) << ","
+             << audio_tgt.channels << "," << audio_tgt.freq << "), "
+             << audio_tgt.bytes_per_sec
+             << " bytes/s frame_size: " << audio_tgt.frame_size
+             << ", buf_size = " << buf_size;
 
   audio_src = audio_tgt;
 
@@ -41,8 +41,6 @@ int BasicAudioRender::Open(int64_t wanted_channel_layout,
   /* since we do not have a precise enough audio FIFO fullness, we correct audio
    * sync only if larger than this threshold */
   audio_diff_threshold = audio_hw_buf_size / (double)audio_tgt.bytes_per_sec;
-
-  audio_src = audio_tgt;
 
   if (!paused_) {
     OnStart();

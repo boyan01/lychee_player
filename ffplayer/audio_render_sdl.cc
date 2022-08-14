@@ -4,6 +4,7 @@
 #ifdef LYCHEE_ENABLE_SDL
 
 #include "audio_render_sdl.h"
+#include "logging.h"
 
 /* Minimum SDL audio buffer size, in samples. */
 #define SDL_AUDIO_MIN_BUFFER_SIZE 512
@@ -33,16 +34,10 @@ int AudioRenderSdl::OpenAudioDevice(int64_t wanted_channel_layout,
                                     int wanted_sample_rate,
                                     AudioParams& device_output) {
   SDL_AudioSpec wanted_spec, spec;
-  const char* env;
   static const int next_nb_channels[] = {0, 0, 1, 6, 2, 6, 4, 6};
   static const int next_sample_rates[] = {0, 44100, 48000, 96000, 192000};
   int next_sample_rate_idx = FF_ARRAY_ELEMS(next_sample_rates) - 1;
 
-  env = SDL_getenv("SDL_AUDIO_CHANNELS");
-  if (env) {
-    wanted_nb_channels = std::atoi(env);  // NOLINT(cert-err34-c)
-    wanted_channel_layout = av_get_default_channel_layout(wanted_nb_channels);
-  }
   if (!wanted_channel_layout ||
       wanted_nb_channels !=
           av_get_channel_layout_nb_channels(wanted_channel_layout)) {
@@ -57,8 +52,9 @@ int AudioRenderSdl::OpenAudioDevice(int64_t wanted_channel_layout,
     return -1;
   }
   while (next_sample_rate_idx &&
-         next_sample_rates[next_sample_rate_idx] >= wanted_spec.freq)
+         next_sample_rates[next_sample_rate_idx] >= wanted_spec.freq) {
     next_sample_rate_idx--;
+  }
   wanted_spec.format = AUDIO_S16SYS;
   wanted_spec.silence = 0;
   wanted_spec.samples =
@@ -73,8 +69,8 @@ int AudioRenderSdl::OpenAudioDevice(int64_t wanted_channel_layout,
                SDL_OpenAudioDevice(nullptr, 0, &wanted_spec, &spec,
                                    SDL_AUDIO_ALLOW_FREQUENCY_CHANGE |
                                        SDL_AUDIO_ALLOW_CHANNELS_CHANGE))) {
-    av_log(nullptr, AV_LOG_WARNING, "SDL_OpenAudio (%d channels, %d Hz): %s\n",
-           wanted_spec.channels, wanted_spec.freq, SDL_GetError());
+    DLOG(WARNING) << "SDL_OpenAudio (" << wanted_spec.channels << ", "
+                  << wanted_spec.freq << "): " << SDL_GetError();
     wanted_spec.channels = next_nb_channels[FFMIN(7, wanted_spec.channels)];
     if (!wanted_spec.channels) {
       wanted_spec.freq = next_sample_rates[next_sample_rate_idx--];
@@ -111,8 +107,12 @@ int AudioRenderSdl::OpenAudioDevice(int64_t wanted_channel_layout,
   device_output.bytes_per_sec =
       av_samples_get_buffer_size(nullptr, device_output.channels,
                                  device_output.freq, device_output.fmt, 1);
+  if (device_output.bytes_per_sec <= 0 || device_output.frame_size <= 0) {
+    DLOG(ERROR) << "av_samples_get_buffer_size failed";
+    return -1;
+  }
 
-  return spec.size;
+  return (int)spec.size;
 }
 
 #endif

@@ -102,8 +102,7 @@ int DataSource::PrepareFormatContext() {
   };
   auto err = avformat_open_input(&format_ctx_, filename, in_format, nullptr);
   if (err < 0) {
-    av_log(nullptr, AV_LOG_ERROR, "can not open file %s: %s \n", filename,
-           av_err_to_str(err));
+    LOG(ERROR) << "can not open file " << filename << ": " << av_err_to_str(err);
     return -1;
   }
 
