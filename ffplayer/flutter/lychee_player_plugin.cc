@@ -131,7 +131,6 @@ void lychee_player_set_volume(void* player, int volume) {
   if (!player) {
     return;
   }
-  std::cout << "set volume " << volume << std::endl;
   auto* p = static_cast<MediaPlayer*>(player);
   p->SetVolume(volume);
 }
