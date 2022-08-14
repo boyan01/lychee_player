@@ -1,3 +1,7 @@
+## 0.3.4
+
+* always enable audio resample.
+
 ## 0.3.3
 
 * fix set playWhenReady to false in initialized state may cause wrong player state.
