@@ -1,3 +1,8 @@
+## 0.4.0
+
+* bump macOS ffmpeg-kit to 4.4 main release. minimum macOS version is 10.15.
+* compat with apple arm64.
+
 ## 0.3.4
 
 * always enable audio resample.
