@@ -6,9 +6,9 @@ case "$1" in
 "macos")
   build_dir="${current_dir}/build-darwin-macos"
   build_type="MEDIA_MACOS"
-  platform="MAC"
+  platform="MAC_UNIVERSAL"
   lib_prefix="${current_dir}/../macos"
-  deploy_target="10.11"
+  deploy_target="10.14"
   ;;
 "ios")
   build_dir="${current_dir}/build-darwin-ios"
