@@ -1,5 +1,6 @@
 #import "LycheePlayerPlugin.h"
 
+#import <AppKit/AppKit.h>
 #import <CoreVideo/CoreVideo.h>
 #include <mach/mach_time.h>
 #include <os/lock.h>
@@ -23,11 +24,14 @@ static int64_t HostTimeToMicros(uint64_t host_time) {
 
 // Bridges one lychee_player to a Flutter texture. The display link asks the
 // player whether the next vsync shows a new frame; if so, Flutter is told to
-// pull it through copyPixelBuffer.
+// pull it through copyPixelBuffer. The display link follows the screen that
+// shows the Flutter view: with screens at different refresh rates, the vsync
+// of another screen picks frames for the wrong times and drops them.
 @interface LycheeTexture : NSObject <FlutterTexture>
 @property(nonatomic) int64_t textureId;
 - (instancetype)initWithPlayer:(lychee_player*)player
-                      registry:(NSObject<FlutterTextureRegistry>*)registry;
+                      registry:(NSObject<FlutterTextureRegistry>*)registry
+                          view:(nullable NSView*)view;
 - (void)start;
 // After this returns the player is never touched again and may be destroyed.
 - (void)dispose;
@@ -37,7 +41,10 @@ static int64_t HostTimeToMicros(uint64_t host_time) {
   os_unfair_lock _lock;
   lychee_player* _player;  // Guarded by _lock.
   __weak NSObject<FlutterTextureRegistry>* _registry;
+  __weak NSView* _view;
   CVDisplayLinkRef _displayLink;
+  CGDirectDisplayID _display;
+  NSArray<id<NSObject>>* _observers;
   _Atomic int64_t _nextDisplayTime;
   _Atomic bool _framePending;
 }
@@ -53,15 +60,18 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
 }
 
 - (instancetype)initWithPlayer:(lychee_player*)player
-                      registry:(NSObject<FlutterTextureRegistry>*)registry {
+                      registry:(NSObject<FlutterTextureRegistry>*)registry
+                          view:(nullable NSView*)view {
   if (self = [super init]) {
     _lock = OS_UNFAIR_LOCK_INIT;
     _player = player;
     _registry = registry;
+    _view = view;
   }
   return self;
 }
 
+// Main thread only.
 - (void)start {
   if (CVDisplayLinkCreateWithActiveCGDisplays(&_displayLink) != kCVReturnSuccess) {
     NSLog(@"lychee_player: CVDisplayLinkCreateWithActiveCGDisplays failed");
@@ -69,10 +79,58 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   }
   CVDisplayLinkSetOutputCallback(_displayLink, &OnDisplayLink,
                                  (__bridge void*)self);
+  [self followViewScreen];
   CVDisplayLinkStart(_displayLink);
+
+  // A window moved to another screen, or a screen's refresh rate changed.
+  __weak LycheeTexture* weakSelf = self;
+  void (^update)(NSNotification*) = ^(NSNotification*) {
+    [weakSelf followViewScreen];
+  };
+  NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+  _observers = @[
+    [center addObserverForName:NSWindowDidChangeScreenNotification
+                        object:nil
+                         queue:NSOperationQueue.mainQueue
+                    usingBlock:update],
+    [center addObserverForName:NSApplicationDidChangeScreenParametersNotification
+                        object:nil
+                         queue:NSOperationQueue.mainQueue
+                    usingBlock:update],
+  ];
+}
+
+// Points the display link at the screen showing the view. Main thread only.
+- (void)followViewScreen {
+  if (!_displayLink) {
+    return;
+  }
+  NSNumber* number = _view.window.screen.deviceDescription[@"NSScreenNumber"];
+  if (!number) {
+    return;
+  }
+  CGDirectDisplayID display = number.unsignedIntValue;
+  bool running = CVDisplayLinkIsRunning(_displayLink);
+  // Also re-applied for the same display: its refresh rate may have changed.
+  if (running) {
+    CVDisplayLinkStop(_displayLink);
+  }
+  if (CVDisplayLinkSetCurrentCGDisplay(_displayLink, display) == kCVReturnSuccess) {
+    if (display != _display) {
+      NSLog(@"lychee_player: display link follows display %u", display);
+    }
+    _display = display;
+  }
+  if (running) {
+    CVDisplayLinkStart(_displayLink);
+  }
 }
 
 - (void)dispose {
+  for (id<NSObject> observer in _observers) {
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+  }
+  _observers = nil;
   if (_displayLink) {
     // Waits for a running callback to return, so after this nothing touches
     // self from the display link thread. Undocumented; measured on macOS 27
@@ -134,6 +192,7 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
 #pragma clang diagnostic pop
 
 @implementation LycheePlayerPlugin {
+  __weak NSObject<FlutterPluginRegistrar>* _registrar;
   NSObject<FlutterTextureRegistry>* _textures;
   NSMutableDictionary<NSNumber*, LycheeTexture*>* _players;
 }
@@ -143,13 +202,14 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
       [FlutterMethodChannel methodChannelWithName:@"lychee_player"
                                   binaryMessenger:registrar.messenger];
   LycheePlayerPlugin* instance =
-      [[LycheePlayerPlugin alloc] initWithTextures:registrar.textures];
+      [[LycheePlayerPlugin alloc] initWithRegistrar:registrar];
   [registrar addMethodCallDelegate:instance channel:channel];
 }
 
-- (instancetype)initWithTextures:(NSObject<FlutterTextureRegistry>*)textures {
+- (instancetype)initWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
   if (self = [super init]) {
-    _textures = textures;
+    _registrar = registrar;
+    _textures = registrar.textures;
     _players = [NSMutableDictionary dictionary];
   }
   return self;
@@ -159,8 +219,10 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   if ([call.method isEqualToString:@"createTexture"]) {
     lychee_player* player =
         (lychee_player*)(intptr_t)[call.arguments[@"player"] longLongValue];
+    // The view is looked up now, not at registration: it may not exist yet.
     LycheeTexture* texture = [[LycheeTexture alloc] initWithPlayer:player
-                                                          registry:_textures];
+                                                          registry:_textures
+                                                              view:_registrar.view];
     texture.textureId = [_textures registerTexture:texture];
     _players[@(texture.textureId)] = texture;
     [texture start];
