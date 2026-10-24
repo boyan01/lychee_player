@@ -1,0 +1,32 @@
+#ifndef LYCHEE_MEDIA_FACTORY_H_
+#define LYCHEE_MEDIA_FACTORY_H_
+
+#include <memory>
+#include <vector>
+
+#include "media/audio_decoder.h"
+#include "media/audio_sink.h"
+#include "media/demuxer.h"
+#include "media/frame_converter.h"
+#include "media/video_decoder.h"
+
+namespace lychee {
+
+// Creates the implementations compiled into this build. Which backends exist
+// is decided at build time (e.g. LYCHEE_WITH_FFMPEG).
+
+std::unique_ptr<Demuxer> CreateDemuxer();
+
+// Candidates in priority order: hardware first if allowed.
+std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
+    bool allow_hardware);
+
+std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders();
+
+std::unique_ptr<AudioSink> CreateAudioSink();
+
+std::unique_ptr<FrameConverter> CreateFrameConverter();
+
+}  // namespace lychee
+
+#endif  // LYCHEE_MEDIA_FACTORY_H_

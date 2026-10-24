@@ -1,70 +1,74 @@
 # lychee_player
 
-A simple audio player plugin for flutter.
+A cross-platform media player with hardware decoding, built as a reusable
+C/C++ library with a Flutter plugin on top.
 
-| platform | status | audio renderer                            |
-|----------|--------|-------------------------------------------|
-| Windows  | ✅      | [SDL2](https://github.com/libsdl-org/SDL) |
-| Linux    | ✅      | [SDL2](https://github.com/libsdl-org/SDL) |  
-| macOS    | ✅      | CoreAudio                                 |
+> Status: early rewrite (v2). Only macOS works for now.
 
-* audio/video demux by ffmpeg.
+## Layout
 
-## Getting Started
+```
+core/                 C++ core, no UI toolkit dependency
+  include/lychee/     lychee.h, the only public header (C ABI)
+  src/
+    media/            backend-neutral interfaces: Demuxer, VideoDecoder,
+                      AudioDecoder, AudioSink, FrameConverter
+    pipeline/         Player state machine, MediaClock, audio/video renderers
+    backends/ffmpeg/  FFmpeg demuxer and decoders (optional, LYCHEE_WITH_FFMPEG)
+    backends/apple/   CoreAudio output, CVPixelBuffer conversion
+    api/              C API implementation
+examples/cli/         headless player for regression testing
+lib/, macos/          Flutter plugin
+example/              Flutter example app
+```
 
-### How to Build Project?
+Video frames leave the library as native handles (`CVPixelBufferRef` on Apple
+platforms). The caller pulls them per vsync with
+`lychee_player_has_new_frame()` / `lychee_player_acquire_frame()`, and the
+library picks the frame that should be on screen at that time.
 
-#### requirement:
+## Building the core
 
-* flutter version: 3.0
-* if build for linux, we need these libs:
-    1. install ffmpeg dev libs:
-       ```
-       sudo apt install libavcodec-dev libavformat-dev libavdevice-dev
-       ```
-    2. install sdl2:
-       ```
-       sudo apt-get install libsdl2-dev
-       ```
+Requires CMake, Ninja, pkg-config and FFmpeg development files
+(`brew install cmake ninja pkg-config ffmpeg`).
 
-#### Build for Flutter
+```sh
+cmake -S . -B build -G Ninja
+cmake --build build
+./build/examples/cli/lychee_cli --seconds 5 path/to/video.mp4
+```
 
-* `flutter pub get`.
-* if build for macOS/iOS
-    1. go to `example/macos` or `example/ios` run `pod install` to install `ffmpeg-kit`
-    2. go to `ffplayer`, run `./apple-flutter-install.sh macos` or `./apple-flutter-install.sh ios`
+`lychee_cli` pulls frames at a simulated 60 Hz and reports state, position,
+dropped frames and clock drift. Options: `--seek SEC [--seek-after SEC]`,
+`--no-hw`, `--cpu`, `--volume 0..1` (muted by default).
 
-* `flutter run -d your_device`
+## Flutter plugin
 
-## Dev Tips
+The macOS pod compiles `core/` through the forwarders in `macos/Classes/core`.
+Regenerate them after adding or removing core sources:
 
-### how to debug c/c++ code if we build for flutter ?
+```sh
+python3 tool/generate_forwarders.py
+```
 
-#### Windows
+```dart
+final player = await LycheePlayer.create();
+player.open('/path/to/video.mp4');
+player.play();
+// ...
+LycheeVideo(player);
+// ...
+player.dispose();
+```
 
-1. run windows app.
-    ```shell
-    flutter run -d windows
-    ```
+The example app turns off the macOS App Sandbox so it can open arbitrary
+paths.
 
-2. open `example/build/windows/lychee_player_example.sln` by visual studio 2019
-3. mark `lychee_player_example` as run program. (which ALL_BUILD is default selected, but we can not run it).
-4. click run with local debug. then waiting for crash.
+## License
 
-##### Linux
+MIT, see [LICENSE](LICENSE).
 
-1. add remote gdb debug configuration. target remote args set
-
-    ```
-    127.0.0.1:1234
-    ```
-
-2. run the application which flutter build with debug.
-
-    ```shell
-    gdbserver :1234 build/linux/debug/bundle/lychee_player_example
-    ```
-
-# LICENSE
-
-[AGPL-v3](LICENSE)
+lychee_player uses [FFmpeg](https://ffmpeg.org) under the LGPL. During
+development the plugin links the FFmpeg found by pkg-config, which may be a
+GPL build (Homebrew's is). Distributed apps must ship an LGPL-only FFmpeg
+(no `--enable-gpl` / `--enable-nonfree`), linked dynamically.
