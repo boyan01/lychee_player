@@ -75,18 +75,33 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
     return instance;
   }
 
+  // Calls after dispose() are ignored: the native player may already be
+  // destroyed, and widgets can still hold this object until their next build.
   void open(String url) {
+    if (_disposed) {
+      return;
+    }
     final nativeUrl = url.toNativeUtf8();
     native.playerOpen(_player, nativeUrl.cast());
     malloc.free(nativeUrl);
     _refresh();
   }
 
-  void play() => native.playerPlay(_player);
-  void pause() => native.playerPause(_player);
-  void seek(Duration position) =>
-      native.playerSeek(_player, position.inMicroseconds);
-  void setVolume(double volume) => native.playerSetVolume(_player, volume);
+  void play() {
+    if (!_disposed) native.playerPlay(_player);
+  }
+
+  void pause() {
+    if (!_disposed) native.playerPause(_player);
+  }
+
+  void seek(Duration position) {
+    if (!_disposed) native.playerSeek(_player, position.inMicroseconds);
+  }
+
+  void setVolume(double volume) {
+    if (!_disposed) native.playerSetVolume(_player, volume);
+  }
 
   void _onEvent(int type) => _refresh();
 

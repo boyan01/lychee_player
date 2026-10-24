@@ -65,6 +65,10 @@ PASS/FAIL per case. Done means:
   --dart-define=LYCHEE_URL=/tmp/lychee-media/h264_aac.mp4`, launch the app
   binary) and looked at a window screenshot. Say in your report what you
   did not see, e.g. audio you could not hear.
+- For changes to player lifetime or teardown (Dart, plugin, or core):
+  `cd flutter/example && flutter test integration_test -d macos` also
+  passes. It switches files repeatedly and checks that exactly one player's
+  threads remain.
 - For changes to what ends up on screen (frame selection, conversion,
   rotation): run `build/examples/glfw/lychee_glfw` on a test file and look at
   a window screenshot. It has no Flutter in between, so it also tells core

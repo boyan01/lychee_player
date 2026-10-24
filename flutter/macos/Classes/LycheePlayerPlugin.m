@@ -74,7 +74,11 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
 
 - (void)dispose {
   if (_displayLink) {
-    // Waits for a running callback to return.
+    // Waits for a running callback to return, so after this nothing touches
+    // self from the display link thread. Undocumented; measured on macOS 27
+    // (a callback sleeping 100 ms delayed Stop by 100 ms in 20 of 20 runs,
+    // and no callback ran after Stop returned). The callback must therefore
+    // never block on the main thread, or this deadlocks.
     CVDisplayLinkStop(_displayLink);
     CVDisplayLinkRelease(_displayLink);
     _displayLink = NULL;

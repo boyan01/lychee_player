@@ -6,6 +6,7 @@
 #include <chrono>
 
 #include "base/log.h"
+#include "base/thread_name.h"
 #include "media/factory.h"
 
 namespace lychee {
@@ -233,6 +234,7 @@ std::shared_ptr<VideoFrame> Player::AcquireFrame(int64_t display_time) {
 }
 
 void Player::Run(std::string url) {
+  SetCurrentThreadName("lychee-demux");
   std::string error;
   bool prepared = Prepare(url, &error);
   if (!prepared) {

@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "base/log.h"
+#include "base/thread_name.h"
 #include "media/factory.h"
 
 namespace lychee {
@@ -77,6 +78,7 @@ void AudioRenderer::Stop() {
 }
 
 void AudioRenderer::DecodeLoop() {
+  SetCurrentThreadName("lychee-adecode");
   uint64_t decoder_generation = 0;
   PacketQueue::Entry entry;
   while (queue_->Pop(&entry)) {

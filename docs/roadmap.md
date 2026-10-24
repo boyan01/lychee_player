@@ -13,20 +13,11 @@ is done; add one when you find a gap. Order within a section is priority.
 Built, but never observed working. Cheap to close; do these before building
 on top of them.
 
-1. **Flutter teardown.** Opening a second file in the example disposes the
-   first player (`disposeTexture` → `lychee_player_destroy` →
-   `NativeCallable.close()`). Never exercised in the app. Done when switching
-   files ten times in a row neither crashes nor leaks threads (check with
-   `sample` or Instruments).
-2. **Audible audio.** The CLI runs muted and nobody listened to the app.
+1. **Audible audio.** The CLI runs muted and nobody listened to the app.
    Done when a human confirms sound and lip sync on real speakers and on
    Bluetooth headphones (which have large latency, so the
    `CoreAudioSink::QueryOutputLatency` path matters).
-3. **`CVDisplayLinkStop` waits for a running callback.**
-   `LycheeTexture.dispose` relies on it before the texture is freed. Done
-   when confirmed (docs or a stress test), or replaced by a lifetime that
-   does not rely on it.
-4. **Multiple displays.** The display link is created for all active
+2. **Multiple displays.** The display link is created for all active
    displays, not the one showing the window. Done when a window moved
    between a 60 Hz and a 120 Hz display keeps smooth playback.
 

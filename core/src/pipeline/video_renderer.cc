@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "base/log.h"
+#include "base/thread_name.h"
 #include "media/factory.h"
 
 namespace lychee {
@@ -68,6 +69,7 @@ void VideoRenderer::Stop() {
 }
 
 void VideoRenderer::DecodeLoop() {
+  SetCurrentThreadName("lychee-vdecode");
   uint64_t decoder_generation = 0;
   PacketQueue::Entry entry;
   while (queue_->Pop(&entry)) {

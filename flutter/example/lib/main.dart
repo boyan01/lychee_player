@@ -25,7 +25,8 @@ class PlayerPage extends StatefulWidget {
 
 class _PlayerPageState extends State<PlayerPage> {
   final _url = TextEditingController(
-      text: const String.fromEnvironment('LYCHEE_URL'));
+    text: const String.fromEnvironment('LYCHEE_URL'),
+  );
   LycheePlayer? _player;
 
   @override
@@ -37,7 +38,6 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Future<void> _open() async {
-    _player?.dispose();
     final player = await LycheePlayer.create();
     if (!mounted) {
       player.dispose();
@@ -45,7 +45,11 @@ class _PlayerPageState extends State<PlayerPage> {
     }
     player.open(_url.text.trim());
     player.play();
+    // Dispose whatever is current now, not before the await: two opens in
+    // flight would otherwise both replace the same player and leak one.
+    final previous = _player;
     setState(() => _player = player);
+    previous?.dispose();
   }
 
   @override
@@ -69,7 +73,9 @@ class _PlayerPageState extends State<PlayerPage> {
                   child: TextField(
                     controller: _url,
                     decoration: const InputDecoration(
-                        hintText: 'File path or URL', isDense: true),
+                      hintText: 'File path or URL',
+                      isDense: true,
+                    ),
                     onSubmitted: (_) => _open(),
                   ),
                 ),
@@ -105,8 +111,10 @@ class _Controls extends StatelessWidget {
       builder: (context, value, _) {
         final duration = value.duration ?? Duration.zero;
         final max = duration.inMilliseconds.toDouble();
-        final position =
-            value.position.inMilliseconds.toDouble().clamp(0.0, max);
+        final position = value.position.inMilliseconds.toDouble().clamp(
+          0.0,
+          max,
+        );
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(
