@@ -49,9 +49,11 @@ struct PlayerStats {
   int64_t frames_dropped = 0;
 };
 
-// Owns the demuxer and the renderers. The demux thread reads packets,
-// executes seeks and runs the state machine; decoders run on the renderers'
-// threads; video frames are pulled by the caller.
+// Owns the demuxer and the renderers. The control thread opens the input,
+// executes seeks and runs the state machine; the read thread only reads
+// packets, so a read stalled on the network delays neither state changes nor
+// seeks. Decoders run on the renderers' threads; video frames are pulled by
+// the caller.
 class Player {
  public:
   using EventCallback =
@@ -91,7 +93,9 @@ class Player {
   };
 
   void Run(std::string url);
+  void ReadLoop();
   bool Prepare(const std::string& url, std::string* error);
+  bool ShouldReadLocked() const;
   bool NeedMoreData() const;
   void ReadPacket();
   void ProcessSeek(int64_t target);
@@ -115,11 +119,12 @@ class Player {
   // Published once prepared, read from the frame-pulling threads.
   std::atomic<VideoRenderer*> video_for_display_{nullptr};
   std::thread thread_;
+  std::thread read_thread_;
 
-  // Demux thread only.
+  // Set before the read thread starts.
   int video_stream_ = -1;
   int audio_stream_ = -1;
-  bool end_of_input_ = false;
+  // Control thread only.
   uint64_t generation_ = 0;
 
   mutable std::mutex mutex_;
@@ -134,6 +139,14 @@ class Player {
   bool seek_pending_ = false;
   bool seek_in_progress_ = false;
   int64_t seek_target_ = 0;
+  // The control thread is seeking the demuxer; the read thread stays out.
+  bool seeking_ = false;
+  // The read thread is inside Demuxer::Read().
+  bool reading_ = false;
+  bool end_of_input_ = false;
+  // The input stopped early (network failure, truncated file). Reported
+  // once the data read so far has played, unless a seek comes first.
+  std::string input_error_;
   float volume_ = 1.0f;
   std::string error_;
   MediaInfo media_info_;

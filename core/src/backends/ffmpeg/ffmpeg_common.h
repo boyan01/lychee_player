@@ -18,6 +18,10 @@ namespace lychee {
 // Decoders and the demuxer exchange timestamps in microseconds.
 inline constexpr AVRational kMicrosTimeBase = {1, 1000000};
 
+// Decoders skip corrupt packets, but this many errors in a row without any
+// output means the decoder itself is broken (e.g. a lost hardware session).
+inline constexpr int kMaxConsecutiveDecodeErrors = 32;
+
 // AVCodecParameters attached to configs produced by FFmpegDemuxer.
 struct FFmpegCodecParams : public CodecPrivate {
   explicit FFmpegCodecParams(const AVCodecParameters* source);

@@ -63,20 +63,24 @@ bool FFmpegAudioDecoder::Decode(const EncodedPacket& packet,
   }
   if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
     LOGW("avcodec_send_packet: %s", AVErrorString(ret).c_str());
+    consecutive_errors_++;
   }
-  return ReceiveFrames(output);
+  ReceiveFrames(output);
+  return consecutive_errors_ < kMaxConsecutiveDecodeErrors;
 }
 
-bool FFmpegAudioDecoder::ReceiveFrames(const OutputCallback& output) {
+void FFmpegAudioDecoder::ReceiveFrames(const OutputCallback& output) {
   for (;;) {
     int ret = avcodec_receive_frame(context_.get(), frame_.get());
     if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-      return true;
+      return;
     }
     if (ret < 0) {
       LOGW("avcodec_receive_frame: %s", AVErrorString(ret).c_str());
-      return true;
+      consecutive_errors_++;
+      return;
     }
+    consecutive_errors_ = 0;
     std::shared_ptr<AudioBuffer> buffer = Resample(frame_.get());
     av_frame_unref(frame_.get());
     if (buffer) {
@@ -154,6 +158,7 @@ std::shared_ptr<AudioBuffer> FFmpegAudioDecoder::Resample(AVFrame* frame) {
 
 void FFmpegAudioDecoder::Flush() {
   avcodec_flush_buffers(context_.get());
+  consecutive_errors_ = 0;
   // Drop samples buffered from before the flush.
   swr_free(&swr_context_);
   next_pts_ = kNoTimestamp;

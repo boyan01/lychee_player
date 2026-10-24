@@ -40,6 +40,16 @@ gen rotated.mp4 -display_rotation 90 -i "$media/h264_aac.mp4" -c copy
 gen audio_only.mp3 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a libmp3lame
 gen video_only.mp4 -f lavfi -i testsrc2=size=1280x720:rate=60 -t 8 -c:v libx264 -preset veryfast -pix_fmt yuv420p
 gen offset.ts -i "$media/h264_aac.mp4" -c copy -output_ts_offset 10 -f mpegts
+# The index at the front, so a cut file still opens; then cut in half.
+gen faststart.mp4 -i "$media/h264_aac.mp4" -c copy -movflags +faststart
+[ -f "$media/truncated.mp4" ] || head -c 4358118 "$media/faststart.mp4" >"$media/truncated.mp4"
+# Valid headers, then noise where the media data should be.
+[ -f "$media/corrupt.mp4" ] || python3 -I -c '
+import random, sys
+data = bytearray(open(sys.argv[1], "rb").read())
+rng = random.Random(1)
+data[600000:] = bytes(rng.randrange(256) for _ in range(len(data) - 600000))
+open(sys.argv[2], "wb").write(data)' "$media/faststart.mp4" "$media/corrupt.mp4"
 
 failures=0
 # check NAME EXPECT_HW EXPECT_SEEK_PTS -- CLI_ARGS...
@@ -84,6 +94,65 @@ check seek-backward 1 1.000 -- --seek 1 --seek-after 5 "$media/hevc10.mp4"
 check seek-near-end 1 11.900 -- --seek 11.9 --seek-after 1 "$media/h264_aac.mp4"
 check seek-past-end 1 - -- --seek 30 --seek-after 1 "$media/offset.ts"
 check seek-audio    - - -- --seek 3 --seek-after 1 "$media/audio_only.mp3"
+
+# expect NAME PATTERN... -- CLI_ARGS: passes if the CLI output matches every
+# extended regex PATTERN.
+expect() {
+  local name="$1"; shift
+  local patterns=() out problems=""
+  while [ "$1" != -- ]; do patterns+=("$1"); shift; done
+  shift
+  out="$(TSAN_OPTIONS=halt_on_error=0 "$cli" "$@" 2>&1)"
+  grep -q "WARNING: ThreadSanitizer" <<<"$out" && problems+=" tsan-report"
+  for pattern in "${patterns[@]}"; do
+    grep -Eq "$pattern" <<<"$out" || problems+=" missing:'$pattern'"
+  done
+  if [ -z "$problems" ]; then
+    echo "PASS $name"
+  else
+    echo "FAIL $name:$problems"
+    grep -E '^(summary|error|seek took)' <<<"$out" | sed 's/^/     /'
+    failures=$((failures + 1))
+  fi
+}
+
+# Network cases against a local server that injects faults. Each starts its
+# own server so a fault fires once.
+server=""
+stop_server() {
+  [ -n "$server" ] || return 0
+  kill "$server" 2>/dev/null
+  wait "$server" 2>/dev/null
+  server=""
+}
+serve() {
+  stop_server
+  local log="$build/media_server.log"
+  python3 -I "$root/tool/media_server.py" "$media" "$@" >"$log" 2>&1 &
+  server=$!
+  port=""
+  for _ in $(seq 50); do
+    port="$(awk '/^port/ {print $2}' "$log")"
+    [ -n "$port" ] && break
+    sleep 0.1
+  done
+  url="http://127.0.0.1:$port/faststart.mp4"
+}
+trap stop_server EXIT
+
+expect truncated-file "state=error" "error: input ended at" -- "$media/truncated.mp4"
+expect corrupt-file "state=error" "error: (audio|video) decoding failed" -- "$media/corrupt.mp4"
+serve
+check http          1 - -- "$url"
+serve --drop-at 3000000
+check http-reconnect 1 - -- "$url"
+serve --drop-at 3000000 --refuse-after-drop
+expect http-lost "state=error" "error: input ended at" -- "$url"
+# The read stalls before playback starts; the seek must not wait for it.
+serve --stall-at 3000000 --stall-for 10
+expect http-stall-seek "seek took [0-9]{1,3}\." "first_pts_after_seek=0.500s" -- \
+  --seek 0.5 --seek-after 1 --seconds 3 "$url"
+stop_server
 
 echo "$failures failure(s)"
 [ "$failures" = 0 ]

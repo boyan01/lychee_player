@@ -2,7 +2,9 @@
 
 #include "backends/ffmpeg/ffmpeg_demuxer.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 #include "backends/ffmpeg/ffmpeg_common.h"
 #include "base/log.h"
@@ -21,6 +23,14 @@ int64_t ToMicros(int64_t value, AVRational time_base) {
     return kNoTimestamp;
   }
   return av_rescale_q(value, time_base, kMicrosTimeBase);
+}
+
+// Data that ends this much before the declared duration is truncated.
+constexpr int64_t kTruncationTolerance = kMicrosPerSecond;
+
+bool IsNetworkUrl(const std::string& url) {
+  size_t scheme_end = url.find("://");
+  return scheme_end != std::string::npos && url.compare(0, scheme_end, "file") != 0;
 }
 
 int RotationFromDisplayMatrix(const AVCodecParameters* parameters) {
@@ -50,7 +60,8 @@ FFmpegDemuxer::~FFmpegDemuxer() {
 }
 
 int FFmpegDemuxer::InterruptCallback(void* opaque) {
-  return static_cast<FFmpegDemuxer*>(opaque)->aborted_.load() ? 1 : 0;
+  auto* self = static_cast<FFmpegDemuxer*>(opaque);
+  return self->aborted_.load() || self->interrupted_.load() ? 1 : 0;
 }
 
 bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
@@ -58,8 +69,23 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
   format_context_->interrupt_callback.callback = &InterruptCallback;
   format_context_->interrupt_callback.opaque = this;
 
+  AVDictionary* options = nullptr;
+  if (IsNetworkUrl(url)) {
+    // Ride out short outages: reconnect on dropped connections and server
+    // errors, give up after about 10 s. Reads block meanwhile, so playback
+    // shows buffering; giving up surfaces as a read error.
+    av_dict_set(&options, "reconnect", "1", 0);
+    av_dict_set(&options, "reconnect_streamed", "1", 0);
+    av_dict_set(&options, "reconnect_on_network_error", "1", 0);
+    av_dict_set(&options, "reconnect_on_http_error", "5xx", 0);
+    av_dict_set(&options, "reconnect_delay_max", "4", 0);
+    av_dict_set(&options, "reconnect_delay_total_max", "10", 0);
+    // A connection that stays silent this long counts as dropped.
+    av_dict_set(&options, "rw_timeout", "10000000", 0);
+  }
   int ret = avformat_open_input(&format_context_, url.c_str(), nullptr,
-                                nullptr);
+                                &options);
+  av_dict_free(&options);
   if (ret < 0) {
     *error = "avformat_open_input: " + AVErrorString(ret);
     return false;
@@ -85,6 +111,12 @@ void FFmpegDemuxer::BuildMediaInfo() {
   media_info_.seekable =
       ic->pb ? (ic->pb->seekable & AVIO_SEEKABLE_NORMAL) != 0
              : media_info_.duration != kNoTimestamp;
+  // Durations estimated from timestamps (MPEG-TS) or the bitrate (MP3) are
+  // not promises the data has to keep.
+  declared_duration_ = media_info_.duration != kNoTimestamp &&
+                       ic->duration_estimation_method ==
+                           AVFMT_DURATION_FROM_STREAM;
+  read_end_ = media_info_.start_time;
 
   for (unsigned i = 0; i < ic->nb_streams; ++i) {
     AVStream* stream = ic->streams[i];
@@ -168,13 +200,28 @@ DemuxerReadResult FFmpegDemuxer::Read(EncodedPacket* packet) {
     if (ret == AVERROR(EAGAIN)) {
       continue;
     }
+    if (aborted_ || interrupted_) {
+      av_packet_unref(av_packet_);
+      return DemuxerReadResult::kAborted;
+    }
     if (ret == AVERROR_EOF) {
+      // A truncated file, or a connection that could not be re-established:
+      // FFmpeg reports both as the end of the file.
+      if (TruncatedAtEnd()) {
+        char message[160];
+        snprintf(message, sizeof(message),
+                 "input ended at %.3f s, before its duration of %.3f s "
+                 "(truncated file or lost connection)",
+                 (read_end_ - media_info_.start_time) / 1e6,
+                 media_info_.duration / 1e6);
+        error_ = message;
+        LOGE("%s", message);
+        return DemuxerReadResult::kError;
+      }
       return DemuxerReadResult::kEndOfStream;
     }
     if (ret < 0) {
-      if (aborted_) {
-        return DemuxerReadResult::kAborted;
-      }
+      error_ = "read failed: " + AVErrorString(ret);
       LOGE("av_read_frame: %s", AVErrorString(ret).c_str());
       return DemuxerReadResult::kError;
     }
@@ -191,6 +238,10 @@ DemuxerReadResult FFmpegDemuxer::Read(EncodedPacket* packet) {
     packet->duration = av_packet_->duration > 0
                            ? ToMicros(av_packet_->duration, time_base)
                            : 0;
+    int64_t start = packet->pts != kNoTimestamp ? packet->pts : packet->dts;
+    if (start != kNoTimestamp) {
+      read_end_ = std::max(read_end_, start + packet->duration);
+    }
     packet->keyframe = (av_packet_->flags & AV_PKT_FLAG_KEY) != 0;
     packet->end_of_stream = false;
     packet->data.assign(av_packet_->data, av_packet_->data + av_packet_->size);
@@ -200,6 +251,8 @@ DemuxerReadResult FFmpegDemuxer::Read(EncodedPacket* packet) {
 }
 
 bool FFmpegDemuxer::Seek(int64_t time) {
+  interrupted_ = false;
+  read_end_ = time;
   // Land on the keyframe at or before |time|; decoders skip ahead to |time|.
   int ret = avformat_seek_file(format_context_, -1, INT64_MIN, time, time, 0);
   if (ret < 0) {
@@ -216,8 +269,18 @@ bool FFmpegDemuxer::Seek(int64_t time) {
   return true;
 }
 
+void FFmpegDemuxer::Interrupt() {
+  interrupted_ = true;
+}
+
 void FFmpegDemuxer::Abort() {
   aborted_ = true;
+}
+
+bool FFmpegDemuxer::TruncatedAtEnd() const {
+  return declared_duration_ && read_end_ != kNoTimestamp &&
+         read_end_ < media_info_.start_time + media_info_.duration -
+                         kTruncationTolerance;
 }
 
 }  // namespace lychee

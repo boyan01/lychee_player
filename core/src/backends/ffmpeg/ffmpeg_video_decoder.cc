@@ -155,20 +155,24 @@ bool FFmpegVideoDecoder::Decode(const EncodedPacket& packet,
   if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
     // Corrupt data: skip the packet and keep going.
     LOGW("avcodec_send_packet: %s", AVErrorString(ret).c_str());
+    consecutive_errors_++;
   }
-  return ReceiveFrames(output);
+  ReceiveFrames(output);
+  return consecutive_errors_ < kMaxConsecutiveDecodeErrors;
 }
 
-bool FFmpegVideoDecoder::ReceiveFrames(const OutputCallback& output) {
+void FFmpegVideoDecoder::ReceiveFrames(const OutputCallback& output) {
   for (;;) {
     int ret = avcodec_receive_frame(context_.get(), frame_.get());
     if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-      return true;
+      return;
     }
     if (ret < 0) {
       LOGW("avcodec_receive_frame: %s", AVErrorString(ret).c_str());
-      return true;
+      consecutive_errors_++;
+      return;
     }
+    consecutive_errors_ = 0;
     hardware_output_ = frame_->format == hw_pixel_format_;
     std::shared_ptr<VideoFrame> frame = CreateFrame(frame_.get());
     av_frame_unref(frame_.get());
@@ -251,6 +255,7 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToBgra(AVFrame* frame) {
 
 void FFmpegVideoDecoder::Flush() {
   avcodec_flush_buffers(context_.get());
+  consecutive_errors_ = 0;
 }
 
 }  // namespace lychee

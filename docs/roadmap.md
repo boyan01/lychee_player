@@ -27,29 +27,19 @@ None as of 2026-10-24.
    `video_cadence_estimator.cc`. Done when a regression case with jittered
    vsync timestamps (add a `--vsync-jitter` CLI option) plays 24/30/60 fps at
    60 Hz with no drops beyond the cadence's own.
-2. **Seek and quit wait for blocking network reads.** `Player::Run` only sees
-   a pending seek between `Demuxer::Read` calls; `FFmpegDemuxer`'s interrupt
-   callback only reacts to `Abort`. Make a pending seek interrupt the read.
-   Done when seeking an HTTP stream on a throttled connection responds within
-   100 ms of the request.
-3. **Errors are swallowed.** A decoder that returns a fatal error, or a
-   demuxer read error, is treated as end of stream; the user sees `ended`.
-   Report `LYCHEE_EVENT_ERROR` (or a recoverable buffering state for network
-   errors). Done when a truncated file and a dropped connection produce
-   distinguishable, documented outcomes.
-4. **Buffering policy is fixed.** Read-ahead is 3 s / 64 MB
+2. **Buffering policy is fixed.** Read-ahead is 3 s / 64 MB
    (`kMinQueuedDuration`, `kMaxQueuedBytes`) and playback resumes at 200 ms
    of audio, with no hysteresis. On a slow network this stutters between
    ready and buffering. Done when resume needs a larger watermark than the
    starvation point, and `buffered_position` reflects real queued data.
-5. **Video size only comes from the container.** A mid-stream resolution
+3. **Video size only comes from the container.** A mid-stream resolution
    change (common in HLS) never emits `LYCHEE_EVENT_VIDEO_SIZE_CHANGED`.
    Detect it from decoded frames. Done when an adaptive stream switching
    renditions resizes the Flutter view.
-6. **Audio output format is fixed at open.** If the default device changes
+4. **Audio output format is fixed at open.** If the default device changes
    (headphones unplugged) to a different sample rate, the resampler target
    and latency are stale. Listen for device changes in `CoreAudioSink`.
-7. **Packets are copied twice** (FFmpeg packet → `EncodedPacket::data` →
+5. **Packets are copied twice** (FFmpeg packet → `EncodedPacket::data` →
    padded `AVPacket`). Give `EncodedPacket` a padded, ref-counted buffer.
    Matters for 4K high-bitrate streams.
 

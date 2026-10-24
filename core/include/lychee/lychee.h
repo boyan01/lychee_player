@@ -48,10 +48,20 @@ typedef enum lychee_frame_type {
 
 typedef enum lychee_state {
   LYCHEE_STATE_IDLE = 0,
+  // Opening the input and filling buffers before the first frame.
   LYCHEE_STATE_LOADING = 1,
   LYCHEE_STATE_READY = 2,
+  // Waiting for data after a seek or a stall. A dropped network connection
+  // is retried here for about 10 s before the input counts as ended.
   LYCHEE_STATE_BUFFERING = 3,
+  // Played to the end.
   LYCHEE_STATE_ENDED = 4,
+  // Final until the player is destroyed; seeks are ignored. Reached when
+  // the input cannot be opened, a decoder fails, or the input stops before
+  // its declared duration (a truncated file, a connection that could not be
+  // re-established): what was read plays first, then the state changes
+  // here instead of ENDED and the position stays where playback stopped.
+  // lychee_player_get_error() says which.
   LYCHEE_STATE_ERROR = 5,
 } lychee_state;
 

@@ -22,7 +22,7 @@ class FFmpegAudioDecoder : public AudioDecoder {
   void Flush() override;
 
  private:
-  bool ReceiveFrames(const OutputCallback& output);
+  void ReceiveFrames(const OutputCallback& output);
   std::shared_ptr<AudioBuffer> Resample(AVFrame* frame);
   bool EnsureResampler(const AVFrame* frame);
 
@@ -37,6 +37,7 @@ class FFmpegAudioDecoder : public AudioDecoder {
   int swr_rate_ = 0;
   // Timestamp of the next output sample, for frames without one.
   int64_t next_pts_ = kNoTimestamp;
+  int consecutive_errors_ = 0;
 };
 
 }  // namespace lychee

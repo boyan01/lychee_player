@@ -37,11 +37,14 @@ These are decisions, not accidents. Keep them unless the user changes them.
 
 The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
 
-- Threads: the demux thread (`Player::Run`: reads, seeks, state machine),
-  one decode thread per renderer, the CoreAudio render thread, and whatever
+- Threads: the control thread (`Player::Run`: open, seeks, state machine,
+  events), the read thread (`Player::ReadLoop`: only `Demuxer::Read`, so a
+  stalled network read blocks nothing else), one decode thread per renderer, the CoreAudio render thread, and whatever
   thread the caller pulls frames on.
 - Lock order is player → renderer → clock, and audio renderer → clock.
   Renderers never call back into the player.
+- A seek interrupts the read in flight (`Demuxer::Interrupt`) and parks the
+  read thread while the control thread seeks the demuxer.
 - A seek bumps a **generation**. Packets and frames carry the generation they
   belong to; anything from an older generation is dropped, and a decoder is
   flushed when it first sees a newer one.

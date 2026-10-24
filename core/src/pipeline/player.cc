@@ -118,6 +118,11 @@ void Player::Seek(int64_t position) {
     }
     seek_pending_ = true;
     seek_target_ = position;
+    // Do not wait for a read stalled on the network. Not during Prepare():
+    // that would abort the open itself.
+    if (video_renderer_ || audio_renderer_) {
+      demuxer_->Interrupt();
+    }
   }
   condition_.notify_all();
 }
@@ -148,8 +153,13 @@ int64_t Player::position() const {
   switch (state_) {
     case PlayerState::kIdle:
     case PlayerState::kLoading:
-    case PlayerState::kError:
       return 0;
+    case PlayerState::kError:
+      // Where playback stopped, if it ever started.
+      if (!video_renderer_ && !audio_renderer_) {
+        return 0;
+      }
+      break;
     case PlayerState::kEnded:
       if (media_info_.duration != kNoTimestamp) {
         return media_info_.duration;
@@ -234,7 +244,7 @@ std::shared_ptr<VideoFrame> Player::AcquireFrame(int64_t display_time) {
 }
 
 void Player::Run(std::string url) {
-  SetCurrentThreadName("lychee-demux");
+  SetCurrentThreadName("lychee-player");
   std::string error;
   bool prepared = Prepare(url, &error);
   if (!prepared) {
@@ -248,12 +258,13 @@ void Player::Run(std::string url) {
   if (!prepared) {
     return;
   }
+  read_thread_ = std::thread(&Player::ReadLoop, this);
 
   for (;;) {
     bool seek = false;
     int64_t seek_target = 0;
     {
-      std::lock_guard<std::mutex> lock(mutex_);
+      std::unique_lock<std::mutex> lock(mutex_);
       if (quit_) {
         break;
       }
@@ -262,23 +273,56 @@ void Player::Run(std::string url) {
         seek_target = seek_target_;
         seek_pending_ = false;
         seek_in_progress_ = true;
+        // Seek() interrupted any read in flight; wait for it to return.
+        seeking_ = true;
+        condition_.wait(lock, [this] { return !reading_ || quit_; });
+        if (quit_) {
+          break;
+        }
       }
     }
     if (seek) {
       ProcessSeek(seek_target);
-    }
-    bool reading = !end_of_input_ && NeedMoreData();
-    if (reading) {
-      ReadPacket();
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        seeking_ = false;
+      }
+      condition_.notify_all();
     }
     UpdateState();
     DispatchEvents();
-    if (!reading) {
-      std::unique_lock<std::mutex> lock(mutex_);
-      condition_.wait_for(lock, std::chrono::milliseconds(10),
-                          [this] { return quit_ || seek_pending_; });
-    }
+    std::unique_lock<std::mutex> lock(mutex_);
+    condition_.wait_for(lock, std::chrono::milliseconds(10),
+                        [this] { return quit_ || seek_pending_; });
   }
+  read_thread_.join();
+}
+
+void Player::ReadLoop() {
+  SetCurrentThreadName("lychee-demux");
+  for (;;) {
+    {
+      std::unique_lock<std::mutex> lock(mutex_);
+      reading_ = false;
+      condition_.notify_all();
+      // Queue levels change without a notification, so poll.
+      condition_.wait_for(lock, std::chrono::milliseconds(10),
+                          [this] { return quit_ || ShouldReadLocked(); });
+      if (quit_) {
+        return;
+      }
+      if (!ShouldReadLocked()) {
+        continue;
+      }
+      reading_ = true;
+    }
+    ReadPacket();
+  }
+}
+
+bool Player::ShouldReadLocked() const {
+  return !seek_pending_ && !seeking_ && !end_of_input_ &&
+         state_ != PlayerState::kError && NeedMoreData();
 }
 
 bool Player::Prepare(const std::string& url, std::string* error) {
@@ -371,10 +415,6 @@ void Player::ReadPacket() {
     return;
   }
   if (result != DemuxerReadResult::kOk) {
-    if (result == DemuxerReadResult::kError) {
-      LOGW("read error, treating as end of stream");
-    }
-    end_of_input_ = true;
     if (video_renderer_) {
       video_queue_.Push(EncodedPacket::CreateEndOfStream(video_stream_));
     }
@@ -382,6 +422,11 @@ void Player::ReadPacket() {
       audio_queue_.Push(EncodedPacket::CreateEndOfStream(audio_stream_));
     }
     std::lock_guard<std::mutex> lock(mutex_);
+    end_of_input_ = true;
+    if (result == DemuxerReadResult::kError) {
+      input_error_ = demuxer_->error();
+      LOGW("input failed (%s); playing what was read", input_error_.c_str());
+    }
     if (media_info_.duration != kNoTimestamp) {
       video_last_pts_ = audio_last_pts_ =
           media_info_.start_time + media_info_.duration;
@@ -418,9 +463,10 @@ void Player::ProcessSeek(int64_t target) {
   if (audio_renderer_) {
     audio_renderer_->Flush(generation_, media_target);
   }
-  end_of_input_ = false;
 
   std::lock_guard<std::mutex> lock(mutex_);
+  end_of_input_ = false;
+  input_error_.clear();
   clock_.Reset(media_target);
   clock_running_ = false;
   if (audio_renderer_) {
@@ -434,6 +480,14 @@ void Player::ProcessSeek(int64_t target) {
 
 void Player::UpdateState() {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (state_ != PlayerState::kError) {
+    if (video_renderer_ && video_renderer_->HasError()) {
+      FailLocked(std::string("video decoding failed (") +
+                 video_renderer_->decoder_name() + ")");
+    } else if (audio_renderer_ && audio_renderer_->HasError()) {
+      FailLocked("audio decoding failed");
+    }
+  }
   switch (state_) {
     case PlayerState::kLoading:
     case PlayerState::kBuffering:
@@ -447,7 +501,11 @@ void Player::UpdateState() {
       break;
     case PlayerState::kReady:
       if (EndedLocked()) {
-        SetStateLocked(PlayerState::kEnded);
+        if (input_error_.empty()) {
+          SetStateLocked(PlayerState::kEnded);
+        } else {
+          FailLocked(input_error_);
+        }
       } else if (clock_running_ && StarvedLocked()) {
         SetStateLocked(PlayerState::kBuffering);
       }

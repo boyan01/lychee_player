@@ -35,7 +35,7 @@ class FFmpegVideoDecoder : public VideoDecoder {
   static AVPixelFormat GetFormat(AVCodecContext* context,
                                  const AVPixelFormat* formats);
   bool InitializeHardware(const AVCodec* codec, std::string* error);
-  bool ReceiveFrames(const OutputCallback& output);
+  void ReceiveFrames(const OutputCallback& output);
   std::shared_ptr<VideoFrame> CreateFrame(AVFrame* frame);
   std::shared_ptr<VideoFrame> ConvertToBgra(AVFrame* frame);
 
@@ -48,6 +48,7 @@ class FFmpegVideoDecoder : public VideoDecoder {
   ScopedAVPacket av_packet_;
   SwsContext* sws_context_ = nullptr;
   bool logged_output_format_ = false;
+  int consecutive_errors_ = 0;
   std::atomic<bool> hardware_output_;
 };
 

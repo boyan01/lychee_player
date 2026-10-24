@@ -82,16 +82,15 @@ void VideoRenderer::DecodeLoop() {
         *entry.packet, [this, generation](std::shared_ptr<VideoFrame> frame) {
           OnFrame(std::move(frame), generation);
         });
+    std::lock_guard<std::mutex> lock(mutex_);
     if (!ok) {
       LOGE("%s decoder failed", decoder_->name());
+      failed_ = true;
+      break;
     }
-    if (entry.packet->end_of_stream || !ok) {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (generation == generation_) {
-        end_of_stream_ = true;
-      }
+    if (entry.packet->end_of_stream && generation == generation_) {
+      end_of_stream_ = true;
     }
-    std::lock_guard<std::mutex> lock(mutex_);
     if (stopped_) {
       break;
     }
@@ -162,6 +161,11 @@ bool VideoRenderer::HasEnoughData() const {
 bool VideoRenderer::IsStarved() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return frames_.empty() && !end_of_stream_;
+}
+
+bool VideoRenderer::HasError() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return failed_;
 }
 
 bool VideoRenderer::Ended(int64_t media_time) const {

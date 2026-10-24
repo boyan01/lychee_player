@@ -38,6 +38,8 @@ class AudioRenderer {
   bool HasEnoughData() const;
   bool IsStarved() const;
   bool Ended() const;
+  // The decoder failed for good; decoding has stopped.
+  bool HasError() const;
 
  private:
   void DecodeLoop();
@@ -61,6 +63,7 @@ class AudioRenderer {
   uint64_t generation_ = 0;
   int64_t start_time_ = kNoTimestamp;
   bool end_of_stream_ = false;
+  bool failed_ = false;
   bool playing_ = false;
   bool stopped_ = false;
 };

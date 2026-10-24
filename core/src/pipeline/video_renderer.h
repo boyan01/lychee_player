@@ -43,6 +43,8 @@ class VideoRenderer {
   bool IsStarved() const;
   // The last frame has been shown for its full duration.
   bool Ended(int64_t media_time) const;
+  // The decoder failed for good; decoding has stopped.
+  bool HasError() const;
 
   bool HasNewFrame(int64_t display_time) const;
   std::shared_ptr<VideoFrame> Acquire(int64_t display_time);
@@ -76,6 +78,7 @@ class VideoRenderer {
   uint64_t generation_ = 0;
   int64_t start_time_ = kNoTimestamp;
   bool end_of_stream_ = false;
+  bool failed_ = false;
   bool stopped_ = false;
   int64_t frames_rendered_ = 0;
   int64_t frames_dropped_ = 0;

@@ -91,11 +91,13 @@ void AudioRenderer::DecodeLoop() {
         *entry.packet, [this, generation](std::shared_ptr<AudioBuffer> buffer) {
           OnBuffer(std::move(buffer), generation);
         });
+    std::lock_guard<std::mutex> lock(mutex_);
     if (!ok) {
       LOGE("%s decoder failed", decoder_->name());
+      failed_ = true;
+      break;
     }
-    std::lock_guard<std::mutex> lock(mutex_);
-    if ((entry.packet->end_of_stream || !ok) && generation == generation_) {
+    if (entry.packet->end_of_stream && generation == generation_) {
       end_of_stream_ = true;
     }
     if (stopped_) {
@@ -229,6 +231,11 @@ bool AudioRenderer::IsStarved() const {
 bool AudioRenderer::Ended() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return end_of_stream_ && buffers_.empty();
+}
+
+bool AudioRenderer::HasError() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return failed_;
 }
 
 }  // namespace lychee
