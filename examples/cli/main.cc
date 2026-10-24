@@ -154,7 +154,9 @@ int main(int argc, char** argv) {
     std::this_thread::sleep_for(
         std::chrono::microseconds(next_vsync - lychee_now_us()));
     int64_t now = lychee_now_us();
-    int64_t display_time = now + kVsyncInterval;
+    // Like a real display link: regular vsync timestamps, independent of how
+    // late this thread woke up.
+    int64_t display_time = next_vsync + kVsyncInterval;
 
     if (lychee_player_has_new_frame(player, display_time)) {
       lychee_frame* frame = lychee_player_acquire_frame(player, display_time);
