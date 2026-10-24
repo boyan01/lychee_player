@@ -13,12 +13,7 @@ is done; add one when you find a gap. Order within a section is priority.
 Built, but never observed working. Cheap to close; do these before building
 on top of them.
 
-1. **Lip sync.** On 2026-10-24 the example played sound normally on the
-   built-in speakers and on Bluetooth headphones, but sync was not checked
-   specifically. Done when `/tmp/lychee-media/av_sync.mp4` (a white flash and
-   a beep each second) shows them together on both, which exercises the
-   large Bluetooth latency in `CoreAudioSink::QueryOutputLatency`.
-2. **Multiple displays.** The display link is created for all active
+1. **Multiple displays.** The display link is created for all active
    displays, not the one showing the window. Done when a window moved
    between a 60 Hz and a 120 Hz display keeps smooth playback: the
    example's control bar shows rendered/dropped counts.
