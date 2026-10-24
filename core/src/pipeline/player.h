@@ -100,6 +100,7 @@ class Player {
   void ReadPacket();
   void ProcessSeek(int64_t target);
   void UpdateState();
+  void UpdateVideoSizeLocked();
   void ApplyPlayingLocked();
   bool PrerollDoneLocked() const;
   bool EndedLocked() const;
@@ -144,6 +145,10 @@ class Player {
   // The read thread is inside Demuxer::Read().
   bool reading_ = false;
   bool end_of_input_ = false;
+  // Buffering because playback ran out of data, not because of a seek or
+  // the start: resume only with full read-ahead, so a slow network plays in
+  // long stretches instead of stuttering.
+  bool rebuffering_ = false;
   // The input stopped early (network failure, truncated file). Reported
   // once the data read so far has played, unless a seek comes first.
   std::string input_error_;
@@ -151,6 +156,9 @@ class Player {
   std::string error_;
   MediaInfo media_info_;
   int64_t video_last_pts_ = kNoTimestamp;
+  // Display size last reported by kVideoSizeChanged.
+  int video_width_ = 0;
+  int video_height_ = 0;
   int64_t audio_last_pts_ = kNoTimestamp;
 };
 

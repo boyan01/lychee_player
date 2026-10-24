@@ -5,7 +5,7 @@ namespace lychee {
 void PacketQueue::Push(std::shared_ptr<EncodedPacket> packet) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    bytes_ += packet->data.size();
+    bytes_ += packet->size();
     entries_.push_back({std::move(packet), generation_});
   }
   condition_.notify_one();
@@ -19,7 +19,7 @@ bool PacketQueue::Pop(Entry* entry) {
   }
   *entry = std::move(entries_.front());
   entries_.pop_front();
-  bytes_ -= entry->packet->data.size();
+  bytes_ -= entry->packet->size();
   return true;
 }
 

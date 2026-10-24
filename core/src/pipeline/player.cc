@@ -13,7 +13,8 @@ namespace lychee {
 
 namespace {
 
-// Keep reading until each active stream has this much queued...
+// Keep reading until each active stream has this much queued (and after a
+// stall, wait for this much before playing again)...
 constexpr int64_t kMinQueuedDuration = 3 * kMicrosPerSecond;
 // ...unless the queues already hold this many bytes.
 constexpr size_t kMaxQueuedBytes = 64 * 1024 * 1024;
@@ -183,6 +184,9 @@ int64_t Player::duration() const {
 
 int64_t Player::buffered_position() const {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (!video_renderer_ && !audio_renderer_) {
+    return 0;
+  }
   int64_t end = kInfiniteTime;
   if (video_renderer_) {
     end = std::min(end, video_last_pts_);
@@ -190,10 +194,18 @@ int64_t Player::buffered_position() const {
   if (audio_renderer_) {
     end = std::min(end, audio_last_pts_);
   }
-  if (end == kInfiniteTime || end == kNoTimestamp) {
-    return 0;
+  // Data from before a seek target (back to its keyframe) is not ahead.
+  int64_t now = seek_pending_ || seek_in_progress_
+                    ? media_info_.start_time + seek_target_
+                    : clock_.Now();
+  if (end == kInfiniteTime || end == kNoTimestamp || end < now) {
+    end = now;
   }
-  return std::max<int64_t>(end - media_info_.start_time, 0);
+  end -= media_info_.start_time;
+  if (media_info_.duration != kNoTimestamp) {
+    end = std::min(end, media_info_.duration);
+  }
+  return std::max<int64_t>(end, 0);
 }
 
 bool Player::video_size(int* width, int* height) const {
@@ -202,9 +214,8 @@ bool Player::video_size(int* width, int* height) const {
   if (!video_renderer_) {
     return false;
   }
-  const VideoConfig& config = media_info_.streams[video_stream_].video;
-  *width = config.display_width();
-  *height = config.height;
+  *width = video_width_;
+  *height = video_height_;
   return true;
 }
 
@@ -389,8 +400,10 @@ bool Player::Prepare(const std::string& url, std::string* error) {
                   info.duration == kNoTimestamp ? -1 : info.duration);
   if (video_renderer_) {
     const VideoConfig& config = info.streams[video_stream_].video;
-    PostEventLocked(PlayerEvent::kVideoSizeChanged, config.display_width(),
-                    config.height);
+    video_width_ = config.display_width();
+    video_height_ = config.height;
+    PostEventLocked(PlayerEvent::kVideoSizeChanged, video_width_,
+                    video_height_);
   }
   return true;
 }
@@ -466,6 +479,7 @@ void Player::ProcessSeek(int64_t target) {
 
   std::lock_guard<std::mutex> lock(mutex_);
   end_of_input_ = false;
+  rebuffering_ = false;
   input_error_.clear();
   clock_.Reset(media_target);
   clock_running_ = false;
@@ -491,7 +505,9 @@ void Player::UpdateState() {
   switch (state_) {
     case PlayerState::kLoading:
     case PlayerState::kBuffering:
-      if (PrerollDoneLocked()) {
+      if (PrerollDoneLocked() &&
+          (!rebuffering_ || end_of_input_ || !NeedMoreData())) {
+        rebuffering_ = false;
         SetStateLocked(PlayerState::kReady);
         if (seek_in_progress_) {
           seek_in_progress_ = false;
@@ -507,6 +523,7 @@ void Player::UpdateState() {
           FailLocked(input_error_);
         }
       } else if (clock_running_ && StarvedLocked()) {
+        rebuffering_ = true;
         SetStateLocked(PlayerState::kBuffering);
       }
       break;
@@ -514,6 +531,27 @@ void Player::UpdateState() {
       break;
   }
   ApplyPlayingLocked();
+  UpdateVideoSizeLocked();
+}
+
+void Player::UpdateVideoSizeLocked() {
+  int width;
+  int height;
+  if (!video_renderer_ || !video_renderer_->shown_size(&width, &height)) {
+    return;
+  }
+  // The container's pixel aspect ratio still applies.
+  VideoConfig shown = media_info_.streams[video_stream_].video;
+  shown.width = width;
+  shown.height = height;
+  width = shown.display_width();
+  if (width != video_width_ || height != video_height_) {
+    LOGI("video size %dx%d -> %dx%d", video_width_, video_height_, width,
+         height);
+    video_width_ = width;
+    video_height_ = height;
+    PostEventLocked(PlayerEvent::kVideoSizeChanged, width, height);
+  }
 }
 
 void Player::ApplyPlayingLocked() {

@@ -55,7 +55,7 @@ bool FFmpegAudioDecoder::Decode(const EncodedPacket& packet,
   if (packet.end_of_stream) {
     ret = avcodec_send_packet(context_.get(), nullptr);
   } else {
-    ret = CopyToAVPacket(packet, av_packet_.get());
+    ret = WrapInAVPacket(packet, av_packet_.get());
     if (ret >= 0) {
       ret = avcodec_send_packet(context_.get(), av_packet_.get());
       av_packet_unref(av_packet_.get());

@@ -144,9 +144,12 @@ int main(int argc, char** argv) {
   bool seek_issued = false;
   int64_t seek_issued_at = 0;
   int64_t first_pts_after_seek = INT64_MIN;
-  // Wall clock vs. media clock while playing, to spot drift.
   int64_t ready_wall = 0;
-  int64_t ready_position = 0;
+  // Wall clock vs. media clock since playback last (re)started, to spot
+  // drift.
+  int64_t drift_wall = 0;
+  int64_t drift_position = 0;
+  int32_t last_state = -1;
   int exit_code = 0;
 
   for (;;) {
@@ -181,8 +184,12 @@ int main(int argc, char** argv) {
     int64_t position = lychee_player_get_position(player);
     if (state == LYCHEE_STATE_READY && ready_wall == 0) {
       ready_wall = now;
-      ready_position = position;
     }
+    if (state == LYCHEE_STATE_READY && last_state != LYCHEE_STATE_READY) {
+      drift_wall = now;
+      drift_position = position;
+    }
+    last_state = state;
 
     if (options.seek_to >= 0 && !seek_issued && ready_wall != 0 &&
         now - ready_wall >= static_cast<int64_t>(options.seek_after * 1e6)) {
@@ -195,8 +202,8 @@ int main(int argc, char** argv) {
       g_seek_completed = 2;
       printf("seek took %.1f ms\n", (now - seek_issued_at) / 1e3);
       // Restart drift measurement from the seek target.
-      ready_wall = now;
-      ready_position = position;
+      drift_wall = now;
+      drift_position = position;
     }
 
     if (now >= next_report) {
@@ -205,8 +212,8 @@ int main(int argc, char** argv) {
       stats.struct_size = sizeof(stats);
       lychee_player_get_stats(player, &stats);
       int64_t drift = 0;
-      if (ready_wall && state == LYCHEE_STATE_READY) {
-        drift = (position - ready_position) - (now - ready_wall);
+      if (drift_wall && state == LYCHEE_STATE_READY) {
+        drift = (position - drift_position) - (now - drift_wall);
       }
       printf(
           "t=%5.1fs state=%-9s pos=%7.3fs buffered=%7.3fs decoder=%s hw=%d "

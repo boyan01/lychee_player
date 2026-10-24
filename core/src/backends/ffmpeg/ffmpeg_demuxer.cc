@@ -244,8 +244,11 @@ DemuxerReadResult FFmpegDemuxer::Read(EncodedPacket* packet) {
     }
     packet->keyframe = (av_packet_->flags & AV_PKT_FLAG_KEY) != 0;
     packet->end_of_stream = false;
-    packet->data.assign(av_packet_->data, av_packet_->data + av_packet_->size);
-    av_packet_unref(av_packet_);
+    packet->buffer = TakePacketBuffer(av_packet_);
+    if (!packet->buffer) {
+      error_ = "out of memory";
+      return DemuxerReadResult::kError;
+    }
     return DemuxerReadResult::kOk;
   }
 }

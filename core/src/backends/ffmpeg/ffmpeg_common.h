@@ -44,7 +44,12 @@ AVCodecParameters* CreateCodecParameters(const AudioConfig& config);
 
 // Copies |packet| into |av_packet|, adding the padding FFmpeg decoders
 // require. Returns a negative AVERROR on failure.
-int CopyToAVPacket(const EncodedPacket& packet, AVPacket* av_packet);
+// Moves |av_packet|'s data into a PacketBuffer without copying it.
+std::shared_ptr<PacketBuffer> TakePacketBuffer(AVPacket* av_packet);
+
+// Points |av_packet| at |packet|'s buffer without copying it; the AVPacket
+// holds a reference to the buffer until it is unreferenced.
+int WrapInAVPacket(const EncodedPacket& packet, AVPacket* av_packet);
 
 struct AVPacketDeleter {
   void operator()(AVPacket* packet) const { av_packet_free(&packet); }

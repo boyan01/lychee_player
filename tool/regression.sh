@@ -43,6 +43,12 @@ gen offset.ts -i "$media/h264_aac.mp4" -c copy -output_ts_offset 10 -f mpegts
 # The index at the front, so a cut file still opens; then cut in half.
 gen faststart.mp4 -i "$media/h264_aac.mp4" -c copy -movflags +faststart
 [ -f "$media/truncated.mp4" ] || head -c 4358118 "$media/faststart.mp4" >"$media/truncated.mp4"
+# Two renditions back to back, like an adaptive stream switching.
+for size in 1280x720 640x360; do
+  gen "rendition_$size.ts" -f lavfi -i "testsrc2=size=$size:rate=30" -f lavfi -i sine=frequency=440:sample_rate=48000 \
+    -t 3 -c:v libx264 -preset veryfast -pix_fmt yuv420p -c:a aac -f mpegts
+done
+gen resolution_change.ts -i "concat:$media/rendition_1280x720.ts|$media/rendition_640x360.ts" -c copy
 # Valid headers, then noise where the media data should be.
 [ -f "$media/corrupt.mp4" ] || python3 -I -c '
 import random, sys
@@ -96,7 +102,7 @@ check seek-past-end 1 - -- --seek 30 --seek-after 1 "$media/offset.ts"
 check seek-audio    - - -- --seek 3 --seek-after 1 "$media/audio_only.mp3"
 
 # expect NAME PATTERN... -- CLI_ARGS: passes if the CLI output matches every
-# extended regex PATTERN.
+# extended regex PATTERN. "<=N PATTERN" instead allows at most N matching lines.
 expect() {
   local name="$1"; shift
   local patterns=() out problems=""
@@ -105,7 +111,13 @@ expect() {
   out="$(TSAN_OPTIONS=halt_on_error=0 "$cli" "$@" 2>&1)"
   grep -q "WARNING: ThreadSanitizer" <<<"$out" && problems+=" tsan-report"
   for pattern in "${patterns[@]}"; do
-    grep -Eq "$pattern" <<<"$out" || problems+=" missing:'$pattern'"
+    if [[ "$pattern" =~ ^\<=([0-9]+)\ (.*)$ ]]; then
+      local count
+      count="$(grep -Ec "${BASH_REMATCH[2]}" <<<"$out")"
+      [ "$count" -le "${BASH_REMATCH[1]}" ] || problems+=" ${count}x:'${BASH_REMATCH[2]}'"
+    else
+      grep -Eq "$pattern" <<<"$out" || problems+=" missing:'$pattern'"
+    fi
   done
   if [ -z "$problems" ]; then
     echo "PASS $name"
@@ -141,6 +153,8 @@ serve() {
 trap stop_server EXIT
 
 expect truncated-file "state=error" "error: input ended at" -- "$media/truncated.mp4"
+expect resolution-change "video size 1280x720" "video size 640x360" "state=ended" -- \
+  "$media/resolution_change.ts"
 expect corrupt-file "state=error" "error: (audio|video) decoding failed" -- "$media/corrupt.mp4"
 serve
 check http          1 - -- "$url"
@@ -148,6 +162,9 @@ serve --drop-at 3000000
 check http-reconnect 1 - -- "$url"
 serve --drop-at 3000000 --refuse-after-drop
 expect http-lost "state=error" "error: input ended at" -- "$url"
+# Slower than the bitrate: rebuffer in long stretches, not every few frames.
+serve --rate 550
+expect http-slow "state=ended" "<=2 event: state buffering" -- "$url"
 # The read stalls before playback starts; the seek must not wait for it.
 serve --stall-at 3000000 --stall-for 10
 expect http-stall-seek "seek took [0-9]{1,3}\." "first_pts_after_seek=0.500s" -- \

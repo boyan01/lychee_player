@@ -178,12 +178,52 @@ AVCodecParameters* CreateCodecParameters(const AudioConfig& config) {
   return parameters;
 }
 
-int CopyToAVPacket(const EncodedPacket& packet, AVPacket* av_packet) {
-  int ret = av_new_packet(av_packet, static_cast<int>(packet.data.size()));
-  if (ret < 0) {
-    return ret;
+static_assert(kPacketPadding >= AV_INPUT_BUFFER_PADDING_SIZE,
+              "decoders need FFmpeg's padding after packet data");
+
+std::shared_ptr<PacketBuffer> TakePacketBuffer(AVPacket* av_packet) {
+  class AVPacketBuffer : public PacketBuffer {
+   public:
+    explicit AVPacketBuffer(AVPacket* packet) : packet_(packet) {
+      data_ = packet->data;
+      size_ = static_cast<size_t>(packet->size);
+    }
+    ~AVPacketBuffer() override { av_packet_free(&packet_); }
+
+   private:
+    AVPacket* packet_;
+  };
+  // Demuxers return reference-counted, padded packets; this only copies if
+  // one did not.
+  if (av_packet_make_refcounted(av_packet) < 0) {
+    av_packet_unref(av_packet);
+    return nullptr;
   }
-  memcpy(av_packet->data, packet.data.data(), packet.data.size());
+  AVPacket* owned = av_packet_alloc();
+  if (!owned) {
+    av_packet_unref(av_packet);
+    return nullptr;
+  }
+  av_packet_move_ref(owned, av_packet);
+  return std::make_shared<AVPacketBuffer>(owned);
+}
+
+int WrapInAVPacket(const EncodedPacket& packet, AVPacket* av_packet) {
+  const PacketBuffer& buffer = *packet.buffer;
+  auto* reference = new std::shared_ptr<const PacketBuffer>(packet.buffer);
+  AVBufferRef* ref = av_buffer_create(
+      const_cast<uint8_t*>(buffer.data()), buffer.size() + kPacketPadding,
+      [](void* opaque, uint8_t*) {
+        delete static_cast<std::shared_ptr<const PacketBuffer>*>(opaque);
+      },
+      reference, AV_BUFFER_FLAG_READONLY);
+  if (!ref) {
+    delete reference;
+    return AVERROR(ENOMEM);
+  }
+  av_packet->buf = ref;
+  av_packet->data = ref->data;
+  av_packet->size = static_cast<int>(buffer.size());
   av_packet->pts = packet.pts == kNoTimestamp ? AV_NOPTS_VALUE : packet.pts;
   av_packet->dts = packet.dts == kNoTimestamp ? AV_NOPTS_VALUE : packet.dts;
   av_packet->duration = packet.duration;

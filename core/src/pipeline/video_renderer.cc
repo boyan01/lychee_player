@@ -163,6 +163,16 @@ bool VideoRenderer::IsStarved() const {
   return frames_.empty() && !end_of_stream_;
 }
 
+bool VideoRenderer::shown_size(int* width, int* height) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (shown_width_ <= 0 || shown_height_ <= 0) {
+    return false;
+  }
+  *width = shown_width_;
+  *height = shown_height_;
+  return true;
+}
+
 bool VideoRenderer::HasError() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return failed_;
@@ -219,6 +229,8 @@ std::shared_ptr<VideoFrame> VideoRenderer::Acquire(int64_t display_time) {
       frames_rendered_++;
       current_ = frames_[selected];
       current_stale_ = false;
+      shown_width_ = current_->width;
+      shown_height_ = current_->height;
       frames_.erase(frames_.begin(), frames_.begin() + selected + 1);
     }
     result = current_;

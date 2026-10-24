@@ -45,6 +45,9 @@ class VideoRenderer {
   bool Ended(int64_t media_time) const;
   // The decoder failed for good; decoding has stopped.
   bool HasError() const;
+  // Coded size of the frame last handed out by Acquire(); false before the
+  // first. Streams can change resolution midway (adaptive streaming).
+  bool shown_size(int* width, int* height) const;
 
   bool HasNewFrame(int64_t display_time) const;
   std::shared_ptr<VideoFrame> Acquire(int64_t display_time);
@@ -80,6 +83,8 @@ class VideoRenderer {
   bool end_of_stream_ = false;
   bool failed_ = false;
   bool stopped_ = false;
+  int shown_width_ = 0;
+  int shown_height_ = 0;
   int64_t frames_rendered_ = 0;
   int64_t frames_dropped_ = 0;
 };
