@@ -18,6 +18,7 @@ core/                 C++ core, no UI toolkit dependency
     backends/apple/   CoreAudio output, CVPixelBuffer conversion
     api/              C API implementation
 examples/cli/         headless player for regression testing
+examples/glfw/        windowed player without Flutter (GLFW + Metal, macOS)
 flutter/              Flutter plugin (lib/, macos/) and its example app
 ```
 
@@ -40,6 +41,10 @@ cmake --build build
 `lychee_cli` pulls frames at a simulated 60 Hz and reports state, position,
 dropped frames and clock drift. Options: `--seek SEC [--seek-after SEC]`,
 `--no-hw`, `--cpu`, `--volume 0..1` (muted by default).
+
+With GLFW installed (`brew install glfw`) the build also produces
+`build/examples/glfw/lychee_glfw path/to/video.mp4`: a window that draws the
+frames with Metal. Space pauses, left/right seek 5 s, escape quits.
 
 `tool/regression.sh` generates a synthetic media set and runs the CLI over it
 (`TSAN=1` for a ThreadSanitizer build). Contributors and agents: see

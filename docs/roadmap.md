@@ -89,7 +89,8 @@ on top of them.
 ## Platforms
 
 Each needs a decoder path, an `AudioSink`, a `FrameConverter`, a Flutter
-texture bridge, and its own `tool/regression.sh` run.
+texture bridge, a renderer in `examples/glfw` (D3D11 on Windows, GL or
+Vulkan with dmabuf import on Linux), and its own `tool/regression.sh` run.
 
 1. **iOS**: `CoreAudioSink` already compiles a RemoteIO path but has no
    `AVAudioSession` handling and has never run. Plugin texture bridge is the

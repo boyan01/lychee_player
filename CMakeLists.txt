@@ -11,4 +11,5 @@ add_subdirectory(core)
 
 if(LYCHEE_BUILD_EXAMPLES)
   add_subdirectory(examples/cli)
+  add_subdirectory(examples/glfw)
 endif()
