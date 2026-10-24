@@ -13,11 +13,7 @@ is done; add one when you find a gap. Order within a section is priority.
 Built, but never observed working. Cheap to close; do these before building
 on top of them.
 
-1. **Multiple displays.** The display link used to follow the main display;
-   on 2026-10-24 a window moved from the 120 Hz main display to a 60 Hz one
-   kept adding to `dropped`. It now follows the screen showing the Flutter
-   view (`LycheeTexture.followViewScreen`). Done when the same move keeps
-   `dropped` flat in the example's control bar.
+None as of 2026-10-24.
 
 ## Known defects
 
