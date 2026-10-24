@@ -17,17 +17,7 @@ None as of 2026-10-24.
 
 ## Known defects
 
-1. **Frame selection has no cadence awareness.**
-   `VideoRenderer::SelectFrameLocked` picks the last frame with
-   `pts <= media_time + half a frame`. When the frame rate equals the refresh
-   rate, the phase can sit on that boundary and timing jitter alternates
-   drops and repeats (the CLI showed 35 drops in 8 s of 60 fps video before
-   it switched to ideal vsync timestamps). Port Chromium's
-   `media/filters/video_renderer_algorithm.cc` and
-   `video_cadence_estimator.cc`. Done when a regression case with jittered
-   vsync timestamps (add a `--vsync-jitter` CLI option) plays 24/30/60 fps at
-   60 Hz with no drops beyond the cadence's own.
-2. **Audio output format is fixed at open.** If the default device changes
+1. **Audio output format is fixed at open.** If the default device changes
    (headphones unplugged) to a different sample rate, the resampler target
    and latency are stale. Listen for device changes in `CoreAudioSink`.
 

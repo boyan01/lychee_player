@@ -1,5 +1,5 @@
-// Headless player: plays a file while pulling frames at a simulated 60 Hz
-// vsync, and reports timing problems. Used for regression testing without a
+// Headless player: plays a file while pulling frames at a simulated vsync
+// (60 Hz by default), and reports timing problems. Used for regression testing without a
 // UI toolkit.
 
 #include <lychee/lychee.h>
@@ -10,14 +10,16 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <random>
 #include <string>
 #include <thread>
 
 namespace {
 
-constexpr int64_t kVsyncInterval = 16667;
-
 struct Options {
+  double refresh_rate = 60;
+  // Random error added to each vsync timestamp, in microseconds.
+  int64_t vsync_jitter = 0;
   std::string url;
   double seconds = 0;
   double seek_to = -1;
@@ -94,6 +96,14 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       const char* v = value();
       if (!v) return false;
       options->volume = static_cast<float>(atof(v));
+    } else if (arg == "--refresh") {
+      const char* v = value();
+      if (!v || atof(v) <= 0) return false;
+      options->refresh_rate = atof(v);
+    } else if (arg == "--vsync-jitter") {
+      const char* v = value();
+      if (!v) return false;
+      options->vsync_jitter = atoll(v);
     } else if (arg == "--no-hw") {
       options->hardware = false;
     } else if (arg == "--cpu") {
@@ -114,7 +124,8 @@ int main(int argc, char** argv) {
   if (!ParseOptions(argc, argv, &options)) {
     fprintf(stderr,
             "usage: %s [--seconds N] [--seek SEC [--seek-after SEC]] "
-            "[--volume 0..1] [--no-hw] [--cpu] <file or url>\n",
+            "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
+            "[--cpu] <file or url>\n",
             argv[0]);
     return 2;
   }
@@ -135,6 +146,11 @@ int main(int argc, char** argv) {
   }
   lychee_player_play(player);
 
+  const int64_t vsync_interval =
+      static_cast<int64_t>(1e6 / options.refresh_rate);
+  std::mt19937 random(1);
+  std::uniform_int_distribution<int64_t> jitter(-options.vsync_jitter,
+                                                options.vsync_jitter);
   const int64_t start = lychee_now_us();
   int64_t next_vsync = start;
   int64_t next_report = start + 1000000;
@@ -150,17 +166,25 @@ int main(int argc, char** argv) {
   int64_t drift_wall = 0;
   int64_t drift_position = 0;
   int32_t last_state = -1;
+  // Smoothness: a frame lasting D on a display refreshing every I should stay
+  // on screen floor(D/I) or ceil(D/I) vsyncs. Any other count is a glitch (a
+  // frame repeated or cut short), even when no frame was dropped.
+  int64_t glitches = 0;
+  int64_t vsyncs_on_screen = 0;
+  // The frame on screen has been shown only while playing steadily.
+  bool steady = false;
   int exit_code = 0;
 
   for (;;) {
-    next_vsync += kVsyncInterval;
+    next_vsync += vsync_interval;
     std::this_thread::sleep_for(
         std::chrono::microseconds(next_vsync - lychee_now_us()));
     int64_t now = lychee_now_us();
     // Like a real display link: regular vsync timestamps, independent of how
-    // late this thread woke up.
-    int64_t display_time = next_vsync + kVsyncInterval;
+    // late this thread woke up, give or take the timestamp jitter.
+    int64_t display_time = next_vsync + vsync_interval + jitter(random);
 
+    bool playing_steadily = last_state == LYCHEE_STATE_READY;
     if (lychee_player_has_new_frame(player, display_time)) {
       lychee_frame* frame = lychee_player_acquire_frame(player, display_time);
       if (frame) {
@@ -168,6 +192,15 @@ int main(int argc, char** argv) {
         // The first discontinuity after a seek is the seek landing.
         bool discontinuity = last_pts != INT64_MIN &&
                              (pts < last_pts || pts > last_pts + 500000);
+        if (steady && !discontinuity && pts > last_pts) {
+          double ideal = static_cast<double>(pts - last_pts) / vsync_interval;
+          if (vsyncs_on_screen < static_cast<int64_t>(ideal + 0.02) ||
+              vsyncs_on_screen > static_cast<int64_t>(ideal - 0.02) + 1) {
+            glitches++;
+          }
+        }
+        steady = playing_steadily;
+        vsyncs_on_screen = 0;
         if (seek_issued && first_pts_after_seek == INT64_MIN &&
             discontinuity) {
           first_pts_after_seek = pts;
@@ -179,6 +212,8 @@ int main(int argc, char** argv) {
         lychee_frame_release(frame);
       }
     }
+    vsyncs_on_screen++;
+    steady = steady && playing_steadily;
 
     int32_t state = lychee_player_get_state(player);
     int64_t position = lychee_player_get_position(player);
@@ -245,11 +280,12 @@ int main(int argc, char** argv) {
   stats.struct_size = sizeof(stats);
   lychee_player_get_stats(player, &stats);
   printf("summary: state=%s position=%.3fs decoder=%s hw=%d pulled=%" PRId64
-         " rendered=%" PRId64 " dropped=%" PRId64 " backward_jumps=%" PRId64,
+         " rendered=%" PRId64 " dropped=%" PRId64 " glitches=%" PRId64
+         " backward_jumps=%" PRId64,
          StateName(lychee_player_get_state(player)),
          lychee_player_get_position(player) / 1e6, stats.video_decoder,
          stats.hardware_decoding, frames_pulled, stats.frames_rendered,
-         stats.frames_dropped, backward_jumps);
+         stats.frames_dropped, glitches, backward_jumps);
   if (seek_issued && first_pts_after_seek != INT64_MIN) {
     printf(" first_pts_after_seek=%.3fs", first_pts_after_seek / 1e6);
   }

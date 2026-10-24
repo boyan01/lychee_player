@@ -12,7 +12,9 @@ set(LYCHEE_SOURCES
   src/pipeline/media_clock.cc
   src/pipeline/packet_queue.cc
   src/pipeline/player.cc
+  src/pipeline/video_cadence_estimator.cc
   src/pipeline/video_renderer.cc
+  src/pipeline/video_renderer_algorithm.cc
 )
 
 if(LYCHEE_WITH_FFMPEG)

@@ -83,7 +83,10 @@ PASS/FAIL per case. Done means:
 
 - After adding or removing a `.cc` under `core/src`, run
   `python3 tool/generate_forwarders.py`. The macOS pod compiles the core only
-  through those forwarders and silently misses new files otherwise.
+  through those forwarders and silently misses new files otherwise. Then run
+  `pod install` in `flutter/example/macos`: the Pods project lists the
+  forwarders, and the example fails to link with undefined symbols until it
+  is regenerated.
 - Run CocoaPods with `LANG=en_US.UTF-8`, or `pod install` aborts.
 - `flutter test integration_test -d macos` builds into the same
   `build/macos/.../lychee_player_example.app` as `flutter build macos`, with

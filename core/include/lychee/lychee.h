@@ -175,7 +175,13 @@ LYCHEE_EXPORT void lychee_player_get_stats(lychee_player* player,
                                            lychee_stats* stats);
 
 // Returns non-zero if the frame chosen for |display_time_us| differs from the
-// last acquired one, i.e. the caller should redraw. Does not consume frames.
+// last acquired one, i.e. the caller should redraw.
+//
+// Call it once per vsync with that vsync's display time, even when no redraw
+// follows: frames are chosen per vsync interval (Chromium's cadence-based
+// algorithm), and the interval is estimated from these calls. A later
+// lychee_player_acquire_frame() within the same interval returns the frame
+// chosen here.
 LYCHEE_EXPORT int32_t lychee_player_has_new_frame(lychee_player* player,
                                                   int64_t display_time_us);
 

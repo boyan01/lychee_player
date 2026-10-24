@@ -17,6 +17,19 @@ int64_t MediaClock::MediaTimeAtLocked(int64_t system_time) const {
   return std::min(media_time, max_media_time_);
 }
 
+bool MediaClock::SystemTimesFor(const std::vector<int64_t>& media_times,
+                                std::vector<int64_t>* system_times) const {
+  int64_t now = NowMicros();
+  std::lock_guard<std::mutex> lock(mutex_);
+  int64_t anchor_system_time = playing_ ? anchor_system_time_ : now;
+  system_times->clear();
+  for (int64_t media_time : media_times) {
+    system_times->push_back(anchor_system_time + media_time -
+                            anchor_media_time_);
+  }
+  return playing_;
+}
+
 void MediaClock::Reset(int64_t media_time) {
   std::lock_guard<std::mutex> lock(mutex_);
   anchor_media_time_ = media_time;

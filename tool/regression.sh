@@ -73,6 +73,10 @@ check() {
     local dropped
     dropped="$(sed -E 's/.*dropped=([0-9]+).*/\1/' <<<"$summary")"
     [ "${dropped:-99}" -le 3 ] || problems+=" dropped=$dropped"
+    # Frames held for the wrong number of vsyncs (see the CLI).
+    local glitches
+    glitches="$(sed -E 's/.*glitches=([0-9]+).*/\1/' <<<"$summary")"
+    [ "${glitches:-99}" -le 3 ] || problems+=" glitches=$glitches"
   fi
   if [ "$seek_pts" != - ]; then
     grep -q "first_pts_after_seek=$seek_pts" <<<"$summary" || problems+=" seek-landed-elsewhere"
@@ -95,6 +99,13 @@ check audio-only    - - -- "$media/audio_only.mp3"
 check video-only    1 - -- "$media/video_only.mp4"
 check ts-offset     1 - -- "$media/offset.ts"
 check no-hw-cpu     0 - -- --no-hw --cpu "$media/h264_aac.mp4"
+# Cadence: 30, 24 and 60 fps at 60 Hz with jittered vsync timestamps (callers
+# that only know when they woke up), and refresh rates other than 60 Hz.
+check cadence-30fps 1 - -- --vsync-jitter 4000 "$media/h264_aac.mp4"
+check cadence-24fps 1 - -- --vsync-jitter 4000 "$media/hevc10.mp4"
+check cadence-60fps 1 - -- --vsync-jitter 4000 "$media/video_only.mp4"
+check cadence-50hz  1 - -- --refresh 50 --vsync-jitter 1000 "$media/hevc10.mp4"
+check cadence-144hz 1 - -- --refresh 144 --vsync-jitter 1000 "$media/video_only.mp4"
 check seek-forward  1 7.500 -- --seek 7.5 --seek-after 2 "$media/h264_aac.mp4"
 check seek-backward 1 1.000 -- --seek 1 --seek-after 5 "$media/hevc10.mp4"
 check seek-near-end 1 11.900 -- --seek 11.9 --seek-after 1 "$media/h264_aac.mp4"

@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <mutex>
+#include <vector>
 
 #include "base/time.h"
 
@@ -14,6 +15,10 @@ class MediaClock {
  public:
   int64_t MediaTimeAt(int64_t system_time) const;
   int64_t Now() const { return MediaTimeAt(NowMicros()); }
+  // The system times at which |media_times| play, as if playing from now on
+  // while paused. Returns whether the clock is playing.
+  bool SystemTimesFor(const std::vector<int64_t>& media_times,
+                      std::vector<int64_t>* system_times) const;
 
   // Pauses the clock at |media_time|.
   void Reset(int64_t media_time);
