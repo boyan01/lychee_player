@@ -82,6 +82,10 @@ PASS/FAIL per case. Done means:
   `python3 tool/generate_forwarders.py`. The macOS pod compiles the core only
   through those forwarders and silently misses new files otherwise.
 - Run CocoaPods with `LANG=en_US.UTF-8`, or `pod install` aborts.
+- `flutter test integration_test -d macos` builds into the same
+  `build/macos/.../lychee_player_example.app` as `flutter build macos`, with
+  the test as its entry point; launched by hand it shows a blank window.
+  Rebuild the example before handing the binary to anyone.
 - Asking VideoToolbox (through FFmpeg) for BGRA output fails at hwaccel init
   and FFmpeg quietly falls back to software decoding. Keep its default output
   and convert with `AppleFrameConverter`. Check `hw=1` in the CLI summary
