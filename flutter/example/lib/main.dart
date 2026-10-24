@@ -135,12 +135,21 @@ class _Controls extends StatelessWidget {
               ),
               Text(_format(duration)),
               const SizedBox(width: 12),
+              // Rebuilt with the position, a few times a second while playing.
+              Text(_formatStats(player.getStats())),
+              const SizedBox(width: 12),
               Text(value.error ?? value.state.name),
             ],
           ),
         );
       },
     );
+  }
+
+  static String _formatStats(LycheePlayerStats stats) {
+    final decoder = stats.hardwareDecoding ? 'hw' : 'sw';
+    return '$decoder  rendered ${stats.framesRendered}  '
+        'dropped ${stats.framesDropped}';
   }
 
   static String _format(Duration d) {

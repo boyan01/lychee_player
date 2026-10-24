@@ -42,6 +42,26 @@ class LycheePlayerValue {
   final String? error;
 }
 
+/// Playback statistics, read on demand with [LycheePlayer.getStats].
+@immutable
+class LycheePlayerStats {
+  const LycheePlayerStats({
+    this.hardwareDecoding = false,
+    this.framesRendered = 0,
+    this.framesDropped = 0,
+    this.videoDecoder = '',
+  });
+
+  final bool hardwareDecoding;
+
+  /// Frames handed to the display.
+  final int framesRendered;
+
+  /// Decoded frames skipped because a later one was due.
+  final int framesDropped;
+  final String videoDecoder;
+}
+
 class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
   LycheePlayer._(this._player, this._events, this.textureId)
       : super(const LycheePlayerValue());
@@ -101,6 +121,27 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
 
   void setVolume(double volume) {
     if (!_disposed) native.playerSetVolume(_player, volume);
+  }
+
+  LycheePlayerStats getStats() {
+    if (_disposed) {
+      return const LycheePlayerStats();
+    }
+    final stats = calloc<native.LycheeStats>();
+    stats.ref.structSize = sizeOf<native.LycheeStats>();
+    native.playerGetStats(_player, stats);
+    final decoder = <int>[];
+    for (var i = 0; i < 32 && stats.ref.videoDecoder[i] != 0; i++) {
+      decoder.add(stats.ref.videoDecoder[i]);
+    }
+    final result = LycheePlayerStats(
+      hardwareDecoding: stats.ref.hardwareDecoding != 0,
+      framesRendered: stats.ref.framesRendered,
+      framesDropped: stats.ref.framesDropped,
+      videoDecoder: String.fromCharCodes(decoder),
+    );
+    calloc.free(stats);
+    return result;
   }
 
   void _onEvent(int type) => _refresh();

@@ -29,6 +29,19 @@ final class LycheeConfig extends Struct {
   external int hardwareDecoding;
 }
 
+final class LycheeStats extends Struct {
+  @Uint32()
+  external int structSize;
+  @Int32()
+  external int hardwareDecoding;
+  @Int64()
+  external int framesRendered;
+  @Int64()
+  external int framesDropped;
+  @Array(32)
+  external Array<Uint8> videoDecoder;
+}
+
 typedef EventCallbackNative = Void Function(
     Pointer<Void> userData, Int32 type, Int64 arg0, Int64 arg1);
 
@@ -95,3 +108,7 @@ final playerGetVideoRotation = _library.lookupFunction<
 final playerGetError = _library.lookupFunction<
     Int32 Function(Pointer<Void>, Pointer<Char>, Int32),
     int Function(Pointer<Void>, Pointer<Char>, int)>('lychee_player_get_error');
+
+final playerGetStats = _library.lookupFunction<
+    Void Function(Pointer<Void>, Pointer<LycheeStats>),
+    void Function(Pointer<Void>, Pointer<LycheeStats>)>('lychee_player_get_stats');
