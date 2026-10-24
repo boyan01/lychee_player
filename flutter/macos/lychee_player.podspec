@@ -1,8 +1,12 @@
-# The core C++ library is compiled from ../core through the forwarders in
-# Classes/core (see tool/generate_forwarders.py).
+# The core C++ library is compiled from ../../core through the forwarders in
+# Classes/core (see tool/generate_forwarders.py). Flutter reaches this pod
+# through a symlink and Xcode normalizes "../.." lexically, so the header
+# paths use the resolved location of the repository's core/.
 #
 # FFmpeg is found with pkg-config. This is for development: release builds
 # should bundle an LGPL-only FFmpeg build instead of linking the system one.
+
+core_dir = File.expand_path('../../core', File.realpath(__dir__))
 
 ffmpeg_modules = %w[libavformat libavcodec libavutil libswresample libswscale]
 pkg_config = ENV['PKG_CONFIG'] ||
@@ -31,7 +35,7 @@ Pod::Spec.new do |s|
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++20',
-    'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/../core/include" "$(PODS_TARGET_SRCROOT)/../core/src"',
+    'HEADER_SEARCH_PATHS' => "\"#{core_dir}/include\" \"#{core_dir}/src\"",
     'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) LYCHEE_WITH_FFMPEG=1 LYCHEE_IMPLEMENTATION=1',
     'OTHER_CFLAGS' => "$(inherited) #{ffmpeg_cflags} -Wno-documentation",
     'OTHER_LDFLAGS' => "$(inherited) #{ffmpeg_libs}",

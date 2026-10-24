@@ -18,8 +18,7 @@ core/                 C++ core, no UI toolkit dependency
     backends/apple/   CoreAudio output, CVPixelBuffer conversion
     api/              C API implementation
 examples/cli/         headless player for regression testing
-lib/, macos/          Flutter plugin
-example/              Flutter example app
+flutter/              Flutter plugin (lib/, macos/) and its example app
 ```
 
 Video frames leave the library as native handles (`CVPixelBufferRef` on Apple
@@ -42,9 +41,14 @@ cmake --build build
 dropped frames and clock drift. Options: `--seek SEC [--seek-after SEC]`,
 `--no-hw`, `--cpu`, `--volume 0..1` (muted by default).
 
+`tool/regression.sh` generates a synthetic media set and runs the CLI over it
+(`TSAN=1` for a ThreadSanitizer build). Contributors and agents: see
+[AGENTS.md](AGENTS.md) and [docs/roadmap.md](docs/roadmap.md).
+
 ## Flutter plugin
 
-The macOS pod compiles `core/` through the forwarders in `macos/Classes/core`.
+The plugin lives in `flutter/`. Its macOS pod compiles `core/` through the
+forwarders in `flutter/macos/Classes/core`.
 Regenerate them after adding or removing core sources:
 
 ```sh
@@ -61,8 +65,11 @@ LycheeVideo(player);
 player.dispose();
 ```
 
-The example app turns off the macOS App Sandbox so it can open arbitrary
-paths.
+The example app (`flutter/example`) turns off the macOS App Sandbox so it can
+open arbitrary paths.
+
+The plugin compiles `core/` from outside its package directory, so for now it
+can only be used as a path or git dependency, not from pub.dev.
 
 ## License
 
