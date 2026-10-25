@@ -29,6 +29,14 @@ if [ -n "${FFMPEG_ROOT:-}" ]; then
   flags+=(-DLYCHEE_FFMPEG_ROOT="$(cd "$FFMPEG_ROOT" && pwd)")
 fi
 
+# Styled subtitles where libass is installed; plain text ASS otherwise.
+if pkg-config --exists libass 2>/dev/null; then
+  flags+=(-DLYCHEE_WITH_LIBASS=ON)
+  libass=1
+else
+  flags+=(-DLYCHEE_WITH_LIBASS=OFF)
+  libass=0
+fi
 cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Debug ${flags[@]+"${flags[@]}"} >/dev/null || exit 1
 cmake --build "$build" 2>&1 | grep -E "error|warning:" && { echo "FAIL build has errors or warnings"; exit 1; }
 cli="$build/examples/cli/lychee_cli"
@@ -153,6 +161,13 @@ subbed sub_mov_text.mp4 subs.srt mov_text
 [ -f "$media/subs_long.srt" ] || printf '1\n00:00:00,500 --> 00:00:11,500\nLong cue\n' >"$media/subs_long.srt"
 gen sub_long.mkv -i "$media/h264_aac.mp4" -i "$media/subs_long.srt" -map 0 -map 1 -c:v copy -c:a copy -c:s srt \
   -disposition:s:0 0
+# Bitmap subtitles: two boxes, white with a black border (tool/make_pgs.py),
+# as PGS and turned into DVB and VobSub.
+[ -f "$media/subs.sup" ] || python3 "$root/tool/make_pgs.py" "$media/subs.sup" || exit 1
+for codec in pgs:copy dvb:dvbsub vobsub:dvdsub; do
+  gen "sub_${codec%%:*}.mkv" -fix_sub_duration -i "$media/subs.sup" -i "$media/h264_aac.mp4" -map 1 -map 0 -t 7 \
+    -c:v copy -c:a copy -c:s "${codec#*:}" -disposition:s:0 default
+done
 # Tracks 0 video, 1-2 audio (eng, fre), 3-4 subtitles (eng, fre).
 gen tracks.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=880:sample_rate=48000 \
   -i "$media/subs.srt" -i "$media/subs_fre.srt" -map 0:v -map 0:a -map 1:a -map 2 -map 3 -t 8 \
@@ -449,6 +464,17 @@ par expect subtitle-mid-cue "select subtitle 2 at 9\.[0-9]{3}s: accepted" "subti
   "<=0 seek to" "summary: state=ended .*glitches=[0-3] " -- --select subtitle:2 --select-after 9 "$media/sub_long.mkv"
 # The position can read a few ms before the seek target: the audio frame
 # that contains it starts earlier.
+# Bitmap subtitles: pictures where they are on the 1920x1080 canvas, in
+# their colours (83% of each box is white), and gone when they end.
+for kind in pgs dvb vobsub; do
+  par expect "subtitle-$kind" "subtitle images: 1 \| 600x80 at 660,900 opaque=100% rgb=21[0-4],21[0-4],21[0-4]$" \
+    "subtitle at 2\.[5-6][0-9]{2}s: \(none\)" "subtitle images: 1 \| 200x60 at 860,100 opaque=100% rgb=19[0-3]," \
+    "summary: state=ended" -- "$media/sub_$kind.mkv"
+done
+# Styled ASS through libass: one picture of the two lines near the bottom.
+if [ "$libass" = 1 ]; then
+  par expect subtitle-ass-libass "subtitle images: 1 \| [0-9]+x[0-9]+ at [0-9]+,9[0-9]{2} " -- "$media/sub_ass.mkv"
+fi
 par expect subtitle-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line" -- --seek 3.5 --seek-after 0.5 "$media/sub_srt.mkv"
 par expect metadata "metadata: title=Lychee Test artist=Lychee Artist album=Lychee Album" "summary: state=ended" -- \
   "$media/meta.mp4"

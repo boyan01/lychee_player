@@ -69,4 +69,26 @@ final class LycheePlayerTests: XCTestCase {
     wait(for: [loaded], timeout: 10)
     XCTAssertEqual(player.artwork?.prefix(4), Data([0x89, 0x50, 0x4e, 0x47]), "PNG")
   }
+
+  func testSubtitlePictures() {
+    // A PGS box at 660,900, 600x80 on a 1920x1080 canvas, from 1 s.
+    let player = LycheePlayer()
+    player.volume = 0
+    let shown = expectation(description: "pictures")
+    player.onEvent = { event in
+      if case .subtitleChanged(pictures: true) = event { shown.fulfill() }
+    }
+    player.open("/tmp/lychee-media/sub_pgs.mkv")
+    player.play()
+    var driver: LycheeFrameDriver?
+    driver = LycheeFrameDriver(player: player) { _ = driver?.copyFrame() }
+    driver?.start()
+    wait(for: [shown], timeout: 10)
+    driver?.stop()
+    let subtitle = player.subtitlePictures(width: 960, height: 540)
+    XCTAssertEqual(subtitle?.pictures.count, 1)
+    XCTAssertEqual(subtitle?.pictures.first?.rect, CGRect(x: 330, y: 450, width: 300, height: 40))
+    XCTAssertEqual(subtitle?.pictures.first?.image.width, 600)
+    XCTAssertEqual(player.subtitlePictures(width: 960, height: 540)?.id, subtitle?.id)
+  }
 }

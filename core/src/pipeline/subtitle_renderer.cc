@@ -3,16 +3,35 @@
 #include "pipeline/subtitle_renderer.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cstdlib>
 
 #include "base/log.h"
 #include "media/factory.h"
 
 namespace lychee {
 
+namespace {
+
+std::atomic<uint64_t> next_images_id{1};
+
+size_t BitmapBytes(const SubtitleCue& cue) {
+  size_t bytes = 0;
+  if (cue.bitmaps) {
+    for (const SubtitleBitmap& bitmap : *cue.bitmaps) {
+      bytes += bitmap.rgba.size();
+    }
+  }
+  return bytes;
+}
+
+}  // namespace
+
 SubtitleRenderer::SubtitleRenderer() = default;
 SubtitleRenderer::~SubtitleRenderer() = default;
 
 bool SubtitleRenderer::Initialize(const SubtitleConfig& config,
+                                  const std::vector<SubtitleFont>& fonts,
                                   std::string* error) {
   decoder_ = CreateSubtitleDecoder();
   if (!decoder_) {
@@ -23,12 +42,23 @@ bool SubtitleRenderer::Initialize(const SubtitleConfig& config,
     decoder_.reset();
     return false;
   }
+  rasterizer_ = CreateSubtitleRasterizer(config);
+  std::string rasterizer_error;
+  if (rasterizer_ &&
+      !rasterizer_->Initialize(config, fonts, &rasterizer_error)) {
+    LOGW("styled subtitles off, plain text only: %s",
+         rasterizer_error.c_str());
+    rasterizer_.reset();
+  }
   return true;
 }
 
 void SubtitleRenderer::Decode(const EncodedPacket& packet) {
   if (!decoder_ || failed_) {
     return;
+  }
+  if (rasterizer_) {
+    rasterizer_->Decode(packet);
   }
   std::vector<SubtitleCue> cues;
   if (!decoder_->Decode(packet, &cues)) {
@@ -57,21 +87,47 @@ void SubtitleRenderer::AddCue(SubtitleCue cue) {
   // Read again after a seek.
   for (auto same = it; same != cues_.begin() && (same - 1)->start == cue.start;
        --same) {
-    if ((same - 1)->text == cue.text) {
+    if ((same - 1)->text == cue.text &&
+        !(same - 1)->bitmaps == !cue.bitmaps) {
       return;
     }
   }
+  const int64_t start = cue.start;
+  bitmap_bytes_ += BitmapBytes(cue);
   cues_.insert(it, std::move(cue));
+  if (bitmap_bytes_ > kMaxBitmapBytes) {
+    LimitBitmapsLocked(start);
+  }
 }
 
-std::string SubtitleRenderer::TextAt(int64_t media_time) const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  std::string text;
+void SubtitleRenderer::LimitBitmapsLocked(int64_t latest_start) {
+  while (bitmap_bytes_ > kMaxBitmapBytes) {
+    auto furthest = cues_.end();
+    for (auto it = cues_.begin(); it != cues_.end(); ++it) {
+      if (it->bitmaps && it->start != latest_start &&
+          (furthest == cues_.end() ||
+           std::llabs(it->start - latest_start) >
+               std::llabs(furthest->start - latest_start))) {
+        furthest = it;
+      }
+    }
+    if (furthest == cues_.end()) {
+      return;
+    }
+    bitmap_bytes_ -= BitmapBytes(*furthest);
+    // An empty cue in its place still ends the open-ended one before it.
+    furthest->bitmaps.reset();
+  }
+}
+
+std::vector<const SubtitleCue*> SubtitleRenderer::ShowingLocked(
+    int64_t media_time) const {
+  std::vector<const SubtitleCue*> showing;
   auto end = std::upper_bound(
       cues_.begin(), cues_.end(), media_time,
       [](int64_t time, const SubtitleCue& c) { return time < c.start; });
   for (auto it = cues_.begin(); it != end; ++it) {
-    if (it->text.empty()) {
+    if (it->text.empty() && !it->bitmaps) {
       continue;
     }
     int64_t cue_end = it->end;
@@ -82,15 +138,127 @@ std::string SubtitleRenderer::TextAt(int64_t media_time) const {
           [](int64_t start, const SubtitleCue& c) { return start < c.start; });
       cue_end = next != cues_.end() ? next->start : kInfiniteTime;
     }
-    if (media_time >= cue_end) {
+    if (media_time < cue_end) {
+      showing.push_back(&*it);
+    }
+  }
+  return showing;
+}
+
+std::string SubtitleRenderer::TextAt(int64_t media_time) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::string text;
+  for (const SubtitleCue* cue : ShowingLocked(media_time)) {
+    if (cue->text.empty()) {
       continue;
     }
     if (!text.empty()) {
       text += '\n';
     }
-    text += it->text;
+    text += cue->text;
   }
   return text;
+}
+
+uint64_t SubtitleRenderer::ImagesKeyAt(int64_t media_time) const {
+  if (rasterizer_) {
+    return rasterizer_->EventsAt(media_time);
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  // FNV-1a over the start times of the pictures showing.
+  uint64_t key = 0;
+  for (const SubtitleCue* cue : ShowingLocked(media_time)) {
+    if (cue->bitmaps && !cue->bitmaps->empty()) {
+      key = (key ^ static_cast<uint64_t>(cue->start)) * 1099511628211u;
+      key |= 1;
+    }
+  }
+  return key;
+}
+
+std::shared_ptr<const SubtitleImages> SubtitleRenderer::ImagesAt(
+    int64_t media_time,
+    int width,
+    int height,
+    int video_width,
+    int video_height) {
+  if (width <= 0 || height <= 0) {
+    width = video_width;
+    height = video_height;
+  }
+  if (width <= 0 || height <= 0) {
+    return nullptr;
+  }
+  if (rasterizer_) {
+    std::vector<SubtitleBitmap> bitmaps;
+    const bool changed = rasterizer_->Render(media_time, width, height,
+                                             video_width, video_height,
+                                             &bitmaps);
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!changed && width == images_width_ && height == images_height_) {
+      return images_;
+    }
+    images_width_ = width;
+    images_height_ = height;
+    if (bitmaps.empty()) {
+      images_ = nullptr;
+      return nullptr;
+    }
+    auto images = std::make_shared<SubtitleImages>();
+    images->id = next_images_id++;
+    auto held =
+        std::make_shared<const std::vector<SubtitleBitmap>>(std::move(bitmaps));
+    for (const SubtitleBitmap& bitmap : *held) {
+      images->images.push_back(
+          {bitmap.x, bitmap.y, bitmap.width, bitmap.height, &bitmap});
+    }
+    images->bitmaps.push_back(std::move(held));
+    images_ = std::move(images);
+    return images_;
+  }
+
+  const uint64_t key = ImagesKeyAt(media_time);
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (key == images_key_ && width == images_width_ &&
+      height == images_height_) {
+    return images_;
+  }
+  images_key_ = key;
+  images_width_ = width;
+  images_height_ = height;
+  images_ = nullptr;
+  if (key == 0) {
+    return nullptr;
+  }
+  auto images = std::make_shared<SubtitleImages>();
+  images->id = next_images_id++;
+  for (const SubtitleCue* cue : ShowingLocked(media_time)) {
+    if (!cue->bitmaps) {
+      continue;
+    }
+    // From the subtitle's canvas to the caller's.
+    const double canvas_width =
+        cue->canvas_width > 0 ? cue->canvas_width : video_width;
+    const double canvas_height =
+        cue->canvas_height > 0 ? cue->canvas_height : video_height;
+    if (canvas_width <= 0 || canvas_height <= 0) {
+      continue;
+    }
+    const double sx = width / canvas_width;
+    const double sy = height / canvas_height;
+    for (const SubtitleBitmap& bitmap : *cue->bitmaps) {
+      SubtitleImage image;
+      image.x = static_cast<int>(bitmap.x * sx + 0.5);
+      image.y = static_cast<int>(bitmap.y * sy + 0.5);
+      image.width = std::max(static_cast<int>(bitmap.width * sx + 0.5), 1);
+      image.height = std::max(static_cast<int>(bitmap.height * sy + 0.5), 1);
+      image.bitmap = &bitmap;
+      images->images.push_back(image);
+    }
+    images->bitmaps.push_back(cue->bitmaps);
+  }
+  images_ = std::move(images);
+  return images_;
 }
 
 }  // namespace lychee

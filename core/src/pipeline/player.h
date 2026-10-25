@@ -163,6 +163,11 @@ class Player {
   // The subtitle text showing at |display_time| (NowMicros() timebase), or
   // now if it is 0.
   std::string subtitle(int64_t display_time) const;
+  // The subtitle pictures showing at |display_time| (0 for now) on a
+  // |width| x |height| canvas (0 for the video's size); null if none.
+  std::shared_ptr<const SubtitleImages> subtitle_images(int64_t display_time,
+                                                        int width,
+                                                        int height);
 
   bool HasNewFrame(int64_t display_time) const;
   std::shared_ptr<VideoFrame> AcquireFrame(int64_t display_time);
@@ -220,7 +225,8 @@ class Player {
   // The renderer of |subtitle_stream_|, or null.
   SubtitleRenderer* SelectedSubtitleLocked() const;
   std::unique_ptr<SubtitleRenderer> CreateSubtitleRenderer(
-      const StreamInfo& info);
+      const StreamInfo& info,
+      const std::vector<SubtitleFont>& fonts);
   void EnableStreamsLocked();
   void PublishVideoLocked();
   // A new video renderer is needed: its decoder was lost, or the device
@@ -362,6 +368,7 @@ class Player {
   int64_t audio_last_pts_ = kNoTimestamp;
   // Subtitle text last reported by kSubtitleChanged.
   std::string subtitle_text_;
+  uint64_t subtitle_images_key_ = 0;
 };
 
 }  // namespace lychee

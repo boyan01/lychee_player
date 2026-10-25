@@ -52,6 +52,9 @@ std::unique_ptr<FrameConverter> CreateFrameConverter();
 
 // Null if this build has no subtitle decoder.
 std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder();
+// Null if this build has no rasterizer for |config|'s format.
+std::unique_ptr<SubtitleRasterizer> CreateSubtitleRasterizer(
+    const SubtitleConfig& config);
 
 }  // namespace lychee
 

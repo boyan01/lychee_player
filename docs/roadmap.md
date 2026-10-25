@@ -2,8 +2,8 @@
 
 State as of 2026-10-25: the core plays files and network streams through
 FFmpeg, with accurate seek, pull-based frame selection, playback rate
-(WSOLA), looping and reopening, track selection, text subtitles,
-metadata and cover art. The Flutter plugin runs on macOS and iOS
+(WSOLA), looping and reopening, track selection, text and bitmap
+subtitles, metadata and cover art. The Flutter plugin runs on macOS and iOS
 (VideoToolbox), Android (MediaCodec), Windows (D3D11VA) and Linux (VAAPI,
 never seen working).
 Everything below is unfinished.
@@ -82,9 +82,16 @@ None known. Add them here with a done criterion.
 2. **HDR / 10-bit**: frames are converted to 8-bit BGRA, so HDR is clipped.
    Needs a 10-bit or YUV handle type plus color metadata across the C API,
    and EDR on macOS.
-3. **Subtitles beyond plain text**: text cues (SRT, WebVTT, mov_text, ASS
-   text with tags stripped) work. Missing: ASS styling and positioning
-   (libass) and bitmap subtitles (PGS, DVB, VobSub).
+3. **libass in shipped builds**: styled ASS goes through libass
+   (`LYCHEE_WITH_LIBASS`, pictures like bitmap subtitles) only where the
+   core's own CMake build finds it with pkg-config: the CLI and GLFW
+   example with Homebrew's libass. The plugin and the SDKs show ASS as
+   plain text. Shipping it means building libass, FreeType, HarfBuzz
+   (MIT-style) and FriBidi (LGPL 2.1, dynamic) per platform like
+   `tool/build_ffmpeg.sh`, plus fonts: CoreText on Apple, fontconfig on
+   Linux, DirectWrite on Windows, and a bundled default font on Android,
+   which libass has no font provider for. Done when the Flutter example on
+   macOS and Android shows `sub_ass.mkv` styled.
 
 ## Platforms
 

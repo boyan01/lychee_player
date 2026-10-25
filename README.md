@@ -44,7 +44,9 @@ after they arrive and adapts to jitter and the audio device's latency.
 ## Building the core
 
 Requires CMake, Ninja, pkg-config and FFmpeg development files
-(`brew install cmake ninja pkg-config ffmpeg`).
+(`brew install cmake ninja pkg-config ffmpeg`). `-DLYCHEE_WITH_LIBASS=ON`
+renders styled ASS subtitles with libass (`brew install libass`);
+`tool/regression.sh` turns it on where libass is installed.
 
 ```sh
 cmake -S . -B build -G Ninja
@@ -231,8 +233,10 @@ player.getMetadata('title');
 player.dispose();
 ```
 
-Subtitles arrive as plain text in `player.value.subtitle`; the app draws
-them.
+Text subtitles arrive as plain text in `player.value.subtitle`; the app
+draws them. Bitmap subtitles (PGS, DVB, VobSub), and styled ASS where the
+core has libass, arrive as pictures in `player.value.subtitlePictures`,
+which `LycheeVideo` draws over the video.
 
 The example app (`flutter/example`) turns off the macOS App Sandbox so it can
 open arbitrary paths. It plays `--dart-define=LYCHEE_URL=...` on start.
@@ -284,5 +288,6 @@ linked dynamically.
 Matroska/WebM, MPEG-TS, HLS, FLV, Ogg and raw audio files; H.264, HEVC,
 VP8, VP9 and AV1 (AV1 only through VideoToolbox: FFmpeg has no AV1
 software decoder of its own), AAC, MP3, Opus, Vorbis, FLAC, ALAC, AC-3,
-E-AC-3 and PCM; SRT, WebVTT, mov_text and ASS subtitles; file, http(s)
+E-AC-3 and PCM; SRT, WebVTT, mov_text, ASS, PGS, DVB and VobSub
+subtitles; file, http(s)
 and AES-128 HLS. Other formats need an entry in its lists.

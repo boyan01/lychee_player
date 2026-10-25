@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 
 option(LYCHEE_WITH_FFMPEG "Build the FFmpeg demuxer and decoders" ON)
+# Off by default: the shipped builds have no libass yet (roadmap), and ASS
+# then shows as plain text. tool/regression.sh turns it on if pkg-config
+# finds libass.
+option(LYCHEE_WITH_LIBASS "Render styled ASS/SSA subtitles with libass" OFF)
 
 set(LYCHEE_SOURCES
   src/api/c_api.cc
@@ -33,6 +37,10 @@ if(LYCHEE_WITH_FFMPEG)
     src/backends/ffmpeg/ffmpeg_subtitle_decoder.cc
     src/backends/ffmpeg/ffmpeg_video_decoder.cc
   )
+endif()
+
+if(LYCHEE_WITH_LIBASS)
+  list(APPEND LYCHEE_SOURCES src/backends/libass/libass_rasterizer.cc)
 endif()
 
 if(ANDROID)
@@ -107,6 +115,13 @@ if(LYCHEE_WITH_FFMPEG)
     target_link_libraries(lychee PRIVATE PkgConfig::FFMPEG)
   endif()
   target_compile_definitions(lychee PRIVATE LYCHEE_WITH_FFMPEG=1)
+endif()
+
+if(LYCHEE_WITH_LIBASS)
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(LIBASS REQUIRED IMPORTED_TARGET libass)
+  target_link_libraries(lychee PRIVATE PkgConfig::LIBASS)
+  target_compile_definitions(lychee PRIVATE LYCHEE_WITH_LIBASS=1)
 endif()
 
 if(APPLE)

@@ -1,4 +1,4 @@
-// Plays tool/regression.sh's h264_aac.mp4 (run it once to create
+// Plays tool/regression.sh's media (run it once to create
 // /tmp/lychee-media) through the safe API.
 
 use std::sync::Arc;
@@ -10,9 +10,13 @@ use lychee::{Config, Event, FrameType, Player, State, TrackType};
 const MEDIA: &str = "/tmp/lychee-media/h264_aac.mp4";
 
 fn open() -> (Player, Receiver<Event>) {
+    open_file(MEDIA)
+}
+
+fn open_file(path: &str) -> (Player, Receiver<Event>) {
     assert!(
-        std::path::Path::new(MEDIA).exists(),
-        "{MEDIA} is missing: run tool/regression.sh once"
+        std::path::Path::new(path).exists(),
+        "{path} is missing: run tool/regression.sh once"
     );
     let player = Player::new(&Config::default()).unwrap();
     let (events, received) = mpsc::channel();
@@ -20,7 +24,7 @@ fn open() -> (Player, Receiver<Event>) {
         let _ = events.send(event);
     });
     player.set_volume(0.0);
-    player.open(MEDIA).unwrap();
+    player.open(path).unwrap();
     (player, received)
 }
 
@@ -129,4 +133,27 @@ fn destroying_frees_the_callback_and_frames_outlive_it() {
     drop(player);
     assert_eq!(Arc::strong_count(&token), 1);
     assert!(frame.data().is_some());
+}
+
+#[test]
+fn subtitle_pictures() {
+    // A PGS box at 660,900, 600x80 on a 1920x1080 canvas, from 1 s.
+    let (player, events) = open_file("/tmp/lychee-media/sub_pgs.mkv");
+    player.play();
+    wait_for(&player, &events, |e| {
+        *e == Event::SubtitleChanged { pictures: true }
+    });
+    let subtitle = player.acquire_subtitle(0, 960, 540).unwrap();
+    let images = subtitle.images();
+    assert_eq!(images.len(), 1);
+    let image = images[0];
+    assert_eq!((image.x, image.y, image.width, image.height), (330, 450, 300, 40));
+    assert_eq!((image.bitmap_width, image.bitmap_height), (600, 80));
+    assert_eq!(image.data.len(), image.stride * 80);
+    // Black border, white inside, opaque.
+    assert_eq!(&image.data[..4], &[0, 0, 0, 255]);
+    let middle = image.stride * 40 + 300 * 4;
+    assert_eq!(&image.data[middle..middle + 4], &[255, 255, 255, 255]);
+    let again = player.acquire_subtitle(0, 960, 540).unwrap();
+    assert_eq!(again.id(), subtitle.id());
 }

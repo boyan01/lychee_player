@@ -2,6 +2,7 @@
 #define LYCHEE_MEDIA_SUBTITLE_DECODER_H_
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -11,16 +12,31 @@
 
 namespace lychee {
 
-// A timed piece of plain text, on the media timeline.
+// A subtitle picture: premultiplied RGBA rows of |width| * 4 bytes, at
+// (x, y) on the canvas it belongs to.
+struct SubtitleBitmap {
+  int x = 0;
+  int y = 0;
+  int width = 0;
+  int height = 0;
+  std::vector<uint8_t> rgba;
+};
+
+// A timed piece of plain text or, for bitmap subtitles (PGS, DVB, VobSub),
+// pictures, on the media timeline.
 struct SubtitleCue {
   int64_t start = kNoTimestamp;
   // kNoTimestamp: until the next cue starts.
   int64_t end = kNoTimestamp;
   std::string text;
+  // Bitmap subtitles: the canvas the pictures are placed on, the size the
+  // stream was authored for (0 if it does not say: the video's).
+  int canvas_width = 0;
+  int canvas_height = 0;
+  std::shared_ptr<const std::vector<SubtitleBitmap>> bitmaps;
 };
 
-// Decodes text subtitle packets into cues. Bitmap subtitles are not
-// supported.
+// Decodes subtitle packets into cues.
 class SubtitleDecoder {
  public:
   virtual ~SubtitleDecoder() = default;
@@ -32,6 +48,31 @@ class SubtitleDecoder {
   virtual bool Decode(const EncodedPacket& packet,
                       std::vector<SubtitleCue>* cues) = 0;
   virtual void Flush() = 0;
+};
+
+// Renders styled subtitles (ASS/SSA, through libass) into pictures, with
+// their fonts, positions and animations. Decode() runs on the read thread
+// and the rest on any thread; implementations lock.
+class SubtitleRasterizer {
+ public:
+  virtual ~SubtitleRasterizer() = default;
+
+  virtual bool Initialize(const SubtitleConfig& config,
+                          const std::vector<SubtitleFont>& fonts,
+                          std::string* error) = 0;
+  virtual void Decode(const EncodedPacket& packet) = 0;
+  // Identifies the events showing at |media_time|: 0 if none, and another
+  // value whenever the set changes.
+  virtual uint64_t EventsAt(int64_t media_time) = 0;
+  // The pictures at |media_time| on a |width| x |height| canvas covering a
+  // video of |video_width| x |video_height|. Returns false, leaving
+  // |bitmaps| alone, if they are the same as the last call returned.
+  virtual bool Render(int64_t media_time,
+                      int width,
+                      int height,
+                      int video_width,
+                      int video_height,
+                      std::vector<SubtitleBitmap>* bitmaps) = 0;
 };
 
 // The plain text of an ASS/SSA event: |line| is a Dialogue line ("Dialogue:

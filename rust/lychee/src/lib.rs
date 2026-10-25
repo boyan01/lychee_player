@@ -208,7 +208,8 @@ impl State {
 pub enum TrackType {
     Video,
     Audio,
-    /// Text subtitles. Bitmap subtitles are listed but cannot be selected.
+    /// Text subtitles (SRT, WebVTT, mov_text, ASS/SSA) and bitmap
+    /// subtitles (PGS, DVB, VobSub).
     Subtitle,
 }
 
@@ -251,9 +252,10 @@ pub enum Event {
     Error,
     /// A [`Player::select_track`] request was carried out.
     TracksChanged,
-    /// The subtitle text on screen changed: read it with
-    /// [`Player::subtitle`].
-    SubtitleChanged,
+    /// The subtitle on screen changed: read its text with
+    /// [`Player::subtitle`]. With `pictures`, it is drawn by
+    /// [`Player::acquire_subtitle`] instead, text included.
+    SubtitleChanged { pictures: bool },
 }
 
 impl Event {
@@ -271,7 +273,9 @@ impl Event {
             sys::LYCHEE_EVENT_SEEK_COMPLETED => Event::SeekCompleted(micros(arg0)),
             sys::LYCHEE_EVENT_ERROR => Event::Error,
             sys::LYCHEE_EVENT_TRACKS_CHANGED => Event::TracksChanged,
-            sys::LYCHEE_EVENT_SUBTITLE_CHANGED => Event::SubtitleChanged,
+            sys::LYCHEE_EVENT_SUBTITLE_CHANGED => Event::SubtitleChanged {
+                pictures: arg1 != 0,
+            },
             _ => return None,
         })
     }
@@ -541,6 +545,18 @@ impl Player {
         })
     }
 
+    /// The subtitle pictures showing at `display_time_us` ([`now_us`]
+    /// timebase; 0 for now), laid out on a `width` x `height` canvas the
+    /// video fills (0 x 0: the video's size), or `None` if there are none.
+    /// Call it every frame while [`Event::SubtitleChanged`] said
+    /// `pictures`, and redraw when [`Subtitle::id`] changes.
+    pub fn acquire_subtitle(&self, display_time_us: i64, width: u32, height: u32) -> Option<Subtitle> {
+        let raw = unsafe {
+            sys::lychee_player_acquire_subtitle(self.raw(), display_time_us, width as i32, height as i32)
+        };
+        NonNull::new(raw).map(|raw| Subtitle { raw })
+    }
+
     /// The container tag `key` ("title", "artist", "album", ...).
     pub fn metadata(&self, key: &str) -> Option<String> {
         let key = CString::new(key).ok()?;
@@ -696,6 +712,75 @@ impl Drop for Player {
 }
 
 /// A decoded frame, released when dropped.
+/// Subtitle pictures from [`Player::acquire_subtitle`]. They may outlive
+/// the player.
+pub struct Subtitle {
+    raw: NonNull<sys::lychee_subtitle>,
+}
+
+// Immutable; owns a reference to its pictures.
+unsafe impl Send for Subtitle {}
+unsafe impl Sync for Subtitle {}
+
+/// One picture of a [`Subtitle`].
+#[derive(Debug, Clone, Copy)]
+pub struct SubtitleImage<'a> {
+    /// Where to draw it on the canvas.
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    /// Premultiplied RGBA, `stride` bytes a row, scaled to `width` x
+    /// `height` when drawn.
+    pub bitmap_width: u32,
+    pub bitmap_height: u32,
+    pub stride: usize,
+    pub data: &'a [u8],
+}
+
+impl Subtitle {
+    /// The same for the same pictures, different otherwise.
+    pub fn id(&self) -> i64 {
+        unsafe { sys::lychee_subtitle_get_id(self.raw.as_ptr()) }
+    }
+
+    pub fn images(&self) -> Vec<SubtitleImage<'_>> {
+        let count = unsafe { sys::lychee_subtitle_get_image_count(self.raw.as_ptr()) };
+        (0..count)
+            .filter_map(|i| {
+                let mut image: sys::lychee_subtitle_image = unsafe { std::mem::zeroed() };
+                image.struct_size = size_of::<sys::lychee_subtitle_image>() as u32;
+                if unsafe { sys::lychee_subtitle_get_image(self.raw.as_ptr(), i, &mut image) } != 0 {
+                    return None;
+                }
+                let len = image.stride as usize * image.bitmap_height as usize;
+                Some(SubtitleImage {
+                    x: image.x,
+                    y: image.y,
+                    width: image.width as u32,
+                    height: image.height as u32,
+                    bitmap_width: image.bitmap_width as u32,
+                    bitmap_height: image.bitmap_height as u32,
+                    stride: image.stride as usize,
+                    data: unsafe { std::slice::from_raw_parts(image.data, len) },
+                })
+            })
+            .collect()
+    }
+}
+
+impl Drop for Subtitle {
+    fn drop(&mut self) {
+        unsafe { sys::lychee_subtitle_release(self.raw.as_ptr()) }
+    }
+}
+
+impl fmt::Debug for Subtitle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Subtitle").field("id", &self.id()).finish()
+    }
+}
+
 pub struct Frame {
     raw: NonNull<sys::lychee_frame>,
 }

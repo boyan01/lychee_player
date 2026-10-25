@@ -40,7 +40,7 @@ common=(
   # Hardware decoders come first; these are the fallback.
   --enable-decoder=h264,hevc,vp8,vp9,av1
   --enable-decoder=aac,aac_latm,mp3float,opus,vorbis,flac,alac,ac3,eac3,'pcm_*'
-  --enable-decoder=subrip,srt,webvtt,movtext,ass,ssa,text
+  --enable-decoder=subrip,srt,webvtt,movtext,ass,ssa,text,pgssub,dvbsub,dvdsub
   --enable-parser=h264,hevc,vp8,vp9,av1,aac,aac_latm,mpegaudio,opus,vorbis,flac,ac3
   --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb
   --enable-cross-compile

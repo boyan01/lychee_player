@@ -6,6 +6,7 @@ export 'src/player.dart'
         LycheePlayerState,
         LycheePlayerStats,
         LycheePlayerValue,
+        LycheeSubtitlePicture,
         LycheeTrack,
         LycheeTrackType;
 export 'src/video_view.dart' show LycheeVideo;

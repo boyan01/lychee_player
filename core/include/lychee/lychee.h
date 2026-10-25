@@ -43,11 +43,14 @@ extern "C" {
 //    pushes.
 // 6: lychee_config.rotate_surface_frames, for Android windows that cannot
 //    rotate (SurfaceView).
-// 7: lychee_player_get_artwork().
+// 7: lychee_player_get_artwork(); subtitle pictures (bitmap subtitles,
+//    styled ASS): lychee_player_acquire_subtitle() and arg1 of
+//    LYCHEE_EVENT_SUBTITLE_CHANGED.
 #define LYCHEE_API_VERSION 7
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
+typedef struct lychee_subtitle lychee_subtitle;
 
 // Video frame types. Also used as a bitmask in lychee_config to declare which
 // types the caller can consume; the library converts frames as needed. The
@@ -163,16 +166,18 @@ typedef enum lychee_event_type {
   // A lychee_player_select_track() request was carried out; the selected
   // tracks may differ from the request if a decoder rejected one.
   LYCHEE_EVENT_TRACKS_CHANGED = 7,
-  // The subtitle text on screen changed. arg0: its length in bytes, 0 if
-  // none. Read it with lychee_player_get_subtitle().
+  // The subtitle on screen changed. arg0: the length in bytes of its text,
+  // 0 if none; read it with lychee_player_get_subtitle(). arg1: 1 if it
+  // has pictures (lychee_player_acquire_subtitle()), which then hold all
+  // of it, text included: draw them instead of the text.
   LYCHEE_EVENT_SUBTITLE_CHANGED = 8,
 } lychee_event_type;
 
 typedef enum lychee_track_type {
   LYCHEE_TRACK_VIDEO = 1,
   LYCHEE_TRACK_AUDIO = 2,
-  // Text subtitles (SRT, WebVTT, mov_text, ASS/SSA as plain text). Bitmap
-  // subtitles are listed but cannot be selected.
+  // Text subtitles (SRT, WebVTT, mov_text, ASS/SSA) and bitmap subtitles
+  // (PGS, DVB, VobSub).
   LYCHEE_TRACK_SUBTITLE = 3,
 } lychee_track_type;
 
@@ -460,9 +465,9 @@ LYCHEE_EXPORT int32_t lychee_player_get_track_info(lychee_player* player,
 // once, with the cue on screen if one is: every subtitle stream is read
 // all along. Returns 0 if the request was accepted;
 // LYCHEE_EVENT_TRACKS_CHANGED follows. Rejected: an index of
-// another type, a bitmap subtitle track, disabling both audio and video,
-// a video track on a player created for audio only, and any request before
-// the media is loaded.
+// another type, a subtitle track no decoder takes, disabling both audio
+// and video, a video track on a player created for audio only, and any
+// request before the media is loaded.
 LYCHEE_EXPORT int32_t lychee_player_select_track(lychee_player* player,
                                                  int32_t type,
                                                  int32_t index);
@@ -480,6 +485,53 @@ LYCHEE_EXPORT int32_t lychee_player_get_metadata(lychee_player* player,
                                                  const char* key,
                                                  char* buffer,
                                                  int32_t buffer_size);
+
+// A subtitle picture.
+typedef struct lychee_subtitle_image {
+  // Must be sizeof(lychee_subtitle_image).
+  uint32_t struct_size;
+  // Where to draw it, in pixels of the canvas passed to
+  // lychee_player_acquire_subtitle().
+  int32_t x;
+  int32_t y;
+  int32_t width;
+  int32_t height;
+  // Its pixels: |bitmap_width| x |bitmap_height|, premultiplied RGBA (bytes
+  // R, G, B, A), |stride| bytes a row; scale them to |width| x |height|.
+  int32_t bitmap_width;
+  int32_t bitmap_height;
+  int32_t stride;
+  const uint8_t* data;
+} lychee_subtitle_image;
+
+// API version 7. The pictures of the subtitle showing at |display_time_us|
+// (lychee_now_us() timebase; 0 for now): bitmap subtitles (PGS, DVB,
+// VobSub) and, in builds with libass, styled ASS/SSA with its fonts and
+// positions. |width| x |height| is the canvas, the rectangle the video
+// picture is drawn in, in pixels (0, 0 for the video's size); pictures are
+// placed on it and styled text is rendered at its resolution. Returns NULL
+// if the subtitle showing has no pictures (plain text, or none).
+//
+// Call it for every frame you draw while the last
+// LYCHEE_EVENT_SUBTITLE_CHANGED had arg1 1: ASS animates between events.
+// While nothing changes it is cheap, and lychee_subtitle_get_id() stays
+// the same, so redraw only when the id does. Any thread; the result stays
+// valid until lychee_subtitle_release().
+LYCHEE_EXPORT lychee_subtitle* lychee_player_acquire_subtitle(
+    lychee_player* player,
+    int64_t display_time_us,
+    int32_t width,
+    int32_t height);
+LYCHEE_EXPORT void lychee_subtitle_release(lychee_subtitle* subtitle);
+// The same for the same pictures, different otherwise.
+LYCHEE_EXPORT int64_t lychee_subtitle_get_id(const lychee_subtitle* subtitle);
+LYCHEE_EXPORT int32_t lychee_subtitle_get_image_count(
+    const lychee_subtitle* subtitle);
+// |image->struct_size| must be set by the caller. Returns 0, or -1 if
+// |index| is out of range.
+LYCHEE_EXPORT int32_t lychee_subtitle_get_image(const lychee_subtitle* subtitle,
+                                                int32_t index,
+                                                lychee_subtitle_image* image);
 
 // API version 7. Copies the media's cover picture (an ID3 or FLAC
 // picture, MP4 cover art, a Matroska image attachment) into |buffer| as the

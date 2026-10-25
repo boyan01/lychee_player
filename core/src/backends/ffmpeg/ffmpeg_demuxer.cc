@@ -246,6 +246,15 @@ void FFmpegDemuxer::BuildMediaInfo() {
         artwork_is_front = front;
       }
     }
+    if (par->codec_type == AVMEDIA_TYPE_ATTACHMENT && par->extradata_size > 0 &&
+        (par->codec_id == AV_CODEC_ID_TTF || par->codec_id == AV_CODEC_ID_OTF)) {
+      const AVDictionaryEntry* filename =
+          av_dict_get(stream->metadata, "filename", nullptr, 0);
+      media_info_.fonts.push_back(
+          {filename ? filename->value : "",
+           std::make_shared<const std::vector<uint8_t>>(
+               par->extradata, par->extradata + par->extradata_size)});
+    }
     StreamInfo info;
     info.index = static_cast<int>(i);
     info.duration = ToMicros(stream->duration, stream->time_base);
@@ -301,8 +310,7 @@ void FFmpegDemuxer::BuildMediaInfo() {
       config.text = descriptor && (descriptor->props & AV_CODEC_PROP_TEXT_SUB);
       config.extradata = std::move(extradata);
       config.codec_private = codec_private;
-      if (info.default_track && config.text &&
-          media_info_.default_subtitle_stream < 0) {
+      if (info.default_track && media_info_.default_subtitle_stream < 0) {
         media_info_.default_subtitle_stream = info.index;
       }
     }

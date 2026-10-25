@@ -6,8 +6,10 @@ import AppKit
 import UIKit
 #endif
 
-/// Shows a player's video, aspect-fit and rotated as the media says. Frames
-/// are pulled only while the view is in a window.
+/// Shows a player's video, aspect-fit and rotated as the media says, with
+/// its subtitle pictures over it (text subtitles are left to the caller:
+/// ``LycheePlayer/subtitle``). Frames are pulled only while the view is in a
+/// window.
 public final class LycheePlayerView: LycheePlatformView {
   public var player: LycheePlayer? {
     didSet {
@@ -16,6 +18,9 @@ public final class LycheePlayerView: LycheePlatformView {
   }
 
   private let videoLayer = CALayer()
+  // Laid out in pixels of the rotated video, scaled onto it.
+  private let subtitleLayer = CALayer()
+  private var subtitleId: Int64 = 0
   private var driver: LycheeFrameDriver?
   // Kept while its IOSurface is the layer's contents, so the decoder's pool
   // does not reuse the surface on screen.
@@ -28,9 +33,12 @@ public final class LycheePlayerView: LycheePlatformView {
     wantsLayer = true
     layer?.backgroundColor = CGColor.black
     layer?.addSublayer(videoLayer)
+    layer?.addSublayer(subtitleLayer)
+    subtitleLayer.isGeometryFlipped = true
     #else
     backgroundColor = .black
     layer.addSublayer(videoLayer)
+    layer.addSublayer(subtitleLayer)
     #endif
     videoLayer.contentsGravity = .resizeAspect
   }
@@ -68,6 +76,7 @@ public final class LycheePlayerView: LycheePlatformView {
     guard let player else {
       videoLayer.contents = nil
       shownFrame = nil
+      showSubtitle(nil)
       return
     }
     guard window != nil else { return }
@@ -88,7 +97,35 @@ public final class LycheePlayerView: LycheePlatformView {
       self.rotation = rotation
       layoutVideoLayer()
     }
+    showSubtitle(player?.subtitlePictures(width: Int(canvasSize.width), height: Int(canvasSize.height)))
     CATransaction.commit()
+  }
+
+  // The video's display size after rotation.
+  private var canvasSize: CGSize {
+    guard let size = player?.videoSize else { return .zero }
+    return rotation % 180 != 0 ? CGSize(width: size.height, height: size.width) : size
+  }
+
+  private func showSubtitle(_ subtitle: LycheePlayer.SubtitlePictures?) {
+    guard subtitle?.id ?? 0 != subtitleId else { return }
+    subtitleId = subtitle?.id ?? 0
+    subtitleLayer.sublayers = subtitle?.pictures.map { picture in
+      let layer = CALayer()
+      layer.frame = picture.rect
+      layer.contents = picture.image
+      return layer
+    }
+    layoutSubtitleLayer()
+  }
+
+  private func layoutSubtitleLayer() {
+    let canvas = canvasSize
+    guard canvas.width > 0, canvas.height > 0 else { return }
+    let scale = min(bounds.width / canvas.width, bounds.height / canvas.height)
+    subtitleLayer.bounds = CGRect(origin: .zero, size: canvas)
+    subtitleLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+    subtitleLayer.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale))
   }
 
   private func layoutVideoLayer() {
@@ -106,6 +143,7 @@ public final class LycheePlayerView: LycheePlatformView {
     angle = -angle
     #endif
     videoLayer.setAffineTransform(CGAffineTransform(rotationAngle: angle))
+    layoutSubtitleLayer()
     CATransaction.commit()
   }
 }

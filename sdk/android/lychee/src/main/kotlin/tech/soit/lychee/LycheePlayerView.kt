@@ -1,17 +1,24 @@
 package tech.soit.lychee
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Rect
 import android.util.AttributeSet
 import android.util.Size
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.View
 import android.widget.FrameLayout
 
 /**
- * Shows a player's video in a [SurfaceView], aspect-fit. The player renders
- * it upright (see [LycheePlayer]). Frames are pulled only while the view is
- * attached to a window. Main thread only.
+ * Shows a player's video in a [SurfaceView], aspect-fit, with its subtitle
+ * pictures over it (text subtitles are left to the caller:
+ * [LycheePlayer.subtitle]). The player renders it upright (see
+ * [LycheePlayer]). Frames are pulled only while the view is attached to a
+ * window. Main thread only.
  */
 class LycheePlayerView @JvmOverloads constructor(
     context: Context,
@@ -30,14 +37,19 @@ class LycheePlayerView @JvmOverloads constructor(
     private var driver: LycheeFrameDriver? = null
     // Replaced whenever the driver needs a new Surface.
     private var surfaceView: SurfaceView? = null
+    private val subtitleView = SubtitleView(context)
     private val listener = LycheePlayer.Listener { event ->
         if (event is LycheePlayer.Event.VideoSizeChanged || event == LycheePlayer.Event.MediaInfo) {
             requestLayout()
+        }
+        if (event is LycheePlayer.Event.SubtitleChanged) {
+            showSubtitle(if (event.pictures) player else null)
         }
     }
 
     init {
         setBackgroundColor(Color.BLACK)
+        addView(subtitleView)
     }
 
     override fun onAttachedToWindow() {
@@ -61,6 +73,7 @@ class LycheePlayerView @JvmOverloads constructor(
     }
 
     private fun stop() {
+        showSubtitle(null)
         player?.removeListener(listener)
         driver?.close()
         driver = null
@@ -94,12 +107,49 @@ class LycheePlayerView @JvmOverloads constructor(
             }
         })
         surfaceView = view
-        addView(view)
+        // Under the subtitles.
+        addView(view, 0)
+    }
+
+    private fun showSubtitle(player: LycheePlayer?) {
+        val canvas = player?.let(::uprightSize)
+        val subtitle = canvas?.let { player.subtitlePictures(it.width, it.height) }
+        if (subtitle != null && subtitle.id == subtitleView.subtitleId) return
+        subtitleView.show(subtitle, canvas)
+    }
+
+    private fun uprightSize(player: LycheePlayer): Size? {
+        val size = player.videoSize ?: return null
+        if (size.width <= 0 || size.height <= 0) return null
+        return if (player.rotation % 180 != 0) Size(size.height, size.width) else size
+    }
+
+    // Draws the pictures scaled from the canvas they were laid out on to the
+    // view, which covers the video.
+    private class SubtitleView(context: Context) : View(context) {
+        var subtitleId = 0L
+            private set
+        private var pictures: List<Pair<Bitmap, Rect>> = emptyList()
+        private var canvasSize: Size? = null
+        private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+
+        fun show(subtitle: LycheePlayer.SubtitlePictures?, canvas: Size?) {
+            pictures.forEach { it.first.recycle() }
+            subtitleId = subtitle?.id ?: 0L
+            pictures = subtitle?.pictures ?: emptyList()
+            canvasSize = canvas
+            invalidate()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val size = canvasSize ?: return
+            canvas.scale(width.toFloat() / size.width, height.toFloat() / size.height)
+            pictures.forEach { (bitmap, rect) -> canvas.drawBitmap(bitmap, null, rect, paint) }
+        }
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-        val view = surfaceView ?: return
         var width = measuredWidth
         var height = measuredHeight
         val player = player
@@ -115,16 +165,19 @@ class LycheePlayerView @JvmOverloads constructor(
                 height = (width * videoHeight / videoWidth).toInt()
             }
         }
-        view.measure(
-            MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
-            MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY),
-        )
+        for (view in listOfNotNull(surfaceView, subtitleView)) {
+            view.measure(
+                MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY),
+            )
+        }
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-        val view = surfaceView ?: return
-        val x = (right - left - view.measuredWidth) / 2
-        val y = (bottom - top - view.measuredHeight) / 2
-        view.layout(x, y, x + view.measuredWidth, y + view.measuredHeight)
+        for (view in listOfNotNull(surfaceView, subtitleView)) {
+            val x = (right - left - view.measuredWidth) / 2
+            val y = (bottom - top - view.measuredHeight) / 2
+            view.layout(x, y, x + view.measuredWidth, y + view.measuredHeight)
+        }
     }
 }

@@ -1,9 +1,12 @@
 package tech.soit.lychee
 
+import android.graphics.Bitmap
+import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.util.Size
 import java.lang.ref.WeakReference
+import java.nio.ByteBuffer
 
 /**
  * A media player: lychee_player behind a Kotlin interface. Show its video
@@ -37,8 +40,12 @@ class LycheePlayer @JvmOverloads constructor(
         /** [error] says which. */
         data object Error : Event()
         data object TracksChanged : Event()
-        /** [subtitle] has the new text. */
-        data object SubtitleChanged : Event()
+        /**
+         * [subtitle] has the new text. With [pictures], the subtitle is drawn
+         * from [subtitlePictures] instead, text included; [LycheePlayerView]
+         * does that.
+         */
+        data class SubtitleChanged(val pictures: Boolean) : Event()
     }
 
     fun interface Listener {
@@ -187,6 +194,39 @@ class LycheePlayer @JvmOverloads constructor(
     val subtitle: String?
         get() = nativeGetSubtitle(handle())?.let(::String)
 
+    /**
+     * Bitmap subtitles (PGS, DVB, VobSub), and styled ASS where the core has
+     * libass, laid out on a canvas the video fills.
+     */
+    class SubtitlePictures(
+        /** The same for the same pictures, different otherwise. */
+        val id: Long,
+        /** Premultiplied bitmaps and where they go on the canvas. */
+        val pictures: List<Pair<Bitmap, Rect>>,
+    )
+
+    /**
+     * The subtitle pictures on screen now on a [width] x [height] canvas
+     * (0 x 0: the video's size); null if there are none.
+     */
+    fun subtitlePictures(width: Int = 0, height: Int = 0): SubtitlePictures? {
+        val subtitle = nativeAcquireSubtitle(handle(), width, height)
+        if (subtitle == 0L) return null
+        try {
+            val ints = IntArray(6)
+            val pictures = (0 until nativeSubtitleImageCount(subtitle)).mapNotNull { index ->
+                val pixels = nativeSubtitleImage(subtitle, index, ints) ?: return@mapNotNull null
+                // ARGB_8888 is premultiplied R, G, B, A bytes, as the core's.
+                val bitmap = Bitmap.createBitmap(ints[4], ints[5], Bitmap.Config.ARGB_8888)
+                bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(pixels))
+                bitmap to Rect(ints[0], ints[1], ints[0] + ints[2], ints[1] + ints[3])
+            }
+            return SubtitlePictures(nativeSubtitleId(subtitle), pictures)
+        } finally {
+            nativeSubtitleRelease(subtitle)
+        }
+    }
+
     /** The container tag [key] ("title", "artist", ...; case-insensitive). */
     fun metadata(key: String): String? =
         nativeGetMetadata(handle(), key.toByteArray())?.let(::String)
@@ -236,7 +276,7 @@ class LycheePlayer @JvmOverloads constructor(
             5 -> Event.SeekCompleted(arg0 / 1000)
             6 -> Event.Error
             7 -> Event.TracksChanged
-            8 -> Event.SubtitleChanged
+            8 -> Event.SubtitleChanged(arg1 != 0L)
             else -> null
         } ?: return
         // A copy: listeners may remove themselves.
@@ -288,6 +328,11 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic external fun nativeGetSubtitle(handle: Long): ByteArray?
         @JvmStatic external fun nativeGetMetadata(handle: Long, key: ByteArray): ByteArray?
         @JvmStatic external fun nativeGetArtwork(handle: Long): ByteArray?
+        @JvmStatic external fun nativeAcquireSubtitle(handle: Long, width: Int, height: Int): Long
+        @JvmStatic external fun nativeSubtitleRelease(subtitle: Long)
+        @JvmStatic external fun nativeSubtitleId(subtitle: Long): Long
+        @JvmStatic external fun nativeSubtitleImageCount(subtitle: Long): Int
+        @JvmStatic external fun nativeSubtitleImage(subtitle: Long, index: Int, ints: IntArray): ByteArray?
         @JvmStatic external fun nativeGetStats(handle: Long, longs: LongArray): ByteArray
     }
 }

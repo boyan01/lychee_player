@@ -231,7 +231,8 @@ class _Subtitle extends StatelessWidget {
       valueListenable: player,
       builder: (context, value, _) {
         final text = value.subtitle;
-        if (text == null) {
+        // LycheeVideo draws subtitle pictures.
+        if (text == null || value.subtitlePictures != null) {
           return const SizedBox.shrink();
         }
         return Positioned(

@@ -2,6 +2,8 @@
 
 #include "backends/ffmpeg/ffmpeg_subtitle_decoder.h"
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 
 #include "base/log.h"
@@ -15,10 +17,6 @@ FFmpegSubtitleDecoder::~FFmpegSubtitleDecoder() = default;
 
 bool FFmpegSubtitleDecoder::Initialize(const SubtitleConfig& config,
                                        std::string* error) {
-  if (!config.text) {
-    *error = "bitmap subtitles (" + config.codec_name + ") are not supported";
-    return false;
-  }
   AVCodecParameters* parameters = CreateCodecParameters(config);
   const AVCodec* codec = avcodec_find_decoder(parameters->codec_id);
   if (!codec) {
@@ -41,6 +39,32 @@ bool FFmpegSubtitleDecoder::Initialize(const SubtitleConfig& config,
   }
   LOGI("decoder opened for %s", codec->name);
   return true;
+}
+
+// static
+SubtitleBitmap FFmpegSubtitleDecoder::ToBitmap(const AVSubtitleRect& rect) {
+  SubtitleBitmap bitmap;
+  bitmap.x = rect.x;
+  bitmap.y = rect.y;
+  bitmap.width = rect.w;
+  bitmap.height = rect.h;
+  bitmap.rgba.resize(static_cast<size_t>(rect.w) * rect.h * 4);
+  // PAL8: one palette index per pixel; the palette holds 0xAARRGGBB words.
+  const auto* palette = reinterpret_cast<const uint32_t*>(rect.data[1]);
+  const int colors = std::clamp(rect.nb_colors, 0, 256);
+  uint8_t* out = bitmap.rgba.data();
+  for (int y = 0; y < rect.h; ++y) {
+    const uint8_t* in = rect.data[0] + static_cast<ptrdiff_t>(y) * rect.linesize[0];
+    for (int x = 0; x < rect.w; ++x, out += 4) {
+      const uint32_t argb = in[x] < colors ? palette[in[x]] : 0;
+      const uint32_t a = argb >> 24;
+      out[0] = static_cast<uint8_t>((((argb >> 16) & 0xff) * a + 127) / 255);
+      out[1] = static_cast<uint8_t>((((argb >> 8) & 0xff) * a + 127) / 255);
+      out[2] = static_cast<uint8_t>(((argb & 0xff) * a + 127) / 255);
+      out[3] = static_cast<uint8_t>(a);
+    }
+  }
+  return bitmap;
 }
 
 bool FFmpegSubtitleDecoder::Decode(const EncodedPacket& packet,
@@ -67,14 +91,23 @@ bool FFmpegSubtitleDecoder::Decode(const EncodedPacket& packet,
   }
   SubtitleCue cue;
   cue.start = packet.pts + subtitle.start_display_time * kMicrosPerMilli;
-  if (packet.duration > 0) {
+  // FFmpeg's muxers write an unknown duration as UINT32_MAX ms.
+  if (packet.duration > 0 &&
+      packet.duration < int64_t{UINT32_MAX} * kMicrosPerMilli) {
     cue.end = packet.pts + packet.duration;
   } else if (subtitle.end_display_time > subtitle.start_display_time &&
              subtitle.end_display_time != UINT32_MAX) {
     cue.end = packet.pts + subtitle.end_display_time * kMicrosPerMilli;
   }
+  std::vector<SubtitleBitmap> bitmaps;
   for (unsigned i = 0; i < subtitle.num_rects; ++i) {
     const AVSubtitleRect* rect = subtitle.rects[i];
+    if (rect->type == SUBTITLE_BITMAP) {
+      if (rect->w > 0 && rect->h > 0 && rect->data[0] && rect->data[1]) {
+        bitmaps.push_back(ToBitmap(*rect));
+      }
+      continue;
+    }
     std::string text;
     if (rect->type == SUBTITLE_ASS && rect->ass) {
       text = AssToPlainText(rect->ass);
@@ -90,6 +123,13 @@ bool FFmpegSubtitleDecoder::Decode(const EncodedPacket& packet,
     cue.text += text;
   }
   avsubtitle_free(&subtitle);
+  if (!bitmaps.empty()) {
+    // PGS and DVB say their canvas once decoded; VobSub in its header.
+    cue.canvas_width = context_->width;
+    cue.canvas_height = context_->height;
+    cue.bitmaps = std::make_shared<const std::vector<SubtitleBitmap>>(
+        std::move(bitmaps));
+  }
   // An empty event clears the screen; keep it as a cue so the previous
   // open-ended one ends here.
   cues->push_back(std::move(cue));

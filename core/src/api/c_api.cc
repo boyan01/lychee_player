@@ -28,6 +28,10 @@ struct lychee_player {
   std::unique_ptr<Player> player;
 };
 
+struct lychee_subtitle {
+  std::shared_ptr<const lychee::SubtitleImages> images;
+};
+
 struct lychee_frame {
   std::shared_ptr<VideoFrame> frame;
   // On the file's timeline (Player::UnloopedPts()).
@@ -346,6 +350,50 @@ int32_t lychee_player_get_metadata(lychee_player* player,
     return -1;
   }
   return CopyString(value, buffer, buffer_size);
+}
+
+lychee_subtitle* lychee_player_acquire_subtitle(lychee_player* player,
+                                                int64_t display_time_us,
+                                                int32_t width,
+                                                int32_t height) {
+  auto images =
+      player->player->subtitle_images(display_time_us, width, height);
+  if (!images || images->images.empty()) {
+    return nullptr;
+  }
+  return new lychee_subtitle{std::move(images)};
+}
+
+void lychee_subtitle_release(lychee_subtitle* subtitle) {
+  delete subtitle;
+}
+
+int64_t lychee_subtitle_get_id(const lychee_subtitle* subtitle) {
+  return static_cast<int64_t>(subtitle->images->id);
+}
+
+int32_t lychee_subtitle_get_image_count(const lychee_subtitle* subtitle) {
+  return static_cast<int32_t>(subtitle->images->images.size());
+}
+
+int32_t lychee_subtitle_get_image(const lychee_subtitle* subtitle,
+                                  int32_t index,
+                                  lychee_subtitle_image* image) {
+  const auto& images = subtitle->images->images;
+  if (!image || index < 0 || index >= static_cast<int32_t>(images.size()) ||
+      image->struct_size < sizeof(lychee_subtitle_image)) {
+    return -1;
+  }
+  const lychee::SubtitleImage& source = images[index];
+  image->x = source.x;
+  image->y = source.y;
+  image->width = source.width;
+  image->height = source.height;
+  image->bitmap_width = source.bitmap->width;
+  image->bitmap_height = source.bitmap->height;
+  image->stride = source.bitmap->width * 4;
+  image->data = source.bitmap->rgba.data();
+  return 0;
 }
 
 int32_t lychee_player_get_artwork(lychee_player* player,

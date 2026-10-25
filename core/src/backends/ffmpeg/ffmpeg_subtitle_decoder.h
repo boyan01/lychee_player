@@ -6,9 +6,10 @@
 
 namespace lychee {
 
-// Text subtitles through FFmpeg, which turns every text format (SRT,
-// WebVTT, mov_text, ASS/SSA, ...) into ASS events; those are reduced to
-// plain text.
+// Subtitles through FFmpeg. It turns every text format (SRT, WebVTT,
+// mov_text, ASS/SSA, ...) into ASS events, which are reduced to plain text,
+// and bitmap formats (PGS, DVB, VobSub) into paletted pictures, which
+// become RGBA.
 class FFmpegSubtitleDecoder : public SubtitleDecoder {
  public:
   FFmpegSubtitleDecoder();
@@ -21,6 +22,8 @@ class FFmpegSubtitleDecoder : public SubtitleDecoder {
   void Flush() override;
 
  private:
+  static SubtitleBitmap ToBitmap(const AVSubtitleRect& rect);
+
   ScopedAVCodecContext context_;
   ScopedAVPacket av_packet_;
   int consecutive_errors_ = 0;

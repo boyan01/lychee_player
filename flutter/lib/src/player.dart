@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' hide Size;
+import 'dart:ui' as ui;
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
@@ -73,6 +74,7 @@ class LycheePlayerValue {
     this.looping = false,
     this.tracks = const [],
     this.subtitle,
+    this.subtitlePictures,
     this.artwork,
   });
 
@@ -101,12 +103,27 @@ class LycheePlayerValue {
   final List<LycheeTrack> tracks;
 
   /// Subtitle text on screen, lines separated by '\n'; null if none. Draw it
-  /// over the video yourself.
+  /// over the video yourself, unless [subtitlePictures] is set.
   final String? subtitle;
+
+  /// Bitmap subtitles (PGS, DVB, VobSub) and, where the core has libass,
+  /// styled ASS: they hold all of the subtitle, text included. [LycheeVideo]
+  /// draws them. Null if none.
+  final List<LycheeSubtitlePicture>? subtitlePictures;
 
   /// The cover picture as the media stores it, usually JPEG or PNG (for
   /// [Image.memory]); null if it has none.
   final Uint8List? artwork;
+}
+
+/// A subtitle picture and where it goes on the video, in pixels of its
+/// display size after rotation.
+@immutable
+class LycheeSubtitlePicture {
+  const LycheeSubtitlePicture(this.image, this.rect);
+
+  final ui.Image image;
+  final Rect rect;
 }
 
 /// Playback statistics, read on demand with [LycheePlayer.getStats].
@@ -152,6 +169,9 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
   bool _disposed = false;
   List<LycheeTrack> _tracks = const [];
   String? _subtitle;
+  bool _hasPictures = false;
+  int _picturesId = 0;
+  List<LycheeSubtitlePicture>? _pictures;
   Uint8List? _artwork;
 
   static Future<LycheePlayer> create({bool hardwareDecoding = true}) async {
@@ -165,7 +185,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
     late final LycheePlayer instance;
     final events = NativeCallable<native.EventCallbackNative>.listener(
         (Pointer<Void> _, int type, int arg0, int arg1) =>
-            instance._onEvent(type, arg0));
+            instance._onEvent(type, arg0, arg1));
     native.playerSetEventCallback(player, events.nativeFunction, nullptr);
     final textureId = await _channel
         .invokeMethod<int>('createTexture', {'player': player.address});
@@ -186,6 +206,8 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
     }
     _tracks = const [];
     _subtitle = null;
+    _hasPictures = false;
+    _setPictures(0, null);
     _artwork = null;
     final nativeUrl = url.toNativeUtf8();
     native.playerOpen(_player, nativeUrl.cast());
@@ -276,7 +298,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
     return result;
   }
 
-  void _onEvent(int type, int arg0) {
+  void _onEvent(int type, int arg0, int arg1) {
     if (_disposed) return;
     if (type == native.kEventMediaInfo || type == native.kEventTracksChanged) {
       _tracks = _readTracks();
@@ -285,6 +307,8 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
       _artwork = _readArtwork();
     } else if (type == native.kEventSubtitleChanged) {
       _subtitle = arg0 > 0 ? _readSubtitle(arg0) : null;
+      _hasPictures = arg1 != 0;
+      _readPictures();
     }
     _refresh();
   }
@@ -339,6 +363,69 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
     return text;
   }
 
+  // Pictures can change without an event (ASS animations), so this runs on
+  // every tick too; it costs nothing while the id stays the same.
+  void _readPictures() {
+    final videoSize = value.videoSize;
+    if (!_hasPictures || videoSize == null) {
+      _setPictures(0, null);
+      return;
+    }
+    final turns = native.playerGetVideoRotation(_player) ~/ 90;
+    final size = turns.isOdd ? videoSize.flipped : videoSize;
+    final subtitle = native.playerAcquireSubtitle(
+        _player, 0, size.width.round(), size.height.round());
+    if (subtitle == nullptr) {
+      _setPictures(0, null);
+      return;
+    }
+    final id = native.subtitleGetId(subtitle);
+    if (id == _picturesId) {
+      native.subtitleRelease(subtitle);
+      return;
+    }
+    _picturesId = id;
+    final pending = <Future<LycheeSubtitlePicture>>[];
+    final info = calloc<native.LycheeSubtitleImage>();
+    final count = native.subtitleGetImageCount(subtitle);
+    for (var i = 0; i < count; i++) {
+      info.ref.structSize = sizeOf<native.LycheeSubtitleImage>();
+      if (native.subtitleGetImage(subtitle, i, info) != 0) continue;
+      final image = info.ref;
+      final rect = Rect.fromLTWH(image.x.toDouble(), image.y.toDouble(),
+          image.width.toDouble(), image.height.toDouble());
+      // Copied out: the native pixels go with the subtitle.
+      final pixels = Uint8List.fromList(
+          image.data.asTypedList(image.stride * image.bitmapHeight));
+      final completer = Completer<ui.Image>();
+      ui.decodeImageFromPixels(pixels, image.bitmapWidth, image.bitmapHeight,
+          ui.PixelFormat.rgba8888, completer.complete,
+          rowBytes: image.stride);
+      pending.add(completer.future
+          .then((image) => LycheeSubtitlePicture(image, rect)));
+    }
+    calloc.free(info);
+    native.subtitleRelease(subtitle);
+    Future.wait(pending).then((pictures) {
+      if (_disposed || id != _picturesId) {
+        for (final picture in pictures) {
+          picture.image.dispose();
+        }
+        return;
+      }
+      _setPictures(id, pictures);
+      _refresh();
+    });
+  }
+
+  void _setPictures(int id, List<LycheeSubtitlePicture>? pictures) {
+    _picturesId = id;
+    for (final picture in _pictures ?? const <LycheeSubtitlePicture>[]) {
+      picture.image.dispose();
+    }
+    _pictures = pictures;
+  }
+
   static String _string(Array<Uint8> array, int size) {
     final bytes = <int>[];
     for (var i = 0; i < size && array[i] != 0; i++) {
@@ -353,6 +440,9 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
         state == LycheePlayerState.loading ||
         state == LycheePlayerState.buffering) {
       _refresh();
+    }
+    if (_hasPictures) {
+      _readPictures();
     }
   }
 
@@ -394,6 +484,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
       looping: native.playerIsLooping(_player) != 0,
       tracks: _tracks,
       subtitle: _subtitle,
+      subtitlePictures: _pictures,
       artwork: _artwork,
     );
   }
@@ -405,6 +496,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
     }
     _disposed = true;
     _ticker?.cancel();
+    _setPictures(0, null);
     super.dispose();
     _release();
   }

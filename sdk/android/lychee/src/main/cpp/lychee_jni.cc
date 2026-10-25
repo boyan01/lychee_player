@@ -449,6 +449,65 @@ Java_tech_soit_lychee_LycheePlayer_nativeGetArtwork(JNIEnv* env,
   });
 }
 
+JNIEXPORT jlong JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeAcquireSubtitle(JNIEnv*,
+                                                         jclass,
+                                                         jlong handle,
+                                                         jint width,
+                                                         jint height) {
+  return reinterpret_cast<jlong>(
+      lychee_player_acquire_subtitle(Player(handle), 0, width, height));
+}
+
+JNIEXPORT void JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeSubtitleRelease(JNIEnv*,
+                                                         jclass,
+                                                         jlong subtitle) {
+  lychee_subtitle_release(reinterpret_cast<lychee_subtitle*>(subtitle));
+}
+
+JNIEXPORT jlong JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeSubtitleId(JNIEnv*,
+                                                    jclass,
+                                                    jlong subtitle) {
+  return lychee_subtitle_get_id(reinterpret_cast<lychee_subtitle*>(subtitle));
+}
+
+JNIEXPORT jint JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeSubtitleImageCount(JNIEnv*,
+                                                            jclass,
+                                                            jlong subtitle) {
+  return lychee_subtitle_get_image_count(
+      reinterpret_cast<lychee_subtitle*>(subtitle));
+}
+
+// Fills |ints| with x, y, width, height, bitmap_width and bitmap_height,
+// and returns the pixels, rows of bitmap_width * 4 bytes.
+JNIEXPORT jbyteArray JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeSubtitleImage(JNIEnv* env,
+                                                       jclass,
+                                                       jlong subtitle,
+                                                       jint index,
+                                                       jintArray ints) {
+  lychee_subtitle_image image{};
+  image.struct_size = sizeof(image);
+  if (lychee_subtitle_get_image(reinterpret_cast<lychee_subtitle*>(subtitle),
+                                index, &image) != 0) {
+    return nullptr;
+  }
+  const jint values[] = {image.x,     image.y,
+                         image.width, image.height,
+                         image.bitmap_width, image.bitmap_height};
+  env->SetIntArrayRegion(ints, 0, 6, values);
+  const size_t row = static_cast<size_t>(image.bitmap_width) * 4;
+  std::vector<char> pixels(row * image.bitmap_height);
+  for (int32_t y = 0; y < image.bitmap_height; ++y) {
+    std::memcpy(pixels.data() + row * y,
+                image.data + static_cast<size_t>(image.stride) * y, row);
+  }
+  return ToBytes(env, pixels.data(), pixels.size());
+}
+
 // Fills |longs| with hardware_decoding, frames_rendered, frames_dropped,
 // video_buffered_us, audio_buffered_us and video_decode_time_us, and
 // returns the video decoder's name.

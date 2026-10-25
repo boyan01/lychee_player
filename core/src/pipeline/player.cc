@@ -125,6 +125,7 @@ void Player::StopPipeline() {
     video_last_pts_ = audio_last_pts_ = kNoTimestamp;
     video_width_ = video_height_ = 0;
     subtitle_text_.clear();
+    subtitle_images_key_ = 0;
     video_decoder_losses_ = 0;
   }
   video_queue_.Reset(0);
@@ -359,8 +360,7 @@ bool Player::SelectTrack(MediaType type, int track) {
       }
       stream = streams[track];
       const StreamInfo& info = media_info_.streams[stream];
-      if (info.type != type ||
-          (type == MediaType::kSubtitle && !info.subtitle.text)) {
+      if (info.type != type) {
         return false;
       }
     }
@@ -597,6 +597,21 @@ std::shared_ptr<const std::vector<uint8_t>> Player::artwork() const {
 SubtitleRenderer* Player::SelectedSubtitleLocked() const {
   auto it = subtitle_renderers_.find(subtitle_stream_);
   return it == subtitle_renderers_.end() ? nullptr : it->second.get();
+}
+
+std::shared_ptr<const SubtitleImages> Player::subtitle_images(
+    int64_t display_time,
+    int width,
+    int height) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  SubtitleRenderer* renderer = SelectedSubtitleLocked();
+  if (!renderer) {
+    return nullptr;
+  }
+  const int64_t media_time =
+      display_time ? clock_.MediaTimeAt(display_time) : clock_.Now();
+  return renderer->ImagesAt(media_time - LoopOffsetLocked(media_time), width,
+                            height, video_width_, video_height_);
 }
 
 std::string Player::subtitle(int64_t display_time) const {
@@ -837,10 +852,11 @@ std::unique_ptr<AudioRenderer> Player::CreateAudioRenderer(
 }
 
 std::unique_ptr<SubtitleRenderer> Player::CreateSubtitleRenderer(
-    const StreamInfo& info) {
+    const StreamInfo& info,
+    const std::vector<SubtitleFont>& fonts) {
   auto subtitle = std::make_unique<SubtitleRenderer>();
   std::string error;
-  if (!subtitle->Initialize(info.subtitle, &error)) {
+  if (!subtitle->Initialize(info.subtitle, fonts, &error)) {
     LOGW("subtitle stream %d disabled: %s", info.index, error.c_str());
     return nullptr;
   }
@@ -886,7 +902,7 @@ bool Player::Prepare(const std::string& url, std::string* error) {
   }
   for (const StreamInfo& stream : info.streams) {
     if (stream.type == MediaType::kSubtitle) {
-      if (auto subtitle = CreateSubtitleRenderer(stream)) {
+      if (auto subtitle = CreateSubtitleRenderer(stream, info.fonts)) {
         subtitles[stream.index] = std::move(subtitle);
       }
     }
@@ -1322,18 +1338,22 @@ void Player::UpdateVideoSizeLocked() {
 
 void Player::UpdateSubtitleLocked() {
   std::string text;
+  uint64_t images = 0;
   if (SubtitleRenderer* renderer = SelectedSubtitleLocked()) {
     // Keep the old text until a seek lands.
     if (seek_pending_ || seek_in_progress_ || prerolling_) {
       return;
     }
-    const int64_t now = clock_.Now();
-    text = renderer->TextAt(now - LoopOffsetLocked(now));
+    const int64_t now = clock_.Now() - LoopOffsetLocked(clock_.Now());
+    text = renderer->TextAt(now);
+    images = renderer->ImagesKeyAt(now);
   }
-  if (text != subtitle_text_) {
+  if (text != subtitle_text_ || images != subtitle_images_key_) {
     subtitle_text_ = std::move(text);
+    subtitle_images_key_ = images;
     PostEventLocked(PlayerEvent::kSubtitleChanged,
-                    static_cast<int64_t>(subtitle_text_.size()));
+                    static_cast<int64_t>(subtitle_text_.size()),
+                    images != 0 ? 1 : 0);
   }
 }
 

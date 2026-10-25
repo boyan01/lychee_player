@@ -29,8 +29,10 @@ public final class LycheePlayer {
     /// ``error`` says which.
     case error
     case tracksChanged
-    /// ``subtitle`` has the new text.
-    case subtitleChanged
+    /// ``subtitle`` has the new text. With `pictures`, the subtitle is drawn
+    /// from ``subtitlePictures(width:height:)`` instead, text included;
+    /// ``LycheePlayerView`` does that.
+    case subtitleChanged(pictures: Bool)
   }
 
   /// An audio, video or subtitle stream of the open media.
@@ -50,6 +52,15 @@ public final class LycheePlayer {
     /// Audio only.
     public let sampleRate: Int
     public let channels: Int
+  }
+
+  /// Bitmap subtitles (PGS, DVB, VobSub), and styled ASS where the core
+  /// has libass, laid out on a canvas the video fills.
+  public struct SubtitlePictures {
+    /// The same for the same pictures, different otherwise.
+    public let id: Int64
+    /// Premultiplied pictures and where they go on the canvas, y down.
+    public let pictures: [(image: CGImage, rect: CGRect)]
   }
 
   public struct Stats {
@@ -199,6 +210,38 @@ public final class LycheePlayer {
     readString { lychee_player_get_subtitle(handle, 0, $0, $1) }
   }
 
+  /// The subtitle pictures on screen now on a `width` x `height` canvas
+  /// (0 x 0: the video's size before rotation); nil if there are none.
+  /// Cheap while ``SubtitlePictures/id`` stays the same.
+  public func subtitlePictures(width: Int = 0, height: Int = 0) -> SubtitlePictures? {
+    guard let subtitle = lychee_player_acquire_subtitle(handle, 0, Int32(width), Int32(height)) else {
+      return nil
+    }
+    defer { lychee_subtitle_release(subtitle) }
+    let space = CGColorSpace(name: CGColorSpace.sRGB)!
+    let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+    let pictures = (0..<lychee_subtitle_get_image_count(subtitle)).compactMap {
+      index -> (image: CGImage, rect: CGRect)? in
+      var image = lychee_subtitle_image()
+      image.struct_size = UInt32(MemoryLayout<lychee_subtitle_image>.size)
+      guard lychee_subtitle_get_image(subtitle, index, &image) == 0, let data = image.data else {
+        return nil
+      }
+      // Copied: the pixels go with the subtitle.
+      let bytes = Data(bytes: data, count: Int(image.stride) * Int(image.bitmap_height))
+      guard let provider = CGDataProvider(data: bytes as CFData),
+            let cgImage = CGImage(
+              width: Int(image.bitmap_width), height: Int(image.bitmap_height),
+              bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: Int(image.stride),
+              space: space, bitmapInfo: info, provider: provider, decode: nil,
+              shouldInterpolate: true, intent: .defaultIntent) else { return nil }
+      let rect = CGRect(
+        x: Int(image.x), y: Int(image.y), width: Int(image.width), height: Int(image.height))
+      return (cgImage, rect)
+    }
+    return SubtitlePictures(id: lychee_subtitle_get_id(subtitle), pictures: pictures)
+  }
+
   /// The container tag `key` ("title", "artist", ...; case-insensitive).
   public func metadata(_ key: String) -> String? {
     readString { lychee_player_get_metadata(handle, key, $0, $1) }
@@ -241,7 +284,7 @@ public final class LycheePlayer {
     case LYCHEE_EVENT_SEEK_COMPLETED: return .seekCompleted(seconds(arg0))
     case LYCHEE_EVENT_ERROR: return .error
     case LYCHEE_EVENT_TRACKS_CHANGED: return .tracksChanged
-    case LYCHEE_EVENT_SUBTITLE_CHANGED: return .subtitleChanged
+    case LYCHEE_EVENT_SUBTITLE_CHANGED: return .subtitleChanged(pictures: arg1 != 0)
     default: return nil
     }
   }

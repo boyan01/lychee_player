@@ -232,3 +232,43 @@ final playerGetArtwork = _library.lookupFunction<
     Int32 Function(Pointer<Void>, Pointer<Uint8>, Int32),
     int Function(
         Pointer<Void>, Pointer<Uint8>, int)>('lychee_player_get_artwork');
+
+final class LycheeSubtitleImage extends Struct {
+  @Uint32()
+  external int structSize;
+  @Int32()
+  external int x;
+  @Int32()
+  external int y;
+  @Int32()
+  external int width;
+  @Int32()
+  external int height;
+  @Int32()
+  external int bitmapWidth;
+  @Int32()
+  external int bitmapHeight;
+  @Int32()
+  external int stride;
+  external Pointer<Uint8> data;
+}
+
+final playerAcquireSubtitle = _library.lookupFunction<
+    Pointer<Void> Function(Pointer<Void>, Int64, Int32, Int32),
+    Pointer<Void> Function(
+        Pointer<Void>, int, int, int)>('lychee_player_acquire_subtitle');
+
+final subtitleRelease = _library.lookupFunction<Void Function(Pointer<Void>),
+    void Function(Pointer<Void>)>('lychee_subtitle_release');
+
+final subtitleGetId = _library.lookupFunction<Int64 Function(Pointer<Void>),
+    int Function(Pointer<Void>)>('lychee_subtitle_get_id');
+
+final subtitleGetImageCount = _library.lookupFunction<
+    Int32 Function(Pointer<Void>),
+    int Function(Pointer<Void>)>('lychee_subtitle_get_image_count');
+
+final subtitleGetImage = _library.lookupFunction<
+    Int32 Function(Pointer<Void>, Int32, Pointer<LycheeSubtitleImage>),
+    int Function(Pointer<Void>, int,
+        Pointer<LycheeSubtitleImage>)>('lychee_subtitle_get_image');

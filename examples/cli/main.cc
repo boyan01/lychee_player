@@ -315,6 +315,44 @@ void PrintMetadata(lychee_player* player) {
   }
 }
 
+// Subtitle pictures on the video's own canvas: where each goes, and how
+// much of it is opaque and in what colour, to tell text from boxes.
+void PrintSubtitleImages(lychee_player* player) {
+  lychee_subtitle* subtitle = lychee_player_acquire_subtitle(player, 0, 0, 0);
+  if (!subtitle) {
+    return;
+  }
+  const int32_t count = lychee_subtitle_get_image_count(subtitle);
+  printf("subtitle images: %d", count);
+  for (int32_t i = 0; i < count; ++i) {
+    lychee_subtitle_image image = {};
+    image.struct_size = sizeof(image);
+    lychee_subtitle_get_image(subtitle, i, &image);
+    int64_t opaque = 0, r = 0, g = 0, b = 0;
+    for (int32_t y = 0; y < image.bitmap_height; ++y) {
+      const uint8_t* row = image.data + static_cast<ptrdiff_t>(y) * image.stride;
+      for (int32_t x = 0; x < image.bitmap_width; ++x) {
+        const uint8_t* p = row + x * 4;
+        if (p[3] > 128) {
+          opaque++;
+          r += p[0];
+          g += p[1];
+          b += p[2];
+        }
+      }
+    }
+    const int64_t pixels =
+        static_cast<int64_t>(image.bitmap_width) * image.bitmap_height;
+    printf(" | %dx%d at %d,%d opaque=%" PRId64 "%% rgb=%" PRId64 ",%" PRId64
+           ",%" PRId64,
+           image.width, image.height, image.x, image.y,
+           pixels ? opaque * 100 / pixels : 0, opaque ? r / opaque : 0,
+           opaque ? g / opaque : 0, opaque ? b / opaque : 0);
+  }
+  printf("\n");
+  lychee_subtitle_release(subtitle);
+}
+
 // Subtitle lines joined with " | ", so a cue stays on one output line.
 std::string SubtitleText(lychee_player* player) {
   char text[1024];
@@ -727,6 +765,7 @@ int main(int argc, char** argv) {
       std::string text = SubtitleText(player);
       printf("subtitle at %.3fs: %s\n", position / 1e6,
              text.empty() ? "(none)" : text.c_str());
+      PrintSubtitleImages(player);
     }
     if (options.loop && state == LYCHEE_STATE_READY) {
       if (position < loop_check_position - 1000000) {

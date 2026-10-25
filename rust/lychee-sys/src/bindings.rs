@@ -14,6 +14,11 @@ pub struct lychee_player {
 pub struct lychee_frame {
     _unused: [u8; 0],
 }
+#[repr(C)]
+#[derive(Debug)]
+pub struct lychee_subtitle {
+    _unused: [u8; 0],
+}
 pub const LYCHEE_FRAME_CPU_BGRA: lychee_frame_type = 1;
 pub const LYCHEE_FRAME_CVPIXELBUFFER: lychee_frame_type = 2;
 pub const LYCHEE_FRAME_CPU_RGBA: lychee_frame_type = 4;
@@ -304,6 +309,43 @@ unsafe extern "C" {
         key: *const ::core::ffi::c_char,
         buffer: *mut ::core::ffi::c_char,
         buffer_size: i32,
+    ) -> i32;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct lychee_subtitle_image {
+    pub struct_size: u32,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub bitmap_width: i32,
+    pub bitmap_height: i32,
+    pub stride: i32,
+    pub data: *const u8,
+}
+unsafe extern "C" {
+    pub fn lychee_player_acquire_subtitle(
+        player: *mut lychee_player,
+        display_time_us: i64,
+        width: i32,
+        height: i32,
+    ) -> *mut lychee_subtitle;
+}
+unsafe extern "C" {
+    pub fn lychee_subtitle_release(subtitle: *mut lychee_subtitle);
+}
+unsafe extern "C" {
+    pub fn lychee_subtitle_get_id(subtitle: *const lychee_subtitle) -> i64;
+}
+unsafe extern "C" {
+    pub fn lychee_subtitle_get_image_count(subtitle: *const lychee_subtitle) -> i32;
+}
+unsafe extern "C" {
+    pub fn lychee_subtitle_get_image(
+        subtitle: *const lychee_subtitle,
+        index: i32,
+        image: *mut lychee_subtitle_image,
     ) -> i32;
 }
 unsafe extern "C" {
