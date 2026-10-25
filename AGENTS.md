@@ -154,7 +154,7 @@ glitch checks fail for reasons unrelated to your change. Done means:
   macOS and the iOS simulator with zero warnings, run both, and look at
   the screenshots, including `rotated.mp4` when the view's layout changed.
   `LycheeFrameDriver` is a port of the plugin's `LycheeTexture`: fix both
-  until the plugin uses the SDK (roadmap, Distribution 4.2).
+  until the plugin uses the SDK (roadmap, Distribution 3.2).
 - For changes to the Android SDK (`sdk/android`): build it and its example
   (`sdk/android/gradlew -p sdk/android :lychee:publish
   :example:assembleDebug`, zero warnings), install the example on an

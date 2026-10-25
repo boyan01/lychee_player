@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:lychee_player/lychee_player.dart';
 
@@ -54,6 +55,13 @@ class _PlayerPageState extends State<PlayerPage> {
     previous?.dispose();
   }
 
+  Future<void> _pick() async {
+    final file = await openFile();
+    if (file == null || !mounted) return;
+    _url.text = file.path;
+    await _open();
+  }
+
   @override
   void dispose() {
     _player?.dispose();
@@ -82,7 +90,11 @@ class _PlayerPageState extends State<PlayerPage> {
                       onSubmitted: (_) => _open(),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Choose a file',
+                    icon: const Icon(Icons.folder_open),
+                    onPressed: _pick,
+                  ),
                   FilledButton(onPressed: _open, child: const Text('Open')),
                 ],
               ),

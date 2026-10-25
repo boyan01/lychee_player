@@ -126,7 +126,7 @@ above). What is left per platform is a renderer in `examples/glfw`
    Flutter already warns that CocoaPods-only plugins will become an error.
    The xcframeworks in `flutter/darwin/Frameworks` can be its
    `binaryTarget`s. It should depend on the `sdk/apple` package for the
-   frame driver (Distribution 4.2 says why that takes a URL).
+   frame driver (Distribution 3.2 says why that takes a URL).
 
 ## FFmpeg-free builds
 
@@ -189,8 +189,7 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    or script phase with pinned checksums), or a separate binary pod / Swift
    package. Done when `flutter pub publish --dry-run` produces a package
    that builds in a fresh app.
-3. **Example app**: a file picker instead of a path field.
-4. **Native SDKs, with Flutter as one consumer** (decided 2026-10-25).
+3. **Native SDKs, with Flutter as one consumer** (decided 2026-10-25).
    1. `sdk/android/` exists (2026-10-25): one AAR, `tech.soit.lychee:lychee`,
       with the core as `liblychee.so` (also a prefab module) and its
       FFmpeg, and the Kotlin `LycheePlayer`, `LycheeFrameDriver` and
