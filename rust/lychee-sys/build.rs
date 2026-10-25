@@ -6,7 +6,10 @@
 //
 // Dependents read the directory as DEP_LYCHEE_LIB_DIR, to ship the
 // library next to their binary. `cargo run` and `cargo test` find it
-// there by themselves.
+// there by themselves, and liblychee finds FFmpeg through the rpath CMake
+// gives it. On Apple platforms liblychee and the FFmpeg libraries have
+// @rpath install names, so a shipped binary copies them next to itself
+// and links with `-C link-arg=-Wl,-rpath,@executable_path`.
 
 use std::env;
 use std::path::PathBuf;

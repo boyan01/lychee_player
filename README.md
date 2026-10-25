@@ -180,7 +180,11 @@ no libclang is needed) and links `liblychee` as a shared library, and
 from an LGPL build with `LYCHEE_FFMPEG_ROOT=third_party/ffmpeg/PLATFORM`.
 `LYCHEE_LIB_DIR` links a prebuilt `liblychee` instead. Dependents find the
 library's directory in `DEP_LYCHEE_LIB_DIR`, to ship it next to their
-binary.
+binary. On macOS `liblychee` and the FFmpeg libraries have `@rpath`
+install names: copy `liblychee.dylib` and the five FFmpeg libraries
+(`libavcodec.63.dylib`, ...) next to the binary and link it with
+`-C link-arg=-Wl,-rpath,@executable_path` (`@executable_path/../Frameworks`
+in an app bundle).
 
 ```rust
 let player = lychee::Player::new(&lychee::Config::default())?;  // CPU BGRA frames

@@ -214,9 +214,8 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
       FFmpeg and with the LGPL one. Left: not published to crates.io;
       never built for Windows, Linux, Android or iOS (`LYCHEE_LIB_DIR` is
       meant for the AAR's and the xcframework's library, untried). The
-      macOS FFmpeg from `tool/build_ffmpeg.sh` records its build directory
-      as each library's install name (`otool -D`), so a binary linked
-      against `third_party/ffmpeg/macos-*` runs only where that directory
-      exists; the xcframeworks are not affected. Make the install names
-      `@rpath/...` before shipping a Rust binary.
+      Apple FFmpeg from `tool/build_ffmpeg.sh` has `@rpath` install names
+      (2026-10-25), so a Rust binary ships `liblychee` and FFmpeg next to
+      itself with an `@executable_path` rpath (README); tried by moving
+      the example with its libraries to another directory.
    Windows and Linux native users take the C ABI as it is.

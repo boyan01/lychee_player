@@ -48,6 +48,9 @@ case "$platform" in
       --extra-cflags="-arch $arch $min"
       --extra-ldflags="-arch $arch $min"
       --enable-videotoolbox --enable-audiotoolbox --enable-securetransport
+      # Install names @rpath/libavcodec.63.dylib, not this build's prefix,
+      # so whatever links the libraries can ship them next to itself.
+      --install-name-dir=@rpath
       # Only what the SDK has. On macOS, Homebrew's pkg-config and
       # sdl2-config would add libxcb, Xlib and SDL2 from /opt/homebrew.
       --pkg-config=false --disable-sdl2
@@ -104,11 +107,11 @@ grep -qE '^License: LGPL version 2.1 or later' configure.log || {
 }
 make -j"$jobs" >make.log 2>&1 || { tail -30 make.log; exit 1; }
 make install >/dev/null
-# Apple builds may link only the system and each other.
+# Apple builds may link only the system and each other, through @rpath.
 case "$platform" in
   macos-*|ios-*)
     foreign="$(otool -L "$out"/lib/*.dylib | awk '/^\t/ { print $1 }' | sort -u |
-      grep -vE "^(/System/|/usr/lib/|$out/)" || true)"
+      grep -vE "^(/System/|/usr/lib/|@rpath/lib(avutil|swresample|swscale|avcodec|avformat)\.[0-9]+\.dylib$)" || true)"
     [ -z "$foreign" ] || { printf 'links outside the SDK:\n%s\n' "$foreign" >&2; exit 1; }
     ;;
 esac
