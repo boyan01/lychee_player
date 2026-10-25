@@ -58,6 +58,15 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
   control thread, then a resync seek to the clock's position. Video then
   skips frames up to the end of the one on screen, since callers pull
   frames for display times ahead of the clock.
+- Live input (`lychee_player_open_live`): caller threads push packets into
+  `LiveDemuxer`, which the read thread reads like any demuxer. Packets
+  carry deadlines in the `NowMicros()` timebase, set at push time by
+  `LiveTimeline` (ported from flutter-airplay); the clock runs at rate 1
+  from the open and is never driven by audio, and seeks and rate changes
+  are ignored. A track change or flush holds the stream in the demuxer
+  until the control thread has parked the read thread, replaced or
+  flushed the renderers under a new generation, and released it, so no
+  packet reaches the old renderer and none is lost.
 - Flutter teardown order matters: `disposeTexture` (stops the display link,
   nulls the player under the texture's lock) → `lychee_player_destroy`
   (joins all threads, so no more callbacks) → `NativeCallable.close()`.

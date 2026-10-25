@@ -32,6 +32,12 @@ platforms) or as CPU RGBA rows elsewhere. The caller pulls them per vsync with
 `lychee_player_has_new_frame()` / `lychee_player_acquire_frame()`, and the
 library picks the frame that should be on screen at that time.
 
+Besides files and URLs, the library plays a live input
+(`lychee_player_open_live()`): the caller declares H.264/HEVC and AAC/ALAC
+tracks and pushes the packets a sender (e.g. screen mirroring) sends,
+with the sender's timestamps; the library presents them a fixed latency
+after they arrive and adapts to jitter and the audio device's latency.
+
 ## Building the core
 
 Requires CMake, Ninja, pkg-config and FFmpeg development files
@@ -51,7 +57,10 @@ dropped frames and clock drift. Options: `--seek SEC [--seek-after SEC]`,
 the same player), `--select TYPE:INDEX [--select-after SEC]` (TYPE is
 `video`, `audio` or `subtitle`, INDEX a track index as the CLI lists them;
 -1 turns the type off), `--virtual-time` (play on a simulated clock, as fast
-as the media decodes, with audio to a null sink).
+as the media decodes, with audio to a null sink). `--live` pushes the
+file's packets into a live input when a sender would send them, with
+`--latency MS`, `--live-jitter MS`, `--live-stall SEC FOR`,
+`--live-flush SEC` and `--live-gap SEC FOR` to simulate the network.
 
 With GLFW installed (`brew install glfw`) the build also produces
 `build/examples/glfw/lychee_glfw path/to/video.mp4`: a window that draws the

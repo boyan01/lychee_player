@@ -27,6 +27,30 @@ LYCHEE_EXPORT int32_t lychee_testing_player_settled(lychee_player* player,
 // does after a GPU reset, so the player rebuilds it.
 LYCHEE_EXPORT void lychee_testing_lose_video_decoder(lychee_player* player);
 
+// A file replayed as a live input: its default video and audio streams,
+// in file order, as lychee_player_push_live_packet() takes them (Annex B
+// video, parameter sets before every keyframe).
+typedef struct lychee_testing_live_source lychee_testing_live_source;
+// NULL if |url| cannot be opened.
+LYCHEE_EXPORT lychee_testing_live_source* lychee_testing_live_source_open(
+    const char* url);
+// The file's |type| track as a live track. Returns -1 if there is none or
+// its codec is not one live input takes.
+LYCHEE_EXPORT int32_t lychee_testing_live_source_track(
+    lychee_testing_live_source* source,
+    int32_t type,
+    lychee_live_track* track);
+// The next packet of a track that lychee_testing_live_source_track()
+// returned; |packet->data| stays valid until the next call. |send_time_us|
+// is when a sender would send it: its decode timestamp, on the same clock
+// as |packet->pts_us|. Returns -1 at the end.
+LYCHEE_EXPORT int32_t lychee_testing_live_source_read(
+    lychee_testing_live_source* source,
+    lychee_live_packet* packet,
+    int64_t* send_time_us);
+LYCHEE_EXPORT void lychee_testing_live_source_close(
+    lychee_testing_live_source* source);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

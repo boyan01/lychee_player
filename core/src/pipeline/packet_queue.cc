@@ -13,6 +13,7 @@ void PacketQueue::Push(std::shared_ptr<EncodedPacket> packet) {
 
 bool PacketQueue::Pop(Entry* entry) {
   std::unique_lock<std::mutex> lock(mutex_);
+  consumer_busy_ = false;
   condition_.wait(lock, [this] { return aborted_ || !entries_.empty(); });
   if (aborted_) {
     return false;
@@ -20,6 +21,7 @@ bool PacketQueue::Pop(Entry* entry) {
   *entry = std::move(entries_.front());
   entries_.pop_front();
   bytes_ -= entry->packet->size();
+  consumer_busy_ = true;
   return true;
 }
 
@@ -44,11 +46,17 @@ void PacketQueue::Reset(uint64_t generation) {
   bytes_ = 0;
   generation_ = generation;
   aborted_ = false;
+  consumer_busy_ = false;
 }
 
 bool PacketQueue::empty() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return entries_.empty();
+}
+
+bool PacketQueue::idle() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return entries_.empty() && !consumer_busy_;
 }
 
 size_t PacketQueue::bytes() const {

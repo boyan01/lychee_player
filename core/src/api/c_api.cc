@@ -11,6 +11,7 @@
 #include "base/log.h"
 #include "base/time.h"
 #include "lychee/lychee.h"
+#include "media/annexb.h"
 #include "media/factory.h"
 #include "media/null_audio_sink.h"
 #include "pipeline/player.h"
@@ -64,6 +65,56 @@ bool ToVideoDevice(const lychee_video_device* device,
   memcpy(&copy, device,
          std::min<size_t>(device->struct_size, sizeof(copy)));
   return lychee::MakeVideoDevice(copy.type, copy.handle, copy.path, result);
+}
+
+// Default lychee_live_config.latency_us.
+constexpr int64_t kDefaultLiveLatency = 80 * lychee::kMicrosPerMilli;
+
+// Copies a caller's struct that may be smaller than this build's (an older
+// caller) or larger (a newer one) into a zeroed |T|.
+template <typename T>
+T CopyStruct(const T* source) {
+  T copy = {};
+  memcpy(&copy, source, std::min<size_t>(source->struct_size, sizeof(copy)));
+  return copy;
+}
+
+// |track| as a live StreamInfo; kUnknown type for LYCHEE_CODEC_NONE. False
+// for a codec of the wrong type.
+bool ToLiveStream(const lychee_live_track& track, lychee::StreamInfo* info) {
+  using lychee::AudioCodec;
+  using lychee::VideoCodec;
+  *info = lychee::StreamInfo();
+  if (track.codec == LYCHEE_CODEC_NONE) {
+    return true;
+  }
+  if (track.type == LYCHEE_TRACK_VIDEO) {
+    if (track.codec != LYCHEE_CODEC_H264 && track.codec != LYCHEE_CODEC_HEVC) {
+      return false;
+    }
+    info->type = MediaType::kVideo;
+    info->video.codec = track.codec == LYCHEE_CODEC_H264 ? VideoCodec::kH264
+                                                         : VideoCodec::kHEVC;
+    info->video.codec_name = lychee::VideoCodecName(info->video.codec);
+    info->video.width = std::max(track.width, 0);
+    info->video.height = std::max(track.height, 0);
+    info->video.low_delay = true;
+    return true;
+  }
+  if (track.codec != LYCHEE_CODEC_AAC && track.codec != LYCHEE_CODEC_ALAC) {
+    return false;
+  }
+  info->type = MediaType::kAudio;
+  info->audio.codec =
+      track.codec == LYCHEE_CODEC_AAC ? AudioCodec::kAAC : AudioCodec::kALAC;
+  info->audio.codec_name = lychee::AudioCodecName(info->audio.codec);
+  info->audio.sample_rate = track.sample_rate;
+  info->audio.channels = track.channels;
+  if (track.config && track.config_size > 0) {
+    info->audio.extradata.assign(track.config,
+                                 track.config + track.config_size);
+  }
+  return true;
 }
 
 }  // namespace
@@ -141,6 +192,54 @@ void lychee_player_set_event_callback(lychee_player* player,
 
 int32_t lychee_player_open(lychee_player* player, const char* url) {
   return url && player->player->Open(url) ? 0 : -1;
+}
+
+int32_t lychee_player_open_live(lychee_player* player,
+                                const lychee_live_config* config) {
+  int64_t latency = kDefaultLiveLatency;
+  if (config) {
+    const lychee_live_config copy = CopyStruct(config);
+    if (copy.latency_us > 0) {
+      latency = copy.latency_us;
+    }
+  }
+  return player->player->OpenLive(latency) ? 0 : -1;
+}
+
+int32_t lychee_player_set_live_track(lychee_player* player,
+                                     const lychee_live_track* track) {
+  if (!track) {
+    return -1;
+  }
+  const lychee_live_track copy = CopyStruct(track);
+  lychee::StreamInfo info;
+  if ((copy.type != LYCHEE_TRACK_VIDEO && copy.type != LYCHEE_TRACK_AUDIO) ||
+      !ToLiveStream(copy, &info)) {
+    return -1;
+  }
+  return player->player->SetLiveTrack(static_cast<MediaType>(copy.type), info)
+             ? 0
+             : -1;
+}
+
+int32_t lychee_player_push_live_packet(lychee_player* player,
+                                       const lychee_live_packet* packet) {
+  if (!packet) {
+    return -1;
+  }
+  const lychee_live_packet copy = CopyStruct(packet);
+  if (copy.size <= 0) {
+    return -1;
+  }
+  return player->player->PushLivePacket(static_cast<MediaType>(copy.type),
+                                        copy.pts_us, copy.data,
+                                        static_cast<size_t>(copy.size))
+             ? 0
+             : -1;
+}
+
+int32_t lychee_player_flush_live(lychee_player* player, int32_t type) {
+  return player->player->FlushLive(static_cast<MediaType>(type)) ? 0 : -1;
 }
 
 void lychee_player_play(lychee_player* player) {
@@ -360,6 +459,120 @@ int32_t lychee_testing_player_settled(lychee_player* player,
 
 void lychee_testing_lose_video_decoder(lychee_player* player) {
   player->player->LoseVideoDecoderForTesting();
+}
+
+}  // extern "C"
+
+struct lychee_testing_live_source {
+  std::unique_ptr<lychee::Demuxer> demuxer;
+  // Per lychee_track_type: the stream, or -1.
+  int stream[3] = {-1, -1, -1};
+  lychee::AnnexBConverter converter;
+  std::vector<uint8_t> audio_config;
+  std::vector<uint8_t> data;
+};
+
+extern "C" {
+
+lychee_testing_live_source* lychee_testing_live_source_open(const char* url) {
+  auto source = std::make_unique<lychee_testing_live_source>();
+  source->demuxer = lychee::CreateDemuxer();
+  std::string error;
+  if (!source->demuxer || !url || !source->demuxer->Open(url, &error)) {
+    return nullptr;
+  }
+  const lychee::MediaInfo& info = source->demuxer->media_info();
+  std::vector<int> streams;
+  if (info.default_video_stream >= 0) {
+    const lychee::VideoConfig& video =
+        info.streams[info.default_video_stream].video;
+    if (source->converter.Initialize(video)) {
+      source->stream[LYCHEE_TRACK_VIDEO] = info.default_video_stream;
+      streams.push_back(info.default_video_stream);
+    }
+  }
+  if (info.default_audio_stream >= 0) {
+    const lychee::AudioConfig& audio =
+        info.streams[info.default_audio_stream].audio;
+    if (audio.codec == lychee::AudioCodec::kAAC ||
+        audio.codec == lychee::AudioCodec::kALAC) {
+      source->stream[LYCHEE_TRACK_AUDIO] = info.default_audio_stream;
+      source->audio_config = audio.extradata;
+      streams.push_back(info.default_audio_stream);
+    }
+  }
+  source->demuxer->SetEnabledStreams(streams);
+  return source.release();
+}
+
+int32_t lychee_testing_live_source_track(lychee_testing_live_source* source,
+                                         int32_t type,
+                                         lychee_live_track* track) {
+  if ((type != LYCHEE_TRACK_VIDEO && type != LYCHEE_TRACK_AUDIO) ||
+      source->stream[type] < 0) {
+    return -1;
+  }
+  const lychee::StreamInfo& info =
+      source->demuxer->media_info().streams[source->stream[type]];
+  lychee_live_track result = {};
+  result.struct_size = sizeof(result);
+  result.type = type;
+  if (type == LYCHEE_TRACK_VIDEO) {
+    result.codec = info.video.codec == lychee::VideoCodec::kHEVC
+                       ? LYCHEE_CODEC_HEVC
+                       : LYCHEE_CODEC_H264;
+    result.width = info.video.width;
+    result.height = info.video.height;
+  } else {
+    result.codec = info.audio.codec == lychee::AudioCodec::kAAC
+                       ? LYCHEE_CODEC_AAC
+                       : LYCHEE_CODEC_ALAC;
+    result.sample_rate = info.audio.sample_rate;
+    result.channels = info.audio.channels;
+    result.config = source->audio_config.data();
+    result.config_size = static_cast<int32_t>(source->audio_config.size());
+  }
+  memcpy(track, &result, std::min<size_t>(track->struct_size, sizeof(result)));
+  return 0;
+}
+
+int32_t lychee_testing_live_source_read(lychee_testing_live_source* source,
+                                        lychee_live_packet* packet,
+                                        int64_t* send_time_us) {
+  for (;;) {
+    lychee::EncodedPacket read;
+    if (source->demuxer->Read(&read) != lychee::DemuxerReadResult::kOk) {
+      return -1;
+    }
+    if (!read.buffer || read.pts == lychee::kNoTimestamp) {
+      continue;
+    }
+    int32_t type = 0;
+    source->data.clear();
+    if (read.stream_index == source->stream[LYCHEE_TRACK_VIDEO]) {
+      type = LYCHEE_TRACK_VIDEO;
+      if (!source->converter.Convert(read.buffer->data(), read.size(),
+                                     read.keyframe, &source->data)) {
+        continue;
+      }
+    } else if (read.stream_index == source->stream[LYCHEE_TRACK_AUDIO]) {
+      type = LYCHEE_TRACK_AUDIO;
+      source->data.assign(read.buffer->data(),
+                          read.buffer->data() + read.size());
+    } else {
+      continue;
+    }
+    packet->type = type;
+    packet->pts_us = read.pts;
+    packet->data = source->data.data();
+    packet->size = static_cast<int32_t>(source->data.size());
+    *send_time_us = read.dts != lychee::kNoTimestamp ? read.dts : read.pts;
+    return 0;
+  }
+}
+
+void lychee_testing_live_source_close(lychee_testing_live_source* source) {
+  delete source;
 }
 
 }  // extern "C"

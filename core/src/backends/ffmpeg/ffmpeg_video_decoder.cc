@@ -228,7 +228,12 @@ bool FFmpegVideoDecoder::Initialize(const VideoConfig& config,
     context_->thread_count = 1;
   } else {
     context_->thread_count = 0;
-    context_->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+    // Frame threads each hold a frame back: one per core of latency.
+    context_->thread_type =
+        config.low_delay ? FF_THREAD_SLICE : FF_THREAD_FRAME | FF_THREAD_SLICE;
+  }
+  if (config.low_delay) {
+    context_->flags |= AV_CODEC_FLAG_LOW_DELAY;
   }
 
   ret = avcodec_open2(context_.get(), codec, nullptr);

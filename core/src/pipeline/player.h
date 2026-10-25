@@ -12,6 +12,7 @@
 
 #include "media/demuxer.h"
 #include "pipeline/audio_renderer.h"
+#include "pipeline/live_demuxer.h"
 #include "pipeline/media_clock.h"
 #include "pipeline/packet_queue.h"
 #include "pipeline/subtitle_renderer.h"
@@ -78,6 +79,12 @@ struct TrackInfo {
 // thread only reads packets, so a read stalled on the network delays neither
 // state changes nor seeks. Decoders run on the renderers' threads; video
 // frames are pulled by the caller. Open() again replaces the whole pipeline.
+//
+// OpenLive() reads packets the caller pushes instead (LiveDemuxer): the
+// media timeline is then the NowMicros() timebase, the clock runs from the
+// open on, packet timestamps are deadlines, and there is no buffering,
+// seeking, rate or end. Track changes and flushes park the read thread
+// like a seek, but replace or flush only the renderer concerned.
 class Player {
  public:
   using EventCallback =
@@ -94,6 +101,19 @@ class Player {
   // Stops whatever is open and opens |url|. Volume, rate, looping, the
   // event callback and whether to play are kept.
   bool Open(const std::string& url);
+  // Stops whatever is open and starts a live input presenting packets
+  // |latency| after they arrive (lychee_player_open_live()).
+  bool OpenLive(int64_t latency);
+  // The codec of the live |type| track, or none if |info.type| is
+  // kUnknown. False if no live input is open.
+  bool SetLiveTrack(MediaType type, const StreamInfo& info);
+  // False if no live input is open or |type| has no codec.
+  bool PushLivePacket(MediaType type,
+                      int64_t pts,
+                      const uint8_t* data,
+                      size_t size);
+  // kUnknown flushes both tracks and anchors the timeline again.
+  bool FlushLive(MediaType type);
   void Play();
   void Pause();
   // |position| is relative to the start of the media.
@@ -151,6 +171,17 @@ class Player {
 
   // A requested stream per type; kUnchanged if none was requested.
   static constexpr int kUnchanged = -2;
+  // Live track changes and flushes the caller asked for, per
+  // LiveDemuxer stream.
+  struct LiveChange {
+    bool track[2] = {false, false};
+    StreamInfo info[2];
+    bool flush[2] = {false, false};
+    bool pending() const {
+      return track[0] || track[1] || flush[0] || flush[1];
+    }
+  };
+
   struct TrackRequest {
     int video = kUnchanged;
     int audio = kUnchanged;
@@ -174,6 +205,10 @@ class Player {
   // Rebuilds the video renderer of the current stream for |rebuild_video|.
   // The read thread must be parked.
   void ChangeTracks(const TrackRequest& request);
+  // Live: replaces and flushes renderers for |request| and |change|. The
+  // read thread must be parked.
+  void ApplyLiveChange(TrackRequest request, const LiveChange& change);
+  bool LiveSettledLocked(int64_t until) const;
   std::unique_ptr<VideoRenderer> CreateVideoRenderer(const StreamInfo& info);
   std::unique_ptr<AudioRenderer> CreateAudioRenderer(const StreamInfo& info);
   std::unique_ptr<SubtitleRenderer> CreateSubtitleRenderer(
@@ -211,6 +246,12 @@ class Player {
   // Serializes Open() calls with each other and with the destructor.
   std::mutex open_mutex_;
   std::unique_ptr<Demuxer> demuxer_;
+  // Set with |demuxer_| under both locks: whether it is a LiveDemuxer, and
+  // that one.
+  bool live_ = false;
+  LiveDemuxer* live_demuxer_ = nullptr;
+  // Written by the live audio renderer, read by |live_demuxer_|.
+  std::atomic<int64_t> audio_output_lead_{0};
   std::unique_ptr<VideoRenderer> video_renderer_;
   std::unique_ptr<AudioRenderer> audio_renderer_;
   std::unique_ptr<SubtitleRenderer> subtitle_renderer_;
@@ -264,6 +305,7 @@ class Player {
   bool loop_seek_pending_ = false;
   bool prerolling_ = false;
   TrackRequest track_request_;
+  LiveChange live_change_;
   // The input stopped early (network failure, truncated file). Reported
   // once the data read so far has played, unless a seek comes first.
   std::string input_error_;

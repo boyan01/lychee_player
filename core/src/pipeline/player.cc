@@ -95,6 +95,9 @@ void Player::StopPipeline() {
     audio = std::move(audio_renderer_);
     subtitle = std::move(subtitle_renderer_);
     demuxer = std::move(demuxer_);
+    live_ = false;
+    live_demuxer_ = nullptr;
+    live_change_ = LiveChange();
     video_stream_ = audio_stream_ = subtitle_stream_ = -1;
     generation_ = 0;
     events_.clear();
@@ -124,6 +127,7 @@ void Player::StopPipeline() {
   video_queue_.Reset(0);
   audio_queue_.Reset(0);
   clock_.Reset(0);
+  audio_output_lead_ = 0;
 }
 
 void Player::SetEventCallback(EventCallback callback, void* user_data) {
@@ -142,6 +146,79 @@ bool Player::Open(const std::string& url) {
   SetStateLocked(PlayerState::kLoading);
   demuxer_ = CreateDemuxer();
   thread_ = std::thread(&Player::Run, this, url);
+  return true;
+}
+
+bool Player::OpenLive(int64_t latency) {
+  std::lock_guard<std::mutex> open_lock(open_mutex_);
+  StopPipeline();
+  std::lock_guard<std::mutex> lock(mutex_);
+  SetStateLocked(PlayerState::kLoading);
+  auto demuxer = std::make_unique<LiveDemuxer>(latency, &audio_output_lead_);
+  live_demuxer_ = demuxer.get();
+  demuxer_ = std::move(demuxer);
+  live_ = true;
+  LOGI("live input, latency %lld ms", static_cast<long long>(latency / 1000));
+  thread_ = std::thread(&Player::Run, this, std::string("live"));
+  return true;
+}
+
+namespace {
+
+int LiveStream(MediaType type) {
+  return type == MediaType::kVideo ? LiveDemuxer::kVideoStream
+                                   : LiveDemuxer::kAudioStream;
+}
+
+}  // namespace
+
+bool Player::SetLiveTrack(MediaType type, const StreamInfo& info) {
+  if (type != MediaType::kVideo && type != MediaType::kAudio) {
+    return false;
+  }
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!live_demuxer_ || state_ == PlayerState::kError) {
+      return false;
+    }
+    const int stream = LiveStream(type);
+    live_demuxer_->SetTrack(stream, info);
+    live_change_.track[stream] = true;
+    live_change_.info[stream] = info;
+  }
+  condition_.notify_all();
+  return true;
+}
+
+bool Player::PushLivePacket(MediaType type,
+                            int64_t pts,
+                            const uint8_t* data,
+                            size_t size) {
+  if ((type != MediaType::kVideo && type != MediaType::kAudio) || !data ||
+      size == 0) {
+    return false;
+  }
+  // The lock keeps the demuxer alive; pushing only copies.
+  std::lock_guard<std::mutex> lock(mutex_);
+  return live_demuxer_ &&
+         live_demuxer_->Push(LiveStream(type), pts, data, size);
+}
+
+bool Player::FlushLive(MediaType type) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!live_demuxer_) {
+      return false;
+    }
+    const bool all = type != MediaType::kVideo && type != MediaType::kAudio;
+    live_demuxer_->Flush(all ? -1 : LiveStream(type));
+    for (int stream : {LiveDemuxer::kVideoStream, LiveDemuxer::kAudioStream}) {
+      if (all || stream == LiveStream(type)) {
+        live_change_.flush[stream] = true;
+      }
+    }
+  }
+  condition_.notify_all();
   return true;
 }
 
@@ -175,7 +252,8 @@ void Player::Pause() {
 void Player::Seek(int64_t position) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (state_ == PlayerState::kIdle || state_ == PlayerState::kError) {
+    if (state_ == PlayerState::kIdle || state_ == PlayerState::kError ||
+        live_) {
       return;
     }
     position = std::max<int64_t>(position, 0);
@@ -239,6 +317,10 @@ void Player::SetRate(double rate) {
   }
   LOGI("rate %.2f -> %.2f", rate_, rate);
   rate_ = rate;
+  if (live_) {
+    // For the next file; live input plays in real time.
+    return;
+  }
   clock_.SetRate(rate);
   if (audio_renderer_) {
     audio_renderer_->SetRate(rate);
@@ -258,7 +340,7 @@ bool Player::SelectTrack(MediaType type, int track) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (state_ == PlayerState::kIdle || state_ == PlayerState::kError ||
-        (!video_renderer_ && !audio_renderer_)) {
+        live_ || (!video_renderer_ && !audio_renderer_)) {
       return false;
     }
     int stream = -1;
@@ -533,12 +615,27 @@ void Player::Run(std::string url) {
     bool resync = false;
     int64_t seek_target = 0;
     TrackRequest tracks;
+    LiveChange live_change;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       if (quit_) {
         break;
       }
-      if (seek_pending_ || track_request_.pending()) {
+      if (live_) {
+        if (live_change_.pending() || track_request_.pending()) {
+          seek = true;
+          tracks = track_request_;
+          track_request_ = TrackRequest();
+          live_change = live_change_;
+          live_change_ = LiveChange();
+          seeking_ = true;
+          demuxer_->Interrupt();
+          condition_.wait(lock, [this] { return !reading_ || quit_; });
+          if (quit_) {
+            break;
+          }
+        }
+      } else if (seek_pending_ || track_request_.pending()) {
         seek = true;
         tracks = track_request_;
         track_request_ = TrackRequest();
@@ -569,7 +666,14 @@ void Player::Run(std::string url) {
         }
       }
     }
-    if (seek) {
+    if (seek && live_) {
+      ApplyLiveChange(tracks, live_change);
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        seeking_ = false;
+      }
+      condition_.notify_all();
+    } else if (seek) {
       if (tracks.pending()) {
         ChangeTracks(tracks);
       }
@@ -584,7 +688,8 @@ void Player::Run(std::string url) {
     DispatchEvents();
     std::unique_lock<std::mutex> lock(mutex_);
     condition_.wait_for(lock, std::chrono::milliseconds(10), [this] {
-      return quit_ || seek_pending_ || track_request_.pending();
+      return quit_ || seek_pending_ || track_request_.pending() ||
+             live_change_.pending();
     });
   }
   read_thread_.join();
@@ -641,7 +746,8 @@ std::unique_ptr<VideoRenderer> Player::CreateVideoRenderer(
 
 std::unique_ptr<AudioRenderer> Player::CreateAudioRenderer(
     const StreamInfo& info) {
-  auto audio = std::make_unique<AudioRenderer>(&clock_);
+  auto audio = std::make_unique<AudioRenderer>(
+      &clock_, live_ ? &audio_output_lead_ : nullptr);
   std::string error;
   if (!audio->Initialize(info.audio, &audio_queue_, &error)) {
     LOGW("audio stream %d disabled: %s", info.index, error.c_str());
@@ -670,6 +776,17 @@ bool Player::Prepare(const std::string& url, std::string* error) {
     return false;
   }
   const MediaInfo& info = demuxer_->media_info();
+  if (live_) {
+    // Tracks come later; time runs from now on.
+    clock_.Reset(info.start_time);
+    clock_.SetRate(1.0);
+    clock_.Play();
+    std::lock_guard<std::mutex> lock(mutex_);
+    media_info_ = info;
+    clock_running_ = true;
+    PostEventLocked(PlayerEvent::kMediaInfo, -1);
+    return true;
+  }
   LOGI("opened %s: format %s, duration %lld us, %zu streams", url.c_str(),
        info.format_name.c_str(), static_cast<long long>(info.duration),
        info.streams.size());
@@ -694,6 +811,8 @@ bool Player::Prepare(const std::string& url, std::string* error) {
   clock_.Reset(info.start_time);
 
   std::lock_guard<std::mutex> lock(mutex_);
+  // A live input before may have left it at 1.
+  clock_.SetRate(rate_);
   media_info_ = info;
   video_stream_ = video ? info.default_video_stream : -1;
   audio_stream_ = audio ? info.default_audio_stream : -1;
@@ -819,7 +938,8 @@ void Player::ChangeTracks(const TrackRequest& request) {
   }
   std::lock_guard<std::mutex> lock(mutex_);
   EnableStreamsLocked();
-  if (!video_renderer_ && !audio_renderer_) {
+  // A live input may have no tracks for a while.
+  if (!video_renderer_ && !audio_renderer_ && !live_) {
     FailLocked("no playable audio or video stream");
   }
   if (request.tracks_changed()) {
@@ -920,6 +1040,9 @@ void Player::ReadPacket() {
   } else if (packet->stream_index == subtitle_stream_ && subtitle_renderer_) {
     subtitle_renderer_->Decode(*packet);
   }
+  if (live_demuxer_) {
+    live_demuxer_->PacketDelivered();
+  }
 }
 
 void Player::ProcessSeek(int64_t target, bool loop, bool resync) {
@@ -980,6 +1103,17 @@ void Player::UpdateState() {
     } else if (audio_renderer_ && audio_renderer_->HasError()) {
       FailLocked("audio decoding failed");
     }
+  }
+  if (live_) {
+    // Never buffering or ended: there is nothing to wait for but the
+    // sender.
+    if (state_ == PlayerState::kLoading &&
+        ((video_renderer_ && video_renderer_->HasEnoughData()) ||
+         (audio_renderer_ && audio_renderer_->buffered_duration() > 0))) {
+      SetStateLocked(PlayerState::kReady);
+    }
+    UpdateVideoSizeLocked();
+    return;
   }
   switch (state_) {
     case PlayerState::kLoading:
@@ -1060,6 +1194,9 @@ void Player::UpdateSubtitleLocked() {
 }
 
 void Player::ApplyPlayingLocked() {
+  if (live_) {
+    return;
+  }
   bool run =
       play_when_ready_ && state_ == PlayerState::kReady && !prerolling_;
   if (run == clock_running_) {
@@ -1078,6 +1215,9 @@ void Player::ApplyPlayingLocked() {
 
 bool Player::SettledForTesting(int64_t until) const {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (live_) {
+    return LiveSettledLocked(until);
+  }
   switch (state_) {
     case PlayerState::kLoading:
     case PlayerState::kBuffering:
@@ -1110,6 +1250,78 @@ bool Player::SettledForTesting(int64_t until) const {
   return (!audio_renderer_ || audio_renderer_->HasDataFor(ahead)) &&
          (!video_renderer_ ||
           video_renderer_->HasFramesUntil(clock_.Now() + ahead));
+}
+
+bool Player::LiveSettledLocked(int64_t until) const {
+  if (seeking_ || live_change_.pending() || track_request_.pending()) {
+    return false;
+  }
+  if (video_renderer_) {
+    video_renderer_->ExpireFramesWhileHidden(NowMicros());
+  }
+  // Everything pushed so far has been decoded, unless a renderer waits for
+  // room and already has what |until| needs.
+  if (!live_demuxer_->Idle()) {
+    return false;
+  }
+  return (!video_renderer_ || video_queue_.idle() ||
+          video_renderer_->HasFramesUntil(until)) &&
+         (!audio_renderer_ || audio_queue_.idle() ||
+          audio_renderer_->HasDataFor(until - NowMicros()));
+}
+
+void Player::ApplyLiveChange(TrackRequest request, const LiveChange& change) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (int stream : {LiveDemuxer::kVideoStream, LiveDemuxer::kAudioStream}) {
+      if (!change.track[stream]) {
+        continue;
+      }
+      StreamInfo info = change.info[stream];
+      info.index = stream;
+      media_info_.streams[stream] = info;
+      int* requested = stream == LiveDemuxer::kVideoStream ? &request.video
+                                                           : &request.audio;
+      *requested = info.type == MediaType::kUnknown ? -1 : stream;
+    }
+    if (request.video >= 0 && config_.video_frame_types == 0) {
+      request.video = -1;
+    }
+  }
+  if (request.pending()) {
+    ChangeTracks(request);
+  }
+  const bool flush[2] = {
+      change.flush[0] || change.track[0] || request.rebuild_video,
+      change.flush[1] || change.track[1]};
+  generation_++;
+  if (flush[LiveDemuxer::kVideoStream]) {
+    video_queue_.Flush(generation_);
+    if (video_renderer_) {
+      video_renderer_->Flush(generation_, kNoTimestamp, false);
+    }
+    if (request.rebuild_video && !change.track[LiveDemuxer::kVideoStream]) {
+      live_demuxer_->RestartVideo();
+    }
+  }
+  if (flush[LiveDemuxer::kAudioStream]) {
+    audio_queue_.Flush(generation_);
+    if (audio_renderer_) {
+      audio_renderer_->Flush(generation_, kNoTimestamp);
+    }
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (audio_renderer_) {
+    audio_renderer_->SetPlaying(true);
+  }
+  if (flush[LiveDemuxer::kVideoStream]) {
+    live_demuxer_->Release(LiveDemuxer::kVideoStream, video_renderer_ != nullptr);
+  }
+  if (flush[LiveDemuxer::kAudioStream]) {
+    live_demuxer_->Release(LiveDemuxer::kAudioStream, audio_renderer_ != nullptr);
+  }
+  // Clears the Interrupt().
+  demuxer_->Seek(0);
 }
 
 void Player::LoseVideoDecoderForTesting() {

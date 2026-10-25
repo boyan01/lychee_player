@@ -39,7 +39,9 @@ extern "C" {
 //    (lychee_config, lychee_player_set_video_device(), changeable during
 //    playback) and lychee_player_set_video_surface(); video_frame_types 0
 //    for audio only.
-#define LYCHEE_API_VERSION 4
+// 5: live input: lychee_player_open_live() and the packets the caller
+//    pushes.
+#define LYCHEE_API_VERSION 5
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -171,6 +173,22 @@ typedef enum lychee_track_type {
   LYCHEE_TRACK_SUBTITLE = 3,
 } lychee_track_type;
 
+// Codecs of a live input's tracks.
+typedef enum lychee_codec {
+  LYCHEE_CODEC_NONE = 0,
+  // Annex B access units, one picture per packet. Parameter sets (SPS,
+  // PPS; VPS for HEVC) travel in band, before a keyframe, at least when
+  // they change; the library repeats the last ones before later keyframes
+  // that lack them.
+  LYCHEE_CODEC_H264 = 1,
+  LYCHEE_CODEC_HEVC = 2,
+  // Raw access units (no ADTS). |config|: the AudioSpecificConfig, which
+  // also says the object type (AAC-LC, AAC-ELD, ...).
+  LYCHEE_CODEC_AAC = 3,
+  // |config|: the ALAC magic cookie (ALACSpecificConfig).
+  LYCHEE_CODEC_ALAC = 4,
+} lychee_codec;
+
 typedef enum lychee_log_level {
   LYCHEE_LOG_ERROR = 0,
   LYCHEE_LOG_WARNING = 1,
@@ -203,6 +221,46 @@ typedef struct lychee_config {
   // outlive lychee_player_create(). NULL for none.
   const lychee_video_device* video_device;
 } lychee_config;
+
+typedef struct lychee_live_config {
+  // Must be sizeof(lychee_live_config).
+  uint32_t struct_size;
+  // How long after it arrives a packet is presented, at least: the margin
+  // for network jitter and decoding. 0 for 80 ms. Video with B-frames
+  // needs more: a frame decodes only once the frames it waits for arrived.
+  int64_t latency_us;
+} lychee_live_config;
+
+typedef struct lychee_live_track {
+  // Must be sizeof(lychee_live_track).
+  uint32_t struct_size;
+  // LYCHEE_TRACK_VIDEO or LYCHEE_TRACK_AUDIO.
+  int32_t type;
+  // lychee_codec; LYCHEE_CODEC_NONE removes the track.
+  int32_t codec;
+  // Video: the coded size if known, else 0; the stream's SPS decides.
+  int32_t width;
+  int32_t height;
+  // Audio.
+  int32_t sample_rate;
+  int32_t channels;
+  // Codec configuration (see lychee_codec); copied.
+  const uint8_t* config;
+  int32_t config_size;
+} lychee_live_track;
+
+typedef struct lychee_live_packet {
+  // Must be sizeof(lychee_live_packet).
+  uint32_t struct_size;
+  // LYCHEE_TRACK_VIDEO or LYCHEE_TRACK_AUDIO.
+  int32_t type;
+  // On the sender's clock, in microseconds, the same clock for audio and
+  // video; any origin.
+  int64_t pts_us;
+  // Copied.
+  const uint8_t* data;
+  int32_t size;
+} lychee_live_packet;
 
 typedef struct lychee_stats {
   // Must be sizeof(lychee_stats).
@@ -290,6 +348,53 @@ LYCHEE_EXPORT void lychee_player_set_event_callback(
 // rate, looping and play/pause are kept.
 LYCHEE_EXPORT int32_t lychee_player_open(lychee_player* player,
                                          const char* url);
+
+// Stops what is open, like lychee_player_open(), and starts a live input:
+// packets pushed with lychee_player_push_live_packet() play as they
+// arrive, |config->latency_us| after the first one. Returns 0 if accepted.
+//
+// The library maps the sender's timestamps to presentation times: it
+// anchors on the first packet, then slowly steers so the earliest packets
+// arrive the latency ahead of their time, which absorbs a slow first
+// packet and the drift between the two clocks. Audio and video play when
+// due: late video frames are dropped (lychee_stats.frames_dropped), late
+// audio is cut and gaps become silence. If the audio device needs more
+// lead than the latency leaves, audio plays up to 500 ms behind video
+// rather than not at all.
+//
+// The state goes LOADING -> READY once the first frame or audio is
+// decoded, and is never BUFFERING or ENDED. Play, pause, seek, rate and
+// track selection do not apply. The position counts from the open, the
+// duration is -1, and lychee_player_get_track_info() lists the declared
+// tracks. lychee_frame_get_pts() is the frame's presentation time in the
+// lychee_now_us() timebase.
+LYCHEE_EXPORT int32_t lychee_player_open_live(
+    lychee_player* player,
+    const lychee_live_config* config);
+
+// Declares, changes or removes (LYCHEE_CODEC_NONE) the codec of a live
+// track. Packets pushed after this call belong to the new codec; the
+// track's decoder is replaced and starts at the next keyframe. Returns 0,
+// or -1 if no live input is open or |track| is invalid.
+LYCHEE_EXPORT int32_t lychee_player_set_live_track(
+    lychee_player* player,
+    const lychee_live_track* track);
+
+// Queues one packet of a declared live track; any thread. Video packets
+// before the track's first keyframe (after opening, a track change or a
+// flush) are dropped, and so is everything queued if the decoders fall
+// over 16 MB behind. Returns 0, or -1 if no live input is open or the
+// track has no codec.
+LYCHEE_EXPORT int32_t lychee_player_push_live_packet(
+    lychee_player* player,
+    const lychee_live_packet* packet);
+
+// Drops what was pushed of the |type| track (LYCHEE_TRACK_VIDEO or
+// LYCHEE_TRACK_AUDIO; 0 for both) and not played yet, e.g. when the sender
+// seeks or the connection resets. Flushing both also anchors the timeline
+// again on the next packet. Returns 0, or -1 if no live input is open.
+LYCHEE_EXPORT int32_t lychee_player_flush_live(lychee_player* player,
+                                               int32_t type);
 
 // Played from the start again if the state is LYCHEE_STATE_ENDED.
 LYCHEE_EXPORT void lychee_player_play(lychee_player* player);

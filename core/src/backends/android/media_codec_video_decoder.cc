@@ -187,12 +187,15 @@ bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
     return false;
   }
 
+  // A live input may not know the size; the stream's SPS decides it then.
+  const int width = config.width > 0 ? config.width : 1920;
+  const int height = config.height > 0 ? config.height : 1080;
   AMediaFormat* format = AMediaFormat_new();
   AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, mime);
-  AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, config.width);
-  AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, config.height);
+  AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, width);
+  AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, height);
   AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_MAX_INPUT_SIZE,
-                        std::max(config.width * config.height, 2 << 20));
+                        std::max(width * height, 2 << 20));
   // Parameter sets also go in band before every keyframe; codec specific
   // data covers decoders that want them at configure time.
   std::vector<uint8_t> csd[2];
@@ -209,10 +212,10 @@ bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
     }
   }
 
-  coded_width_ = config.width;
-  coded_height_ = config.height;
-  width_ = config.width;
-  height_ = config.height;
+  coded_width_ = width;
+  coded_height_ = height;
+  width_ = width;
+  height_ = height;
   std::lock_guard<std::mutex> lock(codec_->mutex);
   window_ = TargetWindowLocked();
   media_status_t status =
@@ -228,8 +231,7 @@ bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
     return false;
   }
   codec_->codec = codec;
-  LOGI("%s opened for %s %dx%d", codec_name.c_str(), mime, config.width,
-       config.height);
+  LOGI("%s opened for %s %dx%d", codec_name.c_str(), mime, width, height);
   return true;
 }
 

@@ -2,7 +2,8 @@
 // (60 Hz by default), and reports timing problems. Used for regression
 // testing without a UI toolkit. With --virtual-time it runs on the library's
 // test clock (core/src/api/testing.h): as fast as decoding allows, and
-// independent of machine load.
+// independent of machine load. With --live it plays the file as a live
+// input instead, pushing each packet when a sender would send it.
 
 #include <lychee/lychee.h>
 
@@ -15,6 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <random>
 #include <string>
 #include <thread>
@@ -52,6 +54,21 @@ struct Options {
   // in the background does, for |hide_for| seconds.
   double hide_after = -1;
   double hide_for = 2;
+  // Live input: the file's packets pushed as they would arrive.
+  bool live = false;
+  int64_t latency_ms = 80;
+  // Each packet arrives up to this much later than sent, in order.
+  int64_t live_jitter_ms = 0;
+  // Nothing arrives for |live_stall_for| seconds from |live_stall_at| on;
+  // then it all arrives at once.
+  double live_stall_at = -1;
+  double live_stall_for = 0;
+  // Flush both tracks this many seconds after the first packet.
+  double live_flush_at = -1;
+  // No video for this long, as from a sender whose screen does not
+  // change; it resumes at a keyframe.
+  double live_gap_at = -1;
+  double live_gap_for = 0;
 #if defined(__APPLE__)
   int32_t frame_type = LYCHEE_FRAME_CVPIXELBUFFER;
 #else
@@ -196,6 +213,32 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       const char* v = value();
       if (!v) return false;
       options->hide_for = atof(v);
+    } else if (arg == "--live") {
+      options->live = true;
+    } else if (arg == "--latency") {
+      const char* v = value();
+      if (!v) return false;
+      options->latency_ms = atoll(v);
+    } else if (arg == "--live-jitter") {
+      const char* v = value();
+      if (!v) return false;
+      options->live_jitter_ms = atoll(v);
+    } else if (arg == "--live-stall") {
+      const char* at = value();
+      const char* duration = value();
+      if (!at || !duration) return false;
+      options->live_stall_at = atof(at);
+      options->live_stall_for = atof(duration);
+    } else if (arg == "--live-flush") {
+      const char* v = value();
+      if (!v) return false;
+      options->live_flush_at = atof(v);
+    } else if (arg == "--live-gap") {
+      const char* at = value();
+      const char* duration = value();
+      if (!at || !duration) return false;
+      options->live_gap_at = atof(at);
+      options->live_gap_for = atof(duration);
     } else if (arg == "--audio-only") {
       options->frame_type = 0;
     } else if (arg == "--virtual-time") {
@@ -272,6 +315,151 @@ std::string SubtitleText(lychee_player* player) {
   return result;
 }
 
+// Pushes a file's packets into a live input at the times a sender would
+// send them, plus the arrival delays the options ask for.
+class LiveFeed {
+ public:
+  LiveFeed(const Options& options, lychee_player* player)
+      : options_(options), player_(player), random_(2) {}
+  ~LiveFeed() {
+    if (source_) {
+      lychee_testing_live_source_close(source_);
+    }
+  }
+
+  bool Open(bool video) {
+    source_ = lychee_testing_live_source_open(options_.url.c_str());
+    if (!source_) {
+      return false;
+    }
+    lychee_live_config config = {};
+    config.struct_size = sizeof(config);
+    config.latency_us = options_.latency_ms * 1000;
+    lychee_player_open_live(player_, &config);
+    for (int32_t type : {LYCHEE_TRACK_VIDEO, LYCHEE_TRACK_AUDIO}) {
+      lychee_live_track track = {};
+      track.struct_size = sizeof(track);
+      if ((type == LYCHEE_TRACK_VIDEO && !video) ||
+          lychee_testing_live_source_track(source_, type, &track) != 0) {
+        continue;
+      }
+      printf("live track: %s codec %d\n", TrackTypeName(type), track.codec);
+      lychee_player_set_live_track(player_, &track);
+    }
+    return true;
+  }
+
+  // Pushes what has arrived by |now|. False once everything is pushed.
+  bool Feed(int64_t now) {
+    for (;;) {
+      if (!pending_ && !Next()) {
+        return false;
+      }
+      if (start_ == INT64_MIN) {
+        start_ = now;
+        first_send_ = send_time_;
+      }
+      const int64_t since = send_time_ - first_send_;
+      if (!flushed_ && options_.live_flush_at >= 0 &&
+          since >= static_cast<int64_t>(options_.live_flush_at * 1e6)) {
+        flushed_ = true;
+        printf("live flush at %.3fs\n", since / 1e6);
+        lychee_player_flush_live(player_, 0);
+      }
+      int64_t arrival = start_ + since;
+      if (options_.live_jitter_ms > 0) {
+        arrival += std::uniform_int_distribution<int64_t>(
+            0, options_.live_jitter_ms * 1000)(random_);
+      }
+      const int64_t stall_at =
+          static_cast<int64_t>(options_.live_stall_at * 1e6);
+      const int64_t stall_end =
+          stall_at + static_cast<int64_t>(options_.live_stall_for * 1e6);
+      if (options_.live_stall_at >= 0 && since >= stall_at &&
+          since < stall_end) {
+        arrival = std::max(arrival, start_ + stall_end);
+      }
+      arrival = std::max(arrival, last_arrival_);
+      if (arrival > now) {
+        return true;
+      }
+      last_arrival_ = arrival;
+      pending_ = false;
+      if (packet_.type == LYCHEE_TRACK_VIDEO && InGap(since)) {
+        continue;
+      }
+      packet_.data = data_.data();
+      packet_.size = static_cast<int32_t>(data_.size());
+      lychee_player_push_live_packet(player_, &packet_);
+    }
+  }
+
+ private:
+  bool Next() {
+    packet_ = {};
+    packet_.struct_size = sizeof(packet_);
+    if (lychee_testing_live_source_read(source_, &packet_, &send_time_) != 0) {
+      return false;
+    }
+    data_.assign(packet_.data, packet_.data + packet_.size);
+    pending_ = true;
+    return true;
+  }
+
+  // Whether video sent at |since| falls in the gap: from its start up to
+  // the first keyframe after its end.
+  bool InGap(int64_t since) {
+    if (options_.live_gap_at < 0 || gap_done_) {
+      return false;
+    }
+    const int64_t gap_at = static_cast<int64_t>(options_.live_gap_at * 1e6);
+    const int64_t gap_end =
+        gap_at + static_cast<int64_t>(options_.live_gap_for * 1e6);
+    if (since < gap_at) {
+      return false;
+    }
+    if (!in_gap_) {
+      in_gap_ = true;
+      printf("live video gap at %.3fs\n", since / 1e6);
+    }
+    if (since >= gap_end && IsKeyframe()) {
+      gap_done_ = true;
+      printf("live video resumes at %.3fs\n", since / 1e6);
+      return false;
+    }
+    return true;
+  }
+
+  // The live source puts parameter sets before every keyframe.
+  bool IsKeyframe() const {
+    for (size_t i = 0; i + 4 < data_.size(); ++i) {
+      if (data_[i] == 0 && data_[i + 1] == 0 && data_[i + 2] == 1) {
+        const uint8_t h264 = data_[i + 3] & 0x1f;
+        const uint8_t hevc = (data_[i + 3] >> 1) & 0x3f;
+        if (h264 == 7 || hevc == 32 || hevc == 33) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  const Options& options_;
+  lychee_player* const player_;
+  lychee_testing_live_source* source_ = nullptr;
+  std::mt19937 random_;
+  lychee_live_packet packet_ = {};
+  std::vector<uint8_t> data_;
+  int64_t send_time_ = 0;
+  bool pending_ = false;
+  int64_t start_ = INT64_MIN;
+  int64_t first_send_ = 0;
+  int64_t last_arrival_ = INT64_MIN;
+  bool flushed_ = false;
+  bool in_gap_ = false;
+  bool gap_done_ = false;
+};
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -284,6 +472,8 @@ int main(int argc, char** argv) {
             "[--open-after SEC URL] [--select TYPE:INDEX]... "
             "[--select-after SEC] [--lose-decoder-after SEC]... "
             "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
+            "[--live [--latency MS] [--live-jitter MS] "
+            "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
             "[--virtual-time] <file or url>\n",
             argv[0]);
     return 2;
@@ -304,7 +494,14 @@ int main(int argc, char** argv) {
   if (options.rate_after < 0) {
     lychee_player_set_rate(player, options.rate);
   }
-  if (lychee_player_open(player, options.url.c_str()) != 0) {
+  std::unique_ptr<LiveFeed> live;
+  if (options.live) {
+    live = std::make_unique<LiveFeed>(options, player);
+    if (!live->Open(options.frame_type != 0)) {
+      fprintf(stderr, "cannot read %s\n", options.url.c_str());
+      return 1;
+    }
+  } else if (lychee_player_open(player, options.url.c_str()) != 0) {
     fprintf(stderr, "open rejected\n");
     return 1;
   }
@@ -373,9 +570,45 @@ int main(int argc, char** argv) {
   constexpr auto kStallTimeout = std::chrono::seconds(2);
   int64_t stalls = 0;
 
+  // Live: when the last packet was pushed, and how far ahead of then the
+  // decoded media reached: the latency in use.
+  int64_t live_end = 0;
+  int64_t live_vbuf = -1;
+  int64_t live_abuf = -1;
+
   for (;;) {
     next_vsync += vsync_interval;
-    if (options.virtual_time) {
+    if (live) {
+      // Packets arrive at their time; then the threads decode them.
+      if (options.virtual_time) {
+        lychee_testing_set_time(next_vsync);
+      } else {
+        std::this_thread::sleep_for(
+            std::chrono::microseconds(next_vsync - lychee_now_us()));
+      }
+      if (!live->Feed(lychee_now_us()) && live_end == 0) {
+        live_end = lychee_now_us();
+      }
+      const auto give_up = std::chrono::steady_clock::now() + kStallTimeout;
+      while (options.virtual_time &&
+             !lychee_testing_player_settled(player,
+                                            next_vsync + vsync_interval)) {
+        if (std::chrono::steady_clock::now() > give_up) {
+          printf("stall: threads not settled at %.3fs\n",
+                 (next_vsync - start) / 1e6);
+          stalls++;
+          break;
+        }
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
+      if (live_end != 0 && live_vbuf < 0) {
+        lychee_stats stats = {};
+        stats.struct_size = sizeof(stats);
+        lychee_player_get_stats(player, &stats);
+        live_vbuf = stats.video_buffered_us;
+        live_abuf = stats.audio_buffered_us;
+      }
+    } else if (options.virtual_time) {
       // Let the threads decode up to the frame this vsync will pick and the
       // audio a device would buffer (kAudioAhead), then jump there.
       constexpr int64_t kAudioAhead = 50000;
@@ -599,6 +832,10 @@ int main(int argc, char** argv) {
     if (state == LYCHEE_STATE_ENDED) {
       break;
     }
+    // A live input never ends: stop a second after the last packet.
+    if (live_end != 0 && now - live_end >= 1000000) {
+      break;
+    }
     if (options.seconds > 0 &&
         now - start >= static_cast<int64_t>(options.seconds * 1e6)) {
       break;
@@ -619,6 +856,10 @@ int main(int argc, char** argv) {
          lychee_player_get_rate(player), max_drift / 1e3, loops, stalls);
   if (seek_issued && first_pts_after_seek != INT64_MIN) {
     printf(" first_pts_after_seek=%.3fs", first_pts_after_seek / 1e6);
+  }
+  if (live) {
+    printf(" live_vbuf=%.3fs live_abuf=%.3fs", live_vbuf / 1e6,
+           live_abuf / 1e6);
   }
   printf("\n");
   lychee_player_destroy(player);

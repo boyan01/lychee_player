@@ -54,6 +54,20 @@ for size in 1280x720 640x360; do
     -t 3 -c:v libx264 -preset veryfast -pix_fmt yuv420p -c:a aac -f mpegts
 done
 gen resolution_change.ts -i "concat:$media/rendition_1280x720.ts|$media/rendition_640x360.ts" -c copy
+# Live input, as a screen mirroring sender encodes it: no B-frames, audio
+# muxed next to its video.
+gen live_h264.mp4 -f lavfi -i "$src" -f lavfi -i sine=frequency=440:sample_rate=44100 -t 12 \
+  -c:v libx264 -preset veryfast -bf 0 -g 30 -pix_fmt yuv420p -c:a aac -b:a 128k
+gen live_hevc.mp4 -f lavfi -i "$src" -f lavfi -i sine=frequency=660:sample_rate=48000 -t 10 \
+  -c:v libx265 -preset ultrafast -x265-params bframes=0:keyint=30:log-level=error -tag:v hvc1 -c:a aac
+for size in 1280x720 640x360; do
+  gen "live_$size.ts" -f lavfi -i "testsrc2=size=$size:rate=30" -f lavfi -i sine=frequency=440:sample_rate=48000 \
+    -t 3 -c:v libx264 -preset veryfast -bf 0 -g 30 -pix_fmt yuv420p -c:a aac -muxdelay 0 -muxpreload 0 -f mpegts
+done
+gen live_alac.mp4 -f lavfi -i "testsrc2=size=1280x720:rate=30" -f lavfi -i sine=frequency=440:sample_rate=44100 -t 5 \
+  -c:v libx264 -preset veryfast -bf 0 -g 30 -pix_fmt yuv420p -c:a alac
+printf "file 'live_1280x720.ts'\nfile 'live_640x360.ts'\n" >"$media/live_list.txt"
+gen live_resolution.ts -f concat -i "$media/live_list.txt" -c copy -muxdelay 0 -muxpreload 0
 # Valid headers, then noise where the media data should be.
 [ -f "$media/corrupt.mp4" ] || python3 -I -c '
 import random, sys
@@ -361,6 +375,40 @@ par expect decoder-lost-twice "<=0 event: state error" \
 # meanwhile are not counted as dropped, and playback resumes at the clock.
 par expect background "show at " "summary: state=ended .*dropped=0 glitches=[0-3] backward_jumps=0 " -- \
   --hide-after 2 --hide-for 3 "$media/h264_aac.mp4"
+# Live input (lychee_player_open_live): the CLI pushes a file's packets
+# when a sender would send them. A live input never ends or buffers.
+# live_vbuf is how far ahead decoded video reaches once the last packet is
+# in: the latency, 80 ms unless set, less up to one frame.
+live_ok="<=0 event: state (buffering|ended|error)"
+live_latency="live_vbuf=0\.(0[4-9]|1[0-2])[0-9]s"
+par expect live-h264 "$live_ok" "summary: state=ready .*rendered=360 dropped=0 glitches=[0-3] backward_jumps=0 .*stalls=0 $live_latency" -- \
+  --live "$media/live_h264.mp4"
+par expect live-hevc "$live_ok" "summary: state=ready .*rendered=300 dropped=0 glitches=[0-3] backward_jumps=0 .*stalls=0 $live_latency" -- \
+  --live "$media/live_hevc.mp4"
+par expect live-latency "$live_ok" "summary: .*dropped=0 .*live_vbuf=0\.(2[5-9]|30)[0-9]s" -- \
+  --live --latency 300 "$media/live_h264.mp4"
+par expect live-audio-only "$live_ok" "summary: state=ready position=1[23]\.[0-9]{3}s decoder=none .*live_abuf=0\.0[4-9][0-9]s" -- \
+  --live --audio-only "$media/live_h264.mp4"
+# ALAC, as AirPlay sends: the track's config is its magic cookie.
+par expect live-alac "$live_ok" "track 1: audio alac 44100 Hz" "summary: .*dropped=0 .*live_abuf=0\.(0[1-9]|1[0-9])[0-9]s" -- \
+  --live "$media/live_alac.mp4"
+# Arrival jitter within the latency costs nothing.
+par expect live-jitter "$live_ok" "summary: .*rendered=360 dropped=0 glitches=[0-3] backward_jumps=0 " -- \
+  --live --live-jitter 30 "$media/live_h264.mp4"
+# Half a second without packets, then all at once: what arrived too late is
+# dropped, and the latency comes back.
+par expect live-stall "$live_ok" "summary: .*dropped=([0-9]|1[0-9]) .*backward_jumps=0 .*$live_latency" -- \
+  --live --live-stall 4 0.5 "$media/live_h264.mp4"
+# A flush (the sender restarted) starts over at the next keyframe.
+par expect live-flush "$live_ok" "live flush at" "summary: .*rendered=3[3-5][0-9] dropped=0 glitches=[0-5] backward_jumps=0 .*$live_latency" -- \
+  --live --live-flush 5 "$media/live_h264.mp4"
+# No video for 3 s (a still screen), audio on: video resumes at a keyframe.
+par expect live-gap "$live_ok" "live video resumes" "summary: .*rendered=2[6-7][0-9] dropped=0 glitches=[0-3] backward_jumps=0 .*$live_latency" -- \
+  --live --live-gap 4 3 "$media/live_h264.mp4"
+# New parameter sets in the stream, as when the sender rotates. The
+# decoder restarts, which can hold a frame a vsync longer.
+par expect live-resolution "$live_ok" "video size 1280x720" "video size 640x360" \
+  "summary: .*rendered=180 dropped=0 glitches=[0-5] backward_jumps=0 " -- --live "$media/live_resolution.ts"
 # Text subtitles: cues as plain text at their times.
 par expect subtitle-srt "subtitle at [01]\.[0-9]{3}s: Hello world$" "subtitle at 2\.[0-9]{3}s: \(none\)" \
   "subtitle at [34]\.[0-9]{3}s: Second line \| with break$" "summary: state=ended" -- "$media/sub_srt.mkv"

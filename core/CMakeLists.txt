@@ -13,6 +13,8 @@ set(LYCHEE_SOURCES
   src/media/null_audio_sink.cc
   src/pipeline/audio_renderer.cc
   src/pipeline/audio_renderer_algorithm.cc
+  src/pipeline/live_demuxer.cc
+  src/pipeline/live_timeline.cc
   src/pipeline/media_clock.cc
   src/pipeline/packet_queue.cc
   src/pipeline/player.cc

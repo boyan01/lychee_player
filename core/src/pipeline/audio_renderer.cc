@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "base/log.h"
+#include "base/time.h"
 #include "base/thread_name.h"
 #include "media/factory.h"
 
@@ -16,10 +17,15 @@ namespace {
 constexpr int64_t kMaxBufferedDuration = kMicrosPerSecond;
 // Enough to start playing.
 constexpr int64_t kPrerollDuration = 200 * kMicrosPerMilli;
+// Live: a sample this late is still played, so a device clock running a
+// little slow does not cut every buffer.
+constexpr int64_t kLiveLateTolerance = 2 * kMicrosPerMilli;
 
 }  // namespace
 
-AudioRenderer::AudioRenderer(MediaClock* clock) : clock_(clock) {}
+AudioRenderer::AudioRenderer(MediaClock* clock,
+                             std::atomic<int64_t>* live_output_lead)
+    : clock_(clock), live_output_lead_(live_output_lead) {}
 
 AudioRenderer::~AudioRenderer() {
   Stop();
@@ -118,6 +124,11 @@ void AudioRenderer::OnBuffer(std::shared_ptr<AudioBuffer> buffer,
   if (stopped_ || generation != generation_) {
     return;
   }
+  if (live_output_lead_) {
+    live_frames_ += buffer->frames();
+    live_buffers_.push_back(std::move(buffer));
+    return;
+  }
   // Accurate seek: drop audio before the seek target.
   if (start_time_ != kNoTimestamp && buffer->pts != kNoTimestamp) {
     int64_t end = buffer->pts + buffer->duration();
@@ -152,7 +163,13 @@ int AudioRenderer::Render(float* destination,
     if (render_bus_.frames() < frames) {
       render_bus_.Resize(frames);
     }
-    written = algorithm_.FillBuffer(&render_bus_, 0, frames, rate);
+    if (live_output_lead_) {
+      live_output_lead_->store(playout_time - NowMicros(),
+                               std::memory_order_relaxed);
+      written = RenderLiveLocked(frames, playout_time);
+    } else {
+      written = algorithm_.FillBuffer(&render_bus_, 0, frames, rate);
+    }
     end_pts = algorithm_.NextOutputTimestamp();
     if (written == 0 && end_of_stream_) {
       // WSOLA keeps less than a window it cannot use: drop it so the stream
@@ -169,11 +186,63 @@ int AudioRenderer::Render(float* destination,
       destination[i * channels + k] = source[i] * volume;
     }
   }
-  if (written > 0 && end_pts != kNoTimestamp) {
+  if (written > 0 && end_pts != kNoTimestamp && !live_output_lead_) {
     // |written| frames at |rate| cover this much media time.
     const int64_t span = static_cast<int64_t>(
         written * rate * kMicrosPerSecond / format_.sample_rate);
     clock_->UpdateFromAudio(end_pts - span, playout_time, end_pts);
+  }
+  return written;
+}
+
+int AudioRenderer::RenderLiveLocked(int frames, int64_t playout_time) {
+  const int rate = format_.sample_rate;
+  const int channels = format_.channels;
+  int written = 0;
+  while (written < frames && !live_buffers_.empty()) {
+    const AudioBuffer& buffer = *live_buffers_.front();
+    const int available = buffer.frames() - live_offset_;
+    if (available <= 0 || buffer.pts == kNoTimestamp) {
+      live_frames_ -= available;
+      live_buffers_.pop_front();
+      live_offset_ = 0;
+      continue;
+    }
+    const int64_t due =
+        playout_time + static_cast<int64_t>(written) * kMicrosPerSecond / rate;
+    const int64_t pts =
+        buffer.pts + static_cast<int64_t>(live_offset_) * kMicrosPerSecond / rate;
+    if (pts < due - kLiveLateTolerance) {
+      // Too late to be heard in time.
+      const int late = static_cast<int>((due - pts) * rate / kMicrosPerSecond);
+      const int skip = std::clamp(late, 1, available);
+      live_offset_ += skip;
+      live_frames_ -= skip;
+      continue;
+    }
+    int count;
+    if (pts - due > kMicrosPerSecond / rate) {
+      // Not due yet: silence until it is.
+      count = std::min(
+          frames - written,
+          static_cast<int>((pts - due) * rate / kMicrosPerSecond));
+      for (int k = 0; k < channels; ++k) {
+        std::fill_n(render_bus_.channel(k) + written, count, 0.0f);
+      }
+    } else {
+      count = std::min(frames - written, available);
+      const float* source =
+          buffer.samples.data() + static_cast<size_t>(live_offset_) * channels;
+      for (int k = 0; k < channels; ++k) {
+        float* destination = render_bus_.channel(k) + written;
+        for (int i = 0; i < count; ++i) {
+          destination[i] = source[i * channels + k];
+        }
+      }
+      live_offset_ += count;
+      live_frames_ -= count;
+    }
+    written += count;
   }
   return written;
 }
@@ -184,6 +253,9 @@ void AudioRenderer::Flush(uint64_t generation, int64_t start_time) {
     generation_ = generation;
     start_time_ = start_time;
     algorithm_.FlushBuffers();
+    live_buffers_.clear();
+    live_offset_ = 0;
+    live_frames_ = 0;
     end_of_stream_ = false;
   }
   condition_.notify_all();
@@ -248,6 +320,9 @@ int64_t AudioRenderer::buffered_duration() const {
 }
 
 int64_t AudioRenderer::BufferedDurationLocked() const {
+  if (live_output_lead_) {
+    return live_frames_ * kMicrosPerSecond / format_.sample_rate;
+  }
   return static_cast<int64_t>(algorithm_.BufferedFrames()) *
          kMicrosPerSecond / format_.sample_rate;
 }

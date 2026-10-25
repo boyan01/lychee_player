@@ -41,6 +41,9 @@ struct VideoConfig {
   // Codec configuration in the container's format (e.g. avcC, hvcC).
   std::vector<uint8_t> extradata;
   std::shared_ptr<const CodecPrivate> codec_private;
+  // Each frame is due soon after its packet (live input): decode without a
+  // pipeline that holds frames back.
+  bool low_delay = false;
 
   // Width with the sample aspect ratio applied.
   int display_width() const;

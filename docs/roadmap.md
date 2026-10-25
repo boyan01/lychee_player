@@ -74,15 +74,30 @@ on top of them.
 
 ## Features
 
-1. **HDR / 10-bit**: frames are converted to 8-bit BGRA, so HDR is clipped.
+1. **Live input in flutter-airplay**: the core plays pushed packets
+   (`lychee_player_open_live`, ABI 5) with flutter-airplay's timeline,
+   covered by the CLI's `live-*` cases (H.264, HEVC, ALAC, jitter,
+   stalls, flushes, still screens, resolution changes; 2026-10-25). Left:
+   AAC-ELD, which AirPlay mirroring sends, has never been decoded (FFmpeg
+   cannot encode it without libfdk-aac, so there is no test file; capture
+   one from a session); low-latency setup for MediaCodec
+   (`KEY_LOW_LATENCY`) and other hardware decoders, which today get only
+   FFmpeg's `low_delay`; no Dart API (flutter-airplay calls the C ABI from
+   its own native code). Done when flutter-airplay plays a mirroring
+   session through lychee behind a flag on macOS and Android, with A/V in
+   sync on Bluetooth headphones.
+   After a stall, audio moves up to 500 ms behind video and returns over
+   a few seconds, as in flutter-airplay; video latency recovers within
+   ~10 s (`live-stall`).
+2. **HDR / 10-bit**: frames are converted to 8-bit BGRA, so HDR is clipped.
    Needs a 10-bit or YUV handle type plus color metadata across the C API,
    and EDR on macOS.
-2. **Subtitles beyond plain text**: text cues (SRT, WebVTT, mov_text, ASS
+3. **Subtitles beyond plain text**: text cues (SRT, WebVTT, mov_text, ASS
    text with tags stripped) work. Missing: ASS styling and positioning
    (libass), bitmap subtitles (PGS, DVB, VobSub), and cues that started
    before a subtitle track is switched on mid-file (they appear only from
    the next cue).
-3. **Artwork**: `lychee_player_get_metadata` returns text tags only;
+4. **Artwork**: `lychee_player_get_metadata` returns text tags only;
    attached pictures are not exposed.
 
 ## Platforms

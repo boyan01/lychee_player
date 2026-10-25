@@ -23,7 +23,8 @@ class PacketQueue {
 
   void Push(std::shared_ptr<EncodedPacket> packet);
 
-  // Blocks until a packet is available. Returns false once aborted.
+  // Blocks until a packet is available. Returns false once aborted. The
+  // consumer counts as busy with the packet until it calls Pop() again.
   bool Pop(Entry* entry);
 
   // Drops queued packets; later pushes belong to |generation|.
@@ -35,6 +36,8 @@ class PacketQueue {
   void Reset(uint64_t generation);
 
   bool empty() const;
+  // Empty, and the consumer is done with the last packet: waiting in Pop().
+  bool idle() const;
   size_t bytes() const;
   // Span of the queued packets' timestamps.
   int64_t duration() const;
@@ -48,6 +51,7 @@ class PacketQueue {
   uint64_t generation_ = 0;
   size_t bytes_ = 0;
   bool aborted_ = false;
+  bool consumer_busy_ = false;
 };
 
 }  // namespace lychee
