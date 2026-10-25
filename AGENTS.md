@@ -129,26 +129,31 @@ glitch checks fail for reasons unrelated to your change. Done means:
 
 ## Gotchas
 
-- After adding or removing a `.cc` or `.mm` under `core/src`, run
-  `python3 tool/generate_forwarders.py`. The iOS/macOS pod
-  (`flutter/darwin`) compiles the core only through those forwarders and
-  silently misses new files otherwise. Then run `pod install` in
-  `flutter/example/macos` and `flutter/example/ios`: the Pods projects list
-  the forwarders, and the example fails to link with undefined symbols until
-  they are regenerated.
-- iOS and Android have no system FFmpeg. Build the LGPL one once per
-  platform with `tool/build_ffmpeg.sh PLATFORM <ffmpeg source>` into
-  `third_party/ffmpeg/` (`ios-sim-arm64` and `ios-sim-x86_64` for the
-  simulator, `ios-arm64` for devices, `android-arm64-v8a`), then
-  `tool/package_ffmpeg_apple.sh` for iOS; the pod vendors the result from
+- The iOS/macOS pod (`flutter/darwin`) does not compile the core: it
+  vendors `flutter/darwin/Frameworks/lychee.xcframework`, built by
+  `tool/build_apple.sh`. After changing anything under `core/`, rerun it
+  before building the Flutter example on macOS or iOS, or the example runs
+  the old core. The plugin may use only `lychee/lychee.h`; the framework
+  carries no other header.
+- The Flutter plugin never links the system FFmpeg. Build the LGPL one once
+  per platform with `tool/build_ffmpeg.sh PLATFORM <ffmpeg source>` into
+  `third_party/ffmpeg/` (`macos-arm64` and `macos-x86_64`; `ios-sim-arm64`
+  and `ios-sim-x86_64` for the simulator, `ios-arm64` for devices;
+  `android-arm64-v8a`), then `tool/package_ffmpeg_apple.sh` and
+  `tool/build_apple.sh` for Apple; the pod vendors the result from
   `flutter/darwin/Frameworks`, the Android plugin links
   `third_party/ffmpeg/android-ABI` directly. Use the FFmpeg major version
   Homebrew has: the core follows the current FFmpeg API (e.g.
-  `sws_free_context`).
+  `sws_free_context`). After a new FFmpeg build, rerun all of them and
+  `pod install` in `flutter/example/macos` and `flutter/example/ios`.
 - The iOS simulator slice must hold both arm64 and x86_64: Flutter builds the
   simulator for both, and CocoaPods silently copies nothing from an
   xcframework slice that lacks one, so the app fails to link with
-  "Framework 'libavcodec' not found".
+  "Framework 'libavcodec' not found". The macOS slice is universal too:
+  Flutter builds release macOS apps for both architectures.
+- Apple minimums are macOS 11 and iOS 16 (`tool/apple_framework.sh` and the
+  podspec): the Xcode 27 SDK's libc++ warns below macOS 11 / iOS 15, and
+  `AppleFrameConverter` uses `VTPixelTransferSession` (iOS 16).
 - Real devices get media from `tool/serve_media.py`. Android: `adb reverse
   tcp:8765 tcp:8765`, then `http://127.0.0.1:8765/...`; Xiaomi phones
   refuse `adb install` (`INSTALL_FAILED_USER_RESTRICTED`) until someone
@@ -168,8 +173,8 @@ glitch checks fail for reasons unrelated to your change. Done means:
   and FFmpeg quietly falls back to software decoding. Keep its default output
   and convert with `AppleFrameConverter`. Check `hw=1` in the CLI summary
   after touching decoder setup.
-- Homebrew's FFmpeg is a GPL build and is linked only for development; the
-  `ld: building for macOS-12.0` warnings in the example build come from it.
+- Homebrew's FFmpeg is a GPL build and is linked only by the core's own
+  CMake build (CLI, GLFW example, `tool/regression.sh`), for development.
 - Flutter builds Android native code at `-O0` in debug apps; the plugin's
   CMake forces `-O2` on the core, or per-pixel frame work alone caps 1080p
   at ~14 fps.

@@ -1,24 +1,11 @@
 # One pod for iOS and macOS (sharedDarwinSource in pubspec.yaml).
 #
-# The core C++ library is compiled from ../../core through the forwarders in
-# Classes/core (see tool/generate_forwarders.py). Flutter reaches this pod
-# through a symlink and Xcode normalizes "../.." lexically, so the header
-# paths use the resolved location of the repository's core/.
-#
-# FFmpeg:
-# - iOS: the LGPL-only xcframeworks in Frameworks/, built with
-#   tool/build_ffmpeg.sh and tool/package_ffmpeg_apple.sh.
-# - macOS: found with pkg-config. This is for development: release builds
-#   should bundle an LGPL-only FFmpeg build instead of linking the system one.
+# The core and FFmpeg come prebuilt, as the xcframeworks in Frameworks/:
+# lychee.xcframework (tool/build_apple.sh) and the LGPL-only FFmpeg ones
+# (tool/build_ffmpeg.sh, tool/package_ffmpeg_apple.sh). The plugin uses only
+# the C ABI in lychee/lychee.h.
 
-core_dir = File.expand_path('../../core', File.realpath(__dir__))
-
-ffmpeg_modules = %w[libavformat libavcodec libavutil libswresample libswscale]
-pkg_config = ENV['PKG_CONFIG'] ||
-             %w[/opt/homebrew/bin/pkg-config /usr/local/bin/pkg-config].find { |p| File.executable?(p) } ||
-             'pkg-config'
-ffmpeg_cflags = `#{pkg_config} --cflags #{ffmpeg_modules.join(' ')} 2>/dev/null`.strip
-ffmpeg_libs = `#{pkg_config} --libs #{ffmpeg_modules.join(' ')} 2>/dev/null`.strip
+frameworks = %w[lychee libavformat libavcodec libswresample libswscale libavutil]
 
 Pod::Spec.new do |s|
   s.name             = 'lychee_player'
@@ -28,46 +15,37 @@ Pod::Spec.new do |s|
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'boyan01' => 'https://github.com/boyan01' }
   s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*.{h,m,cc,mm}'
+  s.source_files     = 'Classes/**/*.{h,m}'
   s.public_header_files = 'Classes/LycheePlayerPlugin.h'
   s.ios.dependency 'Flutter'
   s.osx.dependency 'FlutterMacOS'
-  s.ios.deployment_target = '13.0'
-  s.osx.deployment_target = '10.15'
-  s.frameworks = 'AudioToolbox', 'CoreAudio', 'CoreMedia', 'CoreVideo',
-                 'IOSurface', 'VideoToolbox'
+  # The same as in tool/apple_framework.sh.
+  s.ios.deployment_target = '16.0'
+  s.osx.deployment_target = '11.0'
+  s.frameworks = 'CoreVideo', 'QuartzCore'
   s.ios.frameworks = 'AVFAudio'
 
-  common = {
-    'DEFINES_MODULE' => 'YES',
-    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++20',
-    'HEADER_SEARCH_PATHS' => "\"#{core_dir}/include\" \"#{core_dir}/src\"",
-    'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) LYCHEE_WITH_FFMPEG=1 LYCHEE_IMPLEMENTATION=1',
-  }
-
-  unless Dir.exist?(File.join(__dir__, 'Frameworks', 'libavcodec.xcframework'))
-    Pod::UI.warn 'lychee_player: no FFmpeg xcframeworks; iOS builds need them (tool/build_ffmpeg.sh, tool/package_ffmpeg_apple.sh)'
+  missing = frameworks.reject { |f| Dir.exist?(File.join(__dir__, 'Frameworks', "#{f}.xcframework")) }
+  unless missing.empty?
+    Pod::UI.warn "lychee_player: missing #{missing.join(', ')}.xcframework in Frameworks/; " \
+                 'build them with tool/build_ffmpeg.sh, tool/package_ffmpeg_apple.sh and tool/build_apple.sh'
   end
-  s.ios.vendored_frameworks = 'Frameworks/*.xcframework'
+  s.vendored_frameworks = frameworks.map { |f| "Frameworks/#{f}.xcframework" }
+
   # CocoaPods copies the xcframework slices too late for this pod's own
   # compile and link, so point at the slices directly.
-  ffmpeg_frameworks = %w[libavformat libavcodec libswresample libswscale libavutil]
   slice_paths = lambda do |slice|
-    ffmpeg_frameworks.map { |f| "\"${PODS_TARGET_SRCROOT}/Frameworks/#{f}.xcframework/#{slice}\"" }.join(' ')
+    "$(inherited) \"${PODS_TARGET_SRCROOT}/Frameworks/lychee.xcframework/#{slice}\""
   end
+  common = {
+    'DEFINES_MODULE' => 'YES',
+    'OTHER_LDFLAGS' => '$(inherited) -framework lychee',
+  }
   s.ios.pod_target_xcconfig = common.merge(
-    'HEADER_SEARCH_PATHS' => common['HEADER_SEARCH_PATHS'] + ' "${PODS_TARGET_SRCROOT}/Frameworks/include"',
-    'FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]' => "$(inherited) #{slice_paths.call('ios-arm64_x86_64-simulator')}",
-    'FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]' => "$(inherited) #{slice_paths.call('ios-arm64')}",
-    'OTHER_LDFLAGS' => '$(inherited) ' + ffmpeg_frameworks.map { |f| "-framework #{f}" }.join(' '),
-    'OTHER_CFLAGS' => '$(inherited) -Wno-documentation',
+    'FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]' => slice_paths.call('ios-arm64_x86_64-simulator'),
+    'FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]' => slice_paths.call('ios-arm64'),
   )
-
-  if ffmpeg_libs.empty?
-    Pod::UI.warn 'lychee_player: FFmpeg not found with pkg-config; macOS builds need it (brew install ffmpeg pkg-config)'
-  end
   s.osx.pod_target_xcconfig = common.merge(
-    'OTHER_CFLAGS' => "$(inherited) #{ffmpeg_cflags} -Wno-documentation",
-    'OTHER_LDFLAGS' => "$(inherited) #{ffmpeg_libs}",
+    'FRAMEWORK_SEARCH_PATHS' => slice_paths.call('macos-arm64_x86_64'),
   )
 end

@@ -72,13 +72,24 @@ frames with Metal. Space pauses, left/right seek 5 s, escape quits.
 
 ## Flutter plugin
 
-The plugin lives in `flutter/`. Its iOS/macOS pod compiles `core/` through
-the forwarders in `flutter/darwin/Classes/core`.
-Regenerate them after adding or removing core sources:
+The plugin lives in `flutter/`. Its iOS/macOS pod links prebuilt
+xcframeworks from `flutter/darwin/Frameworks`: `lychee.xcframework` (the
+core, a dynamic framework carrying only `lychee/lychee.h`) and an LGPL-only
+FFmpeg. Build them once, and rebuild `lychee.xcframework` after changing
+`core/` (FFmpeg 9 source tree as `SRC`):
 
 ```sh
-python3 tool/generate_forwarders.py
+for p in macos-arm64 macos-x86_64 ios-arm64 ios-sim-arm64 ios-sim-x86_64; do
+  tool/build_ffmpeg.sh $p SRC
+done
+tool/package_ffmpeg_apple.sh   # FFmpeg xcframeworks
+tool/build_apple.sh            # lychee.xcframework
 ```
+
+Each xcframework has a universal macOS slice, an iOS device slice and one
+simulator slice with both arm64 and x86_64. Leave out platforms you do not
+need; the last two scripts package the ones that were built. The x86_64
+macOS FFmpeg uses assembly only if `nasm` is installed.
 
 ```dart
 final player = await LycheePlayer.create();
@@ -104,17 +115,15 @@ them.
 The example app (`flutter/example`) turns off the macOS App Sandbox so it can
 open arbitrary paths. It plays `--dart-define=LYCHEE_URL=...` on start.
 
-The plugin compiles `core/` from outside its package directory, so for now it
-can only be used as a path or git dependency, not from pub.dev.
+The Android, Windows and Linux plugins compile `core/` from outside the
+package directory, and the Apple frameworks are built locally, so for now
+the plugin can only be used as a path or git dependency, not from pub.dev.
 
 ### Per platform
 
-- **macOS**: links the FFmpeg found by pkg-config (`brew install ffmpeg`).
-- **iOS**: needs an LGPL FFmpeg built from source once (FFmpeg 9 source
-  tree): `tool/build_ffmpeg.sh ios-sim-arm64 SRC`, `tool/build_ffmpeg.sh
-  ios-sim-x86_64 SRC` (and `ios-arm64` for devices), then
-  `tool/package_ffmpeg_apple.sh`, which writes the xcframeworks the pod
-  vendors.
+- **macOS and iOS**: the xcframeworks above; macOS 11 and iOS 16 or newer.
+  The current SDK's libc++ supports nothing older on macOS, and the core
+  converts frames with `VTPixelTransferSession` (iOS 16).
 - **Android**: `tool/build_ffmpeg.sh android-arm64-v8a SRC` (and
   `android-x86_64`); the plugin's CMake links `third_party/ffmpeg/android-ABI`
   and builds only the ABIs found there. Needs minSdk 26 (AAudio).
@@ -137,9 +146,10 @@ can only be used as a path or git dependency, not from pub.dev.
 
 MIT, see [LICENSE](LICENSE).
 
-lychee_player uses [FFmpeg](https://ffmpeg.org) under the LGPL. On macOS the
-plugin links the FFmpeg found by pkg-config, which may be a GPL build
-(Homebrew's is); that is for development only. The iOS and Android builds from
+lychee_player uses [FFmpeg](https://ffmpeg.org) under the LGPL. The core's
+own CMake build (the CLI, the GLFW example, `tool/regression.sh`) links the
+FFmpeg found by pkg-config, which may be a GPL build (Homebrew's is); that
+is for development only. The macOS, iOS and Android builds from
 `tool/build_ffmpeg.sh` are LGPL 2.1+ (the script checks configure's license
 line), the Windows and Linux downloads are LGPL 3+. Distributed apps must ship an
 LGPL-only FFmpeg (no `--enable-gpl` / `--enable-nonfree`), linked

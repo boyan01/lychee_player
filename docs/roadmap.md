@@ -18,7 +18,9 @@ on top of them.
 1. **iOS on a device**: the release example builds with the device FFmpeg
    (`tool/build_ffmpeg.sh ios-arm64`, then `tool/package_ffmpeg_apple.sh`),
    installs on an iPad Pro 11" (M1), launches and streams from
-   `tool/serve_media.py` over the LAN (2026-10-25). Not yet seen on its
+   `tool/serve_media.py` over the LAN (2026-10-25), back when the pod
+   compiled the core from source; not yet run with the prebuilt
+   `lychee.xcframework` (`tool/build_apple.sh`). Not yet seen on its
    screen: `hw` in the stats line (VideoToolbox), the frame count, audio
    session interruptions (a call) and route changes (unplugging
    headphones). The simulator decodes in software because VideoToolbox
@@ -129,6 +131,8 @@ above). What is left per platform is a renderer in `examples/glfw`
    and a build from 22.04 running on 26.04.
 3. **Swift Package Manager**: add `flutter/darwin/lychee_player/Package.swift`;
    Flutter already warns that CocoaPods-only plugins will become an error.
+   The xcframeworks in `flutter/darwin/Frameworks` can be its
+   `binaryTarget`s.
 
 ## FFmpeg-free builds
 
@@ -156,24 +160,41 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
 
 ## Distribution and infrastructure
 
-1. **LGPL FFmpeg**: build an LGPL-only FFmpeg per platform, bundle it as
-   dynamic libraries/frameworks, and replace the podspec's pkg-config
-   lookup. Required before any release.
-2. **pub.dev packaging**: the plugin in `flutter/` compiles `../core` through
-   forwarders, and `flutter pub publish` only packs `flutter/`, so today the
-   plugin works only as a path or git dependency. Decide together with item 1
-   (most likely: ship a prebuilt core next to the prebuilt FFmpeg). Done when
-   `flutter pub publish --dry-run` produces a package that builds in a fresh
-   app.
+1. **LGPL FFmpeg**: every plugin build now ships an LGPL-only FFmpeg as
+   dynamic libraries: macOS and iOS as xcframeworks from
+   `tool/build_ffmpeg.sh` + `tool/package_ffmpeg_apple.sh` (the macOS
+   example loads only them, 2026-10-25), Android from `tool/build_ffmpeg.sh`,
+   Windows and Linux as BtbN's LGPLv3 downloads (slimming them: Platforms
+   1 and 2). Left before a release: the x86_64 half of the macOS slice was
+   built without assembly (no `nasm` on the build Mac), so Intel Macs decode
+   in software slower than they should; install `nasm` and rebuild
+   `macos-x86_64`. Only the development CMake build (CLI, GLFW example,
+   `tool/regression.sh`) still links Homebrew's GPL FFmpeg.
+2. **pub.dev packaging**: `flutter pub publish` only packs `flutter/`. The
+   Apple pod now vendors prebuilt xcframeworks (`lychee`, FFmpeg) from
+   `flutter/darwin/Frameworks`, but they are built locally and gitignored;
+   Android, Windows and Linux still compile `../core` from outside the
+   package. So today the plugin works only as a path or git dependency.
+   **Open question for the user**: where the prebuilt artifacts are hosted
+   and how a fresh app gets them. Candidates: inside the package (pub.dev
+   caps a package at 100 MB compressed; the Apple xcframeworks alone are
+   tens of MB), release assets downloaded at build time (as the Windows and
+   Linux plugins already download FFmpeg; for the pod, a `prepare_command`
+   or script phase with pinned checksums), or a separate binary pod / Swift
+   package. Done when `flutter pub publish --dry-run` produces a package
+   that builds in a fresh app.
 3. **Example app**: a file picker instead of a path field.
 4. **Native SDKs, with Flutter as one consumer** (decided 2026-10-25).
-   Today the core builds and ships only through the Flutter plugin, and
-   the per-vsync frame pulling lives in Flutter textures
-   (`LycheeTexture.kt` with `texture_bridge.cc`, `LycheePlayerPlugin.m`).
-   Target layout, in this order:
-   1. `core/` builds and installs on its own: an xcframework for Apple, a
-      prefab `.so` for Android, with FFmpeg next to it. The Flutter plugin
-      depends on those and the forwarders go (closes item 2).
+   On Apple platforms the core already builds on its own
+   (`tool/build_apple.sh`: `lychee.xcframework`, a dynamic framework with
+   only `lychee/lychee.h`, linking the FFmpeg xcframeworks) and the pod
+   vendors it; elsewhere it builds only through the Flutter plugin. The
+   per-vsync frame pulling lives in Flutter textures (`LycheeTexture.kt`
+   with `texture_bridge.cc`, `LycheePlayerPlugin.m`). Target layout, in
+   this order:
+   1. Android: `core/` as a prefab `.so` with FFmpeg next to it, and the
+      Flutter plugin depends on it instead of compiling `../core` (with
+      the hosting decision, closes item 2).
    2. `sdk/android/`: an AAR with a Kotlin `LycheePlayer`, the
       Choreographer frame driver and a `SurfaceView`-based view; the
       Flutter plugin uses its driver with the `SurfaceProducer`'s Surface.
