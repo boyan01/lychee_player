@@ -3,7 +3,7 @@
 # tests: Python's http.server ignores Range, and FFmpeg then parses the wrong
 # bytes after every seek.
 #
-#   python3 tool/serve_media.py /tmp/lychee-media 8765
+#   python3 tool/serve_media.py /tmp/lychee-media 8765 [HOST]
 #
 # The Android emulator reaches it at http://10.0.2.2:8765.
 import http.server, os, re, sys
@@ -48,4 +48,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pass
 
 os.chdir(sys.argv[1])
-http.server.ThreadingHTTPServer(("127.0.0.1", int(sys.argv[2])), Handler).serve_forever()
+# Pass 0.0.0.0 as a third argument to reach it from other machines.
+host = sys.argv[3] if len(sys.argv) > 3 else "127.0.0.1"
+http.server.ThreadingHTTPServer((host, int(sys.argv[2])), Handler).serve_forever()

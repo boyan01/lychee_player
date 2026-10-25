@@ -14,12 +14,14 @@ is done; add one when you find a gap. Order within a section is priority.
 Built, but never observed working. Cheap to close; do these before building
 on top of them.
 
-1. **iOS on a device**: verified only on the iPhone 16 simulator (iOS
-   plays, the example lays out on a phone, 0 dropped frames). The simulator
-   decodes in software because VideoToolbox hwaccel fails there. Needs a
-   device run (`tool/build_ffmpeg.sh ios-arm64`, then
-   `tool/package_ffmpeg_apple.sh`) for hardware decoding, audio session
-   interruptions (a phone call) and route changes (unplugging headphones).
+1. **iOS on a device**: the release example builds with the device FFmpeg
+   (`tool/build_ffmpeg.sh ios-arm64`, then `tool/package_ffmpeg_apple.sh`),
+   installs on an iPad Pro 11" (M1), launches and streams from
+   `tool/serve_media.py` over the LAN (2026-10-25). Not yet seen on its
+   screen: `hw` in the stats line (VideoToolbox), the frame count, audio
+   session interruptions (a call) and route changes (unplugging
+   headphones). The simulator decodes in software because VideoToolbox
+   hwaccel fails there.
    On a busy Mac (load 4-7) the simulator showed 300-324 of 360 frames
    with `dropped 0`: the frame selection skips frames by cadence when the
    pull rate falls below the frame rate, and those do not count as
@@ -76,7 +78,9 @@ hardware decoding with zero-copy frames, a renderer in `examples/glfw`
    `SurfaceProducer`'s Surface (FFmpeg's `*_mediacodec` decoders with
    `av_jni_set_java_vm`, or NDK `AMediaCodec`), which needs a frame type
    for "already on the Surface" and moves frame selection to release time.
-   Not yet run on a real device; AAudio route changes are untested.
+   On a Xiaomi 14 (Snapdragon 8 Gen 3, Android 16) 1080p30 plays in
+   software with 0 dropped frames in a debug app. AAudio route changes are
+   untested.
 2. **Windows hardware decoding**: D3D11VA, frames as D3D11 textures shared
    with Flutter's GPU surface texture instead of the `PixelBufferTexture`
    upload. The FFmpeg DLLs (BtbN's LGPLv3 build, ~120 MB) should become a

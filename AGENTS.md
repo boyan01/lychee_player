@@ -132,6 +132,14 @@ glitch checks fail for reasons unrelated to your change. Done means:
   simulator for both, and CocoaPods silently copies nothing from an
   xcframework slice that lacks one, so the app fails to link with
   "Framework 'libavcodec' not found".
+- Real devices get media from `tool/serve_media.py`. Android: `adb reverse
+  tcp:8765 tcp:8765`, then `http://127.0.0.1:8765/...`; Xiaomi phones
+  refuse `adb install` (`INSTALL_FAILED_USER_RESTRICTED`) until someone
+  confirms it on the phone. iOS: bind the server to the LAN (`0.0.0.0` as
+  the third argument), `flutter build ios --release` (a debug build does
+  not start without a debugger attached), `xcrun devicectl device install
+  app` and `device process launch`; the developer certificate must be
+  trusted on the device once, and the app asks for local network access.
 - VideoToolbox hwaccel fails to initialize in the iOS simulator; the
   simulator decodes in software (`sw` in the example's stats).
 - Run CocoaPods with `LANG=en_US.UTF-8`, or `pod install` aborts.
