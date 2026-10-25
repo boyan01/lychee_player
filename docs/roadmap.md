@@ -166,11 +166,22 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    `tool/build_ffmpeg.sh` + `tool/package_ffmpeg_apple.sh` (the macOS
    example loads only them, 2026-10-25), Android from `tool/build_ffmpeg.sh`,
    Windows and Linux as BtbN's LGPLv3 downloads (slimming them: Platforms
-   1 and 2). Left before a release: the x86_64 half of the macOS slice was
+   1 and 2). The Apple and Android builds enable only the formats the core
+   plays (about 7 MB per architecture, from 15; 2026-10-25), and
+   `FFMPEG_ROOT=... tool/regression.sh` checks them. Android's links
+   mbedTLS for https, so it is LGPLv3; the core gives mbedTLS Android's
+   CA store as a file in the app's cache directory. Left before a release:
+   the x86_64 half of the macOS slice was
    built without assembly (no `nasm` on the build Mac), so Intel Macs decode
    in software slower than they should; install `nasm` and rebuild
-   `macos-x86_64`. Only the development CMake build (CLI, GLFW example,
-   `tool/regression.sh`) still links Homebrew's GPL FFmpeg.
+   `macos-x86_64`. AV1 decodes only through VideoToolbox (M3 and later):
+   add dav1d (BSD) if software AV1 matters. Android before 11 finds the
+   cache directory from the package name (no `TMPDIR`), never run there.
+   Apps must ship the FFmpeg license notice and say where its source is;
+   the AAR and the xcframeworks should carry a `THIRD_PARTY_NOTICES` and
+   releases a link to the FFmpeg and mbedTLS sources. Only the
+   development CMake build (CLI, GLFW example, `tool/regression.sh`
+   without `FFMPEG_ROOT`) still links Homebrew's GPL FFmpeg.
 2. **pub.dev packaging**: `flutter pub publish` only packs `flutter/`. The
    Apple pod now vendors prebuilt xcframeworks (`lychee`, FFmpeg) from
    `flutter/darwin/Frameworks`, and the Android plugin takes the AAR

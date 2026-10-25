@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # Builds an LGPL-only FFmpeg as shared libraries for one platform.
 #
-#   tool/build_ffmpeg.sh PLATFORM FFMPEG_SOURCE_DIR
+#   tool/build_ffmpeg.sh PLATFORM FFMPEG_SOURCE_DIR [MBEDTLS_SOURCE_DIR]
 #
 # PLATFORM: macos-arm64, macos-x86_64, ios-arm64, ios-sim-arm64,
 # ios-sim-x86_64, android-arm64-v8a, android-x86_64.
 # Output: third_party/ffmpeg/PLATFORM/{include,lib}. For Apple platforms,
 # tool/package_ffmpeg_apple.sh then wraps the libraries into xcframeworks.
+#
+# Android needs MBEDTLS_SOURCE_DIR (an Mbed TLS 3.6 release) for https:
+# Apple platforms use the system's TLS, Android's has no C API. mbedTLS is
+# Apache-2.0, which LGPL 2.1 cannot take, so Android builds are LGPL 3.
 #
 # License: no --enable-gpl, no --enable-nonfree, and nothing that would need
 # them (x264, x265, fdk-aac, ...). configure's own license summary is
@@ -19,15 +23,26 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 out="$root/third_party/ffmpeg/$platform"
 work="$root/build-ffmpeg/$platform"
 jobs="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || nproc)}"
+license="LGPL version 2.1 or later"
 
-# Demux, decode and resample only: what core/src/backends/ffmpeg uses.
+# Demux, decode and resample only what core/src/backends/ffmpeg plays: the
+# containers, codecs and protocols below, nothing else. To play a new
+# format, add it here and a file for it to tool/regression.sh, and check it
+# with FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh.
 common=(
   --prefix="$out"
   --enable-shared --disable-static --enable-pic
   --disable-programs --disable-doc --disable-debug
   --disable-avdevice --disable-avfilter
-  --disable-encoders --disable-muxers --disable-bsfs --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb
-  --disable-devices --disable-indevs --disable-outdevs
+  --disable-everything
+  --enable-demuxer=mov,matroska,mpegts,hls,flv,ogg,mp3,aac,ac3,eac3,flac,wav,srt,webvtt,ass
+  --enable-protocol=file,data,http,https,httpproxy,tcp,tls,crypto
+  # Hardware decoders come first; these are the fallback.
+  --enable-decoder=h264,hevc,vp8,vp9,av1
+  --enable-decoder=aac,aac_latm,mp3float,opus,vorbis,flac,alac,ac3,eac3,'pcm_*'
+  --enable-decoder=subrip,srt,webvtt,movtext,ass,ssa,text
+  --enable-parser=h264,hevc,vp8,vp9,av1,aac,aac_latm,mpegaudio,opus,vorbis,flac,ac3
+  --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb
   --enable-cross-compile
 )
 
@@ -47,7 +62,8 @@ case "$platform" in
       --cc="$(xcrun -sdk $sdk -f clang)" --sysroot="$sysroot"
       --extra-cflags="-arch $arch $min"
       --extra-ldflags="-arch $arch $min"
-      --enable-videotoolbox --enable-audiotoolbox --enable-securetransport
+      --enable-videotoolbox --enable-securetransport
+      --enable-hwaccel=h264_videotoolbox,hevc_videotoolbox,vp9_videotoolbox,av1_videotoolbox
       # Install names @rpath/libavcodec.63.dylib, not this build's prefix,
       # so whatever links the libraries can ship them next to itself.
       --install-name-dir=@rpath
@@ -65,14 +81,16 @@ case "$platform" in
     esac
     ;;
   android-arm64-v8a|android-x86_64)
+    mbedtls="$(cd "${3:?Android needs MBEDTLS_SOURCE_DIR}" && pwd)"
     ndk="${ANDROID_NDK_HOME:-$(ls -d "$HOME"/Library/Android/sdk/ndk/* | sort -V | tail -1)}"
     toolchain="$(ls -d "$ndk"/toolchains/llvm/prebuilt/*)"
     api=24
     if [ "$platform" = android-arm64-v8a ]; then
-      triple=aarch64-linux-android; arch=aarch64
+      triple=aarch64-linux-android; arch=aarch64; abi=arm64-v8a
     else
-      triple=x86_64-linux-android; arch=x86_64
+      triple=x86_64-linux-android; arch=x86_64; abi=x86_64
     fi
+    tls="$work/mbedtls"
     flags=(
       --target-os=android --arch=$arch
       --cc="$toolchain/bin/$triple$api-clang"
@@ -80,10 +98,16 @@ case "$platform" in
       --ar="$toolchain/bin/llvm-ar" --nm="$toolchain/bin/llvm-nm"
       --ranlib="$toolchain/bin/llvm-ranlib" --strip="$toolchain/bin/llvm-strip"
       --sysroot="$toolchain/sysroot"
+      --extra-cflags="-I$tls/include"
       # Android 15+ devices may use 16 KB pages.
-      --extra-ldflags="-Wl,-z,max-page-size=16384"
-      --enable-jni --enable-mediacodec
+      --extra-ldflags="-Wl,-z,max-page-size=16384 -L$tls/lib"
+      # Linked statically into libavformat. The core hands it the system's
+      # CA certificates (ffmpeg_demuxer.cc).
+      --enable-mbedtls --enable-version3
+      # Homebrew's pkg-config would find the Mac's libraries.
+      --pkg-config=false
     )
+    license="LGPL version 3 or later"
     # x86_64 assembly needs nasm; not worth it for the emulator.
     [ "$platform" = android-x86_64 ] && flags+=(--disable-asm)
     ;;
@@ -96,13 +120,23 @@ esac
 rm -rf "$work" "$out"
 mkdir -p "$work"
 cd "$work"
+if [ -n "${tls:-}" ]; then
+  cmake -S "$mbedtls" -B "$work/mbedtls-build" -G Ninja \
+    -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
+    -DANDROID_ABI=$abi -DANDROID_PLATFORM=$api \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DCMAKE_INSTALL_PREFIX="$tls" \
+    -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF >mbedtls.log 2>&1 &&
+    cmake --build "$work/mbedtls-build" --target install >>mbedtls.log 2>&1 ||
+    { tail -20 mbedtls.log; exit 1; }
+fi
 "$src/configure" "${common[@]}" "${flags[@]}" >configure.log 2>&1 || {
   tail -20 configure.log
   exit 1
 }
 grep -E '^License: ' configure.log
-grep -qE '^License: LGPL version 2.1 or later' configure.log || {
-  echo "not an LGPL build" >&2
+grep -qE "^License: $license" configure.log || {
+  echo "not an $license build" >&2
   exit 1
 }
 make -j"$jobs" >make.log 2>&1 || { tail -30 make.log; exit 1; }

@@ -136,7 +136,8 @@ the simulator reads `/tmp` of the Mac.
 
 `sdk/android` builds one AAR, `tech.soit.lychee:lychee` (minSdk 26): the
 core as `liblychee.so` with the LGPL FFmpeg next to it (build it first:
-`tool/build_ffmpeg.sh android-arm64-v8a SRC`, and `android-x86_64` for x86
+`tool/build_ffmpeg.sh android-arm64-v8a SRC MBEDTLS_SRC`, with an Mbed TLS
+3.6 release for https, and `android-x86_64` for x86
 emulators), and Kotlin classes over it. The core is also a prefab module
 (`lychee`, header `lychee/lychee.h`) for native code that uses the C ABI.
 
@@ -272,8 +273,16 @@ MIT, see [LICENSE](LICENSE).
 lychee_player uses [FFmpeg](https://ffmpeg.org) under the LGPL. The core's
 own CMake build (the CLI, the GLFW example, `tool/regression.sh`) links the
 FFmpeg found by pkg-config, which may be a GPL build (Homebrew's is); that
-is for development only. The macOS, iOS and Android builds from
+is for development only. The macOS and iOS builds from
 `tool/build_ffmpeg.sh` are LGPL 2.1+ (the script checks configure's license
-line), the Windows and Linux downloads are LGPL 3+. Distributed apps must ship an
-LGPL-only FFmpeg (no `--enable-gpl` / `--enable-nonfree`), linked
-dynamically.
+line); the Android build is LGPL 3+, because it links mbedTLS (Apache-2.0)
+for https, and so are the Windows and Linux downloads. Distributed apps
+must ship an LGPL-only FFmpeg (no `--enable-gpl` / `--enable-nonfree`),
+linked dynamically.
+
+`tool/build_ffmpeg.sh` builds only what the core plays: MP4/MOV,
+Matroska/WebM, MPEG-TS, HLS, FLV, Ogg and raw audio files; H.264, HEVC,
+VP8, VP9 and AV1 (AV1 only through VideoToolbox: FFmpeg has no AV1
+software decoder of its own), AAC, MP3, Opus, Vorbis, FLAC, ALAC, AC-3,
+E-AC-3 and PCM; SRT, WebVTT, mov_text and ASS subtitles; file, http(s)
+and AES-128 HLS. Other formats need an entry in its lists.

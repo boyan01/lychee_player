@@ -164,6 +164,14 @@ glitch checks fail for reasons unrelated to your change. Done means:
 - `CALayer.contents` set to a `CVPixelBuffer` shows nothing in the iOS
   simulator; `LycheePlayerView` sets the buffer's IOSurface and keeps the
   buffer until the next frame.
+- `tool/build_ffmpeg.sh` enables only listed demuxers, decoders, parsers
+  and protocols. A format that plays in the CLI (Homebrew's full FFmpeg)
+  may fail in the apps: check new formats with `FFMPEG_ROOT=
+  third_party/ffmpeg/macos-arm64 tool/regression.sh`, and add what is
+  missing to the script's lists. Android's FFmpeg links mbedTLS for https
+  (LGPL 3, third argument: an Mbed TLS 3.6 source tree); mbedTLS trusts
+  only its `ca_file`, which `ffmpeg_demuxer.cc` writes from Android's CA
+  store and passes to every connection through `io_open`.
 - The Flutter plugin never links the system FFmpeg. Build the LGPL one once
   per platform with `tool/build_ffmpeg.sh PLATFORM <ffmpeg source>` into
   `third_party/ffmpeg/` (`macos-arm64` and `macos-x86_64`; `ios-sim-arm64`

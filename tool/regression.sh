@@ -10,6 +10,9 @@
 #   ONLY='seek-* rate-2x' tool/regression.sh   # Only cases matching a glob
 #   JOBS=1 tool/regression.sh     # Cases one at a time (default: half the
 #                                 # cores, a quarter under TSan)
+#   FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh
+#                                 # The shipped FFmpeg (tool/build_ffmpeg.sh)
+#                                 # instead of the system's, in build-lgpl/
 set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,6 +23,10 @@ if [ "${TSAN:-0}" = 1 ]; then
 else
   build="$root/build"
   flags=()
+fi
+if [ -n "${FFMPEG_ROOT:-}" ]; then
+  build="$build-lgpl"
+  flags+=(-DLYCHEE_FFMPEG_ROOT="$(cd "$FFMPEG_ROOT" && pwd)")
 fi
 
 cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Debug ${flags[@]+"${flags[@]}"} >/dev/null || exit 1
@@ -298,7 +305,9 @@ seq_() { run_case seq "$@"; }
 par check h264          1 - -- "$media/h264_aac.mp4"
 par check hevc10        1 - -- "$media/hevc10.mp4"
 par check vp9           1 - -- "$media/vp9_opus.webm"
-par check av1-software  0 - -- "$media/av1.mkv"
+# The shipped FFmpeg decodes AV1 only in hardware: no dav1d (roadmap).
+[ -n "${FFMPEG_ROOT:-}" ] ||
+  par check av1-software  0 - -- "$media/av1.mkv"
 par check rotated       1 - -- "$media/rotated.mp4"
 par check audio-only    - - -- "$media/audio_only.mp3"
 par check video-only    1 - -- "$media/video_only.mp4"
