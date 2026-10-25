@@ -154,3 +154,22 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    `flutter pub publish --dry-run` produces a package that builds in a fresh
    app.
 3. **Example app**: a file picker instead of a path field.
+4. **Native SDKs, with Flutter as one consumer** (decided 2026-10-25).
+   Today the core builds and ships only through the Flutter plugin, and
+   the per-vsync frame pulling lives in Flutter textures
+   (`LycheeTexture.kt` with `texture_bridge.cc`, `LycheePlayerPlugin.m`).
+   Target layout, in this order:
+   1. `core/` builds and installs on its own: an xcframework for Apple, a
+      prefab `.so` for Android, with FFmpeg next to it. The Flutter plugin
+      depends on those and the forwarders go (closes item 2).
+   2. `sdk/android/`: an AAR with a Kotlin `LycheePlayer`, the
+      Choreographer frame driver and a `SurfaceView`-based view; the
+      Flutter plugin uses its driver with the `SurfaceProducer`'s Surface.
+      Done when a native sample app and the Flutter example both play
+      through it.
+   3. `sdk/apple/`: a Swift package with a Swift `LycheePlayer`, the
+      display-link frame driver and a view; the Flutter plugin uses its
+      driver with a `FlutterTexture`.
+   4. `rust/`: `lychee-sys` (bindgen over `lychee.h`, CMake build) and a
+      safe `lychee` crate; callbacks are `Send`, frames release on drop.
+   Windows and Linux native users take the C ABI as it is.
