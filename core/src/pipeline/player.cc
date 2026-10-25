@@ -577,6 +577,11 @@ bool Player::metadata(const std::string& key, std::string* value) const {
   return false;
 }
 
+std::shared_ptr<const std::vector<uint8_t>> Player::artwork() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return media_info_.artwork;
+}
+
 std::string Player::subtitle(int64_t display_time) const {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!subtitle_renderer_) {

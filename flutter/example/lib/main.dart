@@ -94,7 +94,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     ? const SizedBox.expand()
                     : Stack(
                         children: [
-                          Center(child: LycheeVideo(player)),
+                          Center(child: _Picture(player)),
                           _Subtitle(player),
                         ],
                       ),
@@ -183,6 +183,27 @@ class _Controls extends StatelessWidget {
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return d.inHours > 0 ? '${d.inHours}:$m:$s' : '$m:$s';
+  }
+}
+
+/// The video, or the cover picture of audio without video.
+class _Picture extends StatelessWidget {
+  const _Picture(this.player);
+
+  final LycheePlayer player;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<LycheePlayerValue>(
+      valueListenable: player,
+      builder: (context, value, video) {
+        final artwork = value.artwork;
+        return value.videoSize == null && artwork != null
+            ? Image.memory(artwork, gaplessPlayback: true)
+            : video!;
+      },
+      child: LycheeVideo(player),
+    );
   }
 }
 

@@ -227,3 +227,8 @@ final playerGetMetadata = _library.lookupFunction<
     Int32 Function(Pointer<Void>, Pointer<Char>, Pointer<Char>, Int32),
     int Function(Pointer<Void>, Pointer<Char>, Pointer<Char>,
         int)>('lychee_player_get_metadata');
+
+final playerGetArtwork = _library.lookupFunction<
+    Int32 Function(Pointer<Void>, Pointer<Uint8>, Int32),
+    int Function(
+        Pointer<Void>, Pointer<Uint8>, int)>('lychee_player_get_artwork');

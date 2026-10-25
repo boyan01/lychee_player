@@ -549,6 +549,23 @@ impl Player {
         })
     }
 
+    /// The cover picture as the container stores it, usually JPEG or PNG.
+    pub fn artwork(&self) -> Option<Vec<u8>> {
+        let size = unsafe {
+            sys::lychee_player_get_artwork(self.raw(), std::ptr::null_mut(), 0)
+        };
+        if size < 0 {
+            return None;
+        }
+        let mut artwork = vec![0u8; size as usize];
+        let copied = unsafe {
+            sys::lychee_player_get_artwork(self.raw(), artwork.as_mut_ptr(), size)
+        };
+        // A reopen in between can change the picture.
+        artwork.truncate(copied.clamp(0, size) as usize);
+        Some(artwork)
+    }
+
     pub fn stats(&self) -> Stats {
         let mut stats: sys::lychee_stats = unsafe { std::mem::zeroed() };
         stats.struct_size = size_of::<sys::lychee_stats>() as u32;

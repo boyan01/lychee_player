@@ -21,6 +21,7 @@ final class LycheePlayerTests: XCTestCase {
     player.play()
     wait(for: [ready], timeout: 10)
     XCTAssertEqual(player.duration, 12)
+    XCTAssertNil(player.artwork)
     XCTAssertEqual(player.videoSize, CGSize(width: 1920, height: 1080))
     XCTAssertEqual(player.tracks.map(\.type), [.video, .audio])
 
@@ -56,5 +57,16 @@ final class LycheePlayerTests: XCTestCase {
     driver?.stop()
     XCTAssertNil(weakPlayer, "stop() lets go of it")
     driver = nil
+  }
+
+  func testArtwork() {
+    let player = LycheePlayer()
+    let loaded = expectation(description: "media info")
+    player.onEvent = { event in
+      if case .mediaInfo = event { loaded.fulfill() }
+    }
+    player.open("/tmp/lychee-media/artwork.m4a")
+    wait(for: [loaded], timeout: 10)
+    XCTAssertEqual(player.artwork?.prefix(4), Data([0x89, 0x50, 0x4e, 0x47]), "PNG")
   }
 }

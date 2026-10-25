@@ -2,9 +2,10 @@
 
 State as of 2026-10-25: the core plays files and network streams through
 FFmpeg, with accurate seek, pull-based frame selection, playback rate
-(WSOLA), looping and reopening, track selection, text subtitles and
-metadata. The Flutter plugin runs on macOS and iOS (VideoToolbox), Android
-(MediaCodec), Windows (D3D11VA) and Linux (VAAPI, never seen working).
+(WSOLA), looping and reopening, track selection, text subtitles,
+metadata and cover art. The Flutter plugin runs on macOS and iOS
+(VideoToolbox), Android (MediaCodec), Windows (D3D11VA) and Linux (VAAPI,
+never seen working).
 Everything below is unfinished.
 
 Each item says where the work goes and when it is done. Remove an item when it
@@ -86,8 +87,6 @@ None known. Add them here with a done criterion.
    (libass), bitmap subtitles (PGS, DVB, VobSub), and cues that started
    before a subtitle track is switched on mid-file (they appear only from
    the next cue).
-4. **Artwork**: `lychee_player_get_metadata` returns text tags only;
-   attached pictures are not exposed.
 
 ## Platforms
 

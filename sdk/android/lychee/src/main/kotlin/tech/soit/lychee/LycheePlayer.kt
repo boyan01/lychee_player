@@ -191,6 +191,13 @@ class LycheePlayer @JvmOverloads constructor(
     fun metadata(key: String): String? =
         nativeGetMetadata(handle(), key.toByteArray())?.let(::String)
 
+    /**
+     * The cover picture as the media stores it, usually JPEG or PNG (for
+     * `BitmapFactory.decodeByteArray`); null if it has none.
+     */
+    val artwork: ByteArray?
+        get() = nativeGetArtwork(handle())
+
     val stats: Stats
         get() {
             val longs = LongArray(6)
@@ -280,6 +287,7 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic external fun nativeSelectTrack(handle: Long, type: Int, index: Int): Boolean
         @JvmStatic external fun nativeGetSubtitle(handle: Long): ByteArray?
         @JvmStatic external fun nativeGetMetadata(handle: Long, key: ByteArray): ByteArray?
+        @JvmStatic external fun nativeGetArtwork(handle: Long): ByteArray?
         @JvmStatic external fun nativeGetStats(handle: Long, longs: LongArray): ByteArray
     }
 }

@@ -157,6 +157,8 @@ class Player {
   std::vector<TrackInfo> tracks() const;
   // Container tag, case-insensitive. False if absent.
   bool metadata(const std::string& key, std::string* value) const;
+  // The cover picture, encoded; null if the media has none.
+  std::shared_ptr<const std::vector<uint8_t>> artwork() const;
   // The subtitle text showing at |display_time| (NowMicros() timebase), or
   // now if it is 0.
   std::string subtitle(int64_t display_time) const;

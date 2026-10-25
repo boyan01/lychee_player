@@ -304,6 +304,15 @@ void PrintMetadata(lychee_player* player) {
     }
   }
   printf("\n");
+  const int32_t size = lychee_player_get_artwork(player, nullptr, 0);
+  if (size >= 0) {
+    std::vector<uint8_t> artwork(size);
+    lychee_player_get_artwork(player, artwork.data(), size);
+    const bool png = size >= 4 && artwork[0] == 0x89 && artwork[1] == 'P';
+    const bool jpeg = size >= 2 && artwork[0] == 0xff && artwork[1] == 0xd8;
+    printf("artwork: %d bytes %s\n", size,
+           png ? "png" : jpeg ? "jpeg" : "other");
+  }
 }
 
 // Subtitle lines joined with " | ", so a cue stays on one output line.

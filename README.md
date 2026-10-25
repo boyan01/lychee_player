@@ -227,7 +227,7 @@ final sub = player.value.tracks
     .indexWhere((t) => t.type == LycheeTrackType.subtitle);
 player.selectTrack(LycheeTrackType.subtitle, sub);
 player.getMetadata('title');
-// player.value: state, position, duration, tracks, subtitle, rate, ...
+// player.value: state, position, duration, tracks, subtitle, artwork, ...
 player.dispose();
 ```
 

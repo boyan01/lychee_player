@@ -88,6 +88,12 @@ gen loop.mp4 -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i sine=frequenc
   -c:v libx264 -preset veryfast -pix_fmt yuv420p -c:a aac
 gen meta.mp4 -i "$media/h264_aac.mp4" -t 4 -c copy -metadata title="Lychee Test" \
   -metadata artist="Lychee Artist" -metadata album="Lychee Album"
+# Cover art: an ID3 picture (JPEG) and MP4 cover art (PNG).
+gen cover.png -f lavfi -i color=c=orange:s=320x320 -frames:v 1
+gen artwork.mp3 -i "$media/audio_only.mp3" -i "$media/cover.png" -map 0 -map 1 -c:a copy -c:v mjpeg \
+  -disposition:v attached_pic -metadata:s:v comment="Cover (front)" -metadata title="Lychee Cover"
+gen artwork.m4a -i "$media/audio_only.mp3" -i "$media/cover.png" -map 0 -map 1 -c:a aac -c:v copy \
+  -disposition:v attached_pic
 # Subtitles, with markup that must not reach the text: SRT <i>, ASS
 # override blocks and \N, WebVTT <b>.
 [ -f "$media/subs.srt" ] || cat >"$media/subs.srt" <<'SRT'
@@ -437,6 +443,10 @@ par expect subtitle-mov-text "subtitle at [01]\.[0-9]{3}s: Hello world$" -- "$me
 par expect subtitle-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line" -- --seek 3.5 --seek-after 0.5 "$media/sub_srt.mkv"
 par expect metadata "metadata: title=Lychee Test artist=Lychee Artist album=Lychee Album" "summary: state=ended" -- \
   "$media/meta.mp4"
+par expect artwork-id3 "metadata: title=Lychee Cover" "artwork: [0-9]+ bytes jpeg" "<=0 track 1" \
+  "summary: state=ended" -- "$media/artwork.mp3"
+par expect artwork-mp4 "artwork: [0-9]+ bytes png" "summary: state=ended" -- "$media/artwork.m4a"
+par expect no-artwork "<=0 artwork:" -- --seconds 1 "$media/meta.mp4"
 par expect stats "vbuf=[1-9]\.[0-9]{2}s abuf=[1-9]\.[0-9]{2}s vdec=([1-9][0-9]*\.[0-9]{2}|0\.[0-9][1-9]|0\.[1-9][0-9])ms" -- \
   --seconds 3 "$media/h264_aac.mp4"
 

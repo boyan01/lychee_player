@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 #include "backends/ffmpeg/ffmpeg_common.h"
 #include "base/log.h"
@@ -227,9 +228,24 @@ void FFmpegDemuxer::BuildMediaInfo() {
     media_info_.metadata.emplace_back(std::move(key), tag->value);
   }
 
+  bool artwork_is_front = false;
   for (unsigned i = 0; i < ic->nb_streams; ++i) {
     AVStream* stream = ic->streams[i];
     AVCodecParameters* par = stream->codecpar;
+    const AVPacket& picture = stream->attached_pic;
+    if ((stream->disposition & AV_DISPOSITION_ATTACHED_PIC) &&
+        picture.size > 0) {
+      // ID3 and FLAC say which picture is the front cover; otherwise the
+      // first one.
+      const AVDictionaryEntry* kind =
+          av_dict_get(stream->metadata, "comment", nullptr, 0);
+      const bool front = kind && strcmp(kind->value, "Cover (front)") == 0;
+      if (!media_info_.artwork || (front && !artwork_is_front)) {
+        media_info_.artwork = std::make_shared<const std::vector<uint8_t>>(
+            picture.data, picture.data + picture.size);
+        artwork_is_front = front;
+      }
+    }
     StreamInfo info;
     info.index = static_cast<int>(i);
     info.duration = ToMicros(stream->duration, stream->time_base);

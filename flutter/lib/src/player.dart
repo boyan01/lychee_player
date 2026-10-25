@@ -73,6 +73,7 @@ class LycheePlayerValue {
     this.looping = false,
     this.tracks = const [],
     this.subtitle,
+    this.artwork,
   });
 
   final LycheePlayerState state;
@@ -102,6 +103,10 @@ class LycheePlayerValue {
   /// Subtitle text on screen, lines separated by '\n'; null if none. Draw it
   /// over the video yourself.
   final String? subtitle;
+
+  /// The cover picture as the media stores it, usually JPEG or PNG (for
+  /// [Image.memory]); null if it has none.
+  final Uint8List? artwork;
 }
 
 /// Playback statistics, read on demand with [LycheePlayer.getStats].
@@ -147,6 +152,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
   bool _disposed = false;
   List<LycheeTrack> _tracks = const [];
   String? _subtitle;
+  Uint8List? _artwork;
 
   static Future<LycheePlayer> create({bool hardwareDecoding = true}) async {
     final config = calloc<native.LycheeConfig>();
@@ -180,6 +186,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
     }
     _tracks = const [];
     _subtitle = null;
+    _artwork = null;
     final nativeUrl = url.toNativeUtf8();
     native.playerOpen(_player, nativeUrl.cast());
     malloc.free(nativeUrl);
@@ -273,10 +280,24 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
     if (_disposed) return;
     if (type == native.kEventMediaInfo || type == native.kEventTracksChanged) {
       _tracks = _readTracks();
+    }
+    if (type == native.kEventMediaInfo) {
+      _artwork = _readArtwork();
     } else if (type == native.kEventSubtitleChanged) {
       _subtitle = arg0 > 0 ? _readSubtitle(arg0) : null;
     }
     _refresh();
+  }
+
+  Uint8List? _readArtwork() {
+    final size = native.playerGetArtwork(_player, nullptr, 0);
+    if (size < 0) return null;
+    final buffer = calloc<Uint8>(size);
+    final copied = native.playerGetArtwork(_player, buffer, size);
+    final artwork =
+        Uint8List.fromList(buffer.asTypedList(copied.clamp(0, size)));
+    calloc.free(buffer);
+    return artwork;
   }
 
   List<LycheeTrack> _readTracks() {
@@ -373,6 +394,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
       looping: native.playerIsLooping(_player) != 0,
       tracks: _tracks,
       subtitle: _subtitle,
+      artwork: _artwork,
     );
   }
 

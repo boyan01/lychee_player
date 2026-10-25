@@ -93,6 +93,8 @@ struct MediaInfo {
   int default_subtitle_stream = -1;
   // Container tags (title, artist, album, ...), keys lowercase.
   std::vector<std::pair<std::string, std::string>> metadata;
+  // The cover picture as the container stores it (JPEG, PNG, ...), or null.
+  std::shared_ptr<const std::vector<uint8_t>> artwork;
 };
 
 inline int VideoConfig::display_width() const {

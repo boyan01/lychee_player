@@ -43,7 +43,8 @@ extern "C" {
 //    pushes.
 // 6: lychee_config.rotate_surface_frames, for Android windows that cannot
 //    rotate (SurfaceView).
-#define LYCHEE_API_VERSION 6
+// 7: lychee_player_get_artwork().
+#define LYCHEE_API_VERSION 7
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -477,6 +478,15 @@ LYCHEE_EXPORT int32_t lychee_player_get_metadata(lychee_player* player,
                                                  const char* key,
                                                  char* buffer,
                                                  int32_t buffer_size);
+
+// API version 7. Copies the media's cover picture (an ID3 or FLAC
+// picture, MP4 cover art, a Matroska image attachment) into |buffer| as the
+// container stores it, usually JPEG or PNG: decode it with the platform's
+// image decoder. Returns its full size in bytes, or -1 if the media has
+// none. Available from LYCHEE_EVENT_MEDIA_INFO on.
+LYCHEE_EXPORT int32_t lychee_player_get_artwork(lychee_player* player,
+                                                uint8_t* buffer,
+                                                int32_t buffer_size);
 
 // |stats->struct_size| must be set by the caller; fields past it are not
 // written, so callers built against version 1 keep working.

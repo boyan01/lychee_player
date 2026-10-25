@@ -204,6 +204,18 @@ public final class LycheePlayer {
     readString { lychee_player_get_metadata(handle, key, $0, $1) }
   }
 
+  /// The cover picture as the media stores it, usually JPEG or PNG (for
+  /// `NSImage(data:)` / `UIImage(data:)`); nil if it has none.
+  public var artwork: Data? {
+    let size = lychee_player_get_artwork(handle, nil, 0)
+    if size < 0 { return nil }
+    var data = Data(count: Int(size))
+    let copied = data.withUnsafeMutableBytes {
+      lychee_player_get_artwork(handle, $0.bindMemory(to: UInt8.self).baseAddress, size)
+    }
+    return data.prefix(Int(min(max(copied, 0), size)))
+  }
+
   public var stats: Stats {
     var stats = lychee_stats()
     stats.struct_size = UInt32(MemoryLayout<lychee_stats>.size)

@@ -439,6 +439,16 @@ Java_tech_soit_lychee_LycheePlayer_nativeGetMetadata(JNIEnv* env,
   });
 }
 
+JNIEXPORT jbyteArray JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeGetArtwork(JNIEnv* env,
+                                                    jclass,
+                                                    jlong handle) {
+  return ReadBytes(env, [handle](char* buffer, int32_t size) {
+    return lychee_player_get_artwork(
+        Player(handle), reinterpret_cast<uint8_t*>(buffer), size);
+  });
+}
+
 // Fills |longs| with hardware_decoding, frames_rendered, frames_dropped,
 // video_buffered_us, audio_buffered_us and video_decode_time_us, and
 // returns the video decoder's name.

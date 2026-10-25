@@ -348,6 +348,20 @@ int32_t lychee_player_get_metadata(lychee_player* player,
   return CopyString(value, buffer, buffer_size);
 }
 
+int32_t lychee_player_get_artwork(lychee_player* player,
+                                  uint8_t* buffer,
+                                  int32_t buffer_size) {
+  const auto artwork = player->player->artwork();
+  if (!artwork) {
+    return -1;
+  }
+  const int32_t size = static_cast<int32_t>(artwork->size());
+  if (buffer && buffer_size > 0) {
+    std::memcpy(buffer, artwork->data(), std::min(size, buffer_size));
+  }
+  return size;
+}
+
 int32_t lychee_player_get_state(lychee_player* player) {
   return static_cast<int32_t>(player->player->state());
 }
