@@ -7,6 +7,10 @@
 #include <string>
 #include <vector>
 
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
+
 #include "api/testing.h"
 #include "base/log.h"
 #include "base/time.h"
@@ -171,6 +175,12 @@ lychee_player* lychee_player_create(const lychee_config* config) {
 
 void lychee_player_destroy(lychee_player* player) {
   delete player;
+#if defined(__GLIBC__)
+  // glibc gives each new thread its own malloc arena and keeps what is
+  // freed there: without this, every player's decoded frames stay resident
+  // after it is gone (~40 MB per file switch at 1080p).
+  malloc_trim(0);
+#endif
 }
 
 int32_t lychee_player_set_video_device(lychee_player* player,

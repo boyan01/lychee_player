@@ -59,15 +59,7 @@ on top of them.
 
 ## Known defects
 
-1. **Linux RSS grows on file switches**: about 40 MB per switch with
-   glibc's default malloc, without a plateau over 30 switches; flat at
-   ~740 MB with `MALLOC_ARENA_MAX=2`. Each player's new threads get their
-   own malloc arenas, which keep the freed 1080p frames. Fix: pool frame
-   buffers across players, or `malloc_trim` after a player is destroyed.
-2. **Glitches after a seek on Linux**: `seek-forward` shows exactly 3
-   glitches in every WSL run (the case allows 3), 0 on macOS. Probably the
-   PulseAudio stream's latency estimate settling after the flush. Done when
-   it shows 0-1 there.
+None known. Add them here with a done criterion.
 
 ## Features
 
@@ -124,6 +116,13 @@ above). What is left per platform is a renderer in `examples/glfw`
    LGPL 2.1). Unverified there: the Impeller renderer (the VM runs with it
    off; the texture's GL state handling relies on Skia resetting its own),
    and a build from 22.04 running on 26.04.
+   WSL's audio device (WSLg's `RDPSink`) runs 0.3-0.4% slower than the
+   system clock in most runs: on the real clock, video follows it by
+   holding a frame for 3 vsyncs every ~3 s (`glitches=1-4`,
+   `max_drift` 30-45 ms over 12 s), with or without a seek
+   (2026-10-25). That is lip sync working, not a seek problem: on virtual
+   time, with no audio device, plain playback shows none. Not yet seen
+   on a machine with a sound card.
 3. **Swift Package Manager**: add `flutter/darwin/lychee_player/Package.swift`;
    Flutter already warns that CocoaPods-only plugins will become an error.
    The xcframeworks in `flutter/darwin/Frameworks` can be its

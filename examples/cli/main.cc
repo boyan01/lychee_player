@@ -671,6 +671,8 @@ int main(int argc, char** argv) {
           if (vsyncs_on_screen < static_cast<int64_t>(ideal + 0.02) ||
               vsyncs_on_screen > static_cast<int64_t>(ideal - 0.02) + 1) {
             glitches++;
+            printf("glitch: %.3fs held %" PRId64 " vsyncs, expected %.2f\n",
+                   last_pts / 1e6, vsyncs_on_screen, ideal);
           }
         }
         steady = playing_steadily;
