@@ -2,7 +2,7 @@
 //
 // Hardware-decoded frames (LYCHEE_FRAME_ANDROID_SURFACE) are rendered by
 // MediaCodec straight into the window given to the player with
-// lychee_player_set_video_output(); acquiring a frame releases it there.
+// lychee_player_set_video_surface(); acquiring a frame releases it there.
 // Software-decoded frames (LYCHEE_FRAME_CPU_RGBA) are copied into another
 // window: a window a CPU has drawn into stays connected to the CPU, and
 // MediaCodec can no longer render into it.
@@ -103,7 +103,7 @@ Java_dev_lychee_lychee_1player_LycheeTexture_nativeSetOutput(JNIEnv* env,
   ANativeWindow* window =
       surface ? ANativeWindow_fromSurface(env, surface) : nullptr;
   // The player takes its own reference.
-  lychee_player_set_video_output(texture->player, window);
+  lychee_player_set_video_surface(texture->player, window);
   if (window) {
     ANativeWindow_release(window);
   }
@@ -167,7 +167,7 @@ Java_dev_lychee_lychee_1player_LycheeTexture_nativeDetach(JNIEnv*,
   Texture* texture = FromHandle(handle);
   std::lock_guard<std::mutex> lock(texture->mutex);
   if (texture->player) {
-    lychee_player_set_video_output(texture->player, nullptr);
+    lychee_player_set_video_surface(texture->player, nullptr);
   }
   texture->player = nullptr;
   ReleaseCpuWindowLocked(texture);

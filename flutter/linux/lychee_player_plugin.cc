@@ -589,10 +589,13 @@ static LycheeTexture* lychee_texture_new(lychee_player* player,
       LYCHEE_TEXTURE(g_object_new(lychee_texture_get_type(), nullptr));
   self->player = player;
   self->registrar = registrar;
-  // Hardware-decoded frames then come as dmabufs on Flutter's GPU. Before
-  // lychee_player_open(), which is when it takes effect.
+  // Hardware-decoded frames then come as dmabufs on Flutter's GPU.
   if (const char* node = DmabufRenderNode()) {
-    lychee_player_set_video_output(player, const_cast<char*>(node));
+    lychee_video_device video_device = {};
+    video_device.struct_size = sizeof(video_device);
+    video_device.type = LYCHEE_VIDEO_DEVICE_DRM_RENDER_NODE;
+    video_device.path = node;
+    lychee_player_set_video_device(player, &video_device);
   }
   if (view) {
     self->view = view;

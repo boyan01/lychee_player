@@ -41,8 +41,10 @@ enum class PlayerEvent {
 };
 
 struct PlayerConfig {
+  // 0: audio only.
   uint32_t video_frame_types = 0;
   bool hardware_decoding = true;
+  VideoDevice video_device;
 };
 
 struct PlayerStats {
@@ -97,8 +99,10 @@ class Player {
   // |position| is relative to the start of the media.
   void Seek(int64_t position);
   void SetVolume(float volume);
-  // lychee_player_set_video_output().
-  void SetVideoOutput(void* output);
+  // Rebuilds the video renderer on |device| during playback.
+  void SetVideoDevice(VideoDevice device);
+  // lychee_player_set_video_surface().
+  void SetVideoSurface(void* surface);
   // Clamped to [kMinRate, kMaxRate]. Pitch is preserved.
   void SetRate(double rate);
   // At the end, play again from the start instead of ending.
@@ -126,6 +130,8 @@ class Player {
   // applied play/pause and end of stream, and while a renderer's decoded
   // data ends before |until|.
   bool SettledForTesting(int64_t until) const;
+  // Makes the video decoder count as lost, as after a GPU reset.
+  void LoseVideoDecoderForTesting();
   std::vector<TrackInfo> tracks() const;
   // Container tag, case-insensitive. False if absent.
   bool metadata(const std::string& key, std::string* value) const;
@@ -149,10 +155,14 @@ class Player {
     int video = kUnchanged;
     int audio = kUnchanged;
     int subtitle = kUnchanged;
-    bool pending() const {
+    // Replace the video renderer even if its stream stays: for a new
+    // device, or a lost decoder.
+    bool rebuild_video = false;
+    bool tracks_changed() const {
       return video != kUnchanged || audio != kUnchanged ||
              subtitle != kUnchanged;
     }
+    bool pending() const { return tracks_changed() || rebuild_video; }
   };
 
   // Joins all threads and drops the renderers and the demuxer.
@@ -161,6 +171,7 @@ class Player {
   void ReadLoop();
   bool Prepare(const std::string& url, std::string* error);
   // Replaces the renderer of each type in |request|; stream -1 disables it.
+  // Rebuilds the video renderer of the current stream for |rebuild_video|.
   // The read thread must be parked.
   void ChangeTracks(const TrackRequest& request);
   std::unique_ptr<VideoRenderer> CreateVideoRenderer(const StreamInfo& info);
@@ -169,11 +180,15 @@ class Player {
       const StreamInfo& info);
   void EnableStreamsLocked();
   void PublishVideoLocked();
+  // A new video renderer is needed: its decoder was lost, or the device
+  // changed.
+  void CheckVideoRendererLocked();
   bool ShouldReadLocked() const;
   bool NeedMoreData() const;
   void ReadPacket();
   // |loop|: back to the start at the end; the state stays kReady.
-  void ProcessSeek(int64_t target, bool loop);
+  // |resync|: after a track change, playing on from where playback is.
+  void ProcessSeek(int64_t target, bool loop, bool resync);
   void FinishSeekLocked();
   void UpdateState();
   void UpdateVideoSizeLocked();
@@ -202,9 +217,10 @@ class Player {
   std::thread thread_;
   std::thread read_thread_;
 
-  // The renderer frames are pulled from. Its own lock, so a renderer can be
-  // replaced while the caller pulls frames on another thread. Lock order:
-  // display_mutex_ before the renderer's.
+  // The renderer frames are pulled from: |video_renderer_|, unless it was
+  // made for a device other than |video_device_|. Its own lock, so a
+  // renderer can be replaced while the caller pulls frames on another
+  // thread. Lock order: display_mutex_ before the renderer's.
   mutable std::mutex display_mutex_;
   VideoRenderer* video_for_display_ = nullptr;
 
@@ -252,8 +268,13 @@ class Player {
   // once the data read so far has played, unless a seek comes first.
   std::string input_error_;
   float volume_ = 1.0f;
-  // RetainVideoOutput() of the last SetVideoOutput().
-  std::shared_ptr<void> video_output_;
+  VideoDevice video_device_;
+  // RetainVideoSurface() of the last SetVideoSurface().
+  std::shared_ptr<void> video_surface_;
+  // Video decoders lost since the last open or device change. The first is
+  // replaced by hardware decoding again (a GPU reset passes), later ones by
+  // software decoding.
+  int video_decoder_losses_ = 0;
   double rate_ = 1.0;
   bool looping_ = false;
   std::string error_;

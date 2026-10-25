@@ -6,6 +6,7 @@
 
 #include "backends/ffmpeg/ffmpeg_common.h"
 #include "media/video_decoder.h"
+#include "media/video_device.h"
 
 extern "C" {
 #include <libavutil/hwcontext.h>
@@ -25,16 +26,14 @@ class D3D11VideoProcessor;
 // Frames FFmpeg cannot hand over as they are become CPU frames, RGBA if
 // |accepted_storage| takes RGBA but not BGRA.
 //
-// On Windows |output| is the IDXGIAdapter to decode on. Frames become
-// kD3D11Texture only with one: textures are shared with a device on that
-// adapter, and without one nobody said which. On Linux it is the
-// std::string path of the DRM render node to decode on ("" for FFmpeg's
-// default), and frames become kDmabuf only with one, for the same reason.
+// Hardware decoding runs on |device| when it names one: the IDXGIAdapter on
+// Windows, the DRM render node on Linux. Frames become kD3D11Texture or
+// kDmabuf only then, since only then are they on the caller's GPU.
 class FFmpegVideoDecoder : public VideoDecoder {
  public:
   FFmpegVideoDecoder(bool hardware,
                      uint32_t accepted_storage,
-                     std::shared_ptr<void> output = nullptr);
+                     VideoDevice device = VideoDevice());
   ~FFmpegVideoDecoder() override;
 
   const char* name() const override;
@@ -57,7 +56,7 @@ class FFmpegVideoDecoder : public VideoDecoder {
   const bool hardware_;
   const uint32_t accepted_storage_;
   const VideoFrameStorage cpu_storage_;
-  const std::shared_ptr<void> output_;
+  const VideoDevice device_;
 #if defined(_WIN32)
   std::unique_ptr<D3D11VideoProcessor> d3d11_processor_;
   bool logged_d3d11_fallback_ = false;

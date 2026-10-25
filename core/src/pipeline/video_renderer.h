@@ -1,6 +1,7 @@
 #ifndef LYCHEE_PIPELINE_VIDEO_RENDERER_H_
 #define LYCHEE_PIPELINE_VIDEO_RENDERER_H_
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
@@ -11,6 +12,7 @@
 
 #include "media/frame_converter.h"
 #include "media/video_decoder.h"
+#include "media/video_device.h"
 #include "pipeline/media_clock.h"
 #include "pipeline/packet_queue.h"
 #include "pipeline/video_renderer_algorithm.h"
@@ -30,21 +32,30 @@ class VideoRenderer {
   // Tries the decoders in order and keeps the first that accepts |config|.
   // The ones after it stay as fallbacks for a decoder that fails before its
   // first frame (a hardware decoder rejecting a profile it opened for).
-  // |output| is the retained lychee_player_set_video_output() object.
+  // |surface| is the retained lychee_player_set_video_surface() window.
   bool Initialize(const VideoConfig& config,
                   bool allow_hardware,
-                  const std::shared_ptr<void>& output,
+                  const VideoDevice& device,
+                  const std::shared_ptr<void>& surface,
                   PacketQueue* queue,
                   std::string* error);
-  // Passes a new video output to the decoder.
-  void SetVideoOutput(std::shared_ptr<void> output);
+  // Passes a new surface to the decoder.
+  void SetVideoSurface(std::shared_ptr<void> surface);
+  // The device the decoders were created for.
+  const VideoDevice& device() const { return device_; }
   void Start();
   // The packet queue must be aborted first so the decode thread can exit.
   void Stop();
 
   // After a seek: drops queued frames, and frames before |start_time| that
-  // are still to be decoded.
-  void Flush(uint64_t generation, int64_t start_time);
+  // are still to be decoded. |continue_shown|: also those up to the end of
+  // the frame on screen, for a resync that should not show frames again
+  // (callers pull frames for display times ahead of the clock).
+  void Flush(uint64_t generation, int64_t start_time, bool continue_shown);
+  // Where the frame on screen ends, or kNoTimestamp if none or stale.
+  int64_t shown_end() const;
+  // A renderer replacing another: what it showed, for Flush().
+  void ContinueFrom(int64_t shown_end);
 
   // A frame is ready to show, or there is nothing left to decode.
   bool HasEnoughData() const;
@@ -57,6 +68,12 @@ class VideoRenderer {
   bool HasFramesUntil(int64_t media_time) const;
   // The decoder failed for good; decoding has stopped.
   bool HasError() const;
+  // A hardware decoder failed after its first frame, which is how a lost
+  // device shows (a GPU reset, MediaCodec reclaiming the codec). Decoding
+  // has stopped; a new renderer can take over at the current position.
+  bool DecoderLost() const;
+  // Makes the decoder count as lost at the next packet, for tests.
+  void SimulateDecoderLossForTesting() { simulate_loss_ = true; }
   // Coded size of the frame last handed out by Acquire(); false before the
   // first. Streams can change resolution midway (adaptive streaming).
   bool shown_size(int* width, int* height) const;
@@ -88,6 +105,7 @@ class VideoRenderer {
 
   MediaClock* const clock_;
   const uint32_t accepted_storage_;
+  VideoDevice device_;
   PacketQueue* queue_ = nullptr;
   VideoConfig config_;
   // Replaced only on the decode thread (or before it starts), under
@@ -118,8 +136,12 @@ class VideoRenderer {
   bool first_frame_pending_ = true;
   uint64_t generation_ = 0;
   int64_t start_time_ = kNoTimestamp;
+  // ContinueFrom(), until the first flush.
+  int64_t inherited_shown_end_ = kNoTimestamp;
   bool end_of_stream_ = false;
   bool failed_ = false;
+  bool decoder_lost_ = false;
+  std::atomic<bool> simulate_loss_{false};
   bool stopped_ = false;
   int shown_width_ = 0;
   int shown_height_ = 0;

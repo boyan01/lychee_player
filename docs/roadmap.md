@@ -62,16 +62,11 @@ on top of them.
    (macOS and Windows). The audio clock is probably re-anchored before the
    first post-loop audio reaches the device. Done when drift after a loop
    matches drift before it, with a regression case asserting it.
-3. **Position jumps back after an audio track switch** with software
-   decoding (`--no-hw --select audio:2`: `backward_jumps=1`, every run on
-   macOS and Windows; 0 with VideoToolbox). Done when the switch resumes
-   without a backward jump and the regression case asserts
-   `backward_jumps=0`.
-4. **Glitches after a seek on Linux**: `seek-forward` shows exactly 3
+3. **Glitches after a seek on Linux**: `seek-forward` shows exactly 3
    glitches in every WSL run (the case allows 3), 0 on macOS. Probably the
    PulseAudio stream's latency estimate settling after the flush. Done when
    it shows 0-1 there.
-5. **Drops after returning from the background**: while the app is in the
+4. **Drops after returning from the background**: while the app is in the
    background nobody pulls frames, the clock keeps running and the decoder
    stalls on a full queue; back in front, the frames it decodes to catch up
    are late and count as dropped (19 after 2 s in the background, Android
@@ -108,8 +103,13 @@ above). What is left per platform is a renderer in `examples/glfw`
    dropped; the integration test passes; 2026-10-25). The FFmpeg DLLs
    (BtbN's LGPLv3 build, ~120 MB) should become a slim build of our own.
    Unverified there: the pixel buffer path for a Flutter without a D3D11
-   adapter, device switching, multiple monitors, audible output, and
-   `tool/regression.sh` (needs bash).
+   adapter, multiple monitors, audible output, and `tool/regression.sh`
+   (needs bash). The decoder is rebuilt at the position when the adapter
+   changes (`lychee_player_set_video_device()`) or a hardware decoder fails
+   midway, but only a simulated loss has run (`decoder-lost`); not yet seen:
+   a real GPU reset (`dxcap -forcetdr`), which also loses the plugin's own
+   device, and an adapter change during playback (the plugin sets the
+   adapter once).
 2. **Linux leftovers**: the bundled FFmpeg (BtbN, LGPLv3, ~130 MB) should
    become a decode-only `tool/build_ffmpeg.sh linux-x86_64` build (smaller,
    LGPL 2.1). Unverified there: the Impeller renderer (the VM runs with it

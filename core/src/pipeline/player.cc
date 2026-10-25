@@ -47,7 +47,8 @@ std::string ToLower(std::string text) {
 
 }  // namespace
 
-Player::Player(const PlayerConfig& config) : config_(config) {}
+Player::Player(const PlayerConfig& config)
+    : config_(config), video_device_(config.video_device) {}
 
 Player::~Player() {
   std::lock_guard<std::mutex> open_lock(open_mutex_);
@@ -118,6 +119,7 @@ void Player::StopPipeline() {
     video_last_pts_ = audio_last_pts_ = kNoTimestamp;
     video_width_ = video_height_ = 0;
     subtitle_text_.clear();
+    video_decoder_losses_ = 0;
   }
   video_queue_.Reset(0);
   audio_queue_.Reset(0);
@@ -201,13 +203,28 @@ void Player::SetVolume(float volume) {
   }
 }
 
-void Player::SetVideoOutput(void* output) {
-  std::shared_ptr<void> retained = RetainVideoOutput(output);
+void Player::SetVideoDevice(VideoDevice device) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (device == video_device_) {
+      return;
+    }
+    LOGI("video device changed");
+    video_device_ = std::move(device);
+    video_decoder_losses_ = 0;
+    // No more frames from the old device; the control thread replaces the
+    // renderer.
+    PublishVideoLocked();
+  }
+  condition_.notify_all();
+}
+
+void Player::SetVideoSurface(void* surface) {
+  std::shared_ptr<void> retained = RetainVideoSurface(surface);
   std::lock_guard<std::mutex> lock(mutex_);
-  video_output_ = retained;
-  std::lock_guard<std::mutex> display_lock(display_mutex_);
-  if (video_for_display_) {
-    video_for_display_->SetVideoOutput(std::move(retained));
+  video_surface_ = retained;
+  if (video_renderer_) {
+    video_renderer_->SetVideoSurface(std::move(retained));
   }
 }
 
@@ -245,6 +262,10 @@ bool Player::SelectTrack(MediaType type, int track) {
       return false;
     }
     int stream = -1;
+    if (type == MediaType::kVideo && track >= 0 &&
+        config_.video_frame_types == 0) {
+      return false;
+    }
     if (track >= 0) {
       std::vector<int> streams = TrackStreamsLocked();
       if (track >= static_cast<int>(streams.size())) {
@@ -509,6 +530,7 @@ void Player::Run(std::string url) {
   for (;;) {
     bool seek = false;
     bool loop = false;
+    bool resync = false;
     int64_t seek_target = 0;
     TrackRequest tracks;
     {
@@ -528,6 +550,7 @@ void Player::Run(std::string url) {
           report_seek_ = false;
         } else if (!seek_in_progress_) {
           // A track change resumes where playback is.
+          resync = true;
           int64_t position =
               std::max<int64_t>(clock_.Now() - media_info_.start_time, 0);
           if (media_info_.duration != kNoTimestamp) {
@@ -550,7 +573,7 @@ void Player::Run(std::string url) {
       if (tracks.pending()) {
         ChangeTracks(tracks);
       }
-      ProcessSeek(seek_target, loop);
+      ProcessSeek(seek_target, loop, resync);
       {
         std::lock_guard<std::mutex> lock(mutex_);
         seeking_ = false;
@@ -598,14 +621,18 @@ std::unique_ptr<VideoRenderer> Player::CreateVideoRenderer(
     const StreamInfo& info) {
   auto video =
       std::make_unique<VideoRenderer>(&clock_, config_.video_frame_types);
-  std::shared_ptr<void> output;
+  VideoDevice device;
+  std::shared_ptr<void> surface;
+  bool hardware;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    output = video_output_;
+    device = video_device_;
+    surface = video_surface_;
+    hardware = config_.hardware_decoding && video_decoder_losses_ < 2;
   }
   std::string error;
-  if (!video->Initialize(info.video, config_.hardware_decoding, output,
-                         &video_queue_, &error)) {
+  if (!video->Initialize(info.video, hardware, device, surface, &video_queue_,
+                         &error)) {
     LOGW("video stream %d disabled: %s", info.index, error.c_str());
     return nullptr;
   }
@@ -650,7 +677,7 @@ bool Player::Prepare(const std::string& url, std::string* error) {
   std::unique_ptr<VideoRenderer> video;
   std::unique_ptr<AudioRenderer> audio;
   std::unique_ptr<SubtitleRenderer> subtitle;
-  if (info.default_video_stream >= 0) {
+  if (info.default_video_stream >= 0 && config_.video_frame_types != 0) {
     video = CreateVideoRenderer(info.streams[info.default_video_stream]);
   }
   if (info.default_audio_stream >= 0) {
@@ -697,7 +724,14 @@ bool Player::Prepare(const std::string& url, std::string* error) {
 }
 
 void Player::ChangeTracks(const TrackRequest& request) {
-  if (request.video != kUnchanged) {
+  int video_stream = request.video;
+  if (video_stream == kUnchanged && request.rebuild_video) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (video_stream_ >= 0) {
+      video_stream = video_stream_;
+    }
+  }
+  if (video_stream != kUnchanged) {
     std::unique_ptr<VideoRenderer> old;
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -709,20 +743,29 @@ void Player::ChangeTracks(const TrackRequest& request) {
       video_stream_ = -1;
     }
     video_queue_.Abort();
+    int64_t shown_end = kNoTimestamp;
     if (old) {
       old->Stop();
+      shown_end = old->shown_end();
       old.reset();
     }
     video_queue_.Reset(generation_);
     std::unique_ptr<VideoRenderer> video;
-    if (request.video >= 0) {
-      video = CreateVideoRenderer(media_info_.streams[request.video]);
+    if (video_stream >= 0) {
+      video = CreateVideoRenderer(media_info_.streams[video_stream]);
+    }
+    if (video) {
+      video->ContinueFrom(shown_end);
     }
     std::lock_guard<std::mutex> lock(mutex_);
+    const int width = video_width_;
+    const int height = video_height_;
     if (video) {
-      LOGI("video track -> stream %d", request.video);
+      LOGI("video %s -> stream %d (%s)",
+           request.video == kUnchanged ? "rebuilt" : "track", video_stream,
+           video->decoder_name());
       video_renderer_ = std::move(video);
-      video_stream_ = request.video;
+      video_stream_ = video_stream;
       video_renderer_->Start();
       PublishVideoLocked();
       const VideoConfig& config = media_info_.streams[video_stream_].video;
@@ -731,8 +774,11 @@ void Player::ChangeTracks(const TrackRequest& request) {
     } else {
       video_width_ = video_height_ = 0;
     }
-    PostEventLocked(PlayerEvent::kVideoSizeChanged, video_width_,
-                    video_height_);
+    if (request.video != kUnchanged || video_width_ != width ||
+        video_height_ != height) {
+      PostEventLocked(PlayerEvent::kVideoSizeChanged, video_width_,
+                      video_height_);
+    }
   }
   if (request.audio != kUnchanged) {
     std::unique_ptr<AudioRenderer> old;
@@ -776,7 +822,9 @@ void Player::ChangeTracks(const TrackRequest& request) {
   if (!video_renderer_ && !audio_renderer_) {
     FailLocked("no playable audio or video stream");
   }
-  PostEventLocked(PlayerEvent::kTracksChanged);
+  if (request.tracks_changed()) {
+    PostEventLocked(PlayerEvent::kTracksChanged);
+  }
 }
 
 void Player::EnableStreamsLocked() {
@@ -790,12 +838,31 @@ void Player::EnableStreamsLocked() {
 }
 
 void Player::PublishVideoLocked() {
-  std::lock_guard<std::mutex> lock(display_mutex_);
-  video_for_display_ = video_renderer_.get();
-  // The output may have changed since the renderer was created.
-  if (video_for_display_) {
-    video_for_display_->SetVideoOutput(video_output_);
+  if (video_renderer_) {
+    // The surface may have changed since the renderer was created.
+    video_renderer_->SetVideoSurface(video_surface_);
   }
+  std::lock_guard<std::mutex> lock(display_mutex_);
+  video_for_display_ =
+      video_renderer_ && video_renderer_->device() == video_device_
+          ? video_renderer_.get()
+          : nullptr;
+}
+
+void Player::CheckVideoRendererLocked() {
+  if (!video_renderer_ || state_ == PlayerState::kError ||
+      track_request_.rebuild_video || track_request_.video != kUnchanged) {
+    return;
+  }
+  if (video_renderer_->DecoderLost()) {
+    video_decoder_losses_++;
+    LOGW("video decoder lost (%d since open); rebuilding at the position",
+         video_decoder_losses_);
+  } else if (video_renderer_->device() == video_device_) {
+    return;
+  }
+  track_request_.rebuild_video = true;
+  demuxer_->Interrupt();
 }
 
 bool Player::NeedMoreData() const {
@@ -855,7 +922,7 @@ void Player::ReadPacket() {
   }
 }
 
-void Player::ProcessSeek(int64_t target, bool loop) {
+void Player::ProcessSeek(int64_t target, bool loop, bool resync) {
   int64_t media_target = media_info_.start_time + target;
   LOGI("%s to %lld us", loop ? "loop" : "seek", static_cast<long long>(target));
   demuxer_->Seek(media_target);
@@ -863,7 +930,7 @@ void Player::ProcessSeek(int64_t target, bool loop) {
   video_queue_.Flush(generation_);
   audio_queue_.Flush(generation_);
   if (video_renderer_) {
-    video_renderer_->Flush(generation_, media_target);
+    video_renderer_->Flush(generation_, media_target, resync);
   }
   if (audio_renderer_) {
     audio_renderer_->Flush(generation_, media_target);
@@ -902,6 +969,7 @@ void Player::FinishSeekLocked() {
 
 void Player::UpdateState() {
   std::lock_guard<std::mutex> lock(mutex_);
+  CheckVideoRendererLocked();
   if (state_ != PlayerState::kError) {
     if (video_renderer_ && video_renderer_->HasError()) {
       FailLocked(std::string("video decoding failed (") +
@@ -1034,6 +1102,13 @@ bool Player::SettledForTesting(int64_t until) const {
   return (!audio_renderer_ || audio_renderer_->HasDataFor(ahead)) &&
          (!video_renderer_ ||
           video_renderer_->HasFramesUntil(clock_.Now() + ahead));
+}
+
+void Player::LoseVideoDecoderForTesting() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (video_renderer_) {
+    video_renderer_->SimulateDecoderLossForTesting();
+  }
 }
 
 bool Player::PrerollDoneLocked() const {

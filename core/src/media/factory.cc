@@ -24,8 +24,6 @@
 
 #include "backends/windows/wasapi_sink.h"
 #elif defined(__linux__)
-#include <string>
-
 #include "backends/linux/pulse_audio_sink.h"
 #endif
 
@@ -42,20 +40,21 @@ std::unique_ptr<Demuxer> CreateDemuxer() {
 std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
     bool allow_hardware,
     uint32_t accepted_storage,
-    const std::shared_ptr<void>& output) {
+    [[maybe_unused]] const VideoDevice& device,
+    [[maybe_unused]] const std::shared_ptr<void>& surface) {
   std::vector<std::unique_ptr<VideoDecoder>> decoders;
   [[maybe_unused]] auto accepts = [accepted_storage](VideoFrameStorage storage) {
     return (accepted_storage & static_cast<uint32_t>(storage)) != 0;
   };
 #if defined(__ANDROID__)
   if (allow_hardware && accepts(VideoFrameStorage::kAndroidSurface)) {
-    decoders.push_back(std::make_unique<MediaCodecVideoDecoder>(output));
+    decoders.push_back(std::make_unique<MediaCodecVideoDecoder>(surface));
   }
 #endif
 #if defined(LYCHEE_WITH_FFMPEG)
   if (allow_hardware) {
     decoders.push_back(
-        std::make_unique<FFmpegVideoDecoder>(true, accepted_storage, output));
+        std::make_unique<FFmpegVideoDecoder>(true, accepted_storage, device));
   }
   decoders.push_back(
       std::make_unique<FFmpegVideoDecoder>(false, accepted_storage));
@@ -63,24 +62,48 @@ std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
   return decoders;
 }
 
-std::shared_ptr<void> RetainVideoOutput(void* output) {
-  if (!output) {
+bool MakeVideoDevice(int32_t type,
+                     [[maybe_unused]] void* handle,
+                     [[maybe_unused]] const char* path,
+                     VideoDevice* device) {
+  *device = VideoDevice();
+  switch (static_cast<VideoDevice::Type>(type)) {
+    case VideoDevice::Type::kNone:
+      return true;
+#if defined(_WIN32)
+    case VideoDevice::Type::kD3D11Adapter: {
+      if (!handle) {
+        return false;
+      }
+      auto* adapter = static_cast<IUnknown*>(handle);
+      adapter->AddRef();
+      device->type = VideoDevice::Type::kD3D11Adapter;
+      device->handle = std::shared_ptr<void>(adapter, [](void* retained) {
+        static_cast<IUnknown*>(retained)->Release();
+      });
+      return true;
+    }
+#elif defined(__linux__) && !defined(__ANDROID__)
+    case VideoDevice::Type::kDrmRenderNode:
+      device->type = VideoDevice::Type::kDrmRenderNode;
+      device->path = path ? path : "";
+      return true;
+#endif
+    default:
+      return false;
+  }
+}
+
+std::shared_ptr<void> RetainVideoSurface([[maybe_unused]] void* surface) {
+#if defined(__ANDROID__)
+  if (!surface) {
     return nullptr;
   }
-#if defined(__ANDROID__)
-  auto* window = static_cast<ANativeWindow*>(output);
+  auto* window = static_cast<ANativeWindow*>(surface);
   ANativeWindow_acquire(window);
   return std::shared_ptr<void>(window, [](void* retained) {
     ANativeWindow_release(static_cast<ANativeWindow*>(retained));
   });
-#elif defined(_WIN32)
-  auto* adapter = static_cast<IUnknown*>(output);
-  adapter->AddRef();
-  return std::shared_ptr<void>(adapter, [](void* retained) {
-    static_cast<IUnknown*>(retained)->Release();
-  });
-#elif defined(__linux__)
-  return std::make_shared<std::string>(static_cast<const char*>(output));
 #else
   return nullptr;
 #endif

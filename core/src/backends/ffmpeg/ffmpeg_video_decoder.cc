@@ -176,7 +176,7 @@ struct CpuFrameData {
 
 FFmpegVideoDecoder::FFmpegVideoDecoder(bool hardware,
                                        uint32_t accepted_storage,
-                                       std::shared_ptr<void> output)
+                                       VideoDevice device)
     : hardware_(hardware),
       accepted_storage_(accepted_storage),
       // swscale writes either order at the same cost; choosing the caller's
@@ -187,7 +187,7 @@ FFmpegVideoDecoder::FFmpegVideoDecoder(bool hardware,
                              static_cast<uint32_t>(VideoFrameStorage::kCpuBgra))
                        ? VideoFrameStorage::kCpuRgba
                        : VideoFrameStorage::kCpuBgra),
-      output_(std::move(output)),
+      device_(std::move(device)),
       hardware_output_(hardware),
       frame_(av_frame_alloc()),
       av_packet_(av_packet_alloc()) {}
@@ -266,16 +266,15 @@ bool FFmpegVideoDecoder::InitializeHardware(const AVCodec* codec,
   }
   int ret;
 #if defined(_WIN32)
-  if (output_) {
-    ret = CreateD3D11VADevice(static_cast<IDXGIAdapter*>(output_.get()),
+  if (device_.type == VideoDevice::Type::kD3D11Adapter) {
+    ret = CreateD3D11VADevice(static_cast<IDXGIAdapter*>(device_.handle.get()),
                               &hw_device_context_);
   } else
 #elif defined(LYCHEE_VAAPI)
-  if (output_) {
-    const std::string& node = *static_cast<const std::string*>(output_.get());
-    ret = av_hwdevice_ctx_create(&hw_device_context_, hw_device_type_,
-                                 node.empty() ? nullptr : node.c_str(), nullptr,
-                                 0);
+  if (device_.type == VideoDevice::Type::kDrmRenderNode) {
+    ret = av_hwdevice_ctx_create(
+        &hw_device_context_, hw_device_type_,
+        device_.path.empty() ? nullptr : device_.path.c_str(), nullptr, 0);
     context_->extra_hw_frames = kHeldDmabufFrames;
   } else
 #endif
@@ -328,6 +327,20 @@ bool FFmpegVideoDecoder::Decode(const EncodedPacket& packet,
     consecutive_errors_++;
   }
   ReceiveFrames(output);
+#if defined(_WIN32)
+  // After a GPU reset every call fails, or frames silently fail to convert;
+  // report it at once so the renderer can rebuild on a new device.
+  if (hardware_output_ && hw_device_context_) {
+    auto* hw = reinterpret_cast<AVHWDeviceContext*>(hw_device_context_->data);
+    ID3D11Device* device =
+        static_cast<AVD3D11VADeviceContext*>(hw->hwctx)->device;
+    HRESULT reason = device->GetDeviceRemovedReason();
+    if (FAILED(reason)) {
+      LOGW("D3D11 device removed: 0x%08lx", static_cast<unsigned long>(reason));
+      return false;
+    }
+  }
+#endif
   return consecutive_errors_ < kMaxConsecutiveDecodeErrors;
 }
 
@@ -364,7 +377,8 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
     result = WrapPixelBuffer(frame->data[3]);
   }
 #elif defined(_WIN32)
-  if (frame->format == AV_PIX_FMT_D3D11 && output_ &&
+  if (frame->format == AV_PIX_FMT_D3D11 &&
+      device_.type == VideoDevice::Type::kD3D11Adapter &&
       (accepted_storage_ &
        static_cast<uint32_t>(VideoFrameStorage::kD3D11Texture))) {
     if (!d3d11_processor_) {
@@ -382,7 +396,8 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
     }
   }
 #elif defined(LYCHEE_VAAPI)
-  if (frame->format == AV_PIX_FMT_VAAPI && output_ &&
+  if (frame->format == AV_PIX_FMT_VAAPI &&
+      device_.type == VideoDevice::Type::kDrmRenderNode &&
       (accepted_storage_ & static_cast<uint32_t>(VideoFrameStorage::kDmabuf))) {
     result = WrapDmabuf(frame);
     if (!result && !logged_dmabuf_fallback_) {

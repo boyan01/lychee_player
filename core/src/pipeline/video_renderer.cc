@@ -41,12 +41,15 @@ VideoRenderer::~VideoRenderer() {
 
 bool VideoRenderer::Initialize(const VideoConfig& config,
                                bool allow_hardware,
-                               const std::shared_ptr<void>& output,
+                               const VideoDevice& device,
+                               const std::shared_ptr<void>& surface,
                                PacketQueue* queue,
                                std::string* error) {
   queue_ = queue;
   config_ = config;
-  candidates_ = CreateVideoDecoders(allow_hardware, accepted_storage_, output);
+  device_ = device;
+  candidates_ =
+      CreateVideoDecoders(allow_hardware, accepted_storage_, device, surface);
   return InitializeNextDecoder(error);
 }
 
@@ -73,10 +76,10 @@ bool VideoRenderer::InitializeNextDecoder(std::string* error) {
   return false;
 }
 
-void VideoRenderer::SetVideoOutput(std::shared_ptr<void> output) {
+void VideoRenderer::SetVideoSurface(std::shared_ptr<void> surface) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (decoder_) {
-    decoder_->SetVideoOutput(std::move(output));
+    decoder_->SetVideoSurface(std::move(surface));
   }
 }
 
@@ -114,7 +117,8 @@ void VideoRenderer::DecodeLoop() {
     // Excludes the time OnFrame() waits for queue space.
     int64_t waited = 0;
     const int64_t decode_start = MonotonicMicros();
-    bool ok = Decode(entry.packet, generation, &waited);
+    const bool simulated = simulate_loss_.exchange(false);
+    bool ok = !simulated && Decode(entry.packet, generation, &waited);
     const int64_t decode_time = MonotonicMicros() - decode_start - waited;
     std::lock_guard<std::mutex> lock(mutex_);
     if (!entry.packet->end_of_stream) {
@@ -122,8 +126,14 @@ void VideoRenderer::DecodeLoop() {
       average_decode_time_ += (decode_time - average_decode_time_) / 32;
     }
     if (!ok) {
-      LOGE("%s decoder failed", decoder_->name());
-      failed_ = true;
+      // Before the first frame, Decode() has already tried the fallbacks.
+      if (simulated || (decoder_has_output_ && decoder_->is_hardware())) {
+        LOGW("%s decoder lost", decoder_->name());
+        decoder_lost_ = true;
+      } else {
+        LOGE("%s decoder failed", decoder_->name());
+        failed_ = true;
+      }
       break;
     }
     if (entry.packet->end_of_stream && generation == generation_) {
@@ -218,9 +228,20 @@ std::shared_ptr<VideoFrame> VideoRenderer::Adapt(
   return result;
 }
 
-void VideoRenderer::Flush(uint64_t generation, int64_t start_time) {
+void VideoRenderer::Flush(uint64_t generation,
+                          int64_t start_time,
+                          bool continue_shown) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (continue_shown) {
+      const int64_t shown =
+          current_ && !current_stale_ ? FrameEnd(*current_)
+                                      : inherited_shown_end_;
+      if (shown != kNoTimestamp) {
+        start_time = std::max(start_time, shown);
+      }
+    }
+    inherited_shown_end_ = kNoTimestamp;
     generation_ = generation;
     start_time_ = start_time;
     // The frame rate survives a seek; cadence detection need not restart.
@@ -235,6 +256,19 @@ void VideoRenderer::Flush(uint64_t generation, int64_t start_time) {
   condition_.notify_all();
 }
 
+int64_t VideoRenderer::shown_end() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (current_ && !current_stale_) {
+    return FrameEnd(*current_);
+  }
+  return inherited_shown_end_;
+}
+
+void VideoRenderer::ContinueFrom(int64_t shown_end) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  inherited_shown_end_ = shown_end;
+}
+
 bool VideoRenderer::HasEnoughData() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return algorithm_.effective_frames_queued() > 0 || end_of_stream_;
@@ -247,6 +281,7 @@ bool VideoRenderer::IsStarved() const {
 
 bool VideoRenderer::HasFramesUntil(int64_t media_time) const {
   std::lock_guard<std::mutex> lock(mutex_);
+  // Not while the decoder is lost: time must wait for its replacement.
   if (end_of_stream_ || failed_ ||
       algorithm_.frames_queued() > kMaxQueuedFrames) {
     return true;
@@ -268,6 +303,11 @@ bool VideoRenderer::shown_size(int* width, int* height) const {
 bool VideoRenderer::HasError() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return failed_;
+}
+
+bool VideoRenderer::DecoderLost() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return decoder_lost_;
 }
 
 bool VideoRenderer::Ended(int64_t media_time) const {

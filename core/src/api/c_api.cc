@@ -1,3 +1,5 @@
+#define LOG_TAG "api"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -9,6 +11,7 @@
 #include "base/log.h"
 #include "base/time.h"
 #include "lychee/lychee.h"
+#include "media/factory.h"
 #include "media/null_audio_sink.h"
 #include "pipeline/player.h"
 
@@ -23,6 +26,12 @@ struct lychee_player {
 struct lychee_frame {
   std::shared_ptr<VideoFrame> frame;
 };
+
+static_assert(static_cast<int>(lychee::VideoDevice::Type::kD3D11Adapter) ==
+                      LYCHEE_VIDEO_DEVICE_D3D11_ADAPTER &&
+                  static_cast<int>(lychee::VideoDevice::Type::kDrmRenderNode) ==
+                      LYCHEE_VIDEO_DEVICE_DRM_RENDER_NODE,
+              "lychee_video_device_type mirrors VideoDevice::Type");
 
 static_assert(static_cast<int>(MediaType::kVideo) == LYCHEE_TRACK_VIDEO &&
                   static_cast<int>(MediaType::kAudio) == LYCHEE_TRACK_AUDIO &&
@@ -41,6 +50,20 @@ int32_t CopyString(const std::string& text, char* buffer, int32_t buffer_size) {
     buffer[length] = '\0';
   }
   return static_cast<int32_t>(text.size());
+}
+
+// |device| as a VideoDevice; none for null. False for an unsupported type.
+bool ToVideoDevice(const lychee_video_device* device,
+                   lychee::VideoDevice* result) {
+  if (!device) {
+    *result = lychee::VideoDevice();
+    return true;
+  }
+  // Older callers may pass a smaller struct; zero the rest.
+  lychee_video_device copy = {};
+  memcpy(&copy, device,
+         std::min<size_t>(device->struct_size, sizeof(copy)));
+  return lychee::MakeVideoDevice(copy.type, copy.handle, copy.path, result);
 }
 
 }  // namespace
@@ -83,6 +106,10 @@ lychee_player* lychee_player_create(const lychee_config* config) {
   lychee::PlayerConfig player_config;
   player_config.video_frame_types = defaults.video_frame_types;
   player_config.hardware_decoding = defaults.hardware_decoding != 0;
+  if (!ToVideoDevice(defaults.video_device, &player_config.video_device)) {
+    LOGW("unsupported video device type %d; using none",
+         defaults.video_device->type);
+  }
   auto* player = new lychee_player;
   player->player = std::make_unique<Player>(player_config);
   return player;
@@ -92,8 +119,18 @@ void lychee_player_destroy(lychee_player* player) {
   delete player;
 }
 
-void lychee_player_set_video_output(lychee_player* player, void* output) {
-  player->player->SetVideoOutput(output);
+int32_t lychee_player_set_video_device(lychee_player* player,
+                                       const lychee_video_device* device) {
+  lychee::VideoDevice video_device;
+  if (!ToVideoDevice(device, &video_device)) {
+    return -1;
+  }
+  player->player->SetVideoDevice(std::move(video_device));
+  return 0;
+}
+
+void lychee_player_set_video_surface(lychee_player* player, void* surface) {
+  player->player->SetVideoSurface(surface);
 }
 
 void lychee_player_set_event_callback(lychee_player* player,
@@ -319,6 +356,10 @@ void lychee_testing_set_time(int64_t now_us) {
 int32_t lychee_testing_player_settled(lychee_player* player,
                                       int64_t until_us) {
   return player->player->SettledForTesting(until_us) ? 1 : 0;
+}
+
+void lychee_testing_lose_video_decoder(lychee_player* player) {
+  player->player->LoseVideoDecoderForTesting();
 }
 
 }  // extern "C"

@@ -23,6 +23,9 @@ LYCHEE_EXPORT void lychee_testing_set_time(int64_t now_us);
 // reaches that far. Wait for it before each lychee_testing_set_time().
 LYCHEE_EXPORT int32_t lychee_testing_player_settled(lychee_player* player,
                                                     int64_t until_us);
+// Makes the video decoder fail at its next packet as a hardware decoder
+// does after a GPU reset, so the player rebuilds it.
+LYCHEE_EXPORT void lychee_testing_lose_video_decoder(lychee_player* player);
 
 #ifdef __cplusplus
 }  // extern "C"

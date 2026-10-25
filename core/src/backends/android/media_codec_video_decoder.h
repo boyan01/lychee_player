@@ -18,7 +18,7 @@ struct ANativeWindow;
 namespace lychee {
 
 // H.264 and HEVC through NDK MediaCodec, decoding straight into the
-// ANativeWindow from lychee_player_set_video_output(). Frames are
+// ANativeWindow from lychee_player_set_video_surface(). Frames are
 // kAndroidSurface: each holds a MediaCodec output buffer, released to the
 // window when the frame is first acquired (with the display time), or
 // released unseen when the frame is dropped. Without a window, frames go to
@@ -31,7 +31,7 @@ namespace lychee {
 // reorders by itself, and the renderer picks frames per vsync.
 class MediaCodecVideoDecoder : public VideoDecoder {
  public:
-  explicit MediaCodecVideoDecoder(std::shared_ptr<void> output);
+  explicit MediaCodecVideoDecoder(std::shared_ptr<void> surface);
   ~MediaCodecVideoDecoder() override;
 
   const char* name() const override { return "mediacodec"; }
@@ -40,7 +40,7 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   bool Decode(const EncodedPacket& packet,
               const OutputCallback& output) override;
   void Flush() override;
-  void SetVideoOutput(std::shared_ptr<void> output) override;
+  void SetVideoSurface(std::shared_ptr<void> surface) override;
 
   // The codec and the epoch its output buffer indices belong to, shared with
   // the frames, which may outlive the decoder.
@@ -68,7 +68,7 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   AnnexBConverter converter_;
   std::vector<uint8_t> annexb_;
   // Guarded by codec_->mutex.
-  std::shared_ptr<void> output_;
+  std::shared_ptr<void> surface_;
   ANativeWindow* window_ = nullptr;
   AImageReader* placeholder_ = nullptr;
   int coded_width_ = 0;

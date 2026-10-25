@@ -1,6 +1,7 @@
 #ifndef LYCHEE_MEDIA_FACTORY_H_
 #define LYCHEE_MEDIA_FACTORY_H_
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -10,6 +11,7 @@
 #include "media/frame_converter.h"
 #include "media/subtitle_decoder.h"
 #include "media/video_decoder.h"
+#include "media/video_device.h"
 
 namespace lychee {
 
@@ -20,16 +22,24 @@ std::unique_ptr<Demuxer> CreateDemuxer();
 
 // Candidates in priority order: hardware first if allowed. Decoders that
 // produce CPU frames produce one of the |accepted_storage| types if they can.
-// |output| is what RetainVideoOutput() returned, or null.
+// |surface| is what RetainVideoSurface() returned, or null.
 std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
     bool allow_hardware,
     uint32_t accepted_storage,
-    const std::shared_ptr<void>& output);
+    const VideoDevice& device,
+    const std::shared_ptr<void>& surface);
 
-// Takes a reference to the platform object passed to
-// lychee_player_set_video_output(), dropped with the last copy. Null for
+// The lychee_video_device fields as a VideoDevice, retaining the handle.
+// False for a type this build does not support.
+bool MakeVideoDevice(int32_t type,
+                     void* handle,
+                     const char* path,
+                     VideoDevice* device);
+
+// Takes a reference to the window passed to
+// lychee_player_set_video_surface(), dropped with the last copy. Null for
 // null, and on platforms that take none.
-std::shared_ptr<void> RetainVideoOutput(void* output);
+std::shared_ptr<void> RetainVideoSurface(void* surface);
 
 std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders();
 

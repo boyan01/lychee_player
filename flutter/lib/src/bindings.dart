@@ -65,6 +65,8 @@ final class LycheeConfig extends Struct {
   external int videoFrameTypes;
   @Int32()
   external int hardwareDecoding;
+  // Set by the plugin's native side, not from Dart.
+  external Pointer<Void> videoDevice;
 }
 
 final class LycheeStats extends Struct {

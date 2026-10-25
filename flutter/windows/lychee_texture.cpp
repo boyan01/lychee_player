@@ -87,8 +87,12 @@ LycheeTexture::LycheeTexture(lychee_player* player,
                                    return CopyGpuSurface(width, height);
                                  }));
   // Hardware-decoded frames then come as textures Flutter's device can
-  // open. Before lychee_player_open(), which is when it takes effect.
-  lychee_player_set_video_output(player, adapter);
+  // open.
+  lychee_video_device video_device = {};
+  video_device.struct_size = sizeof(video_device);
+  video_device.type = LYCHEE_VIDEO_DEVICE_D3D11_ADAPTER;
+  video_device.handle = adapter;
+  lychee_player_set_video_device(player, &video_device);
 }
 
 LycheeTexture::~LycheeTexture() {

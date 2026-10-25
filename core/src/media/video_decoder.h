@@ -32,8 +32,8 @@ class VideoDecoder {
   // Drops all pending frames, e.g. after a seek.
   virtual void Flush() = 0;
 
-  // lychee_player_set_video_output() changed. Called on any thread.
-  virtual void SetVideoOutput(std::shared_ptr<void> output) {}
+  // lychee_player_set_video_surface() changed. Called on any thread.
+  virtual void SetVideoSurface(std::shared_ptr<void> surface) {}
 };
 
 }  // namespace lychee

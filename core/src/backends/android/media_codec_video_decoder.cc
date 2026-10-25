@@ -124,8 +124,8 @@ void DiscardImages(void*, AImageReader* reader) {
 
 }  // namespace
 
-MediaCodecVideoDecoder::MediaCodecVideoDecoder(std::shared_ptr<void> output)
-    : output_(std::move(output)) {}
+MediaCodecVideoDecoder::MediaCodecVideoDecoder(std::shared_ptr<void> surface)
+    : surface_(std::move(surface)) {}
 
 MediaCodecVideoDecoder::~MediaCodecVideoDecoder() {
   {
@@ -143,8 +143,8 @@ MediaCodecVideoDecoder::~MediaCodecVideoDecoder() {
 }
 
 ANativeWindow* MediaCodecVideoDecoder::TargetWindowLocked() {
-  if (output_) {
-    return static_cast<ANativeWindow*>(output_.get());
+  if (surface_) {
+    return static_cast<ANativeWindow*>(surface_.get());
   }
   if (!placeholder_) {
     AImageReader* reader = nullptr;
@@ -233,9 +233,9 @@ bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
   return true;
 }
 
-void MediaCodecVideoDecoder::SetVideoOutput(std::shared_ptr<void> output) {
+void MediaCodecVideoDecoder::SetVideoSurface(std::shared_ptr<void> surface) {
   std::lock_guard<std::mutex> lock(codec_->mutex);
-  output_ = std::move(output);
+  surface_ = std::move(surface);
   if (!codec_->codec) {
     return;
   }

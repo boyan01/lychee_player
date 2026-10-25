@@ -336,12 +336,27 @@ par expect reopen-loading "open -> " "<=0 event: state error" "summary: state=en
   --open-after 0 "$media/video_only.mp4" "$media/hevc10.mp4"
 # Track selection keeps the position.
 par expect track-audio "select audio 2 at [0-9.]+s: accepted" "track 2: audio .* lang=fre title=French selected=1" \
-  "track switch: resumed [+-]0\.[0-2][0-9]{2}s" "summary: state=ended" -- --select audio:2 "$media/tracks.mkv"
+  "track switch: resumed [+-]0\.[0-2][0-9]{2}s" "summary: state=ended.* backward_jumps=0 " -- --select audio:2 "$media/tracks.mkv"
 par expect track-no-video "select video -1 at [0-9.]+s: accepted" "video size 0x0" "track switch: resumed [+-]0\.[0-2]" \
   "summary: state=ended position=8\.[0-9]{3}s decoder=none" -- --select video:-1 "$media/tracks.mkv"
 par expect track-subtitle "select subtitle 4 .*: accepted" "select video 1 .*: rejected" \
   "subtitle at [0-9.]+s: Bonjour le monde" "<=0 subtitle at [0-9.]+s: Hello world" -- \
   --select subtitle:4 --select video:1 --select-after 0.5 "$media/tracks.mkv"
+# Audio only (video_frame_types 0): the video track is listed but never
+# decoded or selectable.
+par expect audio-only-config "track 0: video .* selected=0" "select video 0 .*: rejected" \
+  "summary: state=ended position=12\.000s decoder=none .*pulled=0 .*frame_type=0 " -- \
+  --audio-only --select video:0 --select-after 1 "$media/h264_aac.mp4"
+# A hardware decoder failing midway (a GPU reset) is rebuilt at the
+# position: in hardware the first time, in software after that.
+hw_first=1
+[ "${NO_HW:-0}" = 1 ] && hw_first=0
+par expect decoder-lost "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" "<=0 event: state error" \
+  "summary: state=ended .* hw=$hw_first .*dropped=[0-3] glitches=[0-3] backward_jumps=0 " -- \
+  --lose-decoder-after 2 "$media/h264_aac.mp4"
+par expect decoder-lost-twice "<=0 event: state error" \
+  "summary: state=ended .*decoder=ffmpeg hw=0 .*backward_jumps=0 " -- \
+  --lose-decoder-after 2 --lose-decoder-after 5 "$media/h264_aac.mp4"
 # Text subtitles: cues as plain text at their times.
 par expect subtitle-srt "subtitle at [01]\.[0-9]{3}s: Hello world$" "subtitle at 2\.[0-9]{3}s: \(none\)" \
   "subtitle at [34]\.[0-9]{3}s: Second line \| with break$" "summary: state=ended" -- "$media/sub_srt.mkv"

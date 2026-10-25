@@ -45,6 +45,9 @@ struct Options {
   double select_after = 2;
   bool hardware = true;
   bool virtual_time = false;
+  // Seconds after playback starts to make the video decoder fail as after a
+  // GPU reset (testing.h), in order.
+  std::vector<double> lose_decoder_after;
 #if defined(__APPLE__)
   int32_t frame_type = LYCHEE_FRAME_CVPIXELBUFFER;
 #else
@@ -56,6 +59,7 @@ std::atomic<int> g_seek_completed{0};
 std::atomic<bool> g_media_info{false};
 std::atomic<bool> g_tracks_changed{false};
 std::atomic<bool> g_subtitle_changed{false};
+std::atomic<bool> g_buffering{false};
 
 const char* StateName(int32_t state) {
   switch (state) {
@@ -79,6 +83,9 @@ void OnEvent(void*, int32_t type, int64_t arg0, int64_t arg1) {
   switch (type) {
     case LYCHEE_EVENT_STATE_CHANGED:
       printf("event: state %s\n", StateName(static_cast<int32_t>(arg0)));
+      if (arg0 == LYCHEE_STATE_BUFFERING) {
+        g_buffering = true;
+      }
       break;
     case LYCHEE_EVENT_PLAYING_CHANGED:
       printf("event: playing %" PRId64 "\n", arg0);
@@ -173,6 +180,12 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       const char* v = value();
       if (!v) return false;
       options->select_after = atof(v);
+    } else if (arg == "--lose-decoder-after") {
+      const char* v = value();
+      if (!v) return false;
+      options->lose_decoder_after.push_back(atof(v));
+    } else if (arg == "--audio-only") {
+      options->frame_type = 0;
     } else if (arg == "--virtual-time") {
       options->virtual_time = true;
     } else if (arg == "--no-hw") {
@@ -257,7 +270,8 @@ int main(int argc, char** argv) {
             "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
             "[--cpu | --rgba] [--rate R [--rate-after SEC]] [--loop] "
             "[--open-after SEC URL] [--select TYPE:INDEX]... "
-            "[--select-after SEC] [--virtual-time] <file or url>\n",
+            "[--select-after SEC] [--lose-decoder-after SEC]... "
+            "[--audio-only] [--virtual-time] <file or url>\n",
             argv[0]);
     return 2;
   }
@@ -335,6 +349,9 @@ int main(int argc, char** argv) {
   int64_t select_position = INT64_MIN;
   bool tracks_changed = false;
   int64_t loop_check_position = 0;
+  size_t next_loss = 0;
+  // Position when the decoder was lost; INT64_MIN once the rebuild resumed.
+  int64_t loss_position = INT64_MIN;
 
   // Virtual time only: vsyncs where the player's threads did not catch up
   // within kStallTimeout of real time.
@@ -471,6 +488,24 @@ int main(int argc, char** argv) {
              (position - select_position) / 1e6, select_position / 1e6);
       select_position = INT64_MIN;
       // The switch rebuffers; measure drift from here.
+      drift_wall = now;
+      drift_position = position;
+    }
+    if (next_loss < options.lose_decoder_after.size() &&
+        loss_position == INT64_MIN && ready_wall != 0 &&
+        now - ready_wall >= static_cast<int64_t>(
+                                options.lose_decoder_after[next_loss] * 1e6)) {
+      next_loss++;
+      loss_position = position;
+      g_buffering = false;
+      printf("lose video decoder at %.3fs\n", position / 1e6);
+      lychee_testing_lose_video_decoder(player);
+    }
+    if (loss_position != INT64_MIN && g_buffering &&
+        state == LYCHEE_STATE_READY) {
+      printf("video rebuilt: resumed %+.3fs from %.3fs\n",
+             (position - loss_position) / 1e6, loss_position / 1e6);
+      loss_position = INT64_MIN;
       drift_wall = now;
       drift_position = position;
     }

@@ -35,13 +35,19 @@ extern "C" {
 // 2: rate, looping, reopening, tracks, subtitles, metadata, more stats.
 // 3: hardware frame types (Android Surface, D3D11, dmabuf) and
 //    lychee_player_set_video_output().
-#define LYCHEE_API_VERSION 3
+// 4: lychee_player_set_video_output() split into lychee_video_device
+//    (lychee_config, lychee_player_set_video_device(), changeable during
+//    playback) and lychee_player_set_video_surface(); video_frame_types 0
+//    for audio only.
+#define LYCHEE_API_VERSION 4
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
 
 // Video frame types. Also used as a bitmask in lychee_config to declare which
-// types the caller can consume; the library converts frames as needed.
+// types the caller can consume; the library converts frames as needed. The
+// type can change between frames (hardware decoding falling back to
+// software, a new video device): check it on every frame.
 typedef enum lychee_frame_type {
   // CPU memory, 32-bit BGRA.
   LYCHEE_FRAME_CPU_BGRA = 1 << 0,
@@ -51,13 +57,13 @@ typedef enum lychee_frame_type {
   // Linux, Windows and Android.
   LYCHEE_FRAME_CPU_RGBA = 1 << 2,
   // Android: the decoder renders straight into the ANativeWindow passed to
-  // lychee_player_set_video_output(). Acquiring the frame is what puts it in
+  // lychee_player_set_video_surface(). Acquiring the frame is what puts it in
   // the window, timestamped with the display time; the frame itself has no
   // data and no native handle. Frames never acquired are dropped unseen.
   LYCHEE_FRAME_ANDROID_SURFACE = 1 << 3,
   // Windows: the native handle is an ID3D11Texture2D* in
   // DXGI_FORMAT_B8G8R8A8_UNORM, created with D3D11_RESOURCE_MISC_SHARED on
-  // the adapter passed to lychee_player_set_video_output(), so other devices
+  // the LYCHEE_VIDEO_DEVICE_D3D11_ADAPTER video device, so other devices
   // can open it through IDXGIResource::GetSharedHandle(). Every frame has
   // its own texture, never written after it is handed out.
   LYCHEE_FRAME_D3D11_TEXTURE = 1 << 4,
@@ -67,6 +73,31 @@ typedef enum lychee_frame_type {
   // stay valid until the frame is released; dup() the fds to keep them.
   LYCHEE_FRAME_DMABUF = 1 << 5,
 } lychee_frame_type;
+
+// The GPU the caller renders with. Frames that stay on the GPU (D3D11
+// textures, dmabufs) are produced only for a device the caller named, since
+// only then can it open them; without one, hardware decoding still runs but
+// its frames come as CPU frames. Apple platforms need none: IOSurfaces open
+// on any GPU.
+typedef enum lychee_video_device_type {
+  LYCHEE_VIDEO_DEVICE_NONE = 0,
+  // Windows: |handle| is an IDXGIAdapter*, for LYCHEE_FRAME_D3D11_TEXTURE
+  // frames. The library takes its own reference.
+  LYCHEE_VIDEO_DEVICE_D3D11_ADAPTER = 1,
+  // Linux: |path| is the DRM render node ("/dev/dri/renderD128"), or ""
+  // when the caller does not know it but can import dmabufs, for
+  // LYCHEE_FRAME_DMABUF frames. The library copies it.
+  LYCHEE_VIDEO_DEVICE_DRM_RENDER_NODE = 2,
+} lychee_video_device_type;
+
+typedef struct lychee_video_device {
+  // Must be sizeof(lychee_video_device).
+  uint32_t struct_size;
+  // lychee_video_device_type.
+  int32_t type;
+  void* handle;
+  const char* path;
+} lychee_video_device;
 
 // The planes of a LYCHEE_FRAME_DMABUF frame, laid out as
 // EGL_EXT_image_dma_buf_import takes them.
@@ -162,10 +193,15 @@ typedef void (*lychee_log_callback)(void* user_data,
 typedef struct lychee_config {
   // Must be sizeof(lychee_config). Set by lychee_config_init().
   uint32_t struct_size;
-  // Bitmask of lychee_frame_type the caller accepts.
+  // Bitmask of lychee_frame_type the caller accepts. 0 plays audio only:
+  // video streams are listed as tracks but never read, decoded or
+  // selectable.
   uint32_t video_frame_types;
   // Non-zero to try hardware decoding first.
   int32_t hardware_decoding;
+  // API version 4. The video device to start with; copied, so it need not
+  // outlive lychee_player_create(). NULL for none.
+  const lychee_video_device* video_device;
 } lychee_config;
 
 typedef struct lychee_stats {
@@ -218,23 +254,28 @@ LYCHEE_EXPORT void lychee_config_init(lychee_config* config);
 LYCHEE_EXPORT lychee_player* lychee_player_create(const lychee_config* config);
 LYCHEE_EXPORT void lychee_player_destroy(lychee_player* player);
 
-// The platform object hardware-decoded video goes to; NULL to detach it.
-// The library takes its own reference.
-// - Android: an ANativeWindow* for LYCHEE_FRAME_ANDROID_SURFACE frames.
-//   Can change at any time without restarting the decoder; while none is
-//   set, frames are decoded into a placeholder and not shown.
-// - Windows: the IDXGIAdapter* the caller renders with, so
-//   LYCHEE_FRAME_D3D11_TEXTURE frames can be opened there. Takes effect at
-//   the next lychee_player_open() or track switch. Without one, hardware
-//   decoding uses the default adapter and frames come as CPU frames.
-// - Linux: a const char* path of the DRM render node the caller renders
-//   with ("/dev/dri/renderD128"), or "" when it does not know but can
-//   import dmabufs, for LYCHEE_FRAME_DMABUF frames. The library copies it.
-//   Takes effect like the adapter on Windows, and without one VAAPI frames
-//   come as CPU frames.
+// Changes the video device (see lychee_video_device_type); NULL for none.
+// Callable at any time: during playback the video decoder is rebuilt on the
+// new device and playback continues from the current position, after a
+// short rebuffer. Once this returns, no frame from the old device is handed
+// out; frames already acquired stay valid until released. Returns 0, or -1
+// if this build does not support |device->type|.
+//
+// The library also rebuilds the decoder by itself when a hardware decoder
+// fails during playback, which is how a lost device (a GPU reset, a driver
+// update, MediaCodec reclaiming its codec) shows: first on the same device,
+// then, if that fails too, in software.
+LYCHEE_EXPORT int32_t lychee_player_set_video_device(
+    lychee_player* player,
+    const lychee_video_device* device);
+
+// Android: the ANativeWindow* LYCHEE_FRAME_ANDROID_SURFACE frames are
+// rendered into, or NULL to detach it. The library takes its own
+// reference. Can change at any time without restarting the decoder; while
+// none is set, frames are decoded into a placeholder and not shown.
 // Ignored elsewhere.
-LYCHEE_EXPORT void lychee_player_set_video_output(lychee_player* player,
-                                                  void* output);
+LYCHEE_EXPORT void lychee_player_set_video_surface(lychee_player* player,
+                                                   void* surface);
 
 LYCHEE_EXPORT void lychee_player_set_event_callback(
     lychee_player* player,
@@ -304,7 +345,8 @@ LYCHEE_EXPORT int32_t lychee_player_get_track_info(lychee_player* player,
 // Playback continues from the current position. Returns 0 if the request was
 // accepted; LYCHEE_EVENT_TRACKS_CHANGED follows. Rejected: an index of
 // another type, a bitmap subtitle track, disabling both audio and video,
-// and any request before the media is loaded.
+// a video track on a player created for audio only, and any request before
+// the media is loaded.
 LYCHEE_EXPORT int32_t lychee_player_select_track(lychee_player* player,
                                                  int32_t type,
                                                  int32_t index);
