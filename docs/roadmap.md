@@ -153,17 +153,36 @@ above). What is left per platform is a renderer in `examples/glfw`
 
 ## FFmpeg-free builds
 
-The interfaces allow it (`LYCHEE_WITH_FFMPEG=OFF` compiles but cannot open
-anything). Pieces, in order:
+Apple without FFmpeg plays MP4 (2026-10-25): `-DLYCHEE_WITH_FFMPEG=OFF`
+builds `Mp4Demuxer` (`backends/mp4`), `VTVideoDecoder` (H.264, HEVC; NV12
+or 10-bit NV12, as FFmpeg's hwaccel outputs, with VideoToolbox's software
+decoder as the fallback on macOS) and `ATAudioDecoder` (AAC including
+ADTS, ALAC) over a `DataSource` (files; http(s) through NSURLSession, with
+range requests and reconnects). The iOS core is then 425 KB instead of
+~7 MB of FFmpeg per architecture. `NO_FFMPEG=1 tool/regression.sh` runs
+every case whose media is MP4 (http faults, live input, seeks, loops,
+decoder loss, HDR included) and passes. Decisions:
 
-1. `DataSource` (file + HTTP on platform networking), and FFmpeg reading
-   through it via a custom `AVIOContext`, so both builds share IO behaviour.
-2. Direct VideoToolbox / AudioToolbox decoders. The hard part is output
-   reordering: VideoToolbox emits decode order, so the reorder depth must
-   come from an H.264/HEVC SPS parser (port Chromium's
-   `media/parsers/h264_parser.cc`, `h265_parser.cc`).
-3. Container parsers ported from Chromium (`media/formats/mp4`, `mp2t`,
-   `webm`) and an HLS playlist parser.
+- Reordering needs no SPS parser: a decoded frame goes out once a packet
+  with `dts >= its pts` was decoded (no later frame can come before it),
+  the rest at the end of the stream; live input (`low_delay`) outputs at
+  once.
+- The MP4 parser is our own (~700 lines) rather than Chromium's
+  `media/formats/mp4`, which is built around MSE's fragmented MP4.
+- The FFmpeg build keeps FFmpeg's demuxer and hwaccel; the new backends
+  are compiled only without FFmpeg, so the shipped xcframework does not
+  carry dead code.
+
+Left:
+
+1. FFmpeg reading through `DataSource` via a custom `AVIOContext`, so both
+   builds share IO behaviour.
+2. Containers: fragmented MP4, MPEG-TS, HLS, WebM; tx3g (mov_text)
+   subtitles, which the MP4 demuxer skips. MP3 and Opus/FLAC in MP4 are
+   listed but have no decoder.
+3. Packaging: a `tool/build_apple.sh` variant (or the Swift package) that
+   ships the FFmpeg-free core; iOS compiles (arm64, zero warnings) but has
+   not run, and the plugin and Swift package still link FFmpeg.
 4. Windows: decode with Media Foundation (flutter-airplay's
    `windows_video.cpp`: H.264/HEVC MFTs on D3D11) into the same
    `LYCHEE_FRAME_D3D11_TEXTURE` frames, ahead of FFmpeg's D3D11VA, which

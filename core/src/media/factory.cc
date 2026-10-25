@@ -16,8 +16,15 @@
 #endif
 
 #if defined(__APPLE__)
+#include <TargetConditionals.h>
+
 #include "backends/apple/apple_frame_converter.h"
 #include "backends/apple/core_audio_sink.h"
+#if !defined(LYCHEE_WITH_FFMPEG)
+#include "backends/apple/at_audio_decoder.h"
+#include "backends/apple/vt_video_decoder.h"
+#include "backends/mp4/mp4_demuxer.h"
+#endif
 #elif defined(__ANDROID__)
 #include <android/native_window.h>
 
@@ -36,6 +43,8 @@ namespace lychee {
 std::unique_ptr<Demuxer> CreateDemuxer() {
 #if defined(LYCHEE_WITH_FFMPEG)
   return std::make_unique<FFmpegDemuxer>();
+#elif defined(__APPLE__)
+  return std::make_unique<Mp4Demuxer>();
 #else
   return nullptr;
 #endif
@@ -56,6 +65,17 @@ std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
     decoders.push_back(std::make_unique<MediaCodecVideoDecoder>(
         surface, rotate_surface_frames));
   }
+#endif
+#if defined(__APPLE__) && !defined(LYCHEE_WITH_FFMPEG)
+#if TARGET_OS_OSX
+  if (allow_hardware) {
+    decoders.push_back(std::make_unique<VTVideoDecoder>(true));
+  }
+  decoders.push_back(std::make_unique<VTVideoDecoder>(false));
+#else
+  // iOS lets apps pick neither: VideoToolbox decides.
+  decoders.push_back(std::make_unique<VTVideoDecoder>(true));
+#endif
 #endif
 #if defined(LYCHEE_WITH_FFMPEG)
   if (allow_hardware) {
@@ -117,6 +137,9 @@ std::shared_ptr<void> RetainVideoSurface([[maybe_unused]] void* surface) {
 
 std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders() {
   std::vector<std::unique_ptr<AudioDecoder>> decoders;
+#if defined(__APPLE__) && !defined(LYCHEE_WITH_FFMPEG)
+  decoders.push_back(std::make_unique<ATAudioDecoder>());
+#endif
 #if defined(LYCHEE_WITH_FFMPEG)
   decoders.push_back(std::make_unique<FFmpegAudioDecoder>());
 #endif

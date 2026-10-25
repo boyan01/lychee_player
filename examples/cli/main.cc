@@ -292,7 +292,8 @@ void PrintTracks(lychee_player* player) {
     }
     printf("track %d: %s %s", i, TrackTypeName(info.type), info.codec);
     if (info.type == LYCHEE_TRACK_VIDEO) {
-      printf(" %dx%d", info.width, info.height);
+      printf(" %dx%d rotation=%d", info.width, info.height,
+             lychee_player_get_video_rotation(player));
     } else if (info.type == LYCHEE_TRACK_AUDIO) {
       printf(" %d Hz %d ch", info.sample_rate, info.channels);
     }

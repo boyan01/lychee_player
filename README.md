@@ -16,7 +16,9 @@ core/                 C++ core, no UI toolkit dependency
                       AudioDecoder, AudioSink, FrameConverter
     pipeline/         Player state machine, MediaClock, audio/video renderers
     backends/ffmpeg/  FFmpeg demuxer and decoders (optional, LYCHEE_WITH_FFMPEG)
-    backends/apple/   CoreAudio output, CVPixelBuffer conversion
+    backends/apple/   CoreAudio output, CVPixelBuffer conversion; without
+                      FFmpeg also VideoToolbox/AudioToolbox decoders, HTTP
+    backends/mp4/     MP4 demuxer for builds without FFmpeg
     backends/android/ AAudio output
     backends/windows/ WASAPI output
     backends/linux/   PulseAudio (and PipeWire's pulse server) output
@@ -46,7 +48,10 @@ after they arrive and adapts to jitter and the audio device's latency.
 Requires CMake, Ninja, pkg-config and FFmpeg development files
 (`brew install cmake ninja pkg-config ffmpeg`). `-DLYCHEE_WITH_LIBASS=ON`
 renders styled ASS subtitles with libass (`brew install libass`);
-`tool/regression.sh` turns it on where libass is installed.
+`tool/regression.sh` turns it on where libass is installed. On macOS and
+iOS, `-DLYCHEE_WITH_FFMPEG=OFF` builds without FFmpeg: MP4 files and
+http(s) URLs with H.264/HEVC (VideoToolbox) and AAC/ALAC (AudioToolbox);
+`NO_FFMPEG=1 tool/regression.sh` tests it.
 
 ```sh
 cmake -S . -B build -G Ninja

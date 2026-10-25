@@ -69,6 +69,17 @@ if(APPLE)
     src/backends/apple/core_audio_sink.cc
     src/backends/apple/pixel_buffer.cc
   )
+  if(NOT LYCHEE_WITH_FFMPEG)
+    # Without FFmpeg: MP4 from files and http(s), H.264 and HEVC through
+    # VideoToolbox, AAC and ALAC through AudioToolbox.
+    list(APPEND LYCHEE_SOURCES
+      src/backends/apple/at_audio_decoder.cc
+      src/backends/apple/http_data_source.mm
+      src/backends/apple/vt_video_decoder.cc
+      src/backends/mp4/mp4_demuxer.cc
+      src/media/data_source.cc
+    )
+  endif()
   if(IOS)
     list(APPEND LYCHEE_SOURCES src/backends/apple/audio_session.mm)
   endif()
@@ -138,6 +149,11 @@ if(APPLE)
     set_source_files_properties(src/backends/apple/audio_session.mm
       PROPERTIES COMPILE_OPTIONS -fobjc-arc)
     target_link_libraries(lychee PRIVATE "-framework AVFAudio" "-framework Foundation")
+  endif()
+  if(NOT LYCHEE_WITH_FFMPEG)
+    set_source_files_properties(src/backends/apple/http_data_source.mm
+      PROPERTIES COMPILE_OPTIONS -fobjc-arc)
+    target_link_libraries(lychee PRIVATE "-framework Foundation")
   endif()
 endif()
 

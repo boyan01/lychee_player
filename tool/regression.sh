@@ -13,6 +13,9 @@
 #   FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh
 #                                 # The shipped FFmpeg (tool/build_ffmpeg.sh)
 #                                 # instead of the system's, in build-lgpl/
+#   NO_FFMPEG=1 tool/regression.sh  # macOS without FFmpeg, in build-noffmpeg/:
+#                                 # only the cases with MP4 (H.264, HEVC,
+#                                 # AAC, ALAC) media
 set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,6 +30,10 @@ fi
 if [ -n "${FFMPEG_ROOT:-}" ]; then
   build="$build-lgpl"
   flags+=(-DLYCHEE_FFMPEG_ROOT="$(cd "$FFMPEG_ROOT" && pwd)")
+fi
+if [ "${NO_FFMPEG:-0}" = 1 ]; then
+  build="$build-noffmpeg"
+  flags+=(-DLYCHEE_WITH_FFMPEG=OFF)
 fi
 
 # Styled subtitles where libass is installed; plain text ASS otherwise.
@@ -309,10 +316,22 @@ selected() {
   done
   return 1
 }
+# Without FFmpeg only MP4 plays, without subtitles.
+plays_without_ffmpeg() {
+  [[ "$1" == subtitle-* ]] && return 1
+  local arg
+  for arg in "$@"; do
+    [[ "$arg" == "$media"/* && "$arg" != *.mp4 && "$arg" != *.m4a ]] && return 1
+  done
+  return 0
+}
 # par|seq check|expect NAME ...
 run_case() {
   local mode="$1"; shift
   selected "$2" || return 0
+  if [ "${NO_FFMPEG:-0}" = 1 ] && ! plays_without_ffmpeg "${@:2}"; then
+    return 0
+  fi
   case_count=$((case_count + 1))
   local file
   file="$results/$(printf %03d "$case_count")"
@@ -340,6 +359,8 @@ par check vp9           1 - -- "$media/vp9_opus.webm"
 [ -n "${FFMPEG_ROOT:-}" ] ||
   par check av1-software  0 - -- "$media/av1.mkv"
 par check rotated       1 - -- "$media/rotated.mp4"
+# -display_rotation is counter-clockwise; the library reports clockwise.
+par expect rotation "track 0: video h264 1920x1080 rotation=270 " -- --seconds 1 "$media/rotated.mp4"
 par check audio-only    - - -- "$media/audio_only.mp3"
 par check video-only    1 - -- "$media/video_only.mp4"
 par check ts-offset     1 - -- "$media/offset.ts"
@@ -429,7 +450,7 @@ par expect decoder-lost "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" "<=0 even
   "summary: state=ended .* hw=$hw_first .*dropped=[0-3] glitches=[0-3] backward_jumps=0 " -- \
   --lose-decoder-after 2 "$media/h264_aac.mp4"
 par expect decoder-lost-twice "<=0 event: state error" \
-  "summary: state=ended .*decoder=ffmpeg hw=0 .*backward_jumps=0 " -- \
+  "summary: state=ended .*decoder=(ffmpeg|videotoolbox-sw) hw=0 .*backward_jumps=0 " -- \
   --lose-decoder-after 2 --lose-decoder-after 5 "$media/h264_aac.mp4"
 # Nobody pulls frames for 3 s, as in the background: frames that went by
 # meanwhile are not counted as dropped, and playback resumes at the clock.
