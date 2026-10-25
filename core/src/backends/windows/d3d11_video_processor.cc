@@ -26,6 +26,7 @@ bool D3D11VideoProcessor::SetUp(ID3D11Device* device) {
   device_ = device;
   device_->GetImmediateContext(&context_);
   D3D11_QUERY_DESC query = {D3D11_QUERY_EVENT, 0};
+  context_.As(&video_context1_);
   return SUCCEEDED(device_.As(&video_device_)) &&
          SUCCEEDED(context_.As(&video_context_)) &&
          SUCCEEDED(device_->CreateQuery(&query, &completion_));
@@ -36,8 +37,7 @@ std::shared_ptr<VideoFrame> D3D11VideoProcessor::Convert(
     UINT slice,
     int width,
     int height,
-    bool bt709,
-    bool full_range) {
+    DXGI_COLOR_SPACE_TYPE color_space) {
   ComPtr<ID3D11Device> device;
   texture->GetDevice(&device);
   if (!SetUp(device.Get()) || FAILED(device_->GetDeviceRemovedReason())) {
@@ -128,15 +128,30 @@ std::shared_ptr<VideoFrame> D3D11VideoProcessor::Convert(
   video_context_->VideoProcessorSetOutputTargetRect(processor, TRUE, &rect);
   video_context_->VideoProcessorSetStreamAutoProcessingMode(processor, 0,
                                                             FALSE);
-  D3D11_VIDEO_PROCESSOR_COLOR_SPACE input_color = {};
-  input_color.YCbCr_Matrix = bt709 ? 1 : 0;
-  input_color.Nominal_Range = full_range
-                                  ? D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_0_255
-                                  : D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_16_235;
-  D3D11_VIDEO_PROCESSOR_COLOR_SPACE output_color = {};
-  video_context_->VideoProcessorSetStreamColorSpace(processor, 0,
-                                                    &input_color);
-  video_context_->VideoProcessorSetOutputColorSpace(processor, &output_color);
+  if (video_context1_) {
+    video_context1_->VideoProcessorSetStreamColorSpace1(processor, 0,
+                                                        color_space);
+    video_context1_->VideoProcessorSetOutputColorSpace1(
+        processor, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
+  } else {
+    D3D11_VIDEO_PROCESSOR_COLOR_SPACE input_color = {};
+    input_color.YCbCr_Matrix =
+        color_space == DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P601 ||
+                color_space == DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P601
+            ? 0
+            : 1;
+    input_color.Nominal_Range =
+        color_space == DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P601 ||
+                color_space == DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P709 ||
+                color_space == DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P2020
+            ? D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_0_255
+            : D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_16_235;
+    D3D11_VIDEO_PROCESSOR_COLOR_SPACE output_color = {};
+    video_context_->VideoProcessorSetStreamColorSpace(processor, 0,
+                                                      &input_color);
+    video_context_->VideoProcessorSetOutputColorSpace(processor,
+                                                      &output_color);
+  }
   video_context_->VideoProcessorSetOutputAlphaFillMode(
       processor, D3D11_VIDEO_PROCESSOR_ALPHA_FILL_MODE_OPAQUE, 0);
   D3D11_VIDEO_PROCESSOR_STREAM stream = {};

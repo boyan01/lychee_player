@@ -25,6 +25,10 @@
 
 #if defined(__APPLE__)
 #include <CoreVideo/CoreVideo.h>
+#elif defined(_WIN32)
+#include <d3d11.h>
+#include <dxgi.h>
+#include <wrl/client.h>
 #endif
 
 namespace {
@@ -261,6 +265,9 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       options->frame_type = LYCHEE_FRAME_CPU_RGBA;
     } else if (arg == "--native") {
       options->frame_type = LYCHEE_FRAME_CVPIXELBUFFER_NATIVE;
+    } else if (arg == "--d3d11") {
+      // CPU frames too, as the Flutter plugin takes them.
+      options->frame_type = LYCHEE_FRAME_D3D11_TEXTURE | LYCHEE_FRAME_CPU_BGRA;
     } else if (!arg.empty() && arg[0] != '-') {
       options->url = arg;
     } else {
@@ -324,7 +331,52 @@ void PrintMetadata(lychee_player* player) {
 
 // Subtitle pictures on the video's own canvas: where each goes, and how
 // much of it is opaque and in what colour, to tell text from boxes.
+#if defined(_WIN32)
+// The center pixel of a LYCHEE_FRAME_D3D11_TEXTURE frame, as R, G, B.
+void ReadCenterPixel(ID3D11Device* device,
+                     ID3D11DeviceContext* context,
+                     lychee_frame* frame,
+                     int* rgb) {
+  using Microsoft::WRL::ComPtr;
+  auto* texture =
+      static_cast<ID3D11Texture2D*>(lychee_frame_get_native_handle(frame));
+  ComPtr<IDXGIResource> resource;
+  HANDLE shared = nullptr;
+  ComPtr<ID3D11Texture2D> opened;
+  if (FAILED(texture->QueryInterface(IID_PPV_ARGS(&resource))) ||
+      FAILED(resource->GetSharedHandle(&shared)) ||
+      FAILED(device->OpenSharedResource(shared, IID_PPV_ARGS(&opened)))) {
+    return;
+  }
+  D3D11_TEXTURE2D_DESC desc = {};
+  desc.Width = desc.Height = 1;
+  desc.MipLevels = desc.ArraySize = 1;
+  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+  desc.SampleDesc.Count = 1;
+  desc.Usage = D3D11_USAGE_STAGING;
+  desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  ComPtr<ID3D11Texture2D> staging;
+  if (FAILED(device->CreateTexture2D(&desc, nullptr, &staging))) {
+    return;
+  }
+  const UINT x = static_cast<UINT>(lychee_frame_get_width(frame) / 2);
+  const UINT y = static_cast<UINT>(lychee_frame_get_height(frame) / 2);
+  const D3D11_BOX box = {x, y, 0, x + 1, y + 1, 1};
+  context->CopySubresourceRegion(staging.Get(), 0, 0, 0, 0, opened.Get(), 0,
+                                 &box);
+  D3D11_MAPPED_SUBRESOURCE mapped = {};
+  if (SUCCEEDED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+    const auto* p = static_cast<const uint8_t*>(mapped.pData);
+    rgb[0] = p[2];
+    rgb[1] = p[1];
+    rgb[2] = p[0];
+    context->Unmap(staging.Get(), 0);
+  }
+}
+#endif
+
 #if defined(__APPLE__)
+
 // Pixel format and transfer function of a LYCHEE_FRAME_CVPIXELBUFFER_NATIVE
 // frame.
 void PrintNativeFrame(lychee_frame* frame) {
@@ -550,7 +602,7 @@ int main(int argc, char** argv) {
     fprintf(stderr,
             "usage: %s [--seconds N] [--seek SEC [--seek-after SEC]] "
             "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
-            "[--cpu | --rgba | --native] [--rate R [--rate-after SEC]] [--loop [--loop-off-after SEC]] "
+            "[--cpu | --rgba | --native | --d3d11] [--rate R [--rate-after SEC]] [--loop [--loop-off-after SEC]] "
             "[--open-after SEC URL] [--select TYPE:INDEX]... "
             "[--select-after SEC] [--lose-decoder-after SEC]... "
             "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
@@ -568,6 +620,29 @@ int main(int argc, char** argv) {
   lychee_config_init(&config);
   config.video_frame_types = options.frame_type;
   config.hardware_decoding = options.hardware ? 1 : 0;
+#if defined(_WIN32)
+  // --d3d11: shared textures on the first adapter, read back through a
+  // device of our own as the Flutter plugin opens them.
+  Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+  Microsoft::WRL::ComPtr<ID3D11Device> device;
+  Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+  lychee_video_device video_device = {sizeof(video_device),
+                                      LYCHEE_VIDEO_DEVICE_D3D11_ADAPTER,
+                                      nullptr, nullptr};
+  if (options.frame_type & LYCHEE_FRAME_D3D11_TEXTURE) {
+    Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
+    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) ||
+        FAILED(factory->EnumAdapters(0, &adapter)) ||
+        FAILED(D3D11CreateDevice(adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN,
+                                 nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                 &device, nullptr, &context))) {
+      fprintf(stderr, "no D3D11 device\n");
+      return 1;
+    }
+    video_device.handle = adapter.Get();
+    config.video_device = &video_device;
+  }
+#endif
 
   lychee_player* player = lychee_player_create(&config);
   lychee_player_set_event_callback(player, &OnEvent, nullptr);
@@ -741,6 +816,12 @@ int main(int argc, char** argv) {
         if (frame_type == LYCHEE_FRAME_CVPIXELBUFFER_NATIVE &&
             frames_pulled == 0) {
           PrintNativeFrame(frame);
+        }
+#endif
+#if defined(_WIN32)
+        if (frame_type == LYCHEE_FRAME_D3D11_TEXTURE &&
+            frames_pulled % 30 == 0) {
+          ReadCenterPixel(device.Get(), context.Get(), frame, center_pixel);
         }
 #endif
         if (frame_type == LYCHEE_FRAME_CPU_BGRA ||

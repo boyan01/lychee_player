@@ -1,7 +1,8 @@
 #ifndef LYCHEE_BACKENDS_WINDOWS_D3D11_VIDEO_PROCESSOR_H_
 #define LYCHEE_BACKENDS_WINDOWS_D3D11_VIDEO_PROCESSOR_H_
 
-#include <d3d11.h>
+#include <d3d11_1.h>
+#include <dxgi1_4.h>
 #include <wrl/client.h>
 
 #include <memory>
@@ -18,13 +19,15 @@ namespace lychee {
 class D3D11VideoProcessor {
  public:
   // |texture| is a decoder output, |slice| its array index; the picture is
-  // its top-left |width| x |height|. Null if the GPU cannot convert it.
+  // its top-left |width| x |height| in |color_space|. Null if the GPU
+  // cannot convert it. Output is SDR BT.709. HDR is the driver's to map:
+  // NVIDIA's maps HLG but clips PQ, so PQ frames do not come here (see
+  // FFmpegVideoDecoder::CreateFrame).
   std::shared_ptr<VideoFrame> Convert(ID3D11Texture2D* texture,
                                       UINT slice,
                                       int width,
                                       int height,
-                                      bool bt709,
-                                      bool full_range);
+                                      DXGI_COLOR_SPACE_TYPE color_space);
 
  private:
   bool SetUp(ID3D11Device* device);
@@ -33,6 +36,8 @@ class D3D11VideoProcessor {
   Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
   Microsoft::WRL::ComPtr<ID3D11VideoDevice> video_device_;
   Microsoft::WRL::ComPtr<ID3D11VideoContext> video_context_;
+  // Windows 8.1 and later: DXGI color spaces, which can say PQ and HLG.
+  Microsoft::WRL::ComPtr<ID3D11VideoContext1> video_context1_;
   Microsoft::WRL::ComPtr<ID3D11Query> completion_;
   Microsoft::WRL::ComPtr<ID3D11VideoProcessorEnumerator> enumerator_;
   Microsoft::WRL::ComPtr<ID3D11VideoProcessor> processor_;

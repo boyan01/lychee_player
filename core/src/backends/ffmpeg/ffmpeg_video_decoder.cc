@@ -76,11 +76,30 @@ int CreateD3D11VADevice(IDXGIAdapter* adapter, AVBufferRef** result) {
   return 0;
 }
 
-bool IsBt709(const AVFrame* frame) {
-  return frame->colorspace == AVCOL_SPC_UNSPECIFIED
-             ? frame->height > 576
-             : frame->colorspace != AVCOL_SPC_BT470BG &&
-                   frame->colorspace != AVCOL_SPC_SMPTE170M;
+// The DXGI color space of a decoded frame, for the video processor.
+DXGI_COLOR_SPACE_TYPE DxgiColorSpace(const AVFrame* frame) {
+  const bool full = frame->color_range == AVCOL_RANGE_JPEG;
+  if (frame->color_trc == AVCOL_TRC_SMPTE2084) {
+    return DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020;
+  }
+  if (frame->color_trc == AVCOL_TRC_ARIB_STD_B67) {
+    return DXGI_COLOR_SPACE_YCBCR_STUDIO_GHLG_TOPLEFT_P2020;
+  }
+  if (frame->colorspace == AVCOL_SPC_BT2020_NCL ||
+      frame->colorspace == AVCOL_SPC_BT2020_CL) {
+    return full ? DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P2020
+                : DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020;
+  }
+  const bool bt709 = frame->colorspace == AVCOL_SPC_UNSPECIFIED
+                         ? frame->height > 576
+                         : frame->colorspace != AVCOL_SPC_BT470BG &&
+                               frame->colorspace != AVCOL_SPC_SMPTE170M;
+  if (bt709) {
+    return full ? DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P709
+                : DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709;
+  }
+  return full ? DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P601
+              : DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P601;
 }
 #elif defined(LYCHEE_VAAPI)
 // Frames that the decoder's surfaces are held by outside it: the renderer's
@@ -382,7 +401,14 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
     result = WrapPixelBuffer(frame->data[3]);
   }
 #elif defined(_WIN32)
-  if (frame->format == AV_PIX_FMT_D3D11 &&
+  // PQ goes through swscale, which tone-maps it: the D3D11 video
+  // processor (NVIDIA's, 2026-10-25) clips it to white instead.
+  const bool cpu_tone_map =
+      frame->color_trc == AVCOL_TRC_SMPTE2084 &&
+      (accepted_storage_ &
+       (static_cast<uint32_t>(VideoFrameStorage::kCpuBgra) |
+        static_cast<uint32_t>(VideoFrameStorage::kCpuRgba)));
+  if (frame->format == AV_PIX_FMT_D3D11 && !cpu_tone_map &&
       device_.type == VideoDevice::Type::kD3D11Adapter &&
       (accepted_storage_ &
        static_cast<uint32_t>(VideoFrameStorage::kD3D11Texture))) {
@@ -393,8 +419,7 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
     result = d3d11_processor_->Convert(
         reinterpret_cast<ID3D11Texture2D*>(frame->data[0]),
         static_cast<UINT>(reinterpret_cast<intptr_t>(frame->data[1])),
-        frame->width, frame->height, IsBt709(frame),
-        frame->color_range == AVCOL_RANGE_JPEG);
+        frame->width, frame->height, DxgiColorSpace(frame));
     if (!result && !logged_d3d11_fallback_) {
       logged_d3d11_fallback_ = true;
       LOGW("cannot convert D3D11 frames on the GPU, downloading them");

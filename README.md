@@ -63,6 +63,7 @@ cmake --build build
 dropped frames and clock drift. Options: `--seek SEC [--seek-after SEC]`,
 `--no-hw`, `--cpu` (CPU BGRA frames), `--rgba` (CPU RGBA frames),
 `--native` (the decoder's own `CVPixelBuffer`s, 10-bit for HDR),
+`--d3d11` (Windows: shared D3D11 textures, as the Flutter plugin takes them),
 `--refresh HZ`, `--vsync-jitter US`, `--volume 0..1` (muted by default),
 `--rate R [--rate-after SEC]`, `--loop`, `--open-after SEC URL` (reopen on
 the same player), `--select TYPE:INDEX [--select-after SEC]` (TYPE is

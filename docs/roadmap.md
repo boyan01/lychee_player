@@ -91,10 +91,14 @@ None known. Add them here with a done criterion.
    Apple's mapping. Missing:
    - Flutter: textures are 8-bit SDR on every platform, so the plugin
      stays on tone-mapped BGRA.
-   - Windows: the D3D11 video processor converts HDR to BGRA without tone
-     mapping or a color space (check with `flutter-remote-test`); HDR
-     output needs an R10G10B10A2 or FP16 texture type and the stream's
-     DXGI color space.
+   - Windows: the D3D11 video processor gets each frame's DXGI color
+     space (`ID3D11VideoContext1`). On an RTX 4070 Ti it maps HLG to SDR
+     (124 for a 0.5 signal) but clips PQ to white even with HDR10
+     metadata, so PQ frames go through swscale like software decoding
+     (181, as on Apple; `lychee_cli --d3d11` reads the texture back,
+     2026-10-25). That costs a download per frame; a tone-mapping shader
+     after the video processor would keep PQ on the GPU. HDR output needs
+     an R10G10B10A2 or FP16 texture type.
    - Linux: `lychee_dmabuf` already carries P010 and the matrix, but not
      the primaries and transfer function a caller needs for HDR; needs a
      VAAPI machine to check.
