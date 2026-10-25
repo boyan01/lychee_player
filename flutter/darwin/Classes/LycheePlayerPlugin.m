@@ -1,7 +1,13 @@
 #import "LycheePlayerPlugin.h"
 
-#import <AppKit/AppKit.h>
 #import <CoreVideo/CoreVideo.h>
+#if TARGET_OS_OSX
+#import <AppKit/AppKit.h>
+#else
+#import <AVFAudio/AVFAudio.h>
+#import <QuartzCore/QuartzCore.h>
+#import <UIKit/UIKit.h>
+#endif
 #include <mach/mach_time.h>
 #include <os/lock.h>
 #include <stdatomic.h>
@@ -13,6 +19,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
+#if TARGET_OS_OSX
 static int64_t HostTimeToMicros(uint64_t host_time) {
   static mach_timebase_info_data_t timebase;
   if (timebase.denom == 0) {
@@ -21,33 +28,58 @@ static int64_t HostTimeToMicros(uint64_t host_time) {
   return (int64_t)((__uint128_t)host_time * timebase.numer / timebase.denom /
                    1000);
 }
+#endif
+
+#if TARGET_OS_OSX
+typedef NSView PlatformView;
+#else
+typedef UIView PlatformView;
+#endif
 
 // Bridges one lychee_player to a Flutter texture. The display link asks the
 // player whether the next vsync shows a new frame; if so, Flutter is told to
-// pull it through copyPixelBuffer. The display link follows the screen that
-// shows the Flutter view: with screens at different refresh rates, the vsync
-// of another screen picks frames for the wrong times and drops them.
+// pull it through copyPixelBuffer. On macOS the display link follows the
+// screen that shows the Flutter view: with screens at different refresh
+// rates, the vsync of another screen picks frames for the wrong times and
+// drops them. On iOS CADisplayLink already follows the device's screen.
 @interface LycheeTexture : NSObject <FlutterTexture>
 @property(nonatomic) int64_t textureId;
 - (instancetype)initWithPlayer:(lychee_player*)player
                       registry:(NSObject<FlutterTextureRegistry>*)registry
-                          view:(nullable NSView*)view;
+                          view:(nullable PlatformView*)view;
 - (void)start;
 // After this returns the player is never touched again and may be destroyed.
 - (void)dispose;
 @end
 
+#if !TARGET_OS_OSX
+@interface LycheeTexture ()
+- (void)onDisplayLink:(CADisplayLink*)link;
+@end
+
+// CADisplayLink retains its target; this breaks the cycle.
+@interface LycheeWeakTarget : NSObject
+@property(nonatomic, weak) LycheeTexture* texture;
+@end
+#endif
+
 @implementation LycheeTexture {
   os_unfair_lock _lock;
   lychee_player* _player;  // Guarded by _lock.
   __weak NSObject<FlutterTextureRegistry>* _registry;
-  __weak NSView* _view;
+  __weak PlatformView* _view;
+#if TARGET_OS_OSX
   CVDisplayLinkRef _displayLink;
   CGDirectDisplayID _display;
   NSArray<id<NSObject>>* _observers;
+#else
+  CADisplayLink* _displayLink;
+#endif
   _Atomic int64_t _nextDisplayTime;
   _Atomic bool _framePending;
 }
+
+#if TARGET_OS_OSX
 
 static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
                               const CVTimeStamp* now,
@@ -59,9 +91,11 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   return kCVReturnSuccess;
 }
 
+#endif
+
 - (instancetype)initWithPlayer:(lychee_player*)player
                       registry:(NSObject<FlutterTextureRegistry>*)registry
-                          view:(nullable NSView*)view {
+                          view:(nullable PlatformView*)view {
   if (self = [super init]) {
     _lock = OS_UNFAIR_LOCK_INIT;
     _player = player;
@@ -71,6 +105,7 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   return self;
 }
 
+#if TARGET_OS_OSX
 // Main thread only.
 - (void)start {
   if (CVDisplayLinkCreateWithActiveCGDisplays(&_displayLink) != kCVReturnSuccess) {
@@ -84,7 +119,7 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
 
   // A window moved to another screen, or a screen's refresh rate changed.
   __weak LycheeTexture* weakSelf = self;
-  void (^update)(NSNotification*) = ^(NSNotification*) {
+  void (^update)(NSNotification*) = ^(NSNotification* notification) {
     [weakSelf followViewScreen];
   };
   NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
@@ -163,6 +198,43 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   });
 }
 
+#else
+// Main thread only.
+- (void)start {
+  LycheeWeakTarget* target = [[LycheeWeakTarget alloc] init];
+  target.texture = self;
+  _displayLink = [CADisplayLink displayLinkWithTarget:target
+                                             selector:@selector(onDisplayLink:)];
+  [_displayLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+}
+
+- (void)dispose {
+  // On the main thread, like the display link callback, so no callback runs
+  // after this.
+  [_displayLink invalidate];
+  _displayLink = nil;
+  os_unfair_lock_lock(&_lock);
+  _player = NULL;
+  os_unfair_lock_unlock(&_lock);
+}
+
+// Main thread. targetTimestamp is in CACurrentMediaTime() seconds, which is
+// mach_absolute_time(): the lychee_now_us() timebase.
+- (void)onDisplayLink:(CADisplayLink*)link {
+  int64_t displayTime = (int64_t)(link.targetTimestamp * 1e6);
+  atomic_store(&_nextDisplayTime, displayTime);
+  os_unfair_lock_lock(&_lock);
+  bool hasNewFrame =
+      _player && lychee_player_has_new_frame(_player, displayTime);
+  os_unfair_lock_unlock(&_lock);
+  if (!hasNewFrame || atomic_exchange(&_framePending, true)) {
+    return;
+  }
+  [_registry textureFrameAvailable:_textureId];
+}
+
+#endif
+
 // Called on the raster thread.
 - (CVPixelBufferRef)copyPixelBuffer {
   atomic_store(&_framePending, false);
@@ -189,6 +261,14 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
 
 @end
 
+#if !TARGET_OS_OSX
+@implementation LycheeWeakTarget
+- (void)onDisplayLink:(CADisplayLink*)link {
+  [self.texture onDisplayLink:link];
+}
+@end
+#endif
+
 #pragma clang diagnostic pop
 
 @implementation LycheePlayerPlugin {
@@ -203,6 +283,15 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
                                   binaryMessenger:registrar.messenger];
   LycheePlayerPlugin* instance =
       [[LycheePlayerPlugin alloc] initWithRegistrar:registrar];
+#if !TARGET_OS_OSX
+  // A video player plays with the silent switch on and keeps playing
+  // while other audio is muted. Apps that need otherwise set their own
+  // category after registration.
+  [AVAudioSession.sharedInstance setCategory:AVAudioSessionCategoryPlayback
+                                        mode:AVAudioSessionModeMoviePlayback
+                                     options:0
+                                       error:nil];
+#endif
   [registrar addMethodCallDelegate:instance channel:channel];
 }
 
@@ -219,10 +308,15 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   if ([call.method isEqualToString:@"createTexture"]) {
     lychee_player* player =
         (lychee_player*)(intptr_t)[call.arguments[@"player"] longLongValue];
+#if TARGET_OS_OSX
     // The view is looked up now, not at registration: it may not exist yet.
+    PlatformView* view = _registrar.view;
+#else
+    PlatformView* view = nil;
+#endif
     LycheeTexture* texture = [[LycheeTexture alloc] initWithPlayer:player
                                                           registry:_textures
-                                                              view:_registrar.view];
+                                                              view:view];
     texture.textureId = [_textures registerTexture:texture];
     _players[@(texture.textureId)] = texture;
     [texture start];
