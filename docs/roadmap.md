@@ -4,7 +4,7 @@ State as of 2026-10-25: the core plays files and network streams through
 FFmpeg, with accurate seek, pull-based frame selection, playback rate
 (WSOLA), looping and reopening, track selection, text subtitles and
 metadata. The Flutter plugin runs on macOS and iOS (VideoToolbox), Android
-(MediaCodec), Windows and Linux (software decoding). Everything below is unfinished.
+(MediaCodec), Windows (D3D11VA) and Linux (software decoding). Everything below is unfinished.
 
 Each item says where the work goes and when it is done. Remove an item when it
 is done; add one when you find a gap. Order within a section is priority.
@@ -83,17 +83,20 @@ on top of them.
 ## Platforms
 
 Every platform plays through FFmpeg software decoding and CPU RGBA frames
-except Apple's (VideoToolbox, `CVPixelBuffer`) and Android's (MediaCodec
-rendering straight into the `SurfaceProducer`'s Surface). What is left per platform is
+except Apple's (VideoToolbox, `CVPixelBuffer`), Android's (MediaCodec
+rendering straight into the `SurfaceProducer`'s Surface) and Windows'
+(D3D11VA, shared D3D11 textures). What is left per platform is
 hardware decoding with zero-copy frames, a renderer in `examples/glfw`
 (Metal only today), and its own `tool/regression.sh` run.
 
-1. **Windows hardware decoding**: D3D11VA, frames as D3D11 textures shared
-   with Flutter's GPU surface texture instead of the `PixelBufferTexture`
-   upload. The FFmpeg DLLs (BtbN's LGPLv3 build, ~120 MB) should become a
-   slim build of our own. Unverified there: device switching, multiple
-   monitors, audible output, `tool/regression.sh` (needs bash), and the
-   integration test.
+1. **Windows leftovers**: hardware decoding runs through FFmpeg's D3D11VA
+   on Flutter's adapter, and frames reach Flutter's `GpuSurfaceTexture` as
+   shared BGRA textures (h264, hevc10 and vp9 with seeks and 1.5x: 0
+   dropped; the integration test passes; 2026-10-25). The FFmpeg DLLs
+   (BtbN's LGPLv3 build, ~120 MB) should become a slim build of our own.
+   Unverified there: the pixel buffer path for a Flutter without a D3D11
+   adapter, device switching, multiple monitors, audible output, and
+   `tool/regression.sh` (needs bash).
 2. **Linux hardware decoding**: VAAPI decoding, dmabuf → EGLImage into
    `FlTextureGL` instead of the `FlPixelBufferTexture` copy. This is where
    media-kit had the most texture bugs; budget for it. The bundled FFmpeg

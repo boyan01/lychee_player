@@ -24,13 +24,18 @@ const int kFrameD3D11Texture = 1 << 4;
 const int kFrameDmabuf = 1 << 5;
 
 /// The frame types the platform's texture bridge consumes: hardware frames,
-/// and CPU RGBA frames when hardware decoding rejects a stream.
+/// and CPU frames when hardware decoding rejects a stream.
 int get platformFrameType {
   if (Platform.isMacOS || Platform.isIOS) {
     return kFrameCVPixelBuffer;
   }
   if (Platform.isAndroid) {
     return kFrameAndroidSurface | kFrameCpuRgba;
+  }
+  if (Platform.isWindows) {
+    // D3D11 frames only come once the plugin has passed Flutter's adapter.
+    // BGRA, not RGBA: ANGLE opens shared textures only in BGRA.
+    return kFrameD3D11Texture | kFrameCpuBgra;
   }
   return kFrameCpuRgba;
 }

@@ -2,6 +2,7 @@
 #define LYCHEE_BACKENDS_FFMPEG_FFMPEG_VIDEO_DECODER_H_
 
 #include <atomic>
+#include <memory>
 
 #include "backends/ffmpeg/ffmpeg_common.h"
 #include "media/video_decoder.h"
@@ -15,12 +16,23 @@ struct SwsContext;
 
 namespace lychee {
 
+#if defined(_WIN32)
+class D3D11VideoProcessor;
+#endif
+
 // Software decoding, or hardware decoding through FFmpeg's hwaccel
-// (VideoToolbox on Apple platforms). Frames FFmpeg cannot hand over as they
-// are become CPU frames, RGBA if |accepted_storage| takes RGBA but not BGRA.
+// (VideoToolbox on Apple platforms, D3D11VA on Windows). Frames FFmpeg
+// cannot hand over as they are become CPU frames, RGBA if
+// |accepted_storage| takes RGBA but not BGRA.
+//
+// On Windows |output| is the IDXGIAdapter to decode on. Frames become
+// kD3D11Texture only with one: textures are shared with a device on that
+// adapter, and without one nobody said which.
 class FFmpegVideoDecoder : public VideoDecoder {
  public:
-  FFmpegVideoDecoder(bool hardware, uint32_t accepted_storage);
+  FFmpegVideoDecoder(bool hardware,
+                     uint32_t accepted_storage,
+                     std::shared_ptr<void> output = nullptr);
   ~FFmpegVideoDecoder() override;
 
   const char* name() const override;
@@ -41,7 +53,13 @@ class FFmpegVideoDecoder : public VideoDecoder {
   std::shared_ptr<VideoFrame> ConvertToCpu(AVFrame* frame);
 
   const bool hardware_;
+  const uint32_t accepted_storage_;
   const VideoFrameStorage cpu_storage_;
+  const std::shared_ptr<void> output_;
+#if defined(_WIN32)
+  std::unique_ptr<D3D11VideoProcessor> d3d11_processor_;
+  bool logged_d3d11_fallback_ = false;
+#endif
   AVHWDeviceType hw_device_type_ = AV_HWDEVICE_TYPE_NONE;
   AVPixelFormat hw_pixel_format_ = AV_PIX_FMT_NONE;
   AVBufferRef* hw_device_context_ = nullptr;

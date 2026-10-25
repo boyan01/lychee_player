@@ -20,6 +20,8 @@
 #include "backends/android/aaudio_sink.h"
 #include "backends/android/media_codec_video_decoder.h"
 #elif defined(_WIN32)
+#include <unknwn.h>
+
 #include "backends/windows/wasapi_sink.h"
 #elif defined(__linux__)
 #include "backends/linux/pulse_audio_sink.h"
@@ -51,7 +53,7 @@ std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
 #if defined(LYCHEE_WITH_FFMPEG)
   if (allow_hardware) {
     decoders.push_back(
-        std::make_unique<FFmpegVideoDecoder>(true, accepted_storage));
+        std::make_unique<FFmpegVideoDecoder>(true, accepted_storage, output));
   }
   decoders.push_back(
       std::make_unique<FFmpegVideoDecoder>(false, accepted_storage));
@@ -68,6 +70,12 @@ std::shared_ptr<void> RetainVideoOutput(void* output) {
   ANativeWindow_acquire(window);
   return std::shared_ptr<void>(window, [](void* retained) {
     ANativeWindow_release(static_cast<ANativeWindow*>(retained));
+  });
+#elif defined(_WIN32)
+  auto* adapter = static_cast<IUnknown*>(output);
+  adapter->AddRef();
+  return std::shared_ptr<void>(adapter, [](void* retained) {
+    static_cast<IUnknown*>(retained)->Release();
   });
 #else
   return nullptr;

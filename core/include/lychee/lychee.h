@@ -58,8 +58,8 @@ typedef enum lychee_frame_type {
   // Windows: the native handle is an ID3D11Texture2D* in
   // DXGI_FORMAT_B8G8R8A8_UNORM, created with D3D11_RESOURCE_MISC_SHARED on
   // the adapter passed to lychee_player_set_video_output(), so other devices
-  // can open it through IDXGIResource::GetSharedHandle(). Read-only; the
-  // decoder reuses it once the frame is released.
+  // can open it through IDXGIResource::GetSharedHandle(). Every frame has
+  // its own texture, never written after it is handed out.
   LYCHEE_FRAME_D3D11_TEXTURE = 1 << 4,
   // Linux: the native handle is a const lychee_dmabuf* describing YUV
   // planes in DRM PRIME buffers (e.g. VAAPI surfaces), for import with
@@ -225,8 +225,8 @@ LYCHEE_EXPORT void lychee_player_destroy(lychee_player* player);
 //   set, frames are decoded into a placeholder and not shown.
 // - Windows: the IDXGIAdapter* the caller renders with, so
 //   LYCHEE_FRAME_D3D11_TEXTURE frames can be opened there. Takes effect at
-//   the next lychee_player_open() or track switch; without one, the default
-//   adapter is used.
+//   the next lychee_player_open() or track switch. Without one, hardware
+//   decoding uses the default adapter and frames come as CPU frames.
 // Ignored elsewhere.
 LYCHEE_EXPORT void lychee_player_set_video_output(lychee_player* player,
                                                   void* output);

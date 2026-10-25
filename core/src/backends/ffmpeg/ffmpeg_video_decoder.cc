@@ -6,12 +6,20 @@
 
 #if defined(__APPLE__)
 #include "backends/apple/pixel_buffer.h"
+#elif defined(_WIN32)
+#include <d3d11_4.h>
+#include <wrl/client.h>
+
+#include "backends/windows/d3d11_video_processor.h"
 #endif
 
 extern "C" {
 #include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
+#if defined(_WIN32)
+#include <libavutil/hwcontext_d3d11va.h>
+#endif
 }
 
 namespace lychee {
@@ -21,10 +29,52 @@ namespace {
 AVHWDeviceType PlatformHardwareDeviceType() {
 #if defined(__APPLE__)
   return AV_HWDEVICE_TYPE_VIDEOTOOLBOX;
+#elif defined(_WIN32)
+  return AV_HWDEVICE_TYPE_D3D11VA;
 #else
   return AV_HWDEVICE_TYPE_NONE;
 #endif
 }
+
+#if defined(_WIN32)
+// FFmpeg's D3D11VA device on |adapter|: av_hwdevice_ctx_create() only takes
+// an adapter index.
+int CreateD3D11VADevice(IDXGIAdapter* adapter, AVBufferRef** result) {
+  Microsoft::WRL::ComPtr<ID3D11Device> device;
+  if (FAILED(D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr,
+                               D3D11_CREATE_DEVICE_VIDEO_SUPPORT, nullptr, 0,
+                               D3D11_SDK_VERSION, &device, nullptr,
+                               nullptr))) {
+    return AVERROR_EXTERNAL;
+  }
+  // As av_hwdevice_ctx_create() does for the devices it creates.
+  Microsoft::WRL::ComPtr<ID3D11Multithread> multithread;
+  if (SUCCEEDED(device.As(&multithread))) {
+    multithread->SetMultithreadProtected(TRUE);
+  }
+  AVBufferRef* context = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
+  if (!context) {
+    return AVERROR(ENOMEM);
+  }
+  auto* hw = reinterpret_cast<AVHWDeviceContext*>(context->data);
+  // FFmpeg releases it with the context.
+  static_cast<AVD3D11VADeviceContext*>(hw->hwctx)->device = device.Detach();
+  int ret = av_hwdevice_ctx_init(context);
+  if (ret < 0) {
+    av_buffer_unref(&context);
+    return ret;
+  }
+  *result = context;
+  return 0;
+}
+
+bool IsBt709(const AVFrame* frame) {
+  return frame->colorspace == AVCOL_SPC_UNSPECIFIED
+             ? frame->height > 576
+             : frame->colorspace != AVCOL_SPC_BT470BG &&
+                   frame->colorspace != AVCOL_SPC_SMPTE170M;
+}
+#endif
 
 struct CpuFrameData {
   uint8_t* data = nullptr;
@@ -34,8 +84,10 @@ struct CpuFrameData {
 }  // namespace
 
 FFmpegVideoDecoder::FFmpegVideoDecoder(bool hardware,
-                                       uint32_t accepted_storage)
+                                       uint32_t accepted_storage,
+                                       std::shared_ptr<void> output)
     : hardware_(hardware),
+      accepted_storage_(accepted_storage),
       // swscale writes either order at the same cost; choosing the caller's
       // saves a second pass over every frame.
       cpu_storage_((accepted_storage &
@@ -44,6 +96,7 @@ FFmpegVideoDecoder::FFmpegVideoDecoder(bool hardware,
                                                     VideoFrameStorage::kCpuBgra))
                        ? VideoFrameStorage::kCpuRgba
                        : VideoFrameStorage::kCpuBgra),
+      output_(std::move(output)),
       hardware_output_(hardware),
       frame_(av_frame_alloc()),
       av_packet_(av_packet_alloc()) {}
@@ -120,8 +173,17 @@ bool FFmpegVideoDecoder::InitializeHardware(const AVCodec* codec,
              av_hwdevice_get_type_name(hw_device_type_) + " support";
     return false;
   }
-  int ret = av_hwdevice_ctx_create(&hw_device_context_, hw_device_type_,
-                                   nullptr, nullptr, 0);
+  int ret;
+#if defined(_WIN32)
+  if (output_) {
+    ret = CreateD3D11VADevice(static_cast<IDXGIAdapter*>(output_.get()),
+                              &hw_device_context_);
+  } else
+#endif
+  {
+    ret = av_hwdevice_ctx_create(&hw_device_context_, hw_device_type_,
+                                 nullptr, nullptr, 0);
+  }
   if (ret < 0) {
     *error = "av_hwdevice_ctx_create: " + AVErrorString(ret);
     return false;
@@ -201,6 +263,24 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
 #if defined(__APPLE__)
   if (frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
     result = WrapPixelBuffer(frame->data[3]);
+  }
+#elif defined(_WIN32)
+  if (frame->format == AV_PIX_FMT_D3D11 && output_ &&
+      (accepted_storage_ &
+       static_cast<uint32_t>(VideoFrameStorage::kD3D11Texture))) {
+    if (!d3d11_processor_) {
+      d3d11_processor_ = std::make_unique<D3D11VideoProcessor>();
+    }
+    // data[0] is a texture array, data[1] the index in it.
+    result = d3d11_processor_->Convert(
+        reinterpret_cast<ID3D11Texture2D*>(frame->data[0]),
+        static_cast<UINT>(reinterpret_cast<intptr_t>(frame->data[1])),
+        frame->width, frame->height, IsBt709(frame),
+        frame->color_range == AVCOL_RANGE_JPEG);
+    if (!result && !logged_d3d11_fallback_) {
+      logged_d3d11_fallback_ = true;
+      LOGW("cannot convert D3D11 frames on the GPU, downloading them");
+    }
   }
 #endif
   if (!result) {

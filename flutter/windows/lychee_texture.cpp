@@ -16,6 +16,8 @@ using Microsoft::WRL::ComPtr;
 constexpr int64_t kMicrosPerSecond = 1000000;
 // How often the vsync thread checks which monitor shows the window.
 constexpr int64_t kMonitorCheckInterval = kMicrosPerSecond;
+// Longest wait for an upload to reach the GPU.
+constexpr ULONGLONG kUploadTimeoutMs = 100;
 
 // The DXGI output that drives |monitor|, or null.
 ComPtr<IDXGIOutput> FindOutput(IDXGIFactory1* factory, HMONITOR monitor) {
@@ -49,25 +51,55 @@ int64_t RefreshInterval(HMONITOR monitor) {
   return kMicrosPerSecond / 60;
 }
 
+// What a frame shows: the same pixels come back from acquire_frame() until
+// the player has a newer frame.
+const void* FrameContents(lychee_frame* frame) {
+  if (lychee_frame_get_type(frame) == LYCHEE_FRAME_D3D11_TEXTURE) {
+    return lychee_frame_get_native_handle(frame);
+  }
+  int32_t stride = 0;
+  return lychee_frame_get_data(frame, &stride);
+}
+
 }  // namespace
 
 LycheeTexture::LycheeTexture(lychee_player* player,
                              flutter::TextureRegistrar* registrar,
-                             HWND window)
-    : registrar_(registrar),
-      window_(window),
-      texture_(flutter::PixelBufferTexture(
-          [this](size_t width, size_t height) {
-            return CopyPixelBuffer(width, height);
-          })),
-      player_(player) {}
+                             HWND window,
+                             IDXGIAdapter* adapter)
+    : registrar_(registrar), window_(window), player_(player) {
+  D3D11_QUERY_DESC query = {D3D11_QUERY_EVENT, 0};
+  if (!adapter ||
+      FAILED(D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0,
+                               nullptr, 0, D3D11_SDK_VERSION, &device_,
+                               nullptr, &context_)) ||
+      FAILED(device_->CreateQuery(&query, &completion_))) {
+    device_.Reset();
+    texture_ = std::make_unique<flutter::TextureVariant>(
+        flutter::PixelBufferTexture([this](size_t width, size_t height) {
+          return CopyPixelBuffer(width, height);
+        }));
+    return;
+  }
+  texture_ = std::make_unique<flutter::TextureVariant>(
+      flutter::GpuSurfaceTexture(kFlutterDesktopGpuSurfaceTypeDxgiSharedHandle,
+                                 [this](size_t width, size_t height) {
+                                   return CopyGpuSurface(width, height);
+                                 }));
+  // Hardware-decoded frames then come as textures Flutter's device can
+  // open. Before lychee_player_open(), which is when it takes effect.
+  lychee_player_set_video_output(player, adapter);
+}
 
 LycheeTexture::~LycheeTexture() {
   Dispose();
+  if (shown_frame_) {
+    lychee_frame_release(shown_frame_);
+  }
 }
 
 int64_t LycheeTexture::Start() {
-  texture_id_ = registrar_->RegisterTexture(&texture_);
+  texture_id_ = registrar_->RegisterTexture(texture_.get());
   thread_ = std::thread(&LycheeTexture::VsyncLoop, this);
   return texture_id_;
 }
@@ -133,55 +165,136 @@ void LycheeTexture::VsyncLoop() {
   }
 }
 
-// Raster thread.
-const FlutterDesktopPixelBuffer* LycheeTexture::CopyPixelBuffer(size_t,
-                                                                size_t) {
+lychee_frame* LycheeTexture::AcquireFrame() {
   frame_pending_ = false;
   const int64_t display_time =
       (std::max)(next_display_time_.load(), lychee_now_us());
-  lychee_frame* frame = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (player_) {
-      frame = lychee_player_acquire_frame(player_, display_time);
-    }
-  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  return player_ ? lychee_player_acquire_frame(player_, display_time)
+                 : nullptr;
+}
+
+const FlutterDesktopPixelBuffer* LycheeTexture::CopyPixelBuffer(size_t,
+                                                                size_t) {
+  lychee_frame* frame = AcquireFrame();
   if (!frame) {
     return nullptr;
   }
   int32_t stride = 0;
-  const uint8_t* data = lychee_frame_get_type(frame) == LYCHEE_FRAME_CPU_RGBA
+  const uint8_t* data = lychee_frame_get_type(frame) == LYCHEE_FRAME_CPU_BGRA
                             ? lychee_frame_get_data(frame, &stride)
                             : nullptr;
   if (!data) {
     lychee_frame_release(frame);
     return nullptr;
   }
+  // Flutter wants tightly packed RGBA rows. Frames are BGRA, which the GPU
+  // surface path needs; this path is only for when it is unavailable.
   const int32_t width = lychee_frame_get_width(frame);
   const int32_t height = lychee_frame_get_height(frame);
   const size_t row = static_cast<size_t>(width) * 4;
+  pixels_.resize(row * static_cast<size_t>(height));
+  for (int32_t y = 0; y < height; ++y) {
+    const uint8_t* source = data + static_cast<size_t>(y) * stride;
+    uint8_t* dest = pixels_.data() + static_cast<size_t>(y) * row;
+    for (size_t x = 0; x < row; x += 4) {
+      dest[x] = source[x + 2];
+      dest[x + 1] = source[x + 1];
+      dest[x + 2] = source[x];
+      dest[x + 3] = source[x + 3];
+    }
+  }
+  lychee_frame_release(frame);
   buffer_.width = static_cast<size_t>(width);
   buffer_.height = static_cast<size_t>(height);
-  if (static_cast<size_t>(stride) == row) {
-    // Flutter reads the frame's own pixels and releases it after the upload.
-    buffer_.buffer = data;
-    buffer_.release_context = frame;
-    buffer_.release_callback = [](void* context) {
-      lychee_frame_release(static_cast<lychee_frame*>(context));
-    };
-  } else {
-    // Flutter wants tightly packed rows.
-    pixels_.resize(row * static_cast<size_t>(height));
-    for (int32_t y = 0; y < height; ++y) {
-      std::memcpy(pixels_.data() + static_cast<size_t>(y) * row,
-                  data + static_cast<size_t>(y) * stride, row);
-    }
-    lychee_frame_release(frame);
-    buffer_.buffer = pixels_.data();
-    buffer_.release_context = nullptr;
-    buffer_.release_callback = nullptr;
-  }
+  buffer_.buffer = pixels_.data();
+  buffer_.release_context = nullptr;
+  buffer_.release_callback = nullptr;
   return &buffer_;
+}
+
+const FlutterDesktopGpuSurfaceDescriptor* LycheeTexture::CopyGpuSurface(
+    size_t,
+    size_t) {
+  lychee_frame* frame = AcquireFrame();
+  if (!frame) {
+    return shown_texture_ ? &descriptor_ : nullptr;
+  }
+  if (shown_frame_ && FrameContents(frame) == FrameContents(shown_frame_)) {
+    lychee_frame_release(frame);
+    return &descriptor_;
+  }
+  ComPtr<ID3D11Texture2D> texture;
+  switch (lychee_frame_get_type(frame)) {
+    case LYCHEE_FRAME_D3D11_TEXTURE:
+      texture = static_cast<ID3D11Texture2D*>(
+          lychee_frame_get_native_handle(frame));
+      break;
+    case LYCHEE_FRAME_CPU_BGRA:
+      texture = Upload(frame);
+      break;
+  }
+  ComPtr<IDXGIResource> resource;
+  HANDLE handle = nullptr;
+  if (!texture || FAILED(texture.As(&resource)) ||
+      FAILED(resource->GetSharedHandle(&handle)) || !handle) {
+    lychee_frame_release(frame);
+    return shown_texture_ ? &descriptor_ : nullptr;
+  }
+  if (shown_frame_) {
+    lychee_frame_release(shown_frame_);
+  }
+  shown_frame_ = frame;
+  shown_texture_ = texture;
+  D3D11_TEXTURE2D_DESC desc = {};
+  texture->GetDesc(&desc);
+  descriptor_ = {};
+  descriptor_.struct_size = sizeof(descriptor_);
+  descriptor_.handle = handle;
+  descriptor_.width = desc.Width;
+  descriptor_.height = desc.Height;
+  descriptor_.visible_width = static_cast<size_t>(lychee_frame_get_width(frame));
+  descriptor_.visible_height =
+      static_cast<size_t>(lychee_frame_get_height(frame));
+  descriptor_.format = kFlutterDesktopPixelFormatBGRA8888;
+  return &descriptor_;
+}
+
+ComPtr<ID3D11Texture2D> LycheeTexture::Upload(lychee_frame* frame) {
+  int32_t stride = 0;
+  const uint8_t* data = lychee_frame_get_data(frame, &stride);
+  if (!data) {
+    return nullptr;
+  }
+  D3D11_TEXTURE2D_DESC desc = {};
+  desc.Width = static_cast<UINT>(lychee_frame_get_width(frame));
+  desc.Height = static_cast<UINT>(lychee_frame_get_height(frame));
+  desc.MipLevels = desc.ArraySize = 1;
+  // ANGLE opens shared textures only in its surface format.
+  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+  desc.SampleDesc.Count = 1;
+  desc.Usage = D3D11_USAGE_DEFAULT;
+  desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+  desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
+  const D3D11_SUBRESOURCE_DATA pixels = {data, static_cast<UINT>(stride), 0};
+  ComPtr<ID3D11Texture2D> texture;
+  if (FAILED(device_->CreateTexture2D(&desc, &pixels, &texture))) {
+    return nullptr;
+  }
+  // Another device reads it: wait until the copy has reached the GPU.
+  context_->End(completion_.Get());
+  context_->Flush();
+  const ULONGLONG deadline = GetTickCount64() + kUploadTimeoutMs;
+  HRESULT status;
+  while ((status = context_->GetData(completion_.Get(), nullptr, 0,
+                                     D3D11_ASYNC_GETDATA_DONOTFLUSH)) ==
+         S_FALSE) {
+    if (GetTickCount64() >= deadline) {
+      return nullptr;
+    }
+    std::this_thread::yield();
+  }
+  return SUCCEEDED(status) ? texture : nullptr;
 }
 
 }  // namespace lychee_flutter

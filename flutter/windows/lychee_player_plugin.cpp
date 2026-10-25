@@ -1,6 +1,8 @@
 #include "lychee_player_plugin.h"
 
+#include <dxgi.h>
 #include <flutter/standard_method_codec.h>
+#include <wrl/client.h>
 
 #include <optional>
 
@@ -63,10 +65,14 @@ void LycheePlayerPlugin::HandleMethodCall(
     }
     // The view is looked up now, not at registration: it may not exist yet.
     flutter::FlutterView* view = registrar_->GetView();
+    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+    if (view) {
+      adapter.Attach(view->GetGraphicsAdapter());
+    }
     auto texture = std::make_unique<LycheeTexture>(
         reinterpret_cast<lychee_player*>(static_cast<intptr_t>(*player)),
         registrar_->texture_registrar(),
-        view ? view->GetNativeWindow() : nullptr);
+        view ? view->GetNativeWindow() : nullptr, adapter.Get());
     const int64_t texture_id = texture->Start();
     textures_[texture_id] = std::move(texture);
     result->Success(flutter::EncodableValue(texture_id));
