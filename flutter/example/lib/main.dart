@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lychee_player/lychee_player.dart';
 
@@ -119,11 +121,10 @@ class _Controls extends StatelessWidget {
         final duration = value.duration ?? Duration.zero;
         final max = duration.inMilliseconds.toDouble();
         final position = value.position.inMilliseconds.toDouble().clamp(
-          0.0,
-          max,
-        );
-        final playing =
-            value.playing && value.state != LycheePlayerState.ended;
+              0.0,
+              max,
+            );
+        final playing = value.playing && value.state != LycheePlayerState.ended;
         return Padding(
           padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
           child: Column(
@@ -142,7 +143,7 @@ class _Controls extends StatelessWidget {
                       max: max > 0 ? max : 1,
                       onChanged: max > 0
                           ? (v) =>
-                                player.seek(Duration(milliseconds: v.round()))
+                              player.seek(Duration(milliseconds: v.round()))
                           : null,
                     ),
                   ),
@@ -161,17 +162,8 @@ class _Controls extends StatelessWidget {
                     onPressed: () => player.setLooping(!value.looping),
                   ),
                   if (value.tracks.length > 2) _TrackMenu(player, value.tracks),
-                  // Rebuilt with the position, a few times a second while
-                  // playing.
                   Expanded(
-                    child: Text(
-                      '${_formatStats(player.getStats())}   '
-                      '${value.state.name}'
-                      '${value.error == null ? '' : ': ${value.error}'}',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
+                      child: _Stats(player, value, key: ObjectKey(player))),
                 ],
               ),
             ],
@@ -185,12 +177,6 @@ class _Controls extends StatelessWidget {
     const rates = [0.5, 1.0, 1.5, 2.0];
     final next = rates.indexWhere((r) => r > rate);
     return next < 0 ? rates.first : rates[next];
-  }
-
-  static String _formatStats(LycheePlayerStats stats) {
-    final decoder = stats.hardwareDecoding ? 'hw' : 'sw';
-    return '$decoder  rendered ${stats.framesRendered}  '
-        'dropped ${stats.framesDropped}';
   }
 
   static String _format(Duration d) {
@@ -250,9 +236,8 @@ class _TrackMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final choices = tracks
-        .where((t) => t.type != LycheeTrackType.video)
-        .toList();
+    final choices =
+        tracks.where((t) => t.type != LycheeTrackType.video).toList();
     // Values are track indices; -1 turns subtitles off.
     return PopupMenuButton<int>(
       tooltip: 'Tracks',
@@ -279,5 +264,64 @@ class _TrackMenu extends StatelessWidget {
       track.codec,
     ].where((s) => s.isNotEmpty).join(' ');
     return '${track.type.name}: $name';
+  }
+}
+
+/// The stats line. Samples the counters twice a second; the frame rate is
+/// the frames rendered since the previous sample.
+class _Stats extends StatefulWidget {
+  const _Stats(this.player, this.value, {super.key});
+
+  final LycheePlayer player;
+  final LycheePlayerValue value;
+
+  @override
+  State<_Stats> createState() => _StatsState();
+}
+
+class _StatsState extends State<_Stats> {
+  final _clock = Stopwatch()..start();
+  late final Timer _timer;
+  var _stats = const LycheePlayerStats();
+  var _sampledAt = Duration.zero;
+  var _fps = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _stats = widget.player.getStats();
+    _timer = Timer.periodic(
+      const Duration(milliseconds: 500),
+      (_) => setState(_sample),
+    );
+  }
+
+  void _sample() {
+    final stats = widget.player.getStats();
+    final now = _clock.elapsed;
+    final frames = stats.framesRendered - _stats.framesRendered;
+    _fps = frames * 1e6 / (now - _sampledAt).inMicroseconds;
+    _stats = stats;
+    _sampledAt = now;
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final value = widget.value;
+    return Text(
+      '${_stats.hardwareDecoding ? 'hw' : 'sw'}  '
+      '${_fps.toStringAsFixed(1)} fps  '
+      'rendered ${_stats.framesRendered}  dropped ${_stats.framesDropped}   '
+      '${value.state.name}'
+      '${value.error == null ? '' : ': ${value.error}'}',
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+    );
   }
 }
