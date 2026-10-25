@@ -29,7 +29,10 @@ These are decisions, not accidents. Keep them unless the user changes them.
   build (no `--enable-gpl`, no `--enable-nonfree`), linked dynamically.
   Write code from your own understanding of ffplay or mpv rather than copying
   it: both are (L)GPL. Code ported from Chromium is BSD-3 and keeps its
-  copyright header.
+  copyright header. Code from flutter-airplay
+  (`~/workspace/github/flutter-airplay`) is the same author's and may be
+  copied here under MIT (drop its GPL-3.0 SPDX line), except anything that
+  came from UxPlay (its receiver and protocol code), which stays GPL.
 - **Name the borrowing.** When porting a Chromium algorithm, say which file it
   comes from in a comment, so later readers can compare.
 
