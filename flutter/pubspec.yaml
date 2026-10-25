@@ -21,7 +21,7 @@ flutter:
   plugin:
     platforms:
       android:
-        package: dev.lychee.lychee_player
+        package: tech.soit.lychee.lychee_player
         pluginClass: LycheePlayerPlugin
       ios:
         pluginClass: LycheePlayerPlugin

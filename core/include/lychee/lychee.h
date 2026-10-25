@@ -41,7 +41,9 @@ extern "C" {
 //    for audio only.
 // 5: live input: lychee_player_open_live() and the packets the caller
 //    pushes.
-#define LYCHEE_API_VERSION 5
+// 6: lychee_config.rotate_surface_frames, for Android windows that cannot
+//    rotate (SurfaceView).
+#define LYCHEE_API_VERSION 6
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -220,6 +222,12 @@ typedef struct lychee_config {
   // API version 4. The video device to start with; copied, so it need not
   // outlive lychee_player_create(). NULL for none.
   const lychee_video_device* video_device;
+  // API version 6. Android: non-zero to have MediaCodec render
+  // LYCHEE_FRAME_ANDROID_SURFACE frames upright, rotated by
+  // lychee_player_get_video_rotation(), for windows that cannot rotate what
+  // they show (a SurfaceView before API 33). The frames' width and height
+  // stay the unrotated size, and other frame types are never rotated.
+  int32_t rotate_surface_frames;
 } lychee_config;
 
 typedef struct lychee_live_config {

@@ -26,7 +26,10 @@ namespace lychee {
 // chosen by VideoRendererAlgorithm, once per vsync.
 class VideoRenderer {
  public:
-  VideoRenderer(MediaClock* clock, uint32_t accepted_storage);
+  // |rotate_surface_frames|: see CreateVideoDecoders().
+  VideoRenderer(MediaClock* clock,
+                uint32_t accepted_storage,
+                bool rotate_surface_frames);
   ~VideoRenderer();
 
   // Tries the decoders in order and keeps the first that accepts |config|.
@@ -114,6 +117,7 @@ class VideoRenderer {
 
   MediaClock* const clock_;
   const uint32_t accepted_storage_;
+  const bool rotate_surface_frames_;
   VideoDevice device_;
   PacketQueue* queue_ = nullptr;
   VideoConfig config_;

@@ -26,6 +26,7 @@ examples/glfw/        windowed player without Flutter (GLFW + Metal, macOS)
 flutter/              Flutter plugin (lib/; darwin/ for iOS and macOS, android/,
                       windows/, linux/) and its example app
 sdk/apple/            Swift package for macOS and iOS apps, and its example app
+sdk/android/          Android library (AAR) for Android apps, and its example app
 ```
 
 Video frames leave the library as native handles (`CVPixelBufferRef` on Apple
@@ -130,6 +131,44 @@ For the iOS simulator use `-destination 'generic/platform=iOS Simulator'`,
 `SIMCTL_CHILD_LYCHEE_URL=... xcrun simctl launch booted tech.soit.lychee.example`;
 the simulator reads `/tmp` of the Mac.
 
+## Android library
+
+`sdk/android` builds one AAR, `tech.soit.lychee:lychee` (minSdk 26): the
+core as `liblychee.so` with the LGPL FFmpeg next to it (build it first:
+`tool/build_ffmpeg.sh android-arm64-v8a SRC`, and `android-x86_64` for x86
+emulators), and Kotlin classes over it. The core is also a prefab module
+(`lychee`, header `lychee/lychee.h`) for native code that uses the C ABI.
+
+```sh
+sdk/android/gradlew -p sdk/android :lychee:publish   # into sdk/android/build/repo
+```
+
+```kotlin
+val player = LycheePlayer()
+player.addListener { event -> Log.d("lychee", "$event") }   // main thread
+player.open("https://example.com/video.mp4")
+player.play()
+val view = LycheePlayerView(context)   // a SurfaceView, aspect-fit
+view.player = player
+// player.state, positionMs, durationMs, tracks, subtitle, stats, ...
+view.player = null
+player.close()
+```
+
+MediaCodec renders the video upright into the `SurfaceView`
+(`lychee_config.rotate_surface_frames`). To show frames in a Surface of
+your own, use `LycheeFrameDriver`: it pulls frames per vsync and asks for a
+new Surface when frames switch between MediaCodec and software decoding.
+
+The example app (`sdk/android/example`, `:example:assembleDebug`) plays the
+`url` intent extra, by default `h264_aac.mp4` from `tool/serve_media.py`
+through `adb reverse tcp:8765 tcp:8765`; `--ez hw false` decodes in
+software:
+
+```sh
+adb shell am start -n tech.soit.lychee.example/.MainActivity --es url http://127.0.0.1:8765/rotated.mp4
+```
+
 ## Flutter plugin
 
 The plugin lives in `flutter/`; its iOS/macOS pod vendors the Apple
@@ -159,18 +198,20 @@ them.
 The example app (`flutter/example`) turns off the macOS App Sandbox so it can
 open arbitrary paths. It plays `--dart-define=LYCHEE_URL=...` on start.
 
-The Android, Windows and Linux plugins compile `core/` from outside the
-package directory, and the Apple frameworks are built locally, so for now
-the plugin can only be used as a path or git dependency, not from pub.dev.
+The Windows and Linux plugins compile `core/` from outside the package
+directory, and the Apple frameworks and the Android AAR are built locally,
+so for now the plugin can only be used as a path or git dependency, not
+from pub.dev.
 
 ### Per platform
 
 - **macOS and iOS**: the xcframeworks above; macOS 11 and iOS 16 or newer.
   The current SDK's libc++ supports nothing older on macOS, and the core
   converts frames with `VTPixelTransferSession` (iOS 16).
-- **Android**: `tool/build_ffmpeg.sh android-arm64-v8a SRC` (and
-  `android-x86_64`); the plugin's CMake links `third_party/ffmpeg/android-ABI`
-  and builds only the ABIs found there. Needs minSdk 26 (AAudio).
+- **Android**: the AAR from the Android library above, published into
+  `sdk/android/build/repo`, where the plugin looks for it; rerun the
+  publish after changing `core/`. It has the ABIs FFmpeg was built for.
+  Needs minSdk 26 (AAudio).
 - **Windows**: `flutter build windows`. The plugin downloads a pinned
   LGPL-only FFmpeg (BtbN, FFmpeg 9.0, LGPLv3) at configure time and ships its
   DLLs next to the app. To build the core and `examples/cli` alone: `cmake

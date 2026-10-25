@@ -725,7 +725,8 @@ bool Player::ShouldReadLocked() const {
 std::unique_ptr<VideoRenderer> Player::CreateVideoRenderer(
     const StreamInfo& info) {
   auto video =
-      std::make_unique<VideoRenderer>(&clock_, config_.video_frame_types);
+      std::make_unique<VideoRenderer>(&clock_, config_.video_frame_types,
+                                      config_.rotate_surface_frames);
   VideoDevice device;
   std::shared_ptr<void> surface;
   bool hardware;

@@ -7,7 +7,11 @@ final DynamicLibrary _library = () {
   if (Platform.isMacOS || Platform.isIOS) {
     return DynamicLibrary.open('lychee_player.framework/lychee_player');
   }
-  if (Platform.isAndroid || Platform.isLinux) {
+  if (Platform.isAndroid) {
+    // The core from the Android SDK's AAR (sdk/android).
+    return DynamicLibrary.open('liblychee.so');
+  }
+  if (Platform.isLinux) {
     return DynamicLibrary.open('liblychee_player.so');
   }
   if (Platform.isWindows) {
@@ -67,6 +71,10 @@ final class LycheeConfig extends Struct {
   external int hardwareDecoding;
   // Set by the plugin's native side, not from Dart.
   external Pointer<Void> videoDevice;
+  // Unused: Flutter rotates the texture widget. Declared because
+  // lychee_config_init() writes the whole struct.
+  @Int32()
+  external int rotateSurfaceFrames;
 }
 
 final class LycheeStats extends Struct {

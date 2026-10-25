@@ -125,7 +125,14 @@ glitch checks fail for reasons unrelated to your change. Done means:
   macOS and the iOS simulator with zero warnings, run both, and look at
   the screenshots, including `rotated.mp4` when the view's layout changed.
   `LycheeFrameDriver` is a port of the plugin's `LycheeTexture`: fix both
-  until the plugin uses the SDK (roadmap, Distribution 4.3).
+  until the plugin uses the SDK (roadmap, Distribution 4.2).
+- For changes to the Android SDK (`sdk/android`): build it and its example
+  (`sdk/android/gradlew -p sdk/android :lychee:publish
+  :example:assembleDebug`, zero warnings), install the example on an
+  emulator or a phone and look at screenshots of `h264_aac.mp4` and
+  `rotated.mp4`, each with hardware decoding and without (the `url` and
+  `hw` intent extras). The Flutter plugin uses the same
+  `LycheeFrameDriver`, so also run the Flutter example on Android.
 - For changes to what ends up on screen (frame selection, conversion,
   rotation): run `build/examples/glfw/lychee_glfw` on a test file and look at
   a window screenshot. It has no Flutter in between, so it also tells core
@@ -155,8 +162,8 @@ glitch checks fail for reasons unrelated to your change. Done means:
   and `ios-sim-x86_64` for the simulator, `ios-arm64` for devices;
   `android-arm64-v8a`), then `tool/package_ffmpeg_apple.sh` and
   `tool/build_apple.sh` for Apple; the pod vendors the result from
-  `flutter/darwin/Frameworks`, the Android plugin links
-  `third_party/ffmpeg/android-ABI` directly. Use the FFmpeg major version
+  `flutter/darwin/Frameworks`. On Android the SDK's AAR (`sdk/android`)
+  links `third_party/ffmpeg/android-ABI` and carries it. Use the FFmpeg major version
   Homebrew has: the core follows the current FFmpeg API (e.g.
   `sws_free_context`). After a new FFmpeg build, rerun all of them and
   `pod install` in `flutter/example/macos` and `flutter/example/ios`.
@@ -189,9 +196,16 @@ glitch checks fail for reasons unrelated to your change. Done means:
   after touching decoder setup.
 - Homebrew's FFmpeg is a GPL build and is linked only by the core's own
   CMake build (CLI, GLFW example, `tool/regression.sh`), for development.
-- Flutter builds Android native code at `-O0` in debug apps; the plugin's
-  CMake forces `-O2` on the core, or per-pixel frame work alone caps 1080p
-  at ~14 fps.
+- The Flutter plugin's Android side compiles no C++: it takes the core and
+  the frame driver from the AAR `tech.soit.lychee:lychee`, which
+  `sdk/android/gradlew -p sdk/android :lychee:publish` puts into
+  `sdk/android/build/repo`. After changing `core/` or `sdk/android`, rerun
+  it before building the Flutter example for Android, or the example runs
+  the old core. The SDK's CMake forces `-O2` on the core: debug builds are
+  `-O0`, and per-pixel frame work alone then caps 1080p at ~14 fps.
+- A `SurfaceView` drops CPU buffers whose size after their transform is
+  not the size given to `setFixedSize`, so rotated software frames need a
+  window of the rotated size (`lychee_jni.cc`).
 - On the development Mac the Kotlin compile daemon can hang `flutter build
   apk` for many minutes; prefix the command with
   `env 'ORG_GRADLE_PROJECT_kotlin.compiler.execution.strategy=in-process'`.

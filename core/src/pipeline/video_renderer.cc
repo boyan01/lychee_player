@@ -29,9 +29,12 @@ int64_t FrameEnd(const VideoFrame& frame) {
 
 }  // namespace
 
-VideoRenderer::VideoRenderer(MediaClock* clock, uint32_t accepted_storage)
+VideoRenderer::VideoRenderer(MediaClock* clock,
+                             uint32_t accepted_storage,
+                             bool rotate_surface_frames)
     : clock_(clock),
       accepted_storage_(accepted_storage),
+      rotate_surface_frames_(rotate_surface_frames),
       converter_(CreateFrameConverter()),
       algorithm_([clock](const std::vector<int64_t>& media_times,
                          std::vector<int64_t>* system_times) {
@@ -52,7 +55,8 @@ bool VideoRenderer::Initialize(const VideoConfig& config,
   config_ = config;
   device_ = device;
   candidates_ =
-      CreateVideoDecoders(allow_hardware, accepted_storage_, device, surface);
+      CreateVideoDecoders(allow_hardware, accepted_storage_, device, surface,
+                          rotate_surface_frames_);
   return InitializeNextDecoder(error);
 }
 

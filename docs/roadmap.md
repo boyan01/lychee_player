@@ -133,7 +133,7 @@ above). What is left per platform is a renderer in `examples/glfw`
    Flutter already warns that CocoaPods-only plugins will become an error.
    The xcframeworks in `flutter/darwin/Frameworks` can be its
    `binaryTarget`s. It should depend on the `sdk/apple` package for the
-   frame driver (Distribution 4.3 says why that takes a URL).
+   frame driver (Distribution 4.2 says why that takes a URL).
 
 ## FFmpeg-free builds
 
@@ -173,9 +173,10 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    `tool/regression.sh`) still links Homebrew's GPL FFmpeg.
 2. **pub.dev packaging**: `flutter pub publish` only packs `flutter/`. The
    Apple pod now vendors prebuilt xcframeworks (`lychee`, FFmpeg) from
-   `flutter/darwin/Frameworks`, but they are built locally and gitignored;
-   Android, Windows and Linux still compile `../core` from outside the
-   package. So today the plugin works only as a path or git dependency.
+   `flutter/darwin/Frameworks`, and the Android plugin takes the AAR
+   `tech.soit.lychee:lychee` from `sdk/android/build/repo`, but both are
+   built locally and gitignored; Windows and Linux still compile `../core`
+   from outside the package. So today the plugin works only as a path or git dependency.
    **Open question for the user**: where the prebuilt artifacts are hosted
    and how a fresh app gets them. Candidates: inside the package (pub.dev
    caps a package at 100 MB compressed; the Apple xcframeworks alone are
@@ -186,22 +187,15 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    that builds in a fresh app.
 3. **Example app**: a file picker instead of a path field.
 4. **Native SDKs, with Flutter as one consumer** (decided 2026-10-25).
-   On Apple platforms the core already builds on its own
-   (`tool/build_apple.sh`: `lychee.xcframework`, a dynamic framework with
-   only `lychee/lychee.h`, linking the FFmpeg xcframeworks) and the pod
-   vendors it; elsewhere it builds only through the Flutter plugin. The
-   per-vsync frame pulling lives in Flutter textures (`LycheeTexture.kt`
-   with `texture_bridge.cc`, `LycheePlayerPlugin.m`). Target layout, in
-   this order:
-   1. Android: `core/` as a prefab `.so` with FFmpeg next to it, and the
-      Flutter plugin depends on it instead of compiling `../core` (with
-      the hosting decision, closes item 2).
-   2. `sdk/android/`: an AAR with a Kotlin `LycheePlayer`, the
-      Choreographer frame driver and a `SurfaceView`-based view; the
-      Flutter plugin uses its driver with the `SurfaceProducer`'s Surface.
-      Done when a native sample app and the Flutter example both play
-      through it.
-   3. `sdk/apple/` exists (2026-10-25: `LycheePlayer`,
+   1. `sdk/android/` exists (2026-10-25): one AAR, `tech.soit.lychee:lychee`,
+      with the core as `liblychee.so` (also a prefab module) and its
+      FFmpeg, and the Kotlin `LycheePlayer`, `LycheeFrameDriver` and
+      `LycheePlayerView` (a `SurfaceView`; MediaCodec rotates the video
+      upright, `lychee_config.rotate_surface_frames`, API 6). The Flutter
+      plugin's Android side is Kotlin only and uses the SDK's driver with
+      the `SurfaceProducer`'s Surface. Left: hosting the AAR (item 2;
+      today `sdk/android/gradlew :lychee:publish` into a local repo).
+   2. `sdk/apple/` exists (2026-10-25: `LycheePlayer`,
       `LycheeFrameDriver`, `LycheePlayerView`; its example plays in
       hardware on macOS and in software on the iOS simulator, 0 dropped).
       Left: the Flutter plugin still has its own copy of the driver
@@ -213,6 +207,6 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
       `Package.swift` at the repository root and the xcframeworks as
       `binaryTarget(url:checksum:)` release assets, so this waits for
       item 2's hosting decision; do it together with Platforms 3.
-   4. `rust/`: `lychee-sys` (bindgen over `lychee.h`, CMake build) and a
+   3. `rust/`: `lychee-sys` (bindgen over `lychee.h`, CMake build) and a
       safe `lychee` crate; callbacks are `Send`, frames release on drop.
    Windows and Linux native users take the C ABI as it is.

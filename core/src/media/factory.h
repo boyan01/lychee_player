@@ -23,11 +23,14 @@ std::unique_ptr<Demuxer> CreateDemuxer();
 // Candidates in priority order: hardware first if allowed. Decoders that
 // produce CPU frames produce one of the |accepted_storage| types if they can.
 // |surface| is what RetainVideoSurface() returned, or null.
+// |rotate_surface_frames|: decoders rendering into |surface| rotate the
+// video upright (lychee_config.rotate_surface_frames).
 std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
     bool allow_hardware,
     uint32_t accepted_storage,
     const VideoDevice& device,
-    const std::shared_ptr<void>& surface);
+    const std::shared_ptr<void>& surface,
+    bool rotate_surface_frames);
 
 // The lychee_video_device fields as a VideoDevice, retaining the handle.
 // False for a type this build does not support.

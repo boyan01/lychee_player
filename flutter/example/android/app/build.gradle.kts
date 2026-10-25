@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.lychee.lychee_player_example"
+    namespace = "tech.soit.lychee.lychee_player_example"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -16,7 +16,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "dev.lychee.lychee_player_example"
+        applicationId = "tech.soit.lychee.lychee_player_example"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // AAudio, which lychee_player plays through, needs Android 8.0.

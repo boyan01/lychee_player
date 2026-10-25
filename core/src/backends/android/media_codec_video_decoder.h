@@ -31,7 +31,8 @@ namespace lychee {
 // reorders by itself, and the renderer picks frames per vsync.
 class MediaCodecVideoDecoder : public VideoDecoder {
  public:
-  explicit MediaCodecVideoDecoder(std::shared_ptr<void> surface);
+  // |rotate|: render frames rotated upright (VideoConfig::rotation).
+  MediaCodecVideoDecoder(std::shared_ptr<void> surface, bool rotate);
   ~MediaCodecVideoDecoder() override;
 
   const char* name() const override { return "mediacodec"; }
@@ -69,6 +70,7 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   std::vector<uint8_t> annexb_;
   // Guarded by codec_->mutex.
   std::shared_ptr<void> surface_;
+  const bool rotate_;
   ANativeWindow* window_ = nullptr;
   AImageReader* placeholder_ = nullptr;
   int coded_width_ = 0;

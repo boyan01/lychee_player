@@ -157,6 +157,7 @@ lychee_player* lychee_player_create(const lychee_config* config) {
   lychee::PlayerConfig player_config;
   player_config.video_frame_types = defaults.video_frame_types;
   player_config.hardware_decoding = defaults.hardware_decoding != 0;
+  player_config.rotate_surface_frames = defaults.rotate_surface_frames != 0;
   if (!ToVideoDevice(defaults.video_device, &player_config.video_device)) {
     LOGW("unsupported video device type %d; using none",
          defaults.video_device->type);

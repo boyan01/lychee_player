@@ -41,14 +41,16 @@ std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
     bool allow_hardware,
     uint32_t accepted_storage,
     [[maybe_unused]] const VideoDevice& device,
-    [[maybe_unused]] const std::shared_ptr<void>& surface) {
+    [[maybe_unused]] const std::shared_ptr<void>& surface,
+    [[maybe_unused]] bool rotate_surface_frames) {
   std::vector<std::unique_ptr<VideoDecoder>> decoders;
   [[maybe_unused]] auto accepts = [accepted_storage](VideoFrameStorage storage) {
     return (accepted_storage & static_cast<uint32_t>(storage)) != 0;
   };
 #if defined(__ANDROID__)
   if (allow_hardware && accepts(VideoFrameStorage::kAndroidSurface)) {
-    decoders.push_back(std::make_unique<MediaCodecVideoDecoder>(surface));
+    decoders.push_back(std::make_unique<MediaCodecVideoDecoder>(
+        surface, rotate_surface_frames));
   }
 #endif
 #if defined(LYCHEE_WITH_FFMPEG)

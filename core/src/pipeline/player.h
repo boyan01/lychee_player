@@ -46,6 +46,8 @@ struct PlayerConfig {
   uint32_t video_frame_types = 0;
   bool hardware_decoding = true;
   VideoDevice video_device;
+  // Android: MediaCodec rotates surface frames upright.
+  bool rotate_surface_frames = false;
 };
 
 struct PlayerStats {

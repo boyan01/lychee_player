@@ -1,4 +1,4 @@
-package dev.lychee.lychee_player
+package tech.soit.lychee.lychee_player
 
 import android.content.Context
 import android.hardware.display.DisplayManager
@@ -15,8 +15,9 @@ class LycheePlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private val textures = HashMap<Long, LycheeTexture>()
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        // The library also holds the C ABI that Dart opens through FFI.
-        System.loadLibrary("lychee_player")
+        // The core from the Android SDK, whose C ABI Dart opens through FFI;
+        // loaded here so its FFmpeg dependencies resolve.
+        System.loadLibrary("lychee")
         context = binding.applicationContext
         textureRegistry = binding.textureRegistry
         channel = MethodChannel(binding.binaryMessenger, "lychee_player")

@@ -124,8 +124,9 @@ void DiscardImages(void*, AImageReader* reader) {
 
 }  // namespace
 
-MediaCodecVideoDecoder::MediaCodecVideoDecoder(std::shared_ptr<void> surface)
-    : surface_(std::move(surface)) {}
+MediaCodecVideoDecoder::MediaCodecVideoDecoder(std::shared_ptr<void> surface,
+                                               bool rotate)
+    : surface_(std::move(surface)), rotate_(rotate) {}
 
 MediaCodecVideoDecoder::~MediaCodecVideoDecoder() {
   {
@@ -196,6 +197,12 @@ bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
   AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, height);
   AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_MAX_INPUT_SIZE,
                         std::max(width * height, 2 << 20));
+  if (rotate_ && config.rotation != 0) {
+    // MediaCodec applies it as the buffers' transform when rendering into
+    // the window. Clockwise, like VideoConfig::rotation. The key's constant,
+    // AMEDIAFORMAT_KEY_ROTATION, is API 28; the key itself works from 23.
+    AMediaFormat_setInt32(format, "rotation-degrees", config.rotation);
+  }
   // Parameter sets also go in band before every keyframe; codec specific
   // data covers decoders that want them at configure time.
   std::vector<uint8_t> csd[2];

@@ -1,4 +1,4 @@
-group = "dev.lychee.lychee_player"
+group = "tech.soit.lychee.lychee_player"
 version = "1.0-SNAPSHOT"
 
 buildscript {
@@ -14,10 +14,22 @@ buildscript {
     }
 }
 
-allprojects {
+// The core comes from the Android SDK's AAR, tech.soit.lychee:lychee
+// (liblychee.so with its FFmpeg, and the frame driver), published into
+// sdk/android/build/repo by `sdk/android/gradlew :lychee:publish`. The app
+// resolves the plugin's dependencies, so every project gets the repository.
+val lycheeRepo = file("../../sdk/android/build/repo")
+if (!lycheeRepo.isDirectory) {
+    logger.warn("lychee_player: no $lycheeRepo; run sdk/android/gradlew -p sdk/android :lychee:publish")
+}
+val lycheeVersion = Regex("""(?m)^version: (\S+)""")
+    .find(file("../pubspec.yaml").readText())!!.groupValues[1]
+
+rootProject.allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri(lycheeRepo) }
     }
 }
 
@@ -25,16 +37,8 @@ plugins {
     id("com.android.library")
 }
 
-// The core and its FFmpeg (tool/build_ffmpeg.sh android-ABI) come from the
-// repository; only the ABIs FFmpeg was built for are built.
-val ffmpegDir = file("../../third_party/ffmpeg")
-val ffmpegAbis = listOf("arm64-v8a", "x86_64").filter { file("$ffmpegDir/android-$it").isDirectory }
-if (ffmpegAbis.isEmpty()) {
-    logger.warn("lychee_player: no Android FFmpeg in $ffmpegDir; run tool/build_ffmpeg.sh android-arm64-v8a")
-}
-
 android {
-    namespace = "dev.lychee.lychee_player"
+    namespace = "tech.soit.lychee.lychee_player"
 
     compileSdk = 36
 
@@ -51,22 +55,11 @@ android {
 
     defaultConfig {
         minSdk = 26
-        ndk {
-            abiFilters += ffmpegAbis
-        }
-        externalNativeBuild {
-            cmake {
-                arguments += "-DANDROID_STL=c++_shared"
-            }
-        }
     }
+}
 
-    externalNativeBuild {
-        cmake {
-            path = file("CMakeLists.txt")
-            version = "3.22.1"
-        }
-    }
+dependencies {
+    implementation("tech.soit.lychee:lychee:$lycheeVersion")
 }
 
 kotlin {
