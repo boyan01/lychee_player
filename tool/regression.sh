@@ -148,6 +148,11 @@ subbed sub_srt.mkv subs.srt srt
 subbed sub_ass.mkv subs.ass ass
 subbed sub_vtt.mkv subs.vtt webvtt
 subbed sub_mov_text.mp4 subs.srt mov_text
+# One cue from before the keyframe at 8.33 s to the end, in a track that
+# is off until switched on.
+[ -f "$media/subs_long.srt" ] || printf '1\n00:00:00,500 --> 00:00:11,500\nLong cue\n' >"$media/subs_long.srt"
+gen sub_long.mkv -i "$media/h264_aac.mp4" -i "$media/subs_long.srt" -map 0 -map 1 -c:v copy -c:a copy -c:s srt \
+  -disposition:s:0 0
 # Tracks 0 video, 1-2 audio (eng, fre), 3-4 subtitles (eng, fre).
 gen tracks.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=880:sample_rate=48000 \
   -i "$media/subs.srt" -i "$media/subs_fre.srt" -map 0:v -map 0:a -map 1:a -map 2 -map 3 -t 8 \
@@ -438,6 +443,10 @@ par expect subtitle-srt "subtitle at [01]\.[0-9]{3}s: Hello world$" "subtitle at
 par expect subtitle-ass "subtitle at [01]\.[0-9]{3}s: Bold and, plain \| next line$" -- "$media/sub_ass.mkv"
 par expect subtitle-webvtt "subtitle at [01]\.[0-9]{3}s: Hello vtt$" -- "$media/sub_vtt.mkv"
 par expect subtitle-mov-text "subtitle at [01]\.[0-9]{3}s: Hello world$" -- "$media/sub_mov_text.mp4"
+# Switched on in the middle of a cue that started before the last
+# keyframe: shown at once, and without a seek.
+par expect subtitle-mid-cue "select subtitle 2 at 9\.[0-9]{3}s: accepted" "subtitle at 9\.[0-9]{3}s: Long cue" \
+  "<=0 seek to" "summary: state=ended .*glitches=[0-3] " -- --select subtitle:2 --select-after 9 "$media/sub_long.mkv"
 # The position can read a few ms before the seek target: the audio frame
 # that contains it starts earlier.
 par expect subtitle-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line" -- --seek 3.5 --seek-after 0.5 "$media/sub_srt.mkv"

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -192,13 +193,11 @@ class Player {
   struct TrackRequest {
     int video = kUnchanged;
     int audio = kUnchanged;
-    int subtitle = kUnchanged;
     // Replace the video renderer even if its stream stays: for a new
     // device, or a lost decoder.
     bool rebuild_video = false;
     bool tracks_changed() const {
-      return video != kUnchanged || audio != kUnchanged ||
-             subtitle != kUnchanged;
+      return video != kUnchanged || audio != kUnchanged;
     }
     bool pending() const { return tracks_changed() || rebuild_video; }
   };
@@ -218,6 +217,8 @@ class Player {
   bool LiveSettledLocked(int64_t until) const;
   std::unique_ptr<VideoRenderer> CreateVideoRenderer(const StreamInfo& info);
   std::unique_ptr<AudioRenderer> CreateAudioRenderer(const StreamInfo& info);
+  // The renderer of |subtitle_stream_|, or null.
+  SubtitleRenderer* SelectedSubtitleLocked() const;
   std::unique_ptr<SubtitleRenderer> CreateSubtitleRenderer(
       const StreamInfo& info);
   void EnableStreamsLocked();
@@ -273,7 +274,11 @@ class Player {
   std::atomic<int64_t> audio_output_lead_{0};
   std::unique_ptr<VideoRenderer> video_renderer_;
   std::unique_ptr<AudioRenderer> audio_renderer_;
-  std::unique_ptr<SubtitleRenderer> subtitle_renderer_;
+  // One per subtitle stream that has a decoder, from Prepare() until
+  // StopPipeline(): every subtitle stream is read, so a track switched on
+  // midway already has the cues read so far. The map itself does not
+  // change in between, so the read thread uses it without the lock.
+  std::map<int, std::unique_ptr<SubtitleRenderer>> subtitle_renderers_;
   std::thread thread_;
   std::thread read_thread_;
 
@@ -288,6 +293,7 @@ class Player {
   // the read thread reads them without the lock.
   int video_stream_ = -1;
   int audio_stream_ = -1;
+  // Under |mutex_|; the read thread does not use it.
   int subtitle_stream_ = -1;
   // Control thread only.
   uint64_t generation_ = 0;

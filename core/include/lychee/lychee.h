@@ -456,8 +456,10 @@ LYCHEE_EXPORT int32_t lychee_player_get_track_info(lychee_player* player,
                                                    lychee_track_info* info);
 // Switches the |type| track to track |index| (an index for
 // lychee_player_get_track_info()), or disables |type| if |index| is -1.
-// Playback continues from the current position. Returns 0 if the request was
-// accepted; LYCHEE_EVENT_TRACKS_CHANGED follows. Rejected: an index of
+// Playback continues from the current position. Subtitle tracks switch at
+// once, with the cue on screen if one is: every subtitle stream is read
+// all along. Returns 0 if the request was accepted;
+// LYCHEE_EVENT_TRACKS_CHANGED follows. Rejected: an index of
 // another type, a bitmap subtitle track, disabling both audio and video,
 // a video track on a player created for audio only, and any request before
 // the media is loaded.

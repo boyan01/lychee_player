@@ -84,9 +84,7 @@ None known. Add them here with a done criterion.
    and EDR on macOS.
 3. **Subtitles beyond plain text**: text cues (SRT, WebVTT, mov_text, ASS
    text with tags stripped) work. Missing: ASS styling and positioning
-   (libass), bitmap subtitles (PGS, DVB, VobSub), and cues that started
-   before a subtitle track is switched on mid-file (they appear only from
-   the next cue).
+   (libass) and bitmap subtitles (PGS, DVB, VobSub).
 
 ## Platforms
 

@@ -87,13 +87,14 @@ void Player::StopPipeline() {
 
   std::unique_ptr<VideoRenderer> video;
   std::unique_ptr<AudioRenderer> audio;
-  std::unique_ptr<SubtitleRenderer> subtitle;
+  std::map<int, std::unique_ptr<SubtitleRenderer>> subtitles;
   std::unique_ptr<Demuxer> demuxer;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     video = std::move(video_renderer_);
     audio = std::move(audio_renderer_);
-    subtitle = std::move(subtitle_renderer_);
+    subtitles = std::move(subtitle_renderers_);
+    subtitle_renderers_.clear();
     demuxer = std::move(demuxer_);
     live_ = false;
     live_demuxer_ = nullptr;
@@ -363,12 +364,23 @@ bool Player::SelectTrack(MediaType type, int track) {
         return false;
       }
     }
-    int* requested = type == MediaType::kVideo   ? &track_request_.video
-                     : type == MediaType::kAudio ? &track_request_.audio
-                                                 : &track_request_.subtitle;
-    const int current = type == MediaType::kVideo   ? video_stream_
-                        : type == MediaType::kAudio ? audio_stream_
-                                                    : subtitle_stream_;
+    if (type == MediaType::kSubtitle) {
+      // Its stream is read all along: nothing to seek or rebuild.
+      if (stream >= 0 && !subtitle_renderers_.count(stream)) {
+        return false;
+      }
+      if (stream != subtitle_stream_) {
+        LOGI("subtitle track -> stream %d", stream);
+        subtitle_stream_ = stream;
+        PostEventLocked(PlayerEvent::kTracksChanged);
+        UpdateSubtitleLocked();
+      }
+      return true;
+    }
+    int* requested = type == MediaType::kVideo ? &track_request_.video
+                                               : &track_request_.audio;
+    const int current =
+        type == MediaType::kVideo ? video_stream_ : audio_stream_;
     // Keep something to play.
     int video = track_request_.video != kUnchanged ? track_request_.video
                                                     : video_stream_;
@@ -582,16 +594,22 @@ std::shared_ptr<const std::vector<uint8_t>> Player::artwork() const {
   return media_info_.artwork;
 }
 
+SubtitleRenderer* Player::SelectedSubtitleLocked() const {
+  auto it = subtitle_renderers_.find(subtitle_stream_);
+  return it == subtitle_renderers_.end() ? nullptr : it->second.get();
+}
+
 std::string Player::subtitle(int64_t display_time) const {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (!subtitle_renderer_) {
+  SubtitleRenderer* renderer = SelectedSubtitleLocked();
+  if (!renderer) {
     return std::string();
   }
   const int64_t media_time =
       display_time ? clock_.MediaTimeAt(display_time) : clock_.Now();
   // Subtitle packets keep the file's timeline, so every pass finds the
   // same cues.
-  return subtitle_renderer_->TextAt(media_time - LoopOffsetLocked(media_time));
+  return renderer->TextAt(media_time - LoopOffsetLocked(media_time));
 }
 
 bool Player::HasNewFrame(int64_t display_time) const {
@@ -855,7 +873,7 @@ bool Player::Prepare(const std::string& url, std::string* error) {
 
   std::unique_ptr<VideoRenderer> video;
   std::unique_ptr<AudioRenderer> audio;
-  std::unique_ptr<SubtitleRenderer> subtitle;
+  std::map<int, std::unique_ptr<SubtitleRenderer>> subtitles;
   if (info.default_video_stream >= 0 && config_.video_frame_types != 0) {
     video = CreateVideoRenderer(info.streams[info.default_video_stream]);
   }
@@ -866,9 +884,12 @@ bool Player::Prepare(const std::string& url, std::string* error) {
     *error = "no playable audio or video stream";
     return false;
   }
-  if (info.default_subtitle_stream >= 0) {
-    subtitle =
-        CreateSubtitleRenderer(info.streams[info.default_subtitle_stream]);
+  for (const StreamInfo& stream : info.streams) {
+    if (stream.type == MediaType::kSubtitle) {
+      if (auto subtitle = CreateSubtitleRenderer(stream)) {
+        subtitles[stream.index] = std::move(subtitle);
+      }
+    }
   }
   clock_.Reset(info.start_time);
 
@@ -878,10 +899,12 @@ bool Player::Prepare(const std::string& url, std::string* error) {
   media_info_ = info;
   video_stream_ = video ? info.default_video_stream : -1;
   audio_stream_ = audio ? info.default_audio_stream : -1;
-  subtitle_stream_ = subtitle ? info.default_subtitle_stream : -1;
+  subtitle_stream_ = subtitles.count(info.default_subtitle_stream)
+                         ? info.default_subtitle_stream
+                         : -1;
   video_renderer_ = std::move(video);
   audio_renderer_ = std::move(audio);
-  subtitle_renderer_ = std::move(subtitle);
+  subtitle_renderers_ = std::move(subtitles);
   EnableStreamsLocked();
   if (audio_renderer_) {
     audio_renderer_->SetVolume(volume_);
@@ -988,16 +1011,6 @@ void Player::ChangeTracks(const TrackRequest& request) {
       audio_renderer_->Start();
     }
   }
-  if (request.subtitle != kUnchanged) {
-    std::unique_ptr<SubtitleRenderer> subtitle;
-    if (request.subtitle >= 0) {
-      subtitle = CreateSubtitleRenderer(media_info_.streams[request.subtitle]);
-    }
-    std::lock_guard<std::mutex> lock(mutex_);
-    LOGI("subtitle track -> stream %d", subtitle ? request.subtitle : -1);
-    subtitle_renderer_ = std::move(subtitle);
-    subtitle_stream_ = subtitle_renderer_ ? request.subtitle : -1;
-  }
   std::lock_guard<std::mutex> lock(mutex_);
   EnableStreamsLocked();
   // A live input may have no tracks for a while.
@@ -1011,10 +1024,13 @@ void Player::ChangeTracks(const TrackRequest& request) {
 
 void Player::EnableStreamsLocked() {
   std::vector<int> streams;
-  for (int stream : {video_stream_, audio_stream_, subtitle_stream_}) {
+  for (int stream : {video_stream_, audio_stream_}) {
     if (stream >= 0) {
       streams.push_back(stream);
     }
+  }
+  for (const auto& [stream, renderer] : subtitle_renderers_) {
+    streams.push_back(stream);
   }
   demuxer_->SetEnabledStreams(streams);
 }
@@ -1114,8 +1130,9 @@ void Player::ReadPacket() {
       std::lock_guard<std::mutex> lock(mutex_);
       audio_last_pts_ = std::max(audio_last_pts_, pts);
     }
-  } else if (packet->stream_index == subtitle_stream_ && subtitle_renderer_) {
-    subtitle_renderer_->Decode(*packet);
+  } else if (auto it = subtitle_renderers_.find(packet->stream_index);
+             it != subtitle_renderers_.end()) {
+    it->second->Decode(*packet);
   }
   if (live_demuxer_) {
     live_demuxer_->PacketDelivered();
@@ -1147,8 +1164,8 @@ bool Player::WrapLoop() {
   if (audio_stream_ >= 0) {
     audio_queue_.Push(EncodedPacket::CreateBoundary(audio_stream_, boundary));
   }
-  if (subtitle_renderer_) {
-    subtitle_renderer_->Flush();
+  for (const auto& [stream, subtitle] : subtitle_renderers_) {
+    subtitle->Flush();
   }
   std::lock_guard<std::mutex> lock(mutex_);
   loops_++;
@@ -1182,8 +1199,8 @@ void Player::ProcessSeek(int64_t target,
   if (audio_renderer_) {
     audio_renderer_->Flush(generation_, media_target);
   }
-  if (subtitle_renderer_) {
-    subtitle_renderer_->Flush();
+  for (const auto& [stream, subtitle] : subtitle_renderers_) {
+    subtitle->Flush();
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
@@ -1305,13 +1322,13 @@ void Player::UpdateVideoSizeLocked() {
 
 void Player::UpdateSubtitleLocked() {
   std::string text;
-  if (subtitle_renderer_) {
+  if (SubtitleRenderer* renderer = SelectedSubtitleLocked()) {
     // Keep the old text until a seek lands.
     if (seek_pending_ || seek_in_progress_ || prerolling_) {
       return;
     }
     const int64_t now = clock_.Now();
-    text = subtitle_renderer_->TextAt(now - LoopOffsetLocked(now));
+    text = renderer->TextAt(now - LoopOffsetLocked(now));
   }
   if (text != subtitle_text_) {
     subtitle_text_ = std::move(text);
