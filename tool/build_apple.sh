@@ -69,7 +69,7 @@ for slice in macos ios ios-simulator; do
   mkdir -p "$work/$slice/headers"
   cp "$root/core/include/lychee/lychee.h" "$work/$slice/headers/"
   make_framework "$slice" "$work/$slice/lychee.framework" "$binary" \
-    "$work/$slice/headers" org.lychee.lychee "$version" "$work/module.modulemap"
+    "$work/$slice/headers" tech.soit.lychee "$version" "$work/module.modulemap"
   args+=(-framework "$work/$slice/lychee.framework")
 done
 [ ${#args[@]} -gt 0 ] || { echo "no FFmpeg xcframeworks; run tool/package_ffmpeg_apple.sh" >&2; exit 1; }

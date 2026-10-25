@@ -127,7 +127,7 @@ build/sdk-apple/Build/Products/Debug/Example.app/Contents/MacOS/Example
 
 For the iOS simulator use `-destination 'generic/platform=iOS Simulator'`,
 `xcrun simctl install booted .../Debug-iphonesimulator/Example.app` and
-`SIMCTL_CHILD_LYCHEE_URL=... xcrun simctl launch booted org.lychee.example`;
+`SIMCTL_CHILD_LYCHEE_URL=... xcrun simctl launch booted tech.soit.lychee.example`;
 the simulator reads `/tmp` of the Mac.
 
 ## Flutter plugin

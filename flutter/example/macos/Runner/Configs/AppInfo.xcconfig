@@ -8,7 +8,7 @@
 PRODUCT_NAME = lychee_player_example
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = dev.boyan01.lycheePlayerExample
+PRODUCT_BUNDLE_IDENTIFIER = tech.soit.lychee.lycheePlayerExample
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 dev.boyan01. All rights reserved.

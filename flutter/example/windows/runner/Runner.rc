@@ -89,11 +89,11 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "dev.lychee" "\0"
+            VALUE "CompanyName", "tech.soit.lychee" "\0"
             VALUE "FileDescription", "lychee_player_example" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "lychee_player_example" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 dev.lychee. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 tech.soit.lychee. All rights reserved." "\0"
             VALUE "OriginalFilename", "lychee_player_example.exe" "\0"
             VALUE "ProductName", "lychee_player_example" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
