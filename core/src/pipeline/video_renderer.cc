@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/log.h"
+#include "base/time.h"
 #include "base/thread_name.h"
 #include "media/factory.h"
 
@@ -17,6 +18,8 @@ namespace {
 
 // Decoded frames waiting to be shown, besides the one on screen.
 constexpr size_t kMaxQueuedFrames = 5;
+// No pull for this long counts as hidden (ExpireFramesWhileHidden()).
+constexpr int64_t kHiddenTimeout = 250 * kMicrosPerMilli;
 // Frames without a duration are assumed to last this long (30 fps).
 constexpr int64_t kDefaultFrameDuration = kMicrosPerSecond / 30;
 int64_t FrameEnd(const VideoFrame& frame) {
@@ -326,8 +329,27 @@ bool VideoRenderer::Ended(int64_t media_time) const {
   return media_time >= FrameEnd(*current_);
 }
 
+void VideoRenderer::ExpireFramesWhileHidden(int64_t now) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (last_pull_ == kNoTimestamp || now - last_pull_ < kHiddenTimeout ||
+        algorithm_.frames_queued() < 2) {
+      return;
+    }
+    algorithm_.RemoveExpiredFrames(now);
+  }
+  // Queue space for the decoder.
+  condition_.notify_all();
+}
+
 std::shared_ptr<VideoFrame> VideoRenderer::SelectFrameLocked(
     int64_t display_time) {
+  const int64_t now = NowMicros();
+  // Back from hidden: what ExpireFramesWhileHidden() left is stale, and
+  // dropping it is not a playback problem.
+  const bool was_hidden =
+      last_pull_ != kNoTimestamp && now - last_pull_ >= kHiddenTimeout;
+  last_pull_ = now;
   const VsyncEstimator::Vsync vsync = vsync_estimator_.Update(display_time);
   // Already decided for this vsync: has_new_frame and acquire_frame are
   // usually called for the same one.
@@ -351,7 +373,9 @@ std::shared_ptr<VideoFrame> VideoRenderer::SelectFrameLocked(
         algorithm_.Render(vsync.time, vsync.time + vsync.interval, &dropped);
   }
   selected_vsync_ = vsync.time;
-  frames_dropped_ += static_cast<int64_t>(dropped);
+  if (!was_hidden) {
+    frames_dropped_ += static_cast<int64_t>(dropped);
+  }
   return selected_;
 }
 

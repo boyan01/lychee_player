@@ -357,6 +357,10 @@ par expect decoder-lost "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" "<=0 even
 par expect decoder-lost-twice "<=0 event: state error" \
   "summary: state=ended .*decoder=ffmpeg hw=0 .*backward_jumps=0 " -- \
   --lose-decoder-after 2 --lose-decoder-after 5 "$media/h264_aac.mp4"
+# Nobody pulls frames for 3 s, as in the background: frames that went by
+# meanwhile are not counted as dropped, and playback resumes at the clock.
+par expect background "show at " "summary: state=ended .*dropped=0 glitches=[0-3] backward_jumps=0 " -- \
+  --hide-after 2 --hide-for 3 "$media/h264_aac.mp4"
 # Text subtitles: cues as plain text at their times.
 par expect subtitle-srt "subtitle at [01]\.[0-9]{3}s: Hello world$" "subtitle at 2\.[0-9]{3}s: \(none\)" \
   "subtitle at [34]\.[0-9]{3}s: Second line \| with break$" "summary: state=ended" -- "$media/sub_srt.mkv"

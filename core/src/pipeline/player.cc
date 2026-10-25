@@ -970,6 +970,9 @@ void Player::FinishSeekLocked() {
 void Player::UpdateState() {
   std::lock_guard<std::mutex> lock(mutex_);
   CheckVideoRendererLocked();
+  if (video_renderer_) {
+    video_renderer_->ExpireFramesWhileHidden(NowMicros());
+  }
   if (state_ != PlayerState::kError) {
     if (video_renderer_ && video_renderer_->HasError()) {
       FailLocked(std::string("video decoding failed (") +
@@ -1094,6 +1097,11 @@ bool Player::SettledForTesting(int64_t until) const {
   // The control thread has yet to start the clock, or to end or loop.
   if (!clock_running_ || EndedLocked()) {
     return false;
+  }
+  // What the control thread does every 10 ms of real time, done here too so
+  // virtual time cannot run past frames that should have expired.
+  if (video_renderer_) {
+    video_renderer_->ExpireFramesWhileHidden(NowMicros());
   }
   // Not clock_.MediaTimeAt(until): an audio-driven clock stops at the end
   // of the audio handed out so far, and would ask for nothing more.

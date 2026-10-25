@@ -33,7 +33,12 @@ on top of them.
    seeks and 1.5x) and H.264 on the Pixel 10 emulator (`c2.goldfish.*`),
    where HEVC Main10 fails at the first frame and falls back to FFmpeg
    (2026-10-25). Going to the background and back resumes on the new
-   Surface (emulator). Not yet seen: AAudio route changes, a stream
+   Surface (emulator); on the Xiaomi a 3 s round trip ends with 360 of
+   360 frames and 0 dropped, though there Choreographer kept pulling in
+   the background, so only the CLI's `background` case exercises the
+   expiry of frames nobody pulled. The headless emulator drops about a
+   third of the frames even at 360p, so its counts say nothing about
+   this. Not yet seen: AAudio route changes, a stream
    changing resolution midway, and a device
    with only one hardware decoder instance (the emulator's H.264 decoder
    once failed to start right after a file switch, and FFmpeg took over).
@@ -66,14 +71,6 @@ on top of them.
    glitches in every WSL run (the case allows 3), 0 on macOS. Probably the
    PulseAudio stream's latency estimate settling after the flush. Done when
    it shows 0-1 there.
-4. **Drops after returning from the background**: while the app is in the
-   background nobody pulls frames, the clock keeps running and the decoder
-   stalls on a full queue; back in front, the frames it decodes to catch up
-   are late and count as dropped (19 after 2 s in the background, Android
-   emulator with MediaCodec; software decoding pulls the same way). Chromium's VideoFrameCompositor keeps
-   calling Render() on a timer while hidden and does not count those drops
-   (`media/renderers/video_renderer_impl.cc`). Done when a background round
-   trip adds no dropped frames and playback resumes at the clock's position.
 
 ## Features
 

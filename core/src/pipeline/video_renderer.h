@@ -78,6 +78,15 @@ class VideoRenderer {
   // first. Streams can change resolution midway (adaptive streaming).
   bool shown_size(int* width, int* height) const;
 
+  // When nobody has pulled a frame for a while (the app is in the
+  // background, its view hidden), drops the frames already past |now|
+  // (NowMicros()) without counting them as dropped, so decoding keeps up
+  // with the clock and the pull resumes at the clock's position. Chromium's
+  // VideoFrameCompositor renders in the background the same way, after
+  // 250 ms without a vsync (media/renderers/video_renderer_impl.cc does not
+  // count those drops). Called periodically.
+  void ExpireFramesWhileHidden(int64_t now);
+
   bool HasNewFrame(int64_t display_time);
   std::shared_ptr<VideoFrame> Acquire(int64_t display_time);
 
@@ -128,6 +137,8 @@ class VideoRenderer {
   std::shared_ptr<VideoFrame> selected_;
   int64_t selected_vsync_ = kNoTimestamp;
   VsyncEstimator vsync_estimator_;
+  // NowMicros() of the last HasNewFrame() or Acquire().
+  int64_t last_pull_ = kNoTimestamp;
   // The frame last handed out by Acquire().
   std::shared_ptr<VideoFrame> current_;
   // |current_| predates the last seek; replace it as soon as possible.

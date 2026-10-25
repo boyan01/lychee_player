@@ -48,6 +48,10 @@ struct Options {
   // Seconds after playback starts to make the video decoder fail as after a
   // GPU reset (testing.h), in order.
   std::vector<double> lose_decoder_after;
+  // Stop pulling frames this many seconds after playback starts, as an app
+  // in the background does, for |hide_for| seconds.
+  double hide_after = -1;
+  double hide_for = 2;
 #if defined(__APPLE__)
   int32_t frame_type = LYCHEE_FRAME_CVPIXELBUFFER;
 #else
@@ -184,6 +188,14 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       const char* v = value();
       if (!v) return false;
       options->lose_decoder_after.push_back(atof(v));
+    } else if (arg == "--hide-after") {
+      const char* v = value();
+      if (!v) return false;
+      options->hide_after = atof(v);
+    } else if (arg == "--hide-for") {
+      const char* v = value();
+      if (!v) return false;
+      options->hide_for = atof(v);
     } else if (arg == "--audio-only") {
       options->frame_type = 0;
     } else if (arg == "--virtual-time") {
@@ -271,7 +283,8 @@ int main(int argc, char** argv) {
             "[--cpu | --rgba] [--rate R [--rate-after SEC]] [--loop] "
             "[--open-after SEC URL] [--select TYPE:INDEX]... "
             "[--select-after SEC] [--lose-decoder-after SEC]... "
-            "[--audio-only] [--virtual-time] <file or url>\n",
+            "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
+            "[--virtual-time] <file or url>\n",
             argv[0]);
     return 2;
   }
@@ -350,6 +363,8 @@ int main(int argc, char** argv) {
   bool tracks_changed = false;
   int64_t loop_check_position = 0;
   size_t next_loss = 0;
+  // Wall time the hidden stretch ends; 0 if not hidden (yet), -1 after.
+  int64_t hidden_until = 0;
   // Position when the decoder was lost; INT64_MIN once the rebuild resumed.
   int64_t loss_position = INT64_MIN;
 
@@ -386,7 +401,19 @@ int main(int argc, char** argv) {
     int64_t display_time = next_vsync + vsync_interval + jitter(random);
 
     bool playing_steadily = last_state == LYCHEE_STATE_READY;
-    if (lychee_player_has_new_frame(player, display_time)) {
+    if (hidden_until == 0 && options.hide_after >= 0 && ready_wall != 0 &&
+        now - ready_wall >= static_cast<int64_t>(options.hide_after * 1e6)) {
+      hidden_until = now + static_cast<int64_t>(options.hide_for * 1e6);
+      printf("hide at %.3fs\n", lychee_player_get_position(player) / 1e6);
+    }
+    if (hidden_until > 0 && now >= hidden_until) {
+      hidden_until = -1;
+      steady = false;
+      printf("show at %.3fs\n", lychee_player_get_position(player) / 1e6);
+    }
+    if (hidden_until > 0) {
+      // Nothing pulls frames.
+    } else if (lychee_player_has_new_frame(player, display_time)) {
       lychee_frame* frame = lychee_player_acquire_frame(player, display_time);
       if (frame) {
         int64_t pts = lychee_frame_get_pts(frame);
