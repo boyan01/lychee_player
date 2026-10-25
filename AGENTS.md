@@ -8,6 +8,24 @@ Before starting a feature or a new platform, read `docs/roadmap.md`: it lists
 what is unfinished, known defects, and the done criteria for each item. Update
 it in the same change when you finish, start, or discover an item.
 
+## Autonomy
+
+Decide and keep going; do not wait for the user's OK on API design,
+implementation choices, test thresholds, docs, minimum OS versions, C ABI
+changes (bump `LYCHEE_API_VERSION` with a history line) or new
+dependencies that fit the design rules below. Put the reason in the commit
+message and, where it matters later, in `docs/roadmap.md`. Commit each
+finished item locally.
+
+Stop and ask only for:
+
+- Pushing, publishing or hosting anything: `git push`, pub.dev,
+  crates.io, release assets, where prebuilt artifacts live.
+- Anything that needs the user's hands: a real device, a machine this Mac
+  cannot reach (e.g. one with VAAPI), confirming on a phone, accounts,
+  certificates. Mark the roadmap item as waiting on the user and move on
+  to the next one.
+
 ## Design rules
 
 These are decisions, not accidents. Keep them unless the user changes them.
