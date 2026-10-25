@@ -41,23 +41,43 @@ VideoRenderer::~VideoRenderer() {
 
 bool VideoRenderer::Initialize(const VideoConfig& config,
                                bool allow_hardware,
+                               const std::shared_ptr<void>& output,
                                PacketQueue* queue,
                                std::string* error) {
   queue_ = queue;
-  for (auto& decoder : CreateVideoDecoders(allow_hardware, accepted_storage_)) {
+  config_ = config;
+  candidates_ = CreateVideoDecoders(allow_hardware, accepted_storage_, output);
+  return InitializeNextDecoder(error);
+}
+
+bool VideoRenderer::InitializeNextDecoder(std::string* error) {
+  while (!candidates_.empty()) {
+    std::unique_ptr<VideoDecoder> decoder = std::move(candidates_.front());
+    candidates_.erase(candidates_.begin());
     std::string decoder_error;
-    if (decoder->Initialize(config, &decoder_error)) {
-      decoder_ = std::move(decoder);
+    if (decoder->Initialize(config_, &decoder_error)) {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        decoder_.swap(decoder);
+      }
+      decoder_has_output_ = false;
       return true;
     }
     LOGI("%s decoder rejected %s: %s", decoder->name(),
-         config.codec_name.c_str(), decoder_error.c_str());
+         config_.codec_name.c_str(), decoder_error.c_str());
     *error = decoder_error;
   }
   if (error->empty()) {
     *error = "no video decoder in this build";
   }
   return false;
+}
+
+void VideoRenderer::SetVideoOutput(std::shared_ptr<void> output) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (decoder_) {
+    decoder_->SetVideoOutput(std::move(output));
+  }
 }
 
 void VideoRenderer::Start() {
@@ -68,6 +88,11 @@ void VideoRenderer::Stop() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     stopped_ = true;
+    // Queued frames can hold the decoder's output buffers (MediaCodec), and
+    // a decoder out of them waits in Decode() for input space; give them
+    // back so it returns and the thread can exit.
+    algorithm_.Reset();
+    selected_.reset();
   }
   condition_.notify_all();
   if (thread_.joinable()) {
@@ -83,18 +108,13 @@ void VideoRenderer::DecodeLoop() {
     if (entry.generation != decoder_generation) {
       decoder_->Flush();
       decoder_generation = entry.generation;
+      unconfirmed_packets_.clear();
     }
     uint64_t generation = entry.generation;
     // Excludes the time OnFrame() waits for queue space.
     int64_t waited = 0;
     const int64_t decode_start = MonotonicMicros();
-    bool ok = decoder_->Decode(
-        *entry.packet,
-        [this, generation, &waited](std::shared_ptr<VideoFrame> frame) {
-          const int64_t start = MonotonicMicros();
-          OnFrame(std::move(frame), generation);
-          waited += MonotonicMicros() - start;
-        });
+    bool ok = Decode(entry.packet, generation, &waited);
     const int64_t decode_time = MonotonicMicros() - decode_start - waited;
     std::lock_guard<std::mutex> lock(mutex_);
     if (!entry.packet->end_of_stream) {
@@ -113,6 +133,39 @@ void VideoRenderer::DecodeLoop() {
       break;
     }
   }
+}
+
+bool VideoRenderer::Decode(const std::shared_ptr<EncodedPacket>& packet,
+                           uint64_t generation,
+                           int64_t* waited) {
+  auto output = [this, generation, waited](std::shared_ptr<VideoFrame> frame) {
+    decoder_has_output_ = true;
+    const int64_t start = MonotonicMicros();
+    OnFrame(std::move(frame), generation);
+    *waited += MonotonicMicros() - start;
+  };
+  if (!decoder_has_output_) {
+    unconfirmed_packets_.push_back(packet);
+  }
+  bool ok = decoder_->Decode(*packet, output);
+  // Frames already shown cannot be decoded again, so only a decoder without
+  // output can be replaced. The packets since the last flush start at a
+  // keyframe.
+  while (!ok && !decoder_has_output_) {
+    LOGW("%s decoder failed before its first frame", decoder_->name());
+    std::string error;
+    if (!InitializeNextDecoder(&error)) {
+      return false;
+    }
+    ok = true;
+    for (size_t i = 0; ok && i < unconfirmed_packets_.size(); ++i) {
+      ok = decoder_->Decode(*unconfirmed_packets_[i], output);
+    }
+  }
+  if (decoder_has_output_) {
+    unconfirmed_packets_.clear();
+  }
+  return ok;
 }
 
 void VideoRenderer::OnFrame(std::shared_ptr<VideoFrame> frame,
@@ -281,6 +334,10 @@ std::shared_ptr<VideoFrame> VideoRenderer::Acquire(int64_t display_time) {
     std::shared_ptr<VideoFrame> frame = SelectFrameLocked(display_time);
     if (frame && frame != current_) {
       frames_rendered_++;
+      if (frame->present) {
+        frame->present(display_time);
+        frame->present = nullptr;
+      }
       current_ = std::move(frame);
       current_stale_ = false;
       shown_width_ = current_->width;
@@ -293,10 +350,12 @@ std::shared_ptr<VideoFrame> VideoRenderer::Acquire(int64_t display_time) {
 }
 
 const char* VideoRenderer::decoder_name() const {
+  std::lock_guard<std::mutex> lock(mutex_);
   return decoder_ ? decoder_->name() : "none";
 }
 
 bool VideoRenderer::is_hardware() const {
+  std::lock_guard<std::mutex> lock(mutex_);
   return decoder_ && decoder_->is_hardware();
 }
 

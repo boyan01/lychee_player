@@ -3,6 +3,8 @@
 
 #include <aaudio/AAudio.h>
 
+#include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <thread>
 
@@ -38,6 +40,10 @@ class AAudioSink : public AudioSink {
 
   RenderCallback callback_;
   AudioOutputFormat format_;
+
+  // When the stream was last started. A resumed stream reports the
+  // timestamp it had before the pause until it presents again.
+  std::atomic<int64_t> start_time_{0};
 
   std::mutex mutex_;
   AAudioStream* stream_ = nullptr;

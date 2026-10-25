@@ -2,6 +2,7 @@
 #define LYCHEE_MEDIA_VIDEO_FRAME_H_
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 
 #include "base/time.h"
@@ -15,6 +16,12 @@ enum class VideoFrameStorage : uint32_t {
   // the caller asks for LYCHEE_FRAME_CVPIXELBUFFER.
   kCVPixelBuffer = 1 << 1,
   kCpuRgba = 1 << 2,
+  // Already in the decoder's output Surface; |present| releases it there.
+  kAndroidSurface = 1 << 3,
+  // ID3D11Texture2D, shared BGRA.
+  kD3D11Texture = 1 << 4,
+  // lychee_dmabuf.
+  kDmabuf = 1 << 5,
 };
 
 struct VideoFrame {
@@ -28,8 +35,13 @@ struct VideoFrame {
   const uint8_t* data = nullptr;
   int stride = 0;
 
-  // kCVPixelBuffer.
+  // kCVPixelBuffer, kD3D11Texture, kDmabuf.
   void* native_handle = nullptr;
+
+  // Called once, under the renderer's lock, when the frame is first handed
+  // out for |display_time| (lychee_now_us() timebase). For decoders that
+  // present by releasing output buffers (kAndroidSurface).
+  std::function<void(int64_t display_time)> present;
 
   // Keeps |data| / |native_handle| alive.
   std::shared_ptr<void> owner;

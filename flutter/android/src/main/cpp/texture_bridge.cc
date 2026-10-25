@@ -1,7 +1,14 @@
-// Draws a player's frames into the Surface of a Flutter SurfaceProducer.
+// Shows a player's frames in a Flutter SurfaceProducer.
+//
+// Hardware-decoded frames (LYCHEE_FRAME_ANDROID_SURFACE) are rendered by
+// MediaCodec straight into the window given to the player with
+// lychee_player_set_video_output(); acquiring a frame releases it there.
+// Software-decoded frames (LYCHEE_FRAME_CPU_RGBA) are copied into another
+// window: a window a CPU has drawn into stays connected to the CPU, and
+// MediaCodec can no longer render into it.
 //
 // LycheeTexture.kt drives it: Render() once per vsync from its Choreographer
-// thread, SetSurface() and Detach() from the platform thread. The mutex
+// thread, the setters and Detach() from the platform thread. The mutex
 // keeps those apart, so after Detach() returns the player is no longer used.
 
 #include <android/native_window_jni.h>
@@ -18,10 +25,12 @@ namespace {
 struct Texture {
   std::mutex mutex;
   lychee_player* player = nullptr;
-  ANativeWindow* window = nullptr;
+  // Where CPU frames are drawn.
+  ANativeWindow* cpu_window = nullptr;
   // Draw the current frame again even if the player has no new one: a new
   // window starts out empty.
   bool redraw = false;
+  int32_t frame_type = 0;
   int32_t frame_width = 0;
   int32_t frame_height = 0;
 };
@@ -30,10 +39,10 @@ Texture* FromHandle(jlong handle) {
   return reinterpret_cast<Texture*>(handle);
 }
 
-void ReleaseWindowLocked(Texture* texture) {
-  if (texture->window) {
-    ANativeWindow_release(texture->window);
-    texture->window = nullptr;
+void ReleaseCpuWindowLocked(Texture* texture) {
+  if (texture->cpu_window) {
+    ANativeWindow_release(texture->cpu_window);
+    texture->cpu_window = nullptr;
   }
 }
 
@@ -42,10 +51,8 @@ void ReleaseWindowLocked(Texture* texture) {
 bool DrawLocked(Texture* texture, lychee_frame* frame) {
   const int32_t width = lychee_frame_get_width(frame);
   const int32_t height = lychee_frame_get_height(frame);
-  texture->frame_width = width;
-  texture->frame_height = height;
-  ANativeWindow* window = texture->window;
-  if (ANativeWindow_getWidth(window) != width ||
+  ANativeWindow* window = texture->cpu_window;
+  if (!window || ANativeWindow_getWidth(window) != width ||
       ANativeWindow_getHeight(window) != height) {
     return false;
   }
@@ -82,22 +89,44 @@ Java_dev_lychee_lychee_1player_LycheeTexture_nativeCreate(JNIEnv*,
   return reinterpret_cast<jlong>(texture);
 }
 
+// The window MediaCodec renders into; null detaches it.
 JNIEXPORT void JNICALL
-Java_dev_lychee_lychee_1player_LycheeTexture_nativeSetSurface(JNIEnv* env,
-                                                               jclass,
-                                                               jlong handle,
-                                                               jobject surface) {
+Java_dev_lychee_lychee_1player_LycheeTexture_nativeSetOutput(JNIEnv* env,
+                                                              jclass,
+                                                              jlong handle,
+                                                              jobject surface) {
   Texture* texture = FromHandle(handle);
   std::lock_guard<std::mutex> lock(texture->mutex);
-  ReleaseWindowLocked(texture);
+  if (!texture->player) {
+    return;
+  }
+  ANativeWindow* window =
+      surface ? ANativeWindow_fromSurface(env, surface) : nullptr;
+  // The player takes its own reference.
+  lychee_player_set_video_output(texture->player, window);
+  if (window) {
+    ANativeWindow_release(window);
+  }
+}
+
+// The window CPU frames are copied into; null detaches it.
+JNIEXPORT void JNICALL
+Java_dev_lychee_lychee_1player_LycheeTexture_nativeSetCpuSurface(
+    JNIEnv* env,
+    jclass,
+    jlong handle,
+    jobject surface) {
+  Texture* texture = FromHandle(handle);
+  std::lock_guard<std::mutex> lock(texture->mutex);
+  ReleaseCpuWindowLocked(texture);
   if (surface && texture->player) {
-    texture->window = ANativeWindow_fromSurface(env, surface);
+    texture->cpu_window = ANativeWindow_fromSurface(env, surface);
   }
   texture->redraw = true;
 }
 
-// Returns the size of the latest frame as (width << 32 | height), 0 before
-// the first one.
+// Returns the latest frame's type and size as
+// (type << 48 | width << 24 | height), 0 before the first frame.
 JNIEXPORT jlong JNICALL
 Java_dev_lychee_lychee_1player_LycheeTexture_nativeRender(JNIEnv*,
                                                            jclass,
@@ -112,16 +141,22 @@ Java_dev_lychee_lychee_1player_LycheeTexture_nativeRender(JNIEnv*,
   // refresh interval from these calls.
   const bool changed =
       lychee_player_has_new_frame(texture->player, display_time_us) != 0;
-  if ((changed || texture->redraw) && texture->window) {
+  if (changed || texture->redraw) {
+    // Acquiring a surface frame is what shows it.
     lychee_frame* frame =
         lychee_player_acquire_frame(texture->player, display_time_us);
     if (frame) {
-      texture->redraw = !DrawLocked(texture, frame);
+      texture->frame_type = lychee_frame_get_type(frame);
+      texture->frame_width = lychee_frame_get_width(frame);
+      texture->frame_height = lychee_frame_get_height(frame);
+      texture->redraw = texture->frame_type == LYCHEE_FRAME_CPU_RGBA &&
+                        !DrawLocked(texture, frame);
       lychee_frame_release(frame);
     }
   }
-  return (static_cast<jlong>(texture->frame_width) << 32) |
-         static_cast<uint32_t>(texture->frame_height);
+  return (static_cast<jlong>(texture->frame_type) << 48) |
+         (static_cast<jlong>(texture->frame_width & 0xffffff) << 24) |
+         (texture->frame_height & 0xffffff);
 }
 
 // After this returns, the player is not touched again.
@@ -131,8 +166,11 @@ Java_dev_lychee_lychee_1player_LycheeTexture_nativeDetach(JNIEnv*,
                                                            jlong handle) {
   Texture* texture = FromHandle(handle);
   std::lock_guard<std::mutex> lock(texture->mutex);
+  if (texture->player) {
+    lychee_player_set_video_output(texture->player, nullptr);
+  }
   texture->player = nullptr;
-  ReleaseWindowLocked(texture);
+  ReleaseCpuWindowLocked(texture);
 }
 
 JNIEXPORT void JNICALL

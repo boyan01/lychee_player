@@ -97,6 +97,8 @@ class Player {
   // |position| is relative to the start of the media.
   void Seek(int64_t position);
   void SetVolume(float volume);
+  // lychee_player_set_video_output().
+  void SetVideoOutput(void* output);
   // Clamped to [kMinRate, kMaxRate]. Pitch is preserved.
   void SetRate(double rate);
   // At the end, play again from the start instead of ending.
@@ -250,6 +252,8 @@ class Player {
   // once the data read so far has played, unless a seek comes first.
   std::string input_error_;
   float volume_ = 1.0f;
+  // RetainVideoOutput() of the last SetVideoOutput().
+  std::shared_ptr<void> video_output_;
   double rate_ = 1.0;
   bool looping_ = false;
   std::string error_;

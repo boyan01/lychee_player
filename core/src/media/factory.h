@@ -20,9 +20,16 @@ std::unique_ptr<Demuxer> CreateDemuxer();
 
 // Candidates in priority order: hardware first if allowed. Decoders that
 // produce CPU frames produce one of the |accepted_storage| types if they can.
+// |output| is what RetainVideoOutput() returned, or null.
 std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
     bool allow_hardware,
-    uint32_t accepted_storage);
+    uint32_t accepted_storage,
+    const std::shared_ptr<void>& output);
+
+// Takes a reference to the platform object passed to
+// lychee_player_set_video_output(), dropped with the last copy. Null for
+// null, and on platforms that take none.
+std::shared_ptr<void> RetainVideoOutput(void* output);
 
 std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders();
 

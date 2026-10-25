@@ -6,6 +6,7 @@ set(LYCHEE_SOURCES
   src/api/c_api.cc
   src/base/log.cc
   src/base/time.cc
+  src/media/annexb.cc
   src/media/codec.cc
   src/media/cpu_frame_converter.cc
   src/media/factory.cc
@@ -35,6 +36,7 @@ endif()
 if(ANDROID)
   list(APPEND LYCHEE_SOURCES
     src/backends/android/aaudio_sink.cc
+    src/backends/android/media_codec_video_decoder.cc
   )
 endif()
 
@@ -116,7 +118,7 @@ if(APPLE)
 endif()
 
 if(ANDROID)
-  target_link_libraries(lychee PRIVATE aaudio log)
+  target_link_libraries(lychee PRIVATE aaudio mediandk nativewindow log)
 endif()
 
 if(WIN32)

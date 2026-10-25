@@ -15,7 +15,10 @@
 #include "backends/apple/apple_frame_converter.h"
 #include "backends/apple/core_audio_sink.h"
 #elif defined(__ANDROID__)
+#include <android/native_window.h>
+
 #include "backends/android/aaudio_sink.h"
+#include "backends/android/media_codec_video_decoder.h"
 #elif defined(_WIN32)
 #include "backends/windows/wasapi_sink.h"
 #elif defined(__linux__)
@@ -34,8 +37,17 @@ std::unique_ptr<Demuxer> CreateDemuxer() {
 
 std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
     bool allow_hardware,
-    uint32_t accepted_storage) {
+    uint32_t accepted_storage,
+    const std::shared_ptr<void>& output) {
   std::vector<std::unique_ptr<VideoDecoder>> decoders;
+  [[maybe_unused]] auto accepts = [accepted_storage](VideoFrameStorage storage) {
+    return (accepted_storage & static_cast<uint32_t>(storage)) != 0;
+  };
+#if defined(__ANDROID__)
+  if (allow_hardware && accepts(VideoFrameStorage::kAndroidSurface)) {
+    decoders.push_back(std::make_unique<MediaCodecVideoDecoder>(output));
+  }
+#endif
 #if defined(LYCHEE_WITH_FFMPEG)
   if (allow_hardware) {
     decoders.push_back(
@@ -45,6 +57,21 @@ std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
       std::make_unique<FFmpegVideoDecoder>(false, accepted_storage));
 #endif
   return decoders;
+}
+
+std::shared_ptr<void> RetainVideoOutput(void* output) {
+  if (!output) {
+    return nullptr;
+  }
+#if defined(__ANDROID__)
+  auto* window = static_cast<ANativeWindow*>(output);
+  ANativeWindow_acquire(window);
+  return std::shared_ptr<void>(window, [](void* retained) {
+    ANativeWindow_release(static_cast<ANativeWindow*>(retained));
+  });
+#else
+  return nullptr;
+#endif
 }
 
 std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders() {

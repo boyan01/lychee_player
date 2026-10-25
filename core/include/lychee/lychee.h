@@ -33,7 +33,9 @@ extern "C" {
 #endif
 
 // 2: rate, looping, reopening, tracks, subtitles, metadata, more stats.
-#define LYCHEE_API_VERSION 2
+// 3: hardware frame types (Android Surface, D3D11, dmabuf) and
+//    lychee_player_set_video_output().
+#define LYCHEE_API_VERSION 3
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -48,7 +50,47 @@ typedef enum lychee_frame_type {
   // CPU memory, 32-bit RGBA: what Flutter's pixel buffer textures take on
   // Linux, Windows and Android.
   LYCHEE_FRAME_CPU_RGBA = 1 << 2,
+  // Android: the decoder renders straight into the ANativeWindow passed to
+  // lychee_player_set_video_output(). Acquiring the frame is what puts it in
+  // the window, timestamped with the display time; the frame itself has no
+  // data and no native handle. Frames never acquired are dropped unseen.
+  LYCHEE_FRAME_ANDROID_SURFACE = 1 << 3,
+  // Windows: the native handle is an ID3D11Texture2D* in
+  // DXGI_FORMAT_B8G8R8A8_UNORM, created with D3D11_RESOURCE_MISC_SHARED on
+  // the adapter passed to lychee_player_set_video_output(), so other devices
+  // can open it through IDXGIResource::GetSharedHandle(). Read-only; the
+  // decoder reuses it once the frame is released.
+  LYCHEE_FRAME_D3D11_TEXTURE = 1 << 4,
+  // Linux: the native handle is a const lychee_dmabuf* describing YUV
+  // planes in DRM PRIME buffers (e.g. VAAPI surfaces), for import with
+  // EGL_EXT_image_dma_buf_import. The descriptor and its file descriptors
+  // stay valid until the frame is released; dup() the fds to keep them.
+  LYCHEE_FRAME_DMABUF = 1 << 5,
 } lychee_frame_type;
+
+// The planes of a LYCHEE_FRAME_DMABUF frame, laid out as
+// EGL_EXT_image_dma_buf_import takes them.
+typedef struct lychee_dmabuf {
+  // sizeof(lychee_dmabuf) of the library that filled it in.
+  uint32_t struct_size;
+  // DRM fourcc of the whole image: DRM_FORMAT_NV12 ('NV12') for 8-bit,
+  // DRM_FORMAT_P010 ('P010') for 10-bit video.
+  uint32_t fourcc;
+  // Visible size; the buffers may be larger (alignment).
+  int32_t width;
+  int32_t height;
+  int32_t plane_count;
+  int32_t fd[4];
+  uint32_t offset[4];
+  uint32_t pitch[4];
+  // DRM format modifier of every plane; DRM_FORMAT_MOD_INVALID (all ones)
+  // when the exporter did not say.
+  uint64_t modifier;
+  // ITU-T H.273 matrix coefficients (1 BT.709, 5/6 BT.601, 9 BT.2020) and
+  // range, for the YUV to RGB conversion.
+  int32_t color_matrix;
+  int32_t full_range;
+} lychee_dmabuf;
 
 typedef enum lychee_state {
   LYCHEE_STATE_IDLE = 0,
@@ -176,6 +218,19 @@ LYCHEE_EXPORT void lychee_config_init(lychee_config* config);
 LYCHEE_EXPORT lychee_player* lychee_player_create(const lychee_config* config);
 LYCHEE_EXPORT void lychee_player_destroy(lychee_player* player);
 
+// The platform object hardware-decoded video goes to; NULL to detach it.
+// The library takes its own reference.
+// - Android: an ANativeWindow* for LYCHEE_FRAME_ANDROID_SURFACE frames.
+//   Can change at any time without restarting the decoder; while none is
+//   set, frames are decoded into a placeholder and not shown.
+// - Windows: the IDXGIAdapter* the caller renders with, so
+//   LYCHEE_FRAME_D3D11_TEXTURE frames can be opened there. Takes effect at
+//   the next lychee_player_open() or track switch; without one, the default
+//   adapter is used.
+// Ignored elsewhere.
+LYCHEE_EXPORT void lychee_player_set_video_output(lychee_player* player,
+                                                  void* output);
+
 LYCHEE_EXPORT void lychee_player_set_event_callback(
     lychee_player* player,
     lychee_event_callback callback,
@@ -294,8 +349,9 @@ LYCHEE_EXPORT int64_t lychee_frame_get_pts(const lychee_frame* frame);
 // LYCHEE_FRAME_CPU_BGRA and LYCHEE_FRAME_CPU_RGBA only.
 LYCHEE_EXPORT const uint8_t* lychee_frame_get_data(const lychee_frame* frame,
                                                    int32_t* stride);
-// Native handle (e.g. CVPixelBufferRef). Not retained: retain it yourself if
-// it must outlive the frame.
+// Native handle: CVPixelBufferRef, ID3D11Texture2D* or const lychee_dmabuf*
+// (see lychee_frame_type). Not retained: retain it yourself if it must
+// outlive the frame.
 LYCHEE_EXPORT void* lychee_frame_get_native_handle(const lychee_frame* frame);
 
 #ifdef __cplusplus

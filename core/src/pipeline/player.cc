@@ -201,6 +201,16 @@ void Player::SetVolume(float volume) {
   }
 }
 
+void Player::SetVideoOutput(void* output) {
+  std::shared_ptr<void> retained = RetainVideoOutput(output);
+  std::lock_guard<std::mutex> lock(mutex_);
+  video_output_ = retained;
+  std::lock_guard<std::mutex> display_lock(display_mutex_);
+  if (video_for_display_) {
+    video_for_display_->SetVideoOutput(std::move(retained));
+  }
+}
+
 void Player::SetRate(double rate) {
   if (!(rate > 0)) {
     return;
@@ -588,9 +598,14 @@ std::unique_ptr<VideoRenderer> Player::CreateVideoRenderer(
     const StreamInfo& info) {
   auto video =
       std::make_unique<VideoRenderer>(&clock_, config_.video_frame_types);
+  std::shared_ptr<void> output;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    output = video_output_;
+  }
   std::string error;
-  if (!video->Initialize(info.video, config_.hardware_decoding, &video_queue_,
-                         &error)) {
+  if (!video->Initialize(info.video, config_.hardware_decoding, output,
+                         &video_queue_, &error)) {
     LOGW("video stream %d disabled: %s", info.index, error.c_str());
     return nullptr;
   }
@@ -777,6 +792,10 @@ void Player::EnableStreamsLocked() {
 void Player::PublishVideoLocked() {
   std::lock_guard<std::mutex> lock(display_mutex_);
   video_for_display_ = video_renderer_.get();
+  // The output may have changed since the renderer was created.
+  if (video_for_display_) {
+    video_for_display_->SetVideoOutput(video_output_);
+  }
 }
 
 bool Player::NeedMoreData() const {
@@ -977,7 +996,7 @@ void Player::ApplyPlayingLocked() {
   }
   clock_running_ = run;
   if (run) {
-    clock_.Play();
+    clock_.Play(audio_renderer_ != nullptr);
   } else {
     clock_.Pause();
   }

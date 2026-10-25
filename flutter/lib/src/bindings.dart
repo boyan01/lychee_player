@@ -19,10 +19,21 @@ final DynamicLibrary _library = () {
 const int kFrameCpuBgra = 1 << 0;
 const int kFrameCVPixelBuffer = 1 << 1;
 const int kFrameCpuRgba = 1 << 2;
+const int kFrameAndroidSurface = 1 << 3;
+const int kFrameD3D11Texture = 1 << 4;
+const int kFrameDmabuf = 1 << 5;
 
-/// The frame type the platform's texture bridge consumes.
-int get platformFrameType =>
-    Platform.isMacOS || Platform.isIOS ? kFrameCVPixelBuffer : kFrameCpuRgba;
+/// The frame types the platform's texture bridge consumes: hardware frames,
+/// and CPU RGBA frames when hardware decoding rejects a stream.
+int get platformFrameType {
+  if (Platform.isMacOS || Platform.isIOS) {
+    return kFrameCVPixelBuffer;
+  }
+  if (Platform.isAndroid) {
+    return kFrameAndroidSurface | kFrameCpuRgba;
+  }
+  return kFrameCpuRgba;
+}
 
 const int kEventStateChanged = 1;
 const int kEventPlayingChanged = 2;

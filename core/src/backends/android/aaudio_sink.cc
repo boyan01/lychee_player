@@ -81,6 +81,7 @@ void AAudioSink::Start() {
   std::lock_guard<std::mutex> lock(mutex_);
   started_ = true;
   if (stream_) {
+    start_time_ = NowMicros();
     AAudioStream_requestStart(stream_);
   }
 }
@@ -106,6 +107,7 @@ void AAudioSink::Reopen() {
     return;
   }
   if (started_) {
+    start_time_ = NowMicros();
     AAudioStream_requestStart(stream_);
   }
 }
@@ -123,13 +125,15 @@ aaudio_data_callback_result_t AAudioSink::OnData(AAudioStream* stream,
   int64_t presented_nanos = 0;
   int64_t playout_time;
   if (AAudioStream_getTimestamp(stream, CLOCK_MONOTONIC, &presented_frame,
-                                &presented_nanos) == AAUDIO_OK) {
+                                &presented_nanos) == AAUDIO_OK &&
+      presented_nanos / 1000 >= self->start_time_) {
     const int64_t queued =
         AAudioStream_getFramesWritten(stream) - presented_frame;
     playout_time =
         presented_nanos / 1000 + queued * kMicrosPerSecond / rate;
   } else {
-    // Not presenting yet: assume one buffer of latency.
+    // Not presenting yet, or not since the last start: assume one buffer
+    // of latency.
     playout_time = NowMicros() + static_cast<int64_t>(
                                      AAudioStream_getBufferSizeInFrames(stream)) *
                                      kMicrosPerSecond / rate;

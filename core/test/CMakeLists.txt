@@ -1,5 +1,6 @@
 add_executable(lychee_unittests
   main.cc
+  annexb_test.cc
   audio_renderer_algorithm_test.cc
   cpu_frame_converter_test.cc
   media_clock_test.cc

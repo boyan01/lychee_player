@@ -7,6 +7,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "media/frame_converter.h"
 #include "media/video_decoder.h"
@@ -27,10 +28,16 @@ class VideoRenderer {
   ~VideoRenderer();
 
   // Tries the decoders in order and keeps the first that accepts |config|.
+  // The ones after it stay as fallbacks for a decoder that fails before its
+  // first frame (a hardware decoder rejecting a profile it opened for).
+  // |output| is the retained lychee_player_set_video_output() object.
   bool Initialize(const VideoConfig& config,
                   bool allow_hardware,
+                  const std::shared_ptr<void>& output,
                   PacketQueue* queue,
                   std::string* error);
+  // Passes a new video output to the decoder.
+  void SetVideoOutput(std::shared_ptr<void> output);
   void Start();
   // The packet queue must be aborted first so the decode thread can exit.
   void Stop();
@@ -65,7 +72,14 @@ class VideoRenderer {
   int64_t average_decode_time() const;
 
  private:
+  // Makes the next candidate that accepts |config_| the decoder.
+  bool InitializeNextDecoder(std::string* error);
   void DecodeLoop();
+  // Decodes |packet|, falling back to the next decoder if this one fails
+  // before its first frame. |waited| accumulates time spent in OnFrame().
+  bool Decode(const std::shared_ptr<EncodedPacket>& packet,
+              uint64_t generation,
+              int64_t* waited);
   void OnFrame(std::shared_ptr<VideoFrame> frame, uint64_t generation);
   std::shared_ptr<VideoFrame> Adapt(const std::shared_ptr<VideoFrame>& frame);
   // The frame to show at |display_time|. Runs the algorithm once per vsync
@@ -75,7 +89,16 @@ class VideoRenderer {
   MediaClock* const clock_;
   const uint32_t accepted_storage_;
   PacketQueue* queue_ = nullptr;
+  VideoConfig config_;
+  // Replaced only on the decode thread (or before it starts), under
+  // |mutex_|; other threads read it under |mutex_|.
   std::unique_ptr<VideoDecoder> decoder_;
+  // Decode thread only: the decoders still to try, whether |decoder_| has
+  // produced a frame, and until it has, the packets it was given since the
+  // last flush, to replay into the next one (as Chromium's DecoderStream).
+  std::vector<std::unique_ptr<VideoDecoder>> candidates_;
+  bool decoder_has_output_ = false;
+  std::vector<std::shared_ptr<EncodedPacket>> unconfirmed_packets_;
   std::unique_ptr<FrameConverter> converter_;
   std::thread thread_;
   bool logged_unsupported_frame_ = false;

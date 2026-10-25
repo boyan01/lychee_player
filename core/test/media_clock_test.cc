@@ -1,5 +1,7 @@
 #include "pipeline/media_clock.h"
 
+#include <vector>
+
 #include "test.h"
 
 namespace lychee {
@@ -107,6 +109,44 @@ TEST(MediaClock, SetRateContinuesFromCurrentTime) {
   // Ignored.
   clock.SetRate(0);
   EXPECT_EQ(clock.rate(), 0.5);
+}
+
+TEST(MediaClock, WaitsForAudioBeforeMoving) {
+  MediaClock clock;
+  clock.Reset(7 * kSecond);
+  clock.Play(true);
+  EXPECT_TRUE(clock.playing());
+  const int64_t now = NowMicros();
+  EXPECT_EQ(clock.MediaTimeAt(now + 500 * kMs), 7 * kSecond);
+  std::vector<int64_t> system_times;
+  EXPECT_TRUE(!clock.SystemTimesFor({7 * kSecond}, &system_times));
+
+  // The first buffer is heard 150 ms from now. Time stays at the start
+  // until then instead of running back.
+  const int64_t heard_at = NowMicros() + 150 * kMs;
+  clock.UpdateFromAudio(7 * kSecond, heard_at, kInfiniteTime);
+  EXPECT_TRUE(clock.SystemTimesFor({7 * kSecond}, &system_times));
+  EXPECT_EQ(system_times[0], heard_at);
+  EXPECT_EQ(clock.MediaTimeAt(heard_at - 100 * kMs), 7 * kSecond);
+  EXPECT_EQ(clock.MediaTimeAt(heard_at + 100 * kMs), 7100 * kMs);
+}
+
+TEST(MediaClock, StopsWaitingForAudioAfterTimeout) {
+  MediaClock clock;
+  clock.Reset(0);
+  clock.Play(true);
+  const int64_t start = NowMicros() + MediaClock::kAudioStartTimeout;
+  EXPECT_NEAR(clock.MediaTimeAt(start + 200 * kMs), 200 * kMs, 5 * kMs);
+}
+
+TEST(MediaClock, EndedAudioStopsTheWait) {
+  MediaClock clock;
+  clock.Reset(3 * kSecond);
+  clock.Play(true);
+  clock.ClearMaxTime();
+  std::vector<int64_t> system_times;
+  EXPECT_TRUE(clock.SystemTimesFor({3 * kSecond}, &system_times));
+  EXPECT_NEAR(clock.MediaTimeAt(NowMicros() + kSecond), 4 * kSecond, 5 * kMs);
 }
 
 }  // namespace

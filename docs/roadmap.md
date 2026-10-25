@@ -3,8 +3,8 @@
 State as of 2026-10-25: the core plays files and network streams through
 FFmpeg, with accurate seek, pull-based frame selection, playback rate
 (WSOLA), looping and reopening, track selection, text subtitles and
-metadata. The Flutter plugin runs on macOS and iOS (VideoToolbox), Android,
-Windows and Linux (software decoding). Everything below is unfinished.
+metadata. The Flutter plugin runs on macOS and iOS (VideoToolbox), Android
+(MediaCodec), Windows and Linux (software decoding). Everything below is unfinished.
 
 Each item says where the work goes and when it is done. Remove an item when it
 is done; add one when you find a gap. Order within a section is priority.
@@ -27,6 +27,15 @@ on top of them.
    pull rate falls below the frame rate, and those do not count as
    dropped. Check the count on a device; if it is short there too, find
    out why the display link pulls slower than 60 Hz.
+2. **Android hardware decoding beyond the happy path**: MediaCodec plays
+   `h264_aac.mp4` and `hevc10.mp4` on a Xiaomi 14 (`c2.qti.*`, 0 dropped,
+   seeks and 1.5x) and H.264 on the Pixel 10 emulator (`c2.goldfish.*`),
+   where HEVC Main10 fails at the first frame and falls back to FFmpeg
+   (2026-10-25). Going to the background and back resumes on the new
+   Surface (emulator). Not yet seen: AAudio route changes, a stream
+   changing resolution midway, and a device
+   with only one hardware decoder instance (the emulator's H.264 decoder
+   once failed to start right after a file switch, and FFmpeg took over).
 
 ## Known defects
 
@@ -49,6 +58,14 @@ on top of them.
    glitches in every WSL run (the case allows 3), 0 on macOS. Probably the
    PulseAudio stream's latency estimate settling after the flush. Done when
    it shows 0-1 there.
+5. **Drops after returning from the background**: while the app is in the
+   background nobody pulls frames, the clock keeps running and the decoder
+   stalls on a full queue; back in front, the frames it decodes to catch up
+   are late and count as dropped (19 after 2 s in the background, Android
+   emulator with MediaCodec; software decoding pulls the same way). Chromium's VideoFrameCompositor keeps
+   calling Render() on a timer while hidden and does not count those drops
+   (`media/renderers/video_renderer_impl.cc`). Done when a background round
+   trip adds no dropped frames and playback resumes at the clock's position.
 
 ## Features
 
@@ -66,35 +83,25 @@ on top of them.
 ## Platforms
 
 Every platform plays through FFmpeg software decoding and CPU RGBA frames
-except Apple's (VideoToolbox, `CVPixelBuffer`). What is left per platform is
+except Apple's (VideoToolbox, `CVPixelBuffer`) and Android's (MediaCodec
+rendering straight into the `SurfaceProducer`'s Surface). What is left per platform is
 hardware decoding with zero-copy frames, a renderer in `examples/glfw`
 (Metal only today), and its own `tool/regression.sh` run.
 
-1. **Android hardware decoding**: today FFmpeg decodes in software, the
-   plugin copies RGBA rows into the `SurfaceProducer`'s window on a
-   Choreographer thread. On the Pixel 10 emulator (4 vCPUs) 1080p30 runs at
-   30 fps with a few drops per second: the raster thread, the copy and the
-   decoder together fill the CPU. Decode with MediaCodec straight into the
-   `SurfaceProducer`'s Surface (FFmpeg's `*_mediacodec` decoders with
-   `av_jni_set_java_vm`, or NDK `AMediaCodec`), which needs a frame type
-   for "already on the Surface" and moves frame selection to release time.
-   On a Xiaomi 14 (Snapdragon 8 Gen 3, Android 16) 1080p30 plays in
-   software with 0 dropped frames in a debug app. AAudio route changes are
-   untested.
-2. **Windows hardware decoding**: D3D11VA, frames as D3D11 textures shared
+1. **Windows hardware decoding**: D3D11VA, frames as D3D11 textures shared
    with Flutter's GPU surface texture instead of the `PixelBufferTexture`
    upload. The FFmpeg DLLs (BtbN's LGPLv3 build, ~120 MB) should become a
    slim build of our own. Unverified there: device switching, multiple
    monitors, audible output, `tool/regression.sh` (needs bash), and the
    integration test.
-3. **Linux hardware decoding**: VAAPI decoding, dmabuf → EGLImage into
+2. **Linux hardware decoding**: VAAPI decoding, dmabuf → EGLImage into
    `FlTextureGL` instead of the `FlPixelBufferTexture` copy. This is where
    media-kit had the most texture bugs; budget for it. The bundled FFmpeg
    (BtbN, LGPLv3, ~130 MB) should become a decode-only
    `tool/build_ffmpeg.sh linux-x86_64` build (smaller, LGPL 2.1). Unverified
    there: the Impeller renderer (the VM runs with it off) and a build from
    22.04 running on 26.04.
-4. **Swift Package Manager**: add `flutter/darwin/lychee_player/Package.swift`;
+3. **Swift Package Manager**: add `flutter/darwin/lychee_player/Package.swift`;
    Flutter already warns that CocoaPods-only plugins will become an error.
 
 ## FFmpeg-free builds

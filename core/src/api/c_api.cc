@@ -92,6 +92,10 @@ void lychee_player_destroy(lychee_player* player) {
   delete player;
 }
 
+void lychee_player_set_video_output(lychee_player* player, void* output) {
+  player->player->SetVideoOutput(output);
+}
+
 void lychee_player_set_event_callback(lychee_player* player,
                                       lychee_event_callback callback,
                                       void* user_data) {
