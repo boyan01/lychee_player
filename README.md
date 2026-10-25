@@ -27,6 +27,7 @@ flutter/              Flutter plugin (lib/; darwin/ for iOS and macOS, android/,
                       windows/, linux/) and its example app
 sdk/apple/            Swift package for macOS and iOS apps, and its example app
 sdk/android/          Android library (AAR) for Android apps, and its example app
+rust/                 lychee-sys (raw bindings, builds the core) and lychee (safe API)
 ```
 
 Video frames leave the library as native handles (`CVPixelBufferRef` on Apple
@@ -167,6 +168,39 @@ software:
 
 ```sh
 adb shell am start -n tech.soit.lychee.example/.MainActivity --es url http://127.0.0.1:8765/rotated.mp4
+```
+
+## Rust
+
+`rust/` is a Cargo workspace: `lychee-sys` holds the raw bindings
+(generated from `lychee.h` by `tool/rust_bindings.sh` and checked in, so
+no libclang is needed) and links `liblychee` as a shared library, and
+`lychee` is the safe API over it. `lychee-sys` builds the core with CMake
+(the tools from "Building the core"); FFmpeg comes from pkg-config, or
+from an LGPL build with `LYCHEE_FFMPEG_ROOT=third_party/ffmpeg/PLATFORM`.
+`LYCHEE_LIB_DIR` links a prebuilt `liblychee` instead. Dependents find the
+library's directory in `DEP_LYCHEE_LIB_DIR`, to ship it next to their
+binary.
+
+```rust
+let player = lychee::Player::new(&lychee::Config::default())?;  // CPU BGRA frames
+player.on_event(move |event| { let _ = sender.send(event); });  // control thread
+player.open("/path/to/video.mp4")?;
+player.play();
+// once per vsync:
+let display_time = lychee::now_us() + vsync_interval_us;
+if player.has_new_frame(display_time) {
+    if let Some(frame) = player.acquire_frame(display_time) {
+        let (pixels, stride) = frame.data().unwrap();  // released on drop
+    }
+}
+```
+
+`Player` is `Send + Sync`; a `Frame` is `Send` and may outlive the player.
+The example plays a file headless and can save a frame as PPM:
+
+```sh
+cd rust && cargo run --example play -- /tmp/lychee-media/h264_aac.mp4 /tmp/frame.ppm
 ```
 
 ## Flutter plugin

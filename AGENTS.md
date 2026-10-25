@@ -133,6 +133,11 @@ glitch checks fail for reasons unrelated to your change. Done means:
   `rotated.mp4`, each with hardware decoding and without (the `url` and
   `hw` intent extras). The Flutter plugin uses the same
   `LycheeFrameDriver`, so also run the Flutter example on Android.
+- For changes to the Rust crates (`rust/`) or to `lychee.h`: `cargo test`,
+  `cargo clippy --all-targets` and `cargo doc --no-deps` in `rust/` with
+  zero warnings (the test plays `h264_aac.mp4` and checks the player's
+  lifetime), and `cargo run --example play -- FILE frame.ppm`; look at the
+  frame.
 - For changes to what ends up on screen (frame selection, conversion,
   rotation): run `build/examples/glfw/lychee_glfw` on a test file and look at
   a window screenshot. It has no Flutter in between, so it also tells core
@@ -151,6 +156,9 @@ glitch checks fail for reasons unrelated to your change. Done means:
   before building either example on macOS or iOS, or the example runs
   the old core. They may use only `lychee/lychee.h`; the framework carries
   no other header (and a module map, so Swift can `import lychee`).
+- The Rust bindings (`rust/lychee-sys/src/bindings.rs`) are generated and
+  checked in. After changing `lychee.h`, rerun `tool/rust_bindings.sh`
+  (`cargo install bindgen-cli`) and wrap the change in the `lychee` crate.
 - Xcode 27 builds apps for macOS 12 and later only, so the Swift example
   targets macOS 12 while the package and the frameworks say 11.
 - `CALayer.contents` set to a `CVPixelBuffer` shows nothing in the iOS

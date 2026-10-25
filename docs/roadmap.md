@@ -207,6 +207,16 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
       `Package.swift` at the repository root and the xcframeworks as
       `binaryTarget(url:checksum:)` release assets, so this waits for
       item 2's hosting decision; do it together with Platforms 3.
-   3. `rust/`: `lychee-sys` (bindgen over `lychee.h`, CMake build) and a
-      safe `lychee` crate; callbacks are `Send`, frames release on drop.
+   3. `rust/` exists (2026-10-25): `lychee-sys` (checked-in bindgen
+      output, CMake build of the core as a shared library) and the safe
+      `lychee` crate (`Player` is `Send + Sync`, `Frame` releases on drop);
+      its test and example play `h264_aac.mp4` on macOS, with Homebrew's
+      FFmpeg and with the LGPL one. Left: not published to crates.io;
+      never built for Windows, Linux, Android or iOS (`LYCHEE_LIB_DIR` is
+      meant for the AAR's and the xcframework's library, untried). The
+      macOS FFmpeg from `tool/build_ffmpeg.sh` records its build directory
+      as each library's install name (`otool -D`), so a binary linked
+      against `third_party/ffmpeg/macos-*` runs only where that directory
+      exists; the xcframeworks are not affected. Make the install names
+      `@rpath/...` before shipping a Rust binary.
    Windows and Linux native users take the C ABI as it is.

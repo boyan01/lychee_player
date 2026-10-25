@@ -1,0 +1,10 @@
+[package]
+name = "lychee"
+description = "A media player library: FFmpeg demuxing, hardware decoding, frames as native handles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+lychee-sys = { path = "../lychee-sys" }
