@@ -79,15 +79,27 @@ None known. Add them here with a done criterion.
    After a stall, audio moves up to 500 ms behind video and returns over
    a few seconds, as in flutter-airplay; video latency recovers within
    ~10 s (`live-stall`).
-2. **HDR / 10-bit**: 8-bit frames from HDR video are tone-mapped to SDR
-   BT.709 (VideoToolbox's pixel transfer on Apple, swscale's perceptual
-   intent for software decoding; `hdr-tonemap*`), so HDR looks right but
-   loses its highlights. HLG comes out darker through VideoToolbox (98 for
-   a 0.5 signal) than through swscale (142, what BT.2408 gives); that is
-   Apple's mapping. Missing: a 10-bit or YUV handle type plus color
-   metadata across the C API, and EDR on macOS. Windows' D3D11 video
-   processor converts HDR to BGRA without tone mapping (check with
-   `flutter-remote-test`).
+2. **HDR beyond Apple's SDK**: on Apple, `LYCHEE_FRAME_CVPIXELBUFFER_NATIVE`
+   hands out VideoToolbox's buffers as they are (10-bit `x420` with PQ or
+   HLG attachments; `native-hdr`), and the Swift `LycheePlayerView` shows
+   them in EDR; a PQ gray of ~1000 nits comes out at full white in a
+   screenshot where SDR would give 191 (no one has looked at the panel).
+   8-bit frames from HDR are tone-mapped to SDR BT.709 (VideoToolbox's
+   pixel transfer, swscale's perceptual intent for software decoding;
+   `hdr-tonemap*`). HLG comes out darker through VideoToolbox (98 for a
+   0.5 signal) than through swscale (142, what BT.2408 gives); that is
+   Apple's mapping. Missing:
+   - Flutter: textures are 8-bit SDR on every platform, so the plugin
+     stays on tone-mapped BGRA.
+   - Windows: the D3D11 video processor converts HDR to BGRA without tone
+     mapping or a color space (check with `flutter-remote-test`); HDR
+     output needs an R10G10B10A2 or FP16 texture type and the stream's
+     DXGI color space.
+   - Linux: `lychee_dmabuf` already carries P010 and the matrix, but not
+     the primaries and transfer function a caller needs for HDR; needs a
+     VAAPI machine to check.
+   - Android: MediaCodec renders HDR into the Surface itself; unchecked on
+     an HDR display.
 3. **libass in shipped builds**: styled ASS goes through libass
    (`LYCHEE_WITH_LIBASS`, pictures like bitmap subtitles) only where the
    core's own CMake build finds it with pkg-config: the CLI and GLFW

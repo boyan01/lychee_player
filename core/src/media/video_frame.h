@@ -22,6 +22,8 @@ enum class VideoFrameStorage : uint32_t {
   kD3D11Texture = 1 << 4,
   // lychee_dmabuf.
   kDmabuf = 1 << 5,
+  // CVPixelBufferRef in the decoder's format, handed out as is.
+  kCVPixelBufferNative = 1 << 6,
 };
 
 struct VideoFrame {

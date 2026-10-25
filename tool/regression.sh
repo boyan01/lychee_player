@@ -349,6 +349,13 @@ par expect hdr-tonemap "center pixel: 1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9]),1(7[5-9]
   "$media/hdr_pq.mp4"
 par expect hdr-tonemap-sw "hw=0 " "center pixel: 1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9])$" -- --cpu \
   --no-hw --seconds 1 "$media/hdr_pq.mp4"
+# Apple: the decoder's own buffers, 10-bit and tagged PQ for HDR10; BGRA
+# from software decoding.
+if [ "$(uname)" = Darwin ]; then
+  native_hdr="native frame: x420 transfer=SMPTE_ST_2084_PQ$"
+  [ "${NO_HW:-0}" = 1 ] && native_hdr="native frame: BGRA "
+  par expect native-hdr "$native_hdr" "frame_type=64 " -- --native --seconds 1 "$media/hdr_pq.mp4"
+fi
 # Reading hardware frames back into CPU memory costs ~50 ms a frame on macOS
 # (far more under TSan); a second of video covers the conversion.
 par expect rgba "frame_type=4 " "rendered=2[0-9] dropped=0 " -- --rgba --seconds 1 "$media/hevc10.mp4"

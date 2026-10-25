@@ -57,6 +57,7 @@ cmake --build build
 `lychee_cli` pulls frames at a simulated 60 Hz and reports state, position,
 dropped frames and clock drift. Options: `--seek SEC [--seek-after SEC]`,
 `--no-hw`, `--cpu` (CPU BGRA frames), `--rgba` (CPU RGBA frames),
+`--native` (the decoder's own `CVPixelBuffer`s, 10-bit for HDR),
 `--refresh HZ`, `--vsync-jitter US`, `--volume 0..1` (muted by default),
 `--rate R [--rate-after SEC]`, `--loop`, `--open-after SEC URL` (reopen on
 the same player), `--select TYPE:INDEX [--select-after SEC]` (TYPE is
@@ -115,10 +116,11 @@ view.player = player
 ```
 
 `LycheePlayerView` pulls frames per vsync while it is in a window and shows
-them aspect-fit and rotated. To draw frames yourself (Metal, a Flutter
-texture), use `LycheeFrameDriver`: it calls back on the main queue when the
-next vsync shows a new frame, and `copyFrame()` returns that
-`CVPixelBuffer`.
+them aspect-fit and rotated, HDR in EDR (macOS 14, iOS 17 and later). To
+draw frames yourself (Metal, a Flutter texture), use `LycheeFrameDriver`: it
+calls back on the main queue when the next vsync shows a new frame, and
+`copyFrame()` returns that `CVPixelBuffer`, in the decoder's format (YCbCr,
+10-bit for HDR, with color attachments).
 
 The example app (`sdk/apple/Example/Example.xcodeproj`, one target for macOS
 and iOS) plays `LYCHEE_URL`, default `/tmp/lychee-media/h264_aac.mp4`:

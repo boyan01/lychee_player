@@ -53,6 +53,18 @@ AppleFrameConverter::~AppleFrameConverter() {
 std::shared_ptr<VideoFrame> AppleFrameConverter::Convert(
     const std::shared_ptr<VideoFrame>& frame,
     uint32_t accepted) {
+  if (Accepts(accepted, VideoFrameStorage::kCVPixelBufferNative)) {
+    std::shared_ptr<VideoFrame> buffer =
+        frame->storage == VideoFrameStorage::kCVPixelBuffer
+            ? frame
+            : ToBgraPixelBuffer(frame);
+    if (!buffer) {
+      return nullptr;
+    }
+    auto native = std::make_shared<VideoFrame>(*buffer);
+    native->storage = VideoFrameStorage::kCVPixelBufferNative;
+    return native;
+  }
   if (frame->storage == VideoFrameStorage::kCVPixelBuffer &&
       Accepts(accepted, VideoFrameStorage::kCVPixelBuffer)) {
     return ToBgraPixelBuffer(frame);

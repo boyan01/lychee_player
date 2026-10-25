@@ -108,8 +108,10 @@ public final class LycheeFrameDriver {
     withExtendedLifetime(player) {}
   }
 
-  /// The frame for the latest vsync, or nil if there is none yet. Any
-  /// thread.
+  /// The frame for the latest vsync, or nil if there is none yet: an
+  /// IOSurface-backed buffer in the decoder's format (bi-planar YCbCr, 8- or
+  /// 10-bit, or 32BGRA from software decoding), with color attachments that
+  /// say how to show it. Any thread.
   public func copyFrame() -> CVPixelBuffer? {
     lock.lock()
     defer { lock.unlock() }
@@ -118,8 +120,7 @@ public final class LycheeFrameDriver {
     let displayTime = max(nextDisplayTime, lychee_now_us())
     guard let frame = lychee_player_acquire_frame(handle, displayTime) else { return nil }
     defer { lychee_frame_release(frame) }
-    guard lychee_frame_get_type(frame) == Int32(LYCHEE_FRAME_CVPIXELBUFFER.rawValue),
-          let buffer = lychee_frame_get_native_handle(frame) else { return nil }
+    guard let buffer = lychee_frame_get_native_handle(frame) else { return nil }
     return Unmanaged<CVPixelBuffer>.fromOpaque(buffer).takeUnretainedValue()
   }
 

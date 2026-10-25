@@ -127,16 +127,21 @@ pub enum FrameType {
     D3d11Texture,
     /// A `*const lychee_sys::lychee_dmabuf` (Linux, VAAPI).
     Dmabuf,
+    /// A `CVPixelBufferRef` (Apple) in the decoder's format: bi-planar
+    /// YCbCr, 8- or 10-bit, with color attachments (HDR included); BGRA
+    /// from software decoding.
+    CvPixelBufferNative,
 }
 
 impl FrameType {
-    const ALL: [FrameType; 6] = [
+    const ALL: [FrameType; 7] = [
         FrameType::CpuBgra,
         FrameType::CpuRgba,
         FrameType::CvPixelBuffer,
         FrameType::AndroidSurface,
         FrameType::D3d11Texture,
         FrameType::Dmabuf,
+        FrameType::CvPixelBufferNative,
     ];
 
     fn bit(self) -> u32 {
@@ -147,6 +152,7 @@ impl FrameType {
             FrameType::AndroidSurface => sys::LYCHEE_FRAME_ANDROID_SURFACE,
             FrameType::D3d11Texture => sys::LYCHEE_FRAME_D3D11_TEXTURE,
             FrameType::Dmabuf => sys::LYCHEE_FRAME_DMABUF,
+            FrameType::CvPixelBufferNative => sys::LYCHEE_FRAME_CVPIXELBUFFER_NATIVE,
         }
     }
 

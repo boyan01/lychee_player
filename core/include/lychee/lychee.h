@@ -46,7 +46,9 @@ extern "C" {
 // 7: lychee_player_get_artwork(); subtitle pictures (bitmap subtitles,
 //    styled ASS): lychee_player_acquire_subtitle() and arg1 of
 //    LYCHEE_EVENT_SUBTITLE_CHANGED.
-#define LYCHEE_API_VERSION 7
+// 8: LYCHEE_FRAME_CVPIXELBUFFER_NATIVE, for 10-bit and HDR video on Apple
+//    platforms.
+#define LYCHEE_API_VERSION 8
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -80,6 +82,14 @@ typedef enum lychee_frame_type {
   // EGL_EXT_image_dma_buf_import. The descriptor and its file descriptors
   // stay valid until the frame is released; dup() the fds to keep them.
   LYCHEE_FRAME_DMABUF = 1 << 5,
+  // Apple: a CVPixelBufferRef backed by an IOSurface, in the decoder's own
+  // format: bi-planar YCbCr 4:2:0 from VideoToolbox, 8-bit ('420v',
+  // '420f') or 10-bit ('x420', 'xf20'); 32BGRA for software-decoded
+  // frames, tone-mapped to SDR. Its color attachments (primaries, transfer
+  // function, matrix, HDR metadata) say how to show it; CALayer contents,
+  // AVSampleBufferDisplayLayer and Core Image honor them, EDR included.
+  // Preferred over LYCHEE_FRAME_CVPIXELBUFFER when both are accepted.
+  LYCHEE_FRAME_CVPIXELBUFFER_NATIVE = 1 << 6,
 } lychee_frame_type;
 
 // The GPU the caller renders with. Frames that stay on the GPU (D3D11

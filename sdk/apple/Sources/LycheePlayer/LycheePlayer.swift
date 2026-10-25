@@ -90,7 +90,8 @@ public final class LycheePlayer {
   public init(hardwareDecoding: Bool = true, video: Bool = true) {
     var config = lychee_config()
     lychee_config_init(&config)
-    config.video_frame_types = video ? LYCHEE_FRAME_CVPIXELBUFFER.rawValue : 0
+    // The decoder's own buffers: 10-bit and HDR as they are.
+    config.video_frame_types = video ? LYCHEE_FRAME_CVPIXELBUFFER_NATIVE.rawValue : 0
     config.hardware_decoding = hardwareDecoding ? 1 : 0
     handle = lychee_player_create(&config)
     sink.player = self

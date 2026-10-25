@@ -23,6 +23,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(__APPLE__)
+#include <CoreVideo/CoreVideo.h>
+#endif
+
 namespace {
 
 struct Options {
@@ -255,6 +259,8 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       options->frame_type = LYCHEE_FRAME_CPU_BGRA;
     } else if (arg == "--rgba") {
       options->frame_type = LYCHEE_FRAME_CPU_RGBA;
+    } else if (arg == "--native") {
+      options->frame_type = LYCHEE_FRAME_CVPIXELBUFFER_NATIVE;
     } else if (!arg.empty() && arg[0] != '-') {
       options->url = arg;
     } else {
@@ -317,6 +323,28 @@ void PrintMetadata(lychee_player* player) {
 
 // Subtitle pictures on the video's own canvas: where each goes, and how
 // much of it is opaque and in what colour, to tell text from boxes.
+#if defined(__APPLE__)
+// Pixel format and transfer function of a LYCHEE_FRAME_CVPIXELBUFFER_NATIVE
+// frame.
+void PrintNativeFrame(lychee_frame* frame) {
+  auto buffer =
+      static_cast<CVPixelBufferRef>(lychee_frame_get_native_handle(frame));
+  const OSType format = CVPixelBufferGetPixelFormatType(buffer);
+  char transfer[64] = "none";
+  CFTypeRef value = CVBufferCopyAttachment(
+      buffer, kCVImageBufferTransferFunctionKey, nullptr);
+  if (value && CFGetTypeID(value) == CFStringGetTypeID()) {
+    CFStringGetCString(static_cast<CFStringRef>(value), transfer,
+                       sizeof(transfer), kCFStringEncodingUTF8);
+  }
+  if (value) {
+    CFRelease(value);
+  }
+  printf("native frame: %c%c%c%c transfer=%s\n", format >> 24 & 0xff,
+         format >> 16 & 0xff, format >> 8 & 0xff, format & 0xff, transfer);
+}
+#endif
+
 void PrintSubtitleImages(lychee_player* player) {
   lychee_subtitle* subtitle = lychee_player_acquire_subtitle(player, 0, 0, 0);
   if (!subtitle) {
@@ -521,7 +549,7 @@ int main(int argc, char** argv) {
     fprintf(stderr,
             "usage: %s [--seconds N] [--seek SEC [--seek-after SEC]] "
             "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
-            "[--cpu | --rgba] [--rate R [--rate-after SEC]] [--loop [--loop-off-after SEC]] "
+            "[--cpu | --rgba | --native] [--rate R [--rate-after SEC]] [--loop [--loop-off-after SEC]] "
             "[--open-after SEC URL] [--select TYPE:INDEX]... "
             "[--select-after SEC] [--lose-decoder-after SEC]... "
             "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
@@ -708,6 +736,12 @@ int main(int argc, char** argv) {
       if (frame) {
         int64_t pts = lychee_frame_get_pts(frame);
         frame_type = lychee_frame_get_type(frame);
+#if defined(__APPLE__)
+        if (frame_type == LYCHEE_FRAME_CVPIXELBUFFER_NATIVE &&
+            frames_pulled == 0) {
+          PrintNativeFrame(frame);
+        }
+#endif
         if (frame_type == LYCHEE_FRAME_CPU_BGRA ||
             frame_type == LYCHEE_FRAME_CPU_RGBA) {
           int32_t stride = 0;

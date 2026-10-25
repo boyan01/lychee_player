@@ -26,6 +26,7 @@ public final class LycheePlayerView: LycheePlatformView {
   // does not reuse the surface on screen.
   private var shownFrame: CVPixelBuffer?
   private var rotation = 0
+  private var showsHDR = false
 
   public override init(frame: CGRect) {
     super.init(frame: frame)
@@ -93,12 +94,32 @@ public final class LycheePlayerView: LycheePlatformView {
     // simulator shows nothing for the CVPixelBuffer itself.
     videoLayer.contents = CVPixelBufferGetIOSurface(frame)?.takeUnretainedValue()
     shownFrame = frame
+    setHDR(isHDR(frame))
     if let rotation = player?.rotation, rotation != self.rotation {
       self.rotation = rotation
       layoutVideoLayer()
     }
     showSubtitle(player?.subtitlePictures(width: Int(canvasSize.width), height: Int(canvasSize.height)))
     CATransaction.commit()
+  }
+
+  private func isHDR(_ frame: CVPixelBuffer) -> Bool {
+    guard let transfer = CVBufferCopyAttachment(frame, kCVImageBufferTransferFunctionKey, nil)
+    else { return false }
+    return CFEqual(transfer, kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ)
+      || CFEqual(transfer, kCVImageBufferTransferFunction_ITU_R_2100_HLG)
+  }
+
+  // EDR costs power, so only while HDR is on screen. Without it the layer
+  // tone-maps HDR contents to SDR.
+  private func setHDR(_ hdr: Bool) {
+    guard hdr != showsHDR else { return }
+    showsHDR = hdr
+    if #available(macOS 26.0, iOS 26.0, *) {
+      videoLayer.preferredDynamicRange = hdr ? .high : .standard
+    } else if #available(macOS 14.0, iOS 17.0, *) {
+      videoLayer.wantsExtendedDynamicRangeContent = hdr
+    }
   }
 
   // The video's display size after rotation.

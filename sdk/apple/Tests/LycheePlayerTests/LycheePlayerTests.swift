@@ -91,4 +91,28 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(subtitle?.pictures.first?.image.width, 600)
     XCTAssertEqual(player.subtitlePictures(width: 960, height: 540)?.id, subtitle?.id)
   }
+
+  func testHDRFramesStay10Bit() {
+    let player = LycheePlayer()
+    player.volume = 0
+    player.open("/tmp/lychee-media/hdr_pq.mp4")
+    player.play()
+    var frame: CVPixelBuffer?
+    let pulled = expectation(description: "frame")
+    var driver: LycheeFrameDriver?
+    driver = LycheeFrameDriver(player: player) {
+      guard frame == nil, let copied = driver?.copyFrame() else { return }
+      frame = copied
+      pulled.fulfill()
+    }
+    driver?.start()
+    wait(for: [pulled], timeout: 10)
+    driver?.stop()
+    XCTAssertEqual(frame.map(CVPixelBufferGetPixelFormatType),
+                   kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange)
+    let transfer = frame.flatMap {
+      CVBufferCopyAttachment($0, kCVImageBufferTransferFunctionKey, nil)
+    }
+    XCTAssertEqual(transfer as? String, kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String)
+  }
 }
