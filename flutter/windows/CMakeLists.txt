@@ -1,0 +1,68 @@
+# The Flutter tooling requires that developers have a version of Visual Studio
+# installed that includes CMake 3.14 or later. The core needs 3.20, which
+# Visual Studio 2022 ships.
+cmake_minimum_required(VERSION 3.14)
+
+set(PROJECT_NAME "lychee_player")
+project(${PROJECT_NAME} LANGUAGES C CXX)
+cmake_policy(VERSION 3.14...3.25)
+
+# This value is used when generating builds using this plugin, so it must
+# not be changed.
+set(PLUGIN_NAME "lychee_player_plugin")
+
+# The pinned LGPL FFmpeg, unless one is given.
+include("${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg.cmake")
+set(LYCHEE_FFMPEG_ROOT "" CACHE PATH
+  "Prebuilt LGPL-only FFmpeg (include/, lib/, bin/); downloaded when empty")
+if(NOT LYCHEE_FFMPEG_ROOT)
+  lychee_fetch_ffmpeg("${CMAKE_BINARY_DIR}/ffmpeg" LYCHEE_FFMPEG_ROOT)
+endif()
+
+# The core as lychee_player.dll: Dart binds its C ABI through FFI, and the
+# texture bridge below links it. Apps reach the package through a symlink
+# (.plugin_symlinks/lychee_player); Windows collapses ../ lexically and
+# CMake's REALPATH does not follow it there, so read the link.
+get_filename_component(package_dir "${CMAKE_CURRENT_SOURCE_DIR}" DIRECTORY)
+if(IS_SYMLINK "${package_dir}")
+  get_filename_component(link_parent "${package_dir}" DIRECTORY)
+  file(READ_SYMLINK "${package_dir}" package_dir)
+  # Windows reports the target as an NT path: \??\C:\...
+  string(REGEX REPLACE "^[\\/][?][?][\\/]" "" package_dir "${package_dir}")
+  file(TO_CMAKE_PATH "${package_dir}" package_dir)
+  if(NOT IS_ABSOLUTE "${package_dir}")
+    set(package_dir "${link_parent}/${package_dir}")
+  endif()
+endif()
+set(BUILD_SHARED_LIBS ON)
+add_subdirectory("${package_dir}/../core" "${CMAKE_CURRENT_BINARY_DIR}/core")
+set_target_properties(lychee PROPERTIES OUTPUT_NAME lychee_player)
+
+add_library(${PLUGIN_NAME} SHARED
+  "include/lychee_player/lychee_player_plugin_c_api.h"
+  "lychee_player_plugin_c_api.cpp"
+  "lychee_player_plugin.cpp"
+  "lychee_player_plugin.h"
+  "lychee_texture.cpp"
+  "lychee_texture.h"
+)
+apply_standard_settings(${PLUGIN_NAME})
+set_target_properties(${PLUGIN_NAME} PROPERTIES
+  CXX_VISIBILITY_PRESET hidden)
+target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
+target_include_directories(${PLUGIN_NAME} INTERFACE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_link_libraries(${PLUGIN_NAME} PRIVATE
+  flutter flutter_wrapper_plugin lychee dxgi)
+
+# Shipped next to the app: the core and the FFmpeg libraries it links.
+set(ffmpeg_dlls "")
+foreach(lib ${LYCHEE_FFMPEG_LIBRARIES})
+  file(GLOB dll "${LYCHEE_FFMPEG_ROOT}/bin/${lib}-*.dll")
+  list(APPEND ffmpeg_dlls ${dll})
+endforeach()
+set(lychee_player_bundled_libraries
+  $<TARGET_FILE:lychee>
+  ${ffmpeg_dlls}
+  PARENT_SCOPE
+)
