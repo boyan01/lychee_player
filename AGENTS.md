@@ -118,6 +118,14 @@ glitch checks fail for reasons unrelated to your change. Done means:
   `flutter-remote-test` skill (`remote-test ... --project flutter/example`).
   Look at the screenshot: the stats line should show frames rendering at
   the video's rate.
+- For changes to the Swift package (`sdk/apple`): `swift test` there
+  (plays through the frame driver and checks the player's lifetime), and
+  build its example
+  (`sdk/apple/Example/Example.xcodeproj`, README has the commands) for
+  macOS and the iOS simulator with zero warnings, run both, and look at
+  the screenshots, including `rotated.mp4` when the view's layout changed.
+  `LycheeFrameDriver` is a port of the plugin's `LycheeTexture`: fix both
+  until the plugin uses the SDK (roadmap, Distribution 4.3).
 - For changes to what ends up on screen (frame selection, conversion,
   rotation): run `build/examples/glfw/lychee_glfw` on a test file and look at
   a window screenshot. It has no Flutter in between, so it also tells core
@@ -129,12 +137,18 @@ glitch checks fail for reasons unrelated to your change. Done means:
 
 ## Gotchas
 
-- The iOS/macOS pod (`flutter/darwin`) does not compile the core: it
-  vendors `flutter/darwin/Frameworks/lychee.xcframework`, built by
+- The iOS/macOS pod (`flutter/darwin`) and the Swift package (`sdk/apple`)
+  do not compile the core: they link
+  `flutter/darwin/Frameworks/lychee.xcframework`, built by
   `tool/build_apple.sh`. After changing anything under `core/`, rerun it
-  before building the Flutter example on macOS or iOS, or the example runs
-  the old core. The plugin may use only `lychee/lychee.h`; the framework
-  carries no other header.
+  before building either example on macOS or iOS, or the example runs
+  the old core. They may use only `lychee/lychee.h`; the framework carries
+  no other header (and a module map, so Swift can `import lychee`).
+- Xcode 27 builds apps for macOS 12 and later only, so the Swift example
+  targets macOS 12 while the package and the frameworks say 11.
+- `CALayer.contents` set to a `CVPixelBuffer` shows nothing in the iOS
+  simulator; `LycheePlayerView` sets the buffer's IOSurface and keeps the
+  buffer until the next frame.
 - The Flutter plugin never links the system FFmpeg. Build the LGPL one once
   per platform with `tool/build_ffmpeg.sh PLATFORM <ffmpeg source>` into
   `third_party/ffmpeg/` (`macos-arm64` and `macos-x86_64`; `ios-sim-arm64`

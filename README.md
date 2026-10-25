@@ -25,6 +25,7 @@ examples/cli/         headless player for regression testing
 examples/glfw/        windowed player without Flutter (GLFW + Metal, macOS)
 flutter/              Flutter plugin (lib/; darwin/ for iOS and macOS, android/,
                       windows/, linux/) and its example app
+sdk/apple/            Swift package for macOS and iOS apps, and its example app
 ```
 
 Video frames leave the library as native handles (`CVPixelBufferRef` on Apple
@@ -70,9 +71,9 @@ frames with Metal. Space pauses, left/right seek 5 s, escape quits.
 (`TSAN=1` for a ThreadSanitizer build). Contributors and agents: see
 [AGENTS.md](AGENTS.md) and [docs/roadmap.md](docs/roadmap.md).
 
-## Flutter plugin
+## Apple frameworks
 
-The plugin lives in `flutter/`. Its iOS/macOS pod links prebuilt
+The Flutter plugin's iOS/macOS pod and the Swift package both link prebuilt
 xcframeworks from `flutter/darwin/Frameworks`: `lychee.xcframework` (the
 core, a dynamic framework carrying only `lychee/lychee.h`) and an LGPL-only
 FFmpeg. Build them once, and rebuild `lychee.xcframework` after changing
@@ -90,6 +91,49 @@ Each xcframework has a universal macOS slice, an iOS device slice and one
 simulator slice with both arm64 and x86_64. Leave out platforms you do not
 need; the last two scripts package the ones that were built. The x86_64
 macOS FFmpeg uses assembly only if `nasm` is installed.
+
+## Swift package
+
+`sdk/apple` is a Swift package (`LycheePlayer`, macOS 11 / iOS 16) for apps
+without Flutter. Add it as a local package; it takes the xcframeworks above
+as binary targets.
+
+```swift
+import LycheePlayer
+
+let player = LycheePlayer()
+player.onEvent = { event in print(event) }   // on the main queue
+player.open("/path/to/video.mp4")
+player.play()
+let view = LycheePlayerView(frame: bounds)   // NSView / UIView
+view.player = player
+// player.state, position, duration, tracks, subtitle, stats, ...
+```
+
+`LycheePlayerView` pulls frames per vsync while it is in a window and shows
+them aspect-fit and rotated. To draw frames yourself (Metal, a Flutter
+texture), use `LycheeFrameDriver`: it calls back on the main queue when the
+next vsync shows a new frame, and `copyFrame()` returns that
+`CVPixelBuffer`.
+
+The example app (`sdk/apple/Example/Example.xcodeproj`, one target for macOS
+and iOS) plays `LYCHEE_URL`, default `/tmp/lychee-media/h264_aac.mp4`:
+
+```sh
+xcodebuild -project sdk/apple/Example/Example.xcodeproj -scheme Example \
+  -destination 'platform=macOS' -derivedDataPath build/sdk-apple build
+build/sdk-apple/Build/Products/Debug/Example.app/Contents/MacOS/Example
+```
+
+For the iOS simulator use `-destination 'generic/platform=iOS Simulator'`,
+`xcrun simctl install booted .../Debug-iphonesimulator/Example.app` and
+`SIMCTL_CHILD_LYCHEE_URL=... xcrun simctl launch booted org.lychee.example`;
+the simulator reads `/tmp` of the Mac.
+
+## Flutter plugin
+
+The plugin lives in `flutter/`; its iOS/macOS pod vendors the Apple
+frameworks above.
 
 ```dart
 final player = await LycheePlayer.create();

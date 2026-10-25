@@ -132,7 +132,8 @@ above). What is left per platform is a renderer in `examples/glfw`
 3. **Swift Package Manager**: add `flutter/darwin/lychee_player/Package.swift`;
    Flutter already warns that CocoaPods-only plugins will become an error.
    The xcframeworks in `flutter/darwin/Frameworks` can be its
-   `binaryTarget`s.
+   `binaryTarget`s. It should depend on the `sdk/apple` package for the
+   frame driver (Distribution 4.3 says why that takes a URL).
 
 ## FFmpeg-free builds
 
@@ -200,9 +201,18 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
       Flutter plugin uses its driver with the `SurfaceProducer`'s Surface.
       Done when a native sample app and the Flutter example both play
       through it.
-   3. `sdk/apple/`: a Swift package with a Swift `LycheePlayer`, the
-      display-link frame driver and a view; the Flutter plugin uses its
-      driver with a `FlutterTexture`.
+   3. `sdk/apple/` exists (2026-10-25: `LycheePlayer`,
+      `LycheeFrameDriver`, `LycheePlayerView`; its example plays in
+      hardware on macOS and in software on the iOS simulator, 0 dropped).
+      Left: the Flutter plugin still has its own copy of the driver
+      (`LycheeTexture` in `LycheePlayerPlugin.m`). It can use the SDK's
+      only through SwiftPM (a pod cannot depend on a Swift package), and
+      only by URL: Flutter adds plugin packages through symlinks in
+      `.packages/`, and SwiftPM resolves a relative `path:` dependency
+      against the symlink, not the plugin's real directory. A URL needs a
+      `Package.swift` at the repository root and the xcframeworks as
+      `binaryTarget(url:checksum:)` release assets, so this waits for
+      item 2's hosting decision; do it together with Platforms 3.
    4. `rust/`: `lychee-sys` (bindgen over `lychee.h`, CMake build) and a
       safe `lychee` crate; callbacks are `Send`, frames release on drop.
    Windows and Linux native users take the C ABI as it is.

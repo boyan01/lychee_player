@@ -7,24 +7,25 @@
 apple_min_macos=11.0
 apple_min_ios=16.0
 
-#   make_framework SLICE FRAMEWORK BINARY HEADERS BUNDLE_ID VERSION
+#   make_framework SLICE FRAMEWORK BINARY HEADERS BUNDLE_ID VERSION [MODULEMAP]
 #
 # Wraps one dynamic library into FRAMEWORK (path/NAME.framework) for an
 # xcframework slice, copies the contents of the HEADERS directory into its
-# Headers, and signs it ad hoc. SLICE is macos, ios or ios-simulator. macOS
+# Headers (and MODULEMAP, if given, to Modules/module.modulemap, so Swift can
+# import it), and signs it ad hoc. SLICE is macos, ios or ios-simulator. macOS
 # frameworks are versioned bundles (Versions/A), iOS ones are flat. BINARY
 # must already carry its final install name, @rpath/NAME.framework/NAME.
 
 make_framework() {
   local slice="$1" framework="$2" binary="$3" headers="$4" id="$5" version="$6"
-  local name contents plist platform min_key min
+  local modulemap="${7:-}" name contents plist platform min_key min
   name="$(basename "$framework" .framework)"
   rm -rf "$framework"
   if [ "$slice" = macos ]; then
     contents="$framework/Versions/A"
     mkdir -p "$contents/Resources"
     ln -s A "$framework/Versions/Current"
-    for f in "$name" Headers Resources; do
+    for f in "$name" Headers Resources ${modulemap:+Modules}; do
       ln -s "Versions/Current/$f" "$framework/$f"
     done
     plist="$contents/Resources/Info.plist"
@@ -39,6 +40,10 @@ make_framework() {
   mkdir -p "$contents/Headers"
   cp "$binary" "$contents/$name"
   cp -R "$headers/." "$contents/Headers/"
+  if [ -n "$modulemap" ]; then
+    mkdir -p "$contents/Modules"
+    cp "$modulemap" "$contents/Modules/module.modulemap"
+  fi
   cat >"$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
