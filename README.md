@@ -272,8 +272,11 @@ from pub.dev.
 - **Linux**: `flutter build linux`. The plugin downloads a pinned LGPL
   FFmpeg (BtbN, 9.0, LGPLv3) into `~/.cache/lychee_player` on first
   configure and bundles it next to `liblychee_player.so`; set
-  `LYCHEE_FFMPEG_ROOT` to use your own. Apps need `libgtk-3` and `libpulse0`
-  at runtime. The core alone needs FFmpeg 8 or newer, which Ubuntu 22.04
+  `LYCHEE_FFMPEG_ROOT` to use your own, e.g. the decode-only
+  `tool/build_ffmpeg.sh linux-x86_64 SRC` (needs `nasm`, `libva-dev`,
+  `libdrm-dev` and `libssl-dev`; build it on the oldest distribution you
+  support; apps then also need `libva2`, `libva-drm2` and `libssl3`). Apps
+  need `libgtk-3` and `libpulse0` at runtime. The core alone needs FFmpeg 8 or newer, which Ubuntu 22.04
   does not ship: point pkg-config at a prebuilt one
   (`PKG_CONFIG_PATH=<ffmpeg>/lib/pkgconfig`, `LD_LIBRARY_PATH=<ffmpeg>/lib`
   to run the CLI) and install `libpulse-dev`.
@@ -288,7 +291,8 @@ FFmpeg found by pkg-config, which may be a GPL build (Homebrew's is); that
 is for development only. The macOS and iOS builds from
 `tool/build_ffmpeg.sh` are LGPL 2.1+ (the script checks configure's license
 line); the Android build is LGPL 3+, because it links mbedTLS (Apache-2.0)
-for https, and so are the Windows and Linux downloads. Distributed apps
+for https, and so are the Windows and Linux downloads and the Linux build
+(OpenSSL 3). Distributed apps
 must ship an LGPL-only FFmpeg (no `--enable-gpl` / `--enable-nonfree`),
 linked dynamically.
 

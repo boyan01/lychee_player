@@ -128,7 +128,11 @@ above). What is left per platform is a renderer in `examples/glfw`
    on Flutter's adapter, and frames reach Flutter's `GpuSurfaceTexture` as
    shared BGRA textures (h264, hevc10 and vp9 with seeks and 1.5x: 0
    dropped; the integration test passes; 2026-10-25). The FFmpeg DLLs
-   (BtbN's LGPLv3 build, ~120 MB) should become a slim build of our own.
+   (BtbN's LGPLv3 build, ~120 MB) should become a slim build of our own:
+   a `windows-x86_64` case in `tool/build_ffmpeg.sh` cross-compiling with
+   mingw-w64 in WSL (`--enable-d3d11va`, Schannel for TLS), which needs
+   someone with sudo there to `apt install mingw-w64 nasm`; then hosting,
+   as for Linux.
    Unverified there: the pixel buffer path for a Flutter without a D3D11
    adapter, multiple monitors, audible output, and `tool/regression.sh`
    (needs bash). The decoder is rebuilt at the position when the adapter
@@ -137,11 +141,21 @@ above). What is left per platform is a renderer in `examples/glfw`
    a real GPU reset (`dxcap -forcetdr`), which also loses the plugin's own
    device, and an adapter change during playback (the plugin sets the
    adapter once).
-2. **Linux leftovers**: the bundled FFmpeg (BtbN, LGPLv3, ~130 MB) should
-   become a decode-only `tool/build_ffmpeg.sh linux-x86_64` build (smaller,
-   LGPL 2.1). Unverified there: the Impeller renderer (the VM runs with it
-   off; the texture's GL state handling relies on Skia resetting its own),
-   and a build from 22.04 running on 26.04.
+2. **Linux leftovers**: `tool/build_ffmpeg.sh linux-x86_64` builds the
+   decode-only FFmpeg on Ubuntu 22.04 (WSL: 38 s, 8.2 MB of libraries
+   against BtbN's 161 MB). It links the system's libva, libva-drm, libdrm
+   and OpenSSL 3, so it is LGPL 3 like BtbN's (GnuTLS would keep LGPL
+   2.1, but WSL has no sudo to install its headers; `nasm` and
+   `libva-dev` came from `apt-get download`). With it, `NO_HW=1
+   FFMPEG_ROOT=... tool/regression.sh` passes in WSL except
+   `realtime-loop`, which fails the same way with BtbN's (WSLg's audio
+   clock, below), and the Flutter example built in WSL with
+   `LYCHEE_FFMPEG_ROOT` plays `h264_aac.mp4` on the 26.04 VM (360 of 360
+   frames, 0 dropped; 2026-10-25), so a 22.04 build runs on 26.04. The
+   plugin still downloads BtbN's: shipping ours needs a place to host it
+   (Distribution 2). Unverified there: the Impeller renderer (the VM runs
+   with it off; the texture's GL state handling relies on Skia resetting
+   its own).
    WSL's audio device (WSLg's `RDPSink`) runs 0.3-0.4% slower than the
    system clock in most runs: on the real clock, video follows it by
    holding a frame for 3 vsyncs every ~3 s (`glitches=1-4`,

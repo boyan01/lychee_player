@@ -257,6 +257,11 @@ glitch checks fail for reasons unrelated to your change. Done means:
 - Threads the core starts inherit the creator's priority, which on Android is
   the platform thread's (nice -10). Plugin threads that pull frames must run
   at display priority or software decoding starves them.
+- WSL has no sudo. `tool/build_ffmpeg.sh linux-x86_64` there needs
+  `nasm` and `libva-dev` unpacked from `apt-get download` (`dpkg-deb
+  -x`), with `PATH` and `PKG_CONFIG_PATH` pointing into them and the
+  `.pc` prefixes rewritten. Linux has no VAAPI here, so run its
+  regression with `NO_HW=1`.
 - On Linux (WSL Ubuntu 22.04), `TSAN=1` dies with "unexpected memory
   mapping" unless run under `setarch x86_64 -R`. With GCC 11 it then reports
   false double locks and races in `player.cc`: GCC 11's libtsan does not

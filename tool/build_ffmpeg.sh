@@ -4,7 +4,7 @@
 #   tool/build_ffmpeg.sh PLATFORM FFMPEG_SOURCE_DIR [MBEDTLS_SOURCE_DIR]
 #
 # PLATFORM: macos-arm64, macos-x86_64, ios-arm64, ios-sim-arm64,
-# ios-sim-x86_64, android-arm64-v8a, android-x86_64.
+# ios-sim-x86_64, android-arm64-v8a, android-x86_64, linux-x86_64.
 # Output: third_party/ffmpeg/PLATFORM/{include,lib}. For Apple platforms,
 # tool/package_ffmpeg_apple.sh then wraps the libraries into xcframeworks.
 #
@@ -111,6 +111,22 @@ case "$platform" in
     # x86_64 assembly needs nasm; not worth it for the emulator.
     [ "$platform" = android-x86_64 ] && flags+=(--disable-asm)
     ;;
+  linux-x86_64)
+    # Built on the oldest distribution it should run on (Ubuntu 22.04):
+    # the libraries need its glibc or newer. Links the system's libva,
+    # libva-drm, libdrm and OpenSSL 3 dynamically; apps depend on those
+    # packages. OpenSSL 3 is Apache-2.0, so the build is LGPL 3, as BtbN's.
+    command -v nasm >/dev/null || { echo "nasm not found" >&2; exit 1; }
+    flags=(
+      --target-os=linux --arch=x86_64
+      --enable-vaapi --enable-libdrm
+      --enable-hwaccel=h264_vaapi,hevc_vaapi,vp8_vaapi,vp9_vaapi,av1_vaapi
+      --enable-openssl --enable-version3
+      # VAAPI on a DRM render node only, so no libva-x11 or Xlib.
+      --disable-xlib --disable-libxcb --disable-sdl2
+    )
+    license="LGPL version 3 or later"
+    ;;
   *)
     echo "unknown platform $platform" >&2
     exit 1
@@ -147,6 +163,12 @@ case "$platform" in
     foreign="$(otool -L "$out"/lib/*.dylib | awk '/^\t/ { print $1 }' | sort -u |
       grep -vE "^(/System/|/usr/lib/|@rpath/lib(avutil|swresample|swscale|avcodec|avformat)\.[0-9]+\.dylib$)" || true)"
     [ -z "$foreign" ] || { printf 'links outside the SDK:\n%s\n' "$foreign" >&2; exit 1; }
+    ;;
+  linux-*)
+    foreign="$(for lib in "$out"/lib/*.so.*[0-9]; do readelf -d "$lib"; done |
+      sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | sort -u |
+      grep -vE '^(libc|libm|libz|libva|libva-drm|libdrm|libssl|libcrypto|libav(util|codec|format)|libsw(resample|scale))\.so\.[0-9]+$' || true)"
+    [ -z "$foreign" ] || { printf 'unexpected dependencies:\n%s\n' "$foreign" >&2; exit 1; }
     ;;
 esac
 echo "installed to $out"
