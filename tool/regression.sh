@@ -140,6 +140,11 @@ else
   failures=$((failures + 1))
 fi
 
+# Cases run on the library's virtual clock (lychee_cli --virtual-time): as
+# fast as decoding allows, and unaffected by load, so timing checks are
+# exact. realtime=1 before a case plays it on the real clock and audio
+# device instead.
+#
 # check NAME EXPECT_HW EXPECT_SEEK_PTS -- CLI_ARGS...
 # EXPECT_HW: 1, 0, or - (no video). EXPECT_SEEK_PTS: seconds, or - for none.
 check() {
@@ -148,12 +153,14 @@ check() {
     hw=0
     set -- --no-hw "$@"
   fi
-  local out summary problems=""
+  [ "${realtime:-0}" = 1 ] || set -- --virtual-time "$@"
+  local out summary problems="" start=$SECONDS
   out="$(TSAN_OPTIONS=halt_on_error=0 "$cli" "$@" 2>&1)"
   summary="$(grep '^summary:' <<<"$out")"
   grep -q "WARNING: ThreadSanitizer" <<<"$out" && problems+=" tsan-report"
   grep -q "state=ended" <<<"$summary" || problems+=" not-ended"
   grep -q "backward_jumps=0" <<<"$summary" || problems+=" backward-jumps"
+  grep -q "stalls=0" <<<"$summary" || problems+=" stalls"
   if [ "$hw" != - ]; then
     grep -q " hw=$hw " <<<"$summary" || problems+=" hw!=$hw"
     local dropped
@@ -168,9 +175,9 @@ check() {
     grep -q "first_pts_after_seek=$seek_pts" <<<"$summary" || problems+=" seek-landed-elsewhere"
   fi
   if [ -z "$problems" ]; then
-    echo "PASS $name"
+    echo "PASS $name ($((SECONDS - start))s)"
   else
-    echo "FAIL $name:$problems"
+    echo "FAIL $name ($((SECONDS - start))s):$problems"
     grep -E '^(summary|error)' <<<"$out" | sed 's/^/     /'
   fi
 }
@@ -179,10 +186,11 @@ check() {
 # extended regex PATTERN. "<=N PATTERN" instead allows at most N matching lines.
 expect() {
   local name="$1"; shift
-  local patterns=() out problems=""
+  local patterns=() out problems="" start=$SECONDS
   while [ "$1" != -- ]; do patterns+=("$1"); shift; done
   shift
   [ "${NO_HW:-0}" = 1 ] && set -- --no-hw "$@"
+  [ "${realtime:-0}" = 1 ] || set -- --virtual-time "$@"
   out="$(TSAN_OPTIONS=halt_on_error=0 "$cli" "$@" 2>&1)"
   grep -q "WARNING: ThreadSanitizer" <<<"$out" && problems+=" tsan-report"
   for pattern in "${patterns[@]}"; do
@@ -195,9 +203,9 @@ expect() {
     fi
   done
   if [ -z "$problems" ]; then
-    echo "PASS $name"
+    echo "PASS $name ($((SECONDS - start))s)"
   else
-    echo "FAIL $name:$problems"
+    echo "FAIL $name ($((SECONDS - start))s):$problems"
     grep -E '^(summary|error|seek took)' <<<"$out" | sed 's/^/     /'
   fi
 }
@@ -282,7 +290,9 @@ par check audio-only    - - -- "$media/audio_only.mp3"
 par check video-only    1 - -- "$media/video_only.mp4"
 par check ts-offset     1 - -- "$media/offset.ts"
 par check no-hw-cpu     0 - -- --no-hw --cpu "$media/h264_aac.mp4"
-par expect rgba "frame_type=4 " "state=ended" -- --rgba "$media/hevc10.mp4"
+# Reading hardware frames back into CPU memory costs ~50 ms a frame on macOS
+# (far more under TSan); a second of video covers the conversion.
+par expect rgba "frame_type=4 " "rendered=2[0-9] dropped=0 " -- --rgba --seconds 1 "$media/hevc10.mp4"
 par expect no-hw-rgba "frame_type=4 " "state=ended" -- --no-hw --rgba "$media/h264_aac.mp4"
 # Cadence: 30, 24 and 60 fps at 60 Hz with jittered vsync timestamps (callers
 # that only know when they woke up), and refresh rates other than 60 Hz.
@@ -346,8 +356,16 @@ par expect metadata "metadata: title=Lychee Test artist=Lychee Artist album=Lych
 par expect stats "vbuf=[1-9]\.[0-9]{2}s abuf=[1-9]\.[0-9]{2}s vdec=([1-9][0-9]*\.[0-9]{2}|0\.[0-9][1-9]|0\.[1-9][0-9])ms" -- \
   --seconds 3 "$media/h264_aac.mp4"
 
+# On the real clock and audio device: the path apps take. Alone, since
+# load on the machine shows up as drift and glitches.
+realtime=1 seq_ check realtime-h264 1 - -- "$media/meta.mp4"
+realtime=1 seq_ check realtime-seek 1 3.000 -- --seek 3 --seek-after 1 "$media/meta.mp4"
+realtime=1 seq_ expect realtime-rate "summary: state=ended" "$few_glitches" "$small_drift" -- \
+  --rate 2 "$media/meta.mp4"
+
 # Network cases against a local server that injects faults. Each starts its
-# own server so a fault fires once.
+# own server so a fault fires once. Faults at a byte offset work on virtual
+# time; a slow or stalled server needs the real clock.
 server=""
 stop_server() {
   [ -n "$server" ] || return 0
@@ -366,6 +384,7 @@ serve() {
     [ -n "$port" ] && break
     sleep 0.1
   done
+  [ -n "$port" ] || { echo "media server did not start:"; sed 's/^/     /' "$log"; }
   url="http://127.0.0.1:$port/faststart.mp4"
 }
 trap 'stop_server; rm -rf "$results"' EXIT
@@ -382,11 +401,12 @@ serve --drop-at 3000000 --refuse-after-drop
 seq_ expect http-lost "state=error" "error: input ended at" -- "$url"
 # Slower than the bitrate: rebuffer in long stretches, not every few frames.
 serve --rate 550
-seq_ expect http-slow "state=ended" "<=2 event: state buffering" -- "$url"
+realtime=1 seq_ expect http-slow "state=ended" "<=2 event: state buffering" -- "$url"
 # The read stalls before playback starts; the seek must not wait for it.
+# Interrupting that read must not turn the end of the file into an error.
 serve --stall-at 3000000 --stall-for 10
-seq_ expect http-stall-seek "seek took [0-9]{1,3}\." "first_pts_after_seek=0.500s" -- \
-  --seek 0.5 --seek-after 1 --seconds 3 "$url"
+realtime=1 seq_ expect http-stall-seek "seek took [0-9]{1,3}\." "first_pts_after_seek=0.500s" \
+  "summary: state=ended" -- --seek 0.5 --seek-after 1 "$url"
 wait_cases
 stop_server
 

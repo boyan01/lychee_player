@@ -5,9 +5,11 @@
 #include <string>
 #include <vector>
 
+#include "api/testing.h"
 #include "base/log.h"
 #include "base/time.h"
 #include "lychee/lychee.h"
+#include "media/null_audio_sink.h"
 #include "pipeline/player.h"
 
 using lychee::MediaType;
@@ -299,6 +301,20 @@ const uint8_t* lychee_frame_get_data(const lychee_frame* frame,
 
 void* lychee_frame_get_native_handle(const lychee_frame* frame) {
   return frame->frame->native_handle;
+}
+
+void lychee_testing_enable_virtual_time(void) {
+  lychee::EnableVirtualTime();
+}
+
+void lychee_testing_set_time(int64_t now_us) {
+  lychee::SetVirtualTime(now_us);
+  lychee::NullAudioSink::RenderAll(lychee::NowMicros());
+}
+
+int32_t lychee_testing_player_settled(lychee_player* player,
+                                      int64_t until_us) {
+  return player->player->SettledForTesting(until_us) ? 1 : 0;
 }
 
 }  // extern "C"

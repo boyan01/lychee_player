@@ -16,10 +16,11 @@ struct SwsContext;
 namespace lychee {
 
 // Software decoding, or hardware decoding through FFmpeg's hwaccel
-// (VideoToolbox on Apple platforms).
+// (VideoToolbox on Apple platforms). Frames FFmpeg cannot hand over as they
+// are become CPU frames, RGBA if |accepted_storage| takes RGBA but not BGRA.
 class FFmpegVideoDecoder : public VideoDecoder {
  public:
-  explicit FFmpegVideoDecoder(bool hardware);
+  FFmpegVideoDecoder(bool hardware, uint32_t accepted_storage);
   ~FFmpegVideoDecoder() override;
 
   const char* name() const override;
@@ -37,9 +38,10 @@ class FFmpegVideoDecoder : public VideoDecoder {
   bool InitializeHardware(const AVCodec* codec, std::string* error);
   void ReceiveFrames(const OutputCallback& output);
   std::shared_ptr<VideoFrame> CreateFrame(AVFrame* frame);
-  std::shared_ptr<VideoFrame> ConvertToBgra(AVFrame* frame);
+  std::shared_ptr<VideoFrame> ConvertToCpu(AVFrame* frame);
 
   const bool hardware_;
+  const VideoFrameStorage cpu_storage_;
   AVHWDeviceType hw_device_type_ = AV_HWDEVICE_TYPE_NONE;
   AVPixelFormat hw_pixel_format_ = AV_PIX_FMT_NONE;
   AVBufferRef* hw_device_context_ = nullptr;

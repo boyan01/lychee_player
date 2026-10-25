@@ -62,12 +62,22 @@ and plays a fixed media matrix through `examples/cli` (headless, simulated
 software, as on CI. Cases run in parallel (`JOBS`, default half the cores);
 `ONLY='seek-* rate-*'` runs just the matching ones.
 
+Most cases run on a virtual clock (`lychee_cli --virtual-time`): the CLI
+advances `lychee_now_us()` one vsync at a time, but only once the pipeline
+has decoded enough to play it (`lychee_testing_player_settled`), and audio
+goes to `NullAudioSink`, which renders when the clock moves. Media plays as
+fast as it decodes, and drift, drops and glitches do not depend on machine
+load; `stalls=N` counts vsyncs the pipeline never caught up with. The hooks
+live in `core/src/api/testing.h`, not in the public ABI. Cases that need
+real time (a slow or stalled server, and the `realtime-*` cases that check
+CoreAudio timing) set `realtime=1`.
+
 While iterating, build and run the unit tests plus the cases your change
 touches (`ONLY=...`, seconds); run the full matrices once, when done. CI runs
 `NO_HW=1` plain and TSan on every push, so leave those to it unless you
-changed `pipeline/`, threading or teardown. Do not run the timing cases while
-a Flutter or Gradle build loads the machine: drift and glitch checks fail
-for reasons unrelated to your change. Done means:
+changed `pipeline/`, threading or teardown. Do not run the `realtime=1`
+cases while a Flutter or Gradle build loads the machine: their drift and
+glitch checks fail for reasons unrelated to your change. Done means:
 
 - `tool/regression.sh` passes with zero build warnings.
 - For changes to `pipeline/`, threading, or teardown: `TSAN=1

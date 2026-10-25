@@ -118,6 +118,12 @@ class Player {
   int video_rotation() const;
   std::string error() const;
   PlayerStats stats() const;
+  // Under virtual time (base/time.h): whether playback can move on to
+  // system time |until| without waiting for data. False while loading,
+  // buffering, seeking or switching tracks, until the control thread has
+  // applied play/pause and end of stream, and while a renderer's decoded
+  // data ends before |until|.
+  bool SettledForTesting(int64_t until) const;
   std::vector<TrackInfo> tracks() const;
   // Container tag, case-insensitive. False if absent.
   bool metadata(const std::string& key, std::string* value) const;

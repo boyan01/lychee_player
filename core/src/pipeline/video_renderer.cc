@@ -44,7 +44,7 @@ bool VideoRenderer::Initialize(const VideoConfig& config,
                                PacketQueue* queue,
                                std::string* error) {
   queue_ = queue;
-  for (auto& decoder : CreateVideoDecoders(allow_hardware)) {
+  for (auto& decoder : CreateVideoDecoders(allow_hardware, accepted_storage_)) {
     std::string decoder_error;
     if (decoder->Initialize(config, &decoder_error)) {
       decoder_ = std::move(decoder);
@@ -87,15 +87,15 @@ void VideoRenderer::DecodeLoop() {
     uint64_t generation = entry.generation;
     // Excludes the time OnFrame() waits for queue space.
     int64_t waited = 0;
-    const int64_t decode_start = NowMicros();
+    const int64_t decode_start = MonotonicMicros();
     bool ok = decoder_->Decode(
         *entry.packet,
         [this, generation, &waited](std::shared_ptr<VideoFrame> frame) {
-          const int64_t start = NowMicros();
+          const int64_t start = MonotonicMicros();
           OnFrame(std::move(frame), generation);
-          waited += NowMicros() - start;
+          waited += MonotonicMicros() - start;
         });
-    const int64_t decode_time = NowMicros() - decode_start - waited;
+    const int64_t decode_time = MonotonicMicros() - decode_start - waited;
     std::lock_guard<std::mutex> lock(mutex_);
     if (!entry.packet->end_of_stream) {
       // About the last 32 packets.
@@ -190,6 +190,16 @@ bool VideoRenderer::HasEnoughData() const {
 bool VideoRenderer::IsStarved() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return algorithm_.effective_frames_queued() == 0 && !end_of_stream_;
+}
+
+bool VideoRenderer::HasFramesUntil(int64_t media_time) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (end_of_stream_ || failed_ ||
+      algorithm_.frames_queued() > kMaxQueuedFrames) {
+    return true;
+  }
+  return algorithm_.frames_queued() > 0 &&
+         FrameEnd(*algorithm_.last_frame()) > media_time;
 }
 
 bool VideoRenderer::shown_size(int* width, int* height) const {

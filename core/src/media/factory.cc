@@ -1,6 +1,8 @@
 #include "media/factory.h"
 
+#include "base/time.h"
 #include "media/cpu_frame_converter.h"
+#include "media/null_audio_sink.h"
 
 #if defined(LYCHEE_WITH_FFMPEG)
 #include "backends/ffmpeg/ffmpeg_audio_decoder.h"
@@ -31,13 +33,16 @@ std::unique_ptr<Demuxer> CreateDemuxer() {
 }
 
 std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
-    bool allow_hardware) {
+    bool allow_hardware,
+    uint32_t accepted_storage) {
   std::vector<std::unique_ptr<VideoDecoder>> decoders;
 #if defined(LYCHEE_WITH_FFMPEG)
   if (allow_hardware) {
-    decoders.push_back(std::make_unique<FFmpegVideoDecoder>(true));
+    decoders.push_back(
+        std::make_unique<FFmpegVideoDecoder>(true, accepted_storage));
   }
-  decoders.push_back(std::make_unique<FFmpegVideoDecoder>(false));
+  decoders.push_back(
+      std::make_unique<FFmpegVideoDecoder>(false, accepted_storage));
 #endif
   return decoders;
 }
@@ -59,6 +64,9 @@ std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder() {
 }
 
 std::unique_ptr<AudioSink> CreateAudioSink() {
+  if (IsVirtualTime()) {
+    return std::make_unique<NullAudioSink>();
+  }
 #if defined(__APPLE__)
   return std::make_unique<CoreAudioSink>();
 #elif defined(__ANDROID__)

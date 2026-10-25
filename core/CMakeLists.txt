@@ -9,6 +9,7 @@ set(LYCHEE_SOURCES
   src/media/codec.cc
   src/media/cpu_frame_converter.cc
   src/media/factory.cc
+  src/media/null_audio_sink.cc
   src/pipeline/audio_renderer.cc
   src/pipeline/audio_renderer_algorithm.cc
   src/pipeline/media_clock.cc

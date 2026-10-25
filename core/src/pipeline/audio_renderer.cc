@@ -227,6 +227,16 @@ bool AudioRenderer::Ended() const {
   return end_of_stream_ && algorithm_.BufferedFrames() == 0;
 }
 
+bool AudioRenderer::HasDataFor(int64_t duration) const {
+  // Past what it outputs, WSOLA needs a search interval and a window
+  // (audio_renderer_algorithm.cc).
+  constexpr int64_t kWsolaLookahead = 100 * kMicrosPerMilli;
+  std::lock_guard<std::mutex> lock(mutex_);
+  return end_of_stream_ || failed_ ||
+         BufferedDurationLocked() >=
+             std::min(duration + kWsolaLookahead, kMaxBufferedDuration / 2);
+}
+
 bool AudioRenderer::HasError() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return failed_;

@@ -18,9 +18,11 @@ namespace lychee {
 
 std::unique_ptr<Demuxer> CreateDemuxer();
 
-// Candidates in priority order: hardware first if allowed.
+// Candidates in priority order: hardware first if allowed. Decoders that
+// produce CPU frames produce one of the |accepted_storage| types if they can.
 std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
-    bool allow_hardware);
+    bool allow_hardware,
+    uint32_t accepted_storage);
 
 std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders();
 

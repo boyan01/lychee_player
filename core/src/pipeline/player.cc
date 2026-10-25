@@ -3,6 +3,7 @@
 #include "pipeline/player.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <chrono>
 
@@ -983,6 +984,37 @@ void Player::ApplyPlayingLocked() {
   if (audio_renderer_) {
     audio_renderer_->SetPlaying(run);
   }
+}
+
+bool Player::SettledForTesting(int64_t until) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  switch (state_) {
+    case PlayerState::kLoading:
+    case PlayerState::kBuffering:
+      return false;
+    case PlayerState::kReady:
+      break;
+    default:
+      return true;
+  }
+  if (seek_pending_ || seek_in_progress_ || seeking_ || prerolling_ ||
+      track_request_.pending()) {
+    return false;
+  }
+  if (!play_when_ready_) {
+    return true;
+  }
+  // The control thread has yet to start the clock, or to end or loop.
+  if (!clock_running_ || EndedLocked()) {
+    return false;
+  }
+  // Not clock_.MediaTimeAt(until): an audio-driven clock stops at the end
+  // of the audio handed out so far, and would ask for nothing more.
+  const int64_t ahead =
+      std::llround((until - NowMicros()) * clock_.rate());
+  return (!audio_renderer_ || audio_renderer_->HasDataFor(ahead)) &&
+         (!video_renderer_ ||
+          video_renderer_->HasFramesUntil(clock_.Now() + ahead));
 }
 
 bool Player::PrerollDoneLocked() const {

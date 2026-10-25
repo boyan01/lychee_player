@@ -50,7 +50,8 @@ dropped frames and clock drift. Options: `--seek SEC [--seek-after SEC]`,
 `--rate R [--rate-after SEC]`, `--loop`, `--open-after SEC URL` (reopen on
 the same player), `--select TYPE:INDEX [--select-after SEC]` (TYPE is
 `video`, `audio` or `subtitle`, INDEX a track index as the CLI lists them;
--1 turns the type off).
+-1 turns the type off), `--virtual-time` (play on a simulated clock, as fast
+as the media decodes, with audio to a null sink).
 
 With GLFW installed (`brew install glfw`) the build also produces
 `build/examples/glfw/lychee_glfw path/to/video.mp4`: a window that draws the

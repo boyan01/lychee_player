@@ -41,6 +41,9 @@ class AudioRenderer {
   bool HasEnoughData() const;
   bool IsStarved() const;
   bool Ended() const;
+  // Decoded audio lasts |duration| of media time, the buffer is full, or
+  // the stream ended. For SettledForTesting().
+  bool HasDataFor(int64_t duration) const;
   // The decoder failed for good; decoding has stopped.
   bool HasError() const;
   // Decoded audio waiting to be played, in media time.

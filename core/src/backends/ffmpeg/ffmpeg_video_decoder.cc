@@ -33,8 +33,17 @@ struct CpuFrameData {
 
 }  // namespace
 
-FFmpegVideoDecoder::FFmpegVideoDecoder(bool hardware)
+FFmpegVideoDecoder::FFmpegVideoDecoder(bool hardware,
+                                       uint32_t accepted_storage)
     : hardware_(hardware),
+      // swscale writes either order at the same cost; choosing the caller's
+      // saves a second pass over every frame.
+      cpu_storage_((accepted_storage &
+                    static_cast<uint32_t>(VideoFrameStorage::kCpuRgba)) &&
+                           !(accepted_storage & static_cast<uint32_t>(
+                                                    VideoFrameStorage::kCpuBgra))
+                       ? VideoFrameStorage::kCpuRgba
+                       : VideoFrameStorage::kCpuBgra),
       hardware_output_(hardware),
       frame_(av_frame_alloc()),
       av_packet_(av_packet_alloc()) {}
@@ -195,7 +204,7 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
   }
 #endif
   if (!result) {
-    result = ConvertToBgra(frame);
+    result = ConvertToCpu(frame);
   }
   if (!result) {
     return nullptr;
@@ -207,7 +216,7 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
   return result;
 }
 
-std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToBgra(AVFrame* frame) {
+std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
   if (frame->hw_frames_ctx) {
     // A hardware frame we cannot wrap; download it first.
     ScopedAVFrame downloaded(av_frame_alloc());
@@ -216,7 +225,7 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToBgra(AVFrame* frame) {
       return nullptr;
     }
     av_frame_copy_props(downloaded.get(), frame);
-    return ConvertToBgra(downloaded.get());
+    return ConvertToCpu(downloaded.get());
   }
   if (!sws_context_) {
     sws_context_ = sws_alloc_context();
@@ -228,23 +237,25 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToBgra(AVFrame* frame) {
     return nullptr;
   }
 
-  ScopedAVFrame bgra(av_frame_alloc());
-  bgra->format = AV_PIX_FMT_BGRA;
-  bgra->width = frame->width;
-  bgra->height = frame->height;
-  bgra->data[0] = data->data;
-  bgra->linesize[0] = stride;
-  bgra->color_range = AVCOL_RANGE_JPEG;
-  bgra->color_primaries = frame->color_primaries;
-  bgra->color_trc = frame->color_trc;
-  int ret = sws_scale_frame(sws_context_, bgra.get(), frame);
+  ScopedAVFrame output(av_frame_alloc());
+  output->format = cpu_storage_ == VideoFrameStorage::kCpuRgba
+                       ? AV_PIX_FMT_RGBA
+                       : AV_PIX_FMT_BGRA;
+  output->width = frame->width;
+  output->height = frame->height;
+  output->data[0] = data->data;
+  output->linesize[0] = stride;
+  output->color_range = AVCOL_RANGE_JPEG;
+  output->color_primaries = frame->color_primaries;
+  output->color_trc = frame->color_trc;
+  int ret = sws_scale_frame(sws_context_, output.get(), frame);
   if (ret < 0) {
     LOGE("sws_scale_frame: %s", AVErrorString(ret).c_str());
     return nullptr;
   }
 
   auto result = std::make_shared<VideoFrame>();
-  result->storage = VideoFrameStorage::kCpuBgra;
+  result->storage = cpu_storage_;
   result->width = frame->width;
   result->height = frame->height;
   result->data = data->data;

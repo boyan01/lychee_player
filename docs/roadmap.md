@@ -14,10 +14,13 @@ is done; add one when you find a gap. Order within a section is priority.
 Built, but never observed working. Cheap to close; do these before building
 on top of them.
 
-1. **CI** (`.github/workflows/ci.yml`): written but never run on GitHub,
-   since nothing has been pushed. It runs `NO_HW=1 tool/regression.sh`
-   (plain and TSan) and the Flutter macOS build on `macos-15`. Done when it
-   runs green there; the timing cases may need slack on shared runners.
+1. **CI** (`.github/workflows/ci.yml`): runs `NO_HW=1 tool/regression.sh`
+   (plain and TSan) and the Flutter macOS build on `macos-15`. The Flutter
+   build passes. The first runs failed timing cases (load on the shared
+   runner; those now run on the virtual clock) and every `http*` case: the
+   CLI got a URL without a port, so the media server did not report one
+   there. `serve` now prints the server's log when that happens. Done when
+   both regression jobs run green.
 2. **iOS on a device**: verified only on the iPhone 16 simulator (iOS
    plays, the example lays out on a phone, 0 dropped frames). The simulator
    decodes in software because VideoToolbox hwaccel fails there. Needs a

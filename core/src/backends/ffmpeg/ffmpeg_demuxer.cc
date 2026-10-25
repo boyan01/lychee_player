@@ -280,6 +280,12 @@ DemuxerReadResult FFmpegDemuxer::Read(EncodedPacket* packet) {
 
 bool FFmpegDemuxer::Seek(int64_t time) {
   interrupted_ = false;
+  // An interrupted read leaves AVERROR_EXIT in the AVIOContext, and FFmpeg
+  // later reports the end of the file as that error (read_frame_internal in
+  // libavformat/demux.c). The interrupt was ours; forget it.
+  if (format_context_->pb && format_context_->pb->error == AVERROR_EXIT) {
+    format_context_->pb->error = 0;
+  }
   read_end_ = time;
   // Land on the keyframe at or before |time|; decoders skip ahead to |time|.
   int ret = avformat_seek_file(format_context_, -1, INT64_MIN, time, time, 0);

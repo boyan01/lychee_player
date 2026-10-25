@@ -1,8 +1,12 @@
 // Headless player: plays a file while pulling frames at a simulated vsync
-// (60 Hz by default), and reports timing problems. Used for regression testing without a
-// UI toolkit.
+// (60 Hz by default), and reports timing problems. Used for regression
+// testing without a UI toolkit. With --virtual-time it runs on the library's
+// test clock (core/src/api/testing.h): as fast as decoding allows, and
+// independent of machine load.
 
 #include <lychee/lychee.h>
+
+#include "testing.h"
 
 #include <algorithm>
 #include <atomic>
@@ -40,6 +44,7 @@ struct Options {
   std::vector<std::pair<int32_t, int32_t>> selections;
   double select_after = 2;
   bool hardware = true;
+  bool virtual_time = false;
 #if defined(__APPLE__)
   int32_t frame_type = LYCHEE_FRAME_CVPIXELBUFFER;
 #else
@@ -168,6 +173,8 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       const char* v = value();
       if (!v) return false;
       options->select_after = atof(v);
+    } else if (arg == "--virtual-time") {
+      options->virtual_time = true;
     } else if (arg == "--no-hw") {
       options->hardware = false;
     } else if (arg == "--cpu") {
@@ -250,11 +257,14 @@ int main(int argc, char** argv) {
             "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
             "[--cpu | --rgba] [--rate R [--rate-after SEC]] [--loop] "
             "[--open-after SEC URL] [--select TYPE:INDEX]... "
-            "[--select-after SEC] <file or url>\n",
+            "[--select-after SEC] [--virtual-time] <file or url>\n",
             argv[0]);
     return 2;
   }
 
+  if (options.virtual_time) {
+    lychee_testing_enable_virtual_time();
+  }
   lychee_config config;
   lychee_config_init(&config);
   config.video_frame_types = options.frame_type;
@@ -326,10 +336,33 @@ int main(int argc, char** argv) {
   bool tracks_changed = false;
   int64_t loop_check_position = 0;
 
+  // Virtual time only: vsyncs where the player's threads did not catch up
+  // within kStallTimeout of real time.
+  constexpr auto kStallTimeout = std::chrono::seconds(2);
+  int64_t stalls = 0;
+
   for (;;) {
     next_vsync += vsync_interval;
-    std::this_thread::sleep_for(
-        std::chrono::microseconds(next_vsync - lychee_now_us()));
+    if (options.virtual_time) {
+      // Let the threads decode up to the frame this vsync will pick and the
+      // audio a device would buffer (kAudioAhead), then jump there.
+      constexpr int64_t kAudioAhead = 50000;
+      const int64_t until = next_vsync + vsync_interval + kAudioAhead;
+      const auto give_up = std::chrono::steady_clock::now() + kStallTimeout;
+      while (!lychee_testing_player_settled(player, until)) {
+        if (std::chrono::steady_clock::now() > give_up) {
+          printf("stall: threads not settled at %.3fs\n",
+                 (next_vsync - start) / 1e6);
+          stalls++;
+          break;
+        }
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
+      lychee_testing_set_time(next_vsync);
+    } else {
+      std::this_thread::sleep_for(
+          std::chrono::microseconds(next_vsync - lychee_now_us()));
+    }
     int64_t now = lychee_now_us();
     // Like a real display link: regular vsync timestamps, independent of how
     // late this thread woke up, give or take the timestamp jitter.
@@ -516,12 +549,12 @@ int main(int argc, char** argv) {
   printf("summary: state=%s position=%.3fs decoder=%s hw=%d pulled=%" PRId64
          " rendered=%" PRId64 " dropped=%" PRId64 " glitches=%" PRId64
          " backward_jumps=%" PRId64 " frame_type=%d rate=%.2f"
-         " max_drift=%.1fms loops=%" PRId64,
+         " max_drift=%.1fms loops=%" PRId64 " stalls=%" PRId64,
          StateName(lychee_player_get_state(player)),
          lychee_player_get_position(player) / 1e6, stats.video_decoder,
          stats.hardware_decoding, frames_pulled, stats.frames_rendered,
          stats.frames_dropped, glitches, backward_jumps, frame_type,
-         lychee_player_get_rate(player), max_drift / 1e3, loops);
+         lychee_player_get_rate(player), max_drift / 1e3, loops, stalls);
   if (seek_issued && first_pts_after_seek != INT64_MIN) {
     printf(" first_pts_after_seek=%.3fs", first_pts_after_seek / 1e6);
   }

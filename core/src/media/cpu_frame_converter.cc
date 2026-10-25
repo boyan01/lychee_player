@@ -35,11 +35,14 @@ std::shared_ptr<VideoFrame> CpuFrameConverter::Convert(
   for (int y = 0; y < frame->height; ++y) {
     const uint8_t* source = frame->data + static_cast<size_t>(y) * frame->stride;
     uint8_t* destination = pixels->data() + static_cast<size_t>(y) * stride;
+    // A pixel at a time, not a byte: a quarter of the memory accesses where
+    // nothing vectorizes this (debug and ThreadSanitizer builds).
     for (int x = 0; x < frame->width; ++x) {
-      destination[0] = source[2];
-      destination[1] = source[1];
-      destination[2] = source[0];
-      destination[3] = source[3];
+      uint32_t pixel;
+      std::memcpy(&pixel, source, 4);
+      pixel = (pixel & 0xff00ff00u) | ((pixel & 0xffu) << 16) |
+              ((pixel >> 16) & 0xffu);
+      std::memcpy(destination, &pixel, 4);
       source += 4;
       destination += 4;
     }

@@ -45,6 +45,9 @@ class VideoRenderer {
   bool IsStarved() const;
   // The last frame has been shown for its full duration.
   bool Ended(int64_t media_time) const;
+  // A decoded frame lasts past |media_time|, the queue is full, or the
+  // stream ended. For SettledForTesting().
+  bool HasFramesUntil(int64_t media_time) const;
   // The decoder failed for good; decoding has stopped.
   bool HasError() const;
   // Coded size of the frame last handed out by Acquire(); false before the
