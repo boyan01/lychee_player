@@ -1,6 +1,7 @@
 #include "pipeline/media_clock.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace lychee {
 
@@ -12,7 +13,7 @@ int64_t MediaClock::MediaTimeAt(int64_t system_time) const {
 int64_t MediaClock::MediaTimeAtLocked(int64_t system_time) const {
   int64_t media_time = anchor_media_time_;
   if (playing_) {
-    media_time += system_time - anchor_system_time_;
+    media_time += std::llround((system_time - anchor_system_time_) * rate_);
   }
   return std::min(media_time, max_media_time_);
 }
@@ -24,8 +25,9 @@ bool MediaClock::SystemTimesFor(const std::vector<int64_t>& media_times,
   int64_t anchor_system_time = playing_ ? anchor_system_time_ : now;
   system_times->clear();
   for (int64_t media_time : media_times) {
-    system_times->push_back(anchor_system_time + media_time -
-                            anchor_media_time_);
+    system_times->push_back(
+        anchor_system_time +
+        std::llround((media_time - anchor_media_time_) / rate_));
   }
   return playing_;
 }
@@ -59,6 +61,23 @@ void MediaClock::Pause() {
 bool MediaClock::playing() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return playing_;
+}
+
+void MediaClock::SetRate(double rate) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (rate <= 0 || rate == rate_) {
+    return;
+  }
+  // Re-anchor so the media time already elapsed keeps the old rate.
+  int64_t now = NowMicros();
+  anchor_media_time_ = MediaTimeAtLocked(now);
+  anchor_system_time_ = now;
+  rate_ = rate;
+}
+
+double MediaClock::rate() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return rate_;
 }
 
 void MediaClock::UpdateFromAudio(int64_t media_time,

@@ -43,6 +43,8 @@ bool AudioRenderer::Initialize(const AudioConfig& config,
     return false;
   }
   format_ = sink_->format();
+  algorithm_.Initialize(format_.channels, format_.sample_rate);
+  render_bus_ = AudioBus(format_.channels, 0);
   for (auto& decoder : CreateAudioDecoders()) {
     std::string decoder_error;
     if (decoder->Initialize(config, format_, &decoder_error)) {
@@ -111,7 +113,7 @@ void AudioRenderer::OnBuffer(std::shared_ptr<AudioBuffer> buffer,
   std::unique_lock<std::mutex> lock(mutex_);
   condition_.wait(lock, [&] {
     return stopped_ || generation != generation_ ||
-           buffered_duration_ < kMaxBufferedDuration;
+           BufferedDurationLocked() < kMaxBufferedDuration;
   });
   if (stopped_ || generation != generation_) {
     return;
@@ -132,56 +134,46 @@ void AudioRenderer::OnBuffer(std::shared_ptr<AudioBuffer> buffer,
                      buffer->sample_rate;
     }
   }
-  buffered_duration_ += buffer->duration();
-  buffers_.push_back(std::move(buffer));
+  algorithm_.EnqueueBuffer(std::move(buffer));
 }
 
 int AudioRenderer::Render(float* destination,
                           int frames,
                           int64_t playout_time) {
+  const float volume = volume_.load();
+  const double rate = rate_.load();
   int written = 0;
-  int64_t first_pts = kNoTimestamp;
-  float volume = volume_.load();
+  int64_t end_pts = kNoTimestamp;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!playing_) {
       return 0;
     }
-    while (written < frames && !buffers_.empty()) {
-      AudioBuffer& buffer = *buffers_.front();
-      if (first_pts == kNoTimestamp && buffer.pts != kNoTimestamp) {
-        first_pts = buffer.pts + static_cast<int64_t>(front_offset_) *
-                                     kMicrosPerSecond / buffer.sample_rate -
-                    static_cast<int64_t>(written) * kMicrosPerSecond /
-                        format_.sample_rate;
-      }
-      int count = std::min(buffer.frames() - front_offset_, frames - written);
-      const float* source =
-          buffer.samples.data() + front_offset_ * buffer.channels;
-      int samples = count * format_.channels;
-      float* out = destination + written * format_.channels;
-      for (int i = 0; i < samples; ++i) {
-        out[i] = source[i] * volume;
-      }
-      written += count;
-      front_offset_ += count;
-      if (front_offset_ >= buffer.frames()) {
-        buffered_duration_ -= buffer.duration();
-        buffers_.pop_front();
-        front_offset_ = 0;
-      }
+    if (render_bus_.frames() < frames) {
+      render_bus_.Resize(frames);
     }
+    written = algorithm_.FillBuffer(&render_bus_, 0, frames, rate);
+    end_pts = algorithm_.NextOutputTimestamp();
     if (written == 0 && end_of_stream_) {
-      // Audio is done; let video (if any) run on the system clock.
+      // WSOLA keeps less than a window it cannot use: drop it so the stream
+      // can end. Then let video (if any) run on the system clock.
+      algorithm_.FlushBuffers();
       clock_->ClearMaxTime();
     }
   }
   condition_.notify_all();
-  if (written > 0 && first_pts != kNoTimestamp) {
-    clock_->UpdateFromAudio(
-        first_pts, playout_time,
-        first_pts + static_cast<int64_t>(written) * kMicrosPerSecond /
-                        format_.sample_rate);
+  const int channels = format_.channels;
+  for (int k = 0; k < channels; ++k) {
+    const float* source = render_bus_.channel(k);
+    for (int i = 0; i < written; ++i) {
+      destination[i * channels + k] = source[i] * volume;
+    }
+  }
+  if (written > 0 && end_pts != kNoTimestamp) {
+    // |written| frames at |rate| cover this much media time.
+    const int64_t span = static_cast<int64_t>(
+        written * rate * kMicrosPerSecond / format_.sample_rate);
+    clock_->UpdateFromAudio(end_pts - span, playout_time, end_pts);
   }
   return written;
 }
@@ -191,9 +183,7 @@ void AudioRenderer::Flush(uint64_t generation, int64_t start_time) {
     std::lock_guard<std::mutex> lock(mutex_);
     generation_ = generation;
     start_time_ = start_time;
-    buffers_.clear();
-    front_offset_ = 0;
-    buffered_duration_ = 0;
+    algorithm_.FlushBuffers();
     end_of_stream_ = false;
   }
   condition_.notify_all();
@@ -218,24 +208,38 @@ void AudioRenderer::SetVolume(float volume) {
   volume_ = std::clamp(volume, 0.0f, 1.0f);
 }
 
+void AudioRenderer::SetRate(double rate) {
+  rate_ = rate;
+}
+
 bool AudioRenderer::HasEnoughData() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return end_of_stream_ || buffered_duration_ >= kPrerollDuration;
+  return end_of_stream_ || BufferedDurationLocked() >= kPrerollDuration;
 }
 
 bool AudioRenderer::IsStarved() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return buffers_.empty() && !end_of_stream_;
+  return algorithm_.BufferedFrames() == 0 && !end_of_stream_;
 }
 
 bool AudioRenderer::Ended() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return end_of_stream_ && buffers_.empty();
+  return end_of_stream_ && algorithm_.BufferedFrames() == 0;
 }
 
 bool AudioRenderer::HasError() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return failed_;
+}
+
+int64_t AudioRenderer::buffered_duration() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return BufferedDurationLocked();
+}
+
+int64_t AudioRenderer::BufferedDurationLocked() const {
+  return static_cast<int64_t>(algorithm_.BufferedFrames()) *
+         kMicrosPerSecond / format_.sample_rate;
 }
 
 }  // namespace lychee

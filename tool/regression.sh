@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Builds the core and plays a fixed media matrix through lychee_cli.
+# Builds the core, runs its unit tests, and plays a fixed media matrix
+# through lychee_cli.
 # Prints one PASS/FAIL line per case; exits non-zero if any case fails.
 #
 #   tool/regression.sh            # Debug build in build/
 #   TSAN=1 tool/regression.sh     # ThreadSanitizer build in build-tsan/
 #   MEDIA_DIR=... tool/regression.sh
+#   NO_HW=1 tool/regression.sh    # Software decoding only (CI runners)
 set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -57,11 +59,92 @@ rng = random.Random(1)
 data[600000:] = bytes(rng.randrange(256) for _ in range(len(data) - 600000))
 open(sys.argv[2], "wb").write(data)' "$media/faststart.mp4" "$media/corrupt.mp4"
 
+# Short, for looping and slow playback.
+gen loop.mp4 -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 3 \
+  -c:v libx264 -preset veryfast -pix_fmt yuv420p -c:a aac
+gen meta.mp4 -i "$media/h264_aac.mp4" -t 4 -c copy -metadata title="Lychee Test" \
+  -metadata artist="Lychee Artist" -metadata album="Lychee Album"
+# Subtitles, with markup that must not reach the text: SRT <i>, ASS
+# override blocks and \N, WebVTT <b>.
+[ -f "$media/subs.srt" ] || cat >"$media/subs.srt" <<'SRT'
+1
+00:00:01,000 --> 00:00:02,500
+Hello <i>world</i>
+
+2
+00:00:03,000 --> 00:00:04,500
+Second line
+with break
+
+3
+00:00:05,000 --> 00:00:06,000
+Third
+SRT
+[ -f "$media/subs_fre.srt" ] || cat >"$media/subs_fre.srt" <<'SRT'
+1
+00:00:01,000 --> 00:00:02,500
+Bonjour le monde
+
+2
+00:00:03,000 --> 00:00:04,500
+Deuxieme
+SRT
+[ -f "$media/subs.ass" ] || cat >"$media/subs.ass" <<'ASS'
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 640
+PlayResY: 360
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,{\b1}Bold{\b0} and, plain\Nnext line
+ASS
+[ -f "$media/subs.vtt" ] || cat >"$media/subs.vtt" <<'VTT'
+WEBVTT
+
+00:00:01.000 --> 00:00:02.500
+Hello <b>vtt</b>
+VTT
+subbed() {
+  local out="$1" sub="$2" codec="$3"
+  gen "$out" -i "$media/h264_aac.mp4" -i "$media/$sub" -map 0 -map 1 -t 7 -c:v copy -c:a copy \
+    -c:s "$codec" -disposition:s:0 default
+}
+subbed sub_srt.mkv subs.srt srt
+subbed sub_ass.mkv subs.ass ass
+subbed sub_vtt.mkv subs.vtt webvtt
+subbed sub_mov_text.mp4 subs.srt mov_text
+# Tracks 0 video, 1-2 audio (eng, fre), 3-4 subtitles (eng, fre).
+gen tracks.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=880:sample_rate=48000 \
+  -i "$media/subs.srt" -i "$media/subs_fre.srt" -map 0:v -map 0:a -map 1:a -map 2 -map 3 -t 8 \
+  -c:v copy -c:a:0 copy -c:a:1 aac -c:s srt -metadata:s:a:0 language=eng -metadata:s:a:1 language=fre \
+  -metadata:s:a:1 title=French -metadata:s:s:0 language=eng -metadata:s:s:1 language=fre \
+  -disposition:s:0 default -disposition:s:1 0
+
 failures=0
+
+# Unit tests first: they pinpoint a failure the playback cases only show.
+unit_out="$(TSAN_OPTIONS=halt_on_error=0 "$build/core/test/lychee_unittests" 2>&1)"
+if [ $? -eq 0 ] && ! grep -q "WARNING: ThreadSanitizer" <<<"$unit_out"; then
+  echo "PASS unittests ($(tail -1 <<<"$unit_out"))"
+else
+  echo "FAIL unittests"
+  grep -v '^PASS' <<<"$unit_out" | sed 's/^/  /'
+  failures=$((failures + 1))
+fi
+
 # check NAME EXPECT_HW EXPECT_SEEK_PTS -- CLI_ARGS...
 # EXPECT_HW: 1, 0, or - (no video). EXPECT_SEEK_PTS: seconds, or - for none.
 check() {
   local name="$1" hw="$2" seek_pts="$3"; shift 4
+  if [ "${NO_HW:-0}" = 1 ] && [ "$hw" = 1 ]; then
+    hw=0
+    set -- --no-hw "$@"
+  fi
   local out summary problems=""
   out="$(TSAN_OPTIONS=halt_on_error=0 "$cli" "$@" 2>&1)"
   summary="$(grep '^summary:' <<<"$out")"
@@ -90,28 +173,6 @@ check() {
   fi
 }
 
-check h264          1 - -- "$media/h264_aac.mp4"
-check hevc10        1 - -- "$media/hevc10.mp4"
-check vp9           1 - -- "$media/vp9_opus.webm"
-check av1-software  0 - -- "$media/av1.mkv"
-check rotated       1 - -- "$media/rotated.mp4"
-check audio-only    - - -- "$media/audio_only.mp3"
-check video-only    1 - -- "$media/video_only.mp4"
-check ts-offset     1 - -- "$media/offset.ts"
-check no-hw-cpu     0 - -- --no-hw --cpu "$media/h264_aac.mp4"
-# Cadence: 30, 24 and 60 fps at 60 Hz with jittered vsync timestamps (callers
-# that only know when they woke up), and refresh rates other than 60 Hz.
-check cadence-30fps 1 - -- --vsync-jitter 4000 "$media/h264_aac.mp4"
-check cadence-24fps 1 - -- --vsync-jitter 4000 "$media/hevc10.mp4"
-check cadence-60fps 1 - -- --vsync-jitter 4000 "$media/video_only.mp4"
-check cadence-50hz  1 - -- --refresh 50 --vsync-jitter 1000 "$media/hevc10.mp4"
-check cadence-144hz 1 - -- --refresh 144 --vsync-jitter 1000 "$media/video_only.mp4"
-check seek-forward  1 7.500 -- --seek 7.5 --seek-after 2 "$media/h264_aac.mp4"
-check seek-backward 1 1.000 -- --seek 1 --seek-after 5 "$media/hevc10.mp4"
-check seek-near-end 1 11.900 -- --seek 11.9 --seek-after 1 "$media/h264_aac.mp4"
-check seek-past-end 1 - -- --seek 30 --seek-after 1 "$media/offset.ts"
-check seek-audio    - - -- --seek 3 --seek-after 1 "$media/audio_only.mp3"
-
 # expect NAME PATTERN... -- CLI_ARGS: passes if the CLI output matches every
 # extended regex PATTERN. "<=N PATTERN" instead allows at most N matching lines.
 expect() {
@@ -119,6 +180,7 @@ expect() {
   local patterns=() out problems=""
   while [ "$1" != -- ]; do patterns+=("$1"); shift; done
   shift
+  [ "${NO_HW:-0}" = 1 ] && set -- --no-hw "$@"
   out="$(TSAN_OPTIONS=halt_on_error=0 "$cli" "$@" 2>&1)"
   grep -q "WARNING: ThreadSanitizer" <<<"$out" && problems+=" tsan-report"
   for pattern in "${patterns[@]}"; do
@@ -138,6 +200,79 @@ expect() {
     failures=$((failures + 1))
   fi
 }
+
+check h264          1 - -- "$media/h264_aac.mp4"
+check hevc10        1 - -- "$media/hevc10.mp4"
+check vp9           1 - -- "$media/vp9_opus.webm"
+check av1-software  0 - -- "$media/av1.mkv"
+check rotated       1 - -- "$media/rotated.mp4"
+check audio-only    - - -- "$media/audio_only.mp3"
+check video-only    1 - -- "$media/video_only.mp4"
+check ts-offset     1 - -- "$media/offset.ts"
+check no-hw-cpu     0 - -- --no-hw --cpu "$media/h264_aac.mp4"
+expect rgba "frame_type=4 " "state=ended" -- --rgba "$media/hevc10.mp4"
+expect no-hw-rgba "frame_type=4 " "state=ended" -- --no-hw --rgba "$media/h264_aac.mp4"
+# Cadence: 30, 24 and 60 fps at 60 Hz with jittered vsync timestamps (callers
+# that only know when they woke up), and refresh rates other than 60 Hz.
+check cadence-30fps 1 - -- --vsync-jitter 4000 "$media/h264_aac.mp4"
+check cadence-24fps 1 - -- --vsync-jitter 4000 "$media/hevc10.mp4"
+check cadence-60fps 1 - -- --vsync-jitter 4000 "$media/video_only.mp4"
+check cadence-50hz  1 - -- --refresh 50 --vsync-jitter 1000 "$media/hevc10.mp4"
+check cadence-144hz 1 - -- --refresh 144 --vsync-jitter 1000 "$media/video_only.mp4"
+check seek-forward  1 7.500 -- --seek 7.5 --seek-after 2 "$media/h264_aac.mp4"
+check seek-backward 1 1.000 -- --seek 1 --seek-after 5 "$media/hevc10.mp4"
+check seek-near-end 1 11.900 -- --seek 11.9 --seek-after 1 "$media/h264_aac.mp4"
+check seek-past-end 1 - -- --seek 30 --seek-after 1 "$media/offset.ts"
+check seek-audio    - - -- --seek 3 --seek-after 1 "$media/audio_only.mp3"
+
+# Playback rate. Drift (position vs. wall clock times the rate) stays small
+# only if both the clock and the WSOLA output follow the rate.
+small_drift="max_drift=([0-9]|[1-9][0-9]|1[0-4][0-9])\.[0-9]ms"
+few_glitches="summary:.*glitches=[0-3] "
+if [ "${TSAN:-0}" = 1 ]; then
+  # An unoptimized ThreadSanitizer build cannot run WSOLA in real time:
+  # audio falls behind, so only races and the end state are checked.
+  small_drift="max_drift="
+  few_glitches="glitches="
+fi
+expect rate-2x "summary: state=ended" "summary:.*dropped=[0-3] " "$few_glitches" "$small_drift" -- \
+  --rate 2 "$media/h264_aac.mp4"
+expect rate-half "summary: state=ended" "summary:.*dropped=[0-3] " "$few_glitches" "$small_drift" -- \
+  --rate 0.5 "$media/loop.mp4"
+expect rate-change "rate -> 1.50" "summary: state=ended" "summary:.*glitches=[0-5] " "$small_drift" -- \
+  --rate 1.5 --rate-after 2 "$media/h264_aac.mp4"
+expect rate-audio-only "summary: state=ended" "$small_drift" -- --rate 2 "$media/audio_only.mp3"
+expect rate-video-only "summary: state=ended" "$few_glitches" "$small_drift" -- \
+  --rate 2 "$media/video_only.mp4"
+# Looping: back to the start without ENDED or BUFFERING.
+expect loop "summary: state=ready" "loops=2" "summary:.*backward_jumps=0 " "<=0 event: state (ended|buffering)" -- \
+  --loop --seconds 8 "$media/loop.mp4"
+# A second open on the same player, while playing and while still loading.
+expect reopen "open -> " "<=0 event: state error" "video size 1280x720" "summary: state=ended position=8.000s" -- \
+  --open-after 2 "$media/video_only.mp4" "$media/h264_aac.mp4"
+expect reopen-loading "open -> " "<=0 event: state error" "summary: state=ended position=8.000s" -- \
+  --open-after 0 "$media/video_only.mp4" "$media/hevc10.mp4"
+# Track selection keeps the position.
+expect track-audio "select audio 2 at [0-9.]+s: accepted" "track 2: audio .* lang=fre title=French selected=1" \
+  "track switch: resumed [+-]0\.[0-2][0-9]{2}s" "summary: state=ended" -- --select audio:2 "$media/tracks.mkv"
+expect track-no-video "select video -1 at [0-9.]+s: accepted" "video size 0x0" "track switch: resumed [+-]0\.[0-2]" \
+  "summary: state=ended position=8\.[0-9]{3}s decoder=none" -- --select video:-1 "$media/tracks.mkv"
+expect track-subtitle "select subtitle 4 .*: accepted" "select video 1 .*: rejected" \
+  "subtitle at [0-9.]+s: Bonjour le monde" "<=0 subtitle at [0-9.]+s: Hello world" -- \
+  --select subtitle:4 --select video:1 --select-after 0.5 "$media/tracks.mkv"
+# Text subtitles: cues as plain text at their times.
+expect subtitle-srt "subtitle at [01]\.[0-9]{3}s: Hello world$" "subtitle at 2\.[0-9]{3}s: \(none\)" \
+  "subtitle at [34]\.[0-9]{3}s: Second line \| with break$" "summary: state=ended" -- "$media/sub_srt.mkv"
+expect subtitle-ass "subtitle at [01]\.[0-9]{3}s: Bold and, plain \| next line$" -- "$media/sub_ass.mkv"
+expect subtitle-webvtt "subtitle at [01]\.[0-9]{3}s: Hello vtt$" -- "$media/sub_vtt.mkv"
+expect subtitle-mov-text "subtitle at [01]\.[0-9]{3}s: Hello world$" -- "$media/sub_mov_text.mp4"
+# The position can read a few ms before the seek target: the audio frame
+# that contains it starts earlier.
+expect subtitle-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line" -- --seek 3.5 --seek-after 0.5 "$media/sub_srt.mkv"
+expect metadata "metadata: title=Lychee Test artist=Lychee Artist album=Lychee Album" "summary: state=ended" -- \
+  "$media/meta.mp4"
+expect stats "vbuf=[1-9]\.[0-9]{2}s abuf=[1-9]\.[0-9]{2}s vdec=([1-9][0-9]*\.[0-9]{2}|0\.[0-9][1-9]|0\.[1-9][0-9])ms" -- \
+  --seconds 3 "$media/h264_aac.mp4"
 
 # Network cases against a local server that injects faults. Each starts its
 # own server so a fault fires once.

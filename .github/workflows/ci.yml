@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  core-macos:
+    # Hosted runners are VMs; VideoToolbox may be missing there, so decode in
+    # software.
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        tsan: [0, 1]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: brew install ffmpeg ninja pkg-config glfw
+      - name: Regression
+        run: NO_HW=1 TSAN=${{ matrix.tsan }} tool/regression.sh
+
+  flutter-macos:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Install tools
+        run: brew install ffmpeg pkg-config
+      - name: Analyze
+        run: flutter analyze
+      - name: Build example
+        working-directory: flutter/example
+        run: LANG=en_US.UTF-8 flutter build macos --debug

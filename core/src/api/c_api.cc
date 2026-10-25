@@ -2,12 +2,15 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "base/log.h"
 #include "base/time.h"
 #include "lychee/lychee.h"
 #include "pipeline/player.h"
 
+using lychee::MediaType;
 using lychee::Player;
 using lychee::VideoFrame;
 
@@ -18,6 +21,27 @@ struct lychee_player {
 struct lychee_frame {
   std::shared_ptr<VideoFrame> frame;
 };
+
+static_assert(static_cast<int>(MediaType::kVideo) == LYCHEE_TRACK_VIDEO &&
+                  static_cast<int>(MediaType::kAudio) == LYCHEE_TRACK_AUDIO &&
+                  static_cast<int>(MediaType::kSubtitle) ==
+                      LYCHEE_TRACK_SUBTITLE,
+              "lychee_track_type mirrors MediaType");
+
+namespace {
+
+// Copies |text| NUL-terminated into |buffer|, truncated to fit. Returns the
+// full length.
+int32_t CopyString(const std::string& text, char* buffer, int32_t buffer_size) {
+  if (buffer && buffer_size > 0) {
+    size_t length = std::min(text.size(), static_cast<size_t>(buffer_size - 1));
+    memcpy(buffer, text.data(), length);
+    buffer[length] = '\0';
+  }
+  return static_cast<int32_t>(text.size());
+}
+
+}  // namespace
 
 extern "C" {
 
@@ -92,6 +116,83 @@ void lychee_player_set_volume(lychee_player* player, float volume) {
   player->player->SetVolume(volume);
 }
 
+void lychee_player_set_rate(lychee_player* player, double rate) {
+  player->player->SetRate(rate);
+}
+
+double lychee_player_get_rate(lychee_player* player) {
+  return player->player->rate();
+}
+
+void lychee_player_set_looping(lychee_player* player, int32_t looping) {
+  player->player->SetLooping(looping != 0);
+}
+
+int32_t lychee_player_is_looping(lychee_player* player) {
+  return player->player->looping() ? 1 : 0;
+}
+
+int32_t lychee_player_get_track_count(lychee_player* player) {
+  return static_cast<int32_t>(player->player->tracks().size());
+}
+
+int32_t lychee_player_get_track_info(lychee_player* player,
+                                     int32_t index,
+                                     lychee_track_info* info) {
+  std::vector<lychee::TrackInfo> tracks = player->player->tracks();
+  if (!info || index < 0 || index >= static_cast<int32_t>(tracks.size())) {
+    return -1;
+  }
+  const lychee::TrackInfo& track = tracks[index];
+  lychee_track_info result = {};
+  result.struct_size = sizeof(result);
+  result.type = static_cast<int32_t>(track.type);
+  result.id = track.stream_index;
+  result.selected = track.selected ? 1 : 0;
+  CopyString(track.codec, result.codec, sizeof(result.codec));
+  CopyString(track.language, result.language, sizeof(result.language));
+  CopyString(track.title, result.title, sizeof(result.title));
+  result.width = track.width;
+  result.height = track.height;
+  result.sample_rate = track.sample_rate;
+  result.channels = track.channels;
+  memcpy(info, &result, std::min<size_t>(info->struct_size, sizeof(result)));
+  return 0;
+}
+
+int32_t lychee_player_select_track(lychee_player* player,
+                                   int32_t type,
+                                   int32_t index) {
+  if (type != LYCHEE_TRACK_VIDEO && type != LYCHEE_TRACK_AUDIO &&
+      type != LYCHEE_TRACK_SUBTITLE) {
+    return -1;
+  }
+  return player->player->SelectTrack(static_cast<MediaType>(type), index) ? 0
+                                                                          : -1;
+}
+
+int32_t lychee_player_get_subtitle(lychee_player* player,
+                                   int64_t display_time_us,
+                                   char* buffer,
+                                   int32_t buffer_size) {
+  return CopyString(player->player->subtitle(display_time_us), buffer,
+                    buffer_size);
+}
+
+int32_t lychee_player_get_metadata(lychee_player* player,
+                                   const char* key,
+                                   char* buffer,
+                                   int32_t buffer_size) {
+  std::string value;
+  if (!key || !player->player->metadata(key, &value)) {
+    if (buffer && buffer_size > 0) {
+      buffer[0] = '\0';
+    }
+    return -1;
+  }
+  return CopyString(value, buffer, buffer_size);
+}
+
 int32_t lychee_player_get_state(lychee_player* player) {
   return static_cast<int32_t>(player->player->state());
 }
@@ -135,14 +236,7 @@ int32_t lychee_player_get_video_rotation(lychee_player* player) {
 int32_t lychee_player_get_error(lychee_player* player,
                                 char* buffer,
                                 int32_t buffer_size) {
-  std::string error = player->player->error();
-  if (buffer && buffer_size > 0) {
-    size_t length =
-        std::min(error.size(), static_cast<size_t>(buffer_size - 1));
-    memcpy(buffer, error.data(), length);
-    buffer[length] = '\0';
-  }
-  return static_cast<int32_t>(error.size());
+  return CopyString(player->player->error(), buffer, buffer_size);
 }
 
 void lychee_player_get_stats(lychee_player* player, lychee_stats* stats) {
@@ -154,6 +248,9 @@ void lychee_player_get_stats(lychee_player* player, lychee_stats* stats) {
   result.frames_dropped = player_stats.frames_dropped;
   snprintf(result.video_decoder, sizeof(result.video_decoder), "%s",
            player_stats.video_decoder);
+  result.video_buffered_us = player_stats.video_buffered;
+  result.audio_buffered_us = player_stats.audio_buffered;
+  result.video_decode_time_us = player_stats.video_decode_time;
   memcpy(stats, &result, std::min<size_t>(stats->struct_size, sizeof(result)));
 }
 

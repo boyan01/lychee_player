@@ -3,6 +3,7 @@
 #include "backends/ffmpeg/ffmpeg_demuxer.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 
@@ -117,6 +118,13 @@ void FFmpegDemuxer::BuildMediaInfo() {
                        ic->duration_estimation_method ==
                            AVFMT_DURATION_FROM_STREAM;
   read_end_ = media_info_.start_time;
+  const AVDictionaryEntry* tag = nullptr;
+  while ((tag = av_dict_iterate(ic->metadata, tag))) {
+    std::string key = tag->key;
+    std::transform(key.begin(), key.end(), key.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    media_info_.metadata.emplace_back(std::move(key), tag->value);
+  }
 
   for (unsigned i = 0; i < ic->nb_streams; ++i) {
     AVStream* stream = ic->streams[i];
@@ -128,6 +136,12 @@ void FFmpegDemuxer::BuildMediaInfo() {
             av_dict_get(stream->metadata, "language", nullptr, 0)) {
       info.language = language->value;
     }
+    if (const AVDictionaryEntry* title =
+            av_dict_get(stream->metadata, "title", nullptr, 0)) {
+      info.title = title->value;
+    }
+    info.default_track = (stream->disposition &
+                          (AV_DISPOSITION_DEFAULT | AV_DISPOSITION_FORCED)) != 0;
     auto codec_private = std::make_shared<FFmpegCodecParams>(par);
     std::vector<uint8_t> extradata(par->extradata,
                                    par->extradata + par->extradata_size);
@@ -163,6 +177,17 @@ void FFmpegDemuxer::BuildMediaInfo() {
       config.codec_private = codec_private;
     } else if (par->codec_type == AVMEDIA_TYPE_SUBTITLE) {
       info.type = MediaType::kSubtitle;
+      SubtitleConfig& config = info.subtitle;
+      config.codec_name = avcodec_get_name(par->codec_id);
+      const AVCodecDescriptor* descriptor =
+          avcodec_descriptor_get(par->codec_id);
+      config.text = descriptor && (descriptor->props & AV_CODEC_PROP_TEXT_SUB);
+      config.extradata = std::move(extradata);
+      config.codec_private = codec_private;
+      if (info.default_track && config.text &&
+          media_info_.default_subtitle_stream < 0) {
+        media_info_.default_subtitle_stream = info.index;
+      }
     }
     media_info_.streams.push_back(std::move(info));
   }

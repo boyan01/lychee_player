@@ -4,6 +4,7 @@
 
 #include <lychee/lychee.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cinttypes>
@@ -13,6 +14,8 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -25,11 +28,29 @@ struct Options {
   double seek_to = -1;
   double seek_after = 2;
   float volume = 0;
+  double rate = 1;
+  // Seconds after playback starts to apply |rate|; < 0: before opening.
+  double rate_after = -1;
+  bool loop = false;
+  // Open |reopen_url| on the same player this many seconds after playback
+  // starts; 0: right after the first open, while it is still loading.
+  std::string reopen_url;
+  double reopen_after = -1;
+  // lychee_track_type, track index (-1 disables).
+  std::vector<std::pair<int32_t, int32_t>> selections;
+  double select_after = 2;
   bool hardware = true;
-  bool cpu_frames = false;
+#if defined(__APPLE__)
+  int32_t frame_type = LYCHEE_FRAME_CVPIXELBUFFER;
+#else
+  int32_t frame_type = LYCHEE_FRAME_CPU_RGBA;
+#endif
 };
 
 std::atomic<int> g_seek_completed{0};
+std::atomic<bool> g_media_info{false};
+std::atomic<bool> g_tracks_changed{false};
+std::atomic<bool> g_subtitle_changed{false};
 
 const char* StateName(int32_t state) {
   switch (state) {
@@ -59,6 +80,14 @@ void OnEvent(void*, int32_t type, int64_t arg0, int64_t arg1) {
       break;
     case LYCHEE_EVENT_MEDIA_INFO:
       printf("event: media info, duration %.3fs\n", arg0 / 1e6);
+      g_media_info = true;
+      break;
+    case LYCHEE_EVENT_TRACKS_CHANGED:
+      printf("event: tracks changed\n");
+      g_tracks_changed = true;
+      break;
+    case LYCHEE_EVENT_SUBTITLE_CHANGED:
+      g_subtitle_changed = true;
       break;
     case LYCHEE_EVENT_VIDEO_SIZE_CHANGED:
       printf("event: video size %" PRId64 "x%" PRId64 "\n", arg0, arg1);
@@ -104,10 +133,47 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       const char* v = value();
       if (!v) return false;
       options->vsync_jitter = atoll(v);
+    } else if (arg == "--rate") {
+      const char* v = value();
+      if (!v || atof(v) <= 0) return false;
+      options->rate = atof(v);
+    } else if (arg == "--rate-after") {
+      const char* v = value();
+      if (!v) return false;
+      options->rate_after = atof(v);
+    } else if (arg == "--loop") {
+      options->loop = true;
+    } else if (arg == "--open-after") {
+      const char* v = value();
+      const char* url = value();
+      if (!v || !url) return false;
+      options->reopen_after = atof(v);
+      options->reopen_url = url;
+    } else if (arg == "--select") {
+      // TYPE:INDEX, TYPE one of video, audio, subtitle.
+      const char* v = value();
+      if (!v) return false;
+      std::string spec = v;
+      size_t colon = spec.find(':');
+      if (colon == std::string::npos) return false;
+      std::string type = spec.substr(0, colon);
+      int32_t track_type = type == "video"      ? LYCHEE_TRACK_VIDEO
+                           : type == "audio"    ? LYCHEE_TRACK_AUDIO
+                           : type == "subtitle" ? LYCHEE_TRACK_SUBTITLE
+                                                : 0;
+      if (!track_type) return false;
+      options->selections.emplace_back(track_type,
+                                       atoi(spec.c_str() + colon + 1));
+    } else if (arg == "--select-after") {
+      const char* v = value();
+      if (!v) return false;
+      options->select_after = atof(v);
     } else if (arg == "--no-hw") {
       options->hardware = false;
     } else if (arg == "--cpu") {
-      options->cpu_frames = true;
+      options->frame_type = LYCHEE_FRAME_CPU_BGRA;
+    } else if (arg == "--rgba") {
+      options->frame_type = LYCHEE_FRAME_CPU_RGBA;
     } else if (!arg.empty() && arg[0] != '-') {
       options->url = arg;
     } else {
@@ -115,6 +181,63 @@ bool ParseOptions(int argc, char** argv, Options* options) {
     }
   }
   return !options->url.empty();
+}
+
+const char* TrackTypeName(int32_t type) {
+  switch (type) {
+    case LYCHEE_TRACK_VIDEO:
+      return "video";
+    case LYCHEE_TRACK_AUDIO:
+      return "audio";
+    case LYCHEE_TRACK_SUBTITLE:
+      return "subtitle";
+  }
+  return "?";
+}
+
+void PrintTracks(lychee_player* player) {
+  int32_t count = lychee_player_get_track_count(player);
+  for (int32_t i = 0; i < count; ++i) {
+    lychee_track_info info = {};
+    info.struct_size = sizeof(info);
+    if (lychee_player_get_track_info(player, i, &info) != 0) {
+      continue;
+    }
+    printf("track %d: %s %s", i, TrackTypeName(info.type), info.codec);
+    if (info.type == LYCHEE_TRACK_VIDEO) {
+      printf(" %dx%d", info.width, info.height);
+    } else if (info.type == LYCHEE_TRACK_AUDIO) {
+      printf(" %d Hz %d ch", info.sample_rate, info.channels);
+    }
+    printf(" lang=%s title=%s selected=%d\n", info.language, info.title,
+           info.selected);
+  }
+}
+
+void PrintMetadata(lychee_player* player) {
+  printf("metadata:");
+  for (const char* key : {"title", "artist", "album"}) {
+    char value[256];
+    if (lychee_player_get_metadata(player, key, value, sizeof(value)) >= 0) {
+      printf(" %s=%s", key, value);
+    }
+  }
+  printf("\n");
+}
+
+// Subtitle lines joined with " | ", so a cue stays on one output line.
+std::string SubtitleText(lychee_player* player) {
+  char text[1024];
+  lychee_player_get_subtitle(player, 0, text, sizeof(text));
+  std::string result;
+  for (const char* c = text; *c; ++c) {
+    if (*c == '\n') {
+      result += " | ";
+    } else {
+      result += *c;
+    }
+  }
+  return result;
 }
 
 }  // namespace
@@ -125,26 +248,36 @@ int main(int argc, char** argv) {
     fprintf(stderr,
             "usage: %s [--seconds N] [--seek SEC [--seek-after SEC]] "
             "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
-            "[--cpu] <file or url>\n",
+            "[--cpu | --rgba] [--rate R [--rate-after SEC]] [--loop] "
+            "[--open-after SEC URL] [--select TYPE:INDEX]... "
+            "[--select-after SEC] <file or url>\n",
             argv[0]);
     return 2;
   }
 
   lychee_config config;
   lychee_config_init(&config);
-  config.video_frame_types = options.cpu_frames
-                                 ? LYCHEE_FRAME_CPU_BGRA
-                                 : LYCHEE_FRAME_CVPIXELBUFFER;
+  config.video_frame_types = options.frame_type;
   config.hardware_decoding = options.hardware ? 1 : 0;
 
   lychee_player* player = lychee_player_create(&config);
   lychee_player_set_event_callback(player, &OnEvent, nullptr);
   lychee_player_set_volume(player, options.volume);
+  lychee_player_set_looping(player, options.loop ? 1 : 0);
+  if (options.rate_after < 0) {
+    lychee_player_set_rate(player, options.rate);
+  }
   if (lychee_player_open(player, options.url.c_str()) != 0) {
     fprintf(stderr, "open rejected\n");
     return 1;
   }
   lychee_player_play(player);
+  bool reopened = false;
+  if (options.reopen_after == 0) {
+    printf("open -> %s\n", options.reopen_url.c_str());
+    lychee_player_open(player, options.reopen_url.c_str());
+    reopened = true;
+  }
 
   const int64_t vsync_interval =
       static_cast<int64_t>(1e6 / options.refresh_rate);
@@ -165,15 +298,33 @@ int main(int argc, char** argv) {
   // drift.
   int64_t drift_wall = 0;
   int64_t drift_position = 0;
+  // After (re)starting, the position holds still until the audio device
+  // starts playing, ~300 ms on Bluetooth: measure drift from when it moves.
+  bool drift_wait_motion = false;
   int32_t last_state = -1;
   // Smoothness: a frame lasting D on a display refreshing every I should stay
   // on screen floor(D/I) or ceil(D/I) vsyncs. Any other count is a glitch (a
-  // frame repeated or cut short), even when no frame was dropped.
+  // frame repeated or cut short), even when no frame was dropped. Counted
+  // from a second after playback starts: from jittered display times the
+  // library needs that long to estimate the refresh rate well enough for a
+  // cadence.
+  constexpr int64_t kSettleTime = 1000000;
   int64_t glitches = 0;
   int64_t vsyncs_on_screen = 0;
+  int32_t frame_type = 0;
   // The frame on screen has been shown only while playing steadily.
   bool steady = false;
   int exit_code = 0;
+  double rate = options.rate_after < 0 ? options.rate : 1;
+  bool rate_applied = options.rate_after < 0;
+  // Largest |drift| reported, a second after playback (re)starts.
+  int64_t max_drift = 0;
+  int64_t loops = 0;
+  bool selected = options.selections.empty();
+  // Position when the track change was requested; INT64_MIN once reported.
+  int64_t select_position = INT64_MIN;
+  bool tracks_changed = false;
+  int64_t loop_check_position = 0;
 
   for (;;) {
     next_vsync += vsync_interval;
@@ -189,11 +340,16 @@ int main(int argc, char** argv) {
       lychee_frame* frame = lychee_player_acquire_frame(player, display_time);
       if (frame) {
         int64_t pts = lychee_frame_get_pts(frame);
+        frame_type = lychee_frame_get_type(frame);
         // The first discontinuity after a seek is the seek landing.
-        bool discontinuity = last_pts != INT64_MIN &&
-                             (pts < last_pts || pts > last_pts + 500000);
-        if (steady && !discontinuity && pts > last_pts) {
-          double ideal = static_cast<double>(pts - last_pts) / vsync_interval;
+        bool discontinuity =
+            last_pts != INT64_MIN &&
+            (pts < last_pts ||
+             pts > last_pts + static_cast<int64_t>(500000 * rate));
+        bool settled = ready_wall != 0 && now - ready_wall >= kSettleTime;
+        if (steady && settled && !discontinuity && pts > last_pts) {
+          double ideal =
+              static_cast<double>(pts - last_pts) / rate / vsync_interval;
           if (vsyncs_on_screen < static_cast<int64_t>(ideal + 0.02) ||
               vsyncs_on_screen > static_cast<int64_t>(ideal - 0.02) + 1) {
             glitches++;
@@ -204,6 +360,9 @@ int main(int argc, char** argv) {
         if (seek_issued && first_pts_after_seek == INT64_MIN &&
             discontinuity) {
           first_pts_after_seek = pts;
+        } else if (options.loop && last_pts != INT64_MIN &&
+                   pts < last_pts - 1000000) {
+          // Looped back to the start.
         } else if (last_pts != INT64_MIN && pts < last_pts) {
           backward_jumps++;
         }
@@ -223,8 +382,77 @@ int main(int argc, char** argv) {
     if (state == LYCHEE_STATE_READY && last_state != LYCHEE_STATE_READY) {
       drift_wall = now;
       drift_position = position;
+      drift_wait_motion = true;
+    } else if (drift_wait_motion && position != drift_position) {
+      drift_wall = now;
+      drift_position = position;
+      drift_wait_motion = false;
     }
     last_state = state;
+
+    if (g_media_info.exchange(false)) {
+      PrintTracks(player);
+      PrintMetadata(player);
+    }
+    if (g_subtitle_changed.exchange(false)) {
+      std::string text = SubtitleText(player);
+      printf("subtitle at %.3fs: %s\n", position / 1e6,
+             text.empty() ? "(none)" : text.c_str());
+    }
+    if (options.loop && state == LYCHEE_STATE_READY) {
+      if (position < loop_check_position - 1000000) {
+        loops++;
+        printf("looped at %.3fs\n", loop_check_position / 1e6);
+        drift_wall = now;
+        drift_position = position;
+      }
+      loop_check_position = position;
+    }
+    if (!rate_applied && ready_wall != 0 &&
+        now - ready_wall >= static_cast<int64_t>(options.rate_after * 1e6)) {
+      rate_applied = true;
+      printf("rate -> %.2f\n", options.rate);
+      lychee_player_set_rate(player, options.rate);
+      rate = lychee_player_get_rate(player);
+      // Drift is measured per rate.
+      drift_wall = now;
+      drift_position = position;
+    }
+    if (!selected && ready_wall != 0 &&
+        now - ready_wall >= static_cast<int64_t>(options.select_after * 1e6)) {
+      selected = true;
+      select_position = position;
+      for (const auto& [type, index] : options.selections) {
+        int32_t result = lychee_player_select_track(player, type, index);
+        printf("select %s %d at %.3fs: %s\n", TrackTypeName(type), index,
+               position / 1e6, result == 0 ? "accepted" : "rejected");
+      }
+    }
+    if (g_tracks_changed.exchange(false)) {
+      tracks_changed = true;
+      PrintTracks(player);
+    }
+    if (tracks_changed && select_position != INT64_MIN &&
+        state == LYCHEE_STATE_READY) {
+      printf("track switch: resumed %+.3fs from %.3fs\n",
+             (position - select_position) / 1e6, select_position / 1e6);
+      select_position = INT64_MIN;
+      // The switch rebuffers; measure drift from here.
+      drift_wall = now;
+      drift_position = position;
+    }
+    if (!reopened && options.reopen_after > 0 && ready_wall != 0 &&
+        now - ready_wall >= static_cast<int64_t>(options.reopen_after * 1e6)) {
+      reopened = true;
+      printf("open -> %s\n", options.reopen_url.c_str());
+      lychee_player_open(player, options.reopen_url.c_str());
+      // A new timeline.
+      last_pts = INT64_MIN;
+      ready_wall = 0;
+      steady = false;
+      last_state = -1;
+      continue;
+    }
 
     if (options.seek_to >= 0 && !seek_issued && ready_wall != 0 &&
         now - ready_wall >= static_cast<int64_t>(options.seek_after * 1e6)) {
@@ -248,15 +476,21 @@ int main(int argc, char** argv) {
       lychee_player_get_stats(player, &stats);
       int64_t drift = 0;
       if (drift_wall && state == LYCHEE_STATE_READY) {
-        drift = (position - drift_position) - (now - drift_wall);
+        drift = (position - drift_position) -
+                static_cast<int64_t>((now - drift_wall) * rate);
+        if (now - drift_wall >= kSettleTime) {
+          max_drift = std::max(max_drift, std::abs(drift));
+        }
       }
       printf(
           "t=%5.1fs state=%-9s pos=%7.3fs buffered=%7.3fs decoder=%s hw=%d "
-          "rendered=%" PRId64 " dropped=%" PRId64 " drift=%+.1fms\n",
+          "rendered=%" PRId64 " dropped=%" PRId64
+          " drift=%+.1fms vbuf=%.2fs abuf=%.2fs vdec=%.2fms\n",
           (now - start) / 1e6, StateName(state), position / 1e6,
           lychee_player_get_buffered_position(player) / 1e6,
           stats.video_decoder, stats.hardware_decoding, stats.frames_rendered,
-          stats.frames_dropped, drift / 1e3);
+          stats.frames_dropped, drift / 1e3, stats.video_buffered_us / 1e6,
+          stats.audio_buffered_us / 1e6, stats.video_decode_time_us / 1e3);
       fflush(stdout);
     }
 
@@ -281,11 +515,13 @@ int main(int argc, char** argv) {
   lychee_player_get_stats(player, &stats);
   printf("summary: state=%s position=%.3fs decoder=%s hw=%d pulled=%" PRId64
          " rendered=%" PRId64 " dropped=%" PRId64 " glitches=%" PRId64
-         " backward_jumps=%" PRId64,
+         " backward_jumps=%" PRId64 " frame_type=%d rate=%.2f"
+         " max_drift=%.1fms loops=%" PRId64,
          StateName(lychee_player_get_state(player)),
          lychee_player_get_position(player) / 1e6, stats.video_decoder,
          stats.hardware_decoding, frames_pulled, stats.frames_rendered,
-         stats.frames_dropped, glitches, backward_jumps);
+         stats.frames_dropped, glitches, backward_jumps, frame_type,
+         lychee_player_get_rate(player), max_drift / 1e3, loops);
   if (seek_issued && first_pts_after_seek != INT64_MIN) {
     printf(" first_pts_after_seek=%.3fs", first_pts_after_seek / 1e6);
   }

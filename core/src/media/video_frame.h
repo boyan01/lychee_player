@@ -14,6 +14,7 @@ enum class VideoFrameStorage : uint32_t {
   // CVPixelBufferRef. Any pixel format; converters turn it into BGRA when
   // the caller asks for LYCHEE_FRAME_CVPIXELBUFFER.
   kCVPixelBuffer = 1 << 1,
+  kCpuRgba = 1 << 2,
 };
 
 struct VideoFrame {
@@ -23,7 +24,7 @@ struct VideoFrame {
   int64_t pts = kNoTimestamp;
   int64_t duration = 0;
 
-  // kCpuBgra.
+  // kCpuBgra and kCpuRgba.
   const uint8_t* data = nullptr;
   int stride = 0;
 

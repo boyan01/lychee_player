@@ -30,6 +30,9 @@ class PacketQueue {
   void Flush(uint64_t generation);
 
   void Abort();
+  // Empties the queue and undoes Abort(), for a new consumer. Later pushes
+  // belong to |generation|.
+  void Reset(uint64_t generation);
 
   bool empty() const;
   size_t bytes() const;

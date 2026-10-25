@@ -38,6 +38,14 @@ void PacketQueue::Abort() {
   condition_.notify_all();
 }
 
+void PacketQueue::Reset(uint64_t generation) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  entries_.clear();
+  bytes_ = 0;
+  generation_ = generation;
+  aborted_ = false;
+}
+
 bool PacketQueue::empty() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return entries_.empty();

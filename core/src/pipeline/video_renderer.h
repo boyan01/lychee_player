@@ -3,7 +3,6 @@
 
 #include <condition_variable>
 #include <cstdint>
-#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -14,6 +13,7 @@
 #include "pipeline/media_clock.h"
 #include "pipeline/packet_queue.h"
 #include "pipeline/video_renderer_algorithm.h"
+#include "pipeline/vsync_estimator.h"
 
 namespace lychee {
 
@@ -58,6 +58,8 @@ class VideoRenderer {
   bool is_hardware() const;
   int64_t frames_rendered() const;
   int64_t frames_dropped() const;
+  // Moving average of the time Decode() takes per packet.
+  int64_t average_decode_time() const;
 
  private:
   void DecodeLoop();
@@ -66,15 +68,6 @@ class VideoRenderer {
   // The frame to show at |display_time|. Runs the algorithm once per vsync
   // interval; later calls within the same interval get the same answer.
   std::shared_ptr<VideoFrame> SelectFrameLocked(int64_t display_time);
-  // Vsync interval, estimated from the display times the caller passes:
-  // the API has no refresh rate.
-  int64_t RenderIntervalLocked(int64_t display_time);
-  static int64_t EstimateRenderInterval(
-      const std::deque<int64_t>& display_intervals);
-  // Moves |display_time| onto the estimated vsync grid. Callers that only
-  // know when they woke up pass jittered times; the algorithm needs regular
-  // intervals.
-  int64_t SnapToVsyncLocked(int64_t display_time, int64_t interval);
 
   MediaClock* const clock_;
   const uint32_t accepted_storage_;
@@ -90,15 +83,13 @@ class VideoRenderer {
   // The algorithm's choice for the vsync at |selected_vsync_|.
   std::shared_ptr<VideoFrame> selected_;
   int64_t selected_vsync_ = kNoTimestamp;
-  int64_t vsync_grid_ = kNoTimestamp;
-  int64_t last_display_time_ = kNoTimestamp;
-  std::deque<int64_t> display_intervals_;
-  int64_t render_interval_ = 0;
-  int unexpected_intervals_ = 0;
+  VsyncEstimator vsync_estimator_;
   // The frame last handed out by Acquire().
   std::shared_ptr<VideoFrame> current_;
   // |current_| predates the last seek; replace it as soon as possible.
   bool current_stale_ = true;
+  // No frame has been selected since the last flush.
+  bool first_frame_pending_ = true;
   uint64_t generation_ = 0;
   int64_t start_time_ = kNoTimestamp;
   bool end_of_stream_ = false;
@@ -108,6 +99,7 @@ class VideoRenderer {
   int shown_height_ = 0;
   int64_t frames_rendered_ = 0;
   int64_t frames_dropped_ = 0;
+  int64_t average_decode_time_ = 0;
 };
 
 }  // namespace lychee

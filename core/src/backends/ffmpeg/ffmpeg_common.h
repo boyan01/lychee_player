@@ -41,6 +41,7 @@ AVCodecID AVCodecIDFromAudioCodec(AudioCodec codec);
 // present, otherwise rebuilt from the portable fields.
 AVCodecParameters* CreateCodecParameters(const VideoConfig& config);
 AVCodecParameters* CreateCodecParameters(const AudioConfig& config);
+AVCodecParameters* CreateCodecParameters(const SubtitleConfig& config);
 
 // Copies |packet| into |av_packet|, adding the padding FFmpeg decoders
 // require. Returns a negative AVERROR on failure.

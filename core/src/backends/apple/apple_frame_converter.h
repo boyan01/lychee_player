@@ -4,12 +4,14 @@
 #include <CoreVideo/CoreVideo.h>
 #include <VideoToolbox/VideoToolbox.h>
 
+#include "media/cpu_frame_converter.h"
 #include "media/frame_converter.h"
 
 namespace lychee {
 
 // Converts between CPU BGRA and BGRA CVPixelBuffers, and turns CVPixelBuffers
-// of other formats (e.g. NV12) into BGRA with VTPixelTransferSession.
+// of other formats (e.g. NV12) into BGRA with VTPixelTransferSession. CPU
+// RGBA goes through CPU BGRA.
 class AppleFrameConverter : public FrameConverter {
  public:
   AppleFrameConverter();
@@ -25,6 +27,7 @@ class AppleFrameConverter : public FrameConverter {
   std::shared_ptr<VideoFrame> ToCpuBgra(
       const std::shared_ptr<VideoFrame>& frame);
 
+  CpuFrameConverter cpu_converter_;
   VTPixelTransferSessionRef transfer_session_ = nullptr;
   CVPixelBufferPoolRef pool_ = nullptr;
   int pool_width_ = 0;

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/time.h"
@@ -54,13 +55,25 @@ struct AudioConfig {
   std::shared_ptr<const CodecPrivate> codec_private;
 };
 
+struct SubtitleConfig {
+  std::string codec_name;
+  // Timed text (SRT, WebVTT, mov_text, ASS, ...) rather than bitmaps.
+  bool text = false;
+  std::vector<uint8_t> extradata;
+  std::shared_ptr<const CodecPrivate> codec_private;
+};
+
 struct StreamInfo {
   int index = -1;
   MediaType type = MediaType::kUnknown;
   int64_t duration = kNoTimestamp;
   std::string language;
+  std::string title;
+  // The container marks it as the track to play by default.
+  bool default_track = false;
   VideoConfig video;
   AudioConfig audio;
+  SubtitleConfig subtitle;
 };
 
 struct MediaInfo {
@@ -73,6 +86,10 @@ struct MediaInfo {
   // Indices into |streams| the demuxer suggests, or -1.
   int default_video_stream = -1;
   int default_audio_stream = -1;
+  // Only a stream the container marks as default (or forced).
+  int default_subtitle_stream = -1;
+  // Container tags (title, artist, album, ...), keys lowercase.
+  std::vector<std::pair<std::string, std::string>> metadata;
 };
 
 inline int VideoConfig::display_width() const {

@@ -1,9 +1,10 @@
 # Roadmap
 
-State as of 2026-10-24 (commit 12c0538): a macOS MVP. The core plays local
-files with VideoToolbox decoding (through FFmpeg's hwaccel), CoreAudio
-output, accurate seek, and pull-based frame selection; the Flutter macOS
-plugin shows it through a texture. Everything below is unfinished.
+State as of 2026-10-25: the core plays files and network streams through
+FFmpeg, with accurate seek, pull-based frame selection, playback rate
+(WSOLA), looping and reopening, track selection, text subtitles and
+metadata. The Flutter plugin runs on macOS and iOS (VideoToolbox), Android,
+Windows and Linux (software decoding). Everything below is unfinished.
 
 Each item says where the work goes and when it is done. Remove an item when it
 is done; add one when you find a gap. Order within a section is priority.
@@ -13,48 +14,87 @@ is done; add one when you find a gap. Order within a section is priority.
 Built, but never observed working. Cheap to close; do these before building
 on top of them.
 
-None as of 2026-10-24.
+1. **CI** (`.github/workflows/ci.yml`): written but never run on GitHub,
+   since nothing has been pushed. It runs `NO_HW=1 tool/regression.sh`
+   (plain and TSan) and the Flutter macOS build on `macos-15`. Done when it
+   runs green there; the timing cases may need slack on shared runners.
+2. **iOS on a device**: verified only on the iPhone 16 simulator (iOS
+   plays, the example lays out on a phone, 0 dropped frames). The simulator
+   decodes in software because VideoToolbox hwaccel fails there. Needs a
+   device run (`tool/build_ffmpeg.sh ios-arm64`, then
+   `tool/package_ffmpeg_apple.sh`) for hardware decoding, audio session
+   interruptions (a phone call) and route changes (unplugging headphones).
+   On a busy Mac (load 4-7) the simulator showed 300-324 of 360 frames
+   with `dropped 0`: the frame selection skips frames by cadence when the
+   pull rate falls below the frame rate, and those do not count as
+   dropped. Check the count on a device; if it is short there too, find
+   out why the display link pulls slower than 60 Hz.
 
 ## Known defects
 
-1. **Audio output format is fixed at open.** If the default device changes
-   (headphones unplugged) to a different sample rate, the resampler target
-   and latency are stale. Listen for device changes in `CoreAudioSink`.
+1. **Linux RSS grows on file switches**: about 40 MB per switch with
+   glibc's default malloc, without a plateau over 30 switches; flat at
+   ~740 MB with `MALLOC_ARENA_MAX=2`. Each player's new threads get their
+   own malloc arenas, which keep the freed 1080p frames. Fix: pool frame
+   buffers across players, or `malloc_trim` after a player is destroyed.
+2. **Clock drift after a loop**: `lychee_cli --loop` reports `max_drift`
+   around -60 ms after the jump back to the start, against ~-10 ms before
+   (macOS and Windows). The audio clock is probably re-anchored before the
+   first post-loop audio reaches the device. Done when drift after a loop
+   matches drift before it, with a regression case asserting it.
+3. **Position jumps back after an audio track switch** with software
+   decoding (`--no-hw --select audio:2`: `backward_jumps=1`, every run on
+   macOS and Windows; 0 with VideoToolbox). Done when the switch resumes
+   without a backward jump and the regression case asserts
+   `backward_jumps=0`.
+4. **Glitches after a seek on Linux**: `seek-forward` shows exactly 3
+   glitches in every WSL run (the case allows 3), 0 on macOS. Probably the
+   PulseAudio stream's latency estimate settling after the flush. Done when
+   it shows 0-1 there.
 
 ## Features
 
-1. **Playback rate** with pitch preserved: port Chromium's
-   `media/filters/audio_renderer_algorithm.cc` (WSOLA) into
-   `AudioRenderer`; the clock gains a rate. API: `lychee_player_set_rate`.
-2. **Track selection**: list audio/video tracks from `MediaInfo`, switch at
-   runtime (`Demuxer::SetEnabledStreams` exists; renderers must be
-   re-initialized).
-3. **Subtitles**: none yet. Text subtitles first (SRT, WebVTT, mov_text) as
-   timed cues over the C API; rendering stays in the UI. ASS/libass later.
-4. **HDR / 10-bit**: frames are converted to 8-bit BGRA, so HDR is clipped.
+1. **HDR / 10-bit**: frames are converted to 8-bit BGRA, so HDR is clipped.
    Needs a 10-bit or YUV handle type plus color metadata across the C API,
    and EDR on macOS.
-5. **Metadata and stats**: title/artist/artwork; richer `lychee_stats`
-   (buffer levels, decode time).
-6. **Looping**, and opening a new URL on an existing player (today a
-   `Player` opens once; Flutter creates one per file).
+2. **Subtitles beyond plain text**: text cues (SRT, WebVTT, mov_text, ASS
+   text with tags stripped) work. Missing: ASS styling and positioning
+   (libass), bitmap subtitles (PGS, DVB, VobSub), and cues that started
+   before a subtitle track is switched on mid-file (they appear only from
+   the next cue).
+3. **Artwork**: `lychee_player_get_metadata` returns text tags only;
+   attached pictures are not exposed.
 
 ## Platforms
 
-Each needs a decoder path, an `AudioSink`, a `FrameConverter`, a Flutter
-texture bridge, a renderer in `examples/glfw` (D3D11 on Windows, GL or
-Vulkan with dmabuf import on Linux), and its own `tool/regression.sh` run.
+Every platform plays through FFmpeg software decoding and CPU RGBA frames
+except Apple's (VideoToolbox, `CVPixelBuffer`). What is left per platform is
+hardware decoding with zero-copy frames, a renderer in `examples/glfw`
+(Metal only today), and its own `tool/regression.sh` run.
 
-1. **iOS**: `CoreAudioSink` already compiles a RemoteIO path but has no
-   `AVAudioSession` handling and has never run. Plugin texture bridge is the
-   same as macOS.
-2. **Windows**: D3D11VA decoding, frames as D3D11 textures shared with
-   Flutter's GPU surface texture, WASAPI output.
-3. **Linux**: VAAPI decoding, dmabuf → EGLImage into `FlTextureGL`,
-   PipeWire/PulseAudio output. This is where media-kit had the most texture
-   bugs; budget for it.
-4. **Android**: MediaCodec decoding to a Surface, AAudio output.
-5. **Swift Package Manager**: add `flutter/macos/lychee_player/Package.swift`;
+1. **Android hardware decoding**: today FFmpeg decodes in software, the
+   plugin copies RGBA rows into the `SurfaceProducer`'s window on a
+   Choreographer thread. On the Pixel 10 emulator (4 vCPUs) 1080p30 runs at
+   30 fps with a few drops per second: the raster thread, the copy and the
+   decoder together fill the CPU. Decode with MediaCodec straight into the
+   `SurfaceProducer`'s Surface (FFmpeg's `*_mediacodec` decoders with
+   `av_jni_set_java_vm`, or NDK `AMediaCodec`), which needs a frame type
+   for "already on the Surface" and moves frame selection to release time.
+   Not yet run on a real device; AAudio route changes are untested.
+2. **Windows hardware decoding**: D3D11VA, frames as D3D11 textures shared
+   with Flutter's GPU surface texture instead of the `PixelBufferTexture`
+   upload. The FFmpeg DLLs (BtbN's LGPLv3 build, ~120 MB) should become a
+   slim build of our own. Unverified there: device switching, multiple
+   monitors, audible output, `tool/regression.sh` (needs bash), and the
+   integration test.
+3. **Linux hardware decoding**: VAAPI decoding, dmabuf → EGLImage into
+   `FlTextureGL` instead of the `FlPixelBufferTexture` copy. This is where
+   media-kit had the most texture bugs; budget for it. The bundled FFmpeg
+   (BtbN, LGPLv3, ~130 MB) should become a decode-only
+   `tool/build_ffmpeg.sh linux-x86_64` build (smaller, LGPL 2.1). Unverified
+   there: the Impeller renderer (the VM runs with it off) and a build from
+   22.04 running on 26.04.
+4. **Swift Package Manager**: add `flutter/darwin/lychee_player/Package.swift`;
    Flutter already warns that CocoaPods-only plugins will become an error.
 
 ## FFmpeg-free builds
@@ -78,15 +118,10 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
 1. **LGPL FFmpeg**: build an LGPL-only FFmpeg per platform, bundle it as
    dynamic libraries/frameworks, and replace the podspec's pkg-config
    lookup. Required before any release.
-2. **CI**: run `tool/regression.sh` (and the TSan variant) on a macOS runner.
-   Hardware decoding may be unavailable on CI runners; the script's `hw=1`
-   expectations will need a software-only mode.
-3. **Unit tests** for `MediaClock`, `PacketQueue`, and frame selection, which
-   today are only tested end to end.
-4. **pub.dev packaging**: the plugin in `flutter/` compiles `../core` through
+2. **pub.dev packaging**: the plugin in `flutter/` compiles `../core` through
    forwarders, and `flutter pub publish` only packs `flutter/`, so today the
    plugin works only as a path or git dependency. Decide together with item 1
    (most likely: ship a prebuilt core next to the prebuilt FFmpeg). Done when
    `flutter pub publish --dry-run` produces a package that builds in a fresh
    app.
-5. **Example app**: a file picker instead of a path field.
+3. **Example app**: a file picker instead of a path field.

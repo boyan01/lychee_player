@@ -67,6 +67,12 @@ std::shared_ptr<VideoFrame> AppleFrameConverter::Convert(
   if (Accepts(accepted, VideoFrameStorage::kCpuBgra)) {
     return ToCpuBgra(frame);
   }
+  if (Accepts(accepted, VideoFrameStorage::kCpuRgba)) {
+    std::shared_ptr<VideoFrame> bgra =
+        frame->storage == VideoFrameStorage::kCVPixelBuffer ? ToCpuBgra(frame)
+                                                            : frame;
+    return bgra ? cpu_converter_.Convert(bgra, accepted) : nullptr;
+  }
   return nullptr;
 }
 

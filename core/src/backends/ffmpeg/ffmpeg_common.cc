@@ -178,6 +178,22 @@ AVCodecParameters* CreateCodecParameters(const AudioConfig& config) {
   return parameters;
 }
 
+AVCodecParameters* CreateCodecParameters(const SubtitleConfig& config) {
+  AVCodecParameters* parameters = avcodec_parameters_alloc();
+  if (const AVCodecParameters* attached =
+          AttachedParameters(config.codec_private)) {
+    avcodec_parameters_copy(parameters, attached);
+    return parameters;
+  }
+  parameters->codec_type = AVMEDIA_TYPE_SUBTITLE;
+  if (const AVCodecDescriptor* descriptor =
+          avcodec_descriptor_get_by_name(config.codec_name.c_str())) {
+    parameters->codec_id = descriptor->id;
+  }
+  CopyExtradata(config.extradata, parameters);
+  return parameters;
+}
+
 static_assert(kPacketPadding >= AV_INPUT_BUFFER_PADDING_SIZE,
               "decoders need FFmpeg's padding after packet data");
 

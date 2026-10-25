@@ -6,8 +6,14 @@ if(APPLE)
 endif()
 
 option(LYCHEE_BUILD_EXAMPLES "Build the example programs" ON)
+option(LYCHEE_BUILD_TESTS "Build the unit tests" ON)
 
 add_subdirectory(core)
+
+if(LYCHEE_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(core/test)
+endif()
 
 if(LYCHEE_BUILD_EXAMPLES)
   add_subdirectory(examples/cli)

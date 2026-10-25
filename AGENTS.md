@@ -56,9 +56,10 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
 
 ## Verifying a change
 
-`tool/regression.sh` builds the core and plays a fixed media matrix through
-`examples/cli` (headless, simulated 60 Hz vsync, muted). It prints
-PASS/FAIL per case. Done means:
+`tool/regression.sh` builds the core, runs the unit tests in `core/test`,
+and plays a fixed media matrix through `examples/cli` (headless, simulated
+60 Hz vsync, muted). It prints PASS/FAIL per case; `NO_HW=1` decodes in
+software, as on CI. Done means:
 
 - `tool/regression.sh` passes with zero build warnings.
 - For changes to `pipeline/`, threading, or teardown: `TSAN=1
@@ -71,22 +72,50 @@ PASS/FAIL per case. Done means:
 - For changes to player lifetime or teardown (Dart, plugin, or core):
   `cd flutter/example && flutter test integration_test -d macos` also
   passes. It switches files repeatedly and checks that exactly one player's
-  threads remain.
+  threads remain. On Android it runs the same way (`-d emulator-5554`), but
+  `flutter test` reinstalls the app, so serve the media instead:
+  `python3 tool/serve_media.py /tmp/lychee-media 8765` and
+  `--dart-define=LYCHEE_MEDIA=http://10.0.2.2:8765`.
+- For plugin changes on other platforms: iOS on a simulator (`flutter build
+  ios --simulator`, `xcrun simctl install/launch`, `xcrun simctl io
+  screenshot`), Android on an emulator (`flutter build apk --debug`, `adb
+  install`, `adb exec-out screencap`), Windows and Linux with the
+  `flutter-remote-test` skill (`remote-test ... --project flutter/example`).
+  Look at the screenshot: the stats line should show frames rendering at
+  the video's rate.
 - For changes to what ends up on screen (frame selection, conversion,
   rotation): run `build/examples/glfw/lychee_glfw` on a test file and look at
   a window screenshot. It has no Flutter in between, so it also tells core
   bugs from texture bridge bugs.
 - A new behaviour gets a case in `tool/regression.sh` when the CLI can
-  observe it.
+  observe it, and a unit test in `core/test` when it is a pure algorithm
+  (clock, queue, frame selection, vsync estimation). The tests use the tiny
+  harness in `core/test/test.h`; there is no test framework dependency.
 
 ## Gotchas
 
-- After adding or removing a `.cc` under `core/src`, run
-  `python3 tool/generate_forwarders.py`. The macOS pod compiles the core only
-  through those forwarders and silently misses new files otherwise. Then run
-  `pod install` in `flutter/example/macos`: the Pods project lists the
-  forwarders, and the example fails to link with undefined symbols until it
-  is regenerated.
+- After adding or removing a `.cc` or `.mm` under `core/src`, run
+  `python3 tool/generate_forwarders.py`. The iOS/macOS pod
+  (`flutter/darwin`) compiles the core only through those forwarders and
+  silently misses new files otherwise. Then run `pod install` in
+  `flutter/example/macos` and `flutter/example/ios`: the Pods projects list
+  the forwarders, and the example fails to link with undefined symbols until
+  they are regenerated.
+- iOS and Android have no system FFmpeg. Build the LGPL one once per
+  platform with `tool/build_ffmpeg.sh PLATFORM <ffmpeg source>` into
+  `third_party/ffmpeg/` (`ios-sim-arm64` and `ios-sim-x86_64` for the
+  simulator, `ios-arm64` for devices, `android-arm64-v8a`), then
+  `tool/package_ffmpeg_apple.sh` for iOS; the pod vendors the result from
+  `flutter/darwin/Frameworks`, the Android plugin links
+  `third_party/ffmpeg/android-ABI` directly. Use the FFmpeg major version
+  Homebrew has: the core follows the current FFmpeg API (e.g.
+  `sws_free_context`).
+- The iOS simulator slice must hold both arm64 and x86_64: Flutter builds the
+  simulator for both, and CocoaPods silently copies nothing from an
+  xcframework slice that lacks one, so the app fails to link with
+  "Framework 'libavcodec' not found".
+- VideoToolbox hwaccel fails to initialize in the iOS simulator; the
+  simulator decodes in software (`sw` in the example's stats).
 - Run CocoaPods with `LANG=en_US.UTF-8`, or `pod install` aborts.
 - `flutter test integration_test -d macos` builds into the same
   `build/macos/.../lychee_player_example.app` as `flutter build macos`, with
@@ -98,6 +127,26 @@ PASS/FAIL per case. Done means:
   after touching decoder setup.
 - Homebrew's FFmpeg is a GPL build and is linked only for development; the
   `ld: building for macOS-12.0` warnings in the example build come from it.
+- Flutter builds Android native code at `-O0` in debug apps; the plugin's
+  CMake forces `-O2` on the core, or per-pixel frame work alone caps 1080p
+  at ~14 fps.
+- On the development Mac the Kotlin compile daemon can hang `flutter build
+  apk` for many minutes; prefix the command with
+  `env 'ORG_GRADLE_PROJECT_kotlin.compiler.execution.strategy=in-process'`.
+- Threads the core starts inherit the creator's priority, which on Android is
+  the platform thread's (nice -10). Plugin threads that pull frames must run
+  at display priority or software decoding starves them.
+- On Linux (WSL Ubuntu 22.04), `TSAN=1` dies with "unexpected memory
+  mapping" unless run under `setarch x86_64 -R`. With GCC 11 it then reports
+  false double locks and races in `player.cc`: GCC 11's libtsan does not
+  intercept `pthread_cond_clockwait`, which libstdc++'s `wait_for` uses.
+  Use clang's TSan there (`CC=clang CXX=clang++`, in a fresh `build-tsan`:
+  CMake reads them only on the first configure), with suppressions for the
+  uninstrumented FFmpeg and libpulse. Software decoding under TSan is far
+  slower than real time on Linux, so only the reports, not the timing
+  checks, mean anything.
 - The default output device on the development Mac is a virtual device that
   reports zero latency, so `latency 0 us` in the CoreAudio log is expected
-  there.
+  there. The CLI plays muted but still opens the default device; Bluetooth
+  headphones take ~300 ms to start, so it measures drift from when the
+  position first moves, not from READY.

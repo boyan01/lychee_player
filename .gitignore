@@ -10,3 +10,8 @@ pubspec.lock
 .flutter-plugins-dependencies
 *.iml
 build-*/
+third_party/ffmpeg/
+flutter/darwin/Frameworks/
+.cxx/
+.gradle/
+local.properties

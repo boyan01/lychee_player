@@ -32,7 +32,8 @@
 extern "C" {
 #endif
 
-#define LYCHEE_API_VERSION 1
+// 2: rate, looping, reopening, tracks, subtitles, metadata, more stats.
+#define LYCHEE_API_VERSION 2
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -44,6 +45,9 @@ typedef enum lychee_frame_type {
   LYCHEE_FRAME_CPU_BGRA = 1 << 0,
   // A kCVPixelFormatType_32BGRA CVPixelBufferRef backed by an IOSurface.
   LYCHEE_FRAME_CVPIXELBUFFER = 1 << 1,
+  // CPU memory, 32-bit RGBA: what Flutter's pixel buffer textures take on
+  // Linux, Windows and Android.
+  LYCHEE_FRAME_CPU_RGBA = 1 << 2,
 } lychee_frame_type;
 
 typedef enum lychee_state {
@@ -78,7 +82,21 @@ typedef enum lychee_event_type {
   LYCHEE_EVENT_SEEK_COMPLETED = 5,
   // Details are available from lychee_player_get_error().
   LYCHEE_EVENT_ERROR = 6,
+  // A lychee_player_select_track() request was carried out; the selected
+  // tracks may differ from the request if a decoder rejected one.
+  LYCHEE_EVENT_TRACKS_CHANGED = 7,
+  // The subtitle text on screen changed. arg0: its length in bytes, 0 if
+  // none. Read it with lychee_player_get_subtitle().
+  LYCHEE_EVENT_SUBTITLE_CHANGED = 8,
 } lychee_event_type;
+
+typedef enum lychee_track_type {
+  LYCHEE_TRACK_VIDEO = 1,
+  LYCHEE_TRACK_AUDIO = 2,
+  // Text subtitles (SRT, WebVTT, mov_text, ASS/SSA as plain text). Bitmap
+  // subtitles are listed but cannot be selected.
+  LYCHEE_TRACK_SUBTITLE = 3,
+} lychee_track_type;
 
 typedef enum lychee_log_level {
   LYCHEE_LOG_ERROR = 0,
@@ -115,7 +133,33 @@ typedef struct lychee_stats {
   int64_t frames_rendered;
   int64_t frames_dropped;
   char video_decoder[32];
+  // API version 2. Media read ahead of the playback position.
+  int64_t video_buffered_us;
+  int64_t audio_buffered_us;
+  // Moving average of the time decoding one video packet takes.
+  int64_t video_decode_time_us;
 } lychee_stats;
+
+typedef struct lychee_track_info {
+  // Must be sizeof(lychee_track_info).
+  uint32_t struct_size;
+  // lychee_track_type.
+  int32_t type;
+  // The container's stream index.
+  int32_t id;
+  int32_t selected;
+  // NUL-terminated, truncated to fit.
+  char codec[32];
+  // ISO 639 code from the container, or empty.
+  char language[16];
+  char title[128];
+  // Video: display size (sample aspect ratio applied). Otherwise 0.
+  int32_t width;
+  int32_t height;
+  // Audio. Otherwise 0.
+  int32_t sample_rate;
+  int32_t channels;
+} lychee_track_info;
 
 LYCHEE_EXPORT int32_t lychee_api_version(void);
 
@@ -139,9 +183,14 @@ LYCHEE_EXPORT void lychee_player_set_event_callback(
 
 // Opens a file path or URL asynchronously. Progress is reported through
 // LYCHEE_EVENT_STATE_CHANGED. Returns 0 if the request was accepted.
+//
+// Calling it again stops what is open (the state returns to IDLE, then
+// LOADING) and opens |url| on the same player. The event callback, volume,
+// rate, looping and play/pause are kept.
 LYCHEE_EXPORT int32_t lychee_player_open(lychee_player* player,
                                          const char* url);
 
+// Played from the start again if the state is LYCHEE_STATE_ENDED.
 LYCHEE_EXPORT void lychee_player_play(lychee_player* player);
 LYCHEE_EXPORT void lychee_player_pause(lychee_player* player);
 LYCHEE_EXPORT void lychee_player_seek(lychee_player* player,
@@ -149,8 +198,20 @@ LYCHEE_EXPORT void lychee_player_seek(lychee_player* player,
 // 0.0 - 1.0.
 LYCHEE_EXPORT void lychee_player_set_volume(lychee_player* player,
                                             float volume);
+// Playback speed, clamped to 0.25 - 4.0; 1.0 is normal. Audio keeps its
+// pitch. Kept across lychee_player_open().
+LYCHEE_EXPORT void lychee_player_set_rate(lychee_player* player, double rate);
+LYCHEE_EXPORT double lychee_player_get_rate(lychee_player* player);
+// Non-zero: at the end, play again from the start instead of reaching
+// LYCHEE_STATE_ENDED. The state stays READY through the jump, and no
+// LYCHEE_EVENT_SEEK_COMPLETED is sent for it.
+LYCHEE_EXPORT void lychee_player_set_looping(lychee_player* player,
+                                             int32_t looping);
+LYCHEE_EXPORT int32_t lychee_player_is_looping(lychee_player* player);
 
 LYCHEE_EXPORT int32_t lychee_player_get_state(lychee_player* player);
+// Whether playback is requested (lychee_player_play() since the last pause).
+// Stays non-zero at LYCHEE_STATE_ENDED.
 LYCHEE_EXPORT int32_t lychee_player_is_playing(lychee_player* player);
 LYCHEE_EXPORT int64_t lychee_player_get_position(lychee_player* player);
 // Returns -1 if unknown (e.g. live streams).
@@ -170,7 +231,40 @@ LYCHEE_EXPORT int32_t lychee_player_get_error(lychee_player* player,
                                               char* buffer,
                                               int32_t buffer_size);
 
-// |stats->struct_size| must be set by the caller.
+// Tracks of the open media: audio, video and subtitle streams, in container
+// order. Available from LYCHEE_EVENT_MEDIA_INFO on; 0 before.
+LYCHEE_EXPORT int32_t lychee_player_get_track_count(lychee_player* player);
+// |info->struct_size| must be set by the caller. Returns 0, or -1 if
+// |index| is out of range.
+LYCHEE_EXPORT int32_t lychee_player_get_track_info(lychee_player* player,
+                                                   int32_t index,
+                                                   lychee_track_info* info);
+// Switches the |type| track to track |index| (an index for
+// lychee_player_get_track_info()), or disables |type| if |index| is -1.
+// Playback continues from the current position. Returns 0 if the request was
+// accepted; LYCHEE_EVENT_TRACKS_CHANGED follows. Rejected: an index of
+// another type, a bitmap subtitle track, disabling both audio and video,
+// and any request before the media is loaded.
+LYCHEE_EXPORT int32_t lychee_player_select_track(lychee_player* player,
+                                                 int32_t type,
+                                                 int32_t index);
+// Copies the subtitle text showing at |display_time_us| (lychee_now_us()
+// timebase; 0 for now) into |buffer| (NUL-terminated UTF-8, lines separated
+// by '\n'). Returns the full text length; 0 if no cue is showing.
+LYCHEE_EXPORT int32_t lychee_player_get_subtitle(lychee_player* player,
+                                                 int64_t display_time_us,
+                                                 char* buffer,
+                                                 int32_t buffer_size);
+// Copies the container tag |key| (case-insensitive: "title", "artist",
+// "album", ...) into |buffer|. Returns the full value length, or -1 if the
+// media has no such tag.
+LYCHEE_EXPORT int32_t lychee_player_get_metadata(lychee_player* player,
+                                                 const char* key,
+                                                 char* buffer,
+                                                 int32_t buffer_size);
+
+// |stats->struct_size| must be set by the caller; fields past it are not
+// written, so callers built against version 1 keep working.
 LYCHEE_EXPORT void lychee_player_get_stats(lychee_player* player,
                                            lychee_stats* stats);
 
@@ -197,7 +291,7 @@ LYCHEE_EXPORT int32_t lychee_frame_get_type(const lychee_frame* frame);
 LYCHEE_EXPORT int32_t lychee_frame_get_width(const lychee_frame* frame);
 LYCHEE_EXPORT int32_t lychee_frame_get_height(const lychee_frame* frame);
 LYCHEE_EXPORT int64_t lychee_frame_get_pts(const lychee_frame* frame);
-// LYCHEE_FRAME_CPU_BGRA only.
+// LYCHEE_FRAME_CPU_BGRA and LYCHEE_FRAME_CPU_RGBA only.
 LYCHEE_EXPORT const uint8_t* lychee_frame_get_data(const lychee_frame* frame,
                                                    int32_t* stride);
 // Native handle (e.g. CVPixelBufferRef). Not retained: retain it yourself if

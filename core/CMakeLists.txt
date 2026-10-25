@@ -7,14 +7,18 @@ set(LYCHEE_SOURCES
   src/base/log.cc
   src/base/time.cc
   src/media/codec.cc
+  src/media/cpu_frame_converter.cc
   src/media/factory.cc
   src/pipeline/audio_renderer.cc
+  src/pipeline/audio_renderer_algorithm.cc
   src/pipeline/media_clock.cc
   src/pipeline/packet_queue.cc
   src/pipeline/player.cc
+  src/pipeline/subtitle_renderer.cc
   src/pipeline/video_cadence_estimator.cc
   src/pipeline/video_renderer.cc
   src/pipeline/video_renderer_algorithm.cc
+  src/pipeline/vsync_estimator.cc
 )
 
 if(LYCHEE_WITH_FFMPEG)
@@ -22,7 +26,26 @@ if(LYCHEE_WITH_FFMPEG)
     src/backends/ffmpeg/ffmpeg_audio_decoder.cc
     src/backends/ffmpeg/ffmpeg_common.cc
     src/backends/ffmpeg/ffmpeg_demuxer.cc
+    src/backends/ffmpeg/ffmpeg_subtitle_decoder.cc
     src/backends/ffmpeg/ffmpeg_video_decoder.cc
+  )
+endif()
+
+if(ANDROID)
+  list(APPEND LYCHEE_SOURCES
+    src/backends/android/aaudio_sink.cc
+  )
+endif()
+
+if(WIN32)
+  list(APPEND LYCHEE_SOURCES
+    src/backends/windows/wasapi_sink.cc
+  )
+endif()
+
+if(UNIX AND NOT APPLE AND NOT ANDROID)
+  list(APPEND LYCHEE_SOURCES
+    src/backends/linux/pulse_audio_sink.cc
   )
 endif()
 
@@ -32,6 +55,9 @@ if(APPLE)
     src/backends/apple/core_audio_sink.cc
     src/backends/apple/pixel_buffer.cc
   )
+  if(IOS)
+    list(APPEND LYCHEE_SOURCES src/backends/apple/audio_session.mm)
+  endif()
 endif()
 
 add_library(lychee ${LYCHEE_SOURCES})
@@ -49,11 +75,30 @@ if(BUILD_SHARED_LIBS)
   target_compile_definitions(lychee PUBLIC LYCHEE_SHARED=1)
 endif()
 
+# A prebuilt FFmpeg (tool/build_ffmpeg.sh output: include/ and lib/), or
+# the system's through pkg-config.
+set(LYCHEE_FFMPEG_ROOT "" CACHE PATH "Prebuilt FFmpeg to use instead of pkg-config")
+
 if(LYCHEE_WITH_FFMPEG)
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
-    libavformat libavcodec libavutil libswresample libswscale)
-  target_link_libraries(lychee PRIVATE PkgConfig::FFMPEG)
+  if(LYCHEE_FFMPEG_ROOT)
+    add_library(lychee_ffmpeg INTERFACE)
+    target_include_directories(lychee_ffmpeg INTERFACE "${LYCHEE_FFMPEG_ROOT}/include")
+    foreach(lib avformat avcodec swresample swscale avutil)
+      find_library(LYCHEE_FFMPEG_${lib} ${lib} PATHS "${LYCHEE_FFMPEG_ROOT}/lib"
+        NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+      # IMPORTED, so the Android Gradle plugin packages the libraries.
+      add_library(lychee_ffmpeg_${lib} SHARED IMPORTED)
+      set_target_properties(lychee_ffmpeg_${lib} PROPERTIES
+        IMPORTED_LOCATION "${LYCHEE_FFMPEG_${lib}}")
+      target_link_libraries(lychee_ffmpeg INTERFACE lychee_ffmpeg_${lib})
+    endforeach()
+    target_link_libraries(lychee PRIVATE lychee_ffmpeg)
+  else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
+      libavformat libavcodec libavutil libswresample libswscale)
+    target_link_libraries(lychee PRIVATE PkgConfig::FFMPEG)
+  endif()
   target_compile_definitions(lychee PRIVATE LYCHEE_WITH_FFMPEG=1)
 endif()
 
@@ -67,6 +112,41 @@ if(APPLE)
     "-framework IOSurface"
     "-framework VideoToolbox"
   )
+endif()
+
+if(ANDROID)
+  target_link_libraries(lychee PRIVATE aaudio log)
+endif()
+
+if(WIN32)
+  target_link_libraries(lychee PRIVATE ole32 avrt)
+  # base/thread_name.h includes <windows.h>, whose min/max macros break
+  # std::min and numeric_limits::max in the files that include it.
+  target_compile_definitions(lychee PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+  if(MSVC)
+    # Sources and FFmpeg's headers are UTF-8, not the system code page.
+    target_compile_options(lychee PRIVATE /utf-8)
+  endif()
+  if(LYCHEE_WITH_FFMPEG AND LYCHEE_FFMPEG_ROOT)
+    # On Windows find_library finds the import libraries (avcodec.lib); a
+    # SHARED IMPORTED target links its IMPORTED_IMPLIB and locates the DLL
+    # (bin/avcodec-63.dll) through IMPORTED_LOCATION.
+    foreach(lib avformat avcodec swresample swscale avutil)
+      file(GLOB _lychee_dll "${LYCHEE_FFMPEG_ROOT}/bin/${lib}-*.dll")
+      set_target_properties(lychee_ffmpeg_${lib} PROPERTIES
+        IMPORTED_IMPLIB "${LYCHEE_FFMPEG_${lib}}")
+      if(_lychee_dll)
+        set_target_properties(lychee_ffmpeg_${lib} PROPERTIES
+          IMPORTED_LOCATION "${_lychee_dll}")
+      endif()
+    endforeach()
+  endif()
+endif()
+
+if(UNIX AND NOT APPLE AND NOT ANDROID)
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse)
+  target_link_libraries(lychee PRIVATE PkgConfig::PULSE)
 endif()
 
 find_package(Threads REQUIRED)

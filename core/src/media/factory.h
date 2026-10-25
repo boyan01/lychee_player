@@ -8,6 +8,7 @@
 #include "media/audio_sink.h"
 #include "media/demuxer.h"
 #include "media/frame_converter.h"
+#include "media/subtitle_decoder.h"
 #include "media/video_decoder.h"
 
 namespace lychee {
@@ -26,6 +27,9 @@ std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders();
 std::unique_ptr<AudioSink> CreateAudioSink();
 
 std::unique_ptr<FrameConverter> CreateFrameConverter();
+
+// Null if this build has no subtitle decoder.
+std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder();
 
 }  // namespace lychee
 

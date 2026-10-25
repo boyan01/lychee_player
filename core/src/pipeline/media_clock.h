@@ -10,7 +10,8 @@
 namespace lychee {
 
 // Maps system time (NowMicros() timebase) to media time. Driven by the
-// system clock, or by the audio renderer while audio is playing.
+// system clock, or by the audio renderer while audio is playing. Media time
+// advances |rate| times as fast as system time.
 class MediaClock {
  public:
   int64_t MediaTimeAt(int64_t system_time) const;
@@ -25,6 +26,9 @@ class MediaClock {
   void Play();
   void Pause();
   bool playing() const;
+  // Continues from the current media time at |rate| (> 0).
+  void SetRate(double rate);
+  double rate() const;
 
   // Called by the audio renderer for every rendered buffer: |media_time| is
   // heard at |system_time|. The clock does not run past |max_media_time|,
@@ -43,6 +47,7 @@ class MediaClock {
   int64_t anchor_media_time_ = 0;
   int64_t anchor_system_time_ = 0;
   int64_t max_media_time_ = kInfiniteTime;
+  double rate_ = 1.0;
   bool playing_ = false;
 };
 

@@ -5,6 +5,10 @@
 #include <cstdio>
 #include <mutex>
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
+
 namespace lychee {
 
 namespace {
@@ -59,7 +63,12 @@ void LogMessage(LogLevel level, const char* tag, const char* format, ...) {
   if (g_sink) {
     g_sink(g_sink_user_data, static_cast<int>(level), message);
   } else {
+#if defined(__ANDROID__)
+    // stderr goes nowhere in an app.
+    __android_log_write(ANDROID_LOG_INFO, "lychee", message);
+#else
     fprintf(stderr, "%s\n", message);
+#endif
   }
 }
 

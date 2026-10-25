@@ -2,16 +2,14 @@
 
 #include "backends/apple/core_audio_sink.h"
 
-#include <TargetConditionals.h>
+#include <Block.h>
+
+#include "backends/apple/audio_session.h"
 
 #include <cstring>
 
 #include "base/log.h"
 #include "base/time.h"
-
-#if TARGET_OS_OSX
-#include <CoreAudio/CoreAudio.h>
-#endif
 
 namespace lychee {
 
@@ -53,6 +51,34 @@ UInt32 GetStreamLatency(AudioDeviceID device) {
   }
   return value;
 }
+
+Float64 GetNominalSampleRate(AudioDeviceID device) {
+  AudioObjectPropertyAddress address = {kAudioDevicePropertyNominalSampleRate,
+                                        kAudioObjectPropertyScopeGlobal,
+                                        kAudioObjectPropertyElementMain};
+  Float64 value = 0;
+  UInt32 size = sizeof(value);
+  if (AudioObjectGetPropertyData(device, &address, 0, nullptr, &size,
+                                 &value) != noErr) {
+    return 0;
+  }
+  return value;
+}
+
+AudioDeviceID GetDefaultOutputDevice() {
+  AudioObjectPropertyAddress address = {
+      kAudioHardwarePropertyDefaultOutputDevice,
+      kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+  AudioDeviceID device = kAudioObjectUnknown;
+  UInt32 size = sizeof(device);
+  AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, nullptr,
+                             &size, &device);
+  return device;
+}
+
+constexpr AudioObjectPropertyAddress kDefaultOutputDeviceAddress = {
+    kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyElementMain};
 #endif
 
 }  // namespace
@@ -60,6 +86,25 @@ UInt32 GetStreamLatency(AudioDeviceID device) {
 CoreAudioSink::CoreAudioSink() = default;
 
 CoreAudioSink::~CoreAudioSink() {
+#if TARGET_OS_IOS
+  if (session_observer_) {
+    RemoveAudioSessionObserver(session_observer_);
+  }
+#endif
+#if TARGET_OS_OSX
+  if (listener_) {
+    AudioObjectRemovePropertyListenerBlock(kAudioObjectSystemObject,
+                                           &kDefaultOutputDeviceAddress,
+                                           listener_queue_, listener_);
+    // A notification already dispatched may still run; let it finish.
+    dispatch_sync(listener_queue_, ^{
+                  });
+    Block_release(listener_);
+  }
+  if (listener_queue_) {
+    dispatch_release(listener_queue_);
+  }
+#endif
   if (unit_) {
     Stop();
     AudioUnitUninitialize(unit_);
@@ -125,8 +170,43 @@ bool CoreAudioSink::Open(RenderCallback callback, std::string* error) {
   format_ = {sample_rate, kChannels};
   output_latency_ = QueryOutputLatency();
   LOGI("opened: %d Hz, %d ch, latency %lld us", sample_rate, kChannels,
-       static_cast<long long>(output_latency_));
+       static_cast<long long>(output_latency_.load()));
+#if TARGET_OS_OSX
+  // Headphones plugged in, AirPods connected, a device picked in Control
+  // Center: the unit moves to the new device, whose latency may differ by
+  // a hundred milliseconds or more.
+  listener_queue_ =
+      dispatch_queue_create("lychee.core_audio", DISPATCH_QUEUE_SERIAL);
+  listener_ = Block_copy(^(UInt32, const AudioObjectPropertyAddress*) {
+    UpdateOutputLatency();
+  });
+  if (AudioObjectAddPropertyListenerBlock(
+          kAudioObjectSystemObject, &kDefaultOutputDeviceAddress,
+          listener_queue_, listener_) != noErr) {
+    LOGW("cannot follow default output device changes");
+    Block_release(listener_);
+    listener_ = nullptr;
+  }
+#elif TARGET_OS_IOS
+  session_observer_ = AddAudioSessionObserver([this](AudioSessionEvent event) {
+    if (event == AudioSessionEvent::kRouteChanged) {
+      UpdateOutputLatency();
+    } else if (started_) {
+      // The system stopped the unit for the interruption.
+      AudioOutputUnitStart(unit_);
+    }
+  });
+#endif
   return true;
+}
+
+void CoreAudioSink::UpdateOutputLatency() {
+  int64_t latency = QueryOutputLatency();
+  int64_t previous = output_latency_.exchange(latency);
+  if (latency != previous) {
+    LOGI("output device changed: latency %lld -> %lld us",
+         static_cast<long long>(previous), static_cast<long long>(latency));
+  }
 }
 
 int64_t CoreAudioSink::QueryOutputLatency() const {
@@ -136,18 +216,19 @@ int64_t CoreAudioSink::QueryOutputLatency() const {
                        kAudioUnitScope_Global, 0, &unit_latency, &size);
   int64_t latency = static_cast<int64_t>(unit_latency * kMicrosPerSecond);
 #if TARGET_OS_OSX
-  AudioDeviceID device = 0;
-  size = sizeof(device);
-  if (AudioUnitGetProperty(unit_, kAudioOutputUnitProperty_CurrentDevice,
-                           kAudioUnitScope_Global, 0, &device,
-                           &size) == noErr &&
-      format_.sample_rate > 0) {
+  // The default device, not the unit's current one: on a change
+  // notification the unit may not have switched yet.
+  AudioDeviceID device = GetDefaultOutputDevice();
+  // Device latencies are in the device's frames, at its own rate.
+  Float64 device_rate = GetNominalSampleRate(device);
+  if (device != kAudioObjectUnknown && device_rate > 0) {
     UInt32 frames = GetDeviceProperty(device, kAudioDevicePropertyLatency) +
                     GetDeviceProperty(device, kAudioDevicePropertySafetyOffset) +
                     GetStreamLatency(device);
-    latency += static_cast<int64_t>(frames) * kMicrosPerSecond /
-               format_.sample_rate;
+    latency += static_cast<int64_t>(frames * kMicrosPerSecond / device_rate);
   }
+#elif TARGET_OS_IOS
+  latency += AudioSessionOutputLatency();
 #endif
   return latency;
 }

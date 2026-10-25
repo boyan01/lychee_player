@@ -1,7 +1,14 @@
 #ifndef LYCHEE_BASE_THREAD_NAME_H_
 #define LYCHEE_BASE_THREAD_NAME_H_
 
+#if defined(_WIN32)
+#include <windows.h>
+
+#include <cstring>
+#include <string>
+#else
 #include <pthread.h>
+#endif
 
 namespace lychee {
 
@@ -12,6 +19,9 @@ inline void SetCurrentThreadName(const char* name) {
   pthread_setname_np(name);
 #elif defined(__linux__)
   pthread_setname_np(pthread_self(), name);
+#elif defined(_WIN32)
+  std::wstring wide(name, name + strlen(name));
+  SetThreadDescription(GetCurrentThread(), wide.c_str());
 #else
   (void)name;
 #endif
