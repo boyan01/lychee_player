@@ -72,6 +72,7 @@ target_include_directories(lychee
 )
 set_target_properties(lychee PROPERTIES
   CXX_VISIBILITY_PRESET hidden
+  OBJCXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN ON
 )
 target_compile_definitions(lychee PRIVATE LYCHEE_IMPLEMENTATION=1)
@@ -116,6 +117,11 @@ if(APPLE)
     "-framework IOSurface"
     "-framework VideoToolbox"
   )
+  if(IOS)
+    set_source_files_properties(src/backends/apple/audio_session.mm
+      PROPERTIES COMPILE_OPTIONS -fobjc-arc)
+    target_link_libraries(lychee PRIVATE "-framework AVFAudio" "-framework Foundation")
+  endif()
 endif()
 
 if(ANDROID)
