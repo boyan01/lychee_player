@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi' hide Size;
 
 import 'package:ffi/ffi.dart';
@@ -9,6 +10,53 @@ import 'bindings.dart' as native;
 
 /// Matches lychee_state.
 enum LycheePlayerState { idle, loading, ready, buffering, ended, error }
+
+/// Matches lychee_track_type.
+enum LycheeTrackType {
+  video(native.kTrackVideo),
+  audio(native.kTrackAudio),
+  subtitle(native.kTrackSubtitle);
+
+  const LycheeTrackType(this.value);
+  final int value;
+}
+
+/// An audio, video or subtitle stream of the open media.
+@immutable
+class LycheeTrack {
+  const LycheeTrack({
+    required this.index,
+    required this.type,
+    required this.id,
+    required this.selected,
+    this.codec = '',
+    this.language = '',
+    this.title = '',
+    this.width = 0,
+    this.height = 0,
+    this.sampleRate = 0,
+    this.channels = 0,
+  });
+
+  /// Pass to [LycheePlayer.selectTrack].
+  final int index;
+  final LycheeTrackType type;
+
+  /// The container's stream index.
+  final int id;
+  final bool selected;
+  final String codec;
+  final String language;
+  final String title;
+
+  /// Video only: display size.
+  final int width;
+  final int height;
+
+  /// Audio only.
+  final int sampleRate;
+  final int channels;
+}
 
 @immutable
 class LycheePlayerValue {
@@ -21,12 +69,17 @@ class LycheePlayerValue {
     this.videoSize,
     this.rotation = 0,
     this.error,
+    this.rate = 1.0,
+    this.looping = false,
+    this.tracks = const [],
+    this.subtitle,
   });
 
   final LycheePlayerState state;
 
   /// Whether playback is requested; it actually advances only when [state]
-  /// is [LycheePlayerState.ready].
+  /// is [LycheePlayerState.ready]. Stays true once ended, where [play]
+  /// starts from the beginning.
   final bool playing;
   final Duration position;
 
@@ -40,6 +93,15 @@ class LycheePlayerValue {
   /// Clockwise rotation in degrees.
   final int rotation;
   final String? error;
+
+  /// Playback speed; audio keeps its pitch.
+  final double rate;
+  final bool looping;
+  final List<LycheeTrack> tracks;
+
+  /// Subtitle text on screen, lines separated by '\n'; null if none. Draw it
+  /// over the video yourself.
+  final String? subtitle;
 }
 
 /// Playback statistics, read on demand with [LycheePlayer.getStats].
@@ -50,6 +112,9 @@ class LycheePlayerStats {
     this.framesRendered = 0,
     this.framesDropped = 0,
     this.videoDecoder = '',
+    this.videoBuffered = Duration.zero,
+    this.audioBuffered = Duration.zero,
+    this.videoDecodeTime = Duration.zero,
   });
 
   final bool hardwareDecoding;
@@ -60,6 +125,13 @@ class LycheePlayerStats {
   /// Decoded frames skipped because a later one was due.
   final int framesDropped;
   final String videoDecoder;
+
+  /// Media read ahead of the playback position.
+  final Duration videoBuffered;
+  final Duration audioBuffered;
+
+  /// Average time decoding one video packet takes.
+  final Duration videoDecodeTime;
 }
 
 class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
@@ -73,11 +145,13 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
   final int textureId;
   Timer? _ticker;
   bool _disposed = false;
+  List<LycheeTrack> _tracks = const [];
+  String? _subtitle;
 
   static Future<LycheePlayer> create({bool hardwareDecoding = true}) async {
     final config = calloc<native.LycheeConfig>();
     native.configInit(config);
-    config.ref.videoFrameTypes = native.kFrameCVPixelBuffer;
+    config.ref.videoFrameTypes = native.platformFrameType;
     config.ref.hardwareDecoding = hardwareDecoding ? 1 : 0;
     final player = native.playerCreate(config);
     calloc.free(config);
@@ -85,10 +159,10 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
     late final LycheePlayer instance;
     final events = NativeCallable<native.EventCallbackNative>.listener(
         (Pointer<Void> _, int type, int arg0, int arg1) =>
-            instance._onEvent(type));
+            instance._onEvent(type, arg0));
     native.playerSetEventCallback(player, events.nativeFunction, nullptr);
-    final textureId = await _channel.invokeMethod<int>(
-        'createTexture', {'player': player.address});
+    final textureId = await _channel
+        .invokeMethod<int>('createTexture', {'player': player.address});
     instance = LycheePlayer._(player, events, textureId!);
     instance._ticker = Timer.periodic(
         const Duration(milliseconds: 200), (_) => instance._onTick());
@@ -97,10 +171,15 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
 
   // Calls after dispose() are ignored: the native player may already be
   // destroyed, and widgets can still hold this object until their next build.
+
+  /// Opens [url]. Calling it again replaces the current media on this
+  /// player; volume, rate, looping and play/pause are kept.
   void open(String url) {
     if (_disposed) {
       return;
     }
+    _tracks = const [];
+    _subtitle = null;
     final nativeUrl = url.toNativeUtf8();
     native.playerOpen(_player, nativeUrl.cast());
     malloc.free(nativeUrl);
@@ -123,6 +202,49 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
     if (!_disposed) native.playerSetVolume(_player, volume);
   }
 
+  /// Playback speed, clamped to 0.25 - 4.0. Audio keeps its pitch.
+  void setRate(double rate) {
+    if (_disposed) return;
+    native.playerSetRate(_player, rate);
+    _refresh();
+  }
+
+  /// Whether to play again from the start instead of ending.
+  void setLooping(bool looping) {
+    if (_disposed) return;
+    native.playerSetLooping(_player, looping ? 1 : 0);
+    _refresh();
+  }
+
+  /// Switches [type] to the track at [index] in [LycheePlayerValue.tracks],
+  /// or disables it if [index] is null. Returns false if rejected (wrong
+  /// type, bitmap subtitles, or no audio and no video left); otherwise
+  /// [LycheePlayerValue.tracks] updates once the switch is done.
+  bool selectTrack(LycheeTrackType type, int? index) {
+    if (_disposed) return false;
+    return native.playerSelectTrack(_player, type.value, index ?? -1) == 0;
+  }
+
+  /// A container tag such as 'title', 'artist' or 'album'; null if absent.
+  String? getMetadata(String key) {
+    if (_disposed) return null;
+    final nativeKey = key.toNativeUtf8();
+    try {
+      final length =
+          native.playerGetMetadata(_player, nativeKey.cast(), nullptr, 0);
+      if (length < 0) return null;
+      final buffer = calloc<Uint8>(length + 1);
+      native.playerGetMetadata(
+          _player, nativeKey.cast(), buffer.cast(), length + 1);
+      final value =
+          utf8.decode(buffer.asTypedList(length), allowMalformed: true);
+      calloc.free(buffer);
+      return value;
+    } finally {
+      malloc.free(nativeKey);
+    }
+  }
+
   LycheePlayerStats getStats() {
     if (_disposed) {
       return const LycheePlayerStats();
@@ -139,12 +261,70 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
       framesRendered: stats.ref.framesRendered,
       framesDropped: stats.ref.framesDropped,
       videoDecoder: String.fromCharCodes(decoder),
+      videoBuffered: Duration(microseconds: stats.ref.videoBufferedUs),
+      audioBuffered: Duration(microseconds: stats.ref.audioBufferedUs),
+      videoDecodeTime: Duration(microseconds: stats.ref.videoDecodeTimeUs),
     );
     calloc.free(stats);
     return result;
   }
 
-  void _onEvent(int type) => _refresh();
+  void _onEvent(int type, int arg0) {
+    if (_disposed) return;
+    if (type == native.kEventMediaInfo || type == native.kEventTracksChanged) {
+      _tracks = _readTracks();
+    } else if (type == native.kEventSubtitleChanged) {
+      _subtitle = arg0 > 0 ? _readSubtitle(arg0) : null;
+    }
+    _refresh();
+  }
+
+  List<LycheeTrack> _readTracks() {
+    final tracks = <LycheeTrack>[];
+    final info = calloc<native.LycheeTrackInfo>();
+    final count = native.playerGetTrackCount(_player);
+    for (var i = 0; i < count; i++) {
+      info.ref.structSize = sizeOf<native.LycheeTrackInfo>();
+      if (native.playerGetTrackInfo(_player, i, info) != 0) continue;
+      final ref = info.ref;
+      tracks.add(LycheeTrack(
+        index: i,
+        type: LycheeTrackType.values.firstWhere((t) => t.value == ref.type),
+        id: ref.id,
+        selected: ref.selected != 0,
+        codec: _string(ref.codec, 32),
+        language: _string(ref.language, 16),
+        title: _string(ref.title, 128),
+        width: ref.width,
+        height: ref.height,
+        sampleRate: ref.sampleRate,
+        channels: ref.channels,
+      ));
+    }
+    calloc.free(info);
+    return List.unmodifiable(tracks);
+  }
+
+  String? _readSubtitle(int length) {
+    // The text may have changed since the event; read what is there now.
+    final size = length + 256;
+    final buffer = calloc<Uint8>(size);
+    final actual = native.playerGetSubtitle(_player, 0, buffer.cast(), size);
+    final text = actual <= 0
+        ? null
+        : utf8.decode(buffer.asTypedList(actual < size ? actual : size - 1),
+            allowMalformed: true);
+    calloc.free(buffer);
+    return text;
+  }
+
+  static String _string(Array<Uint8> array, int size) {
+    final bytes = <int>[];
+    for (var i = 0; i < size && array[i] != 0; i++) {
+      bytes.add(array[i]);
+    }
+    return utf8.decode(bytes, allowMalformed: true);
+  }
 
   void _onTick() {
     final state = value.state;
@@ -189,6 +369,10 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
       videoSize: videoSize,
       rotation: native.playerGetVideoRotation(_player),
       error: error,
+      rate: native.playerGetRate(_player),
+      looping: native.playerIsLooping(_player) != 0,
+      tracks: _tracks,
+      subtitle: _subtitle,
     );
   }
 

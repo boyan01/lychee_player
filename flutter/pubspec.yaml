@@ -20,6 +20,18 @@ dev_dependencies:
 flutter:
   plugin:
     platforms:
+      android:
+        package: dev.lychee.lychee_player
+        pluginClass: LycheePlayerPlugin
+      ios:
+        pluginClass: LycheePlayerPlugin
+        ffiPlugin: true
+        sharedDarwinSource: true
+      linux:
+        pluginClass: LycheePlayerPlugin
       macos:
         pluginClass: LycheePlayerPlugin
         ffiPlugin: true
+        sharedDarwinSource: true
+      windows:
+        pluginClass: LycheePlayerPluginCApi

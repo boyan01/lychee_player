@@ -63,37 +63,44 @@ class _PlayerPageState extends State<PlayerPage> {
   Widget build(BuildContext context) {
     final player = _player;
     return Scaffold(
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _url,
-                    decoration: const InputDecoration(
-                      hintText: 'File path or URL',
-                      isDense: true,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _url,
+                      decoration: const InputDecoration(
+                        hintText: 'File path or URL',
+                        isDense: true,
+                      ),
+                      onSubmitted: (_) => _open(),
                     ),
-                    onSubmitted: (_) => _open(),
                   ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(onPressed: _open, child: const Text('Open')),
-              ],
+                  const SizedBox(width: 8),
+                  FilledButton(onPressed: _open, child: const Text('Open')),
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: ColoredBox(
-              color: Colors.black,
-              child: player == null
-                  ? const SizedBox.expand()
-                  : Center(child: LycheeVideo(player)),
+            Expanded(
+              child: ColoredBox(
+                color: Colors.black,
+                child: player == null
+                    ? const SizedBox.expand()
+                    : Stack(
+                        children: [
+                          Center(child: LycheeVideo(player)),
+                          _Subtitle(player),
+                        ],
+                      ),
+              ),
             ),
-          ),
-          if (player != null) _Controls(player),
-        ],
+            if (player != null) _Controls(player),
+          ],
+        ),
       ),
     );
   }
@@ -115,35 +122,69 @@ class _Controls extends StatelessWidget {
           0.0,
           max,
         );
+        final playing =
+            value.playing && value.state != LycheePlayerState.ended;
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              IconButton(
-                icon: Icon(value.playing ? Icons.pause : Icons.play_arrow),
-                onPressed: value.playing ? player.pause : player.play,
+              Row(
+                children: [
+                  IconButton(
+                    icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+                    onPressed: playing ? player.pause : player.play,
+                  ),
+                  Text(_format(value.position)),
+                  Expanded(
+                    child: Slider(
+                      value: max > 0 ? position : 0,
+                      max: max > 0 ? max : 1,
+                      onChanged: max > 0
+                          ? (v) =>
+                                player.seek(Duration(milliseconds: v.round()))
+                          : null,
+                    ),
+                  ),
+                  Text(_format(duration)),
+                ],
               ),
-              Text(_format(value.position)),
-              Expanded(
-                child: Slider(
-                  value: max > 0 ? position : 0,
-                  max: max > 0 ? max : 1,
-                  onChanged: max > 0
-                      ? (v) => player.seek(Duration(milliseconds: v.round()))
-                      : null,
-                ),
+              Row(
+                children: [
+                  TextButton(
+                    onPressed: () => player.setRate(_nextRate(value.rate)),
+                    child: Text('${value.rate}x'),
+                  ),
+                  IconButton(
+                    tooltip: 'Loop',
+                    icon: Icon(value.looping ? Icons.repeat_on : Icons.repeat),
+                    onPressed: () => player.setLooping(!value.looping),
+                  ),
+                  if (value.tracks.length > 2) _TrackMenu(player, value.tracks),
+                  // Rebuilt with the position, a few times a second while
+                  // playing.
+                  Expanded(
+                    child: Text(
+                      '${_formatStats(player.getStats())}   '
+                      '${value.state.name}'
+                      '${value.error == null ? '' : ': ${value.error}'}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
-              Text(_format(duration)),
-              const SizedBox(width: 12),
-              // Rebuilt with the position, a few times a second while playing.
-              Text(_formatStats(player.getStats())),
-              const SizedBox(width: 12),
-              Text(value.error ?? value.state.name),
             ],
           ),
         );
       },
     );
+  }
+
+  static double _nextRate(double rate) {
+    const rates = [0.5, 1.0, 1.5, 2.0];
+    final next = rates.indexWhere((r) => r > rate);
+    return next < 0 ? rates.first : rates[next];
   }
 
   static String _formatStats(LycheePlayerStats stats) {
@@ -156,5 +197,87 @@ class _Controls extends StatelessWidget {
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return d.inHours > 0 ? '${d.inHours}:$m:$s' : '$m:$s';
+  }
+}
+
+/// The subtitle text over the bottom of the video.
+class _Subtitle extends StatelessWidget {
+  const _Subtitle(this.player);
+
+  final LycheePlayer player;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<LycheePlayerValue>(
+      valueListenable: player,
+      builder: (context, value, _) {
+        final text = value.subtitle;
+        if (text == null) {
+          return const SizedBox.shrink();
+        }
+        return Positioned(
+          left: 16,
+          right: 16,
+          bottom: 16,
+          child: Center(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                child: Text(
+                  text,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 18),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Audio and subtitle tracks.
+class _TrackMenu extends StatelessWidget {
+  const _TrackMenu(this.player, this.tracks);
+
+  final LycheePlayer player;
+  final List<LycheeTrack> tracks;
+
+  @override
+  Widget build(BuildContext context) {
+    final choices = tracks
+        .where((t) => t.type != LycheeTrackType.video)
+        .toList();
+    // Values are track indices; -1 turns subtitles off.
+    return PopupMenuButton<int>(
+      tooltip: 'Tracks',
+      icon: const Icon(Icons.subtitles),
+      onSelected: (index) => index < 0
+          ? player.selectTrack(LycheeTrackType.subtitle, null)
+          : player.selectTrack(tracks[index].type, index),
+      itemBuilder: (context) => [
+        for (final track in choices)
+          CheckedPopupMenuItem(
+            value: track.index,
+            checked: track.selected,
+            child: Text(_label(track)),
+          ),
+        const PopupMenuItem(value: -1, child: Text('Subtitles off')),
+      ],
+    );
+  }
+
+  static String _label(LycheeTrack track) {
+    final name = [
+      track.title,
+      track.language,
+      track.codec,
+    ].where((s) => s.isNotEmpty).join(' ');
+    return '${track.type.name}: $name';
   }
 }

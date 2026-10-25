@@ -7,11 +7,22 @@ final DynamicLibrary _library = () {
   if (Platform.isMacOS || Platform.isIOS) {
     return DynamicLibrary.open('lychee_player.framework/lychee_player');
   }
-  throw UnsupportedError('lychee_player does not support this platform yet');
+  if (Platform.isAndroid || Platform.isLinux) {
+    return DynamicLibrary.open('liblychee_player.so');
+  }
+  if (Platform.isWindows) {
+    return DynamicLibrary.open('lychee_player.dll');
+  }
+  throw UnsupportedError('lychee_player does not support this platform');
 }();
 
 const int kFrameCpuBgra = 1 << 0;
 const int kFrameCVPixelBuffer = 1 << 1;
+const int kFrameCpuRgba = 1 << 2;
+
+/// The frame type the platform's texture bridge consumes.
+int get platformFrameType =>
+    Platform.isMacOS || Platform.isIOS ? kFrameCVPixelBuffer : kFrameCpuRgba;
 
 const int kEventStateChanged = 1;
 const int kEventPlayingChanged = 2;
@@ -19,6 +30,12 @@ const int kEventMediaInfo = 3;
 const int kEventVideoSizeChanged = 4;
 const int kEventSeekCompleted = 5;
 const int kEventError = 6;
+const int kEventTracksChanged = 7;
+const int kEventSubtitleChanged = 8;
+
+const int kTrackVideo = 1;
+const int kTrackAudio = 2;
+const int kTrackSubtitle = 3;
 
 final class LycheeConfig extends Struct {
   @Uint32()
@@ -40,6 +57,37 @@ final class LycheeStats extends Struct {
   external int framesDropped;
   @Array(32)
   external Array<Uint8> videoDecoder;
+  @Int64()
+  external int videoBufferedUs;
+  @Int64()
+  external int audioBufferedUs;
+  @Int64()
+  external int videoDecodeTimeUs;
+}
+
+final class LycheeTrackInfo extends Struct {
+  @Uint32()
+  external int structSize;
+  @Int32()
+  external int type;
+  @Int32()
+  external int id;
+  @Int32()
+  external int selected;
+  @Array(32)
+  external Array<Uint8> codec;
+  @Array(16)
+  external Array<Uint8> language;
+  @Array(128)
+  external Array<Uint8> title;
+  @Int32()
+  external int width;
+  @Int32()
+  external int height;
+  @Int32()
+  external int sampleRate;
+  @Int32()
+  external int channels;
 }
 
 typedef EventCallbackNative = Void Function(
@@ -84,12 +132,10 @@ final playerGetState = _library.lookupFunction<Int32 Function(Pointer<Void>),
 final playerIsPlaying = _library.lookupFunction<Int32 Function(Pointer<Void>),
     int Function(Pointer<Void>)>('lychee_player_is_playing');
 
-final playerGetPosition = _library.lookupFunction<
-    Int64 Function(Pointer<Void>),
+final playerGetPosition = _library.lookupFunction<Int64 Function(Pointer<Void>),
     int Function(Pointer<Void>)>('lychee_player_get_position');
 
-final playerGetDuration = _library.lookupFunction<
-    Int64 Function(Pointer<Void>),
+final playerGetDuration = _library.lookupFunction<Int64 Function(Pointer<Void>),
     int Function(Pointer<Void>)>('lychee_player_get_duration');
 
 final playerGetBufferedPosition = _library.lookupFunction<
@@ -111,4 +157,42 @@ final playerGetError = _library.lookupFunction<
 
 final playerGetStats = _library.lookupFunction<
     Void Function(Pointer<Void>, Pointer<LycheeStats>),
-    void Function(Pointer<Void>, Pointer<LycheeStats>)>('lychee_player_get_stats');
+    void Function(
+        Pointer<Void>, Pointer<LycheeStats>)>('lychee_player_get_stats');
+
+final playerSetRate = _library.lookupFunction<
+    Void Function(Pointer<Void>, Double),
+    void Function(Pointer<Void>, double)>('lychee_player_set_rate');
+
+final playerGetRate = _library.lookupFunction<Double Function(Pointer<Void>),
+    double Function(Pointer<Void>)>('lychee_player_get_rate');
+
+final playerSetLooping = _library.lookupFunction<
+    Void Function(Pointer<Void>, Int32),
+    void Function(Pointer<Void>, int)>('lychee_player_set_looping');
+
+final playerIsLooping = _library.lookupFunction<Int32 Function(Pointer<Void>),
+    int Function(Pointer<Void>)>('lychee_player_is_looping');
+
+final playerGetTrackCount = _library.lookupFunction<
+    Int32 Function(Pointer<Void>),
+    int Function(Pointer<Void>)>('lychee_player_get_track_count');
+
+final playerGetTrackInfo = _library.lookupFunction<
+    Int32 Function(Pointer<Void>, Int32, Pointer<LycheeTrackInfo>),
+    int Function(Pointer<Void>, int,
+        Pointer<LycheeTrackInfo>)>('lychee_player_get_track_info');
+
+final playerSelectTrack = _library.lookupFunction<
+    Int32 Function(Pointer<Void>, Int32, Int32),
+    int Function(Pointer<Void>, int, int)>('lychee_player_select_track');
+
+final playerGetSubtitle = _library.lookupFunction<
+    Int32 Function(Pointer<Void>, Int64, Pointer<Char>, Int32),
+    int Function(
+        Pointer<Void>, int, Pointer<Char>, int)>('lychee_player_get_subtitle');
+
+final playerGetMetadata = _library.lookupFunction<
+    Int32 Function(Pointer<Void>, Pointer<Char>, Pointer<Char>, Int32),
+    int Function(Pointer<Void>, Pointer<Char>, Pointer<Char>,
+        int)>('lychee_player_get_metadata');
