@@ -59,7 +59,15 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
 `tool/regression.sh` builds the core, runs the unit tests in `core/test`,
 and plays a fixed media matrix through `examples/cli` (headless, simulated
 60 Hz vsync, muted). It prints PASS/FAIL per case; `NO_HW=1` decodes in
-software, as on CI. Done means:
+software, as on CI. Cases run in parallel (`JOBS`, default half the cores);
+`ONLY='seek-* rate-*'` runs just the matching ones.
+
+While iterating, build and run the unit tests plus the cases your change
+touches (`ONLY=...`, seconds); run the full matrices once, when done. CI runs
+`NO_HW=1` plain and TSan on every push, so leave those to it unless you
+changed `pipeline/`, threading or teardown. Do not run the timing cases while
+a Flutter or Gradle build loads the machine: drift and glitch checks fail
+for reasons unrelated to your change. Done means:
 
 - `tool/regression.sh` passes with zero build warnings.
 - For changes to `pipeline/`, threading, or teardown: `TSAN=1

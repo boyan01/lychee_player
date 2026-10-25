@@ -7,6 +7,9 @@
 #   TSAN=1 tool/regression.sh     # ThreadSanitizer build in build-tsan/
 #   MEDIA_DIR=... tool/regression.sh
 #   NO_HW=1 tool/regression.sh    # Software decoding only (CI runners)
+#   ONLY='seek-* rate-2x' tool/regression.sh   # Only cases matching a glob
+#   JOBS=1 tool/regression.sh     # Cases one at a time (default: half the
+#                                 # cores, a quarter under TSan)
 set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -168,8 +171,7 @@ check() {
     echo "PASS $name"
   else
     echo "FAIL $name:$problems"
-    echo "     $summary"
-    failures=$((failures + 1))
+    grep -E '^(summary|error)' <<<"$out" | sed 's/^/     /'
   fi
 }
 
@@ -197,33 +199,103 @@ expect() {
   else
     echo "FAIL $name:$problems"
     grep -E '^(summary|error|seek took)' <<<"$out" | sed 's/^/     /'
-    failures=$((failures + 1))
   fi
 }
 
-check h264          1 - -- "$media/h264_aac.mp4"
-check hevc10        1 - -- "$media/hevc10.mp4"
-check vp9           1 - -- "$media/vp9_opus.webm"
-check av1-software  0 - -- "$media/av1.mkv"
-check rotated       1 - -- "$media/rotated.mp4"
-check audio-only    - - -- "$media/audio_only.mp3"
-check video-only    1 - -- "$media/video_only.mp4"
-check ts-offset     1 - -- "$media/offset.ts"
-check no-hw-cpu     0 - -- --no-hw --cpu "$media/h264_aac.mp4"
-expect rgba "frame_type=4 " "state=ended" -- --rgba "$media/hevc10.mp4"
-expect no-hw-rgba "frame_type=4 " "state=ended" -- --no-hw --rgba "$media/h264_aac.mp4"
+
+# Most cases spend their time waiting for media to play in real time, using a
+# few percent of a core, so they run JOBS at a time. Results print in order.
+# `par` cases may overlap; `seq` cases wait for the running ones and run
+# alone (shared network server, or timing that other load would disturb).
+cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+if [ "${TSAN:-0}" = 1 ]; then
+  max_jobs="${JOBS:-$((cores / 4))}"
+else
+  max_jobs="${JOBS:-$((cores / 2))}"
+fi
+[ "$max_jobs" -ge 1 ] || max_jobs=1
+results="$(mktemp -d)"
+case_count=0
+next_print=1
+pids=()
+print_done() {
+  local file
+  while :; do
+    file="$results/$(printf %03d "$next_print")"
+    [ -f "$file" ] || break
+    cat "$file"
+    next_print=$((next_print + 1))
+  done
+}
+running_cases() {
+  local pid alive=()
+  for pid in ${pids[@]+"${pids[@]}"}; do
+    kill -0 "$pid" 2>/dev/null && alive+=("$pid")
+  done
+  pids=(${alive[@]+"${alive[@]}"})
+  echo "${#pids[@]}"
+}
+wait_cases() {
+  [ "${#pids[@]}" -gt 0 ] && wait "${pids[@]}"
+  pids=()
+  print_done
+}
+selected() {
+  [ -z "${ONLY:-}" ] && return 0
+  local pattern
+  for pattern in $ONLY; do
+    # shellcheck disable=SC2053
+    [[ "$1" == $pattern ]] && return 0
+  done
+  return 1
+}
+# par|seq check|expect NAME ...
+run_case() {
+  local mode="$1"; shift
+  selected "$2" || return 0
+  case_count=$((case_count + 1))
+  local file
+  file="$results/$(printf %03d "$case_count")"
+  if [ "$mode" = par ] && [ "$max_jobs" -gt 1 ]; then
+    while [ "$(running_cases)" -ge "$max_jobs" ]; do
+      print_done
+      sleep 0.1
+    done
+    ("$@" >"$file.tmp" 2>&1; mv "$file.tmp" "$file") &
+    pids+=($!)
+  else
+    wait_cases
+    "$@" >"$file.tmp" 2>&1
+    mv "$file.tmp" "$file"
+  fi
+  print_done
+}
+par() { run_case par "$@"; }
+seq_() { run_case seq "$@"; }
+
+par check h264          1 - -- "$media/h264_aac.mp4"
+par check hevc10        1 - -- "$media/hevc10.mp4"
+par check vp9           1 - -- "$media/vp9_opus.webm"
+par check av1-software  0 - -- "$media/av1.mkv"
+par check rotated       1 - -- "$media/rotated.mp4"
+par check audio-only    - - -- "$media/audio_only.mp3"
+par check video-only    1 - -- "$media/video_only.mp4"
+par check ts-offset     1 - -- "$media/offset.ts"
+par check no-hw-cpu     0 - -- --no-hw --cpu "$media/h264_aac.mp4"
+par expect rgba "frame_type=4 " "state=ended" -- --rgba "$media/hevc10.mp4"
+par expect no-hw-rgba "frame_type=4 " "state=ended" -- --no-hw --rgba "$media/h264_aac.mp4"
 # Cadence: 30, 24 and 60 fps at 60 Hz with jittered vsync timestamps (callers
 # that only know when they woke up), and refresh rates other than 60 Hz.
-check cadence-30fps 1 - -- --vsync-jitter 4000 "$media/h264_aac.mp4"
-check cadence-24fps 1 - -- --vsync-jitter 4000 "$media/hevc10.mp4"
-check cadence-60fps 1 - -- --vsync-jitter 4000 "$media/video_only.mp4"
-check cadence-50hz  1 - -- --refresh 50 --vsync-jitter 1000 "$media/hevc10.mp4"
-check cadence-144hz 1 - -- --refresh 144 --vsync-jitter 1000 "$media/video_only.mp4"
-check seek-forward  1 7.500 -- --seek 7.5 --seek-after 2 "$media/h264_aac.mp4"
-check seek-backward 1 1.000 -- --seek 1 --seek-after 5 "$media/hevc10.mp4"
-check seek-near-end 1 11.900 -- --seek 11.9 --seek-after 1 "$media/h264_aac.mp4"
-check seek-past-end 1 - -- --seek 30 --seek-after 1 "$media/offset.ts"
-check seek-audio    - - -- --seek 3 --seek-after 1 "$media/audio_only.mp3"
+par check cadence-30fps 1 - -- --vsync-jitter 4000 "$media/h264_aac.mp4"
+par check cadence-24fps 1 - -- --vsync-jitter 4000 "$media/hevc10.mp4"
+par check cadence-60fps 1 - -- --vsync-jitter 4000 "$media/video_only.mp4"
+par check cadence-50hz  1 - -- --refresh 50 --vsync-jitter 1000 "$media/hevc10.mp4"
+par check cadence-144hz 1 - -- --refresh 144 --vsync-jitter 1000 "$media/video_only.mp4"
+par check seek-forward  1 7.500 -- --seek 7.5 --seek-after 2 "$media/h264_aac.mp4"
+par check seek-backward 1 1.000 -- --seek 1 --seek-after 5 "$media/hevc10.mp4"
+par check seek-near-end 1 11.900 -- --seek 11.9 --seek-after 1 "$media/h264_aac.mp4"
+par check seek-past-end 1 - -- --seek 30 --seek-after 1 "$media/offset.ts"
+par check seek-audio    - - -- --seek 3 --seek-after 1 "$media/audio_only.mp3"
 
 # Playback rate. Drift (position vs. wall clock times the rate) stays small
 # only if both the clock and the WSOLA output follow the rate.
@@ -235,43 +307,43 @@ if [ "${TSAN:-0}" = 1 ]; then
   small_drift="max_drift="
   few_glitches="glitches="
 fi
-expect rate-2x "summary: state=ended" "summary:.*dropped=[0-3] " "$few_glitches" "$small_drift" -- \
+par expect rate-2x "summary: state=ended" "summary:.*dropped=[0-3] " "$few_glitches" "$small_drift" -- \
   --rate 2 "$media/h264_aac.mp4"
-expect rate-half "summary: state=ended" "summary:.*dropped=[0-3] " "$few_glitches" "$small_drift" -- \
+par expect rate-half "summary: state=ended" "summary:.*dropped=[0-3] " "$few_glitches" "$small_drift" -- \
   --rate 0.5 "$media/loop.mp4"
-expect rate-change "rate -> 1.50" "summary: state=ended" "summary:.*glitches=[0-5] " "$small_drift" -- \
+par expect rate-change "rate -> 1.50" "summary: state=ended" "summary:.*glitches=[0-5] " "$small_drift" -- \
   --rate 1.5 --rate-after 2 "$media/h264_aac.mp4"
-expect rate-audio-only "summary: state=ended" "$small_drift" -- --rate 2 "$media/audio_only.mp3"
-expect rate-video-only "summary: state=ended" "$few_glitches" "$small_drift" -- \
+par expect rate-audio-only "summary: state=ended" "$small_drift" -- --rate 2 "$media/audio_only.mp3"
+par expect rate-video-only "summary: state=ended" "$few_glitches" "$small_drift" -- \
   --rate 2 "$media/video_only.mp4"
 # Looping: back to the start without ENDED or BUFFERING.
-expect loop "summary: state=ready" "loops=2" "summary:.*backward_jumps=0 " "<=0 event: state (ended|buffering)" -- \
+par expect loop "summary: state=ready" "loops=2" "summary:.*backward_jumps=0 " "<=0 event: state (ended|buffering)" -- \
   --loop --seconds 8 "$media/loop.mp4"
 # A second open on the same player, while playing and while still loading.
-expect reopen "open -> " "<=0 event: state error" "video size 1280x720" "summary: state=ended position=8.000s" -- \
+par expect reopen "open -> " "<=0 event: state error" "video size 1280x720" "summary: state=ended position=8.000s" -- \
   --open-after 2 "$media/video_only.mp4" "$media/h264_aac.mp4"
-expect reopen-loading "open -> " "<=0 event: state error" "summary: state=ended position=8.000s" -- \
+par expect reopen-loading "open -> " "<=0 event: state error" "summary: state=ended position=8.000s" -- \
   --open-after 0 "$media/video_only.mp4" "$media/hevc10.mp4"
 # Track selection keeps the position.
-expect track-audio "select audio 2 at [0-9.]+s: accepted" "track 2: audio .* lang=fre title=French selected=1" \
+par expect track-audio "select audio 2 at [0-9.]+s: accepted" "track 2: audio .* lang=fre title=French selected=1" \
   "track switch: resumed [+-]0\.[0-2][0-9]{2}s" "summary: state=ended" -- --select audio:2 "$media/tracks.mkv"
-expect track-no-video "select video -1 at [0-9.]+s: accepted" "video size 0x0" "track switch: resumed [+-]0\.[0-2]" \
+par expect track-no-video "select video -1 at [0-9.]+s: accepted" "video size 0x0" "track switch: resumed [+-]0\.[0-2]" \
   "summary: state=ended position=8\.[0-9]{3}s decoder=none" -- --select video:-1 "$media/tracks.mkv"
-expect track-subtitle "select subtitle 4 .*: accepted" "select video 1 .*: rejected" \
+par expect track-subtitle "select subtitle 4 .*: accepted" "select video 1 .*: rejected" \
   "subtitle at [0-9.]+s: Bonjour le monde" "<=0 subtitle at [0-9.]+s: Hello world" -- \
   --select subtitle:4 --select video:1 --select-after 0.5 "$media/tracks.mkv"
 # Text subtitles: cues as plain text at their times.
-expect subtitle-srt "subtitle at [01]\.[0-9]{3}s: Hello world$" "subtitle at 2\.[0-9]{3}s: \(none\)" \
+par expect subtitle-srt "subtitle at [01]\.[0-9]{3}s: Hello world$" "subtitle at 2\.[0-9]{3}s: \(none\)" \
   "subtitle at [34]\.[0-9]{3}s: Second line \| with break$" "summary: state=ended" -- "$media/sub_srt.mkv"
-expect subtitle-ass "subtitle at [01]\.[0-9]{3}s: Bold and, plain \| next line$" -- "$media/sub_ass.mkv"
-expect subtitle-webvtt "subtitle at [01]\.[0-9]{3}s: Hello vtt$" -- "$media/sub_vtt.mkv"
-expect subtitle-mov-text "subtitle at [01]\.[0-9]{3}s: Hello world$" -- "$media/sub_mov_text.mp4"
+par expect subtitle-ass "subtitle at [01]\.[0-9]{3}s: Bold and, plain \| next line$" -- "$media/sub_ass.mkv"
+par expect subtitle-webvtt "subtitle at [01]\.[0-9]{3}s: Hello vtt$" -- "$media/sub_vtt.mkv"
+par expect subtitle-mov-text "subtitle at [01]\.[0-9]{3}s: Hello world$" -- "$media/sub_mov_text.mp4"
 # The position can read a few ms before the seek target: the audio frame
 # that contains it starts earlier.
-expect subtitle-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line" -- --seek 3.5 --seek-after 0.5 "$media/sub_srt.mkv"
-expect metadata "metadata: title=Lychee Test artist=Lychee Artist album=Lychee Album" "summary: state=ended" -- \
+par expect subtitle-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line" -- --seek 3.5 --seek-after 0.5 "$media/sub_srt.mkv"
+par expect metadata "metadata: title=Lychee Test artist=Lychee Artist album=Lychee Album" "summary: state=ended" -- \
   "$media/meta.mp4"
-expect stats "vbuf=[1-9]\.[0-9]{2}s abuf=[1-9]\.[0-9]{2}s vdec=([1-9][0-9]*\.[0-9]{2}|0\.[0-9][1-9]|0\.[1-9][0-9])ms" -- \
+par expect stats "vbuf=[1-9]\.[0-9]{2}s abuf=[1-9]\.[0-9]{2}s vdec=([1-9][0-9]*\.[0-9]{2}|0\.[0-9][1-9]|0\.[1-9][0-9])ms" -- \
   --seconds 3 "$media/h264_aac.mp4"
 
 # Network cases against a local server that injects faults. Each starts its
@@ -296,26 +368,28 @@ serve() {
   done
   url="http://127.0.0.1:$port/faststart.mp4"
 }
-trap stop_server EXIT
+trap 'stop_server; rm -rf "$results"' EXIT
 
-expect truncated-file "state=error" "error: input ended at" -- "$media/truncated.mp4"
-expect resolution-change "video size 1280x720" "video size 640x360" "state=ended" -- \
+par expect truncated-file "state=error" "error: input ended at" -- "$media/truncated.mp4"
+par expect resolution-change "video size 1280x720" "video size 640x360" "state=ended" -- \
   "$media/resolution_change.ts"
-expect corrupt-file "state=error" "error: (audio|video) decoding failed" -- "$media/corrupt.mp4"
+par expect corrupt-file "state=error" "error: (audio|video) decoding failed" -- "$media/corrupt.mp4"
 serve
-check http          1 - -- "$url"
+seq_ check http          1 - -- "$url"
 serve --drop-at 3000000
-check http-reconnect 1 - -- "$url"
+seq_ check http-reconnect 1 - -- "$url"
 serve --drop-at 3000000 --refuse-after-drop
-expect http-lost "state=error" "error: input ended at" -- "$url"
+seq_ expect http-lost "state=error" "error: input ended at" -- "$url"
 # Slower than the bitrate: rebuffer in long stretches, not every few frames.
 serve --rate 550
-expect http-slow "state=ended" "<=2 event: state buffering" -- "$url"
+seq_ expect http-slow "state=ended" "<=2 event: state buffering" -- "$url"
 # The read stalls before playback starts; the seek must not wait for it.
 serve --stall-at 3000000 --stall-for 10
-expect http-stall-seek "seek took [0-9]{1,3}\." "first_pts_after_seek=0.500s" -- \
+seq_ expect http-stall-seek "seek took [0-9]{1,3}\." "first_pts_after_seek=0.500s" -- \
   --seek 0.5 --seek-after 1 --seconds 3 "$url"
+wait_cases
 stop_server
 
+failures=$((failures + $(cat "$results"/[0-9][0-9][0-9] 2>/dev/null | grep -c '^FAIL ')))
 echo "$failures failure(s)"
 [ "$failures" = 0 ]
