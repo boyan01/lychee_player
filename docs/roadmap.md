@@ -131,7 +131,15 @@ anything). Pieces, in order:
    `media/parsers/h264_parser.cc`, `h265_parser.cc`).
 3. Container parsers ported from Chromium (`media/formats/mp4`, `mp2t`,
    `webm`) and an HLS playlist parser.
+4. Windows: decode with Media Foundation (flutter-airplay's
+   `windows_video.cpp`: H.264/HEVC MFTs on D3D11) into the same
+   `LYCHEE_FRAME_D3D11_TEXTURE` frames, ahead of FFmpeg's D3D11VA, which
+   stays the fallback when FFmpeg is present (HEVC without the Store's
+   HEVC extension, VP9). Audio through Media Foundation's AAC decoder.
+5. Android: MediaCodec already decodes video without FFmpeg; audio needs
+   MediaCodec too.
 
+The goal is FFmpeg-free builds on Apple platforms, Windows and Android.
 Linux keeps FFmpeg: it has no system audio decoder or demuxer.
 
 ## Distribution and infrastructure
