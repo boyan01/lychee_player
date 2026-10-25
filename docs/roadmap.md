@@ -153,9 +153,15 @@ above). What is left per platform is a renderer in `examples/glfw`
    `LYCHEE_FFMPEG_ROOT` plays `h264_aac.mp4` on the 26.04 VM (360 of 360
    frames, 0 dropped; 2026-10-25), so a 22.04 build runs on 26.04. The
    plugin still downloads BtbN's: shipping ours needs a place to host it
-   (Distribution 2). Unverified there: the Impeller renderer (the VM runs
-   with it off; the texture's GL state handling relies on Skia resetting
-   its own).
+   (Distribution 2). Unverified there: the Impeller renderer. Flutter
+   makes Skia forget its GL state around a texture's populate but does
+   nothing for Impeller (`ResolveTextureImpeller`), so populate now saves
+   and restores what it changes. Whether that is enough is unknown: on the
+   VM, Impeller (OpenGLESSDF on vmwgfx) garbles a plain Flutter app with
+   no plugin as well (a Slider half drawn, text missing, colours not
+   updating; 2026-10-25), so only the integration test (lifetime) passes
+   there. Done when a machine with a real GPU shows the example playing
+   under Impeller with its controls drawn.
    WSL's audio device (WSLg's `RDPSink`) runs 0.3-0.4% slower than the
    system clock in most runs: on the real clock, video follows it by
    holding a frame for 3 vsyncs every ~3 s (`glitches=1-4`,

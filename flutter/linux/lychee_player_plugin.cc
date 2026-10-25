@@ -25,9 +25,9 @@
 // populate runs in Flutter's EGL render context and draws the frame into
 // one RGBA texture: CPU frames are uploaded, and hardware-decoded dmabuf
 // frames are imported as EGLImages and converted from YUV by a shader.
-// Flutter resets Skia's GL state after populate
-// (embedder_external_texture_gl.cc), so the state changed here is not
-// restored.
+// Flutter makes Skia forget its GL state around populate
+// (embedder_external_texture_gl.cc), but not Impeller, so populate
+// restores everything it changes (ScopedGlState).
 
 namespace {
 
@@ -103,6 +103,136 @@ void DeleteOrphans() {
   orphans.clear();
   g_mutex_unlock(&orphans_mutex);
 }
+
+// The GL state populate changes, saved on construction and restored on
+// destruction. Skia's path resets Skia's GL state around the callback;
+// ResolveTextureImpeller in embedder_external_texture_gl.cc does not.
+class ScopedGlState {
+ public:
+  ScopedGlState()
+      : es3_(epoxy_gl_version() >= 30),
+        oes_vao_(!es3_ && epoxy_has_gl_extension("GL_OES_vertex_array_object")) {
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &active_texture_);
+    for (int i = 0; i < 2; ++i) {
+      glActiveTexture(GL_TEXTURE0 + i);
+      glGetIntegerv(GL_TEXTURE_BINDING_2D, &textures_[i]);
+    }
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &unpack_alignment_);
+    if (es3_) {
+      glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &unpack_buffer_);
+      glGetIntegerv(GL_UNPACK_ROW_LENGTH, &unpack_row_length_);
+      glGetIntegerv(GL_UNPACK_SKIP_ROWS, &unpack_skip_rows_);
+      glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &unpack_skip_pixels_);
+    }
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer_);
+    glGetIntegerv(GL_VIEWPORT, viewport_);
+    glGetBooleanv(GL_COLOR_WRITEMASK, color_mask_);
+    for (int i = 0; i < kCapabilityCount; ++i) {
+      capabilities_[i] = glIsEnabled(kCapabilities[i]);
+    }
+    glGetIntegerv(GL_CURRENT_PROGRAM, &program_);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &array_buffer_);
+    if (es3_ || oes_vao_) {
+      glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vertex_array_);
+      BindVertexArray(0);
+    }
+    // Attribute 0 of the default vertex array, which the shader uses.
+    glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_ENABLED, &attribute_.enabled);
+    glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING, &attribute_.buffer);
+    glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_SIZE, &attribute_.size);
+    glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_TYPE, &attribute_.type);
+    glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_NORMALIZED, &attribute_.normalized);
+    glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_STRIDE, &attribute_.stride);
+    glGetVertexAttribPointerv(0, GL_VERTEX_ATTRIB_ARRAY_POINTER, &attribute_.pointer);
+    if (es3_ || oes_vao_) {
+      BindVertexArray(vertex_array_);
+    }
+  }
+
+  ~ScopedGlState() {
+    if (es3_ || oes_vao_) {
+      BindVertexArray(0);
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, attribute_.buffer);
+    glVertexAttribPointer(0, attribute_.size, attribute_.type,
+                          attribute_.normalized, attribute_.stride,
+                          attribute_.pointer);
+    if (attribute_.enabled) {
+      glEnableVertexAttribArray(0);
+    } else {
+      glDisableVertexAttribArray(0);
+    }
+    if (es3_ || oes_vao_) {
+      BindVertexArray(vertex_array_);
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, array_buffer_);
+    glUseProgram(program_);
+    for (int i = 0; i < kCapabilityCount; ++i) {
+      if (capabilities_[i]) {
+        glEnable(kCapabilities[i]);
+      } else {
+        glDisable(kCapabilities[i]);
+      }
+    }
+    glColorMask(color_mask_[0], color_mask_[1], color_mask_[2], color_mask_[3]);
+    glViewport(viewport_[0], viewport_[1], viewport_[2], viewport_[3]);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_);
+    if (es3_) {
+      glPixelStorei(GL_UNPACK_SKIP_PIXELS, unpack_skip_pixels_);
+      glPixelStorei(GL_UNPACK_SKIP_ROWS, unpack_skip_rows_);
+      glPixelStorei(GL_UNPACK_ROW_LENGTH, unpack_row_length_);
+      glBindBuffer(GL_PIXEL_UNPACK_BUFFER, unpack_buffer_);
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, unpack_alignment_);
+    for (int i = 0; i < 2; ++i) {
+      glActiveTexture(GL_TEXTURE0 + i);
+      glBindTexture(GL_TEXTURE_2D, textures_[i]);
+    }
+    glActiveTexture(active_texture_);
+  }
+
+  ScopedGlState(const ScopedGlState&) = delete;
+  ScopedGlState& operator=(const ScopedGlState&) = delete;
+
+ private:
+  static constexpr GLenum kCapabilities[] = {
+      GL_SCISSOR_TEST, GL_BLEND, GL_DEPTH_TEST, GL_STENCIL_TEST, GL_CULL_FACE};
+  static constexpr int kCapabilityCount = 5;
+
+  void BindVertexArray(GLint array) const {
+    if (es3_) {
+      glBindVertexArray(array);
+    } else {
+      glBindVertexArrayOES(array);
+    }
+  }
+
+  const bool es3_;
+  const bool oes_vao_;
+  GLint active_texture_ = GL_TEXTURE0;
+  GLint textures_[2] = {};
+  GLint unpack_alignment_ = 4;
+  GLint unpack_buffer_ = 0;
+  GLint unpack_row_length_ = 0;
+  GLint unpack_skip_rows_ = 0;
+  GLint unpack_skip_pixels_ = 0;
+  GLint framebuffer_ = 0;
+  GLint viewport_[4] = {};
+  GLboolean color_mask_[4] = {};
+  GLboolean capabilities_[kCapabilityCount] = {};
+  GLint program_ = 0;
+  GLint array_buffer_ = 0;
+  GLint vertex_array_ = 0;
+  struct {
+    GLint enabled = 0;
+    GLint buffer = 0;
+    GLint size = 4;
+    GLint type = GL_FLOAT;
+    GLint normalized = 0;
+    GLint stride = 0;
+    void* pointer = nullptr;
+  } attribute_;
+};
 
 void SetSampling(GLuint texture) {
   glBindTexture(GL_TEXTURE_2D, texture);
@@ -427,7 +557,7 @@ static gboolean lychee_texture_convert(LycheeTexture* self,
     glUseProgram(self->gl.program);
     glUniform3fv(self->offset_location, 1, offset);
     glUniformMatrix3fv(self->matrix_location, 1, GL_FALSE, matrix);
-    // Skia's vertex array would otherwise take the attribute.
+    // The renderer's vertex array would otherwise take the attribute.
     if (epoxy_gl_version() >= 30) {
       glBindVertexArray(0);
     } else if (epoxy_has_gl_extension("GL_OES_vertex_array_object")) {
@@ -478,7 +608,9 @@ static gboolean lychee_texture_populate(FlTextureGL* texture,
                                         uint32_t* height,
                                         GError** error) {
   LycheeTexture* self = LYCHEE_TEXTURE(texture);
+  // First, so the saved state no longer names what it deletes.
   DeleteOrphans();
+  ScopedGlState state;
   if (!self->gl.output) {
     // Flutter paints the texture once before the first frame is marked
     // available; show nothing until then.
