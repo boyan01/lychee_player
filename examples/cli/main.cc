@@ -599,6 +599,8 @@ int main(int argc, char** argv) {
   int64_t glitches = 0;
   int64_t vsyncs_on_screen = 0;
   int32_t frame_type = 0;
+  // Of the last CPU frame, R, G, B; -1 if none.
+  int center_pixel[3] = {-1, -1, -1};
   // The frame on screen has been shown only while playing steadily.
   bool steady = false;
   int exit_code = 0;
@@ -706,6 +708,20 @@ int main(int argc, char** argv) {
       if (frame) {
         int64_t pts = lychee_frame_get_pts(frame);
         frame_type = lychee_frame_get_type(frame);
+        if (frame_type == LYCHEE_FRAME_CPU_BGRA ||
+            frame_type == LYCHEE_FRAME_CPU_RGBA) {
+          int32_t stride = 0;
+          const uint8_t* data = lychee_frame_get_data(frame, &stride);
+          const uint8_t* p =
+              data +
+              static_cast<ptrdiff_t>(lychee_frame_get_height(frame) / 2) *
+                  stride +
+              lychee_frame_get_width(frame) / 2 * 4;
+          const bool bgra = frame_type == LYCHEE_FRAME_CPU_BGRA;
+          center_pixel[0] = p[bgra ? 2 : 0];
+          center_pixel[1] = p[1];
+          center_pixel[2] = p[bgra ? 0 : 2];
+        }
         // The first discontinuity after a seek is the seek landing.
         bool discontinuity =
             last_pts != INT64_MIN &&
@@ -927,6 +943,10 @@ int main(int argc, char** argv) {
            live_abuf / 1e6);
   }
   printf("\n");
+  if (center_pixel[0] >= 0) {
+    printf("center pixel: %d,%d,%d\n", center_pixel[0], center_pixel[1],
+           center_pixel[2]);
+  }
   lychee_player_destroy(player);
   return exit_code;
 }

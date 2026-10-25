@@ -123,11 +123,25 @@ std::shared_ptr<VideoFrame> AppleFrameConverter::ToBgraPixelBuffer(
     if (IsBgra(input)) {
       return frame;
     }
-    if (!transfer_session_ &&
-        VTPixelTransferSessionCreate(nullptr, &transfer_session_) != noErr) {
-      LOGE("VTPixelTransferSessionCreate failed");
-      transfer_session_ = nullptr;
-      return nullptr;
+    if (!transfer_session_) {
+      if (VTPixelTransferSessionCreate(nullptr, &transfer_session_) != noErr) {
+        LOGE("VTPixelTransferSessionCreate failed");
+        transfer_session_ = nullptr;
+        return nullptr;
+      }
+      // SDR BT.709 out. VideoToolbox then tone-maps HDR (PQ, HLG) from the
+      // decoder's color attachments instead of passing its code values
+      // through as SDR, which looks dim and washed out.
+      VTSessionSetProperty(transfer_session_,
+                           kVTPixelTransferPropertyKey_DestinationColorPrimaries,
+                           kCVImageBufferColorPrimaries_ITU_R_709_2);
+      VTSessionSetProperty(
+          transfer_session_,
+          kVTPixelTransferPropertyKey_DestinationTransferFunction,
+          kCVImageBufferTransferFunction_ITU_R_709_2);
+      VTSessionSetProperty(transfer_session_,
+                           kVTPixelTransferPropertyKey_DestinationYCbCrMatrix,
+                           kCVImageBufferYCbCrMatrix_ITU_R_709_2);
     }
     output = CreateBgraBuffer(frame->width, frame->height);
     if (!output) {

@@ -454,8 +454,16 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
   output->data[0] = data->data;
   output->linesize[0] = stride;
   output->color_range = AVCOL_RANGE_JPEG;
-  output->color_primaries = frame->color_primaries;
-  output->color_trc = frame->color_trc;
+  if (frame->color_trc == AVCOL_TRC_SMPTE2084 ||
+      frame->color_trc == AVCOL_TRC_ARIB_STD_B67) {
+    // HDR into 8-bit SDR: swscale tone-maps (SWS_INTENT_PERCEPTUAL, its
+    // default) instead of passing PQ or HLG code values through.
+    output->color_primaries = AVCOL_PRI_BT709;
+    output->color_trc = AVCOL_TRC_BT709;
+  } else {
+    output->color_primaries = frame->color_primaries;
+    output->color_trc = frame->color_trc;
+  }
   int ret = sws_scale_frame(sws_context_, output.get(), frame);
   if (ret < 0) {
     LOGE("sws_scale_frame: %s", AVErrorString(ret).c_str());

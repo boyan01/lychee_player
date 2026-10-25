@@ -52,6 +52,11 @@ gen h264_aac.mp4 -f lavfi -i "$src" -f lavfi -i sine=frequency=440:sample_rate=4
   -c:v libx264 -preset veryfast -bf 3 -pix_fmt yuv420p -c:a aac -b:a 128k
 gen hevc10.mp4 -f lavfi -i testsrc2=size=1920x1080:rate=24 -f lavfi -i sine=frequency=660:sample_rate=48000 -t 10 \
   -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -tag:v hvc1 -x265-params log-level=error -c:a aac
+# HDR10: mid gray in PQ, about 92 nits. Tone-mapped to SDR it is light
+# gray (~182), not the 50% gray its code values would give as SDR.
+gen hdr_pq.mp4 -f lavfi -i color=c=gray:size=1280x720:rate=30 -t 3 -c:v libx265 -preset ultrafast \
+  -pix_fmt yuv420p10le -tag:v hvc1 -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+  -x265-params log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:hdr10=1:max-cll=1000,400
 gen vp9_opus.webm -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=550:sample_rate=48000 -t 10 \
   -c:v libvpx-vp9 -deadline realtime -cpu-used 8 -b:v 2M -c:a libopus
 gen av1.mkv -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=330:sample_rate=48000 -t 10 \
@@ -339,6 +344,11 @@ par check audio-only    - - -- "$media/audio_only.mp3"
 par check video-only    1 - -- "$media/video_only.mp4"
 par check ts-offset     1 - -- "$media/offset.ts"
 par check no-hw-cpu     0 - -- --no-hw --cpu "$media/h264_aac.mp4"
+# 8-bit frames from HDR are tone-mapped, by VideoToolbox and by swscale.
+par expect hdr-tonemap "center pixel: 1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9])$" -- --cpu --seconds 1 \
+  "$media/hdr_pq.mp4"
+par expect hdr-tonemap-sw "hw=0 " "center pixel: 1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9])$" -- --cpu \
+  --no-hw --seconds 1 "$media/hdr_pq.mp4"
 # Reading hardware frames back into CPU memory costs ~50 ms a frame on macOS
 # (far more under TSan); a second of video covers the conversion.
 par expect rgba "frame_type=4 " "rendered=2[0-9] dropped=0 " -- --rgba --seconds 1 "$media/hevc10.mp4"
