@@ -38,6 +38,8 @@ struct Options {
   // Seconds after playback starts to apply |rate|; < 0: before opening.
   double rate_after = -1;
   bool loop = false;
+  // Turn looping off this many seconds after playback starts.
+  double loop_off_after = -1;
   // Open |reopen_url| on the same player this many seconds after playback
   // starts; 0: right after the first open, while it is still loading.
   std::string reopen_url;
@@ -176,6 +178,10 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       options->rate_after = atof(v);
     } else if (arg == "--loop") {
       options->loop = true;
+    } else if (arg == "--loop-off-after") {
+      const char* v = value();
+      if (!v) return false;
+      options->loop_off_after = atof(v);
     } else if (arg == "--open-after") {
       const char* v = value();
       const char* url = value();
@@ -468,7 +474,7 @@ int main(int argc, char** argv) {
     fprintf(stderr,
             "usage: %s [--seconds N] [--seek SEC [--seek-after SEC]] "
             "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
-            "[--cpu | --rgba] [--rate R [--rate-after SEC]] [--loop] "
+            "[--cpu | --rgba] [--rate R [--rate-after SEC]] [--loop [--loop-off-after SEC]] "
             "[--open-after SEC URL] [--select TYPE:INDEX]... "
             "[--select-after SEC] [--lose-decoder-after SEC]... "
             "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
@@ -559,6 +565,8 @@ int main(int argc, char** argv) {
   int64_t select_position = INT64_MIN;
   bool tracks_changed = false;
   int64_t loop_check_position = 0;
+  // A jump back to the start is a loop only while looping is on.
+  bool looping = options.loop;
   size_t next_loss = 0;
   // Wall time the hidden stretch ends; 0 if not hidden (yet), -1 after.
   int64_t hidden_until = 0;
@@ -670,7 +678,7 @@ int main(int argc, char** argv) {
         if (seek_issued && first_pts_after_seek == INT64_MIN &&
             discontinuity) {
           first_pts_after_seek = pts;
-        } else if (options.loop && last_pts != INT64_MIN &&
+        } else if (looping && last_pts != INT64_MIN &&
                    pts < last_pts - 1000000) {
           // Looped back to the start.
         } else if (last_pts != INT64_MIN && pts < last_pts) {
@@ -717,6 +725,13 @@ int main(int argc, char** argv) {
         drift_position = position;
       }
       loop_check_position = position;
+    }
+    if (looping && options.loop_off_after >= 0 && ready_wall != 0 &&
+        now - ready_wall >=
+            static_cast<int64_t>(options.loop_off_after * 1e6)) {
+      looping = false;
+      printf("loop off at %.3fs\n", position / 1e6);
+      lychee_player_set_looping(player, 0);
     }
     if (!rate_applied && ready_wall != 0 &&
         now - ready_wall >= static_cast<int64_t>(options.rate_after * 1e6)) {

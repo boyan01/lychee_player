@@ -173,6 +173,53 @@ void AudioRendererAlgorithm::BufferQueue::SeekFrames(int count) {
   }
 }
 
+void AudioRendererAlgorithm::BufferQueue::EndAt(int64_t time,
+                                                int channels,
+                                                int sample_rate) {
+  while (!buffers_.empty() && buffers_.back()->pts != kNoTimestamp) {
+    const AudioBuffer& back = *buffers_.back();
+    const int consumed = buffers_.size() == 1 ? front_offset_ : 0;
+    const int keep = static_cast<int>(std::clamp<int64_t>(
+        std::llround(static_cast<double>(time - back.pts) * back.sample_rate /
+                     kMicrosPerSecond),
+        consumed, back.frames()));
+    if (keep == back.frames()) {
+      break;
+    }
+    frames_ -= back.frames() - keep;
+    if (keep == consumed) {
+      buffers_.pop_back();
+      front_offset_ = buffers_.empty() ? 0 : front_offset_;
+      continue;
+    }
+    auto cut = std::make_shared<AudioBuffer>(back);
+    cut->samples.resize(static_cast<size_t>(keep) * cut->channels);
+    buffers_.back() = std::move(cut);
+    break;
+  }
+  if (!has_timestamp_) {
+    return;
+  }
+  int64_t end = consumed_end_;
+  if (!buffers_.empty()) {
+    const AudioBuffer& back = *buffers_.back();
+    if (back.pts == kNoTimestamp) {
+      return;
+    }
+    end = back.pts + back.duration();
+  }
+  const int64_t gap = std::llround(static_cast<double>(time - end) *
+                                   sample_rate / kMicrosPerSecond);
+  if (gap > 0) {
+    auto silence = std::make_shared<AudioBuffer>();
+    silence->pts = end;
+    silence->sample_rate = sample_rate;
+    silence->channels = channels;
+    silence->samples.assign(static_cast<size_t>(gap) * channels, 0.0f);
+    Append(std::move(silence));
+  }
+}
+
 int64_t AudioRendererAlgorithm::BufferQueue::FrontTimestamp() const {
   if (!has_timestamp_) {
     return kNoTimestamp;

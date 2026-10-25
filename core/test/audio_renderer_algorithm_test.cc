@@ -127,6 +127,39 @@ TEST(AudioRendererAlgorithm, FlushDropsInput) {
   EXPECT_EQ(algorithm.NextOutputTimestamp(), kNoTimestamp);
 }
 
+TEST(AudioRendererAlgorithm, EndInputAtCutsPastTheBoundary) {
+  AudioRendererAlgorithm algorithm;
+  algorithm.Initialize(kChannels, kSampleRate);
+  // 10 ms buffers to 105 ms, partly read: the loop boundary is at 52 ms.
+  EnqueueTone(&algorithm, 0.1);
+  algorithm.EnqueueBuffer(Tone(440, 4800, 240));
+  AudioBus bus(kChannels, 960);
+  EXPECT_EQ(algorithm.FillBuffer(&bus, 0, 960, 1.0), 960);
+  algorithm.EndInputAt(52 * kMs);
+  EXPECT_EQ(algorithm.BufferedFrames(), 52 * 48 - 960);
+  // The next pass continues the timeline.
+  algorithm.EnqueueBuffer(Tone(440, 52 * 48, 480));
+  EXPECT_EQ(algorithm.FillBuffer(&bus, 0, 900, 1.0), 900);
+  EXPECT_EQ(algorithm.NextOutputTimestamp(), 38750);
+  // Before what was read: nothing is left, and time does not go back.
+  algorithm.EndInputAt(30 * kMs);
+  EXPECT_EQ(algorithm.BufferedFrames(), 0);
+  EXPECT_EQ(algorithm.NextOutputTimestamp(), 38750);
+}
+
+TEST(AudioRendererAlgorithm, EndInputAtPadsAShortTrackWithSilence) {
+  AudioRendererAlgorithm algorithm;
+  algorithm.Initialize(kChannels, kSampleRate);
+  algorithm.EnqueueBuffer(Tone(440, 0, 480));
+  algorithm.EndInputAt(25 * kMs);
+  EXPECT_EQ(algorithm.BufferedFrames(), 25 * 48);
+  AudioBus bus(kChannels, 25 * 48);
+  EXPECT_EQ(algorithm.FillBuffer(&bus, 0, 25 * 48, 1.0), 25 * 48);
+  EXPECT_TRUE(bus.channel(0)[379] != 0.0f && bus.channel(0)[600] == 0.0f &&
+              bus.channel(1)[25 * 48 - 1] == 0.0f);
+  EXPECT_EQ(algorithm.NextOutputTimestamp(), 25 * kMs);
+}
+
 TEST(Wsola, QuadraticInterpolationFindsPeak) {
   float extremum;
   float value;

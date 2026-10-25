@@ -333,11 +333,14 @@ par check seek-audio    - - -- --seek 3 --seek-after 1 "$media/audio_only.mp3"
 # Playback rate. Drift (position vs. wall clock times the rate) stays small
 # only if both the clock and the WSOLA output follow the rate.
 small_drift="max_drift=([0-9]|[1-9][0-9]|1[0-4][0-9])\.[0-9]ms"
+# Under 20 ms: no stall on top of what the clock already does.
+no_drift="max_drift=([0-9]|1[0-9])\.[0-9]ms"
 few_glitches="summary:.*glitches=[0-3] "
 if [ "${TSAN:-0}" = 1 ]; then
   # An unoptimized ThreadSanitizer build cannot run WSOLA in real time:
   # audio falls behind, so only races and the end state are checked.
   small_drift="max_drift="
+  no_drift="max_drift="
   few_glitches="glitches="
 fi
 par expect rate-2x "summary: state=ended" "summary:.*dropped=[0-3] " "$few_glitches" "$small_drift" -- \
@@ -349,9 +352,14 @@ par expect rate-change "rate -> 1.50" "summary: state=ended" "summary:.*glitches
 par expect rate-audio-only "summary: state=ended" "$small_drift" -- --rate 2 "$media/audio_only.mp3"
 par expect rate-video-only "summary: state=ended" "$few_glitches" "$small_drift" -- \
   --rate 2 "$media/video_only.mp4"
-# Looping: back to the start without ENDED or BUFFERING.
-par expect loop "summary: state=ready" "loops=2" "summary:.*backward_jumps=0 " "<=0 event: state (ended|buffering)" -- \
-  --loop --seconds 8 "$media/loop.mp4"
+# Looping: back to the start without ENDED or BUFFERING, and without
+# stopping: a frame held too long at the jump is a glitch.
+par expect loop "summary: state=ready" "loops=2" "summary:.*backward_jumps=0 " "summary:.*glitches=0 " \
+  "<=0 event: state (ended|buffering)" -- --loop --seconds 8 "$media/loop.mp4"
+# Looping off after the read has wrapped: ends with the pass playing, with
+# none of the next one shown (90 frames).
+par expect loop-off "summary: state=ended position=3\.000s .*pulled=90 " "summary:.*backward_jumps=0 " \
+  "summary:.*loops=0 " -- --loop --loop-off-after 2 --seconds 8 "$media/loop.mp4"
 # A second open on the same player, while playing and while still loading.
 par expect reopen "open -> " "<=0 event: state error" "video size 1280x720" "summary: state=ended position=8.000s" -- \
   --open-after 2 "$media/video_only.mp4" "$media/h264_aac.mp4"
@@ -438,6 +446,10 @@ realtime=1 seq_ check realtime-h264 1 - -- "$media/meta.mp4"
 realtime=1 seq_ check realtime-seek 1 3.000 -- --seek 3 --seek-after 1 "$media/meta.mp4"
 realtime=1 seq_ expect realtime-rate "summary: state=ended" "$few_glitches" "$small_drift" -- \
   --rate 2 "$media/meta.mp4"
+# Drift is measured afresh from each jump back: a loop that stops the audio
+# device and prerolls again shows up as ~60 ms behind.
+realtime=1 seq_ expect realtime-loop "loops=2" "$no_drift" "<=0 event: state (ended|buffering)" -- \
+  --loop --seconds 8 "$media/loop.mp4"
 
 # Network cases against a local server that injects faults. Each starts its
 # own server so a fault fires once. Faults at a byte offset work on virtual

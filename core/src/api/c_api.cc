@@ -26,6 +26,8 @@ struct lychee_player {
 
 struct lychee_frame {
   std::shared_ptr<VideoFrame> frame;
+  // On the file's timeline (Player::UnloopedPts()).
+  int64_t pts;
 };
 
 static_assert(static_cast<int>(lychee::VideoDevice::Type::kD3D11Adapter) ==
@@ -409,7 +411,8 @@ lychee_frame* lychee_player_acquire_frame(lychee_player* player,
   if (!frame) {
     return nullptr;
   }
-  return new lychee_frame{std::move(frame)};
+  const int64_t pts = player->player->UnloopedPts(frame->pts);
+  return new lychee_frame{std::move(frame), pts};
 }
 
 void lychee_frame_release(lychee_frame* frame) {
@@ -429,7 +432,7 @@ int32_t lychee_frame_get_height(const lychee_frame* frame) {
 }
 
 int64_t lychee_frame_get_pts(const lychee_frame* frame) {
-  return frame->frame->pts;
+  return frame->pts;
 }
 
 const uint8_t* lychee_frame_get_data(const lychee_frame* frame,

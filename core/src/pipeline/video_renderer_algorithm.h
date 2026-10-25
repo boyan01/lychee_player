@@ -50,6 +50,10 @@ class VideoRendererAlgorithm {
   // Returns how many were never rendered.
   size_t RemoveExpiredFrames(int64_t deadline);
 
+  // Not in Chromium: removes the queued frames at or after |pts|, except
+  // the front one.
+  void RemoveFramesFrom(int64_t pts);
+
   // Adds a decoded frame; out-of-order frames are sorted in. Frames at or
   // before the last rendered one, or within 1 ms of a queued one, are
   // dropped (and reported by the next Render()).

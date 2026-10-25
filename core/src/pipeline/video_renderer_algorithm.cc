@@ -206,6 +206,13 @@ size_t VideoRendererAlgorithm::RemoveExpiredFrames(int64_t deadline) {
   return frames_dropped_without_rendering;
 }
 
+void VideoRendererAlgorithm::RemoveFramesFrom(int64_t pts) {
+  while (frame_queue_.size() > 1 && frame_queue_.back().frame->pts >= pts) {
+    frame_queue_.pop_back();
+  }
+  UpdateEffectiveFramesQueued();
+}
+
 void VideoRendererAlgorithm::Reset(ResetFlag reset_flag) {
   frames_dropped_during_enqueue_ = 0;
   have_rendered_frames_ = false;

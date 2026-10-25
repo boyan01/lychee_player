@@ -64,12 +64,7 @@ on top of them.
    ~740 MB with `MALLOC_ARENA_MAX=2`. Each player's new threads get their
    own malloc arenas, which keep the freed 1080p frames. Fix: pool frame
    buffers across players, or `malloc_trim` after a player is destroyed.
-2. **Clock drift after a loop**: `lychee_cli --loop` reports `max_drift`
-   around -60 ms after the jump back to the start, against ~-10 ms before
-   (macOS and Windows). The audio clock is probably re-anchored before the
-   first post-loop audio reaches the device. Done when drift after a loop
-   matches drift before it, with a regression case asserting it.
-3. **Glitches after a seek on Linux**: `seek-forward` shows exactly 3
+2. **Glitches after a seek on Linux**: `seek-forward` shows exactly 3
    glitches in every WSL run (the case allows 3), 0 on macOS. Probably the
    PulseAudio stream's latency estimate settling after the flush. Done when
    it shows 0-1 there.

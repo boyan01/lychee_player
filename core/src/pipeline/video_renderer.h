@@ -66,6 +66,9 @@ class VideoRenderer {
   bool IsStarved() const;
   // The last frame has been shown for its full duration.
   bool Ended(int64_t media_time) const;
+  // Playback ends at |time| (kNoTimestamp: at the end of the stream): later
+  // frames are neither shown nor decoded ahead. Cleared by Flush().
+  void SetEndTime(int64_t time);
   // A decoded frame lasts past |media_time|, the queue is full, or the
   // stream ended. For SettledForTesting().
   bool HasFramesUntil(int64_t media_time) const;
@@ -153,6 +156,7 @@ class VideoRenderer {
   int64_t start_time_ = kNoTimestamp;
   // ContinueFrom(), until the first flush.
   int64_t inherited_shown_end_ = kNoTimestamp;
+  int64_t end_time_ = kNoTimestamp;
   bool end_of_stream_ = false;
   bool failed_ = false;
   bool decoder_lost_ = false;

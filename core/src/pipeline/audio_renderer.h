@@ -49,6 +49,9 @@ class AudioRenderer {
   bool HasEnoughData() const;
   bool IsStarved() const;
   bool Ended() const;
+  // Playback ends at |time| (kNoTimestamp: at the end of the stream);
+  // audio past it is kept but not played. Cleared by Flush().
+  void SetEndTime(int64_t time);
   // Decoded audio lasts |duration| of media time, the buffer is full, or
   // the stream ended. For SettledForTesting().
   bool HasDataFor(int64_t duration) const;
@@ -64,6 +67,8 @@ class AudioRenderer {
   // Writes the samples due from |playout_time| into |render_bus_|.
   int RenderLiveLocked(int frames, int64_t playout_time);
   int64_t BufferedDurationLocked() const;
+  // Output frames at |rate| left before |end_time_|; INT_MAX without one.
+  int FramesBeforeEndLocked(double rate) const;
 
   MediaClock* const clock_;
   std::atomic<int64_t>* const live_output_lead_;
@@ -88,6 +93,7 @@ class AudioRenderer {
   int64_t live_frames_ = 0;
   uint64_t generation_ = 0;
   int64_t start_time_ = kNoTimestamp;
+  int64_t end_time_ = kNoTimestamp;
   bool end_of_stream_ = false;
   bool failed_ = false;
   bool playing_ = false;

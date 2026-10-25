@@ -41,7 +41,10 @@ struct EncodedPacket {
   int64_t duration = 0;
   bool keyframe = false;
   bool end_of_stream = false;
-  // Null for end of stream.
+  // Not data: the stream starts over at |pts| (a loop). The packets before
+  // play up to |pts| and no further; the decoder drains and is flushed.
+  bool boundary = false;
+  // Null for end of stream and boundaries.
   std::shared_ptr<const PacketBuffer> buffer;
 
   size_t size() const { return buffer ? buffer->size() : 0; }
@@ -50,6 +53,15 @@ struct EncodedPacket {
     auto packet = std::make_shared<EncodedPacket>();
     packet->stream_index = stream_index;
     packet->end_of_stream = true;
+    return packet;
+  }
+
+  static std::shared_ptr<EncodedPacket> CreateBoundary(int stream_index,
+                                                       int64_t time) {
+    auto packet = std::make_shared<EncodedPacket>();
+    packet->stream_index = stream_index;
+    packet->pts = time;
+    packet->boundary = true;
     return packet;
   }
 };

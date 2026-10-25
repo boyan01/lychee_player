@@ -113,14 +113,23 @@ void VideoRenderer::Stop() {
 void VideoRenderer::DecodeLoop() {
   SetCurrentThreadName("lychee-vdecode");
   uint64_t decoder_generation = 0;
+  bool flush = false;
   PacketQueue::Entry entry;
   while (queue_->Pop(&entry)) {
-    if (entry.generation != decoder_generation) {
+    if (entry.generation != decoder_generation || flush) {
       decoder_->Flush();
       decoder_generation = entry.generation;
+      flush = false;
       unconfirmed_packets_.clear();
     }
     uint64_t generation = entry.generation;
+    // A loop: drain the frames of this pass, then start afresh.
+    const bool boundary = entry.packet->boundary;
+    const int64_t boundary_time = entry.packet->pts;
+    if (boundary) {
+      entry.packet = EncodedPacket::CreateEndOfStream(entry.packet->stream_index);
+      flush = true;
+    }
     // Excludes the time OnFrame() waits for queue space.
     int64_t waited = 0;
     const int64_t decode_start = MonotonicMicros();
@@ -143,8 +152,12 @@ void VideoRenderer::DecodeLoop() {
       }
       break;
     }
-    if (entry.packet->end_of_stream && generation == generation_) {
-      end_of_stream_ = true;
+    if (generation == generation_) {
+      if (boundary) {
+        start_time_ = boundary_time;
+      } else if (entry.packet->end_of_stream) {
+        end_of_stream_ = true;
+      }
     }
     if (stopped_) {
       break;
@@ -205,7 +218,9 @@ void VideoRenderer::OnFrame(std::shared_ptr<VideoFrame> frame,
   std::unique_lock<std::mutex> lock(mutex_);
   condition_.wait(lock, [&] {
     return stopped_ || generation != generation_ ||
-           algorithm_.frames_queued() <= kMaxQueuedFrames;
+           (algorithm_.frames_queued() <= kMaxQueuedFrames &&
+            (end_time_ == kNoTimestamp || frame->pts == kNoTimestamp ||
+             frame->pts < end_time_));
   });
   if (stopped_ || generation != generation_) {
     return;
@@ -249,6 +264,7 @@ void VideoRenderer::Flush(uint64_t generation,
       }
     }
     inherited_shown_end_ = kNoTimestamp;
+    end_time_ = kNoTimestamp;
     generation_ = generation;
     start_time_ = start_time;
     // The frame rate survives a seek; cadence detection need not restart.
@@ -283,7 +299,8 @@ bool VideoRenderer::HasEnoughData() const {
 
 bool VideoRenderer::IsStarved() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return algorithm_.effective_frames_queued() == 0 && !end_of_stream_;
+  return algorithm_.effective_frames_queued() == 0 && !end_of_stream_ &&
+         end_time_ == kNoTimestamp;
 }
 
 bool VideoRenderer::HasFramesUntil(int64_t media_time) const {
@@ -292,6 +309,9 @@ bool VideoRenderer::HasFramesUntil(int64_t media_time) const {
   if (end_of_stream_ || failed_ ||
       algorithm_.frames_queued() > kMaxQueuedFrames) {
     return true;
+  }
+  if (end_time_ != kNoTimestamp) {
+    media_time = std::min(media_time, end_time_ - 1);
   }
   return algorithm_.frames_queued() > 0 &&
          FrameEnd(*algorithm_.last_frame()) > media_time;
@@ -319,6 +339,9 @@ bool VideoRenderer::DecoderLost() const {
 
 bool VideoRenderer::Ended(int64_t media_time) const {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (end_time_ != kNoTimestamp && media_time >= end_time_) {
+    return true;
+  }
   if (!end_of_stream_ || algorithm_.frames_queued() > 1) {
     return false;
   }
@@ -331,6 +354,18 @@ bool VideoRenderer::Ended(int64_t media_time) const {
     return true;
   }
   return media_time >= FrameEnd(*current_);
+}
+
+void VideoRenderer::SetEndTime(int64_t time) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    end_time_ = time;
+    if (time != kNoTimestamp) {
+      algorithm_.RemoveFramesFrom(time);
+    }
+  }
+  // A frame waiting for the end time to go, or for queue space.
+  condition_.notify_all();
 }
 
 void VideoRenderer::ExpireFramesWhileHidden(int64_t now) {

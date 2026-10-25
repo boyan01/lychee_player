@@ -76,6 +76,17 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
   control thread, then a resync seek to the clock's position. Video then
   skips frames up to the end of the one on screen, since callers pull
   frames for display times ahead of the clock.
+- Looping does not seek: at the end of the input the read thread seeks
+  the demuxer back to the start and pushes a boundary packet, and reads
+  each later pass with timestamps a duration later (`Player::loops_`), so
+  the clock, the audio device and the renderers run on without a stop. At
+  a boundary a renderer drains and flushes its decoder and cuts or pads
+  audio to the boundary, without a new generation. The position, frame
+  pts and subtitles are mapped back to the file's timeline. Looping
+  turned off after the read wrapped gives the renderers an end time at
+  the pass playing (`ApplyLoopEndLocked`). Unseekable
+  input or an unknown duration falls back to a seek from the control
+  thread.
 - Live input (`lychee_player_open_live`): caller threads push packets into
   `LiveDemuxer`, which the read thread reads like any demuxer. Packets
   carry deadlines in the `NowMicros()` timebase, set at push time by

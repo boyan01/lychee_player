@@ -82,6 +82,11 @@ class AudioRendererAlgorithm {
   // Initialize().
   void EnqueueBuffer(std::shared_ptr<const AudioBuffer> buffer);
 
+  // Not in Chromium: makes the queued input end at |time|, cutting what
+  // lies past it or appending silence up to it. For a loop, whose next pass
+  // is enqueued from |time| on.
+  void EndInputAt(int64_t time) { queue_.EndAt(time, channels_, sample_rate_); }
+
   // Input frames not yet consumed.
   int BufferedFrames() const { return queue_.frames(); }
 
@@ -109,6 +114,8 @@ class AudioRendererAlgorithm {
     // Copies and consumes.
     int ReadFrames(int count, int dest_offset, AudioBus* dest);
     void SeekFrames(int count);
+    // See EndInputAt().
+    void EndAt(int64_t time, int channels, int sample_rate);
     // Media time of the first queued frame, or kNoTimestamp if unknown.
     int64_t FrontTimestamp() const;
     // Media time just past the last frame consumed.

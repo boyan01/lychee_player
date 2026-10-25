@@ -163,6 +163,9 @@ class Player {
 
   bool HasNewFrame(int64_t display_time) const;
   std::shared_ptr<VideoFrame> AcquireFrame(int64_t display_time);
+  // |pts| of a frame from AcquireFrame() on the file's own timeline: after
+  // a loop, frames carry the time of the pass they belong to.
+  int64_t UnloopedPts(int64_t pts) const;
 
  private:
   struct Event {
@@ -223,9 +226,21 @@ class Player {
   bool ShouldReadLocked() const;
   bool NeedMoreData() const;
   void ReadPacket();
+  // Read thread, at the end of the input while looping: seeks the demuxer
+  // back to the start and marks the boundary in the packet queues, so
+  // playback runs on without stopping. False if it cannot; the control
+  // thread then loops by seeking.
+  bool WrapLoop();
+  // Media time of the start of the pass playing at |media_time|, relative
+  // to the first pass.
+  int64_t LoopOffsetLocked(int64_t media_time) const;
+  // Looping off after the read thread wrapped past the pass playing: the
+  // renderers end at that pass's end instead of playing the next.
+  void ApplyLoopEndLocked();
   // |loop|: back to the start at the end; the state stays kReady.
-  // |resync|: after a track change, playing on from where playback is.
-  void ProcessSeek(int64_t target, bool loop, bool resync);
+  // |resync|: after a track change, playing on from where playback is, in
+  // pass |loops|.
+  void ProcessSeek(int64_t target, bool loop, bool resync, int64_t loops);
   void FinishSeekLocked();
   void UpdateState();
   void UpdateVideoSizeLocked();
@@ -306,6 +321,15 @@ class Player {
   // for the renderers to preroll.
   bool loop_seek_pending_ = false;
   bool prerolling_ = false;
+  // Times the read thread wrapped around since the last seek. Packets of
+  // pass N are read with timestamps N durations later, so the clock and
+  // renderers see one timeline that keeps going (WrapLoop()). Written
+  // under |mutex_| by the read thread, or by the control thread while it is
+  // parked; the read thread reads it without the lock.
+  int64_t loops_ = 0;
+  // ApplyLoopEndLocked(): where playback ends instead of looping, or
+  // kNoTimestamp.
+  int64_t loop_end_ = kNoTimestamp;
   TrackRequest track_request_;
   LiveChange live_change_;
   // The input stopped early (network failure, truncated file). Reported

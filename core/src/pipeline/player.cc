@@ -115,6 +115,8 @@ void Player::StopPipeline() {
     rebuffering_ = false;
     loop_seek_pending_ = false;
     prerolling_ = false;
+    loops_ = 0;
+    loop_end_ = kNoTimestamp;
     track_request_ = TrackRequest();
     input_error_.clear();
     error_.clear();
@@ -330,6 +332,7 @@ void Player::SetRate(double rate) {
 void Player::SetLooping(bool looping) {
   std::lock_guard<std::mutex> lock(mutex_);
   looping_ = looping;
+  ApplyLoopEndLocked();
 }
 
 bool Player::SelectTrack(MediaType type, int track) {
@@ -435,8 +438,9 @@ int64_t Player::position() const {
     default:
       break;
   }
-  int64_t position =
-      std::max<int64_t>(clock_.Now() - media_info_.start_time, 0);
+  const int64_t now = clock_.Now();
+  int64_t position = std::max<int64_t>(
+      now - LoopOffsetLocked(now) - media_info_.start_time, 0);
   if (media_info_.duration != kNoTimestamp) {
     position = std::min(position, media_info_.duration);
   }
@@ -467,7 +471,8 @@ int64_t Player::buffered_position() const {
   if (end == kInfiniteTime || end == kNoTimestamp || end < now) {
     end = now;
   }
-  end -= media_info_.start_time;
+  // Read into the next pass: buffered to the end of this one.
+  end -= LoopOffsetLocked(now) + media_info_.start_time;
   if (media_info_.duration != kNoTimestamp) {
     end = std::min(end, media_info_.duration);
   }
@@ -577,8 +582,11 @@ std::string Player::subtitle(int64_t display_time) const {
   if (!subtitle_renderer_) {
     return std::string();
   }
-  return subtitle_renderer_->TextAt(
-      display_time ? clock_.MediaTimeAt(display_time) : clock_.Now());
+  const int64_t media_time =
+      display_time ? clock_.MediaTimeAt(display_time) : clock_.Now();
+  // Subtitle packets keep the file's timeline, so every pass finds the
+  // same cues.
+  return subtitle_renderer_->TextAt(media_time - LoopOffsetLocked(media_time));
 }
 
 bool Player::HasNewFrame(int64_t display_time) const {
@@ -590,6 +598,50 @@ std::shared_ptr<VideoFrame> Player::AcquireFrame(int64_t display_time) {
   std::lock_guard<std::mutex> lock(display_mutex_);
   return video_for_display_ ? video_for_display_->Acquire(display_time)
                             : nullptr;
+}
+
+int64_t Player::UnloopedPts(int64_t pts) const {
+  if (pts == kNoTimestamp) {
+    return pts;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  return pts - LoopOffsetLocked(pts);
+}
+
+int64_t Player::LoopOffsetLocked(int64_t media_time) const {
+  if (loops_ == 0) {
+    return 0;
+  }
+  // Still the last pass when it ends there.
+  if (loop_end_ != kNoTimestamp) {
+    media_time = std::min(media_time, loop_end_ - 1);
+  }
+  // WrapLoop() needs a known duration.
+  const int64_t pass = std::clamp<int64_t>(
+      (media_time - media_info_.start_time) / media_info_.duration, 0, loops_);
+  return pass * media_info_.duration;
+}
+
+void Player::ApplyLoopEndLocked() {
+  // A seek resets |loops_| and flushes the renderers.
+  if (seeking_ || seek_pending_) {
+    return;
+  }
+  loop_end_ = kNoTimestamp;
+  int64_t end = kNoTimestamp;
+  if (!looping_ && loops_ > 0) {
+    const int64_t pass = LoopOffsetLocked(clock_.Now()) / media_info_.duration;
+    if (loops_ > pass) {
+      end = media_info_.start_time + (pass + 1) * media_info_.duration;
+    }
+  }
+  loop_end_ = end;
+  if (video_renderer_) {
+    video_renderer_->SetEndTime(end);
+  }
+  if (audio_renderer_) {
+    audio_renderer_->SetEndTime(end);
+  }
 }
 
 void Player::Run(std::string url) {
@@ -613,6 +665,7 @@ void Player::Run(std::string url) {
     bool seek = false;
     bool loop = false;
     bool resync = false;
+    int64_t resync_loops = 0;
     int64_t seek_target = 0;
     TrackRequest tracks;
     LiveChange live_change;
@@ -648,8 +701,11 @@ void Player::Run(std::string url) {
         } else if (!seek_in_progress_) {
           // A track change resumes where playback is.
           resync = true;
-          int64_t position =
-              std::max<int64_t>(clock_.Now() - media_info_.start_time, 0);
+          const int64_t now = clock_.Now();
+          const int64_t offset = LoopOffsetLocked(now);
+          resync_loops = offset ? offset / media_info_.duration : 0;
+          int64_t position = std::max<int64_t>(
+              now - offset - media_info_.start_time, 0);
           if (media_info_.duration != kNoTimestamp) {
             position = std::min(position, media_info_.duration);
           }
@@ -677,7 +733,7 @@ void Player::Run(std::string url) {
       if (tracks.pending()) {
         ChangeTracks(tracks);
       }
-      ProcessSeek(seek_target, loop, resync);
+      ProcessSeek(seek_target, loop, resync, resync_loops);
       {
         std::lock_guard<std::mutex> lock(mutex_);
         seeking_ = false;
@@ -1005,6 +1061,11 @@ void Player::ReadPacket() {
   if (result == DemuxerReadResult::kAborted) {
     return;
   }
+  if (result == DemuxerReadResult::kEndOfStream && WrapLoop()) {
+    return;
+  }
+  // The read thread is the only writer while it runs.
+  const int64_t offset = loops_ ? loops_ * media_info_.duration : 0;
   if (result != DemuxerReadResult::kOk) {
     if (video_stream_ >= 0) {
       video_queue_.Push(EncodedPacket::CreateEndOfStream(video_stream_));
@@ -1020,11 +1081,21 @@ void Player::ReadPacket() {
     }
     if (media_info_.duration != kNoTimestamp) {
       video_last_pts_ = audio_last_pts_ =
-          media_info_.start_time + media_info_.duration;
+          media_info_.start_time + media_info_.duration + offset;
     }
     return;
   }
 
+  if (offset &&
+      (packet->stream_index == video_stream_ ||
+       packet->stream_index == audio_stream_)) {
+    if (packet->pts != kNoTimestamp) {
+      packet->pts += offset;
+    }
+    if (packet->dts != kNoTimestamp) {
+      packet->dts += offset;
+    }
+  }
   int64_t pts = packet->pts;
   if (packet->stream_index == video_stream_) {
     video_queue_.Push(std::move(packet));
@@ -1046,10 +1117,57 @@ void Player::ReadPacket() {
   }
 }
 
-void Player::ProcessSeek(int64_t target, bool loop, bool resync) {
-  int64_t media_target = media_info_.start_time + target;
+bool Player::WrapLoop() {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    // A pending seek or track change replaces the loop; the control thread
+    // flushes whatever this pushes.
+    if (!looping_ || live_ || !media_info_.seekable ||
+        media_info_.duration == kNoTimestamp || media_info_.duration <= 0 ||
+        seek_pending_ || track_request_.pending() || quit_) {
+      return false;
+    }
+  }
+  if (!demuxer_->Seek(media_info_.start_time)) {
+    return false;
+  }
+  // Each pass lasts the container's duration: audio past it (encoder
+  // padding) is cut, and a shorter track is padded with silence, so
+  // passes neither overlap nor leave gaps.
+  const int64_t boundary =
+      media_info_.start_time + (loops_ + 1) * media_info_.duration;
+  if (video_stream_ >= 0) {
+    video_queue_.Push(EncodedPacket::CreateBoundary(video_stream_, boundary));
+  }
+  if (audio_stream_ >= 0) {
+    audio_queue_.Push(EncodedPacket::CreateBoundary(audio_stream_, boundary));
+  }
+  if (subtitle_renderer_) {
+    subtitle_renderer_->Flush();
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  loops_++;
+  video_last_pts_ = std::max(video_last_pts_, boundary);
+  audio_last_pts_ = std::max(audio_last_pts_, boundary);
+  LOGI("loop: reading pass %lld", static_cast<long long>(loops_));
+  // Looping went off since the check above.
+  if (!looping_) {
+    ApplyLoopEndLocked();
+  }
+  return true;
+}
+
+void Player::ProcessSeek(int64_t target,
+                         bool loop,
+                         bool resync,
+                         int64_t loops) {
+  const int64_t file_target = media_info_.start_time + target;
+  // A resync stays in the pass playing; the read thread offsets its packets
+  // by as much.
+  const int64_t media_target =
+      file_target + (loops ? loops * media_info_.duration : 0);
   LOGI("%s to %lld us", loop ? "loop" : "seek", static_cast<long long>(target));
-  demuxer_->Seek(media_target);
+  demuxer_->Seek(file_target);
   generation_++;
   video_queue_.Flush(generation_);
   audio_queue_.Flush(generation_);
@@ -1067,6 +1185,8 @@ void Player::ProcessSeek(int64_t target, bool loop, bool resync) {
   end_of_input_ = false;
   rebuffering_ = false;
   input_error_.clear();
+  loops_ = loops;
+  loop_end_ = kNoTimestamp;
   clock_.Reset(media_target);
   clock_running_ = false;
   if (audio_renderer_) {
@@ -1185,7 +1305,8 @@ void Player::UpdateSubtitleLocked() {
     if (seek_pending_ || seek_in_progress_ || prerolling_) {
       return;
     }
-    text = subtitle_renderer_->TextAt(clock_.Now());
+    const int64_t now = clock_.Now();
+    text = subtitle_renderer_->TextAt(now - LoopOffsetLocked(now));
   }
   if (text != subtitle_text_) {
     subtitle_text_ = std::move(text);

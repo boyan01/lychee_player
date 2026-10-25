@@ -3,6 +3,7 @@
 #include "pipeline/audio_renderer.h"
 
 #include <algorithm>
+#include <climits>
 
 #include "base/log.h"
 #include "base/time.h"
@@ -95,10 +96,22 @@ void AudioRenderer::DecodeLoop() {
       decoder_generation = entry.generation;
     }
     uint64_t generation = entry.generation;
-    bool ok = decoder_->Decode(
-        *entry.packet, [this, generation](std::shared_ptr<AudioBuffer> buffer) {
-          OnBuffer(std::move(buffer), generation);
-        });
+    auto output = [this, generation](std::shared_ptr<AudioBuffer> buffer) {
+      OnBuffer(std::move(buffer), generation);
+    };
+    if (entry.packet->boundary) {
+      // A loop: play this pass up to the boundary and the next from there,
+      // as if seeking to it.
+      decoder_->Decode(*EncodedPacket::CreateEndOfStream(-1), output);
+      decoder_->Flush();
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (generation == generation_) {
+        algorithm_.EndInputAt(entry.packet->pts);
+        start_time_ = entry.packet->pts;
+      }
+      continue;
+    }
+    bool ok = decoder_->Decode(*entry.packet, output);
     std::lock_guard<std::mutex> lock(mutex_);
     if (!ok) {
       LOGE("%s decoder failed", decoder_->name());
@@ -168,13 +181,16 @@ int AudioRenderer::Render(float* destination,
                                std::memory_order_relaxed);
       written = RenderLiveLocked(frames, playout_time);
     } else {
-      written = algorithm_.FillBuffer(&render_bus_, 0, frames, rate);
+      written = algorithm_.FillBuffer(
+          &render_bus_, 0, std::min(frames, FramesBeforeEndLocked(rate)), rate);
     }
     end_pts = algorithm_.NextOutputTimestamp();
     if (written == 0 && end_of_stream_) {
       // WSOLA keeps less than a window it cannot use: drop it so the stream
       // can end. Then let video (if any) run on the system clock.
       algorithm_.FlushBuffers();
+      clock_->ClearMaxTime();
+    } else if (written == 0 && FramesBeforeEndLocked(rate) == 0) {
       clock_->ClearMaxTime();
     }
   }
@@ -256,6 +272,7 @@ void AudioRenderer::Flush(uint64_t generation, int64_t start_time) {
     live_buffers_.clear();
     live_offset_ = 0;
     live_frames_ = 0;
+    end_time_ = kNoTimestamp;
     end_of_stream_ = false;
   }
   condition_.notify_all();
@@ -296,7 +313,23 @@ bool AudioRenderer::IsStarved() const {
 
 bool AudioRenderer::Ended() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return end_of_stream_ && algorithm_.BufferedFrames() == 0;
+  return (end_of_stream_ && algorithm_.BufferedFrames() == 0) ||
+         FramesBeforeEndLocked(rate_.load()) == 0;
+}
+
+void AudioRenderer::SetEndTime(int64_t time) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  end_time_ = time;
+}
+
+int AudioRenderer::FramesBeforeEndLocked(double rate) const {
+  const int64_t next = algorithm_.NextOutputTimestamp();
+  if (end_time_ == kNoTimestamp || next == kNoTimestamp) {
+    return INT_MAX;
+  }
+  const double frames = static_cast<double>(end_time_ - next) *
+                        format_.sample_rate / kMicrosPerSecond / rate;
+  return static_cast<int>(std::clamp(frames, 0.0, double{INT_MAX}));
 }
 
 bool AudioRenderer::HasDataFor(int64_t duration) const {
