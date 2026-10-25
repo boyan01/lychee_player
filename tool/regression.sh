@@ -384,7 +384,12 @@ serve() {
     [ -n "$port" ] && break
     sleep 0.1
   done
-  [ -n "$port" ] || { echo "media server did not start:"; sed 's/^/     /' "$log"; }
+  if [ -z "$port" ]; then
+    local status=exited
+    kill -0 "$server" 2>/dev/null && status="still starting"
+    echo "media server reported no port in 5 s ($status):"
+    sed 's/^/     /' "$log"
+  fi
   url="http://127.0.0.1:$port/faststart.mp4"
 }
 trap 'stop_server; rm -rf "$results"' EXIT

@@ -17,6 +17,7 @@ import argparse
 import http.server
 import os
 import re
+import socketserver
 import sys
 import threading
 import time
@@ -129,6 +130,16 @@ def make_handler(root, args, state):
     return Handler
 
 
+class Server(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+
+    def server_bind(self):
+        # HTTPServer.server_bind looks up the host's name (socket.getfqdn),
+        # a reverse DNS query that can hang on CI runners. Nothing uses it.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("root")
@@ -141,9 +152,8 @@ def main():
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
-    server = http.server.ThreadingHTTPServer(
-        ("127.0.0.1", args.port), make_handler(args.root, args, State()))
-    server.daemon_threads = True
+    server = Server(("127.0.0.1", args.port),
+                    make_handler(args.root, args, State()))
     print(f"port {server.server_address[1]}", flush=True)
     server.serve_forever()
 
