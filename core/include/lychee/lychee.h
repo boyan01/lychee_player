@@ -83,8 +83,8 @@ typedef struct lychee_dmabuf {
   int32_t fd[4];
   uint32_t offset[4];
   uint32_t pitch[4];
-  // DRM format modifier of every plane; DRM_FORMAT_MOD_INVALID (all ones)
-  // when the exporter did not say.
+  // DRM format modifier of every plane; DRM_FORMAT_MOD_INVALID
+  // (0x00ffffffffffffff) when the exporter did not say.
   uint64_t modifier;
   // ITU-T H.273 matrix coefficients (1 BT.709, 5/6 BT.601, 9 BT.2020) and
   // range, for the YUV to RGB conversion.
@@ -227,6 +227,11 @@ LYCHEE_EXPORT void lychee_player_destroy(lychee_player* player);
 //   LYCHEE_FRAME_D3D11_TEXTURE frames can be opened there. Takes effect at
 //   the next lychee_player_open() or track switch. Without one, hardware
 //   decoding uses the default adapter and frames come as CPU frames.
+// - Linux: a const char* path of the DRM render node the caller renders
+//   with ("/dev/dri/renderD128"), or "" when it does not know but can
+//   import dmabufs, for LYCHEE_FRAME_DMABUF frames. The library copies it.
+//   Takes effect like the adapter on Windows, and without one VAAPI frames
+//   come as CPU frames.
 // Ignored elsewhere.
 LYCHEE_EXPORT void lychee_player_set_video_output(lychee_player* player,
                                                   void* output);

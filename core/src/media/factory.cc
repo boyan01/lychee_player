@@ -24,6 +24,8 @@
 
 #include "backends/windows/wasapi_sink.h"
 #elif defined(__linux__)
+#include <string>
+
 #include "backends/linux/pulse_audio_sink.h"
 #endif
 
@@ -77,6 +79,8 @@ std::shared_ptr<void> RetainVideoOutput(void* output) {
   return std::shared_ptr<void>(adapter, [](void* retained) {
     static_cast<IUnknown*>(retained)->Release();
   });
+#elif defined(__linux__)
+  return std::make_shared<std::string>(static_cast<const char*>(output));
 #else
   return nullptr;
 #endif

@@ -126,7 +126,11 @@ set_target_properties(${PLUGIN_NAME} PROPERTIES
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
 target_include_directories(${PLUGIN_NAME} INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(${PLUGIN_NAME} PRIVATE flutter PkgConfig::GTK lychee)
+# libepoxy for EGL and GL, as Flutter's Linux embedder uses it.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(EPOXY REQUIRED IMPORTED_TARGET epoxy)
+target_link_libraries(${PLUGIN_NAME} PRIVATE flutter PkgConfig::GTK
+  PkgConfig::EPOXY lychee)
 
 # Installed into the app's bundle/lib next to the plugin.
 set(lychee_player_bundled_libraries

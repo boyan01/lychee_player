@@ -11,6 +11,11 @@
 #include <wrl/client.h>
 
 #include "backends/windows/d3d11_video_processor.h"
+#elif defined(__linux__) && !defined(__ANDROID__)
+#define LYCHEE_VAAPI 1
+#include <string>
+
+#include "lychee/lychee.h"
 #endif
 
 extern "C" {
@@ -19,6 +24,8 @@ extern "C" {
 #include <libswscale/swscale.h>
 #if defined(_WIN32)
 #include <libavutil/hwcontext_d3d11va.h>
+#elif defined(LYCHEE_VAAPI)
+#include <libavutil/hwcontext_drm.h>
 #endif
 }
 
@@ -31,6 +38,8 @@ AVHWDeviceType PlatformHardwareDeviceType() {
   return AV_HWDEVICE_TYPE_VIDEOTOOLBOX;
 #elif defined(_WIN32)
   return AV_HWDEVICE_TYPE_D3D11VA;
+#elif defined(LYCHEE_VAAPI)
+  return AV_HWDEVICE_TYPE_VAAPI;
 #else
   return AV_HWDEVICE_TYPE_NONE;
 #endif
@@ -43,8 +52,7 @@ int CreateD3D11VADevice(IDXGIAdapter* adapter, AVBufferRef** result) {
   Microsoft::WRL::ComPtr<ID3D11Device> device;
   if (FAILED(D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr,
                                D3D11_CREATE_DEVICE_VIDEO_SUPPORT, nullptr, 0,
-                               D3D11_SDK_VERSION, &device, nullptr,
-                               nullptr))) {
+                               D3D11_SDK_VERSION, &device, nullptr, nullptr))) {
     return AVERROR_EXTERNAL;
   }
   // As av_hwdevice_ctx_create() does for the devices it creates.
@@ -74,6 +82,89 @@ bool IsBt709(const AVFrame* frame) {
              : frame->colorspace != AVCOL_SPC_BT470BG &&
                    frame->colorspace != AVCOL_SPC_SMPTE170M;
 }
+#elif defined(LYCHEE_VAAPI)
+// Frames that the decoder's surfaces are held by outside it: the renderer's
+// queue, the frame on screen and the one the caller still draws from.
+// VAAPI surface pools do not grow.
+constexpr int kHeldDmabufFrames = 8;
+
+constexpr uint32_t Fourcc(char a, char b, char c, char d) {
+  return static_cast<uint32_t>(a) | static_cast<uint32_t>(b) << 8 |
+         static_cast<uint32_t>(c) << 16 | static_cast<uint32_t>(d) << 24;
+}
+// drm_fourcc.h, which is not always installed.
+constexpr uint32_t kDrmFormatR8 = Fourcc('R', '8', ' ', ' ');
+constexpr uint32_t kDrmFormatR16 = Fourcc('R', '1', '6', ' ');
+constexpr uint32_t kDrmFormatNv12 = Fourcc('N', 'V', '1', '2');
+constexpr uint32_t kDrmFormatP010 = Fourcc('P', '0', '1', '0');
+
+struct DmabufFrame {
+  // Keeps the file descriptors open and the decoder's surface referenced.
+  ScopedAVFrame mapped;
+  lychee_dmabuf dmabuf = {};
+};
+
+// |frame|, a VAAPI surface, mapped to DRM PRIME buffers; null for layouts
+// other than NV12 and P010.
+std::shared_ptr<VideoFrame> WrapDmabuf(const AVFrame* frame) {
+  auto owner = std::make_shared<DmabufFrame>();
+  owner->mapped.reset(av_frame_alloc());
+  if (!owner->mapped) {
+    return nullptr;
+  }
+  owner->mapped->format = AV_PIX_FMT_DRM_PRIME;
+  if (av_hwframe_map(owner->mapped.get(), frame, AV_HWFRAME_MAP_READ) < 0) {
+    return nullptr;
+  }
+  const auto* descriptor =
+      reinterpret_cast<const AVDRMFrameDescriptor*>(owner->mapped->data[0]);
+  lychee_dmabuf& dmabuf = owner->dmabuf;
+  dmabuf.struct_size = sizeof(dmabuf);
+  // FFmpeg exports VAAPI surfaces a layer per plane (R8 and GR88, or R16
+  // and GR1616); other exporters give one layer with both planes.
+  if (descriptor->nb_layers == 1) {
+    dmabuf.fourcc = descriptor->layers[0].format;
+  } else if (descriptor->nb_layers == 2) {
+    dmabuf.fourcc =
+        descriptor->layers[0].format == kDrmFormatR8    ? kDrmFormatNv12
+        : descriptor->layers[0].format == kDrmFormatR16 ? kDrmFormatP010
+                                                        : 0;
+  }
+  if (dmabuf.fourcc != kDrmFormatNv12 && dmabuf.fourcc != kDrmFormatP010) {
+    return nullptr;
+  }
+  for (int i = 0; i < descriptor->nb_layers; ++i) {
+    const AVDRMLayerDescriptor& layer = descriptor->layers[i];
+    for (int j = 0; j < layer.nb_planes && dmabuf.plane_count < 4; ++j) {
+      const AVDRMPlaneDescriptor& plane = layer.planes[j];
+      dmabuf.fd[dmabuf.plane_count] =
+          descriptor->objects[plane.object_index].fd;
+      dmabuf.offset[dmabuf.plane_count] = static_cast<uint32_t>(plane.offset);
+      dmabuf.pitch[dmabuf.plane_count] = static_cast<uint32_t>(plane.pitch);
+      dmabuf.plane_count++;
+    }
+  }
+  if (dmabuf.plane_count != 2) {
+    return nullptr;
+  }
+  dmabuf.modifier = descriptor->objects[0].format_modifier;
+  dmabuf.width = frame->width;
+  dmabuf.height = frame->height;
+  // AVColorSpace values are the H.273 matrix coefficients.
+  dmabuf.color_matrix =
+      frame->colorspace != AVCOL_SPC_UNSPECIFIED
+          ? frame->colorspace
+          : (frame->height > 576 ? AVCOL_SPC_BT709 : AVCOL_SPC_SMPTE170M);
+  dmabuf.full_range = frame->color_range == AVCOL_RANGE_JPEG;
+
+  auto result = std::make_shared<VideoFrame>();
+  result->storage = VideoFrameStorage::kDmabuf;
+  result->width = frame->width;
+  result->height = frame->height;
+  result->native_handle = &owner->dmabuf;
+  result->owner = std::move(owner);
+  return result;
+}
 #endif
 
 struct CpuFrameData {
@@ -92,8 +183,8 @@ FFmpegVideoDecoder::FFmpegVideoDecoder(bool hardware,
       // saves a second pass over every frame.
       cpu_storage_((accepted_storage &
                     static_cast<uint32_t>(VideoFrameStorage::kCpuRgba)) &&
-                           !(accepted_storage & static_cast<uint32_t>(
-                                                    VideoFrameStorage::kCpuBgra))
+                           !(accepted_storage &
+                             static_cast<uint32_t>(VideoFrameStorage::kCpuBgra))
                        ? VideoFrameStorage::kCpuRgba
                        : VideoFrameStorage::kCpuBgra),
       output_(std::move(output)),
@@ -179,10 +270,18 @@ bool FFmpegVideoDecoder::InitializeHardware(const AVCodec* codec,
     ret = CreateD3D11VADevice(static_cast<IDXGIAdapter*>(output_.get()),
                               &hw_device_context_);
   } else
+#elif defined(LYCHEE_VAAPI)
+  if (output_) {
+    const std::string& node = *static_cast<const std::string*>(output_.get());
+    ret = av_hwdevice_ctx_create(&hw_device_context_, hw_device_type_,
+                                 node.empty() ? nullptr : node.c_str(), nullptr,
+                                 0);
+    context_->extra_hw_frames = kHeldDmabufFrames;
+  } else
 #endif
   {
-    ret = av_hwdevice_ctx_create(&hw_device_context_, hw_device_type_,
-                                 nullptr, nullptr, 0);
+    ret = av_hwdevice_ctx_create(&hw_device_context_, hw_device_type_, nullptr,
+                                 nullptr, 0);
   }
   if (ret < 0) {
     *error = "av_hwdevice_ctx_create: " + AVErrorString(ret);
@@ -280,6 +379,15 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
     if (!result && !logged_d3d11_fallback_) {
       logged_d3d11_fallback_ = true;
       LOGW("cannot convert D3D11 frames on the GPU, downloading them");
+    }
+  }
+#elif defined(LYCHEE_VAAPI)
+  if (frame->format == AV_PIX_FMT_VAAPI && output_ &&
+      (accepted_storage_ & static_cast<uint32_t>(VideoFrameStorage::kDmabuf))) {
+    result = WrapDmabuf(frame);
+    if (!result && !logged_dmabuf_fallback_) {
+      logged_dmabuf_fallback_ = true;
+      LOGW("cannot export VAAPI frames as dmabufs, downloading them");
     }
   }
 #endif

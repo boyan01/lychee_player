@@ -21,13 +21,15 @@ class D3D11VideoProcessor;
 #endif
 
 // Software decoding, or hardware decoding through FFmpeg's hwaccel
-// (VideoToolbox on Apple platforms, D3D11VA on Windows). Frames FFmpeg
-// cannot hand over as they are become CPU frames, RGBA if
+// (VideoToolbox on Apple platforms, D3D11VA on Windows, VAAPI on Linux).
+// Frames FFmpeg cannot hand over as they are become CPU frames, RGBA if
 // |accepted_storage| takes RGBA but not BGRA.
 //
 // On Windows |output| is the IDXGIAdapter to decode on. Frames become
 // kD3D11Texture only with one: textures are shared with a device on that
-// adapter, and without one nobody said which.
+// adapter, and without one nobody said which. On Linux it is the
+// std::string path of the DRM render node to decode on ("" for FFmpeg's
+// default), and frames become kDmabuf only with one, for the same reason.
 class FFmpegVideoDecoder : public VideoDecoder {
  public:
   FFmpegVideoDecoder(bool hardware,
@@ -59,6 +61,8 @@ class FFmpegVideoDecoder : public VideoDecoder {
 #if defined(_WIN32)
   std::unique_ptr<D3D11VideoProcessor> d3d11_processor_;
   bool logged_d3d11_fallback_ = false;
+#elif defined(__linux__) && !defined(__ANDROID__)
+  bool logged_dmabuf_fallback_ = false;
 #endif
   AVHWDeviceType hw_device_type_ = AV_HWDEVICE_TYPE_NONE;
   AVPixelFormat hw_pixel_format_ = AV_PIX_FMT_NONE;

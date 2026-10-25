@@ -4,7 +4,8 @@ State as of 2026-10-25: the core plays files and network streams through
 FFmpeg, with accurate seek, pull-based frame selection, playback rate
 (WSOLA), looping and reopening, track selection, text subtitles and
 metadata. The Flutter plugin runs on macOS and iOS (VideoToolbox), Android
-(MediaCodec), Windows (D3D11VA) and Linux (software decoding). Everything below is unfinished.
+(MediaCodec), Windows (D3D11VA) and Linux (VAAPI, never seen working).
+Everything below is unfinished.
 
 Each item says where the work goes and when it is done. Remove an item when it
 is done; add one when you find a gap. Order within a section is priority.
@@ -36,6 +37,18 @@ on top of them.
    changing resolution midway, and a device
    with only one hardware decoder instance (the emulator's H.264 decoder
    once failed to start right after a file switch, and FFmpeg took over).
+3. **Linux hardware decoding**: FFmpeg's VAAPI hwaccel decodes on the
+   render node of Flutter's EGL display, and frames reach the plugin as
+   dmabufs (`LYCHEE_FRAME_DMABUF`), imported a plane at a time as EGLImages
+   and converted by a shader into the `FlTextureGL`. Neither Linux machine
+   here has VAAPI (the VM's vmwgfx has no VA driver; WSL's d3d12 driver
+   fails to initialize), so only the fallback has been seen: VAAPI is
+   rejected and software frames are uploaded into the same GL texture
+   (h264, hevc10 and vp9 with seeks: 0 dropped; 1-5 dropped at 1.5x on
+   the VM; 2026-10-25). Done when an Intel or AMD machine shows `hw` with
+   0 dropped for `h264_aac.mp4` and `hevc10.mp4` (P010), with colours
+   matching software decoding. This is where media-kit had the most
+   texture bugs; budget for it.
 
 ## Known defects
 
@@ -84,10 +97,10 @@ on top of them.
 
 Every platform plays through FFmpeg software decoding and CPU RGBA frames
 except Apple's (VideoToolbox, `CVPixelBuffer`), Android's (MediaCodec
-rendering straight into the `SurfaceProducer`'s Surface) and Windows'
-(D3D11VA, shared D3D11 textures). What is left per platform is
-hardware decoding with zero-copy frames, a renderer in `examples/glfw`
-(Metal only today), and its own `tool/regression.sh` run.
+rendering straight into the `SurfaceProducer`'s Surface), Windows'
+(D3D11VA, shared D3D11 textures) and Linux's (VAAPI dmabufs, unverified
+above). What is left per platform is a renderer in `examples/glfw`
+(Metal only today) and its own `tool/regression.sh` run.
 
 1. **Windows leftovers**: hardware decoding runs through FFmpeg's D3D11VA
    on Flutter's adapter, and frames reach Flutter's `GpuSurfaceTexture` as
@@ -97,13 +110,11 @@ hardware decoding with zero-copy frames, a renderer in `examples/glfw`
    Unverified there: the pixel buffer path for a Flutter without a D3D11
    adapter, device switching, multiple monitors, audible output, and
    `tool/regression.sh` (needs bash).
-2. **Linux hardware decoding**: VAAPI decoding, dmabuf → EGLImage into
-   `FlTextureGL` instead of the `FlPixelBufferTexture` copy. This is where
-   media-kit had the most texture bugs; budget for it. The bundled FFmpeg
-   (BtbN, LGPLv3, ~130 MB) should become a decode-only
-   `tool/build_ffmpeg.sh linux-x86_64` build (smaller, LGPL 2.1). Unverified
-   there: the Impeller renderer (the VM runs with it off) and a build from
-   22.04 running on 26.04.
+2. **Linux leftovers**: the bundled FFmpeg (BtbN, LGPLv3, ~130 MB) should
+   become a decode-only `tool/build_ffmpeg.sh linux-x86_64` build (smaller,
+   LGPL 2.1). Unverified there: the Impeller renderer (the VM runs with it
+   off; the texture's GL state handling relies on Skia resetting its own),
+   and a build from 22.04 running on 26.04.
 3. **Swift Package Manager**: add `flutter/darwin/lychee_player/Package.swift`;
    Flutter already warns that CocoaPods-only plugins will become an error.
 

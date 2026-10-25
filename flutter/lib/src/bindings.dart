@@ -37,6 +37,11 @@ int get platformFrameType {
     // BGRA, not RGBA: ANGLE opens shared textures only in BGRA.
     return kFrameD3D11Texture | kFrameCpuBgra;
   }
+  if (Platform.isLinux) {
+    // Dmabuf frames only come once the plugin has found that Flutter's EGL
+    // display imports them.
+    return kFrameDmabuf | kFrameCpuRgba;
+  }
   return kFrameCpuRgba;
 }
 
