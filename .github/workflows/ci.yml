@@ -21,7 +21,10 @@ jobs:
         run: NO_HW=1 TSAN=${{ matrix.tsan }} tool/regression.sh
 
   flutter-macos:
-    runs-on: macos-15
+    # The pod links the xcframeworks; build them from this commit's core
+    # with the LGPL FFmpeg, as release.yml does (same runner and cache key,
+    # so a release reuses the FFmpeg builds).
+    runs-on: macos-26
     defaults:
       run:
         working-directory: flutter
@@ -31,7 +34,20 @@ jobs:
         with:
           channel: stable
       - name: Install tools
-        run: brew install ffmpeg pkg-config
+        run: brew install nasm ninja
+      - name: FFmpeg cache key
+        id: ffmpeg
+        working-directory: .
+        run: |
+          inputs="$(cat tool/build_ffmpeg.sh tool/apple_framework.sh; grep -E '^(ffmpeg|mbedtls)_' tool/release.sh; xcodebuild -version)"
+          echo "key=ffmpeg-apple-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: third_party/ffmpeg
+          key: ${{ steps.ffmpeg.outputs.key }}
+      - name: Build the xcframeworks
+        working-directory: .
+        run: tool/release.sh build apple build-sources
       - name: Analyze
         run: flutter analyze
       - name: Build example

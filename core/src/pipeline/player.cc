@@ -1407,6 +1407,15 @@ bool Player::SettledForTesting(int64_t until) const {
   if (video_renderer_) {
     video_renderer_->ExpireFramesWhileHidden(NowMicros());
   }
+  // The control thread also publishes subtitle changes then: wait for it,
+  // or virtual time can run past a cue before anyone saw it.
+  if (const SubtitleRenderer* renderer = SelectedSubtitleLocked()) {
+    const int64_t now = clock_.Now() - LoopOffsetLocked(clock_.Now());
+    if (renderer->TextAt(now) != subtitle_text_ ||
+        renderer->ImagesKeyAt(now) != subtitle_images_key_) {
+      return false;
+    }
+  }
   // Not clock_.MediaTimeAt(until): an audio-driven clock stops at the end
   // of the audio handed out so far, and would ask for nothing more.
   const int64_t ahead =
