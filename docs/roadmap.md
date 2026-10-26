@@ -16,17 +16,10 @@ is done; add one when you find a gap. Order within a section is priority.
 Built, but never observed working. Cheap to close; do these before building
 on top of them.
 
-1. **iOS audio sessions on a device**: the Flutter example (release, the
-   prebuilt `lychee.xcframework`) on an iPhone 17 (iOS 27.0.1, 120 Hz)
-   streams `h264_aac.mp4` from `tool/serve_media.py` over the LAN through
-   VideoToolbox (`videotoolbox_vld`, `hw`) at 30.0 fps, 359 and 360 of
-   360 frames in two runs, 0 dropped (2026-10-26); the 300-324 the
-   simulator showed came from the busy Mac. Builds on a new device need
-   `xcodebuild ... -allowProvisioningUpdates
-   -allowProvisioningDeviceRegistration` once, and devicectl's `--console`
-   shows the core's log (Dart `print` does not reach it in release). Not
-   yet seen: audio session interruptions (a call) and route changes
-   (unplugging headphones).
+1. **iOS audio sessions on a device**: video plays on an iPhone; not yet
+   seen are audio session interruptions (a call: the sink restarts its
+   unit when it ends) and route changes (unplugging headphones: the sink
+   rereads the output latency).
 2. **Android hardware decoding beyond the happy path**: MediaCodec plays
    `h264_aac.mp4` and `hevc10.mp4` on a Xiaomi 14 (`c2.qti.*`, 0 dropped,
    seeks and 1.5x) and H.264 on the Pixel 10 emulator (`c2.goldfish.*`),
@@ -78,14 +71,7 @@ None known. Add them here with a done criterion.
 2. **HDR beyond Apple's SDK**: on Apple, `LYCHEE_FRAME_CVPIXELBUFFER_NATIVE`
    hands out VideoToolbox's buffers as they are (10-bit `x420` with PQ or
    HLG attachments; `native-hdr`), and the Swift `LycheePlayerView` shows
-   them in EDR. With `hdr_pq_bars.mp4` (100 to 4000 nits) the screen's
-   EDR headroom rises to 7.3 on a MacBook Pro's XDR panel and 8.0 on an
-   iPhone 17, and an HDR screen capture on the Mac reads the bars at 0.5,
-   1.0, 1.7, 2.8 and 5.2 times SDR white (2026-10-26). On macOS/iOS 26
-   and later `preferredDynamicRange` alone leaves EDR off (headroom 1.2)
-   because VideoToolbox's surfaces carry no headroom, so the view sets
-   `contentsHeadroom`. The panels' brightness was measured by headroom
-   and capture, and looked right by eye (no photometer).
+   them in EDR.
    8-bit frames from HDR are tone-mapped to SDR BT.709 (VideoToolbox's
    pixel transfer, swscale's perceptual intent for software decoding;
    `hdr-tonemap*`). HLG comes out darker through VideoToolbox (98 for a
@@ -104,12 +90,9 @@ None known. Add them here with a done criterion.
    - Linux: `lychee_dmabuf` already carries P010 and the matrix, but not
      the primaries and transfer function a caller needs for HDR; needs a
      VAAPI machine to check.
-   - Android: in the SDK's `LycheePlayerView`, MediaCodec renders HDR into
-     the SurfaceView itself: on a Xiaomi 14 (Android 16) the layer is
-     `BT2020_ITU_PQ` with HDR10 metadata and the display's `hdrSdrRatio`
-     goes from 1.0 to 5.7 (2026-10-26); software decoding is tone-mapped
-     to SDR. The Flutter plugin's path (MediaCodec into a
-     `SurfaceProducer`) is unchecked for HDR.
+   - Android: the SDK's SurfaceView shows MediaCodec's HDR output; the
+     Flutter plugin's path (MediaCodec into a `SurfaceProducer`) is
+     unchecked.
 3. **libass in shipped builds**: styled ASS goes through libass
    (`LYCHEE_WITH_LIBASS`, pictures like bitmap subtitles) only where the
    core's own CMake build finds it with pkg-config: the CLI and GLFW

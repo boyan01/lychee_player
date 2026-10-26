@@ -228,6 +228,11 @@ glitch checks fail for reasons unrelated to your change. Done means:
   not start without a debugger attached), `xcrun devicectl device install
   app` and `device process launch`; the developer certificate must be
   trusted on the device once, and the app asks for local network access.
+  A device the profile does not list fails to install ("This provisioning
+  profile cannot be installed"): build once with `xcodebuild ...
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration`.
+  `device process launch --console` shows the core's log; Dart's `print`
+  does not reach it in release, `stderr.writeln` does.
 - VideoToolbox hwaccel fails to initialize in the iOS simulator; the
   simulator decodes in software (`sw` in the example's stats).
 - Run CocoaPods with `LANG=en_US.UTF-8`, or `pod install` aborts.
