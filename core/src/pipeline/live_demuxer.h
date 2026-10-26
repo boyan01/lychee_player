@@ -22,7 +22,10 @@ namespace lychee {
 //
 // A track change or flush holds the stream: packets pushed from then on
 // wait here until the player has replaced or flushed the renderer and
-// calls Release(), so none reaches the old one and none is lost. Video
+// calls Release(), so none reaches the old one and none is lost. Each hold
+// is numbered: a Release() for a hold that a newer one replaced (the
+// caller changed the track again meanwhile) leaves the stream held, and its
+// packets, for the Release() of the newer one. Video
 // packets are dropped until a keyframe after an open, a flush, a track
 // change or an overflow; a keyframe without parameter sets gets the last
 // ones seen, so a rebuilt decoder can start from it.
@@ -58,10 +61,13 @@ class LiveDemuxer : public Demuxer {
   // keyframe yet, overflow) still returns true. Copies |data|.
   bool Push(int stream, int64_t pts, const uint8_t* data, size_t size);
 
+  // The number of |stream|'s latest hold. Read it, under the lock that
+  // orders SetTrack() and Flush() calls, with the changes it covers.
+  uint64_t hold(int stream) const;
   // Control thread, with the read thread parked. Lets the player read
-  // |stream| again; |enabled| false drops its packets until the next
-  // SetTrack(), for a stream no decoder took.
-  void Release(int stream, bool enabled);
+  // |stream| again if |hold| is still its latest; |enabled| false drops its
+  // packets until the next SetTrack(), for a stream no decoder took.
+  void Release(int stream, bool enabled, uint64_t hold);
   // The video decoder was replaced: drop video up to the next keyframe.
   void RestartVideo();
   // Read thread: the packet Read() returned is queued for its decoder.
@@ -76,6 +82,8 @@ class LiveDemuxer : public Demuxer {
     bool hevc = false;
     // Packets wait until Release().
     bool held = true;
+    // Counts SetTrack() and Flush() calls.
+    uint64_t hold = 0;
     // Packets are dropped (no decoder took the codec).
     bool disabled = false;
     bool wait_for_keyframe = true;

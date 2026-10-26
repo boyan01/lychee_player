@@ -193,6 +193,8 @@ class Player {
     bool track[2] = {false, false};
     StreamInfo info[2];
     bool flush[2] = {false, false};
+    // LiveDemuxer::hold() of each stream when the change was taken.
+    uint64_t hold[2] = {0, 0};
     bool pending() const {
       return track[0] || track[1] || flush[0] || flush[1];
     }

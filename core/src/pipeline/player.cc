@@ -741,6 +741,12 @@ void Player::Run(std::string url) {
           track_request_ = TrackRequest();
           live_change = live_change_;
           live_change_ = LiveChange();
+          // A change the caller makes from here on holds the streams
+          // again, and this one's Release() leaves them held.
+          for (int stream : {LiveDemuxer::kVideoStream,
+                             LiveDemuxer::kAudioStream}) {
+            live_change.hold[stream] = live_demuxer_->hold(stream);
+          }
           seeking_ = true;
           demuxer_->Interrupt();
           condition_.wait(lock, [this] { return !reading_ || quit_; });
@@ -1528,10 +1534,12 @@ void Player::ApplyLiveChange(TrackRequest request, const LiveChange& change) {
     audio_renderer_->SetPlaying(true);
   }
   if (flush[LiveDemuxer::kVideoStream]) {
-    live_demuxer_->Release(LiveDemuxer::kVideoStream, video_renderer_ != nullptr);
+    live_demuxer_->Release(LiveDemuxer::kVideoStream, video_renderer_ != nullptr,
+                           change.hold[LiveDemuxer::kVideoStream]);
   }
   if (flush[LiveDemuxer::kAudioStream]) {
-    live_demuxer_->Release(LiveDemuxer::kAudioStream, audio_renderer_ != nullptr);
+    live_demuxer_->Release(LiveDemuxer::kAudioStream, audio_renderer_ != nullptr,
+                           change.hold[LiveDemuxer::kAudioStream]);
   }
   // Clears the Interrupt().
   demuxer_->Seek(0);

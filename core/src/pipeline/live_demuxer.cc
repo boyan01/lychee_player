@@ -99,6 +99,7 @@ void LiveDemuxer::SetTrack(int index, const StreamInfo& info) {
   stream.has_codec = info.type != MediaType::kUnknown;
   stream.hevc = info.video.codec == VideoCodec::kHEVC;
   stream.held = true;
+  stream.hold++;
   stream.disabled = false;
   stream.wait_for_keyframe = true;
   if (index == kVideoStream) {
@@ -115,6 +116,7 @@ void LiveDemuxer::Flush(int index) {
     Stream& stream = streams_[i];
     DropLocked(&stream);
     stream.held = true;
+    stream.hold++;
     stream.wait_for_keyframe = true;
   }
   if (index < 0) {
@@ -216,10 +218,19 @@ bool LiveDemuxer::PrepareVideoLocked(Stream* stream, EncodedPacket* packet) {
   return true;
 }
 
-void LiveDemuxer::Release(int index, bool enabled) {
+uint64_t LiveDemuxer::hold(int index) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return streams_[index].hold;
+}
+
+void LiveDemuxer::Release(int index, bool enabled, uint64_t hold) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     Stream& stream = streams_[index];
+    if (hold != stream.hold) {
+      // A newer change holds it; its Release() decides.
+      return;
+    }
     stream.held = false;
     stream.disabled = !enabled;
     if (!enabled) {
