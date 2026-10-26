@@ -69,13 +69,14 @@ typedef UIView PlatformView;
     __weak LycheeTexture* weakSelf = self;
     __weak NSObject<FlutterTextureRegistry>* weakRegistry = registry;
     // On the main thread.
-    _driver = [[LycheeFrameDriver alloc] initWithHandle:player
-                                             onNewFrame:^{
-                                               LycheeTexture* texture = weakSelf;
-                                               if (texture) {
-                                                 [weakRegistry textureFrameAvailable:texture.textureId];
-                                               }
-                                             }];
+    _driver = [[LycheeFrameDriver alloc]
+        initWithHandle:player
+            onNewFrame:^{
+              LycheeTexture* texture = weakSelf;
+              if (texture) {
+                [weakRegistry textureFrameAvailable:texture.textureId];
+              }
+            }];
   }
   return self;
 }
@@ -188,7 +189,8 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
 #if TARGET_OS_OSX
 // Main thread only.
 - (void)start {
-  if (CVDisplayLinkCreateWithActiveCGDisplays(&_displayLink) != kCVReturnSuccess) {
+  if (CVDisplayLinkCreateWithActiveCGDisplays(&_displayLink) !=
+      kCVReturnSuccess) {
     NSLog(@"lychee_player: CVDisplayLinkCreateWithActiveCGDisplays failed");
     return;
   }
@@ -208,10 +210,11 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
                         object:nil
                          queue:NSOperationQueue.mainQueue
                     usingBlock:update],
-    [center addObserverForName:NSApplicationDidChangeScreenParametersNotification
-                        object:nil
-                         queue:NSOperationQueue.mainQueue
-                    usingBlock:update],
+    [center
+        addObserverForName:NSApplicationDidChangeScreenParametersNotification
+                    object:nil
+                     queue:NSOperationQueue.mainQueue
+                usingBlock:update],
   ];
 }
 
@@ -230,7 +233,8 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   if (running) {
     CVDisplayLinkStop(_displayLink);
   }
-  if (CVDisplayLinkSetCurrentCGDisplay(_displayLink, display) == kCVReturnSuccess) {
+  if (CVDisplayLinkSetCurrentCGDisplay(_displayLink, display) ==
+      kCVReturnSuccess) {
     if (display != _display) {
       NSLog(@"lychee_player: display link follows display %u", display);
     }
@@ -283,9 +287,11 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
 - (void)start {
   LycheeWeakTarget* target = [[LycheeWeakTarget alloc] init];
   target.texture = self;
-  _displayLink = [CADisplayLink displayLinkWithTarget:target
-                                             selector:@selector(onDisplayLink:)];
-  [_displayLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+  _displayLink =
+      [CADisplayLink displayLinkWithTarget:target
+                                  selector:@selector(onDisplayLink:)];
+  [_displayLink addToRunLoop:NSRunLoop.mainRunLoop
+                     forMode:NSRunLoopCommonModes];
 }
 
 - (void)dispose {
@@ -435,7 +441,8 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   [_players removeAllObjects];
 }
 
-- (void)detachFromEngineForRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
+- (void)detachFromEngineForRegistrar:
+    (NSObject<FlutterPluginRegistrar>*)registrar {
   [self destroyAll];
 }
 
