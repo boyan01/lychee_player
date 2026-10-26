@@ -144,7 +144,8 @@ The layers, lowest first:
    - Android: the Android SDK's example on an emulator (`Pixel_10`,
      windowed).
    - Windows: `examples/glfw` (D3D11 textures), through the
-     `flutter-remote-test` skill.
+     `flutter-remote-test` skill. `--seconds N` and `--key SEC:NAME`
+     (README) run it unattended on every desktop platform.
    - Linux: `examples/glfw` (OpenGL; CPU frames, dmabufs with VAAPI), on
      WSL or the Ubuntu VM through the same skill.
 4. **Bindings**: the Swift package (`swift test`), the Rust crates
@@ -336,6 +337,11 @@ jobs: those stay local.
 - Threads the core starts inherit the creator's priority, which on Android is
   the platform thread's (nice -10). Plugin threads that pull frames must run
   at display priority or software decoding starves them.
+- A window started over ssh on Windows is invisible: run GUI programs
+  (`lychee_glfw`, the Flutter example) from a scheduled task in the
+  logged-in session, keep them topmost without activating them, and take
+  the `remote-test screenshot --pid` at least ~5 s before the run ends
+  (the screenshot helper starts slowly).
 - WSL has no sudo, but root needs no password from the Windows side
   (`wsl.exe -d Ubuntu-22.04 -u root -- ...`), which is how apt installs
   there. It has `nasm`, `libva-dev`, `libgnutls28-dev`, `mingw-w64` and

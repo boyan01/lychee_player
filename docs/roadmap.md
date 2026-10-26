@@ -182,7 +182,9 @@ except Apple's (VideoToolbox, `CVPixelBuffer`), Android's (MediaCodec
 rendering straight into the `SurfaceProducer`'s Surface), Windows'
 (Media Foundation or D3D11VA, shared D3D11 textures) and Linux's (VAAPI
 dmabufs, unverified above). What is left per platform is a renderer in
-`examples/glfw` (Metal only today) and its own `tool/regression.sh` run.
+`examples/glfw` (Metal on macOS; Direct3D 11 on Windows since 2026-10-26,
+shared textures and CPU frames, checked with h264, hevc10, rotated and vp9
+in a window; Linux has none yet) and its own `tool/regression.sh` run.
 
 1. **Windows leftovers**: hardware decoding runs through Media Foundation
    (H.264, HEVC; FFmpeg-free builds 4) and otherwise FFmpeg's D3D11VA, on
@@ -225,6 +227,10 @@ dmabufs, unverified above). What is left per platform is a renderer in
    adapter once). Media Foundation's HEVC decoder comes with the Store's
    HEVC Video Extensions, installed on the test machine; one without them
    should fall back to D3D11VA at open, which has not been seen.
+   In `examples/glfw` (2026-10-26) software-decoded frames of the untagged
+   test bars look more saturated than Media Foundation's and D3D11VA's
+   (pure red and green against slightly shifted ones), probably BT.601
+   against BT.709 for untagged HD; not yet compared with macOS.
 2. **Linux leftovers**: `tool/build_ffmpeg.sh linux-x86_64` builds the
    decode-only FFmpeg on Ubuntu 22.04 (WSL: 38 s, 8.2 MB of libraries
    against BtbN's 161 MB). It links the system's libva, libva-drm, libdrm

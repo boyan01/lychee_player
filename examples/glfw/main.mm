@@ -2,7 +2,8 @@
 // the CVPixelBuffer frames. Useful to tell core problems from Flutter texture
 // bridge problems, and as a second real consumer of the C API.
 //
-// Keys: space play/pause, left/right seek -/+5 s, escape quit.
+// Keys: space play/pause, left/right seek -/+5 s, escape quit. --key
+// SEC:NAME presses one at SEC seconds, --seconds N quits after N seconds.
 
 #include <lychee/lychee.h>
 
@@ -20,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -204,11 +206,14 @@ struct Params {
                 vertexStart:0
                 vertexCount:4];
 
-    // The IOSurface must stay alive until the GPU has read it.
+    // The IOSurface must stay alive until the GPU has read it, and the
+    // cache until its texture is gone, which may be after -stop.
     CVPixelBufferRef buffer = CVPixelBufferRetain(_current);
+    CFTypeRef cache = CFRetain(_textureCache);
     [commands addCompletedHandler:^(id<MTLCommandBuffer>) {
       CFRelease(texture);
       CVPixelBufferRelease(buffer);
+      CFRelease(cache);
     }];
   }
   [encoder endEncoding];
@@ -244,15 +249,38 @@ void OnKey(GLFWwindow* window, int key, int, int action, int) {
   }
 }
 
+// A key press --key SEC:NAME plays at SEC seconds, for unattended runs.
+struct ScriptedKey {
+  double at;
+  int key;
+};
+
+bool ParseKey(const std::string& arg, std::vector<ScriptedKey>* keys) {
+  const size_t colon = arg.find(':');
+  if (colon == std::string::npos) return false;
+  const std::string name = arg.substr(colon + 1);
+  int key = name == "space"    ? GLFW_KEY_SPACE
+            : name == "left"   ? GLFW_KEY_LEFT
+            : name == "right"  ? GLFW_KEY_RIGHT
+            : name == "escape" ? GLFW_KEY_ESCAPE
+                               : GLFW_KEY_UNKNOWN;
+  if (key == GLFW_KEY_UNKNOWN) return false;
+  keys->push_back({atof(arg.substr(0, colon).c_str()), key});
+  return true;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   std::string url;
   double seconds = 0;
+  std::vector<ScriptedKey> keys;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--seconds" && i + 1 < argc) {
       seconds = atof(argv[++i]);
+    } else if (arg == "--key" && i + 1 < argc && ParseKey(argv[i + 1], &keys)) {
+      ++i;
     } else if (!arg.empty() && arg[0] != '-') {
       url = arg;
     } else {
@@ -261,9 +289,16 @@ int main(int argc, char** argv) {
     }
   }
   if (url.empty()) {
-    fprintf(stderr, "usage: %s [--seconds N] <file or url>\n", argv[0]);
+    fprintf(stderr,
+            "usage: %s [--seconds N] [--key SEC:space|left|right|escape]... "
+            "<file or url>\n",
+            argv[0]);
     return 2;
   }
+  std::stable_sort(keys.begin(), keys.end(),
+                   [](const ScriptedKey& a, const ScriptedKey& b) {
+                     return a.at < b.at;
+                   });
 
   if (!glfwInit()) {
     fprintf(stderr, "glfwInit failed\n");
@@ -294,6 +329,7 @@ int main(int argc, char** argv) {
     } else {
       lychee_player_play(player);
       const int64_t start = lychee_now_us();
+      size_t next_key = 0;
       // glfwWaitEventsTimeout runs the main run loop, which drives the
       // display link.
       while (!glfwWindowShouldClose(window)) {
@@ -306,10 +342,12 @@ int main(int argc, char** argv) {
           exit_code = 1;
           break;
         }
-        if (seconds > 0 &&
-            lychee_now_us() - start >= static_cast<int64_t>(seconds * 1e6)) {
-          break;
+        const double elapsed =
+            static_cast<double>(lychee_now_us() - start) / 1e6;
+        while (next_key < keys.size() && elapsed >= keys[next_key].at) {
+          OnKey(window, keys[next_key++].key, 0, GLFW_PRESS, 0);
         }
+        if (seconds > 0 && elapsed >= seconds) break;
       }
     }
     // Stop drawing before the player goes away.
@@ -319,10 +357,11 @@ int main(int argc, char** argv) {
   lychee_stats stats = {};
   stats.struct_size = sizeof(stats);
   lychee_player_get_stats(player, &stats);
-  printf("summary: decoder=%s hw=%d rendered=%lld dropped=%lld\n",
+  printf("summary: decoder=%s hw=%d rendered=%lld dropped=%lld position=%.3f\n",
          stats.video_decoder, stats.hardware_decoding,
          static_cast<long long>(stats.frames_rendered),
-         static_cast<long long>(stats.frames_dropped));
+         static_cast<long long>(stats.frames_dropped),
+         static_cast<double>(lychee_player_get_position(player)) / 1e6);
   lychee_player_destroy(player);
   glfwDestroyWindow(window);
   glfwTerminate();

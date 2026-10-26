@@ -27,7 +27,8 @@ core/                 C++ core, no UI toolkit dependency
     api/              C API implementation
   fuzz/               libFuzzer target over the MP4 demuxer (tool/fuzz.sh)
 examples/cli/         headless player for regression testing
-examples/glfw/        windowed player without Flutter (GLFW + Metal, macOS)
+examples/glfw/        windowed player without Flutter (GLFW + Metal on macOS,
+                      + Direct3D 11 on Windows)
 flutter/              Flutter plugin (lib/; darwin/ for iOS and macOS, android/,
                       windows/, linux/) and its example app
 sdk/apple/            Swift package for macOS and iOS apps, and its example app
@@ -87,6 +88,15 @@ subtitles, styled ASS) onto a grey canvas of the video's size.
 With GLFW installed (`brew install glfw`) the build also produces
 `build/examples/glfw/lychee_glfw path/to/video.mp4`: a window that draws the
 frames with Metal. Space pauses, left/right seek 5 s, escape quits.
+`--seconds N` quits after N seconds and `--key SEC:NAME` (`space`, `left`,
+`right`, `escape`) presses a key at SEC seconds, for unattended runs; it
+then prints a summary (decoder, frames rendered and dropped, position). On
+Windows the same program (`main_win.cc`) draws with Direct3D 11 the frames
+the Flutter plugin takes: shared D3D11 textures on the adapter it draws
+with, CPU BGRA frames otherwise (`--cpu` forces them, `--no-hw` decodes in
+software); its summary also counts the frames of each kind. CMake
+downloads GLFW 3.4 there (hash-pinned; `-DLYCHEE_FETCH_GLFW=OFF` skips the
+example).
 
 `tool/regression.sh` generates a synthetic media set and runs the CLI over it
 (`TSAN=1` for a ThreadSanitizer build). `tool/fuzz.sh` fuzzes the
