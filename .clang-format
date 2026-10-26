@@ -1,6 +1,8 @@
 # Chromium style, which most of the code already follows; one-line ifs
 # without else stay on one line, as the code writes them. tool/format.sh
-# applies it to changed lines only.
+# applies it to changed lines only. Standard: Latest, or Objective-C
+# generics get C++03's "> >".
 ---
 BasedOnStyle: Chromium
 AllowShortIfStatementsOnASingleLine: WithoutElse
+Standard: Latest
