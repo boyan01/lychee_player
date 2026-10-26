@@ -6,13 +6,14 @@ on:
 
 # Each job runs only for the areas a push or pull request touches
 # (tool/changes.sh; a change to this file or that script runs them all):
-# the core on macOS and Linux, the Apple builds and the Swift package, the
-# Flutter plugin, the Rust crates.
+# the core on macOS and Linux, the parsers' fuzzers, the Apple builds and
+# the Swift package, the Flutter plugin, the Rust crates.
 jobs:
   changes:
     runs-on: ubuntu-24.04
     outputs:
       core: ${{ steps.areas.outputs.core }}
+      parsers: ${{ steps.areas.outputs.parsers }}
       apple: ${{ steps.areas.outputs.apple }}
       linux: ${{ steps.areas.outputs.linux }}
       abi: ${{ steps.areas.outputs.abi }}
@@ -126,6 +127,31 @@ jobs:
           pactl info | grep -E '^(Server Version|Default Sink)'
       - name: Regression
         run: NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/linux-x86_64 tool/regression.sh
+
+  fuzz:
+    # The FFmpeg-free parsers under libFuzzer with ASan and UBSan
+    # (tool/fuzz.sh): the inputs they once crashed on, then a minute of
+    # each target. The fuzz project builds the parsers alone, which use no
+    # Apple API, so Linux fuzzes what the Apple builds without FFmpeg
+    # parse. apt's FFmpeg only makes the seeds.
+    needs: changes
+    if: needs.changes.outputs.parsers == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-18 libclang-rt-18-dev ninja-build ffmpeg
+      - name: Fuzz
+        run: LLVM=/usr/lib/llvm-18 JOBS=2 FUZZ_SECONDS=60 tool/fuzz.sh
+      - name: Crash inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: build-fuzz/artifacts
+          if-no-files-found: ignore
 
   apple:
     # The pod and the Swift package link the xcframeworks; build them from
