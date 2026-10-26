@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # Builds the core as lychee.xcframework: one dynamic framework per slice,
-# linked against the FFmpeg xcframeworks, carrying only lychee/lychee.h.
+# linked against the FFmpeg and libass xcframeworks, carrying only
+# lychee/lychee.h.
 #
 #   tool/build_apple.sh
 #
-# Needs the FFmpeg builds from tool/build_ffmpeg.sh (for their headers) and
-# the xcframeworks from tool/package_ffmpeg_apple.sh (what it links), and
+# Needs the FFmpeg and libass builds from tool/build_ffmpeg.sh and
+# tool/build_libass.sh (for their headers) and the xcframeworks from
+# tool/package_ffmpeg_apple.sh (what it links), and
 # builds the slices those have: macOS (arm64 + x86_64), iOS (arm64) and the
 # iOS simulator (arm64 + x86_64 in one slice, see package_ffmpeg_apple.sh).
 #
 # Output: flutter/darwin/Frameworks/lychee.xcframework, which the podspec
-# vendors next to FFmpeg.
+# vendors next to FFmpeg and libass.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,6 +20,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 frameworks="$root/flutter/darwin/Frameworks"
 work="$root/build-apple"
 ffmpeg_libs=(avformat avcodec swresample swscale avutil)
+libass_libs=(ass fribidi)
 version="$(sed -nE 's/^version: ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' "$root/flutter/pubspec.yaml")"
 
 rm -rf "$work"
@@ -55,11 +58,21 @@ for slice in macos ios ios-simulator; do
   for lib in "${ffmpeg_libs[@]}"; do
     ln -s "$frameworks/lib$lib.xcframework/$dir/lib$lib.framework/lib$lib" "$ffmpeg/lib/lib$lib.dylib"
   done
+  # The same for libass: styled ASS in every shipped build.
+  libass="$work/$slice/libass"
+  mkdir -p "$libass/lib"
+  ln -s "$root/third_party/libass/$headers/include" "$libass/include"
+  for lib in "${libass_libs[@]}"; do
+    [ -f "$frameworks/lib$lib.xcframework/$dir/lib$lib.framework/lib$lib" ] ||
+      { echo "no $slice slice in lib$lib.xcframework; run tool/build_libass.sh and tool/package_ffmpeg_apple.sh" >&2; exit 1; }
+    ln -s "$frameworks/lib$lib.xcframework/$dir/lib$lib.framework/lib$lib" "$libass/lib/lib$lib.dylib"
+  done
 
   build="$work/$slice/build"
   cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=ON -DLYCHEE_BUILD_EXAMPLES=OFF -DLYCHEE_BUILD_TESTS=OFF \
     -DLYCHEE_FFMPEG_ROOT="$ffmpeg" -DCMAKE_SKIP_BUILD_RPATH=ON \
+    -DLYCHEE_WITH_LIBASS=ON -DLYCHEE_LIBASS_ROOT="$libass" \
     "${cmake_args[@]}" >"$work/$slice.log"
   cmake --build "$build" >>"$work/$slice.log" || { tail -30 "$work/$slice.log"; exit 1; }
 

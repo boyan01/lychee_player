@@ -13,6 +13,8 @@
 #   FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh
 #                                 # The shipped FFmpeg (tool/build_ffmpeg.sh)
 #                                 # instead of the system's, in build-lgpl/
+#   LIBASS_ROOT=third_party/libass/macos-arm64 tool/regression.sh
+#                                 # The shipped libass (tool/build_libass.sh)
 #   NO_FFMPEG=1 tool/regression.sh  # macOS without FFmpeg, in build-noffmpeg/:
 #                                 # only the cases with MP4, Matroska,
 #                                 # WebM, MPEG-TS and HLS media, text subtitles
@@ -36,8 +38,12 @@ if [ "${NO_FFMPEG:-0}" = 1 ]; then
   flags+=(-DLYCHEE_WITH_FFMPEG=OFF)
 fi
 
-# Styled subtitles where libass is installed; plain text ASS otherwise.
-if pkg-config --exists libass 2>/dev/null; then
+# Styled subtitles through the libass the apps ship
+# (LIBASS_ROOT=third_party/libass/macos-arm64, tool/build_libass.sh), or
+# where libass is installed; plain text ASS otherwise. Always passed, so
+# CMake's cache does not keep the last root.
+flags+=(-DLYCHEE_LIBASS_ROOT="$([ -z "${LIBASS_ROOT:-}" ] || { cd "$LIBASS_ROOT" && pwd; })")
+if [ -n "${LIBASS_ROOT:-}" ] || pkg-config --exists libass 2>/dev/null; then
   flags+=(-DLYCHEE_WITH_LIBASS=ON)
   libass=1
 else

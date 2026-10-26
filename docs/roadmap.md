@@ -144,16 +144,36 @@ core's internals).
      needs a `lychee_config` flag (the SDK's SurfaceView must keep HDR).
      A MediaCodec video decoder that outputs nothing for 64 packets now
      fails, so the next decoder takes over instead of loading forever.
-3. **libass in shipped builds**: styled ASS goes through libass
-   (`LYCHEE_WITH_LIBASS`, pictures like bitmap subtitles) only where the
-   core's own CMake build finds it with pkg-config: the CLI and GLFW
-   example with Homebrew's libass. The plugin and the SDKs show ASS as
-   plain text. Shipping it means building libass, FreeType, HarfBuzz
-   (MIT-style) and FriBidi (LGPL 2.1, dynamic) per platform like
-   `tool/build_ffmpeg.sh`, plus fonts: CoreText on Apple, fontconfig on
-   Linux, DirectWrite on Windows, and a bundled default font on Android,
-   which libass has no font provider for. Done when the Flutter example on
-   macOS and Android shows `sub_ass.mkv` styled.
+3. **libass on Windows and Linux**: styled ASS goes through libass
+   (`LYCHEE_WITH_LIBASS`, pictures like bitmap subtitles) in every macOS,
+   iOS and Android build since 2026-10-26: `tool/build_libass.sh` builds
+   libass 0.17.5 with FreeType 2.15.0 and HarfBuzz 15.0.0 linked in
+   (exporting only libass's API; about 1.4 MB per architecture on Apple,
+   1.6 MB per ABI on Android) and FriBidi 1.0.17 as its own library
+   (LGPL 2.1), shipped as `libass.xcframework` and
+   `libfribidi.xcframework` and inside the AAR. Apple finds fonts through
+   Core Text. Android has no font provider: the core embeds Liberation
+   Sans Regular and Bold (SIL OFL, metrically compatible with Arial, the
+   font most scripts name; 825 KB per ABI in `liblychee.so`; libass's own
+   bold is only a slight emboldening) and falls back to
+   `/system/fonts/NotoSansCJK-Regular.ttc` (its first face, Japanese
+   shapes for Han) for glyphs those lack; other scripts the media carries
+   no font for (Arabic, Thai, Indic, emoji) show as boxes there. Seen
+   2026-10-26: `sub_ass.mkv` and `sub_ass_styled.mkv` (bold, italic,
+   colour, rotation, `\pos`, Hebrew, Chinese) in the Flutter example on
+   macOS and the Pixel 10 emulator and in the Swift example on macOS,
+   laid out like `lychee_cli --subtitle-ppm` with Homebrew's libass,
+   which the shipped macOS libass matches byte for byte, and in the
+   Flutter example on an iPhone 16 simulator with iOS 26.5. Core Text's
+   fallback for Chinese on iOS is `PingFangUI.ttc`, an Apple Hierarchical
+   Variable Font, which FreeType opens only through the system's libhvf
+   (`-Dhvf=enabled` on Apple): iOS 26.5 shows the Chinese line, the iOS
+   18.1 simulator lacks it and shows boxes (not seen on an iOS 18 device).
+   Left: Windows (DirectWrite) and Linux (fontconfig), whose plugins
+   compile the core without libass, so they show ASS as plain text; build
+   libass there like the Windows and Linux FFmpeg (Platforms 1 and 2).
+   Done when the Flutter example on Windows and Linux shows
+   `sub_ass_styled.mkv` styled.
 
 ## Platforms
 
@@ -570,9 +590,10 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    add dav1d (BSD) if software AV1 matters. Android before 11 finds the
    cache directory from the package name (no `TMPDIR`), never run there.
    Apps must ship the FFmpeg license notice and say where its source is;
-   releases attach the FFmpeg and Mbed TLS sources they were built from,
-   and `THIRD_PARTY_NOTICES` (Chromium, FFmpeg, Mbed TLS, with the license
-   texts) goes into `lychee.framework`, the AAR (as the Java resource
+   releases attach the FFmpeg, Mbed TLS and libass sources they were
+   built from, and `THIRD_PARTY_NOTICES` (Chromium, FFmpeg, Mbed TLS,
+   libass and what it links, Liberation Sans, with the license texts)
+   goes into `lychee.framework`, the AAR (as the Java resource
    `META-INF/lychee/THIRD_PARTY_NOTICES`, so it lands in APKs) and the
    pub package (`core/`). Only the
    development CMake build (CLI, GLFW example, `tool/regression.sh`
@@ -591,9 +612,10 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    first GitHub run failed only on the live flakes fixed since). Not
    covered there: the Swift, Rust, Android and Flutter lifetime tests,
    which run only by hand.
-   `tool/release.sh build` reuses any `third_party/ffmpeg/PLATFORM` that
-   exists, so a changed `tool/build_ffmpeg.sh` needs that directory
-   deleted by hand (CI keys its cache on the script, so it rebuilds);
+   `tool/release.sh build` reuses any `third_party/ffmpeg/PLATFORM` (and
+   `third_party/libass/PLATFORM`) that exists, so a changed
+   `tool/build_ffmpeg.sh` (or `tool/build_libass.sh`) needs that directory
+   deleted by hand (CI keys its caches on the scripts, so it rebuilds);
    a stamp with the script's hash would make local builds safe too.
 2. **First release**: prebuilt artifacts are assets of the version's
    GitHub release (`boyan01/lychee_player`, tag `vVERSION`), pinned by
@@ -638,6 +660,15 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    with `network.client`) and the Android emulator it plays
    `h264_aac.mp4` over http in hardware, with the frameworks and the AAR
    downloaded from the release. Left: 1.0.0, once the beta has been used.
+   The next release adds `libass.xcframework.zip` and
+   `libfribidi.xcframework.zip` (eight frameworks) and the libass,
+   FreeType, HarfBuzz, FriBidi and Liberation fonts sources; the pod and
+   the root `Package.swift` take a release's frameworks from its pins, so
+   the beta.1 pins keep working. Checked here (2026-10-26): every release
+   step into a scratch directory, ending with `tool/release.sh check`
+   (fresh macOS, iOS simulator and Android apps download all eight and
+   carry libass); not yet run on GitHub's runners, which now install
+   meson.
    Later: the AAR on Maven Central too (what native Android users
    expect; needs a Sonatype account for `tech.soit`); the Linux FFmpeg as
    a release asset in place of BtbN's (Platforms 2: `tool/release.sh

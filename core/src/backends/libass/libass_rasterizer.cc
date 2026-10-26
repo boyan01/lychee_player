@@ -9,6 +9,16 @@
 
 #include "base/log.h"
 
+#if defined(LYCHEE_LIBASS_DEFAULT_FAMILY)
+#include <unistd.h>
+
+// default_font.S
+extern "C" const char lychee_default_font_regular[];
+extern "C" const char lychee_default_font_regular_end[];
+extern "C" const char lychee_default_font_bold[];
+extern "C" const char lychee_default_font_bold_end[];
+#endif
+
 namespace lychee {
 
 namespace {
@@ -53,16 +63,37 @@ bool LibassRasterizer::Initialize(const SubtitleConfig& config,
                  reinterpret_cast<const char*>(font.data->data()),
                  static_cast<int>(font.data->size()));
   }
+#if defined(LYCHEE_LIBASS_DEFAULT_FAMILY)
+  // Bold too: libass's synthetic bold is much lighter than a bold face.
+  // Italics are slanted well enough.
+  ass_add_font(library_, "default", lychee_default_font_regular,
+               static_cast<int>(lychee_default_font_regular_end -
+                                lychee_default_font_regular));
+  ass_add_font(library_, "default-bold", lychee_default_font_bold,
+               static_cast<int>(lychee_default_font_bold_end -
+                                lychee_default_font_bold));
+#endif
   renderer_ = ass_renderer_init(library_);
   track_ = ass_new_track(library_);
   if (!renderer_ || !track_) {
     *error = "ass_renderer_init failed";
     return false;
   }
+#if defined(LYCHEE_LIBASS_DEFAULT_FAMILY)
+  // No font provider (Android): fonts the media does not carry are the
+  // default font, metrically compatible with Arial, which most scripts
+  // name. Glyphs it lacks (CJK) come from the system's CJK font, which
+  // libass reads from its file, like the fonts it would find through a
+  // provider.
+  const char* fallback = "/system/fonts/NotoSansCJK-Regular.ttc";
+  ass_set_fonts(renderer_, access(fallback, R_OK) == 0 ? fallback : nullptr,
+                LYCHEE_LIBASS_DEFAULT_FAMILY, ASS_FONTPROVIDER_NONE, nullptr, 0);
+#else
   // The system's fonts (CoreText, DirectWrite or fontconfig) for what the
   // media does not carry. Fontconfig may build its cache here once.
   ass_set_fonts(renderer_, nullptr, "sans-serif", ASS_FONTPROVIDER_AUTODETECT,
                 nullptr, 1);
+#endif
   if (!config.extradata.empty()) {
     ass_process_codec_private(
         track_,

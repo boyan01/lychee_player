@@ -1,12 +1,14 @@
 # One pod for iOS and macOS (sharedDarwinSource in pubspec.yaml).
 #
-# The core and FFmpeg come prebuilt, as the xcframeworks in Frameworks/:
-# lychee.xcframework (tool/build_apple.sh) and the LGPL-only FFmpeg ones
-# (tool/build_ffmpeg.sh, tool/package_ffmpeg_apple.sh). The plugin uses only
-# the C ABI in lychee/lychee.h.
+# The core, FFmpeg and libass come prebuilt, as the xcframeworks in
+# Frameworks/: lychee.xcframework (tool/build_apple.sh), the LGPL-only
+# FFmpeg ones (tool/build_ffmpeg.sh) and libass with FriBidi
+# (tool/build_libass.sh), both packaged by tool/package_ffmpeg_apple.sh.
+# The plugin uses only the C ABI in lychee/lychee.h.
 #
-# Frameworks built locally win. Otherwise they come from the release that
-# ../prebuilt.json pins (tool/release.sh), downloaded once into
+# Frameworks built locally win, when all of them are there. Otherwise they
+# come from the release that ../prebuilt.json pins (tool/release.sh): the
+# xcframeworks it lists (1.0.0-beta.1 had no libass), downloaded once into
 # ~/.cache/lychee_player and checked against its SHA-256s;
 # LYCHEE_PREBUILT_URL replaces the release URL with a mirror's.
 
@@ -14,13 +16,13 @@ require 'digest'
 require 'fileutils'
 require 'json'
 
-frameworks = %w[lychee libavformat libavcodec libswresample libswscale libavutil]
+frameworks = %w[lychee libavformat libavcodec libswresample libswscale libavutil libass libfribidi]
 
 lambda do
   dir = File.join(__dir__, 'Frameworks')
   manifest = JSON.parse(File.read(File.join(__dir__, '..', 'prebuilt.json')))
   tag = manifest['tag'] or return
-  zips = frameworks.map { |f| ["#{f}.xcframework.zip", manifest['files'].fetch("#{f}.xcframework.zip")] }
+  zips = manifest['files'].select { |name, _| name.end_with?('.xcframework.zip') }.to_a
   stamp = File.join(dir, '.prebuilt')
   want = ([tag] + zips.map { |z| z.join(' ') }).join("\n")
   if File.exist?(stamp)
@@ -70,12 +72,14 @@ Pod::Spec.new do |s|
   s.frameworks = 'CoreVideo', 'QuartzCore'
   s.ios.frameworks = 'AVFAudio'
 
-  missing = frameworks.reject { |f| Dir.exist?(File.join(__dir__, 'Frameworks', "#{f}.xcframework")) }
-  unless missing.empty?
-    Pod::UI.warn "lychee_player: missing #{missing.join(', ')}.xcframework in Frameworks/; " \
-                 'build them with tool/build_ffmpeg.sh, tool/package_ffmpeg_apple.sh and tool/build_apple.sh'
+  present = frameworks.select { |f| Dir.exist?(File.join(__dir__, 'Frameworks', "#{f}.xcframework")) }
+  # A release's are complete with the ones it has.
+  unless File.exist?(File.join(__dir__, 'Frameworks', '.prebuilt')) || present == frameworks
+    Pod::UI.warn "lychee_player: missing #{(frameworks - present).join(', ')}.xcframework in Frameworks/; " \
+                 'build them with tool/build_ffmpeg.sh, tool/build_libass.sh, tool/package_ffmpeg_apple.sh ' \
+                 'and tool/build_apple.sh'
   end
-  s.vendored_frameworks = frameworks.map { |f| "Frameworks/#{f}.xcframework" }
+  s.vendored_frameworks = present.map { |f| "Frameworks/#{f}.xcframework" }
 
   # CocoaPods copies the xcframework slices too late for this pod's own
   # compile and link, so point at the slices directly.

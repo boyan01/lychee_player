@@ -88,7 +88,7 @@ jobs:
         with:
           channel: stable
       - name: Install tools
-        run: brew install nasm ninja
+        run: brew install nasm ninja meson pkg-config
       - name: FFmpeg cache key
         id: ffmpeg
         working-directory: .
@@ -99,6 +99,16 @@ jobs:
         with:
           path: third_party/ffmpeg
           key: ${{ steps.ffmpeg.outputs.key }}
+      - name: libass cache key
+        id: libass
+        working-directory: .
+        run: |
+          inputs="$(cat tool/build_libass.sh tool/apple_framework.sh; grep -E '^(libass|freetype|harfbuzz|fribidi|fonts)_' tool/release.sh; xcodebuild -version)"
+          echo "key=libass-apple-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: third_party/libass
+          key: ${{ steps.libass.outputs.key }}
       - name: Build the xcframeworks
         working-directory: .
         run: tool/release.sh build apple build-sources
@@ -108,7 +118,7 @@ jobs:
         # shipped FFmpeg is built, so that build cannot find it.
         run: |
           brew install ffmpeg pkg-config
-          NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh
+          NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 LIBASS_ROOT=third_party/libass/macos-arm64 tool/regression.sh
       - name: Analyze
         run: flutter analyze
       - name: Build example

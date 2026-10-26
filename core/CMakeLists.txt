@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
 option(LYCHEE_WITH_FFMPEG "Build the FFmpeg demuxer and decoders" ON)
-# Off by default: the shipped builds have no libass yet (roadmap), and ASS
-# then shows as plain text. tool/regression.sh turns it on if pkg-config
-# finds libass.
+# Off by default, and ASS then shows as plain text. The shipped builds
+# (tool/build_apple.sh, sdk/android) turn it on with LYCHEE_LIBASS_ROOT;
+# tool/regression.sh with LIBASS_ROOT, or if pkg-config finds libass.
 option(LYCHEE_WITH_LIBASS "Render styled ASS/SSA subtitles with libass" OFF)
 
 set(LYCHEE_SOURCES
@@ -173,10 +173,51 @@ if(LYCHEE_WITH_FFMPEG)
   target_compile_definitions(lychee PRIVATE LYCHEE_WITH_FFMPEG=1)
 endif()
 
+# A prebuilt libass (tool/build_libass.sh output: include/ and lib/, with
+# libass and libfribidi), or the system's through pkg-config.
+set(LYCHEE_LIBASS_ROOT "" CACHE PATH "Prebuilt libass to use instead of pkg-config")
+
 if(LYCHEE_WITH_LIBASS)
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(LIBASS REQUIRED IMPORTED_TARGET libass)
-  target_link_libraries(lychee PRIVATE PkgConfig::LIBASS)
+  if(LYCHEE_LIBASS_ROOT)
+    add_library(lychee_libass INTERFACE)
+    target_include_directories(lychee_libass INTERFACE "${LYCHEE_LIBASS_ROOT}/include")
+    # As for FFmpeg: forget what the last root's find_library() found.
+    if(NOT LYCHEE_LIBASS_ROOT STREQUAL "${LYCHEE_LIBASS_FOUND_ROOT}")
+      foreach(lib ass fribidi)
+        unset(LYCHEE_LIBASS_${lib} CACHE)
+      endforeach()
+      set(LYCHEE_LIBASS_FOUND_ROOT "${LYCHEE_LIBASS_ROOT}" CACHE INTERNAL "")
+    endif()
+    # libfribidi only for the Android Gradle plugin, which packages the
+    # libraries linked as IMPORTED targets.
+    foreach(lib ass fribidi)
+      find_library(LYCHEE_LIBASS_${lib} ${lib} PATHS "${LYCHEE_LIBASS_ROOT}/lib"
+        NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+      add_library(lychee_libass_${lib} SHARED IMPORTED)
+      set_target_properties(lychee_libass_${lib} PROPERTIES
+        IMPORTED_LOCATION "${LYCHEE_LIBASS_${lib}}")
+      target_link_libraries(lychee_libass INTERFACE lychee_libass_${lib})
+    endforeach()
+    target_link_libraries(lychee PRIVATE lychee_libass)
+    # Android gives libass no font provider: the core carries the default
+    # fonts that tool/build_libass.sh puts next to the libraries.
+    set(_lychee_fonts "${LYCHEE_LIBASS_ROOT}/share/fonts")
+    if(EXISTS "${_lychee_fonts}/LiberationSans-Regular.ttf")
+      enable_language(ASM)
+      target_sources(lychee PRIVATE src/backends/libass/default_font.S)
+      set_source_files_properties(src/backends/libass/default_font.S PROPERTIES
+        COMPILE_DEFINITIONS
+          "LYCHEE_DEFAULT_FONT_REGULAR=\"${_lychee_fonts}/LiberationSans-Regular.ttf\";LYCHEE_DEFAULT_FONT_BOLD=\"${_lychee_fonts}/LiberationSans-Bold.ttf\""
+        OBJECT_DEPENDS
+          "${_lychee_fonts}/LiberationSans-Regular.ttf;${_lychee_fonts}/LiberationSans-Bold.ttf")
+      target_compile_definitions(lychee PRIVATE
+        "LYCHEE_LIBASS_DEFAULT_FAMILY=\"Liberation Sans\"")
+    endif()
+  else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LIBASS REQUIRED IMPORTED_TARGET libass)
+    target_link_libraries(lychee PRIVATE PkgConfig::LIBASS)
+  endif()
   target_compile_definitions(lychee PRIVATE LYCHEE_WITH_LIBASS=1)
 endif()
 

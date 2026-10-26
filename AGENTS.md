@@ -202,9 +202,10 @@ glitch checks fail for reasons unrelated to your change. Done means:
   from the release `flutter/prebuilt.json` pins, also inside this
   repository: an example built from a fresh checkout runs the released
   core, not the checkout's. Local builds win only when complete:
-  all six xcframeworks in `flutter/darwin/Frameworks` without a
-  `.prebuilt` stamp (the pod's mark of a download), and
-  `sdk/android/build/repo`.
+  all eight xcframeworks (lychee, FFmpeg's five, libass, libfribidi) in
+  `flutter/darwin/Frameworks` without a `.prebuilt` stamp (the pod's mark
+  of a download), and `sdk/android/build/repo`. A release brings the
+  xcframeworks its pins list (1.0.0-beta.1 had no libass).
 - The Rust bindings (`rust/lychee-sys/src/bindings.rs`) are generated and
   checked in. After changing `lychee.h`, rerun `tool/rust_bindings.sh`
   (`cargo install bindgen-cli`) and wrap the change in the `lychee` crate.
@@ -232,6 +233,14 @@ glitch checks fail for reasons unrelated to your change. Done means:
   Homebrew has: the core follows the current FFmpeg API (e.g.
   `sws_free_context`). After a new FFmpeg build, rerun all of them and
   `pod install` in `flutter/example/macos` and `flutter/example/ios`.
+  Styled ASS needs libass the same way, once per platform:
+  `tool/build_libass.sh PLATFORM` into `third_party/libass/` (needs
+  `meson`; `tool/release.sh build apple|android DIR` downloads the pinned
+  sources and builds what is missing), before
+  `tool/package_ffmpeg_apple.sh`; `tool/build_apple.sh` and the SDK's
+  Gradle build stop without it. Check the shipped one with
+  `LIBASS_ROOT=third_party/libass/macos-arm64 tool/regression.sh` and
+  look at `lychee_cli --subtitle-ppm`.
 - The iOS simulator slice must hold both arm64 and x86_64: Flutter builds the
   simulator for both, and CocoaPods silently copies nothing from an
   xcframework slice that lacks one, so the app fails to link with

@@ -1,5 +1,5 @@
 // The AAR tech.soit.lychee:lychee: the core as liblychee.so (also a prefab
-// module, for native callers of the C ABI) with its FFmpeg, and the Kotlin
+// module, for native callers of the C ABI) with its FFmpeg and libass, and the Kotlin
 // LycheePlayer, LycheeFrameDriver and LycheePlayerView over it.
 //
 //   ./gradlew :lychee:publish   # into build/repo, where the Flutter plugin
@@ -26,6 +26,15 @@ val ffmpegAbis = listOf("arm64-v8a", "x86_64")
 if (ffmpegAbis.isEmpty()) {
     logger.warn("lychee: no Android FFmpeg in third_party/ffmpeg; run tool/build_ffmpeg.sh android-arm64-v8a")
 }
+// Styled ASS through libass (tool/build_libass.sh android-ABI) wherever
+// FFmpeg decodes the subtitles; without FFmpeg there are none.
+if (withFfmpeg) {
+    val missing = ffmpegAbis.filter { !repoRoot.resolve("third_party/libass/android-$it").isDirectory }
+    if (missing.isNotEmpty()) {
+        throw GradleException("lychee: no libass for ${missing.joinToString()} in third_party/libass; " +
+            "run tool/build_libass.sh android-ABI (tool/release.sh build android does)")
+    }
+}
 
 android {
     namespace = "tech.soit.lychee"
@@ -42,6 +51,7 @@ android {
                 arguments += "-DANDROID_STL=c++_shared"
                 // Always explicit: CMake's cache would keep the last value.
                 arguments += "-DLYCHEE_WITH_FFMPEG=${if (withFfmpeg) "ON" else "OFF"}"
+                arguments += "-DLYCHEE_WITH_LIBASS=${if (withFfmpeg) "ON" else "OFF"}"
             }
         }
         consumerProguardFiles("consumer-rules.pro")
@@ -74,8 +84,8 @@ android {
     }
 }
 
-// The notices for what the AAR carries (FFmpeg, Mbed TLS, code from
-// Chromium), as a Java resource, so that they end up in every APK as
+// The notices for what the AAR carries (FFmpeg, Mbed TLS, libass and what
+// it links, the default font, code from Chromium), as a Java resource, so that they end up in every APK as
 // META-INF/lychee/THIRD_PARTY_NOTICES.
 abstract class CopyNotices : DefaultTask() {
     @get:InputFile

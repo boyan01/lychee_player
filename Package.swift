@@ -23,7 +23,10 @@ let release = (
   ]
 )
 
-let frameworks = ["lychee", "libavformat", "libavcodec", "libswresample", "libswscale", "libavutil"]
+// A release's frameworks are the ones it pins (1.0.0-beta.1 had no libass).
+let frameworks = release.url.isEmpty
+  ? ["lychee", "libavformat", "libavcodec", "libswresample", "libswscale", "libavutil", "libass", "libfribidi"]
+  : release.checksums.keys.sorted()
 
 let package = Package(
   name: "LycheePlayer",
