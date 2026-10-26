@@ -72,6 +72,8 @@ while IFS= read -r f; do
   case "$f" in
     *.md | docs/* | LICENSE | THIRD_PARTY_NOTICES | */LICENSE | .gitignore) ;;
     .github/workflows/ci.yml | tool/changes.sh) mark ci ;;
+    # CI's format job checks every push.
+    .clang-format | .editorconfig | tool/format.sh) ;;
     .github/workflows/*) mark packaging ;;
     core/include/lychee/lychee.h) mark core threads abi rust apple android flutter ;;
     core/src/pipeline/* | core/src/api/* | core/src/base/*) mark core threads ;;

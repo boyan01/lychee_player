@@ -283,8 +283,9 @@ void VideoRendererAlgorithm::EnqueueFrame(std::shared_ptr<VideoFrame> frame) {
   UpdateEffectiveFramesQueued();
 }
 
-void VideoRendererAlgorithm::AccountForMissedIntervals(int64_t deadline_min,
-                                                       int64_t deadline_max) {
+void VideoRendererAlgorithm::AccountForMissedIntervals(
+    int64_t deadline_min,
+    int64_t /*deadline_max*/) {
   if (last_deadline_max_ == 0 || deadline_min <= last_deadline_max_ ||
       !have_rendered_frames_ || !was_time_moving_ || render_interval_ == 0) {
     return;

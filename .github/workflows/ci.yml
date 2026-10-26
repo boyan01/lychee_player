@@ -30,6 +30,29 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: tool/changes.sh --github "$BASE" "$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
 
+  format:
+    # clang-format on the C, C++ and Objective-C++ lines a push or pull
+    # request changed; nothing when there is no base to compare with.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: clang-format
+        # The major version tool/format.sh names.
+        run: |
+          pipx install clang-format==23.1.3
+          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+      - name: Check
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [ -z "${BASE//0/}" ] || ! git merge-base "$BASE" "$GITHUB_SHA" >/dev/null 2>&1; then
+            echo "no base to compare with"
+            exit 0
+          fi
+          tool/format.sh --check "$BASE" "$GITHUB_SHA"
+
   core-macos:
     # Hosted runners are VMs; VideoToolbox may be missing there, so decode in
     # software.
@@ -39,13 +62,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tsan: [0, 1]
+        # ThreadSanitizer; AddressSanitizer with UndefinedBehaviorSanitizer.
+        sanitizer: [none, thread, address]
     steps:
       - uses: actions/checkout@v4
       - name: Install tools
         run: brew install ffmpeg ninja pkg-config glfw
       - name: Regression
-        run: NO_HW=1 TSAN=${{ matrix.tsan }} tool/regression.sh
+        run: |
+          NO_HW=1 TSAN=${{ matrix.sanitizer == 'thread' && 1 || 0 }} \
+            ASAN=${{ matrix.sanitizer == 'address' && 1 || 0 }} tool/regression.sh
 
   core-linux:
     # Catches Linux build breaks without a WSL run. Software decoding: no

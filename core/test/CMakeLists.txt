@@ -61,3 +61,12 @@ if(APPLE AND NOT LYCHEE_WITH_FFMPEG)
   target_compile_definitions(lychee_unittests PRIVATE
     LYCHEE_FUZZ_REGRESSIONS="${CMAKE_CURRENT_SOURCE_DIR}/../fuzz/regressions")
 endif()
+
+# lychee.h stays plain C99 (c_header_test.c). MSVC has no C99 mode.
+if(NOT MSVC)
+  add_library(lychee_c_header OBJECT c_header_test.c)
+  target_link_libraries(lychee_c_header PRIVATE lychee)
+  set_target_properties(lychee_c_header PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+  target_compile_options(lychee_c_header PRIVATE -Wpedantic)
+endif()

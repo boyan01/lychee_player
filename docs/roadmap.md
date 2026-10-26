@@ -748,7 +748,7 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    ("Verifying a change") has the layers and what each area needs.
    `tool/changes.sh` names a branch's areas from the files it touches,
    and `ci.yml` gates its jobs on them through a `changes` job: core
-   changes run `core-macos` (plain, TSan) and `core-linux`; the `apple`
+   changes run `core-macos` (plain, TSan, ASan) and `core-linux`; the `apple`
    job (xcframeworks, the shipped-FFmpeg matrix, `swift test`) runs for
    core, Apple and plugin changes, with Flutter's analyze and example
    build only for `flutter/`; a new `rust` job runs `cargo test`,
@@ -763,3 +763,49 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    renderers. Left: CI jobs for Android (the SDK build and its unit
    tests on an emulator) and Windows (the core and `examples/glfw` build
    on `windows-latest`); the harness screenshots stay local.
+6. **Compiler and sanitizer checks** (2026-10-26). The top-level
+   `CMakeLists.txt` builds the project's own code with `-Wall -Wextra
+   -Wimplicit-fallthrough -Wnon-virtual-dtor` (not
+   `-Wmissing-field-initializers`: `struct_size`-first C structs and
+   aggregates rely on defaulted fields, as in Chromium), so
+   `tool/regression.sh`'s zero-warning check holds; the plugins and the
+   Android SDK build the core with their own flags. Clean with Apple
+   clang (with and without FFmpeg), and in WSL with gcc 11 and clang 14,
+   where clang 14 with libstdc++ also found a missing `<cstddef>`.
+   `ASAN=1 tool/regression.sh` builds with AddressSanitizer and
+   UndefinedBehaviorSanitizer (C, C++ and Objective-C++) and fails a
+   case on any report; all 117 cases and the unit tests pass under it on
+   macOS, and `core-macos` runs it on every core change. `COVERAGE=1`
+   merges clang's coverage of the unit tests and every case: 84.9% of
+   `core/src`'s lines, 91.4% of functions, 69.1% of branches on macOS
+   with FFmpeg (2026-10-26). `.clang-format` (Chromium; 4% of today's
+   lines differ, so it formats changed lines only, `tool/format.sh`) and
+   a `format` job, pinned to clang-format 23 from pip, check every push.
+   `core/test/c_header_test.c` keeps `lychee.h` C99 under `-Wpedantic`.
+   `.editorconfig` has each language's indentation. Waiting on a push to
+   see the new jobs on GitHub; the runner's gcc 13 against the stricter
+   warnings is untried.
+7. **Engineering practices still to add**, in rough order of value:
+   - **ABI check against the last release**: diff `lychee.h`'s exported
+     symbols and struct layouts (e.g. `abidiff` on Linux, or a test that
+     compiles the previous release's header against the new library) so a
+     break without a `LYCHEE_API_VERSION` bump fails CI.
+   - **Fuzzing in CI and a stored corpus**: run each fuzzer for a few
+     minutes on `parsers` changes and keep the corpus between runs
+     (OSS-Fuzz once the project is public).
+   - **clang-tidy** on changed files (`bugprone-*`, `performance-*`,
+     `modernize-use-override`, `cppcoreguidelines-pro-type-member-init`),
+     with a checked-in `.clang-tidy`, local first, then in CI.
+   - **MSVC `/W4`** for the Windows build, and warnings as errors in the
+     plugins' and the Android SDK's own core builds.
+   - **Performance benchmarks**: decode and frame-conversion throughput,
+     seek latency and memory per resolution on the virtual clock, kept
+     per commit so a regression shows as a number rather than a feeling.
+   - **Soak tests**: hours of looping, seeking and file switching on each
+     platform's harness, checking memory and thread counts stay flat.
+   - **Supply chain**: Dependabot (or Renovate) for the pinned Actions,
+     GLFW, FFmpeg and libass sources; SHA-pinned Actions; build
+     provenance attestations and an SBOM for release assets
+     (`actions/attest-build-provenance`).
+   - **CI jobs for Android and Windows** (item 5's left-overs), and a
+     coverage report as a CI artifact once coverage is watched.

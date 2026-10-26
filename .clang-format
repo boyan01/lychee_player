@@ -1,0 +1,6 @@
+# Chromium style, which most of the code already follows; one-line ifs
+# without else stay on one line, as the code writes them. tool/format.sh
+# applies it to changed lines only.
+---
+BasedOnStyle: Chromium
+AllowShortIfStatementsOnASingleLine: WithoutElse

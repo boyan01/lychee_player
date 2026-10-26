@@ -54,7 +54,10 @@ class FFmpegVideoDecoder : public VideoDecoder {
   std::shared_ptr<VideoFrame> ConvertToCpu(AVFrame* frame);
 
   const bool hardware_;
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
+  // Whether the caller takes the GPU frames of Windows and Linux.
   const uint32_t accepted_storage_;
+#endif
   const VideoFrameStorage cpu_storage_;
   const VideoDevice device_;
 #if defined(_WIN32)

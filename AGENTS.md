@@ -159,9 +159,15 @@ What each area needs (run `tool/changes.sh`):
 
 - **core**: build and run the unit tests plus the cases the change
   touches (`ONLY=...`, seconds) while iterating; the full
-  `tool/regression.sh` once, when done, with zero build warnings. CI runs
-  `NO_HW=1` plain and TSan on every core change, so leave those to it
-  unless an area below asks for them.
+  `tool/regression.sh` once, when done, with zero build warnings
+  (`-Wall -Wextra` and more, top-level `CMakeLists.txt`; GCC and clang
+  differ, so a Linux run can find what macOS does not). CI runs
+  `NO_HW=1` plain, TSan and ASan on every core change, so leave those to
+  it unless an area below asks for them. For changes to buffers, parsers
+  or object lifetimes, run `ASAN=1 tool/regression.sh` (AddressSanitizer
+  and UndefinedBehaviorSanitizer) yourself. `COVERAGE=1
+  tool/regression.sh` shows which lines of `core/src` no test reaches
+  (`build-coverage/coverage/index.html`); look at it when adding tests.
 - **threads** (`pipeline/`, the C API, teardown): also `TSAN=1
   tool/regression.sh` (it fails on any ThreadSanitizer report).
 - **parsers** (the FFmpeg-free demuxers): also `NO_FFMPEG=1
@@ -219,6 +225,12 @@ What each area needs (run `tool/changes.sh`):
   macOS, iOS-simulator and Android app against the packed package with
   the assets served locally; then `git checkout` the pins it wrote.
 
+Before committing C, C++ or Objective-C++, run `tool/format.sh`: it
+formats the lines the branch changed (`.clang-format`, Chromium style;
+older code is reformatted only when someone edits it), and CI's format
+job fails on what it would change. `lychee.h` must stay plain C99:
+`core/test/c_header_test.c` compiles it as such with `-Wpedantic`.
+
 Adding a test: put it in the lowest layer that can observe the
 behaviour. A pure algorithm gets a unit test in `core/test`; anything the
 CLI can observe gets a case in `tool/regression.sh`; a binding's
@@ -229,8 +241,8 @@ registration, Dart lifetime, hot restart) goes into
 harness screenshot. When a new directory or file kind appears, give it an
 area in `tool/changes.sh`.
 
-CI (`.github/workflows/ci.yml`) runs the core on macOS (plain and TSan)
-and Linux, the Apple builds with `swift test` (Flutter's analyze and
+CI (`.github/workflows/ci.yml`) checks the format of every push, runs
+the core on macOS (plain, TSan, and ASan with UBSan) and Linux, the Apple builds with `swift test` (Flutter's analyze and
 example build only for `flutter/` changes), and the Rust crates, each
 only for its areas. It has no Android, Windows or harness screenshot
 jobs: those stay local.

@@ -182,7 +182,9 @@ FFmpegVideoDecoder::FFmpegVideoDecoder(bool hardware,
                                        uint32_t accepted_storage,
                                        VideoDevice device)
     : hardware_(hardware),
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
       accepted_storage_(accepted_storage),
+#endif
       // swscale writes either order at the same cost; choosing the caller's
       // saves a second pass over every frame.
       cpu_storage_((accepted_storage &
@@ -192,9 +194,10 @@ FFmpegVideoDecoder::FFmpegVideoDecoder(bool hardware,
                        ? VideoFrameStorage::kCpuRgba
                        : VideoFrameStorage::kCpuBgra),
       device_(std::move(device)),
-      hardware_output_(hardware),
       frame_(av_frame_alloc()),
-      av_packet_(av_packet_alloc()) {}
+      av_packet_(av_packet_alloc()),
+      hardware_output_(hardware) {
+}
 
 FFmpegVideoDecoder::~FFmpegVideoDecoder() {
   context_.reset();

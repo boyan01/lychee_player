@@ -124,7 +124,6 @@ class VideoRenderer {
   // did): the caller is not showing video, e.g. a view in the background.
   bool HiddenLocked(int64_t now) const;
 
-  MediaClock* const clock_;
   const uint32_t accepted_storage_;
   const bool rotate_surface_frames_;
   VideoDevice device_;

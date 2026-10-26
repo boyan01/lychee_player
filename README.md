@@ -99,7 +99,9 @@ downloads GLFW 3.4 there (hash-pinned; `-DLYCHEE_FETCH_GLFW=OFF` skips the
 example).
 
 `tool/regression.sh` generates a synthetic media set and runs the CLI over it
-(`TSAN=1` for a ThreadSanitizer build). `tool/fuzz.sh` fuzzes the
+(`TSAN=1` for a ThreadSanitizer build, `ASAN=1` for AddressSanitizer and
+UndefinedBehaviorSanitizer, `COVERAGE=1` for a line coverage report).
+`tool/format.sh` runs clang-format on the lines a branch changed. `tool/fuzz.sh` fuzzes the
 FFmpeg-free MP4 parser with libFuzzer under ASan and UBSan
 (`FUZZ_SECONDS`, `JOBS`); it needs Homebrew's LLVM (`brew install llvm`,
 a development tool only), since Apple's clang has no libFuzzer runtime.

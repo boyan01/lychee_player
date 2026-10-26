@@ -248,9 +248,9 @@ void CoreAudioSink::Stop() {
 
 // static
 OSStatus CoreAudioSink::OnRender(void* user_data,
-                                 AudioUnitRenderActionFlags* flags,
+                                 AudioUnitRenderActionFlags* /*flags*/,
                                  const AudioTimeStamp* timestamp,
-                                 UInt32 bus,
+                                 UInt32 /*bus*/,
                                  UInt32 frame_count,
                                  AudioBufferList* buffers) {
   auto* self = static_cast<CoreAudioSink*>(user_data);

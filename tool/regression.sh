@@ -5,6 +5,11 @@
 #
 #   tool/regression.sh            # Debug build in build/
 #   TSAN=1 tool/regression.sh     # ThreadSanitizer build in build-tsan/
+#   ASAN=1 tool/regression.sh     # AddressSanitizer and UndefinedBehavior-
+#                                 # Sanitizer build in build-asan/
+#   COVERAGE=1 tool/regression.sh # Line coverage of core/src by the unit
+#                                 # tests and cases, in build-coverage/
+#                                 # (clang; LLVM_COV, LLVM_PROFDATA)
 #   MEDIA_DIR=... tool/regression.sh
 #   NO_HW=1 tool/regression.sh    # Software decoding only (CI runners)
 #   ONLY='seek-* rate-2x' tool/regression.sh   # Only cases matching a glob
@@ -27,6 +32,24 @@ media="${MEDIA_DIR:-/tmp/lychee-media}"
 if [ "${TSAN:-0}" = 1 ]; then
   build="$root/build-tsan"
   flags=(-DCMAKE_CXX_FLAGS=-fsanitize=thread -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread)
+elif [ "${ASAN:-0}" = 1 ]; then
+  # Every language of the project's own code, so the Objective-C++
+  # backends are checked too. FFmpeg and libass are not instrumented.
+  build="$root/build-asan"
+  asan="-fsanitize=address,undefined -fno-omit-frame-pointer"
+  flags=()
+  for lang in C CXX OBJCXX; do
+    flags+=("-DCMAKE_${lang}_FLAGS=$asan")
+  done
+  flags+=("-DCMAKE_EXE_LINKER_FLAGS=$asan" "-DCMAKE_SHARED_LINKER_FLAGS=$asan")
+elif [ "${COVERAGE:-0}" = 1 ]; then
+  build="$root/build-coverage"
+  coverage="-fprofile-instr-generate -fcoverage-mapping"
+  flags=()
+  for lang in C CXX OBJCXX; do
+    flags+=("-DCMAKE_${lang}_FLAGS=$coverage")
+  done
+  flags+=("-DCMAKE_EXE_LINKER_FLAGS=$coverage" "-DCMAKE_SHARED_LINKER_FLAGS=$coverage")
 else
   build="$root/build"
   flags=()
@@ -309,11 +332,30 @@ if [ "$build_status" -ne 0 ] || grep -q "warning:" <<<"$build_out"; then
 fi
 cli="$build/examples/cli/lychee_cli"
 
+# Sanitizers report and carry on where they can, so a case lists every
+# report rather than the first; the patterns below fail it.
+export TSAN_OPTIONS=halt_on_error=0
+export UBSAN_OPTIONS=print_stacktrace=1
+sanitizer_reports="WARNING: ThreadSanitizer|ERROR: AddressSanitizer|runtime error:"
+# The start of the first report in $1, if any.
+print_reports() {
+  grep -Eq "$sanitizer_reports" <<<"$1" || return 0
+  grep -E -A20 "$sanitizer_reports" <<<"$1" | head -30 | sed 's/^/     /'
+}
+
+# Each process writes its own profile; merged at the end.
+if [ "${COVERAGE:-0}" = 1 ]; then
+  profiles="$build/profiles"
+  rm -rf "$profiles"
+  mkdir -p "$profiles"
+  export LLVM_PROFILE_FILE="$profiles/%p.profraw"
+fi
+
 failures=0
 
 # Unit tests first: they pinpoint a failure the playback cases only show.
-unit_out="$(TSAN_OPTIONS=halt_on_error=0 "$build/core/test/lychee_unittests" 2>&1)"
-if [ $? -eq 0 ] && ! grep -q "WARNING: ThreadSanitizer" <<<"$unit_out"; then
+unit_out="$("$build/core/test/lychee_unittests" 2>&1)"
+if [ $? -eq 0 ] && ! grep -Eq "$sanitizer_reports" <<<"$unit_out"; then
   echo "PASS unittests ($(tail -1 <<<"$unit_out"))"
 else
   echo "FAIL unittests"
@@ -337,11 +379,11 @@ check() {
   fi
   [ "${realtime:-0}" = 1 ] || set -- --virtual-time "$@"
   local out status summary problems="" start=$SECONDS
-  out="$(TSAN_OPTIONS=halt_on_error=0 "$cli" "$@" 2>&1)"
+  out="$("$cli" "$@" 2>&1)"
   status=$?
   [ "$status" = "${exits:-0}" ] || problems+=" exit=$status"
   summary="$(grep '^summary:' <<<"$out")"
-  grep -q "WARNING: ThreadSanitizer" <<<"$out" && problems+=" tsan-report"
+  grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
   grep -q "state=ended" <<<"$summary" || problems+=" not-ended"
   grep -q "backward_jumps=0" <<<"$summary" || problems+=" backward-jumps"
   grep -q "stalls=0" <<<"$summary" || problems+=" stalls"
@@ -363,6 +405,7 @@ check() {
   else
     echo "FAIL $name ($((SECONDS - start))s):$problems"
     grep -E '^(summary|error)' <<<"$out" | sed 's/^/     /'
+    print_reports "$out"
   fi
 }
 
@@ -375,10 +418,10 @@ expect() {
   shift
   [ "${NO_HW:-0}" = 1 ] && set -- --no-hw "$@"
   [ "${realtime:-0}" = 1 ] || set -- --virtual-time "$@"
-  out="$(TSAN_OPTIONS=halt_on_error=0 "$cli" "$@" 2>&1)"
+  out="$("$cli" "$@" 2>&1)"
   status=$?
   [ "$status" = "${exits:-0}" ] || problems+=" exit=$status"
-  grep -q "WARNING: ThreadSanitizer" <<<"$out" && problems+=" tsan-report"
+  grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
   for pattern in "${patterns[@]}"; do
     if [[ "$pattern" =~ ^\<=([0-9]+)\ (.*)$ ]]; then
       local count
@@ -393,6 +436,7 @@ expect() {
   else
     echo "FAIL $name ($((SECONDS - start))s):$problems"
     grep -E '^(summary|error|seek took)' <<<"$out" | sed 's/^/     /'
+    print_reports "$out"
   fi
 }
 
@@ -881,4 +925,23 @@ stop_server
 
 failures=$((failures + $(cat "$results"/[0-9][0-9][0-9] 2>/dev/null | grep -c '^FAIL ')))
 echo "$failures failure(s)"
+
+if [ "${COVERAGE:-0}" = 1 ]; then
+  # Xcode's LLVM tools on macOS, matching its clang.
+  llvm() {
+    if command -v xcrun >/dev/null 2>&1; then xcrun "$@"; else "$@"; fi
+  }
+  llvm "${LLVM_PROFDATA:-llvm-profdata}" merge -sparse "$profiles"/*.profraw \
+    -o "$build/coverage.profdata" || exit 1
+  cov_args=("$cli" -object "$build/core/test/lychee_unittests"
+            -instr-profile="$build/coverage.profdata" "$root/core/src")
+  # Its warnings about functions whose data differ between the two
+  # programs (inline functions built twice) do not matter here.
+  llvm "${LLVM_COV:-llvm-cov}" report "${cov_args[@]}" >"$build/coverage.txt" 2>/dev/null
+  llvm "${LLVM_COV:-llvm-cov}" show "${cov_args[@]}" -format=html \
+    -output-dir="$build/coverage" >/dev/null 2>&1
+  echo "coverage: $(grep '^TOTAL' "$build/coverage.txt" |
+    awk '{print "lines " $(NF-3) ", functions " $(NF-6) ", branches " $NF}')"
+  echo "  per file: $build/coverage.txt, $build/coverage/index.html"
+fi
 [ "$failures" = 0 ]

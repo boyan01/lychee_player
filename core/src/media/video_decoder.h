@@ -33,7 +33,7 @@ class VideoDecoder {
   virtual void Flush() = 0;
 
   // lychee_player_set_video_surface() changed. Called on any thread.
-  virtual void SetVideoSurface(std::shared_ptr<void> surface) {}
+  virtual void SetVideoSurface(std::shared_ptr<void> /*surface*/) {}
 };
 
 }  // namespace lychee

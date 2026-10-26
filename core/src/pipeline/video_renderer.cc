@@ -32,8 +32,7 @@ int64_t FrameEnd(const VideoFrame& frame) {
 VideoRenderer::VideoRenderer(MediaClock* clock,
                              uint32_t accepted_storage,
                              bool rotate_surface_frames)
-    : clock_(clock),
-      accepted_storage_(accepted_storage),
+    : accepted_storage_(accepted_storage),
       rotate_surface_frames_(rotate_surface_frames),
       converter_(CreateFrameConverter()),
       algorithm_([clock](const std::vector<int64_t>& media_times,
