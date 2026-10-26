@@ -78,6 +78,16 @@ on top of them.
    at 7.5 s: 19.733 s, where 18.867 s is the target frame). Done when
    `http-hls-discontinuity*`, `seek-ts*` and `loop-ts`, now run only
    with `NO_FFMPEG=1`, pass in the FFmpeg build too.
+4. **Styled ASS is slow in the iOS 18.1 simulator**: `sub_ass_styled.mkv`
+   in the Flutter example on an iPhone 16 simulator with iOS 18.1 shows
+   ~2.6 fps (6 rendered, 4 dropped after 5 s; software decoding, as
+   always in the simulator), where `h264_aac.mp4` shows 24 to 30 fps
+   with none dropped (2026-10-26). The same with the plugin's pod and
+   its Swift package, so not the frame driver; macOS plays the file at
+   30 fps. Not investigated: libass with Core Text there (whose Chinese
+   fallback that iOS lacks, Features 3), or the software decoder. Done
+   when the cause is known and the file plays at its rate in the
+   simulator, or the cause is the simulator's alone.
 
 Calling `lychee_player_open()` from an event callback returns -1 (API 9)
 rather than reopening; callers reopen from their own thread. Unit tests
@@ -270,11 +280,6 @@ in a window; Linux has none yet) and its own `tool/regression.sh` run.
    run a 32-bit system on 64-bit chips; supporting them needs
    `tool/build_ffmpeg.sh android-armeabi-v7a`, the ABI in the AAR and the
    release, and a 32-bit device or emulator to run on.
-4. **Swift Package Manager**: add `flutter/darwin/lychee_player/Package.swift`;
-   Flutter already warns that CocoaPods-only plugins will become an error.
-   The xcframeworks in `flutter/darwin/Frameworks` can be its
-   `binaryTarget`s. It should depend on the `sdk/apple` package for the
-   frame driver (Distribution 3.2 says why that takes a URL).
 
 ## FFmpeg-free builds
 
@@ -633,7 +638,8 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    out as a Maven repository in `~/.cache/lychee_player`); the root
    `Package.swift` pins the same zips for SwiftPM. Local builds win.
    `LYCHEE_PREBUILT_URL` names a mirror, for users where GitHub is slow;
-   SwiftPM ignores it. Windows and Linux compile the core from a copy
+   the root `Package.swift` ignores it, and the plugin's Swift package
+   takes only an https one (SwiftPM downloads nothing else). Windows and Linux compile the core from a copy
    that `tool/release.sh` puts into `flutter/core` while pub packs (a
    symlink would do, but `remote-test` snapshots refuse symlinks).
    `release.yml`, dispatched with a version, builds, pins, commits, runs
@@ -697,15 +703,50 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    2. `sdk/apple/` exists (2026-10-25: `LycheePlayer`,
       `LycheeFrameDriver`, `LycheePlayerView`; its example plays in
       hardware on macOS and in software on the iOS simulator, 0 dropped).
-      Left: the Flutter plugin still has its own copy of the driver
-      (`LycheeTexture` in `LycheePlayerPlugin.m`). It can use the SDK's
-      only through SwiftPM (a pod cannot depend on a Swift package), and
-      only by URL: Flutter adds plugin packages through symlinks in
-      `.packages/`, and SwiftPM resolves a relative `path:` dependency
-      against the symlink, not the plugin's real directory. The URL
-      exists now: the root `Package.swift` is `sdk/apple` with the
-      release's xcframeworks (item 2). Do it together with Platforms 3,
-      after the first release.
+      The Flutter plugin builds as a Swift package too (2026-10-26,
+      `flutter/darwin/lychee_player/Package.swift`; was Platforms 4),
+      for Flutter's Swift Package Manager integration, and there pulls
+      frames through the SDK's `LycheeFrameDriver` (now an `NSObject`
+      with `@objc` API and `init(handle:onNewFrame:)` for players Dart
+      owns; `copyFrame` returns +1 to Objective-C, the copy rule). The
+      pod keeps `LycheeTexture`, a port of it: a pod cannot depend on a
+      Swift package. Decisions:
+      - No URL dependency on the root package. It clones the whole
+        repository for one product, resolves only once the plugin's
+        version is released, and a checkout between releases would
+        compile the plugin against the last release's SDK. (The identity
+        clash feared here before does not happen: Flutter names the
+        symlink after the pub path's directory, `flutter` in this
+        repository and `lychee_player-VERSION` from pub.dev.) Instead
+        `tool/release.sh` copies `sdk/apple/Sources/LycheePlayer` into
+        the package while pub packs, as it does `core/`, and in this
+        repository the manifest depends on `sdk/apple` by an absolute
+        path from `#filePath` (relative paths resolve against Flutter's
+        symlink, and SwiftPM refuses targets and binaries outside the
+        package).
+      - Frameworks: complete local ones through `sdk/apple`; else the
+        release's pinned zips, or the same unzipped into the package's
+        `Frameworks/` (`tool/release.sh check`, since SwiftPM downloads
+        only over https). A checkout without local builds compiles the
+        plugin's copy of the driver against the pinned core, which may
+        be older than `sdk/apple` (1.0.0-beta.1 lacks
+        `lychee_player_is_seekable`); it builds, and then fails in Dart
+        at the first newer symbol, as with the pod.
+      - Dart opens `lychee.framework/lychee`: with SwiftPM the plugin is
+        a static library in the app, with no framework of its own.
+      Checked (2026-10-26): the example with SwiftPM and with CocoaPods
+      on macOS (hardware, 30 fps, 0 dropped) and an iPhone 16 simulator
+      (software, the same frame counts both ways), `sub_ass_styled.mkv`
+      styled in all four; the macOS integration test both ways; a fresh
+      checkout's SwiftPM build downloading 1.0.0-beta.1 from GitHub;
+      `tool/release.sh check` with both. Left: drop the pod and the copy
+      once Flutter drops CocoaPods (it warns that CocoaPods-only plugins
+      will become an error; this one has both). Waiting on the next
+      release: SwiftPM downloading the eight zips from GitHub for a
+      fresh app on `lychee_player` from pub.dev (`flutter create`, add
+      the version, `flutter build macos` and `ios --simulator` with
+      Swift Package Manager on; `nm` on the app finds
+      `LycheeFrameDriver`).
    3. `rust/` exists (2026-10-25): `lychee-sys` (checked-in bindgen
       output, CMake build of the core as a shared library) and the safe
       `lychee` crate (`Player` is `Send + Sync`, `Frame` releases on drop);

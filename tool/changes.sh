@@ -93,10 +93,13 @@ while IFS= read -r f; do
     examples/glfw/main_win*) mark windows ;;
     examples/glfw/main_linux*) mark linux ;;
     examples/glfw/*) mark apple ;;
+    # A Swift package builds the Apple side and is what a release ships.
+    Package.swift | sdk/apple/Package.swift) mark packaging apple ;;
+    flutter/darwin/lychee_player/Package.swift) mark packaging apple flutter ;;
     rust/*) mark rust ;;
     sdk/apple/*) mark apple ;;
     sdk/android/*) mark android ;;
-    tool/release.sh | flutter/prebuilt.json | Package.swift | flutter/darwin/*.podspec | \
+    tool/release.sh | flutter/prebuilt.json | flutter/darwin/*.podspec | \
       flutter/android/build.gradle* | flutter/windows/ffmpeg.cmake | flutter/pubspec.yaml)
       mark packaging ;;
     tool/build_apple.sh | tool/apple_framework.sh | tool/package_ffmpeg_apple.sh) mark apple ;;

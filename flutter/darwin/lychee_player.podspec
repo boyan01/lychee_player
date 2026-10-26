@@ -4,7 +4,9 @@
 # Frameworks/: lychee.xcframework (tool/build_apple.sh), the LGPL-only
 # FFmpeg ones (tool/build_ffmpeg.sh) and libass with FriBidi
 # (tool/build_libass.sh), both packaged by tool/package_ffmpeg_apple.sh.
-# The plugin uses only the C ABI in lychee/lychee.h.
+# The plugin uses only the C ABI in lychee/lychee.h; a pod cannot depend on
+# the Swift package in sdk/apple, so it keeps its own copy of its frame
+# driver (lychee_player/Package.swift uses the SDK's).
 #
 # Frameworks built locally win, when all of them are there. Otherwise they
 # come from the release that ../prebuilt.json pins (tool/release.sh): the
@@ -62,8 +64,10 @@ Pod::Spec.new do |s|
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'boyan01' => 'https://github.com/boyan01' }
   s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*.{h,m}'
-  s.public_header_files = 'Classes/LycheePlayerPlugin.h'
+  # The layout Flutter's Swift Package Manager integration wants
+  # (lychee_player/Package.swift builds the same sources).
+  s.source_files     = 'lychee_player/Sources/lychee_player/**/*.{h,m}'
+  s.public_header_files = 'lychee_player/Sources/lychee_player/include/**/*.h'
   s.ios.dependency 'Flutter'
   s.osx.dependency 'FlutterMacOS'
   # The same as in tool/apple_framework.sh.

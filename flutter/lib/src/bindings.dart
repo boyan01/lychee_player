@@ -5,7 +5,10 @@ import 'dart:io';
 
 final DynamicLibrary _library = () {
   if (Platform.isMacOS || Platform.isIOS) {
-    return DynamicLibrary.open('lychee_player.framework/lychee_player');
+    // The core's own framework, which the plugin links: with Swift Package
+    // Manager the plugin is a static library in the app, with no framework
+    // of its own.
+    return DynamicLibrary.open('lychee.framework/lychee');
   }
   if (Platform.isAndroid) {
     // The core from the Android SDK's AAR (sdk/android).

@@ -261,8 +261,13 @@ cd rust && cargo run --example play -- /tmp/lychee-media/h264_aac.mp4 /tmp/frame
 
 ## Flutter plugin
 
-The plugin lives in `flutter/`; its iOS/macOS pod vendors the Apple
-frameworks above.
+The plugin lives in `flutter/`. On iOS and macOS it builds with CocoaPods
+(`darwin/lychee_player.podspec`) or, with Flutter's Swift Package Manager
+integration on, as a Swift package (`darwin/lychee_player/Package.swift`);
+both take the Apple frameworks above. The Swift package pulls frames
+through `sdk/apple`'s `LycheeFrameDriver` (`tool/release.sh` copies its
+sources into the published package); the pod cannot depend on a Swift
+package and keeps a port of it.
 
 ```dart
 final player = await LycheePlayer.create();
@@ -294,8 +299,9 @@ open arbitrary paths. It plays `--dart-define=LYCHEE_URL=...` on start.
 Outside this repository (from pub.dev, or a git dependency without local
 builds), the plugin takes the Apple frameworks and the Android AAR from the
 GitHub release that `flutter/prebuilt.json` pins, downloaded into
-`~/.cache/lychee_player` and checked against their SHA-256s;
-`LYCHEE_PREBUILT_URL` names a mirror of the release URL. Inside it, local
+`~/.cache/lychee_player` (SwiftPM's own cache with Swift Package
+Manager) and checked against their SHA-256s; `LYCHEE_PREBUILT_URL` names
+a mirror of the release URL (an https one for SwiftPM). Inside it, local
 builds win: the xcframeworks in `flutter/darwin/Frameworks` and the AAR in
 `sdk/android/build/repo`. Windows and Linux compile the repository's
 `core/`, or in the published package the copy `tool/release.sh` puts into

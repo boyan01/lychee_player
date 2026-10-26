@@ -1,4 +1,4 @@
-#import "LycheePlayerPlugin.h"
+#import "./include/lychee_player/LycheePlayerPlugin.h"
 
 #import <CoreVideo/CoreVideo.h>
 #if TARGET_OS_OSX
@@ -14,21 +14,14 @@
 
 #include <lychee/lychee.h>
 
+#if LYCHEE_SDK_DRIVER
+@import LycheePlayer;
+#endif
+
 // CVDisplayLink is deprecated in favor of NSView.displayLink (macOS 14+), but
 // it still works and supports older systems.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-
-#if TARGET_OS_OSX
-static int64_t HostTimeToMicros(uint64_t host_time) {
-  static mach_timebase_info_data_t timebase;
-  if (timebase.denom == 0) {
-    mach_timebase_info(&timebase);
-  }
-  return (int64_t)((__uint128_t)host_time * timebase.numer / timebase.denom /
-                   1000);
-}
-#endif
 
 #if TARGET_OS_OSX
 typedef NSView PlatformView;
@@ -56,6 +49,77 @@ typedef UIView PlatformView;
 // disposeTexture.
 - (void)dispose;
 @end
+
+#if LYCHEE_SDK_DRIVER
+
+// The Swift package build: the frames come through sdk/apple's
+// LycheeFrameDriver, which the native SDK uses too.
+@implementation LycheeTexture {
+  LycheeFrameDriver* _driver;
+  lychee_player* _player;
+  __weak PlatformView* _view;
+}
+
+- (instancetype)initWithPlayer:(lychee_player*)player
+                      registry:(NSObject<FlutterTextureRegistry>*)registry
+                          view:(nullable PlatformView*)view {
+  if (self = [super init]) {
+    _player = player;
+    _view = view;
+    __weak LycheeTexture* weakSelf = self;
+    __weak NSObject<FlutterTextureRegistry>* weakRegistry = registry;
+    // On the main thread.
+    _driver = [[LycheeFrameDriver alloc] initWithHandle:player
+                                             onNewFrame:^{
+                                               LycheeTexture* texture = weakSelf;
+                                               if (texture) {
+                                                 [weakRegistry textureFrameAvailable:texture.textureId];
+                                               }
+                                             }];
+  }
+  return self;
+}
+
+- (lychee_player*)player {
+  return _player;
+}
+
+- (void)dealloc {
+  [self dispose];
+}
+
+- (void)start {
+  [_driver startFollowing:_view];
+}
+
+- (void)dispose {
+  [_driver stop];
+}
+
+// Called on the raster thread.
+- (CVPixelBufferRef)copyPixelBuffer {
+  return [_driver copyFrame];
+}
+
+@end
+
+#else
+
+// The CocoaPods build, which cannot depend on the Swift package, and the
+// Swift package build of a checkout without local frameworks, whose pinned
+// core may be older than sdk/apple: a port of sdk/apple's LycheeFrameDriver.
+// Fix both until CocoaPods support is dropped.
+
+#if TARGET_OS_OSX
+static int64_t HostTimeToMicros(uint64_t host_time) {
+  static mach_timebase_info_data_t timebase;
+  if (timebase.denom == 0) {
+    mach_timebase_info(&timebase);
+  }
+  return (int64_t)((__uint128_t)host_time * timebase.numer / timebase.denom /
+                   1000);
+}
+#endif
 
 #if !TARGET_OS_OSX
 @interface LycheeTexture ()
@@ -284,6 +348,8 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
 }
 @end
 #endif
+
+#endif  // LYCHEE_SDK_DRIVER
 
 #pragma clang diagnostic pop
 

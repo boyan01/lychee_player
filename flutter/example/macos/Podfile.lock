@@ -1,22 +1,15 @@
 PODS:
   - FlutterMacOS (1.0.0)
-  - lychee_player (1.0.0):
-    - Flutter
-    - FlutterMacOS
 
 DEPENDENCIES:
   - FlutterMacOS (from `Flutter/ephemeral`)
-  - lychee_player (from `Flutter/ephemeral/.symlinks/plugins/lychee_player/darwin`)
 
 EXTERNAL SOURCES:
   FlutterMacOS:
     :path: Flutter/ephemeral
-  lychee_player:
-    :path: Flutter/ephemeral/.symlinks/plugins/lychee_player/darwin
 
 SPEC CHECKSUMS:
   FlutterMacOS: c232990155153907050900a2e175c7773903ba4e
-  lychee_player: 27df86dcec556efc748c39c16b94ebd299a775f9
 
 PODFILE CHECKSUM: 1e95c36afbfd1cb6423ceca4de7a8e1b256fb6ac
 

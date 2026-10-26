@@ -19,7 +19,10 @@ public typealias LycheePlatformView = UIView
 /// to ``start(following:)``: with screens at different refresh rates, the
 /// vsync of another screen picks frames for the wrong times and drops them.
 /// On iOS CADisplayLink already follows the device's screen.
-public final class LycheeFrameDriver {
+///
+/// Also available to Objective-C, which the Flutter plugin's texture uses
+/// with ``init(handle:onNewFrame:)``.
+public final class LycheeFrameDriver: NSObject {
   private let lock = NSLock()
   // Keeps the player alive while frames are pulled. The display link and
   // copyFrame() use only the handle, so the player is never released on
@@ -43,12 +46,20 @@ public final class LycheeFrameDriver {
     self.onNewFrame = onNewFrame
   }
 
+  /// Pulls the frames of a `lychee_player*` the caller owns, as the Flutter
+  /// plugin does with Dart's players. The driver does not keep it alive:
+  /// destroy it only after ``stop()`` returned.
+  @objc public init(handle: UnsafeMutableRawPointer, onNewFrame: @escaping () -> Void) {
+    self.handle = OpaquePointer(handle)
+    self.onNewFrame = onNewFrame
+  }
+
   deinit {
     stop()
   }
 
   /// Starts pulling frames. Main thread only.
-  public func start(following view: LycheePlatformView? = nil) {
+  @objc public func start(following view: LycheePlatformView? = nil) {
     guard displayLink == nil else { return }
     #if os(macOS)
     var link: CVDisplayLink?
@@ -83,14 +94,15 @@ public final class LycheeFrameDriver {
   }
 
   /// Stops pulling frames and lets go of the player; after it returns,
-  /// nothing runs on the display link. Main thread only.
-  public func stop() {
+  /// nothing runs on the display link and the player is not touched again.
+  /// Main thread only.
+  @objc public func stop() {
     #if os(macOS)
     observers.forEach(NotificationCenter.default.removeObserver)
     observers = []
     if let displayLink {
       // Waits for a running callback to return (measured on macOS 27, see
-      // flutter/darwin/Classes/LycheePlayerPlugin.m), so the callback never
+      // the Flutter plugin's LycheePlayerPlugin.m), so the callback never
       // blocks on the main thread.
       CVDisplayLinkStop(displayLink)
     }
@@ -111,8 +123,9 @@ public final class LycheeFrameDriver {
   /// The frame for the latest vsync, or nil if there is none yet: an
   /// IOSurface-backed buffer in the decoder's format (bi-planar YCbCr, 8- or
   /// 10-bit, or 32BGRA from software decoding), with color attachments that
-  /// say how to show it. Any thread.
-  public func copyFrame() -> CVPixelBuffer? {
+  /// say how to show it. Any thread. Objective-C callers own the buffer
+  /// (the copy rule), as `FlutterTexture.copyPixelBuffer` wants it.
+  @objc public func copyFrame() -> CVPixelBuffer? {
     lock.lock()
     defer { lock.unlock() }
     framePending = false

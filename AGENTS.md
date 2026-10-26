@@ -180,9 +180,10 @@ What each area needs (run `tool/changes.sh`):
   the commands) for macOS and the iOS simulator with zero warnings, run
   both, and look at the screenshots, including `rotated.mp4` when the
   view's layout changed. For what ends up on screen (frame selection,
-  conversion, rotation) also `lychee_glfw`. `LycheeFrameDriver` is a port
-  of the plugin's `LycheeTexture`: fix both until the plugin uses the SDK
-  (roadmap, Distribution 3.2). When the shipped FFmpeg or libass builds
+  conversion, rotation) also `lychee_glfw`. The plugin's Swift package
+  build uses `LycheeFrameDriver`; its pod keeps a port of it
+  (`LycheeTexture` in `LycheePlayerPlugin.m`): fix both until CocoaPods
+  support is dropped (roadmap, Distribution 3.2). When the shipped FFmpeg or libass builds
   change: `FFMPEG_ROOT=third_party/ffmpeg/macos-arm64
   LIBASS_ROOT=third_party/libass/macos-arm64 tool/regression.sh`.
 - **android**: `sdk/android/gradlew -p sdk/android :lychee:publish
@@ -206,7 +207,11 @@ What each area needs (run `tool/changes.sh`):
   the example (`cd flutter/example && flutter build macos --debug
   --dart-define=LYCHEE_URL=/tmp/lychee-media/h264_aac.mp4`, launch the
   app binary) and looked at a window screenshot; say in your report what
-  you did not see, e.g. audio you could not hear. For player lifetime or
+  you did not see, e.g. audio you could not hear. On macOS and iOS the
+  plugin builds two ways, with Swift Package Manager (on here) and with
+  CocoaPods (`enable-swift-package-manager: false` under `flutter:
+  config:` in the example's pubspec, not committed); a change to
+  `flutter/darwin` needs both. For player lifetime or
   teardown (Dart or plugin): `cd flutter/example && flutter test
   integration_test -d macos`, which switches files repeatedly and checks
   that exactly one player's threads remain. On Android it runs the same
@@ -223,7 +228,8 @@ What each area needs (run `tool/changes.sh`):
   workflows): run the release steps into a scratch directory (README,
   "Releases"), ending with `tool/release.sh check`, which builds a fresh
   macOS, iOS-simulator and Android app against the packed package with
-  the assets served locally; then `git checkout` the pins it wrote.
+  the assets served locally (Apple with CocoaPods and with Swift Package
+  Manager); then `git checkout` the pins it wrote.
 
 Before committing C, C++ or Objective-C++, run `tool/format.sh`: it
 formats the lines the branch changed (`.clang-format`, Chromium style;
@@ -249,8 +255,8 @@ jobs: those stay local.
 
 ## Gotchas
 
-- The iOS/macOS pod (`flutter/darwin`) and the Swift package (`sdk/apple`)
-  do not compile the core: they link
+- The Flutter plugin on iOS and macOS (`flutter/darwin`) and the Swift
+  package (`sdk/apple`) do not compile the core: they link
   `flutter/darwin/Frameworks/lychee.xcframework`, built by
   `tool/build_apple.sh`. After changing anything under `core/`, rerun it
   before building either example on macOS or iOS, or the example runs
@@ -264,6 +270,26 @@ jobs: those stay local.
   `flutter/darwin/Frameworks` without a `.prebuilt` stamp (the pod's mark
   of a download), and `sdk/android/build/repo`. A release brings the
   xcframeworks its pins list (1.0.0-beta.1 had no libass).
+- The plugin's iOS/macOS sources live in
+  `flutter/darwin/lychee_player/Sources/lychee_player`, where Flutter's
+  Swift Package Manager integration wants them; the podspec compiles the
+  same files. Flutter links the plugin's package into the app through a
+  symlink named after the pub path's directory (`.packages/flutter`), and
+  SwiftPM resolves relative paths against the symlink and refuses
+  targets and binaries outside the package, so `Package.swift` finds
+  `sdk/apple` by an absolute path from `#filePath`. It uses the SDK's
+  driver only with complete local frameworks; with the pinned ones it
+  compiles the plugin's copy, since the released core may lack API the
+  checkout's `sdk/apple` calls.
+- Flutter's Swift Package Manager migration adds the plugin as a local
+  package to plugin example projects. Its identity there is the
+  directory's (`lychee_player`), not the symlink's (`flutter`), and Xcode
+  then refuses to resolve the graph ("unable to override package");
+  keep that `78DABEA22ED26510000E7860 /* lychee_player */` reference out
+  of the example's `Runner.xcodeproj` (the migration tries again each
+  build and backs out).
+- SwiftPM takes `binaryTarget` URLs only over https: an http
+  `LYCHEE_PREBUILT_URL` serves the pod but not the Swift package.
 - The Rust bindings (`rust/lychee-sys/src/bindings.rs`) are generated and
   checked in. After changing `lychee.h`, rerun `tool/rust_bindings.sh`
   (`cargo install bindgen-cli`) and wrap the change in the `lychee` crate.

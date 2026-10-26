@@ -23,8 +23,9 @@
 #                                      and Package.swift
 #   tool/release.sh check OUT          build a fresh app against the package
 #                                      pub would publish, with OUT served as
-#                                      the release (macOS, iOS simulator,
-#                                      Android)
+#                                      the release (macOS and iOS simulator
+#                                      with CocoaPods and with Swift Package
+#                                      Manager, Android)
 #   tool/release.sh verify             download what prebuilt.json pins from
 #                                      the release and check it
 #   tool/release.sh publish            flutter pub publish --force
@@ -39,7 +40,8 @@
 #
 # pub packs flutter/ only, and the Windows and Linux plugins compile the
 # core: while pub runs, flutter/core is a copy of core/ (gitignored there;
-# flutter/.pubignore lets pub take it).
+# flutter/.pubignore lets pub take it), and the plugin's Swift package gets
+# sdk/apple's sources the same way.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -86,15 +88,18 @@ download() {
   mv "$2.part" "$2"
 }
 
-# with_core COMMAND...: runs COMMAND in flutter/ with the core copied in.
+# with_core COMMAND...: runs COMMAND in flutter/ with the core copied in,
+# and sdk/apple's sources for the plugin's Package.swift.
 with_core() {
-  rm -rf "$root/flutter/core"
+  local sdk="$root/flutter/darwin/lychee_player/Sources/LycheePlayer"
+  rm -rf "$root/flutter/core" "$sdk"
   cp -R "$root/core" "$root/flutter/core"
   rm -rf "$root/flutter/core/test"
   cp "$root/THIRD_PARTY_NOTICES" "$root/flutter/core/"
+  cp -R "$root/sdk/apple/Sources/LycheePlayer" "$sdk"
   local status=0
   (cd "$root/flutter" && "$@") || status=$?
-  rm -rf "$root/flutter/core"
+  rm -rf "$root/flutter/core" "$sdk"
   return $status
 }
 
@@ -270,6 +275,9 @@ cmd_check() {
   [ -f "$pkg/core/CMakeLists.txt" ] || die "the package has no core/"
   [ -f "$pkg/core/THIRD_PARTY_NOTICES" ] || die "the package has no core/THIRD_PARTY_NOTICES"
   [ ! -e "$pkg/darwin/Frameworks" ] || die "the package carries darwin/Frameworks"
+  [ ! -e "$pkg/darwin/lychee_player/Frameworks" ] || die "the package carries darwin/lychee_player/Frameworks"
+  [ -f "$pkg/darwin/lychee_player/Sources/LycheePlayer/LycheeFrameDriver.swift" ] ||
+    die "the package has no copy of sdk/apple's sources"
   echo "$(du -sh "$tmp/package.tar.gz" | cut -f1) archive"
 
   for f in "${frameworks[@]}"; do
@@ -316,14 +324,22 @@ EOF
   [ ! -f macos/Podfile ] || sed -i.bak -E "s/^#? *platform :osx, .*/platform :osx, '11.0'/" macos/Podfile
   [ ! -f ios/Podfile ] || sed -i.bak -E "s/^#? *platform :ios, .*/platform :ios, '16.0'/" ios/Podfile
 
-  echo "== macOS"
-  LANG=en_US.UTF-8 flutter build macos --debug >"$tmp/macos.log" 2>&1 || { tail -40 "$tmp/macos.log"; die "macOS build failed"; }
-  [ -f build/macos/Build/Products/Debug/lychee_check.app/Contents/Frameworks/lychee.framework/lychee ] ||
-    die "the macOS app has no lychee.framework"
-  echo "== iOS simulator"
-  LANG=en_US.UTF-8 flutter build ios --simulator --debug >"$tmp/ios.log" 2>&1 || { tail -40 "$tmp/ios.log"; die "iOS build failed"; }
-  [ -f build/ios/iphonesimulator/Runner.app/Frameworks/lychee.framework/lychee ] ||
-    die "the iOS app has no lychee.framework"
+  # The pod (Swift Package Manager off for this app), from the local server.
+  swift_package_manager false
+  check_apple CocoaPods
+  # The plugin's Package.swift with the copy of sdk/apple. SwiftPM
+  # downloads only over https, so the release is unzipped into the package
+  # instead, which the manifest takes.
+  for f in "${frameworks[@]}"; do
+    unzip -q "$out/$f.xcframework.zip" -d "$pkg/darwin/lychee_player/Frameworks"
+  done
+  swift_package_manager true
+  check_apple "Swift Package Manager"
+  # Debug builds keep the app's code in NAME.debug.dylib. nm fails on the
+  # files that are not Mach-O, which pipefail would take for no match.
+  for f in build/macos/Build/Products/Debug/lychee_check.app/Contents/MacOS build/ios/iphonesimulator/Runner.app; do
+    { nm "$f"/* 2>/dev/null || true; } | grep -q LycheeFrameDriver || die "$f does not use sdk/apple's LycheeFrameDriver"
+  done
   echo "== Android"
   flutter build apk --debug >"$tmp/android.log" 2>&1 || { tail -40 "$tmp/android.log"; die "Android build failed"; }
   # Every ABI the APK has Flutter for needs the core too, or the app
@@ -338,6 +354,26 @@ EOF
   grep -q "GET /$tag/lychee-$v.aar" "$tmp/server.log" && grep -q "GET /$tag/lychee.xcframework.zip" "$tmp/server.log" ||
     die "the builds did not download from the release"
   echo "ok: a fresh app builds with the package and the release of $tag ($tmp)"
+}
+
+# swift_package_manager true|false: Flutter's Swift Package Manager
+# integration for the app in the current directory.
+swift_package_manager() {
+  perl -0pi -e 's/\n  config:\n    enable-swift-package-manager: \w+\n/\n/; s/^flutter:\n/flutter:\n  config:\n    enable-swift-package-manager: '"$1"'\n/m' pubspec.yaml
+}
+
+# check_apple LABEL: builds the app in the current directory for macOS and
+# the iOS simulator and checks that both carry the core.
+check_apple() {
+  local log="$tmp/$(tr -cd 'a-zA-Z' <<<"$1")"
+  echo "== macOS ($1)"
+  LANG=en_US.UTF-8 flutter build macos --debug >"$log-macos.log" 2>&1 || { tail -40 "$log-macos.log"; die "macOS build failed"; }
+  [ -f build/macos/Build/Products/Debug/lychee_check.app/Contents/Frameworks/lychee.framework/lychee ] ||
+    die "the macOS app has no lychee.framework"
+  echo "== iOS simulator ($1)"
+  LANG=en_US.UTF-8 flutter build ios --simulator --debug >"$log-ios.log" 2>&1 || { tail -40 "$log-ios.log"; die "iOS build failed"; }
+  [ -f build/ios/iphonesimulator/Runner.app/Frameworks/lychee.framework/lychee ] ||
+    die "the iOS app has no lychee.framework"
 }
 
 # Fails unless every ABI with libflutter.so in APK also has liblychee.so,

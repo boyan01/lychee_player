@@ -1,3 +1,6 @@
 # A copy of ../core, made by tool/release.sh only while pub packs the
 # package (.pubignore lets pub take it).
 /core/
+# A copy of ../sdk/apple's sources, made by tool/release.sh the same way, for
+# darwin/lychee_player/Package.swift.
+/darwin/lychee_player/Sources/LycheePlayer/

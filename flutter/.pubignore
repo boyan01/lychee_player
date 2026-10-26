@@ -1,2 +1,3 @@
-# Replaces .gitignore in this directory for pub, so the copy of the core
-# that tool/release.sh makes before packing (/core/) is published.
+# Replaces .gitignore in this directory for pub, so the copies of the core
+# and of sdk/apple's sources that tool/release.sh makes before packing
+# (/core/, darwin/lychee_player/Sources/LycheePlayer/) are published.
