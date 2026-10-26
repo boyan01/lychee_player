@@ -24,11 +24,24 @@ player.dispose();
 
 | Platform | Minimum | Set in your app |
 |---|---|---|
-| Android | API 26 | `minSdk = 26` in `android/app/build.gradle.kts` |
+| Android | API 26, 64-bit | `minSdk = 26` and the ABIs below in `android/app/build.gradle.kts` |
 | iOS | 16.0 | `platform :ios, '16.0'` in `ios/Podfile` and the Runner's deployment target |
 | macOS | 11.0 | `platform :osx, '11.0'` in `macos/Podfile` and the Runner's deployment target |
 | Windows | 10 | Visual Studio 2022 |
 | Linux | Ubuntu 22.04 | `libepoxy-dev` and `libpulse-dev` to build |
+
+The Android core is built for `arm64-v8a` and `x86_64` only. Otherwise
+Flutter also packs a 32-bit engine, and on a 32-bit device (or a 64-bit
+one running a 32-bit system, as some TV boxes do) the app starts but
+`LycheePlayer.create()` throws. In `defaultConfig` (the Flutter Gradle
+plugin has set its own list there already):
+
+```kotlin
+ndk {
+    abiFilters.clear()
+    abiFilters += listOf("arm64-v8a", "x86_64")
+}
+```
 
 On macOS, Flutter's template runs the app in the App Sandbox: add
 `com.apple.security.network.client` to both entitlements files to play

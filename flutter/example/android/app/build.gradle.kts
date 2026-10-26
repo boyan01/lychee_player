@@ -22,6 +22,12 @@ android {
         // AAudio, which lychee_player plays through, needs Android 8.0.
         minSdk = 26
         targetSdk = flutter.targetSdkVersion
+        // The ABIs lychee_player's core is built for (README). The Flutter
+        // Gradle plugin has already put its own here; replace them.
+        ndk {
+            abiFilters.clear()
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
         // You can force using the value of versionCode by specifying the `-P force-version-code-ignoring-abi=true`
