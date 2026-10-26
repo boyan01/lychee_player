@@ -30,6 +30,10 @@ player.dispose();
 | Windows | 10 | Visual Studio 2022 |
 | Linux | Ubuntu 22.04 | `libepoxy-dev` and `libpulse-dev` to build |
 
+Hardware decoding: VideoToolbox, MediaCodec and D3D11VA have been seen
+working; Linux's VAAPI path has never run on a machine with VAAPI, so
+expect software decoding there (see the repository's roadmap).
+
 The Android core is built for `arm64-v8a` and `x86_64` only. Otherwise
 Flutter also packs a 32-bit engine, and on a 32-bit device (or a 64-bit
 one running a 32-bit system, as some TV boxes do) the app starts but

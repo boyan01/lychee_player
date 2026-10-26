@@ -23,7 +23,9 @@ jobs:
   flutter-macos:
     # The pod links the xcframeworks; build them from this commit's core
     # with the LGPL FFmpeg, as release.yml does (same runner and cache key,
-    # so a release reuses the FFmpeg builds).
+    # so a release reuses the FFmpeg builds). The regression then plays
+    # the media matrix through that FFmpeg, which leaves out what the core
+    # does not list (core-macos uses Homebrew's full one).
     runs-on: macos-26
     defaults:
       run:
@@ -48,6 +50,13 @@ jobs:
       - name: Build the xcframeworks
         working-directory: .
         run: tool/release.sh build apple build-sources
+      - name: Regression with the shipped FFmpeg
+        working-directory: .
+        # Homebrew's ffmpeg only generates the media; installed after the
+        # shipped FFmpeg is built, so that build cannot find it.
+        run: |
+          brew install ffmpeg pkg-config
+          NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh
       - name: Analyze
         run: flutter analyze
       - name: Build example

@@ -44,6 +44,15 @@ jobs:
           path: third_party/ffmpeg
           key: ${{ steps.ffmpeg.outputs.key }}
       - run: tool/release.sh build apple build-sources
+      # Nothing is released unless the media matrix plays through the
+      # FFmpeg that ships. A red run of a case the roadmap lists as flaky
+      # on hosted runners needs its log read before dispatching again.
+      - name: Regression with the shipped FFmpeg
+        # Homebrew's ffmpeg only generates the media; installed after the
+        # shipped FFmpeg is built, so that build cannot find it.
+        run: |
+          brew install ffmpeg pkg-config
+          NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh
       - run: tool/release.sh pack apple dist
       - uses: actions/upload-artifact@v4
         with:

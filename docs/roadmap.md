@@ -69,14 +69,26 @@ on top of them.
    at the switch never printed; 0 of 24 here with six at once) and
    `realtime-loop` (drift on the real clock, expected on a hosted VM);
    until these are fixed, a red plain job needs its log read.
-
-The plugins destroy the players behind their textures when the engine
-goes, and on `disposeAll`, which Dart calls before an isolate's first
-player, for players a hot restart left (2026-10-26: macOS hot restart and
-Android back-out seen, integration test on both; Windows and Linux built
-only). Between a hot restart and that call, the old players' events still
-go to a closed `NativeCallable`; the plugins clear the callback only when
-they destroy them.
+3. **Events of players a hot restart left go to a closed isolate**: the
+   plugins destroy the players behind their textures when the engine
+   goes, and on `disposeAll`, which Dart calls before an isolate's first
+   player (2026-10-26: macOS hot restart and Android back-out seen,
+   integration test on both; Windows and Linux built only). Until that
+   call, which never comes if the new isolate opens no player, the old
+   players keep playing and send events to the old isolate's closed
+   `NativeCallable`. No crash has been seen, but the integration test's
+   orphan player registers no callback, so nothing covers it. Done when
+   the plugin clears a player's event callback as soon as its isolate
+   goes (or events cross through a bridge that drops messages for a dead
+   port), with the integration test's orphan registering a callback.
+   Development only: release builds have no hot restart.
+4. **`seekable` is not in the C ABI**: since 2026-10-26 the core ignores
+   a seek on input that cannot seek (an http server without range
+   requests, through FFmpeg) and sends no `SEEK_COMPLETED`, but callers
+   cannot tell beforehand, so a UI shows a seek bar that does nothing.
+   Done when `lychee_player_is_seekable()` (an ABI bump) reaches the
+   Dart, Swift, Kotlin and Rust wrappers and the Flutter example disables
+   its slider.
 
 Calling `lychee_player_open()` from an event callback returns -1 (API 9)
 rather than reopening; callers reopen from their own thread. Unit tests
@@ -193,7 +205,14 @@ above). What is left per platform is a renderer in `examples/glfw`
    (2026-10-25). That is lip sync working, not a seek problem: on virtual
    time, with no audio device, plain playback shows none. Not yet seen
    on a machine with a sound card.
-3. **Swift Package Manager**: add `flutter/darwin/lychee_player/Package.swift`;
+3. **32-bit Android**: the AAR has the core for `arm64-v8a` and `x86_64`
+   only (decided 2026-10-26); apps restrict `abiFilters` to those
+   (Flutter README), and on a 32-bit device the plugin no longer crashes
+   the app at start: `LycheePlayer.create()` fails in Dart. Some TV boxes
+   run a 32-bit system on 64-bit chips; supporting them needs
+   `tool/build_ffmpeg.sh android-armeabi-v7a`, the ABI in the AAR and the
+   release, and a 32-bit device or emulator to run on.
+4. **Swift Package Manager**: add `flutter/darwin/lychee_player/Package.swift`;
    Flutter already warns that CocoaPods-only plugins will become an error.
    The xcframeworks in `flutter/darwin/Frameworks` can be its
    `binaryTarget`s. It should depend on the `sdk/apple` package for the
@@ -238,6 +257,11 @@ Left:
    HEVC extension, VP9). Audio through Media Foundation's AAC decoder.
 5. Android: MediaCodec already decodes video without FFmpeg; audio needs
    MediaCodec too.
+6. Malformed input: the MP4 parser bounds sample tables, single samples
+   (64 MiB, inside the file) and its allocations (`huge-sample-table`,
+   `huge-sample`, `truncated-file`, `corrupt-file`), but has never been
+   fuzzed. A libFuzzer target over `Mp4Demuxer` on an in-memory
+   `DataSource`, run under ASan, before it ships.
 
 The goal is FFmpeg-free builds on Apple platforms, Windows and Android.
 Linux keeps FFmpeg: it has no system audio decoder or demuxer.
@@ -266,6 +290,21 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    pub package (`core/`). Only the
    development CMake build (CLI, GLFW example, `tool/regression.sh`
    without `FFMPEG_ROOT`) still links Homebrew's GPL FFmpeg.
+   BtbN's Windows and Linux builds link OpenSSL, dav1d, libvpx, libaom,
+   Opus, LAME, libass and more statically (their avcodec configuration),
+   whose notices we do not ship; `THIRD_PARTY_NOTICES` now says so and
+   names BtbN's revision (n9.0.2-17-g2a571b6068), which is not the
+   ffmpeg-9.0.2 source the releases attach. Our own FFmpeg-only builds
+   (Platforms 1 and 2) fix both.
+   The playback matrix runs through the shipped macOS FFmpeg
+   (`FFMPEG_ROOT=third_party/ffmpeg/macos-arm64`) in CI's flutter-macos
+   job and in `release.yml` before anything is packed (2026-10-26;
+   passes here, not yet run on GitHub). Not covered there: the Swift,
+   Rust, Android and Flutter lifetime tests, which run only by hand.
+   `tool/release.sh build` reuses any `third_party/ffmpeg/PLATFORM` that
+   exists, so a changed `tool/build_ffmpeg.sh` needs that directory
+   deleted by hand (CI keys its cache on the script, so it rebuilds);
+   a stamp with the script's hash would make local builds safe too.
 2. **First release**: prebuilt artifacts are assets of the version's
    GitHub release (`boyan01/lychee_player`, tag `vVERSION`), pinned by
    SHA-256 in the package (decided by the user 2026-10-26: one host for
