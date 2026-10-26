@@ -57,6 +57,9 @@ struct Options {
   double select_after = 2;
   bool hardware = true;
   bool virtual_time = false;
+  // Where to write each subtitle with pictures, drawn on a grey canvas of
+  // the video's size (binary PPM), to look at styled ASS.
+  std::string subtitle_ppm;
   // Seconds after playback starts to make the video decoder fail as after a
   // GPU reset (testing.h), in order.
   std::vector<double> lose_decoder_after;
@@ -255,6 +258,10 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       options->live_gap_for = atof(duration);
     } else if (arg == "--audio-only") {
       options->frame_type = 0;
+    } else if (arg == "--subtitle-ppm") {
+      const char* v = value();
+      if (!v) return false;
+      options->subtitle_ppm = v;
     } else if (arg == "--virtual-time") {
       options->virtual_time = true;
     } else if (arg == "--no-hw") {
@@ -398,10 +405,56 @@ void PrintNativeFrame(lychee_frame* frame) {
 }
 #endif
 
-void PrintSubtitleImages(lychee_player* player) {
+// The pictures of |subtitle| blended over grey, on the canvas they are
+// placed on (the video's size), as a binary PPM.
+void WriteSubtitlePpm(lychee_player* player,
+                      lychee_subtitle* subtitle,
+                      const std::string& path) {
+  int32_t width = 0, height = 0;
+  lychee_player_get_video_size(player, &width, &height);
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+  std::vector<uint8_t> canvas(static_cast<size_t>(width) * height * 3, 128);
+  const int32_t count = lychee_subtitle_get_image_count(subtitle);
+  for (int32_t i = 0; i < count; ++i) {
+    lychee_subtitle_image image = {};
+    image.struct_size = sizeof(image);
+    lychee_subtitle_get_image(subtitle, i, &image);
+    for (int32_t y = 0; y < image.height; ++y) {
+      for (int32_t x = 0; x < image.width; ++x) {
+        const int32_t cx = image.x + x, cy = image.y + y;
+        if (cx < 0 || cy < 0 || cx >= width || cy >= height) {
+          continue;
+        }
+        // Nearest neighbour, should the picture be scaled.
+        const uint8_t* p =
+            image.data +
+            static_cast<ptrdiff_t>(y * image.bitmap_height / image.height) * image.stride +
+            (x * image.bitmap_width / image.width) * 4;
+        uint8_t* out = canvas.data() + (static_cast<size_t>(cy) * width + cx) * 3;
+        for (int c = 0; c < 3; ++c) {
+          out[c] = static_cast<uint8_t>(p[c] + out[c] * (255 - p[3]) / 255);
+        }
+      }
+    }
+  }
+  FILE* file = fopen(path.c_str(), "wb");
+  if (!file) {
+    return;
+  }
+  fprintf(file, "P6\n%d %d\n255\n", width, height);
+  fwrite(canvas.data(), 1, canvas.size(), file);
+  fclose(file);
+}
+
+void PrintSubtitleImages(lychee_player* player, const std::string& ppm) {
   lychee_subtitle* subtitle = lychee_player_acquire_subtitle(player, 0, 0, 0);
   if (!subtitle) {
     return;
+  }
+  if (!ppm.empty()) {
+    WriteSubtitlePpm(player, subtitle, ppm);
   }
   const int32_t count = lychee_subtitle_get_image_count(subtitle);
   printf("subtitle images: %d", count);
@@ -608,7 +661,7 @@ int main(int argc, char** argv) {
             "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
             "[--live [--latency MS] [--live-jitter MS] "
             "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
-            "[--virtual-time] <file or url>\n",
+            "[--subtitle-ppm FILE] [--virtual-time] <file or url>\n",
             argv[0]);
     return 2;
   }
@@ -900,7 +953,7 @@ int main(int argc, char** argv) {
       std::string text = SubtitleText(player);
       printf("subtitle at %.3fs: %s\n", position / 1e6,
              text.empty() ? "(none)" : text.c_str());
-      PrintSubtitleImages(player);
+      PrintSubtitleImages(player, options.subtitle_ppm);
     }
     if (options.loop && state == LYCHEE_STATE_READY) {
       if (position < loop_check_position - 1000000) {
