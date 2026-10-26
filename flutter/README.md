@@ -30,6 +30,11 @@ player.dispose();
 | Windows | 10 | Visual Studio 2022 |
 | Linux | Ubuntu 22.04 | `libepoxy-dev` and `libpulse-dev` to build |
 
+On macOS, Flutter's template runs the app in the App Sandbox: add
+`com.apple.security.network.client` to both entitlements files to play
+URLs, and open local files the user picked (`file_selector`) or that live
+in the app's container; other paths fail with "Operation not permitted".
+
 The native core comes prebuilt for Android, iOS and macOS: the first build
 downloads it from this version's GitHub release into `~/.cache/lychee_player`
 and checks each file against the SHA-256 the package pins. Where GitHub is
@@ -42,7 +47,10 @@ and download an LGPL FFmpeg; `LYCHEE_FFMPEG_ROOT` names a local one instead.
 
 MIT. The FFmpeg libraries it ships are LGPL and dynamically linked; their
 source is attached to each release. An app that ships them must say so in
-its notices.
+its notices: `core/THIRD_PARTY_NOTICES` in this package has the text to
+show (FFmpeg, Mbed TLS, code from Chromium, and their licenses), and the
+prebuilt core carries it into apps (`lychee.framework`, and
+`META-INF/lychee/THIRD_PARTY_NOTICES` in Android APKs).
 
 Source, roadmap and the native SDKs (Swift, Kotlin, Rust):
 https://github.com/boyan01/lychee_player
