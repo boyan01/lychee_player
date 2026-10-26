@@ -49,20 +49,20 @@ on top of them.
 
 ## Known defects
 
-1. **Apple plugin engine teardown leaves players running**: on
-   `detachFromEngineForRegistrar:` the plugin now disposes every texture
-   (display link stopped, player pointer cleared), but the native players
-   belong to Dart, which is gone by then, so nothing calls
-   `lychee_player_destroy` and their threads keep playing. Done when the
-   plugin owns a registry of the players behind its textures and destroys
-   them on detach, and a test that restarts the engine finds no player
-   threads left. Check the Android, Windows and Linux plugins for the same.
-2. **Replacing the log callback from two callbacks at once deadlocks**:
+1. **Replacing the log callback from two callbacks at once deadlocks**:
    `lychee_set_log_callback` waits until no other thread is inside the
    callback, so two threads that both call it from inside the callback
    wait on each other. Done when the setter from inside a callback swaps
    the sink without waiting (the old one stays valid until every caller
    returns), with a unit test that runs two such threads.
+
+The plugins destroy the players behind their textures when the engine
+goes, and on `disposeAll`, which Dart calls before an isolate's first
+player, for players a hot restart left (2026-10-26: macOS hot restart and
+Android back-out seen, integration test on both; Windows and Linux built
+only). Between a hot restart and that call, the old players' events still
+go to a closed `NativeCallable`; the plugins clear the callback only when
+they destroy them.
 
 Calling `lychee_player_open()` from an event callback returns -1 (API 9)
 rather than reopening; callers reopen from their own thread. Unit tests
@@ -246,8 +246,10 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    cache directory from the package name (no `TMPDIR`), never run there.
    Apps must ship the FFmpeg license notice and say where its source is;
    releases attach the FFmpeg and Mbed TLS sources they were built from,
-   but the AAR and the xcframeworks should also carry a
-   `THIRD_PARTY_NOTICES`. Only the
+   and `THIRD_PARTY_NOTICES` (Chromium, FFmpeg, Mbed TLS, with the license
+   texts) goes into `lychee.framework`, the AAR (as the Java resource
+   `META-INF/lychee/THIRD_PARTY_NOTICES`, so it lands in APKs) and the
+   pub package (`core/`). Only the
    development CMake build (CLI, GLFW example, `tool/regression.sh`
    without `FFMPEG_ROOT`) still links Homebrew's GPL FFmpeg.
 2. **First release**: prebuilt artifacts are assets of the version's
@@ -331,3 +333,10 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
       itself with an `@executable_path` rpath (README); tried by moving
       the example with its libraries to another directory.
    Windows and Linux native users take the C ABI as it is.
+4. **CI on Linux**: CI runs only on macOS (the regression with and
+   without TSan, the Flutter macOS build). A `NO_HW=1 tool/regression.sh`
+   job on `ubuntu-24.04` (FFmpeg from apt or `tool/build_ffmpeg.sh
+   linux-x86_64`, the audio cases on a null sink) would catch Linux build
+   breaks that only a WSL run finds today. TSan stays on macOS: on Linux
+   it needs clang, suppressions for FFmpeg, and is far slower than real
+   time. Done when the job runs on every push and is green.

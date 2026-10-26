@@ -44,6 +44,9 @@ typedef UIView PlatformView;
 // drops them. On iOS CADisplayLink already follows the device's screen.
 @interface LycheeTexture : NSObject <FlutterTexture>
 @property(nonatomic) int64_t textureId;
+// The player it was created for, even after dispose: the plugin destroys it
+// when Dart, which owns it, is gone.
+@property(nonatomic, readonly) lychee_player* player;
 - (instancetype)initWithPlayer:(lychee_player*)player
                       registry:(NSObject<FlutterTextureRegistry>*)registry
                           view:(nullable PlatformView*)view;
@@ -67,7 +70,8 @@ typedef UIView PlatformView;
 
 @implementation LycheeTexture {
   os_unfair_lock _lock;
-  lychee_player* _player;  // Guarded by _lock.
+  lychee_player* _player;  // Guarded by _lock; NULL after dispose.
+  lychee_player* _createdPlayer;
   __weak NSObject<FlutterTextureRegistry>* _registry;
   __weak PlatformView* _view;
 #if TARGET_OS_OSX
@@ -101,10 +105,15 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   if (self = [super init]) {
     _lock = OS_UNFAIR_LOCK_INIT;
     _player = player;
+    _createdPlayer = player;
     _registry = registry;
     _view = view;
   }
   return self;
+}
+
+- (lychee_player*)player {
+  return _createdPlayer;
 }
 
 // The macOS display link holds self unretained: stop it before self goes.
@@ -328,6 +337,9 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
     _players[@(texture.textureId)] = texture;
     [texture start];
     result(@(texture.textureId));
+  } else if ([call.method isEqualToString:@"disposeAll"]) {
+    [self destroyAll];
+    result(nil);
   } else if ([call.method isEqualToString:@"disposeTexture"]) {
     NSNumber* textureId = call.arguments[@"textureId"];
     LycheeTexture* texture = _players[textureId];
@@ -342,13 +354,23 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   }
 }
 
-// The engine is going away, possibly before Dart disposed its textures.
-- (void)detachFromEngineForRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
+// Disposes every texture and destroys its player. For when the Dart side
+// that owns them is gone: a hot restart (disposeAll from the new isolate)
+// or the engine going away.
+- (void)destroyAll {
   for (NSNumber* textureId in _players) {
-    [_players[textureId] dispose];
+    LycheeTexture* texture = _players[textureId];
+    [texture dispose];
     [_textures unregisterTexture:textureId.longLongValue];
+    // Its event callback points into the old isolate.
+    lychee_player_set_event_callback(texture.player, NULL, NULL);
+    lychee_player_destroy(texture.player);
   }
   [_players removeAllObjects];
+}
+
+- (void)detachFromEngineForRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
+  [self destroyAll];
 }
 
 @end

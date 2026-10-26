@@ -47,6 +47,10 @@ class LycheeTexture {
   // the texture callback until then.
   void Dispose();
 
+  // The player it was created for, even after Dispose(): the plugin
+  // destroys it when Dart, which owns it, is gone.
+  lychee_player* player() const { return created_player_; }
+
  private:
   void VsyncLoop();
   // Acquires the frame for the next vsync. Raster thread.
@@ -60,6 +64,7 @@ class LycheeTexture {
 
   flutter::TextureRegistrar* const registrar_;
   const HWND window_;
+  lychee_player* const created_player_;
   // For uploads; null without an adapter.
   Microsoft::WRL::ComPtr<ID3D11Device> device_;
   Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;

@@ -295,44 +295,53 @@ class LycheePlayer @JvmOverloads constructor(
         }
     }
 
-    private companion object {
-        val mainHandler = Handler(Looper.getMainLooper())
+    companion object {
+        /**
+         * Destroys a player created through the C ABI rather than this
+         * class, whose owner is gone: the Flutter plugin's, after a hot
+         * restart or with its engine. Its event callback is dropped first.
+         * Stop pulling its frames before.
+         */
+        @JvmStatic
+        fun destroyHandle(handle: Long) = nativeDestroy(handle, 0)
+
+        private val mainHandler = Handler(Looper.getMainLooper())
 
         init {
             System.loadLibrary("lychee_jni")
         }
 
-        @JvmStatic external fun nativeCreate(hardwareDecoding: Boolean, video: Boolean): Long
-        @JvmStatic external fun nativeSetEventSink(handle: Long, sink: Any): Long
-        @JvmStatic external fun nativeDestroy(handle: Long, sink: Long)
-        @JvmStatic external fun nativeOpen(handle: Long, url: ByteArray): Int
-        @JvmStatic external fun nativePlay(handle: Long)
-        @JvmStatic external fun nativePause(handle: Long)
-        @JvmStatic external fun nativeSeek(handle: Long, positionUs: Long)
-        @JvmStatic external fun nativeSetVolume(handle: Long, volume: Float)
-        @JvmStatic external fun nativeSetRate(handle: Long, rate: Double)
-        @JvmStatic external fun nativeGetRate(handle: Long): Double
-        @JvmStatic external fun nativeSetLooping(handle: Long, looping: Boolean)
-        @JvmStatic external fun nativeIsLooping(handle: Long): Boolean
-        @JvmStatic external fun nativeGetState(handle: Long): Int
-        @JvmStatic external fun nativeIsPlaying(handle: Long): Boolean
-        @JvmStatic external fun nativeGetPosition(handle: Long): Long
-        @JvmStatic external fun nativeGetDuration(handle: Long): Long
-        @JvmStatic external fun nativeGetBufferedPosition(handle: Long): Long
-        @JvmStatic external fun nativeGetVideoSize(handle: Long): Long
-        @JvmStatic external fun nativeGetRotation(handle: Long): Int
-        @JvmStatic external fun nativeGetError(handle: Long): ByteArray?
-        @JvmStatic external fun nativeGetTrackCount(handle: Long): Int
-        @JvmStatic external fun nativeGetTrackInfo(handle: Long, index: Int, ints: IntArray): ByteArray?
-        @JvmStatic external fun nativeSelectTrack(handle: Long, type: Int, index: Int): Boolean
-        @JvmStatic external fun nativeGetSubtitle(handle: Long): ByteArray?
-        @JvmStatic external fun nativeGetMetadata(handle: Long, key: ByteArray): ByteArray?
-        @JvmStatic external fun nativeGetArtwork(handle: Long): ByteArray?
-        @JvmStatic external fun nativeAcquireSubtitle(handle: Long, width: Int, height: Int): Long
-        @JvmStatic external fun nativeSubtitleRelease(subtitle: Long)
-        @JvmStatic external fun nativeSubtitleId(subtitle: Long): Long
-        @JvmStatic external fun nativeSubtitleImageCount(subtitle: Long): Int
-        @JvmStatic external fun nativeSubtitleImage(subtitle: Long, index: Int, ints: IntArray): ByteArray?
-        @JvmStatic external fun nativeGetStats(handle: Long, longs: LongArray): ByteArray
+        @JvmStatic private external fun nativeCreate(hardwareDecoding: Boolean, video: Boolean): Long
+        @JvmStatic private external fun nativeSetEventSink(handle: Long, sink: Any): Long
+        @JvmStatic private external fun nativeDestroy(handle: Long, sink: Long)
+        @JvmStatic private external fun nativeOpen(handle: Long, url: ByteArray): Int
+        @JvmStatic private external fun nativePlay(handle: Long)
+        @JvmStatic private external fun nativePause(handle: Long)
+        @JvmStatic private external fun nativeSeek(handle: Long, positionUs: Long)
+        @JvmStatic private external fun nativeSetVolume(handle: Long, volume: Float)
+        @JvmStatic private external fun nativeSetRate(handle: Long, rate: Double)
+        @JvmStatic private external fun nativeGetRate(handle: Long): Double
+        @JvmStatic private external fun nativeSetLooping(handle: Long, looping: Boolean)
+        @JvmStatic private external fun nativeIsLooping(handle: Long): Boolean
+        @JvmStatic private external fun nativeGetState(handle: Long): Int
+        @JvmStatic private external fun nativeIsPlaying(handle: Long): Boolean
+        @JvmStatic private external fun nativeGetPosition(handle: Long): Long
+        @JvmStatic private external fun nativeGetDuration(handle: Long): Long
+        @JvmStatic private external fun nativeGetBufferedPosition(handle: Long): Long
+        @JvmStatic private external fun nativeGetVideoSize(handle: Long): Long
+        @JvmStatic private external fun nativeGetRotation(handle: Long): Int
+        @JvmStatic private external fun nativeGetError(handle: Long): ByteArray?
+        @JvmStatic private external fun nativeGetTrackCount(handle: Long): Int
+        @JvmStatic private external fun nativeGetTrackInfo(handle: Long, index: Int, ints: IntArray): ByteArray?
+        @JvmStatic private external fun nativeSelectTrack(handle: Long, type: Int, index: Int): Boolean
+        @JvmStatic private external fun nativeGetSubtitle(handle: Long): ByteArray?
+        @JvmStatic private external fun nativeGetMetadata(handle: Long, key: ByteArray): ByteArray?
+        @JvmStatic private external fun nativeGetArtwork(handle: Long): ByteArray?
+        @JvmStatic private external fun nativeAcquireSubtitle(handle: Long, width: Int, height: Int): Long
+        @JvmStatic private external fun nativeSubtitleRelease(subtitle: Long)
+        @JvmStatic private external fun nativeSubtitleId(subtitle: Long): Long
+        @JvmStatic private external fun nativeSubtitleImageCount(subtitle: Long): Int
+        @JvmStatic private external fun nativeSubtitleImage(subtitle: Long, index: Int, ints: IntArray): ByteArray?
+        @JvmStatic private external fun nativeGetStats(handle: Long, longs: LongArray): ByteArray
     }
 }

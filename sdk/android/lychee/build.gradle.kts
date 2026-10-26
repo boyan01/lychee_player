@@ -68,6 +68,34 @@ android {
     }
 }
 
+// The notices for what the AAR carries (FFmpeg, Mbed TLS, code from
+// Chromium), as a Java resource, so that they end up in every APK as
+// META-INF/lychee/THIRD_PARTY_NOTICES.
+abstract class CopyNotices : DefaultTask() {
+    @get:InputFile
+    abstract val notices: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val output: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val dir = output.get().asFile.resolve("META-INF/lychee")
+        dir.mkdirs()
+        notices.get().asFile.copyTo(dir.resolve("THIRD_PARTY_NOTICES"), overwrite = true)
+    }
+}
+
+val copyNotices = tasks.register<CopyNotices>("copyNotices") {
+    notices.set(repoRoot.resolve("THIRD_PARTY_NOTICES"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.resources?.addGeneratedSourceDirectory(copyNotices, CopyNotices::output)
+    }
+}
+
 // The release ships the AAR and its POM (tool/release.sh); without Gradle
 // module metadata, the POM alone describes the dependencies.
 tasks.withType<GenerateModuleMetadata>().configureEach {

@@ -24,6 +24,13 @@ std::optional<int64_t> GetInt(const flutter::EncodableValue* arguments,
   return it->second.LongValue();
 }
 
+// For players whose Dart side is gone: their event callback points into a
+// dead isolate.
+void DestroyOrphan(lychee_player* player) {
+  lychee_player_set_event_callback(player, nullptr, nullptr);
+  lychee_player_destroy(player);
+}
+
 }  // namespace
 
 // static
@@ -45,11 +52,13 @@ LycheePlayerPlugin::LycheePlayerPlugin(
     flutter::PluginRegistrarWindows* registrar)
     : registrar_(registrar) {}
 
-// The engine is shutting down: stop the vsync threads, but leave the
-// textures alive, since the engine may not run an unregister callback now.
+// The engine is shutting down: stop the vsync threads and destroy the
+// players, but leave the textures alive, since the engine may not run an
+// unregister callback now.
 LycheePlayerPlugin::~LycheePlayerPlugin() {
   for (auto& entry : textures_) {
     entry.second->Dispose();
+    DestroyOrphan(entry.second->player());
     (void)entry.second.release();
   }
 }
@@ -76,6 +85,9 @@ void LycheePlayerPlugin::HandleMethodCall(
     const int64_t texture_id = texture->Start();
     textures_[texture_id] = std::move(texture);
     result->Success(flutter::EncodableValue(texture_id));
+  } else if (call.method_name() == "disposeAll") {
+    DisposeAll();
+    result->Success();
   } else if (call.method_name() == "disposeTexture") {
     const std::optional<int64_t> texture_id =
         GetInt(call.arguments(), "textureId");
@@ -101,6 +113,15 @@ void LycheePlayerPlugin::DisposeTexture(int64_t texture_id) {
   textures_.erase(it);
   registrar_->texture_registrar()->UnregisterTexture(
       texture_id, [texture] { delete texture; });
+}
+
+void LycheePlayerPlugin::DisposeAll() {
+  while (!textures_.empty()) {
+    const int64_t texture_id = textures_.begin()->first;
+    lychee_player* player = textures_.begin()->second->player();
+    DisposeTexture(texture_id);
+    DestroyOrphan(player);
+  }
 }
 
 }  // namespace lychee_flutter

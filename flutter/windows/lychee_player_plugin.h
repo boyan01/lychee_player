@@ -11,9 +11,10 @@
 
 namespace lychee_flutter {
 
-// The "lychee_player" method channel: createTexture({player}) -> textureId
-// and disposeTexture({textureId}). Dart owns the players; the plugin only
-// shows them.
+// The "lychee_player" method channel: createTexture({player}) -> textureId,
+// disposeTexture({textureId}) and disposeAll(). Dart owns the players; the
+// plugin only shows them, and destroys them once Dart is gone (disposeAll
+// after a hot restart, or the engine shutting down).
 class LycheePlayerPlugin : public flutter::Plugin {
  public:
   static void RegisterWithRegistrar(flutter::PluginRegistrarWindows* registrar);
@@ -29,6 +30,7 @@ class LycheePlayerPlugin : public flutter::Plugin {
       const flutter::MethodCall<flutter::EncodableValue>& call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
   void DisposeTexture(int64_t texture_id);
+  void DisposeAll();
 
   flutter::PluginRegistrarWindows* const registrar_;
   std::map<int64_t, std::unique_ptr<LycheeTexture>> textures_;

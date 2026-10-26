@@ -174,7 +174,12 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
   List<LycheeSubtitlePicture>? _pictures;
   Uint8List? _artwork;
 
+  // A hot restart drops the previous isolate's players without dispose();
+  // the plugin destroys them before this isolate creates its first.
+  static Future<void>? _orphansDestroyed;
+
   static Future<LycheePlayer> create({bool hardwareDecoding = true}) async {
+    await (_orphansDestroyed ??= _channel.invokeMethod<void>('disposeAll'));
     final config = calloc<native.LycheeConfig>();
     native.configInit(config, sizeOf<native.LycheeConfig>());
     config.ref.videoFrameTypes = native.platformFrameType;

@@ -376,8 +376,11 @@ struct _LycheeTexture {
   FlTextureGL parent_instance;
 
   GMutex mutex;
-  lychee_player* player;      // Guarded by mutex.
+  lychee_player* player;      // Guarded by mutex; NULL once disposed.
   int64_t next_display_time;  // Guarded by mutex.
+  // The player it was created for, even after dispose: the plugin destroys
+  // it when Dart, which owns it, is gone.
+  lychee_player* created_player;
 
   // Raster thread only (and finalize). The frame drawn into |gl.output|:
   // the decoder must not reuse its buffers while the GPU may still read
@@ -720,6 +723,7 @@ static LycheeTexture* lychee_texture_new(lychee_player* player,
   LycheeTexture* self =
       LYCHEE_TEXTURE(g_object_new(lychee_texture_get_type(), nullptr));
   self->player = player;
+  self->created_player = player;
   self->registrar = registrar;
   // Hardware-decoded frames then come as dmabufs on Flutter's GPU.
   if (const char* node = DmabufRenderNode()) {
@@ -806,6 +810,39 @@ static FlMethodResponse* create_texture(LycheePlayerPlugin* self,
   return FL_METHOD_RESPONSE(fl_method_success_response_new(result));
 }
 
+// For players whose Dart side is gone: their event callback points into a
+// dead isolate.
+static void destroy_orphan(lychee_player* player) {
+  lychee_player_set_event_callback(player, nullptr, nullptr);
+  lychee_player_destroy(player);
+}
+
+// Stops texture |id| pulling frames and unregisters it. Returns its player,
+// or NULL if there is no such texture.
+static lychee_player* remove_texture(LycheePlayerPlugin* self, int64_t id) {
+  gpointer texture = nullptr;
+  if (!g_hash_table_steal_extended(self->textures, GINT_TO_POINTER(id),
+                                   nullptr, &texture)) {
+    return nullptr;
+  }
+  lychee_player* player = LYCHEE_TEXTURE(texture)->created_player;
+  lychee_texture_dispose_player(LYCHEE_TEXTURE(texture));
+  fl_texture_registrar_unregister_texture(self->registrar, FL_TEXTURE(texture));
+  // The raster thread looks textures up without a reference and may still
+  // be inside copy_pixels; keep ours a while so it does not see the texture
+  // freed under it.
+  g_timeout_add_seconds(1, release_texture, texture);
+  return player;
+}
+
+// After a hot restart: the previous isolate's players are still playing.
+static void dispose_all(LycheePlayerPlugin* self) {
+  g_autoptr(GList) ids = g_hash_table_get_keys(self->textures);
+  for (GList* id = ids; id; id = id->next) {
+    destroy_orphan(remove_texture(self, GPOINTER_TO_INT(id->data)));
+  }
+}
+
 static FlMethodResponse* dispose_texture(LycheePlayerPlugin* self,
                                          FlValue* args) {
   FlValue* id_value = args && fl_value_get_type(args) == FL_VALUE_TYPE_MAP
@@ -815,18 +852,8 @@ static FlMethodResponse* dispose_texture(LycheePlayerPlugin* self,
     return FL_METHOD_RESPONSE(
         fl_method_error_response_new("bad_args", "textureId missing", nullptr));
   }
-  const int64_t id = fl_value_get_int(id_value);
-  gpointer texture = nullptr;
-  if (g_hash_table_steal_extended(self->textures, GINT_TO_POINTER(id), nullptr,
-                                  &texture)) {
-    lychee_texture_dispose_player(LYCHEE_TEXTURE(texture));
-    fl_texture_registrar_unregister_texture(self->registrar,
-                                            FL_TEXTURE(texture));
-    // The raster thread looks textures up without a reference and may still
-    // be inside copy_pixels; keep ours a while so it does not see the
-    // texture freed under it.
-    g_timeout_add_seconds(1, release_texture, texture);
-  }
+  // Dart destroys the player once this returns.
+  remove_texture(self, fl_value_get_int(id_value));
   return FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
 }
 
@@ -841,14 +868,19 @@ static void method_call_cb(FlMethodChannel*,
     response = create_texture(self, args);
   } else if (strcmp(method, "disposeTexture") == 0) {
     response = dispose_texture(self, args);
+  } else if (strcmp(method, "disposeAll") == 0) {
+    dispose_all(self);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
   } else {
     response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
   }
   fl_method_call_respond(method_call, response, nullptr);
 }
 
+// The engine is shutting down with textures Dart never disposed.
 static void dispose_texture_entry(gpointer texture) {
   lychee_texture_dispose_player(LYCHEE_TEXTURE(texture));
+  destroy_orphan(LYCHEE_TEXTURE(texture)->created_player);
   g_object_unref(texture);
 }
 

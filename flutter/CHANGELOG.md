@@ -8,3 +8,5 @@
 * HDR video is tone-mapped to SDR.
 * Android, iOS and macOS take the prebuilt core from the GitHub release,
   checked against pinned SHA-256s; `LYCHEE_PREBUILT_URL` names a mirror.
+* FFmpeg is linked under the LGPL: apps must ship the notices in
+  `THIRD_PARTY_NOTICES`, which the prebuilt core carries.

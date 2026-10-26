@@ -333,6 +333,11 @@ for https, and so are the Windows and Linux downloads and the Linux build
 must ship an LGPL-only FFmpeg (no `--enable-gpl` / `--enable-nonfree`),
 linked dynamically.
 
+[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) has the notices an app must
+ship with lychee_player (Chromium, FFmpeg, Mbed TLS, and their license
+texts). The prebuilt artifacts carry it: `lychee.framework` and, on
+Android, `META-INF/lychee/THIRD_PARTY_NOTICES` in the APK.
+
 `tool/build_ffmpeg.sh` builds only what the core plays: MP4/MOV,
 Matroska/WebM, MPEG-TS, HLS, FLV, Ogg and raw audio files; H.264, HEVC,
 VP8, VP9 and AV1 (AV1 only through VideoToolbox: FFmpeg has no AV1

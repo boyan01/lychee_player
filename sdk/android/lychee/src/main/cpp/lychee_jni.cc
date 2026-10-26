@@ -245,9 +245,14 @@ JNIEXPORT void JNICALL Java_tech_soit_lychee_LycheePlayer_nativeDestroy(
     jclass,
     jlong handle,
     jlong sink) {
+  // Events the player sends while stopping go nowhere: a player from
+  // LycheePlayer.destroyHandle() may have a callback into a dead Dart isolate.
+  lychee_player_set_event_callback(Player(handle), nullptr, nullptr);
   // Joins the player's threads: no event follows.
   lychee_player_destroy(Player(handle));
-  env->DeleteGlobalRef(reinterpret_cast<jobject>(sink));
+  if (sink) {
+    env->DeleteGlobalRef(reinterpret_cast<jobject>(sink));
+  }
 }
 
 JNIEXPORT jint JNICALL Java_tech_soit_lychee_LycheePlayer_nativeOpen(

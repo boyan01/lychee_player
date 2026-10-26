@@ -16,7 +16,8 @@ import tech.soit.lychee.LycheeFrameDriver
  */
 internal class LycheeTexture(
     private val producer: TextureRegistry.SurfaceProducer,
-    player: Long,
+    /** The player shown; Dart owns it. */
+    val player: Long,
     refreshRate: Float,
 ) {
     private var released = false

@@ -1,5 +1,6 @@
 // Opens files one after another in the example app and checks that every
-// replaced player is torn down: its threads exit and nothing crashes.
+// replaced player is torn down: its threads exit and nothing crashes. Then
+// checks that the plugin destroys players a hot restart left behind.
 //
 //   cd flutter/example && flutter test integration_test -d macos
 //
@@ -16,6 +17,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+// ignore: implementation_imports
+import 'package:lychee_player/src/bindings.dart' as native;
 import 'package:lychee_player_example/main.dart';
 
 const _mediaDir = String.fromEnvironment(
@@ -178,5 +181,36 @@ void main() {
       threads['display-link']!,
       lessThanOrEqualTo(before['display-link']! + 2),
     );
+  });
+
+  testWidgets('disposeAll destroys players a hot restart left', (tester) async {
+    // Lets the example dispose of its player.
+    await tester.pumpWidget(const SizedBox());
+    await Future<void>.delayed(const Duration(seconds: 1));
+    expect((await _countThreads())['lychee'], 0);
+
+    // What a previous isolate leaves: a playing player behind a texture,
+    // with no Dart object to dispose of it.
+    final config = calloc<native.LycheeConfig>();
+    native.configInit(config, sizeOf<native.LycheeConfig>());
+    config.ref.videoFrameTypes = native.platformFrameType;
+    final player = native.playerCreate(config);
+    calloc.free(config);
+    final url = _media[0].toNativeUtf8();
+    native.playerOpen(player, url.cast());
+    calloc.free(url);
+    native.playerPlay(player);
+    const channel = MethodChannel('lychee_player');
+    await channel.invokeMethod<int>('createTexture', {'player': player.address});
+    // Over http on an emulator, opening takes a few seconds.
+    var playing = 0;
+    for (var i = 0; i < 20 && playing < 4; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      playing = (await _countThreads())['lychee']!;
+    }
+    expect(playing, 4);
+
+    await channel.invokeMethod<void>('disposeAll');
+    expect((await _countThreads())['lychee'], 0);
   });
 }

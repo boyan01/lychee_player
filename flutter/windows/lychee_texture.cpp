@@ -67,7 +67,10 @@ LycheeTexture::LycheeTexture(lychee_player* player,
                              flutter::TextureRegistrar* registrar,
                              HWND window,
                              IDXGIAdapter* adapter)
-    : registrar_(registrar), window_(window), player_(player) {
+    : registrar_(registrar),
+      window_(window),
+      created_player_(player),
+      player_(player) {
   D3D11_QUERY_DESC query = {D3D11_QUERY_EVENT, 0};
   if (!adapter ||
       FAILED(D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0,

@@ -70,6 +70,11 @@ for slice in macos ios ios-simulator; do
   cp "$root/core/include/lychee/lychee.h" "$work/$slice/headers/"
   make_framework "$slice" "$work/$slice/lychee.framework" "$binary" \
     "$work/$slice/headers" tech.soit.lychee "$version" "$work/module.modulemap"
+  # The notices go wherever the core goes: into every app that embeds it.
+  resources="$work/$slice/lychee.framework"
+  [ "$slice" != macos ] || resources+=/Versions/A/Resources
+  cp "$root/THIRD_PARTY_NOTICES" "$resources/"
+  codesign --force --sign - "$work/$slice/lychee.framework" 2>/dev/null
   args+=(-framework "$work/$slice/lychee.framework")
 done
 [ ${#args[@]} -gt 0 ] || { echo "no FFmpeg xcframeworks; run tool/package_ffmpeg_apple.sh" >&2; exit 1; }

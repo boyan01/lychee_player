@@ -509,9 +509,15 @@ par expect background-end-video "<=0 show at" "summary: state=ended position=8\.
 # in: the latency, 80 ms unless set, less up to one frame.
 live_ok="<=0 event: state (buffering|ended|error)"
 live_latency="live_vbuf=0\.(0[4-9]|1[0-2])[0-9]s"
-par expect live-h264 "$live_ok" "summary: state=ready .*rendered=360 dropped=0 glitches=[0-3] backward_jumps=0 .*stalls=0 $live_latency" -- \
+# Live input plays on the real clock, which an unoptimized ThreadSanitizer
+# build does not keep up with: there, glitches are not counted.
+tsan_glitches=
+if [ "${TSAN:-0}" = 1 ]; then
+  tsan_glitches="glitches=[0-9]+ "
+fi
+par expect live-h264 "$live_ok" "summary: state=ready .*rendered=360 dropped=0 ${tsan_glitches:-glitches=[0-3] }backward_jumps=0 .*stalls=0 $live_latency" -- \
   --live "$media/live_h264.mp4"
-par expect live-hevc "$live_ok" "summary: state=ready .*rendered=300 dropped=0 glitches=[0-3] backward_jumps=0 .*stalls=0 $live_latency" -- \
+par expect live-hevc "$live_ok" "summary: state=ready .*rendered=300 dropped=0 ${tsan_glitches:-glitches=[0-3] }backward_jumps=0 .*stalls=0 $live_latency" -- \
   --live "$media/live_hevc.mp4"
 par expect live-latency "$live_ok" "summary: .*dropped=0 .*live_vbuf=0\.(2[5-9]|30)[0-9]s" -- \
   --live --latency 300 "$media/live_h264.mp4"
@@ -521,22 +527,22 @@ par expect live-audio-only "$live_ok" "summary: state=ready position=1[23]\.[0-9
 par expect live-alac "$live_ok" "track 1: audio alac 44100 Hz" "summary: .*dropped=0 .*live_abuf=0\.(0[1-9]|1[0-9])[0-9]s" -- \
   --live "$media/live_alac.mp4"
 # Arrival jitter within the latency costs nothing.
-par expect live-jitter "$live_ok" "summary: .*rendered=360 dropped=0 glitches=[0-3] backward_jumps=0 " -- \
+par expect live-jitter "$live_ok" "summary: .*rendered=360 dropped=0 ${tsan_glitches:-glitches=[0-3] }backward_jumps=0 " -- \
   --live --live-jitter 30 "$media/live_h264.mp4"
 # Half a second without packets, then all at once: what arrived too late is
 # dropped, and the latency comes back.
 par expect live-stall "$live_ok" "summary: .*dropped=([0-9]|1[0-9]) .*backward_jumps=0 .*$live_latency" -- \
   --live --live-stall 4 0.5 "$media/live_h264.mp4"
 # A flush (the sender restarted) starts over at the next keyframe.
-par expect live-flush "$live_ok" "live flush at" "summary: .*rendered=3[3-5][0-9] dropped=0 glitches=[0-5] backward_jumps=0 .*$live_latency" -- \
+par expect live-flush "$live_ok" "live flush at" "summary: .*rendered=3[3-5][0-9] dropped=0 ${tsan_glitches:-glitches=[0-5] }backward_jumps=0 .*$live_latency" -- \
   --live --live-flush 5 "$media/live_h264.mp4"
 # No video for 3 s (a still screen), audio on: video resumes at a keyframe.
-par expect live-gap "$live_ok" "live video resumes" "summary: .*rendered=2[6-7][0-9] dropped=0 glitches=[0-3] backward_jumps=0 .*$live_latency" -- \
+par expect live-gap "$live_ok" "live video resumes" "summary: .*rendered=2[6-7][0-9] dropped=0 ${tsan_glitches:-glitches=[0-3] }backward_jumps=0 .*$live_latency" -- \
   --live --live-gap 4 3 "$media/live_h264.mp4"
 # New parameter sets in the stream, as when the sender rotates. The
 # decoder restarts, which can hold a frame a vsync longer.
 par expect live-resolution "$live_ok" "video size 1280x720" "video size 640x360" \
-  "summary: .*rendered=180 dropped=0 glitches=[0-5] backward_jumps=0 " -- --live "$media/live_resolution.ts"
+  "summary: .*rendered=180 dropped=0 ${tsan_glitches:-glitches=[0-5] }backward_jumps=0 " -- --live "$media/live_resolution.ts"
 # Text subtitles: cues as plain text at their times.
 par expect subtitle-srt "subtitle at [01]\.[0-9]{3}s: Hello world$" "subtitle at 2\.[0-9]{3}s: \(none\)" \
   "subtitle at [34]\.[0-9]{3}s: Second line \| with break$" "summary: state=ended" -- "$media/sub_srt.mkv"

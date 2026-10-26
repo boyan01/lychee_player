@@ -7,6 +7,7 @@ import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
+import tech.soit.lychee.LycheePlayer
 
 class LycheePlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var channel: MethodChannel
@@ -24,9 +25,19 @@ class LycheePlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         channel.setMethodCallHandler(this)
     }
 
+    // Also when an activity's engine goes while the process stays (back out
+    // of the app): Dart, which owns the players, never disposed them.
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
-        textures.values.forEach { it.release() }
+        destroyAll()
+    }
+
+    // Releases every texture and destroys its player.
+    private fun destroyAll() {
+        textures.values.forEach {
+            it.release()
+            LycheePlayer.destroyHandle(it.player)
+        }
         textures.clear()
     }
 
@@ -37,6 +48,11 @@ class LycheePlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 val producer = textureRegistry.createSurfaceProducer()
                 textures[producer.id()] = LycheeTexture(producer, player, refreshRate())
                 result.success(producer.id())
+            }
+            // After a hot restart: the previous isolate's players still play.
+            "disposeAll" -> {
+                destroyAll()
+                result.success(null)
             }
             "disposeTexture" -> {
                 val id = call.argument<Number>("textureId")!!.toLong()

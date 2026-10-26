@@ -68,6 +68,7 @@ with_core() {
   rm -rf "$root/flutter/core"
   cp -R "$root/core" "$root/flutter/core"
   rm -rf "$root/flutter/core/test"
+  cp "$root/THIRD_PARTY_NOTICES" "$root/flutter/core/"
   local status=0
   (cd "$root/flutter" && "$@") || status=$?
   rm -rf "$root/flutter/core"
@@ -198,6 +199,7 @@ cmd_check() {
   mkdir "$pkg"
   tar xzf "$tmp/package.tar.gz" -C "$pkg"
   [ -f "$pkg/core/CMakeLists.txt" ] || die "the package has no core/"
+  [ -f "$pkg/core/THIRD_PARTY_NOTICES" ] || die "the package has no core/THIRD_PARTY_NOTICES"
   [ ! -e "$pkg/darwin/Frameworks" ] || die "the package carries darwin/Frameworks"
   echo "$(du -sh "$tmp/package.tar.gz" | cut -f1) archive"
 
