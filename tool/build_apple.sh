@@ -4,6 +4,7 @@
 # lychee/lychee.h.
 #
 #   tool/build_apple.sh
+#   NO_FFMPEG=1 tool/build_apple.sh
 #
 # Needs the FFmpeg and libass builds from tool/build_ffmpeg.sh and
 # tool/build_libass.sh (for their headers) and the xcframeworks from
@@ -13,12 +14,21 @@
 #
 # Output: flutter/darwin/Frameworks/lychee.xcframework, which the podspec
 # vendors next to FFmpeg and libass.
+#
+# With NO_FFMPEG=1: the core without FFmpeg and libass (our MP4, Matroska,
+# MPEG-TS and HLS demuxers, VideoToolbox and AudioToolbox; ASS as plain
+# text), every slice, needing nothing built before. It links no LGPL code.
+# Output: flutter/darwin/Frameworks/lychee_noffmpeg.xcframework, which
+# holds lychee.framework all the same (module lychee, the same install
+# name), so an app takes one or the other: sdk/apple's NoFFmpeg trait.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 . "$root/tool/apple_framework.sh"
 frameworks="$root/flutter/darwin/Frameworks"
 work="$root/build-apple"
+output=lychee
+[ "${NO_FFMPEG:-0}" != 1 ] || { work+=-noffmpeg; output=lychee_noffmpeg; }
 ffmpeg_libs=(avformat avcodec swresample swscale avutil)
 libass_libs=(ass fribidi)
 version="$(sed -nE 's/^version: ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' "$root/flutter/pubspec.yaml")"
@@ -47,33 +57,40 @@ for slice in macos ios ios-simulator; do
       cmake_args=(-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphonesimulator
         -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=$apple_min_ios) ;;
   esac
-  [ -d "$frameworks/libavcodec.xcframework/$dir" ] || continue
-
-  # An FFmpeg root as core/CMakeLists.txt expects it (include/, lib/), whose
-  # libraries are the framework binaries, so the core records their
-  # @rpath/LIB.framework/LIB install names.
-  ffmpeg="$work/$slice/ffmpeg"
-  mkdir -p "$ffmpeg/lib"
-  ln -s "$root/third_party/ffmpeg/$headers/include" "$ffmpeg/include"
-  for lib in "${ffmpeg_libs[@]}"; do
-    ln -s "$frameworks/lib$lib.xcframework/$dir/lib$lib.framework/lib$lib" "$ffmpeg/lib/lib$lib.dylib"
-  done
-  # The same for libass: styled ASS in every shipped build.
-  libass="$work/$slice/libass"
-  mkdir -p "$libass/lib"
-  ln -s "$root/third_party/libass/$headers/include" "$libass/include"
-  for lib in "${libass_libs[@]}"; do
-    [ -f "$frameworks/lib$lib.xcframework/$dir/lib$lib.framework/lib$lib" ] ||
-      { echo "no $slice slice in lib$lib.xcframework; run tool/build_libass.sh and tool/package_ffmpeg_apple.sh" >&2; exit 1; }
-    ln -s "$frameworks/lib$lib.xcframework/$dir/lib$lib.framework/lib$lib" "$libass/lib/lib$lib.dylib"
-  done
-
   build="$work/$slice/build"
-  cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=ON -DLYCHEE_BUILD_EXAMPLES=OFF -DLYCHEE_BUILD_TESTS=OFF \
-    -DLYCHEE_FFMPEG_ROOT="$ffmpeg" -DCMAKE_SKIP_BUILD_RPATH=ON \
-    -DLYCHEE_WITH_LIBASS=ON -DLYCHEE_LIBASS_ROOT="$libass" \
-    "${cmake_args[@]}" >"$work/$slice.log"
+  if [ "$output" = lychee_noffmpeg ]; then
+    cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_SHARED_LIBS=ON -DLYCHEE_BUILD_EXAMPLES=OFF -DLYCHEE_BUILD_TESTS=OFF \
+      -DLYCHEE_WITH_FFMPEG=OFF -DLYCHEE_WITH_LIBASS=OFF -DCMAKE_SKIP_BUILD_RPATH=ON \
+      "${cmake_args[@]}" >"$work/$slice.log"
+  else
+    [ -d "$frameworks/libavcodec.xcframework/$dir" ] || continue
+
+    # An FFmpeg root as core/CMakeLists.txt expects it (include/, lib/), whose
+    # libraries are the framework binaries, so the core records their
+    # @rpath/LIB.framework/LIB install names.
+    ffmpeg="$work/$slice/ffmpeg"
+    mkdir -p "$ffmpeg/lib"
+    ln -s "$root/third_party/ffmpeg/$headers/include" "$ffmpeg/include"
+    for lib in "${ffmpeg_libs[@]}"; do
+      ln -s "$frameworks/lib$lib.xcframework/$dir/lib$lib.framework/lib$lib" "$ffmpeg/lib/lib$lib.dylib"
+    done
+    # The same for libass: styled ASS in every shipped build.
+    libass="$work/$slice/libass"
+    mkdir -p "$libass/lib"
+    ln -s "$root/third_party/libass/$headers/include" "$libass/include"
+    for lib in "${libass_libs[@]}"; do
+      [ -f "$frameworks/lib$lib.xcframework/$dir/lib$lib.framework/lib$lib" ] ||
+        { echo "no $slice slice in lib$lib.xcframework; run tool/build_libass.sh and tool/package_ffmpeg_apple.sh" >&2; exit 1; }
+      ln -s "$frameworks/lib$lib.xcframework/$dir/lib$lib.framework/lib$lib" "$libass/lib/lib$lib.dylib"
+    done
+
+    cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_SHARED_LIBS=ON -DLYCHEE_BUILD_EXAMPLES=OFF -DLYCHEE_BUILD_TESTS=OFF \
+      -DLYCHEE_FFMPEG_ROOT="$ffmpeg" -DCMAKE_SKIP_BUILD_RPATH=ON \
+      -DLYCHEE_WITH_LIBASS=ON -DLYCHEE_LIBASS_ROOT="$libass" \
+      "${cmake_args[@]}" >"$work/$slice.log"
+  fi
   cmake --build "$build" >>"$work/$slice.log" || { tail -30 "$work/$slice.log"; exit 1; }
 
   binary="$work/$slice/lychee"
@@ -92,7 +109,9 @@ for slice in macos ios ios-simulator; do
 done
 [ ${#args[@]} -gt 0 ] || { echo "no FFmpeg xcframeworks; run tool/package_ffmpeg_apple.sh" >&2; exit 1; }
 
+rm -rf "$frameworks/$output.xcframework"
 # Built here: the pod no longer replaces Frameworks/ with a release.
-rm -rf "$frameworks/lychee.xcframework" "$frameworks/.prebuilt"
-xcodebuild -create-xcframework "${args[@]}" -output "$frameworks/lychee.xcframework" >/dev/null
-echo "wrote ${frameworks#$root/}/lychee.xcframework"
+[ "$output" != lychee ] || rm -f "$frameworks/.prebuilt"
+mkdir -p "$frameworks"
+xcodebuild -create-xcframework "${args[@]}" -output "$frameworks/$output.xcframework" >/dev/null
+echo "wrote ${frameworks#$root/}/$output.xcframework"

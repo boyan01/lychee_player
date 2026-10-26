@@ -33,7 +33,9 @@
 #                                      pubspec's version
 #
 # The assets: NAME.xcframework.zip for the eight Apple frameworks (what
-# SwiftPM's binaryTarget takes; the pod unzips the same files),
+# SwiftPM's binaryTarget takes; the pod unzips the same files) and
+# lychee_noffmpeg, the core without FFmpeg (the Swift package's NoFFmpeg
+# trait),
 # lychee-VERSION.aar and .pom (the Flutter plugin lays them out as a Maven
 # repository), ffmpeg-windows-x86_64.zip (the Windows plugin's FFmpeg:
 # bin/*.dll, lib/*.lib, include/), and the source archives.
@@ -48,6 +50,8 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 pubspec="$root/flutter/pubspec.yaml"
 manifest="$root/flutter/prebuilt.json"
 frameworks=(lychee libavformat libavcodec libswresample libswscale libavutil libass libfribidi)
+# What the release has besides: the core without FFmpeg, for SwiftPM only.
+release_frameworks=("${frameworks[@]}" lychee_noffmpeg)
 apple_platforms=(macos-arm64 macos-x86_64 ios-arm64 ios-sim-arm64 ios-sim-x86_64)
 android_platforms=(android-arm64-v8a android-x86_64)
 
@@ -158,6 +162,7 @@ cmd_build() {
       done
       "$root/tool/package_ffmpeg_apple.sh"
       "$root/tool/build_apple.sh"
+      NO_FFMPEG=1 "$root/tool/build_apple.sh"
       ;;
     android)
       [ -d "$src/mbedtls-$mbedtls_version" ] || tar xjf "$sources/mbedtls-$mbedtls_version.tar.bz2" -C "$src"
@@ -188,7 +193,7 @@ cmd_pack() {
   out="$(cd "$2" && pwd)"
   case "$target" in
     apple)
-      for f in "${frameworks[@]}"; do
+      for f in "${release_frameworks[@]}"; do
         [ -d "$root/flutter/darwin/Frameworks/$f.xcframework" ] || die "no $f.xcframework; run tool/release.sh build apple"
         rm -f "$out/$f.xcframework.zip"
         # -y keeps the symlinks of the macOS framework bundles.
@@ -222,7 +227,7 @@ cmd_pin() {
   local out v
   out="$(cd "${1:?out}" && pwd)"
   v="$(version)"
-  python3 -I - "$out" "v$v" "$manifest" "$root/Package.swift" "${frameworks[@]}" <<'EOF'
+  python3 -I - "$out" "v$v" "$manifest" "$root/Package.swift" "${release_frameworks[@]}" <<'EOF'
 import hashlib, json, pathlib, re, sys
 
 out, tag, manifest, package = (pathlib.Path(a) for a in sys.argv[1:5])
@@ -280,7 +285,7 @@ cmd_check() {
     die "the package has no copy of sdk/apple's sources"
   echo "$(du -sh "$tmp/package.tar.gz" | cut -f1) archive"
 
-  for f in "${frameworks[@]}"; do
+  for f in "${release_frameworks[@]}"; do
     pinned="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["files"][sys.argv[2]])' \
       "$manifest" "$f.xcframework.zip")"
     [ "$(cd "$tmp" && swift package compute-checksum "$out/$f.xcframework.zip")" = "$pinned" ] ||

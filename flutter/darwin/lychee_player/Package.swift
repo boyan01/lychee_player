@@ -59,6 +59,7 @@ func pinnedFrameworks() -> [Target] {
   let manifest = try! JSONDecoder().decode(Manifest.self, from: data)
   let mirror = ProcessInfo.processInfo.environment["LYCHEE_PREBUILT_URL"] ?? ""
   let url = mirror.isEmpty ? manifest.url : mirror
+  // Not lychee_noffmpeg, the core without FFmpeg that the release also has.
   let names = frameworks.map { "\($0).xcframework" }.filter { manifest.files["\($0).zip"] != nil }
   if names.allSatisfy({ exists("Frameworks/\($0)") }) {
     return names.map { .binaryTarget(name: String($0.dropLast(".xcframework".count)), path: "Frameworks/\($0)") }

@@ -137,11 +137,21 @@ simulator slice with both arm64 and x86_64. Leave out platforms you do not
 need; the last two scripts package the ones that were built. The x86_64
 macOS FFmpeg and libass use assembly only if `nasm` is installed.
 
+`NO_FFMPEG=1 tool/build_apple.sh` builds the core without FFmpeg and
+libass as `lychee_noffmpeg.xcframework` (still `lychee.framework` inside;
+MP4, Matroska/WebM, MPEG-TS and HLS through the core's own demuxers,
+VideoToolbox and AudioToolbox decoders), which needs none of the other
+frameworks. The Flutter plugin does not use it.
+
 ## Swift package
 
 `sdk/apple` is a Swift package (`LycheePlayer`, macOS 11 / iOS 16) for apps
 without Flutter. Add it as a local package; it takes the xcframeworks above
-as binary targets.
+as binary targets. Its default trait, `FFmpeg`, links the core with FFmpeg
+and libass; the `NoFFmpeg` trait takes `lychee_noffmpeg.xcframework`
+instead, e.g. `.package(path: "sdk/apple", traits: ["NoFFmpeg"])` (Xcode:
+the package reference's traits), and `swift test --traits NoFFmpeg` tests
+it.
 
 ```swift
 import LycheePlayer

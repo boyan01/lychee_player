@@ -536,9 +536,29 @@ Left:
    so MP3, Opus and FLAC in MP4 decode on Android and through
    `ATAudioDecoder`. Bitmap subtitles (PGS, DVB, VobSub) have no
    FFmpeg-free decoder.
-3. Packaging: a `tool/build_apple.sh` variant (or the Swift package) that
-   ships the FFmpeg-free core; iOS compiles (arm64, zero warnings) but has
-   not run, and the plugin and Swift package still link FFmpeg.
+3. Packaging: done for Apple (2026-10-26). `NO_FFMPEG=1
+   tool/build_apple.sh` builds `lychee_noffmpeg.xcframework` (inside it
+   still `lychee.framework`, so code that opens or imports `lychee` does
+   not change; 636 KB for iOS arm64, 1.3 MB for each universal slice,
+   only system libraries). A separate xcframework rather than a second
+   slice set in `lychee.xcframework`, because an xcframework has one
+   library per platform. The Swift packages (`sdk/apple` and the root
+   one) pick it with a trait: `FFmpeg` is the default, `NoFFmpeg` takes
+   the core alone, e.g. `.package(path: "sdk/apple", traits:
+   ["NoFFmpeg"])`; `swift test --traits NoFFmpeg` skips the tests whose
+   media (PGS, MP3 in a file the core alone cannot open) needs FFmpeg.
+   The Flutter plugin keeps FFmpeg. `tool/release.sh` builds, packs and
+   pins the new asset with the others. First run on the iOS simulator
+   (iPhone 16, iOS 18.1; the Swift example with the trait):
+   `h264_aac.mp4` plays in hardware, 151 frames, 0 dropped in 5 s; HLS
+   from `tool/media_server.py` (`/hls/index.m3u8` over http to
+   127.0.0.1, which ATS allows) in hardware, 219 frames, 0 dropped in
+   7.3 s; `vp9_opus.webm` plays its Opus audio only, the video refused
+   ("VP9 needs iOS 26.2": VideoToolbox decodes VP9 from there, and no
+   iPhone 16 runtime here is that new). Waiting on the next release: the
+   root `Package.swift` still pins 1.0.0-beta.1, which has no
+   `lychee_noffmpeg`; once a release carries it, check `swift build
+   --traits NoFFmpeg` against the URL package from a scratch app.
 4. Windows leftovers: without FFmpeg there is no software video
    decoder, so a machine without a GPU (or a codec its GPU lacks) plays
    no video; Media Foundation's software mode would cover it. AAC in

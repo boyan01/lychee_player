@@ -24,7 +24,8 @@ lambda do
   dir = File.join(__dir__, 'Frameworks')
   manifest = JSON.parse(File.read(File.join(__dir__, '..', 'prebuilt.json')))
   tag = manifest['tag'] or return
-  zips = manifest['files'].select { |name, _| name.end_with?('.xcframework.zip') }.to_a
+  # Not every zip: the release also has the core without FFmpeg, for SwiftPM.
+  zips = manifest['files'].select { |name, _| frameworks.include?(name.delete_suffix('.xcframework.zip')) }.to_a
   stamp = File.join(dir, '.prebuilt')
   want = ([tag] + zips.map { |z| z.join(' ') }).join("\n")
   if File.exist?(stamp)

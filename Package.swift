@@ -1,4 +1,4 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.1
 //
 // LycheePlayer (sdk/apple) for apps that add this repository by URL:
 //
@@ -8,7 +8,14 @@
 // xcframeworks in flutter/darwin/Frameworks; this one takes them from the
 // release below. tool/release.sh writes `release` when it tags a version;
 // until the first release, the local frameworks.
+//
+// Its NoFFmpeg trait takes the core without FFmpeg and libass, as in
+// sdk/apple/Package.swift, from releases that have it:
+//
+//   .package(url: "https://github.com/boyan01/lychee_player", from: "1.0.0",
+//            traits: ["NoFFmpeg"])
 
+import Foundation
 import PackageDescription
 
 let release = (
@@ -23,10 +30,16 @@ let release = (
   ]
 )
 
-// A release's frameworks are the ones it pins (1.0.0-beta.1 had no libass).
+// A release's frameworks are the ones it pins (1.0.0-beta.1 had neither
+// libass nor lychee_noffmpeg).
 let frameworks = release.url.isEmpty
   ? ["lychee", "libavformat", "libavcodec", "libswresample", "libswscale", "libavutil", "libass", "libfribidi"]
+    + (FileManager.default.fileExists(
+      atPath: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("flutter/darwin/Frameworks/lychee_noffmpeg.xcframework").path)
+      ? ["lychee_noffmpeg"] : [])
   : release.checksums.keys.sorted()
+let noFFmpeg = ["lychee_noffmpeg"].filter(frameworks.contains)
 
 let package = Package(
   name: "LycheePlayer",
@@ -35,10 +48,17 @@ let package = Package(
   products: [
     .library(name: "LycheePlayer", targets: ["LycheePlayer"]),
   ],
+  traits: [
+    .trait(name: "FFmpeg", description: "The core with FFmpeg and libass (LGPL)"),
+    .trait(name: "NoFFmpeg", description: "The core without FFmpeg and libass"),
+    .default(enabledTraits: ["FFmpeg"]),
+  ],
   targets: [
     .target(
       name: "LycheePlayer",
-      dependencies: frameworks.map { .target(name: $0) },
+      dependencies: frameworks.map {
+        .target(name: $0, condition: .when(traits: [noFFmpeg.contains($0) ? "NoFFmpeg" : "FFmpeg"]))
+      },
       path: "sdk/apple/Sources/LycheePlayer"
     ),
   ] + frameworks.map { name in
@@ -46,5 +66,6 @@ let package = Package(
       ? .binaryTarget(name: name, path: "flutter/darwin/Frameworks/\(name).xcframework")
       : .binaryTarget(
         name: name, url: "\(release.url)/\(name).xcframework.zip", checksum: release.checksums[name]!)
-  }
+  },
+  swiftLanguageModes: [.v5]
 )

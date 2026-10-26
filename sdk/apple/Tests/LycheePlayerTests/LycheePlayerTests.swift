@@ -10,6 +10,14 @@ final class LycheePlayerTests: XCTestCase {
     try XCTSkipUnless(FileManager.default.fileExists(atPath: url), "run tool/regression.sh first")
   }
 
+  // `swift test --traits NoFFmpeg` runs the core without FFmpeg, which has
+  // no bitmap subtitle decoder and reads no bare MP3 files.
+  private func skipWithoutFFmpeg(_ what: String) throws {
+    #if NoFFmpeg
+    throw XCTSkip("\(what) needs the FFmpeg core")
+    #endif
+  }
+
   func testPlaysThroughFrameDriver() throws {
     let player = LycheePlayer()
     player.volume = 0
@@ -72,7 +80,8 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(player.artwork?.prefix(4), Data([0x89, 0x50, 0x4e, 0x47]), "PNG")
   }
 
-  func testSubtitlePictures() {
+  func testSubtitlePictures() throws {
+    try skipWithoutFFmpeg("PGS")
     // A PGS box at 660,900, 600x80 on a 1920x1080 canvas, from 1 s.
     let player = LycheePlayer()
     player.volume = 0
@@ -97,6 +106,7 @@ final class LycheePlayerTests: XCTestCase {
   // The view's pictures follow subtitle events, not only new frames: turned
   // off while paused, they go at once. The app's onEvent still gets them.
   func testViewClearsSubtitleWhilePaused() throws {
+    try skipWithoutFFmpeg("PGS")
     let player = LycheePlayer()
     player.volume = 0
     let view = LycheePlayerView(frame: CGRect(x: 0, y: 0, width: 960, height: 540))
@@ -129,6 +139,7 @@ final class LycheePlayerTests: XCTestCase {
   // Opening media without video on the same player takes the last frame
   // off the screen: no new frame would replace it.
   func testViewClearsFrameForMediaWithoutVideo() throws {
+    try skipWithoutFFmpeg("MP3")
     let player = LycheePlayer()
     player.volume = 0
     let view = LycheePlayerView(frame: CGRect(x: 0, y: 0, width: 480, height: 270))
@@ -165,6 +176,7 @@ final class LycheePlayerTests: XCTestCase {
   // A player prepared before it is attached sends no new media event, so
   // replacing the view's player must clear the old picture immediately.
   func testViewClearsFrameWhenReplacedWithReadyAudioPlayer() throws {
+    try skipWithoutFFmpeg("MP3")
     let player = LycheePlayer()
     player.volume = 0
     let view = LycheePlayerView(frame: CGRect(x: 0, y: 0, width: 480, height: 270))
