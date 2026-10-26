@@ -65,6 +65,12 @@ on top of them.
    lets `LiveSettledLocked` report settled while a frame for the next
    vsync is still being decoded (B-frames in the TS, waiting for the next
    packet, are the first suspect). Done when 24 runs six at once pass.
+   `live-jitter` (`live_h264.mp4` with 30 ms of jitter) fails the same
+   way (glitches=5, at most 3): 2 of 24 with six at once, before and
+   after that day's live hold change alike (LGPL FFmpeg; resolution 5
+   and 1 of 24). Both failed CI's first run of the regression on the
+   shipped FFmpeg (flutter-macos, 2026-10-26), which `release.yml` now
+   also runs, so this flake can hold up a release.
    CI's plain job also failed once each on `subtitle-mid-cue` (the cue
    at the switch never printed; 0 of 24 here with six at once) and
    `realtime-loop` (drift on the real clock, expected on a hosted VM);
