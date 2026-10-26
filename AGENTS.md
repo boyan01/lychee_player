@@ -181,9 +181,10 @@ What each area needs (run `tool/changes.sh`):
 - **threads** (`pipeline/`, the C API, teardown): also `TSAN=1
   tool/regression.sh` (it fails on any ThreadSanitizer report).
 - **parsers** (the FFmpeg-free demuxers): also `NO_FFMPEG=1
-  tool/regression.sh` and `tool/fuzz.sh` (a minute of libFuzzer under
-  ASan and UBSan; Homebrew's LLVM). Add each input it crashes on,
-  minimized, to `core/fuzz/regressions` with the fix.
+  tool/regression.sh` and `tool/fuzz.sh` (a minute of libFuzzer per
+  parser under ASan and UBSan; Homebrew's LLVM; `FUZZ_TARGET=matroska`
+  for one). Add each input it crashes on, minimized, to
+  `core/fuzz/regressions/TARGET` with the fix.
 - **apple**: `tool/build_apple.sh`, then `swift test` in `sdk/apple`
   (plays through the frame driver and checks the player's lifetime), and
   build its example (`sdk/apple/Example/Example.xcodeproj`, README has

@@ -25,7 +25,7 @@ core/                 C++ core, no UI toolkit dependency
     backends/windows/ WASAPI output
     backends/linux/   PulseAudio (and PipeWire's pulse server) output
     api/              C API implementation
-  fuzz/               libFuzzer target over the MP4 demuxer (tool/fuzz.sh)
+  fuzz/               libFuzzer targets over the parsers (tool/fuzz.sh)
 examples/cli/         headless player for regression testing
 examples/glfw/        windowed player without Flutter (GLFW + Metal on macOS,
                       Direct3D 11 on Windows, OpenGL ES on Linux)
@@ -120,11 +120,12 @@ and where the picture is in the PPM).
 (`TSAN=1` for a ThreadSanitizer build, `ASAN=1` for AddressSanitizer and
 UndefinedBehaviorSanitizer, `COVERAGE=1` for a line coverage report).
 `tool/format.sh` runs clang-format on the lines a branch changed. `tool/fuzz.sh` fuzzes the
-FFmpeg-free MP4 parser with libFuzzer under ASan and UBSan
-(`FUZZ_SECONDS`, `JOBS`); it needs Homebrew's LLVM (`brew install llvm`,
-a development tool only), since Apple's clang has no libFuzzer runtime.
-Inputs it once crashed on live in `core/fuzz/regressions`, which the unit
-tests replay. `tool/changes.sh` names the areas a branch touches, which
+FFmpeg-free parsers (MP4, Matroska, MPEG-TS, HLS) with libFuzzer under
+ASan and UBSan (`FUZZ_TARGET`, `FUZZ_SECONDS`, `JOBS`); on macOS it
+needs Homebrew's LLVM (`brew install llvm`, a development tool only),
+since Apple's clang has no libFuzzer runtime, and clang on Linux. Inputs
+they once crashed on live in `core/fuzz/regressions/TARGET`, which the
+unit tests replay. `tool/changes.sh` names the areas a branch touches, which
 decide the checks it needs and the CI jobs that run. Contributors and
 agents: see
 [AGENTS.md](AGENTS.md) and [docs/roadmap.md](docs/roadmap.md).

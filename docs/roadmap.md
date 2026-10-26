@@ -629,15 +629,39 @@ Left:
    memory. All are
    fixed and their inputs are in `core/fuzz/regressions`, which a unit
    test replays (without sanitizers) and `tool/fuzz.sh` replays first.
-   Homebrew's LLVM is a development-only dependency (Apple's clang has
-   no libFuzzer runtime); CI does not fuzz. Left: fuzz on CI (a Linux
-   job can build the parser alone, it uses no Apple API) and keep the
-   corpus somewhere. `MatroskaDemuxer` bounds header elements (16 MiB),
-   Cues and Attachments (64 MiB), blocks (64 MiB), cue points and
-   clusters (4M each) and resyncs at most 16 MiB ahead, but has never
-   been fuzzed: a target like the MP4 one, before it ships. `TsReader`
-   and the HLS playlist parser have a unit test of 20000 random packets
-   but no fuzzer either. `VTVideoDecoder` gives up after its
+   `MatroskaDemuxer` bounds header elements (16 MiB), Cues and
+   Attachments (64 MiB), blocks (64 MiB), cue points and clusters (4M
+   each) and resyncs at most 16 MiB ahead. Since 2026-10-26 every parser
+   of untrusted input has a target (`core/fuzz/fuzz_targets.h`): `mp4`,
+   `matroska` (with its text subtitles), `mpegts` (`TsDemuxer` through
+   `TsReader`, `TsParser` and the elementary streams), `hls_playlist`
+   (the parser and `PickHlsVariant`) and `hls` (`HlsDemuxer` on one
+   input holding the playlist, the variant and the segments, served by
+   its `set_opener` hook; playlists are made VOD, so the live reload
+   path, which waits real time, is not fuzzed). Seeds are ffmpeg-made
+   files per layout: Matroska H.264/AAC, HEVC/FLAC, MP3, VP9/Opus,
+   AV1, live WebM, small clusters, SRT/ASS/WebVTT, attachments and
+   `tool/mkv_cases.py`'s six damaged layouts; TS with H.264, HEVC, MP3,
+   AC-3, E-AC-3, M2TS, a 33-bit wrap, resent headers and a PID switch;
+   HLS media, master, byte-range and discontinuity playlists. About ten
+   minutes of two workers per target on the Mac (20 CPU-minutes each;
+   mp4 2.1 M inputs, matroska 335 K, mpegts 208 K, hls_playlist 12.6 M,
+   hls 782 K), another 20 CPU-minutes of matroska after its fixes (324 K
+   inputs, nothing found), plus short runs in WSL, found three
+   bugs, all UBSan and all fixed with their inputs in
+   `core/fuzz/regressions/TARGET`: `ParseHlsPlaylist` overflowed on a
+   huge EXTINF or TARGETDURATION (now clamped to 2^24 s); Matroska's
+   `ToMicros` overflowed on a cluster time near its 2^52 clamp with a
+   large TimestampScale (now clamped to 2^33 s, as MP4's `Rescale`);
+   and EBML lacing shifted by -1 after a lace size failed to read.
+   `core/fuzz` is its own CMake project that compiles the parsers
+   without the library, so it builds on Linux too: CI's `fuzz` job
+   (ubuntu-24.04, apt's clang 18) replays the regressions and fuzzes
+   each target for a minute on `parsers` changes. On Linux `tool/fuzz.sh`
+   runs the fuzzers under `setarch -R`: WSL2's kernel (6.18) has 32 bits
+   of mmap randomness, under which clang 14's and 15's sanitizer
+   runtimes crash at random. Left: keep the corpus between runs, and
+   fuzz the live HLS reloads (a clock the fuzzer can advance). `VTVideoDecoder` gives up after its
    consecutive-error limit on TS that lost one packet in a thousand
    (`ts_lost_packets.ts`), where FFmpeg's software decoder conceals the
    damage and plays on, so `ts-lost-packets` plays it audio only.
@@ -903,9 +927,10 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
      symbols and struct layouts (e.g. `abidiff` on Linux, or a test that
      compiles the previous release's header against the new library) so a
      break without a `LYCHEE_API_VERSION` bump fails CI.
-   - **Fuzzing in CI and a stored corpus**: run each fuzzer for a few
-     minutes on `parsers` changes and keep the corpus between runs
-     (OSS-Fuzz once the project is public).
+   - **A stored fuzzing corpus**: CI's `fuzz` job (2026-10-26) runs
+     each parser's fuzzer for a minute on `parsers` changes, from the
+     seeds every time; keep the corpus between runs (an Actions cache,
+     or OSS-Fuzz once the project is public).
    - **clang-tidy** on changed files (`bugprone-*`, `performance-*`,
      `modernize-use-override`, `cppcoreguidelines-pro-type-member-init`),
      with a checked-in `.clang-tidy`, local first, then in CI.
