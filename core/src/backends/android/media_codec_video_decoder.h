@@ -31,12 +31,19 @@ namespace lychee {
 // reorders by itself, and the renderer picks frames per vsync.
 class MediaCodecVideoDecoder : public VideoDecoder {
  public:
+  // Which codecs to take. With FFmpeg, its decoders are the better
+  // fallback, and the platform's software decoders would report hardware
+  // decoding where there is none; without FFmpeg, they are the fallback.
+  enum class Codecs { kHardwareOnly, kSoftwareOnly };
+
   // |rotate|: render frames rotated upright (VideoConfig::rotation).
-  MediaCodecVideoDecoder(std::shared_ptr<void> surface, bool rotate);
+  MediaCodecVideoDecoder(std::shared_ptr<void> surface,
+                         bool rotate,
+                         Codecs codecs = Codecs::kHardwareOnly);
   ~MediaCodecVideoDecoder() override;
 
   const char* name() const override { return "mediacodec"; }
-  bool is_hardware() const override { return true; }
+  bool is_hardware() const override { return hardware_; }
   bool Initialize(const VideoConfig& config, std::string* error) override;
   bool Decode(const EncodedPacket& packet,
               const OutputCallback& output) override;
@@ -65,6 +72,8 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   // Where the codec renders: the caller's window, or the placeholder.
   ANativeWindow* TargetWindowLocked();
 
+  const Codecs codecs_;
+  bool hardware_ = true;
   std::shared_ptr<Codec> codec_ = std::make_shared<Codec>();
   AnnexBConverter converter_;
   std::vector<uint8_t> annexb_;
@@ -82,6 +91,8 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   std::deque<std::pair<int64_t, int64_t>> durations_;
   int64_t last_pts_ = 0;
   bool end_of_stream_ = false;
+  // Packets queued since the last frame (or flush).
+  int inputs_without_output_ = 0;
 };
 
 }  // namespace lychee

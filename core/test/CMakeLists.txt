@@ -9,6 +9,7 @@ add_executable(lychee_unittests
   live_timeline_test.cc
   media_clock_test.cc
   packet_queue_test.cc
+  resampler_test.cc
   subtitle_renderer_test.cc
   text_subtitle_decoder_test.cc
   video_renderer_algorithm_test.cc
@@ -42,6 +43,10 @@ else()
   list(REMOVE_ITEM _lychee_test_sources ../src/backends/matroska/matroska_demuxer.cc)
 endif()
 target_sources(lychee_unittests PRIVATE ${_lychee_test_sources})
+# Built into the library only without FFmpeg on Android.
+if(LYCHEE_WITH_FFMPEG OR NOT ANDROID)
+  target_sources(lychee_unittests PRIVATE ../src/media/resampler.cc)
+endif()
 # The tests reach into the library's internals.
 target_include_directories(lychee_unittests PRIVATE ../src)
 target_link_libraries(lychee_unittests PRIVATE lychee)

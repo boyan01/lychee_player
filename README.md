@@ -155,6 +155,9 @@ emulators), and Kotlin classes over it. The core is also a prefab module
 sdk/android/gradlew -p sdk/android :lychee:publish   # into sdk/android/build/repo
 ```
 
+`-Plychee.ffmpeg=false` builds the core without FFmpeg: MP4 files only
+(no http), decoded by MediaCodec (roadmap, FFmpeg-free builds).
+
 ```kotlin
 val player = LycheePlayer()
 player.addListener { event -> Log.d("lychee", "$event") }   // main thread

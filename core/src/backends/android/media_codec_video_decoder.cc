@@ -12,6 +12,7 @@
 #include <cstring>
 #include <string>
 
+#include "backends/android/media_codec_name.h"
 #include "base/log.h"
 
 namespace lychee {
@@ -22,6 +23,10 @@ namespace {
 constexpr int64_t kDequeueTimeoutUs = 10000;
 // Waiting for the frames that follow end of stream.
 constexpr int64_t kEndOfStreamTimeoutUs = 3 * kMicrosPerSecond;
+// A codec takes input buffers back only as it outputs frames, so this many
+// packets without a frame means it drops them: Android's software HEVC
+// decoder does with Main 10 it cannot decode, without an error.
+constexpr int kMaxInputsWithoutOutput = 64;
 
 // One output buffer, owned by the frame that shows it.
 class OutputBuffer {
@@ -57,27 +62,7 @@ class OutputBuffer {
   bool released_ = false;
 };
 
-// API 28 symbols, resolved at runtime so the library loads on API 26.
-std::string CodecName(AMediaCodec* codec) {
-  using GetName = media_status_t (*)(AMediaCodec*, char**);
-  using ReleaseName = void (*)(AMediaCodec*, char*);
-  static auto get_name =
-      reinterpret_cast<GetName>(dlsym(RTLD_DEFAULT, "AMediaCodec_getName"));
-  static auto release_name = reinterpret_cast<ReleaseName>(
-      dlsym(RTLD_DEFAULT, "AMediaCodec_releaseName"));
-  char* name = nullptr;
-  if (!get_name || get_name(codec, &name) != AMEDIA_OK || !name) {
-    return {};
-  }
-  std::string result = name;
-  if (release_name) {
-    release_name(codec, name);
-  }
-  return result;
-}
-
-// The platform's software decoders: FFmpeg is the better fallback, and
-// they would report hardware decoding where there is none.
+// The platform's software decoders (Codecs says when they are wanted).
 bool IsSoftwareCodec(const std::string& name) {
   return name.rfind("OMX.google.", 0) == 0 || name.rfind("c2.android.", 0) == 0;
 }
@@ -125,8 +110,9 @@ void DiscardImages(void*, AImageReader* reader) {
 }  // namespace
 
 MediaCodecVideoDecoder::MediaCodecVideoDecoder(std::shared_ptr<void> surface,
-                                               bool rotate)
-    : surface_(std::move(surface)), rotate_(rotate) {}
+                                               bool rotate,
+                                               Codecs codecs)
+    : codecs_(codecs), surface_(std::move(surface)), rotate_(rotate) {}
 
 MediaCodecVideoDecoder::~MediaCodecVideoDecoder() {
   {
@@ -175,13 +161,27 @@ bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
     return false;
   }
   const char* mime = converter_.hevc() ? "video/hevc" : "video/avc";
-  AMediaCodec* codec = AMediaCodec_createDecoderByType(mime);
+  AMediaCodec* codec = nullptr;
+  if (codecs_ == Codecs::kSoftwareOnly) {
+    // Codec2's names from Android 10, OMX's before.
+    const char* names[] = {
+        converter_.hevc() ? "c2.android.hevc.decoder" : "c2.android.avc.decoder",
+        converter_.hevc() ? "OMX.google.hevc.decoder" : "OMX.google.h264.decoder"};
+    for (const char* name : names) {
+      if ((codec = AMediaCodec_createCodecByName(name))) {
+        break;
+      }
+    }
+  } else {
+    codec = AMediaCodec_createDecoderByType(mime);
+  }
   if (!codec) {
     *error = std::string("no MediaCodec decoder for ") + mime;
     return false;
   }
-  const std::string codec_name = CodecName(codec);
-  if (IsSoftwareCodec(codec_name)) {
+  const std::string codec_name = MediaCodecName(codec);
+  hardware_ = !IsSoftwareCodec(codec_name);
+  if (!hardware_ && codecs_ == Codecs::kHardwareOnly) {
     AMediaCodec_delete(codec);
     *error = "only a software MediaCodec decoder (" + codec_name + ") for " +
              mime;
@@ -296,6 +296,11 @@ bool MediaCodecVideoDecoder::Decode(const EncodedPacket& packet,
     durations_.pop_front();
   }
   durations_.emplace_back(pts, packet.duration);
+  if (++inputs_without_output_ > kMaxInputsWithoutOutput) {
+    LOGE("no frame from %d packets: the codec cannot decode this stream",
+         kMaxInputsWithoutOutput);
+    return false;
+  }
   return QueueInput(annexb_.data(), annexb_.size(), pts, 0, output) &&
          DrainOutput(output);
 }
@@ -385,6 +390,7 @@ bool MediaCodecVideoDecoder::DrainOutput(const OutputCallback& output) {
       buffer->Release(true, display_time * 1000);
     };
     frame->owner = std::move(buffer);
+    inputs_without_output_ = 0;
     output(std::move(frame));
   }
 }
@@ -400,6 +406,7 @@ void MediaCodecVideoDecoder::Flush() {
   }
   durations_.clear();
   end_of_stream_ = false;
+  inputs_without_output_ = 0;
 }
 
 }  // namespace lychee

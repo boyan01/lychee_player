@@ -127,7 +127,19 @@ core's internals).
      VAAPI machine to check.
    - Android: the SDK's SurfaceView shows MediaCodec's HDR output; the
      Flutter plugin's path (MediaCodec into a `SurfaceProducer`) is
-     unchecked.
+     still unchecked, waiting on the user's HDR phone. The API 37
+     emulator cannot show it (2026-10-26): no codec there takes HEVC
+     Main 10 (`c2.goldfish.hevc.decoder` fails at the first packets,
+     `c2.android.hevc.decoder` lists only Main and silently drops them),
+     so the SDK and the plugin both fall back to FFmpeg and show the
+     same swscale tone mapping, pixel for pixel: `hdr_pq.mp4` 181, the
+     `hdr_pq_bars.mp4` bars 190, 253 and white from 400 nits. If the
+     phone shows the plugin washed out (PQ read as SDR), the cheap fix
+     is asking the decoder for SDR (`color-transfer-request`, API 31,
+     where the codec can tone-map) for the plugin's surface only, which
+     needs a `lychee_config` flag (the SDK's SurfaceView must keep HDR).
+     A MediaCodec video decoder that outputs nothing for 64 packets now
+     fails, so the next decoder takes over instead of loading forever.
 3. **libass in shipped builds**: styled ASS goes through libass
    (`LYCHEE_WITH_LIBASS`, pictures like bitmap subtitles) only where the
    core's own CMake build finds it with pkg-config: the CLI and GLFW
@@ -221,7 +233,34 @@ ADTS, ALAC) over a `DataSource` (files; http(s) through NSURLSession, with
 range requests and reconnects). The iOS core is then 425 KB instead of
 ~7 MB of FFmpeg per architecture. `NO_FFMPEG=1 tool/regression.sh` runs
 every case whose media is MP4 (http faults, live input, seeks, loops,
-decoder loss, HDR included) and passes. Decisions:
+decoder loss, HDR included) and passes.
+
+Android without FFmpeg plays MP4 files (2026-10-26):
+`-Plychee.ffmpeg=false` on the SDK's Gradle build (`-DLYCHEE_WITH_FFMPEG=OFF`)
+builds `Mp4Demuxer`, MediaCodec video with the platform's software codecs
+as the fallback (`c2.android.*`, reported as `sw`), and
+`MediaCodecAudioDecoder` (AAC including ADTS, MP3, Opus, FLAC, ALAC
+from Android 13). MediaCodec only decodes, so channels are mixed
+(`ChannelMatrix`) and the rate converted (`Resampler`, windowed sinc)
+by our own code, unit-tested. `liblychee.so` is then 338 KB and the APK
+carries no FFmpeg. On the API 37 emulator the SDK example plays
+`h264_aac.mp4` and `rotated.mp4` (hw `c2.goldfish.h264.decoder`, sw
+`c2.android.avc.decoder`, upright) with audio driving the clock through
+loops; the CLI cross-built for Android plays AAC (44.1 kHz mono to
+48 kHz stereo), MP3, Opus and FLAC in MP4 with seeks, drifting no more
+than the FFmpeg build there. Decisions:
+
+- No http without FFmpeg on Android: the NDK has no HTTP client, and one
+  in C++ (TLS, redirects, proxies) is what FFmpeg plus mbedTLS already
+  is. When the FFmpeg-free AAR ships, http should go through Java's
+  `HttpURLConnection` via JNI behind `DataSource`, like
+  `HttpDataSource` on Apple; until then `open` fails with "no HTTP
+  client in this build".
+- The shipped AAR keeps FFmpeg, and the Android FFmpeg build keeps
+  FFmpeg's audio decoders: `MediaCodecAudioDecoder` and `Resampler` are
+  compiled only without FFmpeg.
+
+Apple's decisions:
 
 - Reordering needs no SPS parser: a decoded frame goes out once a packet
   with `dts >= its pts` was decoded (no later frame can come before it),
@@ -312,11 +351,9 @@ Left:
    it as on Apple. One `NSURLSession` per demuxer would let HLS segments
    reuse connections.
 2. Containers: fragmented MP4, MPEG-TS, HLS; tx3g (mov_text) subtitles,
-   which the MP4 demuxer skips. MP3 in MP4 decodes; Opus and FLAC in
-   MP4 do not yet: `Mp4Demuxer` lists them as `kOther` (`Opus`, `fLaC`).
-   It should map them to `kOpus` with the dOps turned into an OpusHead
-   (the cookie `ATAudioDecoder` passes on) and `kFLAC` with the dfLa
-   body, which `ATAudioDecoder`'s FLAC cookie already accepts. Bitmap
+   which the MP4 demuxer skips. `Mp4Demuxer` turns `dOps` and `dfLa`
+   into FFmpeg-style extradata (OpusHead, STREAMINFO), so MP3, Opus and
+   FLAC in MP4 decode on Android and through `ATAudioDecoder`. Bitmap
    subtitles (PGS, DVB, VobSub) have no FFmpeg-free decoder.
 3. Packaging: a `tool/build_apple.sh` variant (or the Swift package) that
    ships the FFmpeg-free core; iOS compiles (arm64, zero warnings) but has
@@ -326,8 +363,9 @@ Left:
    `LYCHEE_FRAME_D3D11_TEXTURE` frames, ahead of FFmpeg's D3D11VA, which
    stays the fallback when FFmpeg is present (HEVC without the Store's
    HEVC extension, VP9). Audio through Media Foundation's AAC decoder.
-5. Android: MediaCodec already decodes video without FFmpeg; audio needs
-   MediaCodec too.
+5. Android: done for files (above). Left: http through JNI, an
+   FFmpeg-free AAR variant if native Android users want one, and the
+   Flutter plugin on it (its example opens http URLs).
 6. Malformed input: the MP4 parser bounds sample tables, single samples
    (64 MiB, inside the file) and its allocations (`huge-sample-table`,
    `huge-sample`, `truncated-file`, `corrupt-file`), but has never been

@@ -34,6 +34,10 @@
 
 #include "backends/android/aaudio_sink.h"
 #include "backends/android/media_codec_video_decoder.h"
+#if !defined(LYCHEE_WITH_FFMPEG)
+#include "backends/android/media_codec_audio_decoder.h"
+#include "backends/mp4/mp4_demuxer.h"
+#endif
 #elif defined(_WIN32)
 #include <unknwn.h>
 
@@ -128,6 +132,8 @@ std::unique_ptr<Demuxer> CreateDemuxer() {
   return std::make_unique<FFmpegDemuxer>();
 #elif defined(__APPLE__)
   return std::make_unique<ProbingDemuxer>();
+#elif defined(__ANDROID__)
+  return std::make_unique<Mp4Demuxer>();
 #else
   return nullptr;
 #endif
@@ -143,10 +149,23 @@ std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
   [[maybe_unused]] auto accepts = [accepted_storage](VideoFrameStorage storage) {
     return (accepted_storage & static_cast<uint32_t>(storage)) != 0;
   };
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) && defined(LYCHEE_WITH_FFMPEG)
   if (allow_hardware && accepts(VideoFrameStorage::kAndroidSurface)) {
     decoders.push_back(std::make_unique<MediaCodecVideoDecoder>(
         surface, rotate_surface_frames));
+  }
+#elif defined(__ANDROID__)
+  // Without FFmpeg the platform's software decoders are the fallback, also
+  // when a hardware codec fails (the emulator's takes no HEVC Main 10).
+  if (accepts(VideoFrameStorage::kAndroidSurface)) {
+    if (allow_hardware) {
+      decoders.push_back(std::make_unique<MediaCodecVideoDecoder>(
+          surface, rotate_surface_frames,
+          MediaCodecVideoDecoder::Codecs::kHardwareOnly));
+    }
+    decoders.push_back(std::make_unique<MediaCodecVideoDecoder>(
+        surface, rotate_surface_frames,
+        MediaCodecVideoDecoder::Codecs::kSoftwareOnly));
   }
 #endif
 #if defined(__APPLE__) && !defined(LYCHEE_WITH_FFMPEG)
@@ -222,6 +241,8 @@ std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders() {
   std::vector<std::unique_ptr<AudioDecoder>> decoders;
 #if defined(__APPLE__) && !defined(LYCHEE_WITH_FFMPEG)
   decoders.push_back(std::make_unique<ATAudioDecoder>());
+#elif defined(__ANDROID__) && !defined(LYCHEE_WITH_FFMPEG)
+  decoders.push_back(std::make_unique<MediaCodecAudioDecoder>());
 #endif
 #if defined(LYCHEE_WITH_FFMPEG)
   decoders.push_back(std::make_unique<FFmpegAudioDecoder>());

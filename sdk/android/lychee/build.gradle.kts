@@ -15,10 +15,14 @@ val repoRoot = rootDir.resolve("../..")
 val lycheeVersion = Regex("""(?m)^version: (\S+)""")
     .find(repoRoot.resolve("flutter/pubspec.yaml").readText())!!.groupValues[1]
 
+// -Plychee.ffmpeg=false builds the core without FFmpeg: MP4 files only,
+// decoded by MediaCodec (roadmap, FFmpeg-free builds). Releases keep it.
+val withFfmpeg = (findProperty("lychee.ffmpeg") as String?)?.toBoolean() ?: true
+
 // FFmpeg comes from tool/build_ffmpeg.sh android-ABI; only the ABIs it was
 // built for are built.
 val ffmpegAbis = listOf("arm64-v8a", "x86_64")
-    .filter { repoRoot.resolve("third_party/ffmpeg/android-$it").isDirectory }
+    .filter { !withFfmpeg || repoRoot.resolve("third_party/ffmpeg/android-$it").isDirectory }
 if (ffmpegAbis.isEmpty()) {
     logger.warn("lychee: no Android FFmpeg in third_party/ffmpeg; run tool/build_ffmpeg.sh android-arm64-v8a")
 }
@@ -36,6 +40,8 @@ android {
         externalNativeBuild {
             cmake {
                 arguments += "-DANDROID_STL=c++_shared"
+                // Always explicit: CMake's cache would keep the last value.
+                arguments += "-DLYCHEE_WITH_FFMPEG=${if (withFfmpeg) "ON" else "OFF"}"
             }
         }
         consumerProguardFiles("consumer-rules.pro")

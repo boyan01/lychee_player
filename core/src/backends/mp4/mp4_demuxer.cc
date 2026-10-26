@@ -308,6 +308,34 @@ void ParseAudioEntry(const Box& entry, AudioConfig* config) {
     if (std::optional<Box> alac = Find(children, FourCC("alac"))) {
       config->extradata.assign(alac->start, alac->start + alac->size);
     }
+  } else if (entry.type == FourCC("Opus")) {
+    config->codec = AudioCodec::kOpus;
+    config->codec_name = "opus";
+    // dOps ("Encapsulation of Opus in ISO Base Media File Format") holds
+    // the fields of the OpusHead packet (RFC 7845) big-endian; FFmpeg's
+    // extradata and MediaCodec's csd-0 are the packet itself.
+    std::optional<Box> dops = Find(children, FourCC("dOps"));
+    if (dops && dops->payload_size >= 11) {
+      const uint8_t* d = dops->payload;
+      config->extradata = {'O',  'p',  'u',  's',  'H',  'e',  'a',
+                           'd',  1,    d[1], d[3], d[2], d[7], d[6],
+                           d[5], d[4], d[9], d[8], d[10]};
+      // The channel mapping table, when the family is not 0.
+      config->extradata.insert(config->extradata.end(), d + 11,
+                               d + dops->payload_size);
+    }
+  } else if (entry.type == FourCC("fLaC")) {
+    config->codec = AudioCodec::kFLAC;
+    config->codec_name = "flac";
+    // dfLa holds FLAC metadata blocks, STREAMINFO first; FFmpeg's
+    // extradata is that block without its 4-byte header.
+    std::optional<Box> dfla = Find(children, FourCC("dfLa"));
+    constexpr size_t kStreamInfoSize = 34;
+    if (dfla && dfla->payload_size >= 8 + kStreamInfoSize &&
+        (dfla->payload[4] & 0x7f) == 0) {
+      config->extradata.assign(dfla->payload + 8,
+                               dfla->payload + 8 + kStreamInfoSize);
+    }
   }
 }
 

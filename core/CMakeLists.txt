@@ -48,6 +48,17 @@ if(ANDROID)
     src/backends/android/aaudio_sink.cc
     src/backends/android/media_codec_video_decoder.cc
   )
+  if(NOT LYCHEE_WITH_FFMPEG)
+    # Without FFmpeg: MP4 from files, H.264 and HEVC through MediaCodec
+    # (software codecs as the fallback), AAC, MP3, Opus, FLAC and ALAC
+    # through MediaCodec with our own channel mix and resampler.
+    list(APPEND LYCHEE_SOURCES
+      src/backends/android/media_codec_audio_decoder.cc
+      src/backends/mp4/mp4_demuxer.cc
+      src/media/data_source.cc
+      src/media/resampler.cc
+    )
+  endif()
 endif()
 
 if(WIN32)
