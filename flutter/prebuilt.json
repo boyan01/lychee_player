@@ -1,5 +1,14 @@
 {
   "url": "https://github.com/boyan01/lychee_player/releases/download",
-  "tag": null,
-  "files": {}
+  "tag": "v1.0.0-beta.1",
+  "files": {
+    "lychee.xcframework.zip": "1783d66b0c8c05783cd9ed0fdbadb5e61e50499c42f446fa35bd6d6591454f94",
+    "libavformat.xcframework.zip": "14517224e269b3808aa1c58f054e570267a3608d5d828974d7c1218799a4028e",
+    "libavcodec.xcframework.zip": "3282349880200880a5d5f7e53cef81b518053718700c93956e72db86dfe381ec",
+    "libswresample.xcframework.zip": "0a2b5933c8e88697922c3d358938ced123a99453d85790dc8f73671fd75652b6",
+    "libswscale.xcframework.zip": "1dfd394d2f02c79cde524925eb2153619ca7766aff7e7d80e03a1aac9240e9a3",
+    "libavutil.xcframework.zip": "be70ec8636187086fff68553c626653c1538963b05c03b6b79f17841c5b67335",
+    "lychee-1.0.0-beta.1.aar": "5bd6094b168b380baf677f25215e6beee566e3377944e795873e5cc321c0cc4e",
+    "lychee-1.0.0-beta.1.pom": "f3e50a6ac80dcf6832d20a0953b44aa622f8b14e53c5df533cb64424efb9e205"
+  }
 }
