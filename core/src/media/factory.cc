@@ -26,7 +26,6 @@
 #include "backends/apple/at_audio_decoder.h"
 #include "backends/apple/vt_video_decoder.h"
 #include "backends/matroska/matroska_demuxer.h"
-#include "backends/mp4/mov_text_decoder.h"
 #include "backends/mp4/mp4_demuxer.h"
 #include "media/text_subtitle_decoder.h"
 #endif

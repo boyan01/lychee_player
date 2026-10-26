@@ -2,6 +2,7 @@
 // tx3g text, and inputs the fuzzer found (FFmpeg-free builds only).
 
 #include "backends/mp4/mp4_demuxer.h"
+#include "media/text_subtitle_decoder.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -12,7 +13,6 @@
 #include <vector>
 
 #include "../fuzz/mp4_demuxer_fuzz.h"
-#include "backends/mp4/mov_text_decoder.h"
 #include "test.h"
 
 namespace lychee {
@@ -186,9 +186,9 @@ TEST(Mp4Demuxer, HugeDefaultSampleCount) {
   EXPECT_TRUE(times.size() < 100u);
 }
 
-TEST(MovTextDecoder, SampleText) {
+TEST(TextSubtitleDecoder, MovText) {
   auto text = [](const Bytes& bytes) {
-    return MovTextDecoder::SampleText(bytes.data(), bytes.size());
+    return TextSubtitleDecoder::MovTextToPlainText(bytes.data(), bytes.size());
   };
   // Text, then a style box.
   EXPECT_EQ(text(Append(Bytes{0, 5, 'H', 'e', 'l', 'l', 'o'},

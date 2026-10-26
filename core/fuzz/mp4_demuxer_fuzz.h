@@ -9,8 +9,8 @@
 #include <string>
 #include <vector>
 
-#include "backends/mp4/mov_text_decoder.h"
 #include "backends/mp4/mp4_demuxer.h"
+#include "media/text_subtitle_decoder.h"
 
 namespace lychee {
 
@@ -33,7 +33,7 @@ inline void FuzzMp4Demuxer(const uint8_t* data, size_t size) {
           packet.stream_index < static_cast<int>(info.streams.size()) &&
           info.streams[packet.stream_index].type == MediaType::kSubtitle &&
           packet.buffer) {
-        MovTextDecoder::SampleText(packet.buffer->data(), packet.buffer->size());
+        TextSubtitleDecoder::MovTextToPlainText(packet.buffer->data(), packet.buffer->size());
       }
     }
   };

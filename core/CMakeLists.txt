@@ -90,7 +90,6 @@ if(APPLE)
     list(APPEND LYCHEE_SOURCES
       src/backends/apple/at_audio_decoder.cc
       src/backends/apple/vt_video_decoder.cc
-      src/backends/mp4/mov_text_decoder.cc
       src/backends/mp4/mp4_demuxer.cc
     )
     # Matroska and WebM; VP9 and AV1 through VideoToolbox, Opus, FLAC and
