@@ -51,7 +51,8 @@ on top of them.
 
 1. **`realtime-loop` drifts on CI's hosted VM**: it plays on the real
    clock and audio device, so load shows up as drift, and CI's plain job
-   failed on it once (2026-10-26). A red plain job needs its log read.
+   failed on it once (2026-10-26). A red plain job (or `core-linux`,
+   which runs the same cases) needs its log read.
    Done when CI runs the `realtime=1` cases somewhere their timing means
    something, or not at all. The virtual-time flakes of that day
    (`live-resolution`, `live-jitter`, `subtitle-mid-cue`) are fixed: time
@@ -193,7 +194,9 @@ above). What is left per platform is a renderer in `examples/glfw`
    holding a frame for 3 vsyncs every ~3 s (`glitches=1-4`,
    `max_drift` 30-45 ms over 12 s), with or without a seek
    (2026-10-25). That is lip sync working, not a seek problem: on virtual
-   time, with no audio device, plain playback shows none. Not yet seen
+   time, with no audio device, plain playback shows none. On a private
+   PulseAudio null sink in the same WSL, `realtime-loop` passes
+   (2026-10-26, Distribution 4), so the drift is RDPSink's. Not yet seen
    on a machine with a sound card.
 3. **32-bit Android**: the AAR has the core for `arm64-v8a` and `x86_64`
    only (decided 2026-10-26); apps restrict `abiFilters` to those
@@ -378,10 +381,26 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
       itself with an `@executable_path` rpath (README); tried by moving
       the example with its libraries to another directory.
    Windows and Linux native users take the C ABI as it is.
-4. **CI on Linux**: CI runs only on macOS (the regression with and
-   without TSan, the Flutter macOS build). A `NO_HW=1 tool/regression.sh`
-   job on `ubuntu-24.04` (FFmpeg from apt or `tool/build_ffmpeg.sh
-   linux-x86_64`, the audio cases on a null sink) would catch Linux build
-   breaks that only a WSL run finds today. TSan stays on macOS: on Linux
-   it needs clang, suppressions for FFmpeg, and is far slower than real
-   time. Done when the job runs on every push and is green.
+4. **CI on Linux**: `core-linux` in `ci.yml` (2026-10-26) runs `NO_HW=1
+   tool/regression.sh` on `ubuntu-24.04` on every push, so Linux build
+   breaks no longer wait for a WSL run. The core links the LGPL FFmpeg
+   from `tool/build_ffmpeg.sh linux-x86_64` (`tool/release.sh build
+   linux`; apt's 6.1 predates the API the core uses), cached on the
+   script and the source pin like the Apple builds. The media come from
+   BtbN's GPL ffmpeg 9.0.2 of the release the plugin pins, the version
+   Homebrew's has on macOS. The realtime cases play through a PulseAudio
+   started in the job, which with no sound card plays to its `auto_null`
+   sink on the system clock. An idle null sink renders 2 s ahead, so a
+   first stream waited ~2 s for its audio (`realtime-rate`,
+   `realtime-loop` and `http-stall-seek` failed with ~1 s of drift); the
+   job keeps a silent 20 ms stream playing so it renders in small
+   blocks. Run by hand in WSL (Ubuntu 22.04, gcc 11; a private
+   PulseAudio unpacked with `apt-get download`, not WSLg's): the FFmpeg
+   build (57 s), the media and all 85 cases pass, the realtime ones and
+   `http-stall-seek` 5 times in a row; without the silent stream every
+   start showed the ~1 s. gcc 15 on the 26.04 VM builds the core, CLI
+   and tests without a warning; the runner's gcc 13 is untried against
+   `regression.sh`'s zero-warning check. Waiting on a push to see the
+   job on GitHub. TSan stays on macOS: on Linux it needs clang,
+   suppressions for FFmpeg, and is far slower than real time. Done when
+   the job is green on GitHub.

@@ -20,6 +20,58 @@ jobs:
       - name: Regression
         run: NO_HW=1 TSAN=${{ matrix.tsan }} tool/regression.sh
 
+  core-linux:
+    # Catches Linux build breaks without a WSL run. Software decoding: no
+    # VAAPI on hosted runners. TSan stays on macOS (Linux needs clang and
+    # FFmpeg suppressions, and is far slower than real time there).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        # PulseAudio for the realtime cases: with no sound card it plays to
+        # a null sink (auto_null) clocked by the system, so they exercise
+        # the core's PulseAudio sink. nasm, libva and OpenSSL for the FFmpeg
+        # build.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm \
+            libva-dev libdrm-dev libssl-dev libpulse-dev pulseaudio
+      # The core follows the current FFmpeg API, which apt's (6.1) predates:
+      # build the one tool/build_ffmpeg.sh makes for the Linux plugin.
+      - name: FFmpeg cache key
+        id: ffmpeg
+        run: |
+          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; lsb_release -ds; gcc --version | head -1)"
+          echo "key=ffmpeg-linux-$(echo "$inputs" | sha256sum | cut -c1-16)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: third_party/ffmpeg/linux-x86_64
+          key: ${{ steps.ffmpeg.outputs.key }}
+      - name: Build FFmpeg
+        run: tool/release.sh build linux build-sources
+      - name: FFmpeg for the test media
+        # Only generates the media, like Homebrew's on macOS: a GPL build
+        # with x264, x265 and SVT-AV1, from the BtbN release the Linux
+        # plugin pins.
+        run: |
+          name=ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$name.tar.xz" \
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/$name.tar.xz"
+          echo "68ee646831adaae2495618346f3bba94ff207ff83bbd34d643e7004730d66269  $RUNNER_TEMP/$name.tar.xz" | sha256sum -c -
+          tar xJf "$RUNNER_TEMP/$name.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$name/bin" >>"$GITHUB_PATH"
+      - name: Sound server
+        # An idle null sink renders 2 s ahead, so a new stream would start
+        # ~2 s late (a device starts within its latency) and the realtime
+        # cases would see that as drift. A silent stream at 20 ms keeps it
+        # rendering in small blocks.
+        run: |
+          pulseaudio --start --exit-idle-time=-1
+          nohup pacat --latency-msec=20 /dev/zero >/dev/null 2>&1 &
+          pactl info | grep -E '^(Server Version|Default Sink)'
+      - name: Regression
+        run: NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/linux-x86_64 tool/regression.sh
+
   flutter-macos:
     # The pod links the xcframeworks; build them from this commit's core
     # with the LGPL FFmpeg, as release.yml does (same runner and cache key,

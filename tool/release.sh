@@ -9,10 +9,12 @@
 #   tool/release.sh sources DIR        download the pinned FFmpeg and Mbed TLS
 #                                      sources into DIR (release assets too:
 #                                      the LGPL asks for the source)
-#   tool/release.sh build apple|android SOURCES
+#   tool/release.sh build apple|android|linux SOURCES
 #                                      build FFmpeg (platforms already in
 #                                      third_party/ffmpeg are kept) and the
-#                                      xcframeworks or the AAR
+#                                      xcframeworks or the AAR; linux builds
+#                                      only FFmpeg (CI; the plugin still
+#                                      downloads BtbN's)
 #   tool/release.sh pack apple|android OUT
 #                                      write the release assets into OUT
 #   tool/release.sh pin OUT            pin OUT's assets in flutter/prebuilt.json
@@ -92,7 +94,7 @@ cmd_sources() {
 }
 
 cmd_build() {
-  local target="${1:?apple or android}" sources src p
+  local target="${1:?apple, android or linux}" sources src p
   cmd_sources "${2:?sources dir}"
   sources="$(cd "$2" && pwd)"
   src="$root/build-ffmpeg/src"
@@ -116,6 +118,10 @@ cmd_build() {
         "$root/tool/build_ffmpeg.sh" "$p" "$src/ffmpeg-$ffmpeg_version" "$src/mbedtls-$mbedtls_version"
       done
       "$root/sdk/android/gradlew" -p "$root/sdk/android" :lychee:publish
+      ;;
+    linux)
+      [ -d "$root/third_party/ffmpeg/linux-x86_64" ] ||
+        "$root/tool/build_ffmpeg.sh" linux-x86_64 "$src/ffmpeg-$ffmpeg_version"
       ;;
     *) die "unknown target $target" ;;
   esac
