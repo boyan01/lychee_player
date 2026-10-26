@@ -59,19 +59,20 @@ on top of them.
    ran ahead of a slow live decoder, and of events still waiting for the
    control thread's next 10 ms tick; 24 runs six at once now give the
    same counts every run.
-2. **Events of players a hot restart left go to a closed isolate**: the
-   plugins destroy the players behind their textures when the engine
-   goes, and on `disposeAll`, which Dart calls before an isolate's first
-   player (2026-10-26: macOS hot restart and Android back-out seen,
-   integration test on both; Windows and Linux built only). Until that
-   call, which never comes if the new isolate opens no player, the old
-   players keep playing and send events to the old isolate's closed
-   `NativeCallable`. No crash has been seen, but the integration test's
-   orphan player registers no callback, so nothing covers it. Done when
-   the plugin clears a player's event callback as soon as its isolate
-   goes (or events cross through a bridge that drops messages for a dead
-   port), with the integration test's orphan registering a callback.
-   Development only: release builds have no hot restart.
+2. **`disposeAll` kills the Linux app**: the integration test's orphan
+   test, run on Linux for the first time (WSL, headless, 2026-10-26),
+   ends with the app gone inside `disposeAll`, whether the orphan is
+   still playing or has played to its end, and with or without an event
+   callback; everything before it passes, and the same test passes on
+   macOS, Android and Windows. Not yet diagnosed: `flutter test` does not
+   show the app's stderr, and the bundle run under plain Xvfb gets no GL.
+   Likely in `dispose_all` / `remove_texture` / `destroy_orphan`
+   (`flutter/linux/lychee_player_plugin.cc`). Done when the integration
+   test passes on WSL (`remote-test run --project flutter/example
+   --platform wsl --mode integration --headless --target
+   integration_test/switch_files_test.dart`, with the media copied into
+   WSL's `/tmp/lychee-media`, which WSL clears when it shuts down) and on
+   the VM.
 3. **A track switch on input that cannot seek loses the read-ahead**: a
    track switch, new video device or decoder rebuild on input that cannot
    seek (`lychee_player_is_seekable()` 0, e.g. an http server without

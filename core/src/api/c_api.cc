@@ -25,7 +25,11 @@ using lychee::Player;
 using lychee::VideoFrame;
 
 struct lychee_player {
-  std::unique_ptr<Player> player;
+  // Not a unique_ptr: its reset() clears the pointer before ~Player joins
+  // the threads, and an event callback may still call into the player
+  // until then.
+  Player* player = nullptr;
+  ~lychee_player() { delete player; }
 };
 
 struct lychee_subtitle {
@@ -192,7 +196,7 @@ lychee_player* lychee_player_create(const lychee_config* config) {
          defaults.video_device->type);
   }
   auto* player = new lychee_player;
-  player->player = std::make_unique<Player>(player_config);
+  player->player = new Player(player_config);
   return player;
 }
 
@@ -224,6 +228,10 @@ void lychee_player_set_event_callback(lychee_player* player,
                                       lychee_event_callback callback,
                                       void* user_data) {
   player->player->SetEventCallback(callback, user_data);
+}
+
+void lychee_player_clear_event_callback(lychee_player* player) {
+  player->player->SetEventCallback(nullptr, nullptr);
 }
 
 int32_t lychee_player_open(lychee_player* player, const char* url) {

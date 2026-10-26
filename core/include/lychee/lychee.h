@@ -55,7 +55,11 @@ extern "C" {
 //    leave the caller's struct_size as it was.
 // 10: lychee_player_is_seekable(). lychee_set_log_callback() called from
 //    inside a log callback no longer waits for the other threads in it.
-#define LYCHEE_API_VERSION 10
+// 11: lychee_player_set_event_callback() returns once the old callback is
+//    no longer running; lychee_player_clear_event_callback(), shaped as a
+//    finalizer, for bindings whose callback dies with a garbage-collected
+//    runtime (a Dart isolate a hot restart ends).
+#define LYCHEE_API_VERSION 11
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -377,10 +381,19 @@ LYCHEE_EXPORT int32_t lychee_player_set_video_device(
 LYCHEE_EXPORT void lychee_player_set_video_surface(lychee_player* player,
                                                    void* surface);
 
+// Replaces the event callback; NULL for none. Called from outside an event
+// callback of this player, this returns once no thread is in the old
+// callback, so the caller can free what it was bound to. From inside one it
+// returns at once, and the old callback finishes the event it is handling.
 LYCHEE_EXPORT void lychee_player_set_event_callback(
     lychee_player* player,
     lychee_event_callback callback,
     void* user_data);
+
+// lychee_player_set_event_callback(player, NULL, NULL), with the signature of
+// a finalizer (void (*)(void*)), e.g. for Dart's NativeFinalizer: a binding
+// whose callback goes with its runtime can have the runtime clear it.
+LYCHEE_EXPORT void lychee_player_clear_event_callback(lychee_player* player);
 
 // Opens a file path or URL asynchronously. Progress is reported through
 // LYCHEE_EVENT_STATE_CHANGED. Returns 0 if the request was accepted.

@@ -162,11 +162,21 @@ class LycheePlayerStats {
   final Duration videoDecodeTime;
 }
 
-class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
+class LycheePlayer extends ValueNotifier<LycheePlayerValue>
+    implements Finalizable {
   LycheePlayer._(this._player, this._events, this.textureId)
-      : super(const LycheePlayerValue());
+      : super(const LycheePlayerValue()) {
+    _clearEvents.attach(this, _player, detach: this);
+  }
 
   static const _channel = MethodChannel('lychee_player');
+
+  // A hot restart ends this isolate without dispose(), and the player keeps
+  // running until the next isolate's first create(). Before the isolate
+  // deletes its NativeCallables, it runs this, which returns once the
+  // player is no longer in the callback.
+  static final _clearEvents =
+      NativeFinalizer(native.playerClearEventCallbackPointer);
 
   final Pointer<Void> _player;
   final NativeCallable<native.EventCallbackNative> _events;
@@ -193,23 +203,24 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
     final player = native.playerCreate(config);
     calloc.free(config);
 
-    late final LycheePlayer instance;
-    final events = NativeCallable<native.EventCallbackNative>.listener(
-        (Pointer<Void> _, int type, int arg0, int arg1) =>
-            instance._onEvent(type, arg0, arg1));
-    native.playerSetEventCallback(player, events.nativeFunction, nullptr);
     int? textureId;
     try {
       textureId = await _channel
           .invokeMethod<int>('createTexture', {'player': player.address});
     } finally {
-      // No player to return, so nobody else can dispose of these.
+      // No player to return, so nobody else can dispose of it.
       if (textureId == null) {
         native.playerDestroy(player);
-        events.close();
       }
     }
+    // The callback only once the finalizer that clears it is attached:
+    // nothing is open yet, so no event is missed.
+    late final LycheePlayer instance;
+    final events = NativeCallable<native.EventCallbackNative>.listener(
+        (Pointer<Void> _, int type, int arg0, int arg1) =>
+            instance._onEvent(type, arg0, arg1));
     instance = LycheePlayer._(player, events, textureId!);
+    native.playerSetEventCallback(player, events.nativeFunction, nullptr);
     instance._ticker = Timer.periodic(
         const Duration(milliseconds: 200), (_) => instance._onTick());
     return instance;
@@ -527,6 +538,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
     // The texture must stop pulling frames before the player goes away, and
     // the player must stop calling back before the callable is closed.
     await _channel.invokeMethod('disposeTexture', {'textureId': textureId});
+    _clearEvents.detach(this);
     native.playerDestroy(_player);
     _events.close();
   }

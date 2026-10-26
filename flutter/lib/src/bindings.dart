@@ -140,6 +140,13 @@ final playerSetEventCallback = _library.lookupFunction<
     void Function(Pointer<Void>, Pointer<NativeFunction<EventCallbackNative>>,
         Pointer<Void>)>('lychee_player_set_event_callback');
 
+/// lychee_player_clear_event_callback, for a NativeFinalizer: an isolate
+/// runs its native finalizers when it shuts down (a hot restart), before it
+/// deletes its NativeCallables.
+final playerClearEventCallbackPointer =
+    _library.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
+        'lychee_player_clear_event_callback');
+
 final playerOpen = _library.lookupFunction<
     Int32 Function(Pointer<Void>, Pointer<Char>),
     int Function(Pointer<Void>, Pointer<Char>)>('lychee_player_open');

@@ -99,6 +99,7 @@ class Player {
   explicit Player(const PlayerConfig& config);
   ~Player();
 
+  // Returns once no thread is in the old callback, unless called from it.
   void SetEventCallback(EventCallback callback, void* user_data);
 
   // Stops whatever is open and opens |url|. Volume, rate, looping, the

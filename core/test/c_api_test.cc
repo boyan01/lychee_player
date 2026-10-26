@@ -218,5 +218,66 @@ TEST(CApi, LogCallbackSetterWaitsOutsideCallbacks) {
   EXPECT_TRUE(returned);
 }
 
+struct BlockedEvents {
+  std::atomic<int> inside{0};
+  std::atomic<bool> release{false};
+};
+
+void BlockingEventCallback(void* user_data, int32_t, int64_t, int64_t) {
+  auto* test = static_cast<BlockedEvents*>(user_data);
+  test->inside++;
+  while (!test->release) {
+    std::this_thread::yield();
+  }
+}
+
+// Clearing the callback must wait for an event being handed to it: a
+// binding frees what the callback is bound to right after (a Dart isolate
+// a hot restart ends runs its finalizers, then deletes its callbacks).
+TEST(CApi, ClearEventCallbackWaitsForTheCallback) {
+  Watchdog watchdog("ClearEventCallbackWaitsForTheCallback");
+  lychee_config config;
+  lychee_config_init(&config, sizeof(config));
+  config.video_frame_types = 0;
+  lychee_player* player = lychee_player_create(&config);
+  BlockedEvents test;
+  lychee_player_set_event_callback(player, &BlockingEventCallback, &test);
+  lychee_player_open(player, "/nonexistent/d.mp4");
+  WaitFor(test.inside, 1);
+  std::atomic<bool> cleared{false};
+  std::thread clear([&] {
+    lychee_player_clear_event_callback(player);
+    cleared = true;
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  EXPECT_TRUE(!cleared.load());
+  test.release = true;
+  clear.join();
+  EXPECT_TRUE(cleared.load());
+  const int seen = test.inside;
+  lychee_player_open(player, "/nonexistent/e.mp4");
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  lychee_player_destroy(player);
+  EXPECT_EQ(test.inside.load(), seen);
+}
+
+void ClearFromCallback(void* user_data, int32_t, int64_t, int64_t) {
+  auto* player = static_cast<lychee_player*>(user_data);
+  lychee_player_clear_event_callback(player);
+}
+
+// From inside its own callback, the setter must not wait for itself.
+TEST(CApi, ClearEventCallbackFromTheCallback) {
+  Watchdog watchdog("ClearEventCallbackFromTheCallback");
+  lychee_config config;
+  lychee_config_init(&config, sizeof(config));
+  config.video_frame_types = 0;
+  lychee_player* player = lychee_player_create(&config);
+  lychee_player_set_event_callback(player, &ClearFromCallback, player);
+  lychee_player_open(player, "/nonexistent/f.mp4");
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  lychee_player_destroy(player);
+}
+
 }  // namespace
 }  // namespace lychee

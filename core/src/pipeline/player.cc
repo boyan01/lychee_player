@@ -139,9 +139,14 @@ void Player::StopPipeline() {
 }
 
 void Player::SetEventCallback(EventCallback callback, void* user_data) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::unique_lock<std::mutex> lock(mutex_);
   event_callback_ = callback;
   event_user_data_ = user_data;
+  // The events being handed out use the old callback. From inside it,
+  // waiting would never end.
+  if (t_control_thread_player != this) {
+    condition_.wait(lock, [this] { return !dispatching_; });
+  }
 }
 
 bool Player::OnControlThread() const {
@@ -1635,8 +1640,11 @@ void Player::DispatchEvents() {
     callback(user_data, static_cast<int32_t>(event.type), event.arg0,
              event.arg1);
   }
-  std::lock_guard<std::mutex> lock(mutex_);
-  dispatching_ = false;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    dispatching_ = false;
+  }
+  condition_.notify_all();
 }
 
 void Player::FailLocked(const std::string& error) {

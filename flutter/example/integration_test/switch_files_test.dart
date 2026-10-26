@@ -1,6 +1,7 @@
 // Opens files one after another in the example app and checks that every
 // replaced player is torn down: its threads exit and nothing crashes. Then
-// checks that the plugin destroys players a hot restart left behind.
+// checks that the plugin destroys players a hot restart left behind, and
+// that their events do not reach the isolate that is gone.
 //
 //   cd flutter/example && flutter test integration_test -d macos
 //
@@ -11,14 +12,14 @@
 
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-// ignore: implementation_imports
-import 'package:lychee_player/src/bindings.dart' as native;
+import 'package:lychee_player/lychee_player.dart';
 import 'package:lychee_player_example/main.dart';
 
 const _mediaDir = String.fromEnvironment(
@@ -39,10 +40,15 @@ Future<List<String>> _threadNames() async {
     return _windowsThreadNames();
   }
   if (!Platform.isMacOS) {
-    return [
-      for (final task in Directory('/proc/self/task').listSync())
-        File('${task.path}/comm').readAsStringSync().trim(),
-    ];
+    final names = <String>[];
+    for (final task in Directory('/proc/self/task').listSync()) {
+      try {
+        names.add(File('${task.path}/comm').readAsStringSync().trim());
+      } on FileSystemException {
+        // The thread exited after the listing.
+      }
+    }
+    return names;
   }
   final file = '${Directory.systemTemp.path}/lychee-sample-$pid.txt';
   await Process.run('sample', ['$pid', '1', '-file', file]);
@@ -190,18 +196,17 @@ void main() {
     expect((await _countThreads())['lychee'], 0);
 
     // What a previous isolate leaves: a playing player behind a texture,
-    // with no Dart object to dispose of it.
-    final config = calloc<native.LycheeConfig>();
-    native.configInit(config, sizeOf<native.LycheeConfig>());
-    config.ref.videoFrameTypes = native.platformFrameType;
-    final player = native.playerCreate(config);
-    calloc.free(config);
-    final url = _media[0].toNativeUtf8();
-    native.playerOpen(player, url.cast());
-    calloc.free(url);
-    native.playerPlay(player);
-    const channel = MethodChannel('lychee_player');
-    await channel.invokeMethod<int>('createTexture', {'player': player.address});
+    // its events bound to an isolate that is gone. A child isolate makes it
+    // the way the app does and ends without dispose(), as a hot restart
+    // ends the root isolate.
+    final token = RootIsolateToken.instance!;
+    final url = _media[0];
+    await Isolate.run(() async {
+      BackgroundIsolateBinaryMessenger.ensureInitialized(token);
+      final player = await LycheePlayer.create();
+      player.open(url);
+      player.play();
+    });
     // Over http on an emulator, opening takes a few seconds.
     var playing = 0;
     for (var i = 0; i < 20 && playing < 4; i++) {
@@ -209,7 +214,14 @@ void main() {
       playing = (await _countThreads())['lychee']!;
     }
     expect(playing, 4);
+    // Plays to its end (12 s), sending events all the way. The isolate
+    // cleared the callback before deleting it; otherwise the VM aborts
+    // ("Callback invoked after it has been deleted") or hands them to
+    // whatever callback reuses its slot.
+    await Future<void>.delayed(const Duration(seconds: 14));
+    expect((await _countThreads())['lychee'], greaterThan(0));
 
+    const channel = MethodChannel('lychee_player');
     await channel.invokeMethod<void>('disposeAll');
     expect((await _countThreads())['lychee'], 0);
   });
