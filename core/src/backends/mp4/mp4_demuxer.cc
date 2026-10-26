@@ -799,6 +799,14 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
     stz2.Skip(7);
     int field = stz2.U8();
     uint32_t count = stz2.U32();
+    // Field sizes are 4, 8 or 16 bits. Another (0 reads no bytes, so the
+    // reader never runs out) would let the count alone fill memory.
+    if ((field != 4 && field != 8 && field != 16) ||
+        uint64_t{count} * field > uint64_t{stz2.remaining()} * 8) {
+      LOGW("track %zu: bad stz2 (%d-bit, %u samples); skipped",
+           tracks_.size(), field, count);
+      return false;
+    }
     for (uint32_t i = 0; i < count && stz2.ok(); ++i) {
       if (field == 4) {
         uint8_t pair = stz2.U8();

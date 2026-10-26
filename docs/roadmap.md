@@ -404,7 +404,10 @@ Left:
    fragmented). About an hour of CPU in all (5.6 M inputs, 2 workers)
    found two bugs, both UBSan: a QuickTime sound description's rate as a
    NaN or huge double converted to int, and `Rescale` overflowing on
-   tick counts far beyond a small timescale (an mfra time). Both are
+   tick counts far beyond a small timescale (an mfra time). A minute's
+   run after main merged in other work found a third, an OOM: an `stz2`
+   with a field size of 0 reads no bytes, so its count alone filled
+   memory. All are
    fixed and their inputs are in `core/fuzz/regressions`, which a unit
    test replays (without sanitizers) and `tool/fuzz.sh` replays first.
    Homebrew's LLVM is a development-only dependency (Apple's clang has
