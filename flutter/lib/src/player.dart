@@ -72,6 +72,7 @@ class LycheePlayerValue {
     this.error,
     this.rate = 1.0,
     this.looping = false,
+    this.seekable = false,
     this.tracks = const [],
     this.subtitle,
     this.subtitlePictures,
@@ -100,6 +101,11 @@ class LycheePlayerValue {
   /// Playback speed; audio keeps its pitch.
   final double rate;
   final bool looping;
+
+  /// Whether [LycheePlayer.seek] can move playback; false until the media
+  /// is loaded, for live input and on error. An http server without range
+  /// requests cannot seek: seeks there are ignored.
+  final bool seekable;
   final List<LycheeTrack> tracks;
 
   /// Subtitle text on screen, lines separated by '\n'; null if none. Draw it
@@ -237,6 +243,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
     if (!_disposed) native.playerPause(_player);
   }
 
+  /// Ignored where [LycheePlayerValue.seekable] is false.
   void seek(Duration position) {
     if (!_disposed) native.playerSeek(_player, position.inMicroseconds);
   }
@@ -496,6 +503,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
       error: error,
       rate: native.playerGetRate(_player),
       looping: native.playerIsLooping(_player) != 0,
+      seekable: native.playerIsSeekable(_player) != 0,
       tracks: _tracks,
       subtitle: _subtitle,
       subtitlePictures: _pictures,

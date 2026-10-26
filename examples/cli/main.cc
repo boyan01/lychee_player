@@ -892,6 +892,7 @@ int main(int argc, char** argv) {
     last_state = state;
 
     if (g_media_info.exchange(false)) {
+      printf("seekable=%d\n", lychee_player_is_seekable(player));
       PrintTracks(player);
       PrintMetadata(player);
     }

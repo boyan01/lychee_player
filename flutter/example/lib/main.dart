@@ -153,7 +153,7 @@ class _Controls extends StatelessWidget {
                     child: Slider(
                       value: max > 0 ? position : 0,
                       max: max > 0 ? max : 1,
-                      onChanged: max > 0
+                      onChanged: max > 0 && value.seekable
                           ? (v) =>
                               player.seek(Duration(milliseconds: v.round()))
                           : null,

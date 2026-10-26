@@ -53,7 +53,9 @@ extern "C" {
 // 9: lychee_config_init() takes the caller's struct size, so a library
 //    newer than its caller never writes past the caller's struct. Getters
 //    leave the caller's struct_size as it was.
-#define LYCHEE_API_VERSION 9
+// 10: lychee_player_is_seekable(). lychee_set_log_callback() called from
+//    inside a log callback no longer waits for the other threads in it.
+#define LYCHEE_API_VERSION 10
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -335,8 +337,12 @@ LYCHEE_EXPORT int64_t lychee_now_us(void);
 
 LYCHEE_EXPORT void lychee_set_log_level(int32_t level);
 // Sends log lines to |callback| instead of stderr; NULL restores stderr. The
-// callback may run on several threads at once. After this returns the old
-// callback is no longer running, except where this is called from it.
+// callback may run on several threads at once. Called from outside a log
+// callback, this returns once no thread is in the old callback, which is
+// not called again. Called from inside one (API 10), it swaps without
+// waiting: lines logged afterwards go to the new callback, but other
+// threads may still be in the old one, so keep its user data valid until
+// they return.
 LYCHEE_EXPORT void lychee_set_log_callback(lychee_log_callback callback,
                                            void* user_data);
 
@@ -436,8 +442,9 @@ LYCHEE_EXPORT int32_t lychee_player_flush_live(lychee_player* player,
 LYCHEE_EXPORT void lychee_player_play(lychee_player* player);
 LYCHEE_EXPORT void lychee_player_pause(lychee_player* player);
 // Ignored on input that cannot seek (e.g. an http server without range
-// requests). If seeking fails, the state becomes ERROR: the input may no
-// longer be at its previous read position. Either way no
+// requests; see lychee_player_is_seekable()). If seeking fails, the state
+// becomes ERROR: the input may no longer be at its previous read position.
+// Either way no
 // LYCHEE_EVENT_SEEK_COMPLETED is sent: that event means the seek landed.
 LYCHEE_EXPORT void lychee_player_seek(lychee_player* player,
                                       int64_t position_us);
@@ -454,6 +461,12 @@ LYCHEE_EXPORT double lychee_player_get_rate(lychee_player* player);
 LYCHEE_EXPORT void lychee_player_set_looping(lychee_player* player,
                                              int32_t looping);
 LYCHEE_EXPORT int32_t lychee_player_is_looping(lychee_player* player);
+// API 10. Non-zero if lychee_player_seek() can move playback on what is
+// open. Known from LYCHEE_EVENT_MEDIA_INFO on: 0 before it (IDLE, and
+// LOADING until then), for live input and at LYCHEE_STATE_ERROR. An http
+// server without range requests read through FFmpeg cannot seek; the
+// library's own MP4 reader can wherever it knows the file size.
+LYCHEE_EXPORT int32_t lychee_player_is_seekable(lychee_player* player);
 
 LYCHEE_EXPORT int32_t lychee_player_get_state(lychee_player* player);
 // Whether playback is requested (lychee_player_play() since the last pause).

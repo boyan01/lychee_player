@@ -125,6 +125,7 @@ public final class LycheePlayer {
     lychee_player_pause(handle)
   }
 
+  /// Ignored where ``isSeekable`` is false.
   public func seek(to position: TimeInterval) {
     lychee_player_seek(handle, micros(position))
   }
@@ -144,6 +145,13 @@ public final class LycheePlayer {
   public var isLooping: Bool {
     get { lychee_player_is_looping(handle) != 0 }
     set { lychee_player_set_looping(handle, newValue ? 1 : 0) }
+  }
+
+  /// Whether ``seek(to:)`` can move playback: false until
+  /// ``Event/mediaInfo``, for live input and at ``State/error``. An http
+  /// server without range requests cannot seek.
+  public var isSeekable: Bool {
+    lychee_player_is_seekable(handle) != 0
   }
 
   public var state: State {

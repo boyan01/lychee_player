@@ -457,6 +457,7 @@ impl Player {
         unsafe { sys::lychee_player_pause(self.raw()) }
     }
 
+    /// Ignored where [`Player::is_seekable`] is false.
     pub fn seek(&self, position: Duration) {
         unsafe { sys::lychee_player_seek(self.raw(), position.as_micros() as i64) }
     }
@@ -482,6 +483,13 @@ impl Player {
 
     pub fn is_looping(&self) -> bool {
         unsafe { sys::lychee_player_is_looping(self.raw()) != 0 }
+    }
+
+    /// Whether [`Player::seek`] can move playback: false until
+    /// [`Event::MediaInfo`], for live input and at [`State::Error`]. An
+    /// http server without range requests cannot seek.
+    pub fn is_seekable(&self) -> bool {
+        unsafe { sys::lychee_player_is_seekable(self.raw()) != 0 }
     }
 
     pub fn state(&self) -> State {

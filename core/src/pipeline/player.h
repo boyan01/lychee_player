@@ -140,6 +140,8 @@ class Player {
   double rate() const;
   bool looping() const;
   int64_t position() const;
+  // Whether a seek can move playback; false until the input is open.
+  bool seekable() const;
   // kNoTimestamp if unknown.
   int64_t duration() const;
   int64_t buffered_position() const;

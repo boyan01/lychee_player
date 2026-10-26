@@ -116,6 +116,7 @@ class LycheePlayer @JvmOverloads constructor(
 
     fun pause() = nativePause(handle())
 
+    /** Ignored where [isSeekable] is false. */
     fun seekTo(positionMs: Long) = nativeSeek(handle(), positionMs * 1000)
 
     /** 0 - 1. */
@@ -134,6 +135,14 @@ class LycheePlayer @JvmOverloads constructor(
     var isLooping: Boolean
         get() = nativeIsLooping(handle())
         set(value) = nativeSetLooping(handle(), value)
+
+    /**
+     * Whether a seek can move playback: false until [Event.MediaInfo], for
+     * live input and at [State.ERROR]. An http server without range
+     * requests cannot seek.
+     */
+    val isSeekable: Boolean
+        get() = nativeIsSeekable(handle())
 
     val state: State
         get() = State.entries.getOrElse(nativeGetState(handle())) { State.IDLE }
@@ -323,6 +332,7 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeGetRate(handle: Long): Double
         @JvmStatic private external fun nativeSetLooping(handle: Long, looping: Boolean)
         @JvmStatic private external fun nativeIsLooping(handle: Long): Boolean
+        @JvmStatic private external fun nativeIsSeekable(handle: Long): Boolean
         @JvmStatic private external fun nativeGetState(handle: Long): Int
         @JvmStatic private external fun nativeIsPlaying(handle: Long): Boolean
         @JvmStatic private external fun nativeGetPosition(handle: Long): Long

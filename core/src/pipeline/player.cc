@@ -480,6 +480,11 @@ int64_t Player::position() const {
   return position;
 }
 
+bool Player::seekable() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return media_info_.seekable && !live_ && state_ != PlayerState::kError;
+}
+
 int64_t Player::duration() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return media_info_.duration;

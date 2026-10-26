@@ -526,7 +526,7 @@ tsan_glitches=
 if [ "${TSAN:-0}" = 1 ]; then
   tsan_glitches="glitches=[0-9]+ "
 fi
-par expect live-h264 "$live_ok" "summary: state=ready .*rendered=360 dropped=0 ${tsan_glitches:-glitches=[0-3] }backward_jumps=0 .*stalls=0 $live_latency" -- \
+par expect live-h264 "$live_ok" "^seekable=0$" "summary: state=ready .*rendered=360 dropped=0 ${tsan_glitches:-glitches=[0-3] }backward_jumps=0 .*stalls=0 $live_latency" -- \
   --live "$media/live_h264.mp4"
 par expect live-hevc "$live_ok" "summary: state=ready .*rendered=300 dropped=0 ${tsan_glitches:-glitches=[0-3] }backward_jumps=0 .*stalls=0 $live_latency" -- \
   --live "$media/live_hevc.mp4"
@@ -635,6 +635,8 @@ par expect resolution-change "video size 1280x720" "video size 640x360" "state=e
 exits=1 par expect corrupt-file "state=error" "error: (audio|video) decoding failed" -- "$media/corrupt.mp4"
 serve
 seq_ check http          1 - -- "$url"
+# lychee_player_is_seekable(), known with the media info.
+seq_ expect http-seekable "^seekable=1$" -- --seconds 1 "$url"
 serve --drop-at 3000000
 seq_ check http-reconnect 1 - -- "$url"
 # A server without range requests: FFmpeg cannot seek, so the seek is
@@ -643,7 +645,7 @@ seq_ check http-reconnect 1 - -- "$url"
 # offset: a real seek.)
 if [ "${NO_FFMPEG:-0}" != 1 ]; then
   serve --no-ranges
-  seq_ expect http-no-ranges "seek ignored" "<=0 seek completed" "<=0 seek took" \
+  seq_ expect http-no-ranges "^seekable=0$" "seek ignored" "<=0 seek completed" "<=0 seek took" \
     "summary: state=ended .*backward_jumps=0 .*stalls=0" -- --seek 8 --seek-after 1 "$url"
   # A track switch on it goes on from where the input is: the resync
   # neither fails nor moves the read position.

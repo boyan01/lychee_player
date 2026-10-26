@@ -17,9 +17,11 @@ final class LycheePlayerTests: XCTestCase {
     player.onEvent = { event in
       if case .stateChanged(.ready) = event { ready.fulfill() }
     }
+    XCTAssertFalse(player.isSeekable)
     player.open(url)
     player.play()
     wait(for: [ready], timeout: 10)
+    XCTAssertTrue(player.isSeekable)
     XCTAssertEqual(player.duration, 12)
     XCTAssertNil(player.artwork)
     XCTAssertEqual(player.videoSize, CGSize(width: 1920, height: 1080))

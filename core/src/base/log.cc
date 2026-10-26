@@ -16,8 +16,10 @@ namespace {
 
 std::atomic<int> g_level{static_cast<int>(LogLevel::kInfo)};
 // The sink is called without the lock, so it may log, replace itself or
-// call into the library. SetLogSink() waits for the calls in flight, so
-// once it returns the old sink's user data may go.
+// call into the library. SetLogSink() from outside a sink waits for the
+// calls in flight, so once it returns the old sink's user data may go.
+// From inside a sink it only swaps: two sinks replacing each other on two
+// threads would otherwise each wait for the other's call to return.
 std::mutex g_sink_mutex;
 std::condition_variable g_sink_idle;
 LogSink g_sink = nullptr;
@@ -55,9 +57,9 @@ void SetLogSink(LogSink sink, void* user_data) {
   std::unique_lock<std::mutex> lock(g_sink_mutex);
   g_sink = sink;
   g_sink_user_data = user_data;
-  // Not for the sink's own call, when it replaces itself.
-  const int own = t_in_sink ? 1 : 0;
-  g_sink_idle.wait(lock, [own] { return g_sink_calls == own; });
+  if (!t_in_sink) {
+    g_sink_idle.wait(lock, [] { return g_sink_calls == 0; });
+  }
 }
 
 void LogMessage(LogLevel level, const char* tag, const char* format, ...) {

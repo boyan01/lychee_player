@@ -428,6 +428,10 @@ int32_t lychee_player_get_artwork(lychee_player* player,
   return size;
 }
 
+int32_t lychee_player_is_seekable(lychee_player* player) {
+  return player->player->seekable() ? 1 : 0;
+}
+
 int32_t lychee_player_get_state(lychee_player* player) {
   return static_cast<int32_t>(player->player->state());
 }

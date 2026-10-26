@@ -205,6 +205,9 @@ final playerSetLooping = _library.lookupFunction<
 final playerIsLooping = _library.lookupFunction<Int32 Function(Pointer<Void>),
     int Function(Pointer<Void>)>('lychee_player_is_looping');
 
+final playerIsSeekable = _library.lookupFunction<Int32 Function(Pointer<Void>),
+    int Function(Pointer<Void>)>('lychee_player_is_seekable');
+
 final playerGetTrackCount = _library.lookupFunction<
     Int32 Function(Pointer<Void>),
     int Function(Pointer<Void>)>('lychee_player_get_track_count');

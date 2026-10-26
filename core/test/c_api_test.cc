@@ -1,9 +1,12 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <thread>
 
+#include "base/log.h"
 #include "lychee/lychee.h"
 #include "test.h"
 
@@ -112,6 +115,107 @@ TEST(CApi, LogCallbackReplacesItself) {
   lychee_player_destroy(player);
   lychee_set_log_callback(nullptr, nullptr);
   EXPECT_TRUE(g_log_lines >= 1);
+}
+
+TEST(CApi, NotSeekableBeforeOpen) {
+  lychee_config config;
+  lychee_config_init(&config, sizeof(config));
+  config.video_frame_types = 0;
+  lychee_player* player = lychee_player_create(&config);
+  EXPECT_EQ(lychee_player_is_seekable(player), 0);
+  lychee_player_destroy(player);
+}
+
+// Fails the run instead of hanging it when a setter deadlocks.
+class Watchdog {
+ public:
+  explicit Watchdog(const char* what) {
+    thread_ = std::thread([this, what] {
+      const auto give_up =
+          std::chrono::steady_clock::now() + std::chrono::seconds(10);
+      while (!done_ && std::chrono::steady_clock::now() < give_up) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+      if (!done_) {
+        std::fprintf(stderr, "%s: deadlocked\n", what);
+        std::_Exit(1);
+      }
+    });
+  }
+  ~Watchdog() {
+    done_ = true;
+    thread_.join();
+  }
+
+ private:
+  std::atomic<bool> done_{false};
+  std::thread thread_;
+};
+
+void WaitFor(const std::atomic<int>& value, int at_least) {
+  while (value < at_least) {
+    std::this_thread::yield();
+  }
+}
+
+struct SwapSinks {
+  std::atomic<int> inside{0};
+  std::atomic<int> swapped{0};
+};
+SwapSinks g_swap;
+
+void SwapToB(void*, int32_t, const char*);
+
+// Both threads are in a callback before either replaces it, so each
+// setter runs while the other thread is still inside.
+void SwapToA(void*, int32_t, const char*) {
+  g_swap.inside++;
+  WaitFor(g_swap.inside, 2);
+  lychee_set_log_callback(&SwapToB, nullptr);
+  g_swap.swapped++;
+  WaitFor(g_swap.swapped, 2);
+}
+
+void SwapToB(void*, int32_t, const char*) {}
+
+TEST(CApi, LogCallbacksReplaceEachOther) {
+  Watchdog watchdog("LogCallbacksReplaceEachOther");
+  lychee_set_log_callback(&SwapToA, nullptr);
+  std::thread first([] { LogMessage(LogLevel::kError, "test", "first"); });
+  std::thread second([] { LogMessage(LogLevel::kError, "test", "second"); });
+  first.join();
+  second.join();
+  EXPECT_EQ(g_swap.swapped.load(), 2);
+  lychee_set_log_callback(nullptr, nullptr);
+}
+
+std::atomic<int> g_blocked_inside{0};
+std::atomic<bool> g_release_blocked{false};
+
+void BlockingLogCallback(void*, int32_t, const char*) {
+  g_blocked_inside++;
+  while (!g_release_blocked) {
+    std::this_thread::yield();
+  }
+}
+
+// From outside a callback the setter still waits for the calls in flight.
+TEST(CApi, LogCallbackSetterWaitsOutsideCallbacks) {
+  Watchdog watchdog("LogCallbackSetterWaitsOutsideCallbacks");
+  lychee_set_log_callback(&BlockingLogCallback, nullptr);
+  std::thread logger([] { LogMessage(LogLevel::kError, "test", "blocked"); });
+  WaitFor(g_blocked_inside, 1);
+  std::atomic<bool> returned{false};
+  std::thread setter([&returned] {
+    lychee_set_log_callback(nullptr, nullptr);
+    returned = true;
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  EXPECT_TRUE(!returned);
+  g_release_blocked = true;
+  setter.join();
+  logger.join();
+  EXPECT_TRUE(returned);
 }
 
 }  // namespace

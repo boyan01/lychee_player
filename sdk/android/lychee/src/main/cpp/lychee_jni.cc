@@ -319,6 +319,13 @@ JNIEXPORT jboolean JNICALL Java_tech_soit_lychee_LycheePlayer_nativeIsLooping(
   return lychee_player_is_looping(Player(handle)) != 0;
 }
 
+JNIEXPORT jboolean JNICALL Java_tech_soit_lychee_LycheePlayer_nativeIsSeekable(
+    JNIEnv*,
+    jclass,
+    jlong handle) {
+  return lychee_player_is_seekable(Player(handle)) != 0;
+}
+
 JNIEXPORT jint JNICALL Java_tech_soit_lychee_LycheePlayer_nativeGetState(
     JNIEnv*,
     jclass,

@@ -49,13 +49,7 @@ on top of them.
 
 ## Known defects
 
-1. **Replacing the log callback from two callbacks at once deadlocks**:
-   `lychee_set_log_callback` waits until no other thread is inside the
-   callback, so two threads that both call it from inside the callback
-   wait on each other. Done when the setter from inside a callback swaps
-   the sink without waiting (the old one stays valid until every caller
-   returns), with a unit test that runs two such threads.
-2. **`realtime-loop` drifts on CI's hosted VM**: it plays on the real
+1. **`realtime-loop` drifts on CI's hosted VM**: it plays on the real
    clock and audio device, so load shows up as drift, and CI's plain job
    failed on it once (2026-10-26). A red plain job needs its log read.
    Done when CI runs the `realtime=1` cases somewhere their timing means
@@ -64,7 +58,7 @@ on top of them.
    ran ahead of a slow live decoder, and of events still waiting for the
    control thread's next 10 ms tick; 24 runs six at once now give the
    same counts every run.
-3. **Events of players a hot restart left go to a closed isolate**: the
+2. **Events of players a hot restart left go to a closed isolate**: the
    plugins destroy the players behind their textures when the engine
    goes, and on `disposeAll`, which Dart calls before an isolate's first
    player (2026-10-26: macOS hot restart and Android back-out seen,
@@ -77,19 +71,14 @@ on top of them.
    goes (or events cross through a bridge that drops messages for a dead
    port), with the integration test's orphan registering a callback.
    Development only: release builds have no hot restart.
-4. **`seekable` is not in the C ABI**: since 2026-10-26 the core ignores
-   a seek on input that cannot seek (an http server without range
-   requests, through FFmpeg) and sends no `SEEK_COMPLETED`, but callers
-   cannot tell beforehand, so a UI shows a seek bar that does nothing.
-   If a seekable input rejects an attempted seek, playback now enters
-   ERROR instead of continuing from an uncertain read position; HTTP
-   regressions cover a server that starts rejecting ranges after open,
-   for both user seeks and read-ahead loops. A track switch, new video
-   device or decoder rebuild on input that cannot seek does not touch the
-   demuxer and goes on from its read position, losing what was read ahead.
-   Done when `lychee_player_is_seekable()` (an ABI bump) reaches the
-   Dart, Swift, Kotlin and Rust wrappers and the Flutter example disables
-   its slider.
+3. **A track switch on input that cannot seek loses the read-ahead**: a
+   track switch, new video device or decoder rebuild on input that cannot
+   seek (`lychee_player_is_seekable()` 0, e.g. an http server without
+   range requests through FFmpeg) does not touch the demuxer and goes on
+   from its read position, so what the old renderers had queued is
+   skipped (2026-10-26). Done when playback there resumes at the position
+   on screen (e.g. by replaying the packets still queued), with
+   `http-no-ranges-track` checking the first frame after the switch.
 
 Calling `lychee_player_open()` from an event callback returns -1 (API 9)
 rather than reopening; callers reopen from their own thread. Unit tests
