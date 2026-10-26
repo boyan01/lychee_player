@@ -9,8 +9,9 @@
 
 namespace lychee {
 
-// AAC (LC, HE, HE v2) and ALAC through AudioToolbox, without FFmpeg. One
-// AudioConverter decodes and converts to the sink's rate and channels.
+// AAC (LC, HE, HE v2), ALAC, Opus, FLAC and MP3 through AudioToolbox,
+// without FFmpeg. One AudioConverter decodes and converts to the sink's
+// rate and channels.
 class ATAudioDecoder : public AudioDecoder {
  public:
   ATAudioDecoder() = default;
@@ -43,6 +44,9 @@ class ATAudioDecoder : public AudioDecoder {
   bool draining_ = false;
   AudioStreamPacketDescription description_ = {};
   int64_t next_pts_ = kNoTimestamp;
+  // The next output is the first since the converter started: Opus and MP3
+  // lose the decoder's delay from it.
+  bool first_output_ = true;
   int consecutive_errors_ = 0;
 };
 

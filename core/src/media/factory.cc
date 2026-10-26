@@ -21,9 +21,13 @@
 #include "backends/apple/apple_frame_converter.h"
 #include "backends/apple/core_audio_sink.h"
 #if !defined(LYCHEE_WITH_FFMPEG)
+#include <mutex>
+
 #include "backends/apple/at_audio_decoder.h"
 #include "backends/apple/vt_video_decoder.h"
+#include "backends/matroska/matroska_demuxer.h"
 #include "backends/mp4/mp4_demuxer.h"
+#include "media/text_subtitle_decoder.h"
 #endif
 #elif defined(__ANDROID__)
 #include <android/native_window.h>
@@ -40,11 +44,90 @@
 
 namespace lychee {
 
+#if defined(__APPLE__) && !defined(LYCHEE_WITH_FFMPEG)
+namespace {
+
+// MP4, else Matroska. Mp4Demuxer opens the input as before; if it fails,
+// MatroskaDemuxer opens it a second time and gives up at the first bytes
+// unless they are the EBML magic, so other inputs keep MP4's error.
+class ProbingDemuxer : public Demuxer {
+ public:
+  const char* name() const override {
+    return demuxer_ ? demuxer_->name() : "probe";
+  }
+
+  bool Open(const std::string& url, std::string* error) override {
+    if (!Use(std::make_unique<Mp4Demuxer>())) {
+      *error = "aborted";
+      return false;
+    }
+    if (demuxer_->Open(url, error)) {
+      return true;
+    }
+    const std::string mp4_error = *error;
+    if (!Use(std::make_unique<MatroskaDemuxer>())) {
+      *error = "aborted";
+      return false;
+    }
+    if (demuxer_->Open(url, error)) {
+      return true;
+    }
+    if (*error == MatroskaDemuxer::kNotMatroska) {
+      *error = mp4_error;
+    }
+    return false;
+  }
+
+  const MediaInfo& media_info() const override {
+    static const MediaInfo kNone;
+    return demuxer_ ? demuxer_->media_info() : kNone;
+  }
+  void SetEnabledStreams(const std::vector<int>& stream_indices) override {
+    demuxer_->SetEnabledStreams(stream_indices);
+  }
+  DemuxerReadResult Read(EncodedPacket* packet) override {
+    return demuxer_->Read(packet);
+  }
+  bool Seek(int64_t time) override { return demuxer_->Seek(time); }
+  void Interrupt() override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (demuxer_) {
+      demuxer_->Interrupt();
+    }
+  }
+  void Abort() override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    aborted_ = true;
+    if (demuxer_) {
+      demuxer_->Abort();
+    }
+  }
+  std::string error() const override {
+    return demuxer_ ? demuxer_->error() : std::string();
+  }
+
+ private:
+  // False if aborted meanwhile.
+  bool Use(std::unique_ptr<Demuxer> demuxer) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    demuxer_ = std::move(demuxer);
+    return !aborted_;
+  }
+
+  // Interrupt() and Abort() come from other threads while Open() runs.
+  std::mutex mutex_;
+  std::unique_ptr<Demuxer> demuxer_;
+  bool aborted_ = false;
+};
+
+}  // namespace
+#endif
+
 std::unique_ptr<Demuxer> CreateDemuxer() {
 #if defined(LYCHEE_WITH_FFMPEG)
   return std::make_unique<FFmpegDemuxer>();
 #elif defined(__APPLE__)
-  return std::make_unique<Mp4Demuxer>();
+  return std::make_unique<ProbingDemuxer>();
 #else
   return nullptr;
 #endif
@@ -149,6 +232,8 @@ std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders() {
 std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder() {
 #if defined(LYCHEE_WITH_FFMPEG)
   return std::make_unique<FFmpegSubtitleDecoder>();
+#elif defined(__APPLE__)
+  return std::make_unique<TextSubtitleDecoder>();
 #else
   return nullptr;
 #endif

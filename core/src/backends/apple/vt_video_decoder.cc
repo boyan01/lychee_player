@@ -5,6 +5,7 @@
 #include <TargetConditionals.h>
 
 #include <algorithm>
+#include <mutex>
 
 #include "backends/apple/pixel_buffer.h"
 #include "base/log.h"
@@ -53,6 +54,61 @@ size_t StartCodeAt(const std::vector<uint8_t>& data, size_t i) {
   return 0;
 }
 
+// VP9 is not registered with VideoToolbox until an app asks.
+bool RegisterVp9() {
+  if (__builtin_available(macOS 11, iOS 26.2, tvOS 26.2, *)) {
+    static std::once_flag once;
+    std::call_once(once, [] {
+      VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_VP9);
+    });
+    return true;
+  }
+  return false;
+}
+
+// Bits of a byte string, most significant first; zeros past the end.
+class BitReader {
+ public:
+  BitReader(const uint8_t* data, size_t size) : data_(data), size_(size) {}
+  int Read(int bits) {
+    int value = 0;
+    for (int i = 0; i < bits; ++i, ++position_) {
+      size_t byte = position_ / 8;
+      int bit = byte < size_ ? (data_[byte] >> (7 - position_ % 8)) & 1 : 0;
+      value = (value << 1) | bit;
+    }
+    return value;
+  }
+  bool ok() const { return position_ <= size_ * 8; }
+
+ private:
+  const uint8_t* data_;
+  size_t size_;
+  size_t position_ = 0;
+};
+
+void SetColor(CFMutableDictionaryRef extensions, const ColorInfo& color) {
+  if (CFStringRef primaries =
+          CVColorPrimariesGetStringForIntegerCodePoint(color.primaries)) {
+    CFDictionarySetValue(extensions, kCMFormatDescriptionExtension_ColorPrimaries,
+                         primaries);
+  }
+  if (CFStringRef transfer =
+          CVTransferFunctionGetStringForIntegerCodePoint(color.transfer)) {
+    CFDictionarySetValue(extensions,
+                         kCMFormatDescriptionExtension_TransferFunction, transfer);
+  }
+  if (CFStringRef matrix =
+          CVYCbCrMatrixGetStringForIntegerCodePoint(color.matrix)) {
+    CFDictionarySetValue(extensions, kCMFormatDescriptionExtension_YCbCrMatrix,
+                         matrix);
+  }
+  if (color.full_range) {
+    CFDictionarySetValue(extensions, kCMFormatDescriptionExtension_FullRangeVideo,
+                         kCFBooleanTrue);
+  }
+}
+
 }  // namespace
 
 VTVideoDecoder::VTVideoDecoder(bool hardware) : hardware_(hardware) {}
@@ -66,6 +122,58 @@ const char* VTVideoDecoder::name() const {
 }
 
 bool VTVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
+  if (config.codec == VideoCodec::kVP9 || config.codec == VideoCodec::kAV1) {
+    config_ = config;
+    const std::vector<uint8_t>& extradata = config.extradata;
+    if (config.codec == VideoCodec::kVP9) {
+      if (!RegisterVp9()) {
+        *error = "videotoolbox: VP9 needs iOS 26.2";
+        return false;
+      }
+      codec_type_ = kCMVideoCodecType_VP9;
+      vp9_.width = config.width;
+      vp9_.height = config.height;
+      // WebM's codec features (ID, length, value), if the muxer wrote them.
+      for (size_t i = 0; i + 2 < extradata.size();) {
+        const size_t length = extradata[i + 1];
+        if (length == 1 && i + 2 < extradata.size()) {
+          const int value = extradata[i + 2];
+          switch (extradata[i]) {
+            case 1:
+              vp9_.profile = value;
+              break;
+            case 2:
+              vp9_.level = value;
+              break;
+            case 3:
+              vp9_.bit_depth = value;
+              break;
+            case 4:
+              vp9_.subsampling = value == 1 ? 0 : value;
+              break;
+            default:
+              break;
+          }
+        }
+        i += 2 + length;
+      }
+      vp9_.full_range = config.color.full_range;
+      bit_depth_ = vp9_.bit_depth;
+    } else {
+      // av1C: marker and version, profile and level, then the depth bits.
+      if (extradata.size() < 4 || extradata[0] != 0x81) {
+        *error = "videotoolbox: AV1 without an av1C";
+        return false;
+      }
+      codec_type_ = kCMVideoCodecType_AV1;
+      bit_depth_ = (extradata[2] & 0x20) ? 12 : (extradata[2] & 0x40) ? 10 : 8;
+    }
+    if (!CreateSession()) {
+      *error = "videotoolbox: cannot decode this stream";
+      return false;
+    }
+    return true;
+  }
   if (!converter_.Initialize(config)) {
     *error = "videotoolbox: not H.264 or HEVC";
     return false;
@@ -82,6 +190,48 @@ bool VTVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
 }
 
 CMVideoFormatDescriptionRef VTVideoDecoder::CreateFormat() const {
+  if (codec_type_ != 0) {
+    // The sample description's configuration box, as in MP4.
+    std::vector<uint8_t> box;
+    int width = config_.width;
+    int height = config_.height;
+    if (codec_type_ == kCMVideoCodecType_VP9) {
+      const ColorInfo& color = config_.color;
+      box = {1, 0, 0, 0,  // version, flags
+             static_cast<uint8_t>(vp9_.profile), static_cast<uint8_t>(vp9_.level),
+             static_cast<uint8_t>((vp9_.bit_depth << 4) | (vp9_.subsampling << 1) |
+                                  (vp9_.full_range ? 1 : 0)),
+             color.primaries, color.transfer, color.matrix,
+             0, 0};  // codecInitializationDataSize
+      width = vp9_.width;
+      height = vp9_.height;
+    } else {
+      box = config_.extradata;
+    }
+    CFMutableDictionaryRef extensions = CreateDictionary();
+    CFMutableDictionaryRef atoms = CreateDictionary();
+    CFDataRef data = CFDataCreate(nullptr, box.data(), static_cast<CFIndex>(box.size()));
+    CFDictionarySetValue(atoms,
+                         codec_type_ == kCMVideoCodecType_VP9 ? CFSTR("vpcC")
+                                                              : CFSTR("av1C"),
+                         data);
+    CFRelease(data);
+    CFDictionarySetValue(extensions,
+                         kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms,
+                         atoms);
+    CFRelease(atoms);
+    SetColor(extensions, config_.color);
+    CMVideoFormatDescriptionRef format = nullptr;
+    OSStatus status = CMVideoFormatDescriptionCreate(
+        nullptr, codec_type_, width, height, extensions, &format);
+    CFRelease(extensions);
+    if (status != noErr) {
+      LOGW("cannot make a %s format description: %d",
+           config_.codec_name.c_str(), static_cast<int>(status));
+      return nullptr;
+    }
+    return format;
+  }
   std::vector<const uint8_t*> pointers;
   std::vector<size_t> sizes;
   for (const std::vector<uint8_t>& set : parameter_sets_) {
@@ -129,8 +279,9 @@ bool VTVideoDecoder::CreateSession() {
   // VideoToolbox hwaccel outputs them, on IOSurfaces that Metal and Core
   // Animation can show. Left to itself the decoder picks lossless
   // compressed formats (&8v0) that the CPU cannot read.
-  int bits = 8;
-  if (__builtin_available(macOS 12, iOS 15, *)) {
+  int bits = bit_depth_;
+  if (codec_type_ != 0) {
+  } else if (__builtin_available(macOS 12, iOS 15, *)) {
     if (auto number = static_cast<CFNumberRef>(CMFormatDescriptionGetExtension(
             format_, kCMFormatDescriptionExtension_BitsPerComponent))) {
       CFNumberGetValue(number, kCFNumberIntType, &bits);
@@ -168,8 +319,8 @@ bool VTVideoDecoder::CreateSession() {
     return false;
   }
   CMVideoDimensions size = CMVideoFormatDescriptionGetDimensions(format_);
-  LOGI("%s decoder opened for %s %dx%d", name(),
-       converter_.hevc() ? "hevc" : "h264", size.width, size.height);
+  LOGI("%s decoder opened for %s %dx%d", name(), config_.codec_name.c_str(),
+       size.width, size.height);
   session_lost_ = false;
   return true;
 }
@@ -238,6 +389,28 @@ bool VTVideoDecoder::Decode(const EncodedPacket& packet,
   }
   if (!packet.buffer) {
     return true;
+  }
+  if (codec_type_ != 0) {
+    // VP9 says its profile, depth and size in each keyframe's header; a
+    // change needs a new session.
+    Vp9Format format = vp9_;
+    if (codec_type_ == kCMVideoCodecType_VP9 && packet.keyframe &&
+        ParseVp9Keyframe(packet.buffer->data(), packet.buffer->size(),
+                         &format) &&
+        !(format == vp9_)) {
+      if (session_) {
+        VTDecompressionSessionWaitForAsynchronousFrames(session_);
+        Emit(kInfiniteTime, output);
+      }
+      vp9_ = format;
+      bit_depth_ = format.bit_depth;
+      if (!CreateSession()) {
+        return false;
+      }
+    }
+    sample_.assign(packet.buffer->data(),
+                   packet.buffer->data() + packet.buffer->size());
+    return DecodeSample(packet, output);
   }
 
   // Rewrite the sample with four-byte NAL lengths, taking parameter sets
@@ -324,6 +497,69 @@ bool VTVideoDecoder::Decode(const EncodedPacket& packet,
       // Without a format the sets are incomplete; the rest follow.
     }
   }
+  return DecodeSample(packet, output);
+}
+
+// static
+bool VTVideoDecoder::ParseVp9Keyframe(const uint8_t* data,
+                                      size_t size,
+                                      Vp9Format* format) {
+  // The uncompressed header (VP9 bitstream specification, 6.2).
+  BitReader bits(data, size);
+  if (bits.Read(2) != 2) {  // frame_marker
+    return false;
+  }
+  int profile = bits.Read(1);
+  profile |= bits.Read(1) << 1;
+  if (profile == 3) {
+    bits.Read(1);
+  }
+  if (bits.Read(1)) {  // show_existing_frame
+    return false;
+  }
+  if (bits.Read(1) != 0) {  // frame_type: not a key frame
+    return false;
+  }
+  bits.Read(2);  // show_frame, error_resilient_mode
+  if (bits.Read(24) != 0x498342) {  // frame_sync_code
+    return false;
+  }
+  int bit_depth = 8;
+  if (profile >= 2) {
+    bit_depth = bits.Read(1) ? 12 : 10;
+  }
+  int subsampling = 0;
+  bool full_range = true;
+  if (bits.Read(3) != 7) {  // color_space other than RGB
+    full_range = bits.Read(1);
+    if (profile == 1 || profile == 3) {
+      const int x = bits.Read(1);
+      const int y = bits.Read(1);
+      bits.Read(1);
+      subsampling = x && y ? 0 : x ? 2 : 3;
+    }
+  } else {
+    subsampling = 3;
+    if (profile == 1 || profile == 3) {
+      bits.Read(1);
+    }
+  }
+  const int width = bits.Read(16) + 1;
+  const int height = bits.Read(16) + 1;
+  if (!bits.ok()) {
+    return false;
+  }
+  format->profile = profile;
+  format->bit_depth = bit_depth;
+  format->subsampling = subsampling;
+  format->full_range = full_range;
+  format->width = width;
+  format->height = height;
+  return true;
+}
+
+bool VTVideoDecoder::DecodeSample(const EncodedPacket& packet,
+                                  const OutputCallback& output) {
   if (!session_ || sample_.empty()) {
     return true;
   }

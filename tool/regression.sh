@@ -14,8 +14,8 @@
 #                                 # The shipped FFmpeg (tool/build_ffmpeg.sh)
 #                                 # instead of the system's, in build-lgpl/
 #   NO_FFMPEG=1 tool/regression.sh  # macOS without FFmpeg, in build-noffmpeg/:
-#                                 # only the cases with MP4 (H.264, HEVC,
-#                                 # AAC, ALAC) media
+#                                 # only the cases with MP4, Matroska and
+#                                 # WebM media, text subtitles
 set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -226,6 +226,21 @@ if [ ! -f "$media/hls/index.m3u8" ]; then
     -hls_segment_filename "$media/hls/seg%d.ts" "$media/hls/index.m3u8.tmp" &&
     mv "$media/hls/index.m3u8.tmp" "$media/hls/index.m3u8" || exit 1
 fi
+# Matroska: the MP4 remuxed, with and without Cues, with clusters of
+# unknown size, damaged (tool/mkv_cases.py); FLAC in it, and MP3 in MP4.
+gen h264_aac.mkv -i "$media/h264_aac.mp4" -c copy
+mkv_case() {
+  local out="$media/$1"
+  [ -f "$out" ] || python3 -I "$root/tool/mkv_cases.py" "$2" "$media/h264_aac.mkv" "$out" ||
+    { rm -f "$out"; exit 1; }
+}
+for mode in no-cues unknown-sizes huge-tracks huge-block corrupt truncated; do
+  mkv_case "mkv_${mode//-/_}.mkv" "$mode"
+done
+gen flac.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=440:sample_rate=44100 -map 0:v -map 1:a -t 5 \
+  -c:v copy -c:a flac
+gen mp3.mp4 -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=440:sample_rate=44100 -map 0:v -map 1:a -t 5 \
+  -c:v copy -c:a libmp3lame
 
 failures=0
 
@@ -361,12 +376,23 @@ selected() {
   done
   return 1
 }
-# Without FFmpeg only MP4 plays, without subtitles.
+# Without FFmpeg: MP4, Matroska and WebM, with text subtitles.
 plays_without_ffmpeg() {
-  [[ "$1" == subtitle-* ]] && return 1
+  case "$1" in
+    # Bitmap subtitles have no decoder, and the MP4 demuxer skips tx3g.
+    subtitle-pgs | subtitle-dvb | subtitle-vobsub | subtitle-mov-text) return 1 ;;
+    # No software AV1 decoder: av1-videotoolbox instead.
+    av1-software) return 1 ;;
+  esac
   local arg
   for arg in "$@"; do
-    [[ "$arg" == "$media"/* && "$arg" != *.mp4 && "$arg" != *.m4a ]] && return 1
+    [[ "$arg" == "$media"/* ]] || continue
+    case "$arg" in
+      *.mp4 | *.m4a | *.mkv | *.webm) ;;
+      *) return 1 ;;
+    esac
+    # VideoToolbox decodes VP9 only in hardware.
+    [ "${NO_HW:-0}" = 1 ] && [[ "$arg" == *vp9* ]] && return 1
   done
   return 0
 }
@@ -403,6 +429,12 @@ par check vp9           1 - -- "$media/vp9_opus.webm"
 # The shipped FFmpeg decodes AV1 only in hardware: no dav1d (roadmap).
 [ -n "${FFMPEG_ROOT:-}" ] ||
   par check av1-software  0 - -- "$media/av1.mkv"
+# Without FFmpeg AV1 needs a hardware decoder (M3, A17 Pro): elsewhere the
+# video track is off and the audio plays to the end.
+[ "${NO_FFMPEG:-0}" = 1 ] &&
+  par expect av1-videotoolbox "track 0: video av1 " "summary: state=ended position=10\.0" -- "$media/av1.mkv"
+par check flac-mkv      1 - -- "$media/flac.mkv"
+par check mp3-mp4       1 - -- "$media/mp3.mp4"
 par check rotated       1 - -- "$media/rotated.mp4"
 # -display_rotation is counter-clockwise; the library reports clockwise.
 par expect rotation "track 0: video h264 1920x1080 rotation=270 " -- --seconds 1 "$media/rotated.mp4"
@@ -437,6 +469,12 @@ par check seek-forward  1 7.500 -- --seek 7.5 --seek-after 2 "$media/h264_aac.mp
 par check seek-backward 1 1.000 -- --seek 1 --seek-after 5 "$media/hevc10.mp4"
 par check seek-near-end 1 11.900 -- --seek 11.9 --seek-after 1 "$media/h264_aac.mp4"
 par check seek-past-end 1 - -- --seek 30 --seek-after 1 "$media/offset.ts"
+par check seek-vp9      1 7.500 -- --seek 7.5 --seek-after 2 "$media/vp9_opus.webm"
+# Matroska seeks through the Cues, by scanning the clusters without them,
+# and in clusters of unknown size.
+par check seek-mkv      1 7.500 -- --seek 7.5 --seek-after 2 "$media/h264_aac.mkv"
+par check seek-mkv-no-cues 1 1.000 -- --seek 1 --seek-after 5 "$media/mkv_no_cues.mkv"
+par check seek-mkv-unknown-sizes 1 7.500 -- --seek 7.5 --seek-after 2 "$media/mkv_unknown_sizes.mkv"
 par check seek-audio    - - -- --seek 3 --seek-after 1 "$media/audio_only.mp3"
 
 # Playback rate. Drift (position vs. wall clock times the rate) stays small
@@ -518,6 +556,15 @@ par expect background "show at " "summary: state=ended .*dropped=0 glitches=[0-3
 # A sample larger than any real one is an error, not an allocation.
 [ "${NO_FFMPEG:-0}" = 1 ] &&
   exits=1 par expect huge-sample "state=error" "error: sample at 0\.300 s .* too large" -- "$media/huge_sample.mp4"
+# Damaged Matroska (FFmpeg-free demuxer): sizes no file has are errors,
+# not allocations; noise past the last cluster and a cut file are errors.
+if [ "${NO_FFMPEG:-0}" = 1 ]; then
+  exits=1 par expect mkv-huge-tracks "state=error" "error: element 1654AE6B too large" -- "$media/mkv_huge_tracks.mkv"
+  exits=1 par expect mkv-huge-block "state=error" "error: block at 5\.[0-9]{3} s .* too large" -- \
+    "$media/mkv_huge_block.mkv"
+  exits=1 par expect mkv-corrupt "state=error" "error: corrupt data at 6\." -- "$media/mkv_corrupt.mkv"
+  exits=1 par expect mkv-truncated "state=error" "error: input ended at 7\." -- "$media/mkv_truncated.mkv"
+fi
 # Hidden until the end: the stream still ends, with or without audio.
 par expect background-end "<=0 show at" "summary: state=ended position=3\.[0-9]{3}s" -- \
   --hide-after 0 --hide-for 30 "$media/loop.mp4"
@@ -680,6 +727,8 @@ if [ "${NO_FFMPEG:-0}" != 1 ]; then
   seq_ check http-hls 1 - -- "http://127.0.0.1:$port/hls/index.m3u8"
   seq_ check http-hls-redirect 1 - -- "http://127.0.0.1:$port/moved.m3u8"
 fi
+serve --drop-at 3000000
+seq_ check http-mkv-reconnect 1 - -- "http://127.0.0.1:$port/h264_aac.mkv"
 serve --drop-at 3000000 --refuse-after-drop
 exits=1 seq_ expect http-lost "state=error" "error: input ended at" -- "$url"
 # Slower than the bitrate: rebuffer in long stretches, not every few frames.

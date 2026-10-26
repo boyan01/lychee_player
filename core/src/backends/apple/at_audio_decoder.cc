@@ -2,6 +2,8 @@
 
 #include "backends/apple/at_audio_decoder.h"
 
+#include <cstring>
+#include <string>
 #include <vector>
 
 #include "base/log.h"
@@ -47,6 +49,60 @@ std::vector<uint8_t> AacCookie(const std::vector<uint8_t>& config) {
   return cookie;
 }
 
+// The magic cookie AudioToolbox takes for FLAC: an MP4 dfLa box, header
+// included, with the STREAMINFO block. |config| is that box's body, or
+// Matroska's CodecPrivate ("fLaC" and the metadata blocks), or the bare
+// STREAMINFO.
+std::vector<uint8_t> FlacCookie(const std::vector<uint8_t>& config) {
+  constexpr size_t kStreamInfo = 34;
+  size_t at = 0;
+  if (config.size() == kStreamInfo) {
+    at = std::string::npos;
+  } else if (config.size() >= 4 && memcmp(config.data(), "fLaC", 4) == 0) {
+    at = 4;
+  } else if (config.size() >= 4 && config[0] == 0) {
+    at = 4;  // version, flags
+  }
+  std::vector<uint8_t> info;
+  if (at == std::string::npos) {
+    info = config;
+  } else if (config.size() >= at + 4 + kStreamInfo && (config[at] & 0x7f) == 0) {
+    info.assign(config.begin() + at + 4, config.begin() + at + 4 + kStreamInfo);
+  } else {
+    return {};
+  }
+  const uint32_t size = 8 + 4 + 4 + kStreamInfo;
+  std::vector<uint8_t> cookie = {
+      0, 0, 0, static_cast<uint8_t>(size), 'd', 'f', 'L', 'a', 0, 0, 0, 0,
+      // The last metadata block: STREAMINFO.
+      0x80, 0, 0, static_cast<uint8_t>(kStreamInfo)};
+  cookie.insert(cookie.end(), info.begin(), info.end());
+  return cookie;
+}
+
+// Samples at 48 kHz in an Opus packet, from its TOC byte (RFC 6716, 3.1).
+// Multistream packets start with the first stream's, of the same length.
+int OpusPacketFrames(const uint8_t* data, size_t size) {
+  if (size < 1) {
+    return 0;
+  }
+  static const int kSilk[] = {480, 960, 1920, 2880};
+  static const int kCelt[] = {120, 240, 480, 960};
+  const int config = data[0] >> 3;
+  const int frame = config < 12   ? kSilk[config & 3]
+                    : config < 16 ? ((config & 1) ? 960 : 480)
+                                  : kCelt[config & 3];
+  switch (data[0] & 3) {
+    case 0:
+      return frame;
+    case 1:
+    case 2:
+      return 2 * frame;
+    default:
+      return size > 1 ? frame * (data[1] & 0x3f) : 0;
+  }
+}
+
 }  // namespace
 
 ATAudioDecoder::~ATAudioDecoder() {
@@ -60,9 +116,16 @@ bool ATAudioDecoder::Initialize(const AudioConfig& config,
                                 std::string* error) {
   output_format_ = output_format;
   config_ = config;
-  if (config.codec != AudioCodec::kAAC && config.codec != AudioCodec::kALAC) {
-    *error = "audiotoolbox: no decoder for " + config.codec_name;
-    return false;
+  switch (config.codec) {
+    case AudioCodec::kAAC:
+    case AudioCodec::kALAC:
+    case AudioCodec::kOpus:
+    case AudioCodec::kFLAC:
+    case AudioCodec::kMP3:
+      break;
+    default:
+      *error = "audiotoolbox: no decoder for " + config.codec_name;
+      return false;
   }
   // AAC in ADTS (MPEG-TS) has no extradata: the converter is made from
   // the first packet's header.
@@ -79,12 +142,34 @@ bool ATAudioDecoder::Initialize(const AudioConfig& config,
 bool ATAudioDecoder::CreateConverter(const std::vector<uint8_t>& extradata) {
   AudioStreamBasicDescription input = {};
   std::vector<uint8_t> cookie;
-  if (config_.codec == AudioCodec::kAAC) {
-    input.mFormatID = kAudioFormatMPEG4AAC;
-    cookie = AacCookie(extradata);
-  } else {
-    input.mFormatID = kAudioFormatAppleLossless;
-    cookie = extradata;
+  switch (config_.codec) {
+    case AudioCodec::kAAC:
+      input.mFormatID = kAudioFormatMPEG4AAC;
+      cookie = AacCookie(extradata);
+      break;
+    case AudioCodec::kOpus:
+      // The OpusHead, which has the channel mapping.
+      input.mFormatID = kAudioFormatOpus;
+      cookie = extradata;
+      break;
+    case AudioCodec::kFLAC:
+      input.mFormatID = kAudioFormatFLAC;
+      cookie = FlacCookie(extradata);
+      if (cookie.empty()) {
+        LOGE("FLAC without its STREAMINFO");
+        return false;
+      }
+      break;
+    case AudioCodec::kMP3:
+      // No configuration: each frame has a header. MPEG-2 and 2.5 frames
+      // (below 32 kHz) are half as long.
+      input.mFormatID = kAudioFormatMPEGLayer3;
+      input.mFramesPerPacket = config_.sample_rate < 32000 ? 576 : 1152;
+      break;
+    default:
+      input.mFormatID = kAudioFormatAppleLossless;
+      cookie = extradata;
+      break;
   }
   input.mSampleRate = config_.sample_rate;
   input.mChannelsPerFrame = config_.channels;
@@ -120,9 +205,11 @@ bool ATAudioDecoder::CreateConverter(const std::vector<uint8_t>& extradata) {
     converter_ = nullptr;
     return false;
   }
-  status = AudioConverterSetProperty(
-      converter_, kAudioConverterDecompressionMagicCookie,
-      static_cast<UInt32>(cookie.size()), cookie.data());
+  if (!cookie.empty()) {
+    status = AudioConverterSetProperty(
+        converter_, kAudioConverterDecompressionMagicCookie,
+        static_cast<UInt32>(cookie.size()), cookie.data());
+  }
   if (status != noErr) {
     LOGE("the codec configuration is not valid: %d", static_cast<int>(status));
     return false;
@@ -208,6 +295,25 @@ bool ATAudioDecoder::Decode(const EncodedPacket& packet,
     UInt32 frames = kChunkFrames;
     OSStatus status = AudioConverterFillComplexBuffer(converter_, Input, this,
                                                       &frames, &list, nullptr);
+    if (frames > 0 && first_output_ && packet.buffer) {
+      first_output_ = false;
+      // AudioToolbox drops the decoder's delay (120 samples for Opus, 529
+      // for MP3) from the start, which the container's timestamps count:
+      // the first output is later than the packet by what it lacks.
+      int64_t expected = 0;
+      int64_t rate = config_.sample_rate;
+      if (config_.codec == AudioCodec::kOpus) {
+        expected = OpusPacketFrames(packet.buffer->data(), packet.size());
+        rate = 48000;
+      } else if (config_.codec == AudioCodec::kMP3) {
+        expected = config_.sample_rate < 32000 ? 576 : 1152;
+      }
+      expected = rate > 0 ? expected * output_format_.sample_rate / rate : 0;
+      if (expected > frames && next_pts_ != kNoTimestamp) {
+        next_pts_ += (expected - frames) * kMicrosPerSecond /
+                     output_format_.sample_rate;
+      }
+    }
     if (frames > 0) {
       consecutive_errors_ = 0;
       buffer->samples.resize(static_cast<size_t>(frames) *
@@ -226,6 +332,7 @@ bool ATAudioDecoder::Decode(const EncodedPacket& packet,
       pending_ = nullptr;
       // The converter may be left mid-packet.
       AudioConverterReset(converter_);
+      first_output_ = true;
       consecutive_errors_++;
       break;
     }
@@ -235,6 +342,7 @@ bool ATAudioDecoder::Decode(const EncodedPacket& packet,
     draining_ = false;
     AudioConverterReset(converter_);
     next_pts_ = kNoTimestamp;
+    first_output_ = true;
   }
   return consecutive_errors_ < kMaxConsecutiveErrors;
 }
@@ -257,6 +365,7 @@ void ATAudioDecoder::Flush() {
   pending_ = nullptr;
   draining_ = false;
   next_pts_ = kNoTimestamp;
+  first_output_ = true;
   consecutive_errors_ = 0;
 }
 

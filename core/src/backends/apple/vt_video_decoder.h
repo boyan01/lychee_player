@@ -12,10 +12,12 @@
 
 namespace lychee {
 
-// H.264 and HEVC through VideoToolbox, without FFmpeg. Outputs the
-// decoder's CVPixelBuffers (kCVPixelBuffer). |hardware| requires the
+// H.264, HEVC, VP9 and AV1 through VideoToolbox, without FFmpeg. Outputs
+// the decoder's CVPixelBuffers (kCVPixelBuffer). |hardware| requires the
 // hardware decoder; otherwise only Apple's software decoder is used, the
-// fallback when the hardware one is lost or refuses the stream.
+// fallback when the hardware one is lost or refuses the stream. VP9 is a
+// supplemental decoder (macOS 11, iOS 26.2), AV1 needs hardware with it
+// (M3, A17 Pro).
 class VTVideoDecoder : public VideoDecoder {
  public:
   explicit VTVideoDecoder(bool hardware);
@@ -33,6 +35,20 @@ class VTVideoDecoder : public VideoDecoder {
     CVPixelBufferRef image;
     int64_t duration;
   };
+  // What a VP9 stream's vpcC says, from the container until a keyframe's
+  // header says otherwise.
+  struct Vp9Format {
+    int profile = 0;
+    int level = 0;
+    int bit_depth = 8;
+    // vpcC's chromaSubsampling: 0 (4:2:0), 2 (4:2:2), 3 (4:4:4).
+    int subsampling = 0;
+    bool full_range = false;
+    int width = 0;
+    int height = 0;
+
+    bool operator==(const Vp9Format&) const = default;
+  };
 
   static void OnOutput(void* decoder,
                        void* source_frame,
@@ -42,8 +58,13 @@ class VTVideoDecoder : public VideoDecoder {
                        CMTime pts,
                        CMTime duration);
 
-  // A format description for |parameter_sets_|, or null.
+  // A format description for |parameter_sets_| (H.264, HEVC), |vp9_| or
+  // the av1C, or null.
   CMVideoFormatDescriptionRef CreateFormat() const;
+  // The keyframe header's format of a VP9 packet; false if it is none.
+  static bool ParseVp9Keyframe(const uint8_t* data, size_t size,
+                               Vp9Format* format);
+  bool DecodeSample(const EncodedPacket& packet, const OutputCallback& output);
   // (Re)creates the session for |parameter_sets_|.
   bool CreateSession();
   void DestroySession();
@@ -53,6 +74,10 @@ class VTVideoDecoder : public VideoDecoder {
 
   const bool hardware_;
   VideoConfig config_;
+  // kCMVideoCodecType_VP9 or _AV1, or 0 for H.264 and HEVC.
+  CMVideoCodecType codec_type_ = 0;
+  Vp9Format vp9_;
+  int bit_depth_ = 8;
   AnnexBConverter converter_;
   // Without start codes: VPS, SPS, PPS (HEVC) or SPS, PPS (H.264).
   std::vector<std::vector<uint8_t>> parameter_sets_;

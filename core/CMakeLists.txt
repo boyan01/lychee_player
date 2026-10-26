@@ -80,6 +80,12 @@ if(APPLE)
       src/backends/apple/vt_video_decoder.cc
       src/backends/mp4/mp4_demuxer.cc
     )
+    # Matroska and WebM; VP9 and AV1 through VideoToolbox, Opus, FLAC and
+    # MP3 through AudioToolbox; text subtitles.
+    list(APPEND LYCHEE_SOURCES
+      src/backends/matroska/matroska_demuxer.cc
+      src/media/text_subtitle_decoder.cc
+    )
   endif()
   if(IOS)
     list(APPEND LYCHEE_SOURCES src/backends/apple/audio_session.mm)

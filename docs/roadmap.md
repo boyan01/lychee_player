@@ -268,6 +268,42 @@ FFmpeg's deprecated SecureTransport. Decisions:
 
 `tool/regression.sh` gained `http-hls` and `http-hls-redirect`.
 
+Matroska and WebM without FFmpeg (2026-10-26): `MatroskaDemuxer`
+(`backends/matroska`, our own reading of RFC 9559) over the same
+`DataSource`: SimpleBlock and BlockGroup, Xiph, EBML and fixed lacing,
+header stripping (other ContentEncodings skip the track), clusters of
+unknown size, seeks through the Cues or, without them, an index built by
+skipping from cluster header to cluster header; Tags, fonts and cover
+art from Attachments; text subtitles (S_TEXT/UTF8, ASS/SSA, WebVTT in
+both mappings) through `TextSubtitleDecoder`, which drops markup as
+FFmpeg's decoders do. `VTVideoDecoder` adds VP9 (the supplemental decoder,
+vpcC from CodecPrivate and Colour, rebuilt when a keyframe header changes
+profile, depth or size) and AV1 (av1C); `ATAudioDecoder` adds Opus, FLAC
+and MP3. `NO_FFMPEG=1 tool/regression.sh` now runs the Matroska and WebM
+cases too (track switching, text subtitles, seeks with and without Cues,
+http reconnects) plus damaged files (`mkv-huge-tracks`, `mkv-huge-block`,
+`mkv-corrupt`, `mkv-truncated`, from `tool/mkv_cases.py`). Decisions:
+
+- The probe is MP4 first, then Matroska on a second open of the input:
+  Matroska rejects anything without the EBML magic at its first read, and
+  the error reported is MP4's, so MP4 behaves exactly as before. Over
+  http a Matroska file costs one extra request at open.
+- Matroska stores only pts. H.264 and HEVC packets get a dts from the
+  smallest pts among the next 16 packets of the track (kept monotonic),
+  which is all the decoder's reordering rule needs.
+- Codec delay (Opus) comes off the block timestamps; AudioToolbox drops
+  the decoder's own delay (120 samples for Opus, 529 for MP3) from the
+  first output, which moves its pts later by what is missing.
+- The unit tests compile the demuxer and the text subtitle decoder into
+  `lychee_unittests` when the library lacks them, so FFmpeg builds (CI)
+  run them too (not on Windows: `data_source.cc` uses `fseeko`).
+- On this M2 Pro VideoToolbox decodes VP9 only in hardware (no software
+  VP9 decoder: `--no-hw` leaves the video track off) and has no AV1
+  decoder at all (-12906): `av1.mkv` plays its audio with the video
+  track off. AV1 on an M3 or A17 Pro, and VP9 on iOS 26.2, are not
+  verified. A/V sync of Opus and MP3 against a reference clip is not
+  measured; only that the clock and the audio run to the end together.
+
 Left:
 
 1. Shared IO on Android and Windows: an http `DataSource` there
@@ -275,9 +311,13 @@ Left:
    their FFmpeg-free builds (4, 5) need anyway; then FFmpeg reads through
    it as on Apple. One `NSURLSession` per demuxer would let HLS segments
    reuse connections.
-2. Containers: fragmented MP4, MPEG-TS, HLS, WebM; tx3g (mov_text)
-   subtitles, which the MP4 demuxer skips. MP3 and Opus/FLAC in MP4 are
-   listed but have no decoder.
+2. Containers: fragmented MP4, MPEG-TS, HLS; tx3g (mov_text) subtitles,
+   which the MP4 demuxer skips. MP3 in MP4 decodes; Opus and FLAC in
+   MP4 do not yet: `Mp4Demuxer` lists them as `kOther` (`Opus`, `fLaC`).
+   It should map them to `kOpus` with the dOps turned into an OpusHead
+   (the cookie `ATAudioDecoder` passes on) and `kFLAC` with the dfLa
+   body, which `ATAudioDecoder`'s FLAC cookie already accepts. Bitmap
+   subtitles (PGS, DVB, VobSub) have no FFmpeg-free decoder.
 3. Packaging: a `tool/build_apple.sh` variant (or the Swift package) that
    ships the FFmpeg-free core; iOS compiles (arm64, zero warnings) but has
    not run, and the plugin and Swift package still link FFmpeg.
@@ -291,8 +331,11 @@ Left:
 6. Malformed input: the MP4 parser bounds sample tables, single samples
    (64 MiB, inside the file) and its allocations (`huge-sample-table`,
    `huge-sample`, `truncated-file`, `corrupt-file`), but has never been
-   fuzzed. A libFuzzer target over `Mp4Demuxer` on an in-memory
-   `DataSource`, run under ASan, before it ships.
+   fuzzed. `MatroskaDemuxer` bounds header elements (16 MiB), Cues and
+   Attachments (64 MiB), blocks (64 MiB), cue points and clusters (4M
+   each) and resyncs at most 16 MiB ahead, likewise unfuzzed. A
+   libFuzzer target over each on an in-memory `DataSource` (the unit
+   tests have one), run under ASan, before it ships.
 
 The goal is FFmpeg-free builds on Apple platforms, Windows and Android.
 Linux keeps FFmpeg: it has no system audio decoder or demuxer.
