@@ -55,6 +55,16 @@ on top of them.
    wait on each other. Done when the setter from inside a callback swaps
    the sink without waiting (the old one stays valid until every caller
    returns), with a unit test that runs two such threads.
+2. **`live-resolution` glitches on a loaded machine**: with software
+   decoding, `live_resolution.ts` (720p TS, then 360p) shows 7-23
+   glitches instead of at most 5 in about 1 of 12 runs alone and 9 of 24
+   with six at once (2026-10-26), also before that day's changes, and it
+   failed CI's plain job once. Each glitch is a frame shown one vsync late
+   (held 3 vsyncs, then 1). `live_h264.mp4` under the same load never
+   glitches, so virtual time should not depend on load here: something
+   lets `LiveSettledLocked` report settled while a frame for the next
+   vsync is still being decoded (B-frames in the TS, waiting for the next
+   packet, are the first suspect). Done when 24 runs six at once pass.
 
 The plugins destroy the players behind their textures when the engine
 goes, and on `disposeAll`, which Dart calls before an isolate's first
