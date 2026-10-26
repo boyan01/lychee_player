@@ -120,7 +120,8 @@ above). What is left per platform is a renderer in `examples/glfw`
    (BtbN's LGPLv3 build, ~120 MB) should become a slim build of our own:
    a `windows-x86_64` case in `tool/build_ffmpeg.sh` cross-compiling with
    mingw-w64 in WSL (`--enable-d3d11va`, Schannel for TLS), which needs
-   someone with sudo there to `apt install mingw-w64 nasm`; then hosting,
+   someone with sudo there to `apt install mingw-w64 nasm` (or a job in
+   `release.yml`: hosted runners have sudo); the release then hosts it,
    as for Linux.
    Unverified there: the pixel buffer path for a Flutter without a D3D11
    adapter, multiple monitors, audible output, and `tool/regression.sh`
@@ -142,7 +143,9 @@ above). What is left per platform is a renderer in `examples/glfw`
    `LYCHEE_FFMPEG_ROOT` plays `h264_aac.mp4` on the 26.04 VM (360 of 360
    frames, 0 dropped; 2026-10-25), so a 22.04 build runs on 26.04. The
    plugin still downloads BtbN's: shipping ours needs a place to host it
-   (Distribution 2). Unverified there: the Impeller renderer. Flutter
+   (Distribution 2: a job in `release.yml` and a pin in
+   `flutter/prebuilt.json`, which the Linux CMake would read in place of
+   BtbN's URL; arm64 Linux still needs one too). Unverified there: the Impeller renderer. Flutter
    makes Skia forget its GL state around a texture's populate but does
    nothing for Impeller (`ResolveTextureImpeller`), so populate now saves
    and restores what it changes. Whether that is enough is unknown: on the
@@ -218,32 +221,61 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    plays (about 7 MB per architecture, from 15; 2026-10-25), and
    `FFMPEG_ROOT=... tool/regression.sh` checks them. Android's links
    mbedTLS for https, so it is LGPLv3; the core gives mbedTLS Android's
-   CA store as a file in the app's cache directory. Left before a release:
-   the x86_64 half of the macOS slice was
-   built without assembly (no `nasm` on the build Mac), so Intel Macs decode
-   in software slower than they should; install `nasm` and rebuild
-   `macos-x86_64`. AV1 decodes only through VideoToolbox (M3 and later):
+   CA store as a file in the app's cache directory. Releases build
+   `macos-x86_64` with assembly (`tool/release.sh build` requires `nasm`;
+   the build Mac's local one has none). AV1 decodes only through VideoToolbox (M3 and later):
    add dav1d (BSD) if software AV1 matters. Android before 11 finds the
    cache directory from the package name (no `TMPDIR`), never run there.
    Apps must ship the FFmpeg license notice and say where its source is;
-   the AAR and the xcframeworks should carry a `THIRD_PARTY_NOTICES` and
-   releases a link to the FFmpeg and mbedTLS sources. Only the
+   releases attach the FFmpeg and Mbed TLS sources they were built from,
+   but the AAR and the xcframeworks should also carry a
+   `THIRD_PARTY_NOTICES`. Only the
    development CMake build (CLI, GLFW example, `tool/regression.sh`
    without `FFMPEG_ROOT`) still links Homebrew's GPL FFmpeg.
-2. **pub.dev packaging**: `flutter pub publish` only packs `flutter/`. The
-   Apple pod now vendors prebuilt xcframeworks (`lychee`, FFmpeg) from
-   `flutter/darwin/Frameworks`, and the Android plugin takes the AAR
-   `tech.soit.lychee:lychee` from `sdk/android/build/repo`, but both are
-   built locally and gitignored; Windows and Linux still compile `../core`
-   from outside the package. So today the plugin works only as a path or git dependency.
-   **Open question for the user**: where the prebuilt artifacts are hosted
-   and how a fresh app gets them. Candidates: inside the package (pub.dev
-   caps a package at 100 MB compressed; the Apple xcframeworks alone are
-   tens of MB), release assets downloaded at build time (as the Windows and
-   Linux plugins already download FFmpeg; for the pod, a `prepare_command`
-   or script phase with pinned checksums), or a separate binary pod / Swift
-   package. Done when `flutter pub publish --dry-run` produces a package
-   that builds in a fresh app.
+2. **First release**: prebuilt artifacts are assets of the version's
+   GitHub release (`boyan01/lychee_player`, tag `vVERSION`), pinned by
+   SHA-256 in the package (decided by the user 2026-10-26: one host for
+   pub, SwiftPM and Gradle, no accounts, no binaries in git or in the
+   package, and SwiftPM's `binaryTarget` takes only URLs anyway).
+   `flutter/prebuilt.json` pins them for the pod (unzips the xcframeworks
+   into `darwin/Frameworks`) and the Android plugin (lays the AAR and POM
+   out as a Maven repository in `~/.cache/lychee_player`); the root
+   `Package.swift` pins the same zips for SwiftPM. Local builds win.
+   `LYCHEE_PREBUILT_URL` names a mirror, for users where GitHub is slow;
+   SwiftPM ignores it. Windows and Linux compile the core from a copy
+   that `tool/release.sh` puts into `flutter/core` while pub packs (a
+   symlink would do, but `remote-test` snapshots refuse symlinks).
+   `release.yml`, dispatched with a version, builds, pins, commits, runs
+   `tool/release.sh check`, drafts the release and pushes the commit and
+   tag with a deploy key (a push with the workflow's token starts no
+   workflow); `publish.yml`, started by the tag, publishes the release and
+   the package through pub.dev's OIDC, which accepts only tag pushes.
+   pub.dev already has `lychee_player` 0.4.0 (the old audio player,
+   publisher `soit.tech`), so 1.0.0 is its next version and no first
+   manual upload is needed.
+   Checked here (2026-10-26): every step of `release.yml` run by hand for
+   1.0.0; `check` builds a fresh app for macOS, the iOS simulator and
+   Android from the packed package (416 KB) with the assets served
+   locally, downloading every pinned file, and SwiftPM's checksums match
+   the pins; that macOS app plays `h264_aac.mp4` to its last frame in
+   hardware on the downloaded frameworks; a fresh Windows and Linux (WSL) app builds from the packed
+   package (`remote-test`, Flutter 3.47.7), as does the repository's
+   example; the repository's macOS and Android example still build on
+   the local artifacts, with nothing downloaded.
+   **Waiting on the user**: the secret `RELEASE_DEPLOY_KEY` (a deploy key
+   with write access), the GitHub environment `pub.dev`, automated
+   publishing on `lychee_player`'s pub.dev Admin page (repository
+   `boyan01/lychee_player`, tag pattern `v{{version}}`, environment
+   `pub.dev`), then the first run. Never run on GitHub: the `macos-26`
+   runner's Xcode, the Android FFmpeg built on Linux, the deploy key's
+   push, the OIDC publish, SwiftPM resolving the release URLs. Done when
+   1.0.0 is on pub.dev and a fresh app builds from it on all five
+   platforms.
+   Later: the AAR on Maven Central too (what native Android users
+   expect; needs a Sonatype account for `tech.soit`); the Windows and
+   Linux FFmpeg as release assets in place of BtbN's (Platforms 1 and 2);
+   strip the AAR's prefab `liblychee.so` (6 MB per ABI against 0.3 MB in
+   `jni/`).
 3. **Native SDKs, with Flutter as one consumer** (decided 2026-10-25).
    1. `sdk/android/` exists (2026-10-25): one AAR, `tech.soit.lychee:lychee`,
       with the core as `liblychee.so` (also a prefab module) and its
@@ -251,8 +283,9 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
       `LycheePlayerView` (a `SurfaceView`; MediaCodec rotates the video
       upright, `lychee_config.rotate_surface_frames`, API 6). The Flutter
       plugin's Android side is Kotlin only and uses the SDK's driver with
-      the `SurfaceProducer`'s Surface. Left: hosting the AAR (item 2;
-      today `sdk/android/gradlew :lychee:publish` into a local repo).
+      the `SurfaceProducer`'s Surface. The AAR and its POM are release
+      assets (item 2), which the Flutter plugin lays out as a Maven
+      repository; native apps need Maven Central (item 2, later).
    2. `sdk/apple/` exists (2026-10-25: `LycheePlayer`,
       `LycheeFrameDriver`, `LycheePlayerView`; its example plays in
       hardware on macOS and in software on the iOS simulator, 0 dropped).
@@ -261,10 +294,10 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
       only through SwiftPM (a pod cannot depend on a Swift package), and
       only by URL: Flutter adds plugin packages through symlinks in
       `.packages/`, and SwiftPM resolves a relative `path:` dependency
-      against the symlink, not the plugin's real directory. A URL needs a
-      `Package.swift` at the repository root and the xcframeworks as
-      `binaryTarget(url:checksum:)` release assets, so this waits for
-      item 2's hosting decision; do it together with Platforms 3.
+      against the symlink, not the plugin's real directory. The URL
+      exists now: the root `Package.swift` is `sdk/apple` with the
+      release's xcframeworks (item 2). Do it together with Platforms 3,
+      after the first release.
    3. `rust/` exists (2026-10-25): `lychee-sys` (checked-in bindgen
       output, CMake build of the core as a shared library) and the safe
       `lychee` crate (`Player` is `Send + Sync`, `Frame` releases on drop);

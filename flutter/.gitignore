@@ -1,0 +1,3 @@
+# A copy of ../core, made by tool/release.sh only while pub packs the
+# package (.pubignore lets pub take it).
+/core/

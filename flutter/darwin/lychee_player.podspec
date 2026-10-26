@@ -4,8 +4,53 @@
 # lychee.xcframework (tool/build_apple.sh) and the LGPL-only FFmpeg ones
 # (tool/build_ffmpeg.sh, tool/package_ffmpeg_apple.sh). The plugin uses only
 # the C ABI in lychee/lychee.h.
+#
+# Frameworks built locally win. Otherwise they come from the release that
+# ../prebuilt.json pins (tool/release.sh), downloaded once into
+# ~/.cache/lychee_player and checked against its SHA-256s;
+# LYCHEE_PREBUILT_URL replaces the release URL with a mirror's.
+
+require 'digest'
+require 'fileutils'
+require 'json'
 
 frameworks = %w[lychee libavformat libavcodec libswresample libswscale libavutil]
+
+lambda do
+  dir = File.join(__dir__, 'Frameworks')
+  manifest = JSON.parse(File.read(File.join(__dir__, '..', 'prebuilt.json')))
+  tag = manifest['tag'] or return
+  zips = frameworks.map { |f| ["#{f}.xcframework.zip", manifest['files'].fetch("#{f}.xcframework.zip")] }
+  stamp = File.join(dir, '.prebuilt')
+  want = ([tag] + zips.map { |z| z.join(' ') }).join("\n")
+  if File.exist?(stamp)
+    return if File.read(stamp) == want
+  elsif frameworks.all? { |f| Dir.exist?(File.join(dir, "#{f}.xcframework")) }
+    return
+  end
+
+  url = ENV['LYCHEE_PREBUILT_URL'].to_s.empty? ? manifest['url'] : ENV['LYCHEE_PREBUILT_URL']
+  cache_home = ENV['XDG_CACHE_HOME'].to_s.empty? ? File.join(Dir.home, '.cache') : ENV['XDG_CACHE_HOME']
+  cache = File.join(cache_home, 'lychee_player', tag)
+  FileUtils.mkdir_p(cache)
+  zips.each do |name, sha|
+    zip = File.join(cache, name)
+    next if File.exist?(zip) && Digest::SHA256.file(zip).hexdigest == sha
+    from = "#{url}/#{tag}/#{name}"
+    Pod::UI.puts "lychee_player: downloading #{from}"
+    system('curl', '-fsSL', '--retry', '3', '-o', "#{zip}.part", from) or
+      raise "lychee_player: cannot download #{from}; LYCHEE_PREBUILT_URL can name a mirror"
+    got = Digest::SHA256.file("#{zip}.part").hexdigest
+    raise "lychee_player: #{from} has SHA-256 #{got}, not #{sha}" unless got == sha
+    File.rename("#{zip}.part", zip)
+  end
+  FileUtils.rm_rf(dir)
+  FileUtils.mkdir_p(dir)
+  zips.each do |name, _|
+    system('unzip', '-q', File.join(cache, name), '-d', dir) or raise "lychee_player: cannot unzip #{name}"
+  end
+  File.write(stamp, want)
+end.call
 
 Pod::Spec.new do |s|
   s.name             = 'lychee_player'

@@ -249,10 +249,15 @@ which `LycheeVideo` draws over the video.
 The example app (`flutter/example`) turns off the macOS App Sandbox so it can
 open arbitrary paths. It plays `--dart-define=LYCHEE_URL=...` on start.
 
-The Windows and Linux plugins compile `core/` from outside the package
-directory, and the Apple frameworks and the Android AAR are built locally,
-so for now the plugin can only be used as a path or git dependency, not
-from pub.dev.
+Outside this repository (from pub.dev, or a git dependency without local
+builds), the plugin takes the Apple frameworks and the Android AAR from the
+GitHub release that `flutter/prebuilt.json` pins, downloaded into
+`~/.cache/lychee_player` and checked against their SHA-256s;
+`LYCHEE_PREBUILT_URL` names a mirror of the release URL. Inside it, local
+builds win: the xcframeworks in `flutter/darwin/Frameworks` and the AAR in
+`sdk/android/build/repo`. Windows and Linux compile the repository's
+`core/`, or in the published package the copy `tool/release.sh` puts into
+`flutter/core` while pub packs it.
 
 ### Per platform
 
@@ -260,7 +265,7 @@ from pub.dev.
   The current SDK's libc++ supports nothing older on macOS, and the core
   converts frames with `VTPixelTransferSession` (iOS 16).
 - **Android**: the AAR from the Android library above, published into
-  `sdk/android/build/repo`, where the plugin looks for it; rerun the
+  `sdk/android/build/repo`, where the plugin looks for it first; rerun the
   publish after changing `core/`. It has the ABIs FFmpeg was built for.
   Needs minSdk 26 (AAudio).
 - **Windows**: `flutter build windows`. The plugin downloads a pinned
@@ -280,6 +285,38 @@ from pub.dev.
   does not ship: point pkg-config at a prebuilt one
   (`PKG_CONFIG_PATH=<ffmpeg>/lib/pkgconfig`, `LD_LIBRARY_PATH=<ffmpeg>/lib`
   to run the CLI) and install `libpulse-dev`.
+
+## Releases
+
+A release is one run of `.github/workflows/release.yml`, after a
+`## VERSION` section in `flutter/CHANGELOG.md`:
+
+```sh
+gh workflow run release.yml -f version=1.0.0
+```
+
+It builds the Apple xcframeworks and the Android AAR, pins them in
+`flutter/prebuilt.json` and `Package.swift` (which lets SwiftPM take
+`sdk/apple` by URL), builds a fresh app against the package pub would
+publish, drafts the GitHub release with the assets and the FFmpeg and
+Mbed TLS sources, and pushes the commit `Release VERSION` and the tag
+`vVERSION`. The tag starts `publish.yml`, which publishes the release and
+the package on pub.dev. Each step is a `tool/release.sh` command and runs
+locally too:
+
+```sh
+tool/release.sh version 1.0.0
+tool/release.sh build apple /tmp/sources && tool/release.sh pack apple /tmp/dist
+tool/release.sh build android /tmp/sources && tool/release.sh pack android /tmp/dist
+tool/release.sh sources /tmp/dist && tool/release.sh pin /tmp/dist
+tool/release.sh check /tmp/dist   # then git checkout the pins
+```
+
+Once per repository: a deploy key with write access whose private key is
+the secret `RELEASE_DEPLOY_KEY` (the workflow's own token cannot start
+`publish.yml`), a GitHub environment `pub.dev`, and automated publishing
+on the package's pub.dev Admin page (repository `boyan01/lychee_player`,
+tag pattern `v{{version}}`, environment `pub.dev`).
 
 ## License
 

@@ -71,7 +71,9 @@ for slice in "${slices[@]}"; do
   done
 done
 
+# Built here: the pod no longer replaces Frameworks/ with a release.
 mkdir -p "$dest"
+rm -f "$dest/.prebuilt"
 for lib in "${libs[@]}"; do
   args=()
   for slice in "${slices[@]}"; do

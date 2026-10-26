@@ -1,0 +1,35 @@
+# Publishes the tag vVERSION that release.yml pushed: the drafted GitHub
+# release, then the package on pub.dev. pub.dev accepts its OIDC token only
+# from a workflow a tag push started, from the environment pub.dev (the
+# package's Admin page names both).
+
+name: Publish
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: pub.dev
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check the tag
+        run: |
+          grep -qx "version: ${GITHUB_REF_NAME#v}" flutter/pubspec.yaml
+          grep -q "\"tag\": \"$GITHUB_REF_NAME\"" flutter/prebuilt.json
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false
+      - name: Check the release's files
+        run: tool/release.sh verify
+      - uses: dart-lang/setup-dart@v1
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: tool/release.sh publish

@@ -74,6 +74,7 @@ for slice in macos ios ios-simulator; do
 done
 [ ${#args[@]} -gt 0 ] || { echo "no FFmpeg xcframeworks; run tool/package_ffmpeg_apple.sh" >&2; exit 1; }
 
-rm -rf "$frameworks/lychee.xcframework"
+# Built here: the pod no longer replaces Frameworks/ with a release.
+rm -rf "$frameworks/lychee.xcframework" "$frameworks/.prebuilt"
 xcodebuild -create-xcframework "${args[@]}" -output "$frameworks/lychee.xcframework" >/dev/null
 echo "wrote ${frameworks#$root/}/lychee.xcframework"

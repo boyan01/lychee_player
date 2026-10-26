@@ -68,6 +68,12 @@ android {
     }
 }
 
+// The release ships the AAR and its POM (tool/release.sh); without Gradle
+// module metadata, the POM alone describes the dependencies.
+tasks.withType<GenerateModuleMetadata>().configureEach {
+    enabled = false
+}
+
 publishing {
     publications {
         register<MavenPublication>("release") {

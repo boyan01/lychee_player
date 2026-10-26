@@ -20,7 +20,9 @@ finished item locally.
 Stop and ask only for:
 
 - Pushing, publishing or hosting anything: `git push`, pub.dev,
-  crates.io, release assets, where prebuilt artifacts live.
+  crates.io, release assets, where prebuilt artifacts live. Running
+  `.github/workflows/release.yml` is a release: it pushes a tag that
+  publishes to pub.dev.
 - Anything that needs the user's hands: a real device, a machine this Mac
   cannot reach (e.g. one with VAAPI), confirming on a phone, accounts,
   certificates. Mark the roadmap item as waiting on the user and move on
@@ -171,6 +173,13 @@ glitch checks fail for reasons unrelated to your change. Done means:
   rotation): run `build/examples/glfw/lychee_glfw` on a test file and look at
   a window screenshot. It has no Flutter in between, so it also tells core
   bugs from texture bridge bugs.
+- For changes to packaging or releases (`tool/release.sh`,
+  `flutter/prebuilt.json`, the podspec's or the plugin Gradle's
+  download, `Package.swift`, the release workflows): run the release
+  steps into a scratch directory (README, "Releases"), ending with
+  `tool/release.sh check`, which builds a fresh macOS, iOS-simulator and
+  Android app against the packed package with the assets served locally;
+  then `git checkout` the pins it wrote.
 - A new behaviour gets a case in `tool/regression.sh` when the CLI can
   observe it, and a unit test in `core/test` when it is a pure algorithm
   (clock, queue, frame selection, vsync estimation). The tests use the tiny
@@ -185,6 +194,13 @@ glitch checks fail for reasons unrelated to your change. Done means:
   before building either example on macOS or iOS, or the example runs
   the old core. They may use only `lychee/lychee.h`; the framework carries
   no other header (and a module map, so Swift can `import lychee`).
+- Without local builds, the pod and the Android plugin take the core
+  from the release `flutter/prebuilt.json` pins, also inside this
+  repository: an example built from a fresh checkout runs the released
+  core, not the checkout's. Local builds win only when complete:
+  all six xcframeworks in `flutter/darwin/Frameworks` without a
+  `.prebuilt` stamp (the pod's mark of a download), and
+  `sdk/android/build/repo`.
 - The Rust bindings (`rust/lychee-sys/src/bindings.rs`) are generated and
   checked in. After changing `lychee.h`, rerun `tool/rust_bindings.sh`
   (`cargo install bindgen-cli`) and wrap the change in the `lychee` crate.

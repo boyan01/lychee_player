@@ -1,0 +1,126 @@
+# Releases VERSION: builds the prebuilt core (Apple xcframeworks, the
+# Android AAR), pins their SHA-256s in flutter/prebuilt.json and
+# Package.swift, checks that a fresh app builds with the package pub would
+# publish, drafts the GitHub release with the assets, and pushes the
+# "Release VERSION" commit and the tag vVERSION. The tag starts publish.yml,
+# which publishes the release and the package.
+#
+#   gh workflow run release.yml -f version=1.0.0
+#
+# flutter/CHANGELOG.md must have a "## VERSION" section; it becomes the
+# release notes. The push needs RELEASE_DEPLOY_KEY, the private half of a
+# deploy key with write access: a push with the workflow's own token would
+# not start publish.yml.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, as in pubspec.yaml (1.0.0)
+        required: true
+
+concurrency: release
+
+env:
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  apple:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install tools
+        run: brew install nasm ninja
+      - run: tool/release.sh version "$VERSION"
+      - name: FFmpeg cache key
+        id: ffmpeg
+        run: |
+          inputs="$(cat tool/build_ffmpeg.sh tool/apple_framework.sh; grep -E '^(ffmpeg|mbedtls)_' tool/release.sh; xcodebuild -version)"
+          echo "key=ffmpeg-apple-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: third_party/ffmpeg
+          key: ${{ steps.ffmpeg.outputs.key }}
+      - run: tool/release.sh build apple build-sources
+      - run: tool/release.sh pack apple dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apple
+          path: dist
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Install tools
+        run: sudo apt-get install -y ninja-build
+      - run: tool/release.sh version "$VERSION"
+      - name: FFmpeg cache key
+        id: ffmpeg
+        run: |
+          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^(ffmpeg|mbedtls)_' tool/release.sh; echo "$ANDROID_NDK_HOME")"
+          echo "key=ffmpeg-android-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: third_party/ffmpeg
+          key: ${{ steps.ffmpeg.outputs.key }}
+      - run: tool/release.sh build android build-sources
+      - run: tool/release.sh pack android dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist
+          if-no-files-found: error
+
+  release:
+    needs: [apple, android]
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+      - run: tool/release.sh version "$VERSION"
+      - run: tool/release.sh sources dist
+      - run: tool/release.sh pin dist
+      # Committed before the check, so pub packs it from a clean tree;
+      # nothing leaves the runner until the push.
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Package.swift flutter/pubspec.yaml flutter/prebuilt.json
+          git commit -m "Release $VERSION"
+      - run: tool/release.sh check dist
+      # Before the tag exists: publish.yml, which the tag starts, publishes
+      # this draft.
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tool/release.sh notes >"$RUNNER_TEMP/notes.md"
+          gh release create "v$VERSION" --draft --title "$VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md" dist/*
+      - name: Tag and push
+        run: |
+          git tag "v$VERSION"
+          git push origin "HEAD:$GITHUB_REF_NAME" "v$VERSION"

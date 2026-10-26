@@ -20,7 +20,9 @@ if(NOT LYCHEE_FFMPEG_ROOT)
 endif()
 
 # The core as lychee_player.dll: Dart binds its C ABI through FFI, and the
-# texture bridge below links it. Apps reach the package through a symlink
+# texture bridge below links it. Its source is the repository's core/ in a
+# checkout, else the package's core/, the copy that tool/release.sh puts
+# there for pub to publish. Apps reach the package through a symlink
 # (.plugin_symlinks/lychee_player); Windows collapses ../ lexically and
 # CMake's REALPATH does not follow it there, so read the link.
 get_filename_component(package_dir "${CMAKE_CURRENT_SOURCE_DIR}" DIRECTORY)
@@ -35,7 +37,11 @@ if(IS_SYMLINK "${package_dir}")
   endif()
 endif()
 set(BUILD_SHARED_LIBS ON)
-add_subdirectory("${package_dir}/../core" "${CMAKE_CURRENT_BINARY_DIR}/core")
+set(core_dir "${package_dir}/../core")
+if(NOT IS_DIRECTORY "${core_dir}")
+  set(core_dir "${package_dir}/core")
+endif()
+add_subdirectory("${core_dir}" "${CMAKE_CURRENT_BINARY_DIR}/core")
 set_target_properties(lychee PROPERTIES OUTPUT_NAME lychee_player)
 
 add_library(${PLUGIN_NAME} SHARED

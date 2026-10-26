@@ -1,0 +1,2 @@
+# Replaces .gitignore in this directory for pub, so the copy of the core
+# that tool/release.sh makes before packing (/core/) is published.

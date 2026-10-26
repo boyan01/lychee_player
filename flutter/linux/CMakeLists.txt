@@ -8,10 +8,15 @@ project(${PROJECT_NAME} LANGUAGES C CXX)
 
 set(PLUGIN_NAME "lychee_player_plugin")
 
-# Flutter reaches this directory through a symlink in the app's
-# flutter/ephemeral/.plugin_symlinks; resolve it before going up to core/.
+# The core's source: the repository's core/ in a checkout, else the
+# package's core/, the copy that tool/release.sh puts there for pub to
+# publish. Flutter reaches this directory through a symlink in the app's
+# flutter/ephemeral/.plugin_symlinks; resolve it before going up.
 get_filename_component(_lychee_plugin_dir "${CMAKE_CURRENT_SOURCE_DIR}" REALPATH)
-get_filename_component(_lychee_repo "${_lychee_plugin_dir}/../.." ABSOLUTE)
+get_filename_component(_lychee_core "${_lychee_plugin_dir}/../../core" ABSOLUTE)
+if(NOT IS_DIRECTORY "${_lychee_core}")
+  get_filename_component(_lychee_core "${_lychee_plugin_dir}/../core" ABSOLUTE)
+endif()
 
 # Everything the bundle loads sits in one directory with RUNPATH $ORIGIN, in
 # the build tree as in the app's bundle/lib.
@@ -99,7 +104,7 @@ endforeach()
 
 # --- Core -----------------------------------------------------------------
 set(BUILD_SHARED_LIBS ON)
-add_subdirectory("${_lychee_repo}/core" "${CMAKE_CURRENT_BINARY_DIR}/core")
+add_subdirectory("${_lychee_core}" "${CMAKE_CURRENT_BINARY_DIR}/core")
 unset(BUILD_SHARED_LIBS)
 # Export the C ABI only: libstdc++'s inline templates would otherwise leak
 # out with default visibility.
