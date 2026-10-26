@@ -194,7 +194,8 @@ rendering straight into the `SurfaceProducer`'s Surface), Windows'
 dmabufs, unverified above). What is left per platform is a renderer in
 `examples/glfw` (Metal on macOS; Direct3D 11 on Windows since 2026-10-26,
 shared textures and CPU frames, checked with h264, hevc10, rotated and vp9
-in a window; Linux has none yet) and its own `tool/regression.sh` run.
+in a window; OpenGL ES on Linux since 2026-10-26, Platforms 2) and its own
+`tool/regression.sh` run.
 
 1. **Windows leftovers**: hardware decoding runs through Media Foundation
    (H.264, HEVC; FFmpeg-free builds 4) and otherwise FFmpeg's D3D11VA, on
@@ -264,6 +265,22 @@ in a window; Linux has none yet) and its own `tool/regression.sh` run.
    updating; 2026-10-25), so only the integration test (lifetime) passes
    there. Done when a machine with a real GPU shows the example playing
    under Impeller with its controls drawn.
+   `examples/glfw/main_linux.cc` (2026-10-26) is the Flutter-free
+   renderer: GLFW with an OpenGL ES 3 context on EGL, taking frames the
+   way the plugin does (CPU RGBA uploaded into a texture; dmabufs
+   imported a plane at a time and converted by a shader, with the render
+   node from EGL's device query). In WSL under Xvfb it plays
+   `h264_aac.mp4`, `rotated.mp4` and `vp9_opus.webm` upright with pause
+   and seek (0-2 dropped), on WSLg 177 frames in 6 s with 0 dropped,
+   and on the VM's GNOME (Wayland, GLFW 3.4) 0-7 dropped per 12 s: the
+   loop stalls 25-65 ms now and then there, with any pacing and without
+   it. Its swap does not wait for vsync there (100-140 Hz unpaced), so
+   the loop sleeps out the refresh itself. The VM's EGL offers dmabuf
+   import (on `renderD128`), but without VAAPI no dmabuf frame has been
+   drawn. `--snapshot` reads back what it drew: against FFmpeg's frame at
+   the pts it prints, a 1:1 h264 snapshot in WSL is 51.5 dB (vp9 35,
+   scaled 28-35; on the VM 29-31) and the next frame 18-20 dB, for
+   `h264_aac.mp4`, `rotated.mp4` and `vp9_opus.webm`.
    WSL's audio device (WSLg's `RDPSink`) runs 0.3-0.4% slower than the
    system clock in most runs: on the real clock, video follows it by
    holding a frame for 3 vsyncs every ~3 s (`glitches=1-4`,

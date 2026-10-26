@@ -28,7 +28,7 @@ core/                 C++ core, no UI toolkit dependency
   fuzz/               libFuzzer target over the MP4 demuxer (tool/fuzz.sh)
 examples/cli/         headless player for regression testing
 examples/glfw/        windowed player without Flutter (GLFW + Metal on macOS,
-                      + Direct3D 11 on Windows)
+                      Direct3D 11 on Windows, OpenGL ES on Linux)
 flutter/              Flutter plugin (lib/; darwin/ for iOS and macOS, android/,
                       windows/, linux/) and its example app
 sdk/apple/            Swift package for macOS and iOS apps, and its example app
@@ -96,7 +96,15 @@ the Flutter plugin takes: shared D3D11 textures on the adapter it draws
 with, CPU BGRA frames otherwise (`--cpu` forces them, `--no-hw` decodes in
 software); its summary also counts the frames of each kind. CMake
 downloads GLFW 3.4 there (hash-pinned; `-DLYCHEE_FETCH_GLFW=OFF` skips the
-example).
+example). On Linux (`main_linux.cc`; needs `libglfw3-dev`, `libegl-dev` and
+`libgles-dev`) it draws with OpenGL ES 3 on EGL, as the Flutter plugin
+does: CPU RGBA frames uploaded into a texture, and VAAPI dmabufs imported
+as EGLImages and converted from YUV by a shader. There `--size WxH` sets
+the window's client size, and `--snapshot SEC:FILE` (repeatable) reads
+back what the window drew for the first frame at or after SEC seconds,
+writes it as a binary PPM (P6, top row first) and prints `snapshot FILE
+pts=US size=WxH video=X,Y,W,H` (the frame's pts on the file's timeline,
+and where the picture is in the PPM).
 
 `tool/regression.sh` generates a synthetic media set and runs the CLI over it
 (`TSAN=1` for a ThreadSanitizer build, `ASAN=1` for AddressSanitizer and

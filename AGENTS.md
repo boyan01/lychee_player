@@ -386,12 +386,13 @@ jobs: those stay local.
   (`wsl.exe -d Ubuntu-22.04 -u root -- ...`), which is how apt installs
   there. It has `nasm`, `libva-dev`, `libgnutls28-dev`, `mingw-w64` and
   `libz-mingw-w64-dev` (2026-10-26), so `tool/build_ffmpeg.sh
-  linux-x86_64` and `windows-x86_64` both build there. Its mingw-w64 (8.0)
-  headers lack AV1's DXVA structures, so its Windows FFmpeg has no AV1
-  (the script warns). Commands sent through Windows' ssh pass cmd.exe
-  (8191 characters, its own quoting): copy scripts over with `scp` and run
-  them from `/mnt/c`. Linux has no VAAPI here, so run its regression with
-  `NO_HW=1`.
+  linux-x86_64` and `windows-x86_64` both build there, and `libglfw3-dev`,
+  `libegl-dev`, `libgles-dev`, `xvfb`, `xdotool` and `imagemagick` for
+  `examples/glfw`. Its mingw-w64 (8.0) headers lack AV1's DXVA
+  structures, so its Windows FFmpeg has no AV1 (the script warns).
+  Commands sent through Windows' ssh pass cmd.exe (8191 characters, its
+  own quoting): copy scripts over with `scp` and run them from `/mnt/c`.
+  Linux has no VAAPI here, so run its regression with `NO_HW=1`.
 - On Linux (WSL Ubuntu 22.04), `TSAN=1` dies with "unexpected memory
   mapping" unless run under `setarch x86_64 -R`. With GCC 11 it then reports
   false double locks and races in `player.cc`: GCC 11's libtsan does not
