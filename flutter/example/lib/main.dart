@@ -349,7 +349,7 @@ class _StatsState extends State<_Stats> {
   Widget build(BuildContext context) {
     final value = widget.value;
     return Text(
-      '${_stats.hardwareDecoding ? 'hw' : 'sw'}  '
+      '${_stats.videoDecoder} ${_stats.hardwareDecoding ? 'hw' : 'sw'}  '
       '${_fps.toStringAsFixed(1)} fps  '
       'rendered ${_stats.framesRendered}  dropped ${_stats.framesDropped}   '
       '${value.state.name}'

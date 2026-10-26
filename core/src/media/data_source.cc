@@ -7,11 +7,60 @@
 
 #if defined(__APPLE__)
 #include "backends/apple/http_data_source.h"
+#elif defined(_WIN32)
+#include <windows.h>
 #endif
 
 namespace lychee {
 
 namespace {
+
+#if defined(_WIN32)
+int Seek(std::FILE* file, int64_t offset, int whence) {
+  return _fseeki64(file, offset, whence);
+}
+
+int64_t Tell(std::FILE* file) {
+  return _ftelli64(file);
+}
+
+std::string ErrorString(int error) {
+  char text[128];
+  strerror_s(text, sizeof(text), error);
+  return text;
+}
+
+// Paths are UTF-8, as everywhere else in the API.
+std::FILE* OpenFile(const std::string& path) {
+  const int size =
+      MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+  if (size <= 0) {
+    errno = EINVAL;
+    return nullptr;
+  }
+  std::wstring wide(static_cast<size_t>(size), L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, wide.data(), size);
+  std::FILE* file = nullptr;
+  errno = _wfopen_s(&file, wide.c_str(), L"rb");
+  return file;
+}
+#else
+int Seek(std::FILE* file, int64_t offset, int whence) {
+  return fseeko(file, offset, whence);
+}
+
+int64_t Tell(std::FILE* file) {
+  return ftello(file);
+}
+
+std::string ErrorString(int error) {
+  return std::strerror(error);
+}
+
+std::FILE* OpenFile(const std::string& path) {
+  return std::fopen(path.c_str(), "rb");
+}
+#endif
 
 class FileDataSource : public DataSource {
  public:
@@ -19,13 +68,13 @@ class FileDataSource : public DataSource {
   ~FileDataSource() override { std::fclose(file_); }
 
   int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
-    if (fseeko(file_, offset, SEEK_SET) != 0) {
-      error_ = std::strerror(errno);
+    if (Seek(file_, offset, SEEK_SET) != 0) {
+      error_ = ErrorString(errno);
       return -1;
     }
     size_t read = std::fread(data, 1, size, file_);
     if (read == 0 && std::ferror(file_)) {
-      error_ = std::strerror(errno);
+      error_ = ErrorString(errno);
       std::clearerr(file_);
       return -1;
     }
@@ -89,14 +138,20 @@ std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
       return nullptr;
     }
     path = url.substr(scheme_end + 3);
+#if defined(_WIN32)
+    // file:///C:/dir/file
+    if (path.size() >= 3 && path[0] == '/' && path[2] == ':') {
+      path.erase(0, 1);
+    }
+#endif
   }
-  std::FILE* file = std::fopen(path.c_str(), "rb");
+  std::FILE* file = OpenFile(path);
   if (!file) {
-    *error = path + ": " + std::strerror(errno);
+    *error = path + ": " + ErrorString(errno);
     return nullptr;
   }
-  fseeko(file, 0, SEEK_END);
-  int64_t size = ftello(file);
+  Seek(file, 0, SEEK_END);
+  int64_t size = Tell(file);
   return std::make_unique<FileDataSource>(file, size);
 }
 

@@ -53,7 +53,8 @@ renders styled ASS subtitles with libass (`brew install libass`);
 iOS, `-DLYCHEE_WITH_FFMPEG=OFF` builds without FFmpeg: MP4 files
 (fragmented too) and http(s) URLs with H.264/HEVC (VideoToolbox),
 AAC/ALAC (AudioToolbox) and tx3g subtitles; `NO_FFMPEG=1
-tool/regression.sh` tests it.
+tool/regression.sh` tests it. On Windows it plays MP4 files with
+H.264/HEVC and AAC through Media Foundation, on a GPU only.
 
 ```sh
 cmake -S . -B build -G Ninja

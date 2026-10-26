@@ -34,6 +34,10 @@ class D3D11VideoProcessor {
                                       int height,
                                       DXGI_COLOR_SPACE_TYPE color_space);
 
+  // A kCpuBgra copy of |frame|, a frame from Convert(), for callers that
+  // cannot open textures. Null on failure.
+  std::shared_ptr<VideoFrame> Download(const VideoFrame& frame);
+
  private:
   bool SetUp(ID3D11Device* device);
   // Converts |texture|'s |slice| into |output| from |input_space| to
@@ -75,6 +79,8 @@ class D3D11VideoProcessor {
   Microsoft::WRL::ComPtr<ID3D11VertexShader> vertex_shader_;
   Microsoft::WRL::ComPtr<ID3D11PixelShader> tone_map_shader_;
   bool shader_failed_ = false;
+  // Download(): reused while the size stays.
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_;
 };
 
 }  // namespace lychee

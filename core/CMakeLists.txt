@@ -62,10 +62,21 @@ if(ANDROID)
 endif()
 
 if(WIN32)
+  # Media Foundation decodes H.264 and HEVC in both builds, ahead of FFmpeg.
   list(APPEND LYCHEE_SOURCES
+    src/backends/media_foundation/mf_common.cc
+    src/backends/media_foundation/mf_video_decoder.cc
     src/backends/windows/d3d11_video_processor.cc
     src/backends/windows/wasapi_sink.cc
   )
+  if(NOT LYCHEE_WITH_FFMPEG)
+    # Without FFmpeg: MP4 files, AAC through Media Foundation.
+    list(APPEND LYCHEE_SOURCES
+      src/backends/media_foundation/mf_audio_decoder.cc
+      src/backends/mp4/mp4_demuxer.cc
+      src/media/data_source.cc
+    )
+  endif()
 endif()
 
 if(UNIX AND NOT APPLE AND NOT ANDROID)
@@ -187,7 +198,8 @@ if(ANDROID)
 endif()
 
 if(WIN32)
-  target_link_libraries(lychee PRIVATE ole32 avrt d3d11 d3dcompiler)
+  target_link_libraries(lychee PRIVATE
+    ole32 avrt d3d11 d3dcompiler mfplat mfuuid wmcodecdspuuid)
   # base/thread_name.h includes <windows.h>, whose min/max macros break
   # std::min and numeric_limits::max in the files that include it.
   target_compile_definitions(lychee PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

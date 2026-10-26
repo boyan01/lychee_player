@@ -41,7 +41,12 @@
 #elif defined(_WIN32)
 #include <unknwn.h>
 
+#include "backends/media_foundation/mf_video_decoder.h"
 #include "backends/windows/wasapi_sink.h"
+#if !defined(LYCHEE_WITH_FFMPEG)
+#include "backends/media_foundation/mf_audio_decoder.h"
+#include "backends/mp4/mp4_demuxer.h"
+#endif
 #elif defined(__linux__)
 #include "backends/linux/pulse_audio_sink.h"
 #endif
@@ -132,7 +137,7 @@ std::unique_ptr<Demuxer> CreateDemuxer() {
   return std::make_unique<FFmpegDemuxer>();
 #elif defined(__APPLE__)
   return std::make_unique<ProbingDemuxer>();
-#elif defined(__ANDROID__)
+#elif defined(__ANDROID__) || defined(_WIN32)
   return std::make_unique<Mp4Demuxer>();
 #else
   return nullptr;
@@ -178,6 +183,15 @@ std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
   // iOS lets apps pick neither: VideoToolbox decides.
   decoders.push_back(std::make_unique<VTVideoDecoder>(true));
 #endif
+#endif
+#if defined(_WIN32)
+  // In both builds, ahead of FFmpeg's D3D11VA, which stays the fallback
+  // for what Windows' decoders refuse (HEVC without the Store's HEVC
+  // extension, VP9, a GPU without the profile).
+  if (allow_hardware) {
+    decoders.push_back(
+        std::make_unique<MFVideoDecoder>(accepted_storage, device));
+  }
 #endif
 #if defined(LYCHEE_WITH_FFMPEG)
   if (allow_hardware) {
@@ -243,6 +257,8 @@ std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders() {
   decoders.push_back(std::make_unique<ATAudioDecoder>());
 #elif defined(__ANDROID__) && !defined(LYCHEE_WITH_FFMPEG)
   decoders.push_back(std::make_unique<MediaCodecAudioDecoder>());
+#elif defined(_WIN32) && !defined(LYCHEE_WITH_FFMPEG)
+  decoders.push_back(std::make_unique<MFAudioDecoder>());
 #endif
 #if defined(LYCHEE_WITH_FFMPEG)
   decoders.push_back(std::make_unique<FFmpegAudioDecoder>());

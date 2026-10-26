@@ -4,7 +4,9 @@
 
 #include <d3dcompiler.h>
 
+#include <cstring>
 #include <thread>
+#include <vector>
 
 #include "base/log.h"
 #include "base/time.h"
@@ -425,6 +427,56 @@ bool D3D11VideoProcessor::Finish() {
     std::this_thread::yield();
   }
   return SUCCEEDED(status);
+}
+
+std::shared_ptr<VideoFrame> D3D11VideoProcessor::Download(
+    const VideoFrame& frame) {
+  auto* texture = static_cast<ID3D11Texture2D*>(frame.native_handle);
+  if (frame.storage != VideoFrameStorage::kD3D11Texture || !texture ||
+      !context_) {
+    return nullptr;
+  }
+  D3D11_TEXTURE2D_DESC desc = {};
+  if (staging_) {
+    staging_->GetDesc(&desc);
+  }
+  if (!staging_ || desc.Width != static_cast<UINT>(frame.width) ||
+      desc.Height != static_cast<UINT>(frame.height)) {
+    staging_.Reset();
+    texture->GetDesc(&desc);
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    desc.MiscFlags = 0;
+    if (FAILED(device_->CreateTexture2D(&desc, nullptr, &staging_))) {
+      return nullptr;
+    }
+  }
+  context_->CopyResource(staging_.Get(), texture);
+  D3D11_MAPPED_SUBRESOURCE mapped = {};
+  if (FAILED(context_->Map(staging_.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+    return nullptr;
+  }
+  const int stride = frame.width * 4;
+  auto pixels = std::make_shared<std::vector<uint8_t>>(
+      static_cast<size_t>(stride) * frame.height);
+  for (int y = 0; y < frame.height; ++y) {
+    std::memcpy(pixels->data() + static_cast<size_t>(y) * stride,
+                static_cast<const uint8_t*>(mapped.pData) +
+                    static_cast<size_t>(y) * mapped.RowPitch,
+                stride);
+  }
+  context_->Unmap(staging_.Get(), 0);
+  auto result = std::make_shared<VideoFrame>();
+  result->storage = VideoFrameStorage::kCpuBgra;
+  result->width = frame.width;
+  result->height = frame.height;
+  result->pts = frame.pts;
+  result->duration = frame.duration;
+  result->data = pixels->data();
+  result->stride = stride;
+  result->owner = std::move(pixels);
+  return result;
 }
 
 }  // namespace lychee

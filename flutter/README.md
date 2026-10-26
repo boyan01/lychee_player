@@ -1,8 +1,8 @@
 # lychee_player
 
 A video and audio player for Flutter with hardware decoding, on a reusable
-C/C++ core: VideoToolbox on macOS and iOS, MediaCodec on Android, D3D11VA
-on Windows, VAAPI on Linux, and an LGPL-only FFmpeg for everything else.
+C/C++ core: VideoToolbox on macOS and iOS, MediaCodec on Android, Media
+Foundation and D3D11VA on Windows, VAAPI on Linux, and an LGPL-only FFmpeg for everything else.
 Frames reach Flutter as textures without a copy where the platform allows.
 
 ```dart
@@ -30,8 +30,8 @@ player.dispose();
 | Windows | 10 | Visual Studio 2022 |
 | Linux | Ubuntu 22.04 | `libepoxy-dev` and `libpulse-dev` to build |
 
-Hardware decoding: VideoToolbox, MediaCodec and D3D11VA have been seen
-working; Linux's VAAPI path has never run on a machine with VAAPI, so
+Hardware decoding: VideoToolbox, MediaCodec, Media Foundation and D3D11VA
+have been seen working; Linux's VAAPI path has never run on a machine with VAAPI, so
 expect software decoding there (see the repository's roadmap).
 
 The Android core is built for `arm64-v8a` and `x86_64` only. Otherwise

@@ -4,8 +4,8 @@ State as of 2026-10-26: the core plays files and network streams through
 FFmpeg, with accurate seek, pull-based frame selection, playback rate
 (WSOLA), looping and reopening, track selection, text and bitmap
 subtitles, metadata and cover art. The Flutter plugin runs on macOS and iOS
-(VideoToolbox), Android (MediaCodec), Windows (D3D11VA) and Linux (VAAPI,
-never seen working).
+(VideoToolbox), Android (MediaCodec), Windows (Media Foundation, then
+FFmpeg's D3D11VA) and Linux (VAAPI, never seen working).
 Everything below is unfinished.
 
 Each item says where the work goes and when it is done. Remove an item when it
@@ -162,20 +162,21 @@ core's internals).
 Every platform plays through FFmpeg software decoding and CPU RGBA frames
 except Apple's (VideoToolbox, `CVPixelBuffer`), Android's (MediaCodec
 rendering straight into the `SurfaceProducer`'s Surface), Windows'
-(D3D11VA, shared D3D11 textures) and Linux's (VAAPI dmabufs, unverified
-above). What is left per platform is a renderer in `examples/glfw`
-(Metal only today) and its own `tool/regression.sh` run.
+(Media Foundation or D3D11VA, shared D3D11 textures) and Linux's (VAAPI
+dmabufs, unverified above). What is left per platform is a renderer in
+`examples/glfw` (Metal only today) and its own `tool/regression.sh` run.
 
-1. **Windows leftovers**: hardware decoding runs through FFmpeg's D3D11VA
-   on Flutter's adapter, and frames reach Flutter's `GpuSurfaceTexture` as
+1. **Windows leftovers**: hardware decoding runs through Media Foundation
+   (H.264, HEVC; FFmpeg-free builds 4) and otherwise FFmpeg's D3D11VA, on
+   Flutter's adapter, and frames reach Flutter's `GpuSurfaceTexture` as
    shared BGRA textures (h264, hevc10 and vp9 with seeks and 1.5x: 0
-   dropped; the integration test passes; 2026-10-25). The FFmpeg DLLs
-   (BtbN's LGPLv3 build, ~120 MB) should become a slim build of our own:
-   a `windows-x86_64` case in `tool/build_ffmpeg.sh` cross-compiling with
-   mingw-w64 in WSL (`--enable-d3d11va`, Schannel for TLS), which needs
-   someone with sudo there to `apt install mingw-w64 nasm` (or a job in
-   `release.yml`: hosted runners have sudo); the release then hosts it,
-   as for Linux.
+   dropped; the integration test passes; 2026-10-25, again with Media
+   Foundation 2026-10-26). The FFmpeg DLLs (BtbN's LGPLv3 build, ~120 MB)
+   should become a slim build of our own: a `windows-x86_64` case in
+   `tool/build_ffmpeg.sh` cross-compiling with mingw-w64 in WSL
+   (`--enable-d3d11va`, Schannel for TLS), which needs someone with sudo
+   there to `apt install mingw-w64 nasm` (or a job in `release.yml`:
+   hosted runners have sudo); the release then hosts it, as for Linux.
    Unverified there: the pixel buffer path for a Flutter without a D3D11
    adapter, multiple monitors, audible output, and `tool/regression.sh`
    (needs bash). The decoder is rebuilt at the position when the adapter
@@ -183,7 +184,9 @@ above). What is left per platform is a renderer in `examples/glfw`
    midway, but only a simulated loss has run (`decoder-lost`); not yet seen:
    a real GPU reset (`dxcap -forcetdr`), which also loses the plugin's own
    device, and an adapter change during playback (the plugin sets the
-   adapter once).
+   adapter once). Media Foundation's HEVC decoder comes with the Store's
+   HEVC Video Extensions, installed on the test machine; one without them
+   should fall back to D3D11VA at open, which has not been seen.
 2. **Linux leftovers**: `tool/build_ffmpeg.sh linux-x86_64` builds the
    decode-only FFmpeg on Ubuntu 22.04 (WSL: 38 s, 8.2 MB of libraries
    against BtbN's 161 MB). It links the system's libva, libva-drm, libdrm
@@ -276,7 +279,25 @@ Apple's decisions:
   `media/formats/mp4`, which is built around MSE's fragmented MP4.
 - The FFmpeg build keeps FFmpeg's demuxer and hwaccel; the new backends
   are compiled only without FFmpeg, so the shipped xcframework does not
-  carry dead code.
+  carry dead code. Windows is the exception: Media Foundation decodes
+  video in both builds, since it needs no FFmpeg DLL to start and is
+  what Windows itself plays H.264 and HEVC with.
+
+Windows without FFmpeg plays MP4 files (2026-10-26): `Mp4Demuxer` over a
+file `DataSource`, `MFVideoDecoder` (`backends/media_foundation`, ported
+from flutter-airplay's `windows_video.cpp`: Windows' H.264 and HEVC MFTs
+on a D3D11 device of their own, frames through `D3D11VideoProcessor` as
+with D3D11VA) and `MFAudioDecoder` (Windows' AAC decoder, its resampler to
+the sink's format). `MFVideoDecoder` also runs first in the FFmpeg build,
+ahead of D3D11VA, which takes over for what Media Foundation refuses (VP9,
+HEVC without the HEVC Video Extensions, a failure at open or the first
+frame). A loss midway rebuilds on Media Foundation; after two, software
+decoding takes over (`lychee_cli --lose-decoder-after`). `lychee_cli
+--d3d11` on an RTX GPU: h264_aac.mp4 and hevc10.mp4 (P010) decode with
+mediafoundation hw=1, vp9_opus.webm with ffmpeg-hwaccel, all 0 dropped
+with seeks and at 1.5x; the FFmpeg-free build plays h264_aac.mp4 (360 of
+360) and hevc10.mp4; the Flutter example shows the same decoders with 0
+dropped, and its integration test passes.
 
 Both builds read through `DataSource` on Apple platforms (2026-10-26):
 the FFmpeg demuxer's `io_open` hands FFmpeg an `AVIOContext` over a
@@ -389,11 +410,12 @@ Left:
 3. Packaging: a `tool/build_apple.sh` variant (or the Swift package) that
    ships the FFmpeg-free core; iOS compiles (arm64, zero warnings) but has
    not run, and the plugin and Swift package still link FFmpeg.
-4. Windows: decode with Media Foundation (flutter-airplay's
-   `windows_video.cpp`: H.264/HEVC MFTs on D3D11) into the same
-   `LYCHEE_FRAME_D3D11_TEXTURE` frames, ahead of FFmpeg's D3D11VA, which
-   stays the fallback when FFmpeg is present (HEVC without the Store's
-   HEVC extension, VP9). Audio through Media Foundation's AAC decoder.
+4. Windows leftovers: without FFmpeg there is no software video
+   decoder, so a machine without a GPU (or a codec its GPU lacks) plays
+   no video; Media Foundation's software mode would cover it. AAC in
+   ADTS and other audio codecs have no decoder there, and http(s) needs a
+   `DataSource` (WinHTTP). Packaging the FFmpeg-free Windows core for the
+   plugin is not started.
 5. Android: done for files (above). Left: http through JNI, an
    FFmpeg-free AAR variant if native Android users want one, and the
    Flutter plugin on it (its example opens http URLs).
