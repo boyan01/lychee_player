@@ -26,7 +26,7 @@ public final class LycheePlayerView: LycheePlatformView {
   // does not reuse the surface on screen.
   private var shownFrame: CVPixelBuffer?
   private var rotation = 0
-  private var showsHDR = false
+  private var shownHeadroom: CGFloat = 0
 
   public override init(frame: CGRect) {
     super.init(frame: frame)
@@ -94,7 +94,7 @@ public final class LycheePlayerView: LycheePlatformView {
     // simulator shows nothing for the CVPixelBuffer itself.
     videoLayer.contents = CVPixelBufferGetIOSurface(frame)?.takeUnretainedValue()
     shownFrame = frame
-    setHDR(isHDR(frame))
+    setHDR(hdrHeadroom(frame))
     if let rotation = player?.rotation, rotation != self.rotation {
       self.rotation = rotation
       layoutVideoLayer()
@@ -103,22 +103,31 @@ public final class LycheePlayerView: LycheePlatformView {
     CATransaction.commit()
   }
 
-  private func isHDR(_ frame: CVPixelBuffer) -> Bool {
+  // How far above SDR white the frame's contents can go, as a multiple of
+  // it (BT.2408's 203 nits, where Core Animation puts PQ and HLG's
+  // reference white), or 0 for SDR. VideoToolbox attaches no MaxCLL, so PQ
+  // gets its whole range and HLG its nominal 1000 nits; Core Animation
+  // tone-maps that into the headroom the display has.
+  private func hdrHeadroom(_ frame: CVPixelBuffer) -> CGFloat {
     guard let transfer = CVBufferCopyAttachment(frame, kCVImageBufferTransferFunctionKey, nil)
-    else { return false }
-    return CFEqual(transfer, kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ)
-      || CFEqual(transfer, kCVImageBufferTransferFunction_ITU_R_2100_HLG)
+    else { return 0 }
+    if CFEqual(transfer, kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ) { return 10000 / 203 }
+    if CFEqual(transfer, kCVImageBufferTransferFunction_ITU_R_2100_HLG) { return 1000 / 203 }
+    return 0
   }
 
   // EDR costs power, so only while HDR is on screen. Without it the layer
-  // tone-maps HDR contents to SDR.
-  private func setHDR(_ hdr: Bool) {
-    guard hdr != showsHDR else { return }
-    showsHDR = hdr
+  // tone-maps HDR contents to SDR. preferredDynamicRange turns EDR on only
+  // for contents tagged with a headroom above 1, and VideoToolbox's
+  // IOSurfaces carry none, so the layer says it.
+  private func setHDR(_ headroom: CGFloat) {
+    guard headroom != shownHeadroom else { return }
+    shownHeadroom = headroom
     if #available(macOS 26.0, iOS 26.0, *) {
-      videoLayer.preferredDynamicRange = hdr ? .high : .standard
+      videoLayer.contentsHeadroom = headroom
+      videoLayer.preferredDynamicRange = headroom > 0 ? .high : .standard
     } else if #available(macOS 14.0, iOS 17.0, *) {
-      videoLayer.wantsExtendedDynamicRangeContent = hdr
+      videoLayer.wantsExtendedDynamicRangeContent = headroom > 0
     }
   }
 
