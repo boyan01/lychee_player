@@ -130,6 +130,13 @@ data = bytearray(open(sys.argv[1], "rb").read())
 at = data.index(b"stsz")
 data[at + 8:at + 16] = (1).to_bytes(4, "big") + (0xffffffff).to_bytes(4, "big")
 open(sys.argv[2], "wb").write(data)' "$media/loop.mp4" "$media/huge_stsz.mp4" || exit 1
+# One video sample of 1 GiB, far past the end of the file.
+[ -f "$media/huge_sample.mp4" ] || python3 -I -c '
+import sys
+data = bytearray(open(sys.argv[1], "rb").read())
+at = data.index(b"stsz") + 16 + 4 * 10
+data[at:at + 4] = (1 << 30).to_bytes(4, "big")
+open(sys.argv[2], "wb").write(data)' "$media/loop.mp4" "$media/huge_sample.mp4" || exit 1
 gen meta.mp4 -i "$media/h264_aac.mp4" -t 4 -c copy -metadata title="Lychee Test" \
   -metadata artist="Lychee Artist" -metadata album="Lychee Album"
 # Cover art: an ID3 picture (JPEG) and MP4 cover art (PNG).
@@ -499,6 +506,9 @@ par expect background "show at " "summary: state=ended .*dropped=0 glitches=[0-3
 # (FFmpeg-free MP4 parser).
 [ "${NO_FFMPEG:-0}" = 1 ] &&
   par expect huge-sample-table "track 0: .* skipped" "summary: state=ended .*decoder=none " -- "$media/huge_stsz.mp4"
+# A sample larger than any real one is an error, not an allocation.
+[ "${NO_FFMPEG:-0}" = 1 ] &&
+  exits=1 par expect huge-sample "state=error" "error: sample at 0\.300 s .* too large" -- "$media/huge_sample.mp4"
 # Hidden until the end: the stream still ends, with or without audio.
 par expect background-end "<=0 show at" "summary: state=ended position=3\.[0-9]{3}s" -- \
   --hide-after 0 --hide-for 30 "$media/loop.mp4"

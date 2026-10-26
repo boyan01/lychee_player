@@ -27,6 +27,9 @@ constexpr uint32_t FourCC(const char (&code)[5]) {
 constexpr uint64_t kMaxMoovSize = 256 << 20;
 // Samples in all tracks: 77 hours of 60 fps video. Each takes a Sample.
 constexpr size_t kMaxSamples = 1 << 24;
+// One sample: an 8K intra frame is a few MB. A larger size is a corrupt
+// table, and allocating it could take the process down.
+constexpr uint32_t kMaxSampleSize = 64 << 20;
 
 // Big-endian fields with bounds checks: reads past the end yield zeros
 // and clear ok().
@@ -856,7 +859,34 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
    private:
     std::vector<uint8_t> bytes_;
   };
-  auto buffer = std::make_shared<Buffer>(sample.size);
+  auto fail = [&](const char* reason, const char* detail) {
+    char message[160];
+    snprintf(message, sizeof(message), reason,
+             (sample.pts - media_info_.start_time) / 1e6,
+             media_info_.duration / 1e6);
+    error_ = message;
+    LOGE("%s%s%s", message, *detail ? ": " : "", detail);
+    return DemuxerReadResult::kError;
+  };
+  const char* kEnded =
+      "input ended at %.3f s, before its duration of %.3f s "
+      "(truncated file or lost connection)";
+  if (sample.size > kMaxSampleSize) {
+    return fail("sample at %.3f s (of %.3f s) is too large: corrupt file", "");
+  }
+  // Data past the end of the file: the same as a read that ends early,
+  // without allocating for it.
+  if (file_size_ > 0 &&
+      (sample.offset > static_cast<uint64_t>(file_size_) ||
+       sample.size > static_cast<uint64_t>(file_size_) - sample.offset)) {
+    return fail(kEnded, "");
+  }
+  std::shared_ptr<Buffer> buffer;
+  try {
+    buffer = std::make_shared<Buffer>(sample.size);
+  } catch (const std::bad_alloc&) {
+    return fail("out of memory for the sample at %.3f s (of %.3f s)", "");
+  }
   size_t filled = 0;
   while (filled < sample.size) {
     int64_t n = source_->Read(static_cast<int64_t>(sample.offset + filled),
@@ -866,16 +896,7 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
       return DemuxerReadResult::kAborted;
     }
     if (n <= 0) {
-      char message[160];
-      snprintf(message, sizeof(message),
-               "input ended at %.3f s, before its duration of %.3f s "
-               "(truncated file or lost connection)",
-               (sample.pts - media_info_.start_time) / 1e6,
-               media_info_.duration / 1e6);
-      error_ = message;
-      LOGE("%s%s%s", message, n < 0 ? ": " : "",
-           n < 0 ? source_->error().c_str() : "");
-      return DemuxerReadResult::kError;
+      return fail(kEnded, n < 0 ? source_->error().c_str() : "");
     }
     filled += static_cast<size_t>(n);
   }
