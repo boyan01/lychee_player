@@ -19,8 +19,10 @@ LYCHEE_EXPORT void lychee_testing_enable_virtual_time(void);
 // Moves virtual time forward to |now_us|, rendering the audio due by then.
 LYCHEE_EXPORT void lychee_testing_set_time(int64_t now_us);
 // Non-zero if |player| can play on to |until_us| without waiting for its
-// threads: nothing is loading, seeking or switching, and decoded data
-// reaches that far. Wait for it before each lychee_testing_set_time().
+// threads: nothing is loading, seeking or switching, decoded data
+// reaches that far, and the event callback has seen every event so far.
+// Wait for it before each lychee_testing_set_time(). For a live input,
+// instead of the data: every packet pushed so far has been decoded.
 LYCHEE_EXPORT int32_t lychee_testing_player_settled(lychee_player* player,
                                                     int64_t until_us);
 // Makes the video decoder fail at its next packet as a hardware decoder

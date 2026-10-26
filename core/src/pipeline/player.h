@@ -151,7 +151,8 @@ class Player {
   // system time |until| without waiting for data. False while loading,
   // buffering, seeking or switching tracks, until the control thread has
   // applied play/pause and end of stream, and while a renderer's decoded
-  // data ends before |until|.
+  // data ends before |until|, or while the callback has yet to see an
+  // event. Live: LiveSettledLocked().
   bool SettledForTesting(int64_t until) const;
   // Makes the video decoder count as lost, as after a GPU reset.
   void LoseVideoDecoderForTesting();
@@ -229,7 +230,9 @@ class Player {
   // Live: replaces and flushes renderers for |request| and |change|. The
   // read thread must be parked.
   void ApplyLiveChange(TrackRequest request, const LiveChange& change);
-  bool LiveSettledLocked(int64_t until) const;
+  // Live: everything pushed so far has been decoded; for
+  // SettledForTesting().
+  bool LiveSettledLocked() const;
   std::unique_ptr<VideoRenderer> CreateVideoRenderer(const StreamInfo& info);
   std::unique_ptr<AudioRenderer> CreateAudioRenderer(const StreamInfo& info);
   // The renderer of |subtitle_stream_|, or null.
@@ -320,6 +323,8 @@ class Player {
   EventCallback event_callback_ = nullptr;
   void* event_user_data_ = nullptr;
   std::vector<Event> events_;
+  // DispatchEvents() is handing events to the callback.
+  bool dispatching_ = false;
   PlayerState state_ = PlayerState::kIdle;
   bool play_when_ready_ = false;
   bool clock_running_ = false;

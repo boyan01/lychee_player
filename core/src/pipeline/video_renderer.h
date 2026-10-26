@@ -72,6 +72,9 @@ class VideoRenderer {
   // A decoded frame lasts past |media_time|, the queue is full, or the
   // stream ended. For SettledForTesting().
   bool HasFramesUntil(int64_t media_time) const;
+  // The decode thread takes no more packets until frames are pulled: it
+  // waits for queue space, or it failed. For SettledForTesting().
+  bool Blocked() const;
   // The decoder failed for good; decoding has stopped.
   bool HasError() const;
   // A hardware decoder failed after its first frame, which is how a lost
@@ -164,6 +167,8 @@ class VideoRenderer {
   bool end_of_stream_ = false;
   bool failed_ = false;
   bool decoder_lost_ = false;
+  // OnFrame() waits for queue space or for the end time to go.
+  bool waiting_ = false;
   std::atomic<bool> simulate_loss_{false};
   bool stopped_ = false;
   int shown_width_ = 0;

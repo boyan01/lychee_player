@@ -130,10 +130,12 @@ void AudioRenderer::DecodeLoop() {
 void AudioRenderer::OnBuffer(std::shared_ptr<AudioBuffer> buffer,
                              uint64_t generation) {
   std::unique_lock<std::mutex> lock(mutex_);
+  waiting_ = true;
   condition_.wait(lock, [&] {
     return stopped_ || generation != generation_ ||
            BufferedDurationLocked() < kMaxBufferedDuration;
   });
+  waiting_ = false;
   if (stopped_ || generation != generation_) {
     return;
   }
@@ -340,6 +342,11 @@ bool AudioRenderer::HasDataFor(int64_t duration) const {
   return end_of_stream_ || failed_ ||
          BufferedDurationLocked() >=
              std::min(duration + kWsolaLookahead, kMaxBufferedDuration / 2);
+}
+
+bool AudioRenderer::Blocked() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return waiting_ || failed_;
 }
 
 bool AudioRenderer::HasError() const {

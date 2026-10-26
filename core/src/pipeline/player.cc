@@ -1443,8 +1443,14 @@ void Player::ApplyPlayingLocked() {
 
 bool Player::SettledForTesting(int64_t until) const {
   std::lock_guard<std::mutex> lock(mutex_);
+  // The control thread hands out events every 10 ms of real time, which
+  // can be seconds of virtual time: wait for it, or the caller sees them
+  // late, as a cue shown from a time past its start.
+  if (!events_.empty() || dispatching_) {
+    return false;
+  }
   if (live_) {
-    return LiveSettledLocked(until);
+    return LiveSettledLocked();
   }
   switch (state_) {
     case PlayerState::kLoading:
@@ -1489,7 +1495,7 @@ bool Player::SettledForTesting(int64_t until) const {
           video_renderer_->HasFramesUntil(clock_.Now() + ahead));
 }
 
-bool Player::LiveSettledLocked(int64_t until) const {
+bool Player::LiveSettledLocked() const {
   if (seeking_ || live_change_.pending() || track_request_.pending()) {
     return false;
   }
@@ -1497,14 +1503,17 @@ bool Player::LiveSettledLocked(int64_t until) const {
     video_renderer_->ExpireFramesWhileHidden(NowMicros());
   }
   // Everything pushed so far has been decoded, unless a renderer waits for
-  // room and already has what |until| needs.
+  // room. Not "has frames past the time asked for": that let time run
+  // ahead of a slow decoder until its frames reached just past it, while
+  // the vsync then shows the frame covering most of the interval after it,
+  // which could still be decoding: under load, frames came a vsync late.
   if (!live_demuxer_->Idle()) {
     return false;
   }
   return (!video_renderer_ || video_queue_.idle() ||
-          video_renderer_->HasFramesUntil(until)) &&
+          video_renderer_->Blocked()) &&
          (!audio_renderer_ || audio_queue_.idle() ||
-          audio_renderer_->HasDataFor(until - NowMicros()));
+          audio_renderer_->Blocked());
 }
 
 void Player::ApplyLiveChange(TrackRequest request, const LiveChange& change) {
@@ -1612,14 +1621,17 @@ void Player::DispatchEvents() {
     events.swap(events_);
     callback = event_callback_;
     user_data = event_user_data_;
-  }
-  if (!callback) {
-    return;
+    if (!callback || events.empty()) {
+      return;
+    }
+    dispatching_ = true;
   }
   for (const Event& event : events) {
     callback(user_data, static_cast<int32_t>(event.type), event.arg0,
              event.arg1);
   }
+  std::lock_guard<std::mutex> lock(mutex_);
+  dispatching_ = false;
 }
 
 void Player::FailLocked(const std::string& error) {

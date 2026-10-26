@@ -217,12 +217,14 @@ void VideoRenderer::OnFrame(std::shared_ptr<VideoFrame> frame,
     return;
   }
   std::unique_lock<std::mutex> lock(mutex_);
+  waiting_ = true;
   condition_.wait(lock, [&] {
     return stopped_ || generation != generation_ ||
            (algorithm_.frames_queued() <= kMaxQueuedFrames &&
             (end_time_ == kNoTimestamp || frame->pts == kNoTimestamp ||
              frame->pts < end_time_));
   });
+  waiting_ = false;
   if (stopped_ || generation != generation_) {
     return;
   }
@@ -318,6 +320,11 @@ bool VideoRenderer::HasFramesUntil(int64_t media_time) const {
   }
   return algorithm_.frames_queued() > 0 &&
          FrameEnd(*algorithm_.last_frame()) > media_time;
+}
+
+bool VideoRenderer::Blocked() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return waiting_ || failed_;
 }
 
 bool VideoRenderer::shown_size(int* width, int* height) const {

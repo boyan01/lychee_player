@@ -55,6 +55,9 @@ class AudioRenderer {
   // Decoded audio lasts |duration| of media time, the buffer is full, or
   // the stream ended. For SettledForTesting().
   bool HasDataFor(int64_t duration) const;
+  // The decode thread takes no more packets until audio is played: it
+  // waits for buffer space, or it failed. For SettledForTesting().
+  bool Blocked() const;
   // The decoder failed for good; decoding has stopped.
   bool HasError() const;
   // Decoded audio waiting to be played, in media time.
@@ -96,6 +99,8 @@ class AudioRenderer {
   int64_t end_time_ = kNoTimestamp;
   bool end_of_stream_ = false;
   bool failed_ = false;
+  // OnBuffer() waits for buffer space.
+  bool waiting_ = false;
   bool playing_ = false;
   bool stopped_ = false;
 };

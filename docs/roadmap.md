@@ -55,26 +55,15 @@ on top of them.
    wait on each other. Done when the setter from inside a callback swaps
    the sink without waiting (the old one stays valid until every caller
    returns), with a unit test that runs two such threads.
-2. **`live-resolution` glitches on a loaded machine**: with software
-   decoding, `live_resolution.ts` (720p TS, then 360p) shows 7-23
-   glitches instead of at most 5 in about 1 of 12 runs alone and 9 of 24
-   with six at once (2026-10-26), also before that day's changes, and it
-   failed CI's plain job once. Each glitch is a frame shown one vsync late
-   (held 3 vsyncs, then 1). `live_h264.mp4` under the same load never
-   glitches, so virtual time should not depend on load here: something
-   lets `LiveSettledLocked` report settled while a frame for the next
-   vsync is still being decoded (B-frames in the TS, waiting for the next
-   packet, are the first suspect). Done when 24 runs six at once pass.
-   `live-jitter` (`live_h264.mp4` with 30 ms of jitter) fails the same
-   way (glitches=5, at most 3): 2 of 24 with six at once, before and
-   after that day's live hold change alike (LGPL FFmpeg; resolution 5
-   and 1 of 24). Both failed CI's first run of the regression on the
-   shipped FFmpeg (flutter-macos, 2026-10-26), which `release.yml` now
-   also runs, so this flake can hold up a release.
-   CI's plain job also failed once each on `subtitle-mid-cue` (the cue
-   at the switch never printed; 0 of 24 here with six at once) and
-   `realtime-loop` (drift on the real clock, expected on a hosted VM);
-   until these are fixed, a red plain job needs its log read.
+2. **`realtime-loop` drifts on CI's hosted VM**: it plays on the real
+   clock and audio device, so load shows up as drift, and CI's plain job
+   failed on it once (2026-10-26). A red plain job needs its log read.
+   Done when CI runs the `realtime=1` cases somewhere their timing means
+   something, or not at all. The virtual-time flakes of that day
+   (`live-resolution`, `live-jitter`, `subtitle-mid-cue`) are fixed: time
+   ran ahead of a slow live decoder, and of events still waiting for the
+   control thread's next 10 ms tick; 24 runs six at once now give the
+   same counts every run.
 3. **Events of players a hot restart left go to a closed isolate**: the
    plugins destroy the players behind their textures when the engine
    goes, and on `disposeAll`, which Dart calls before an isolate's first
@@ -310,9 +299,10 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    (Platforms 1 and 2) fix both.
    The playback matrix runs through the shipped macOS FFmpeg
    (`FFMPEG_ROOT=third_party/ffmpeg/macos-arm64`) in CI's flutter-macos
-   job and in `release.yml` before anything is packed (2026-10-26;
-   passes here, not yet run on GitHub). Not covered there: the Swift,
-   Rust, Android and Flutter lifetime tests, which run only by hand.
+   job and in `release.yml` before anything is packed (2026-10-26; its
+   first GitHub run failed only on the live flakes fixed since). Not
+   covered there: the Swift, Rust, Android and Flutter lifetime tests,
+   which run only by hand.
    `tool/release.sh build` reuses any `third_party/ffmpeg/PLATFORM` that
    exists, so a changed `tool/build_ffmpeg.sh` needs that directory
    deleted by hand (CI keys its cache on the script, so it rebuilds);
