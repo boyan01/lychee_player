@@ -14,8 +14,8 @@
 #                                 # The shipped FFmpeg (tool/build_ffmpeg.sh)
 #                                 # instead of the system's, in build-lgpl/
 #   NO_FFMPEG=1 tool/regression.sh  # macOS without FFmpeg, in build-noffmpeg/:
-#                                 # only the cases with MP4, Matroska and
-#                                 # WebM media, text subtitles
+#                                 # only the cases with MP4, Matroska,
+#                                 # WebM, MPEG-TS and HLS media, text subtitles
 set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -85,6 +85,7 @@ gen rotated.mp4 -display_rotation 90 -i "$media/h264_aac.mp4" -c copy
 gen audio_only.mp3 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a libmp3lame
 gen video_only.mp4 -f lavfi -i testsrc2=size=1280x720:rate=60 -t 8 -c:v libx264 -preset veryfast -pix_fmt yuv420p
 gen offset.ts -i "$media/h264_aac.mp4" -c copy -output_ts_offset 10 -f mpegts
+gen hevc10.ts -i "$media/hevc10.mp4" -c copy -f mpegts
 # The index at the front, so a cut file still opens; then cut in half.
 gen faststart.mp4 -i "$media/h264_aac.mp4" -c copy -movflags +faststart
 [ -f "$media/truncated.mp4" ] || { head -c 4358118 "$media/faststart.mp4" >"$media/truncated.tmp" &&
@@ -261,6 +262,41 @@ gen flac.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=440:sample_rate
   -c:v copy -c:a flac
 gen mp3.mp4 -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=440:sample_rate=44100 -map 0:v -map 1:a -t 5 \
   -c:v copy -c:a libmp3lame
+# A second rendition at 640x360, and a master playlist over both plus a
+# VP9 variant (the same media, but no FFmpeg-free decoder) with the
+# highest bandwidth.
+if [ ! -f "$media/hls_low/index.m3u8" ]; then
+  mkdir -p "$media/hls_low"
+  ffmpeg -hide_banner -loglevel error -y -i "$media/h264_aac.mp4" -vf scale=640:360 -c:v libx264 -preset veryfast \
+    -g 60 -sc_threshold 0 -c:a copy -f hls -hls_time 2 -hls_playlist_type vod \
+    -hls_segment_filename "$media/hls_low/seg%d.ts" "$media/hls_low/index.m3u8.tmp" &&
+    mv "$media/hls_low/index.m3u8.tmp" "$media/hls_low/index.m3u8" || exit 1
+fi
+[ -f "$media/hls/master.m3u8" ] || printf '%s\n' '#EXTM3U' \
+  '#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS="avc1.64001e,mp4a.40.2"' ../hls_low/index.m3u8 \
+  '#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2"' index.m3u8 \
+  '#EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=1920x1080,CODECS="vp09.00.40.08,mp4a.40.2"' index.m3u8 \
+  >"$media/hls/master.m3u8"
+# The two renditions after each other, each with timestamps from ~1.4 s.
+[ -f "$media/hls/discontinuity.m3u8" ] || printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:3' \
+  '#EXT-X-PLAYLIST-TYPE:VOD' '#EXTINF:3.0,' ../rendition_1280x720.ts '#EXT-X-DISCONTINUITY' '#EXTINF:3.0,' \
+  ../rendition_640x360.ts '#EXT-X-ENDLIST' >"$media/hls/discontinuity.m3u8"
+# MPEG-TS that lost one packet in a thousand (continuity errors), and one
+# that turns into noise after 600 KB.
+[ -f "$media/ts_lost_packets.ts" ] || python3 -I -c '
+import sys
+data = open(sys.argv[1], "rb").read()
+out = bytearray()
+for i in range(0, len(data) - 187, 188):
+    if i // 188 % 1000 != 999:
+        out += data[i:i + 188]
+open(sys.argv[2], "wb").write(out)' "$media/offset.ts" "$media/ts_lost_packets.ts" || exit 1
+[ -f "$media/corrupt.ts" ] || python3 -I -c '
+import random, sys
+data = bytearray(open(sys.argv[1], "rb").read())
+rng = random.Random(1)
+data[600000:] = bytes(rng.randrange(256) for _ in range(len(data) - 600000))
+open(sys.argv[2], "wb").write(data)' "$media/offset.ts" "$media/corrupt.ts" || exit 1
 
 failures=0
 
@@ -396,7 +432,7 @@ selected() {
   done
   return 1
 }
-# Without FFmpeg: MP4, Matroska and WebM, with text subtitles.
+# Without FFmpeg: MP4, Matroska, WebM, MPEG-TS and HLS, with text subtitles.
 plays_without_ffmpeg() {
   case "$1" in
     # Bitmap subtitles have no decoder.
@@ -408,7 +444,7 @@ plays_without_ffmpeg() {
   for arg in "$@"; do
     [[ "$arg" == "$media"/* ]] || continue
     case "$arg" in
-      *.mp4 | *.m4a | *.mkv | *.webm) ;;
+      *.mp4 | *.m4a | *.mkv | *.webm | *.ts | *.m3u8) ;;
       *) return 1 ;;
     esac
     # VideoToolbox decodes VP9 only in hardware.
@@ -461,6 +497,7 @@ par expect rotation "track 0: video h264 1920x1080 rotation=270 " -- --seconds 1
 par check audio-only    - - -- "$media/audio_only.mp3"
 par check video-only    1 - -- "$media/video_only.mp4"
 par check ts-offset     1 - -- "$media/offset.ts"
+par check ts-hevc10     1 - -- "$media/hevc10.ts"
 par check no-hw-cpu     0 - -- --no-hw --cpu "$media/h264_aac.mp4"
 # 8-bit frames from HDR are tone-mapped, by VideoToolbox and by swscale.
 par expect hdr-tonemap "center pixel: 1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9])$" -- --cpu --seconds 1 \
@@ -495,6 +532,18 @@ par check seek-vp9      1 7.500 -- --seek 7.5 --seek-after 2 "$media/vp9_opus.we
 par check seek-mkv      1 7.500 -- --seek 7.5 --seek-after 2 "$media/h264_aac.mkv"
 par check seek-mkv-no-cues 1 1.000 -- --seek 1 --seek-after 5 "$media/mkv_no_cues.mkv"
 par check seek-mkv-unknown-sizes 1 7.500 -- --seek 7.5 --seek-after 2 "$media/mkv_unknown_sizes.mkv"
+# MPEG-TS without FFmpeg seeks by bisection to the keyframe before the
+# target (8.33 s apart here) and lands on the target frame (10 s offset +
+# start 1.377 s + 7.5 s). FFmpeg's seek lands on the keyframe after it.
+if [ "${NO_FFMPEG:-0}" = 1 ]; then
+  par check seek-ts           1 18.867 -- --seek 7.5 --seek-after 2 "$media/offset.ts"
+  par check seek-ts-backward  1 12.367 -- --seek 1 --seek-after 5 "$media/offset.ts"
+  par check seek-ts-hevc10    1 7.442 -- --seek 6 --seek-after 2 "$media/hevc10.ts"
+  # Into the second rendition; FFmpeg's build shows no frame after it.
+  par check seek-ts-rendition 1 5.433 -- --seek 4 --seek-after 1 "$media/resolution_change.ts"
+  par expect loop-ts "video size 640x360" "loops=1" "summary:.*backward_jumps=0 " "<=0 event: state (ended|buffering)" -- \
+    --loop --seconds 9 "$media/resolution_change.ts"
+fi
 par check seek-audio    - - -- --seek 3 --seek-after 1 "$media/audio_only.mp3"
 
 # Playback rate. Drift (position vs. wall clock times the rate) stays small
@@ -726,6 +775,10 @@ trap 'stop_server; rm -rf "$results"' EXIT
 exits=1 par expect truncated-file "state=error" "error: input ended at" -- "$media/truncated.mp4"
 par expect resolution-change "video size 1280x720" "video size 640x360" "state=ended" -- \
   "$media/resolution_change.ts"
+# Damaged MPEG-TS: continuity errors pass the damaged data on (audio
+# resyncs on its ADTS headers), and noise ends the input where it starts.
+par expect ts-lost-packets "summary: state=ended position=12\.0" -- --audio-only "$media/ts_lost_packets.ts"
+par expect ts-corrupt "summary: state=ended position=0\.9" -- "$media/corrupt.ts"
 exits=1 par expect corrupt-file "state=error" "error: (audio|video) decoding failed" -- "$media/corrupt.mp4"
 serve
 seq_ check http          1 - -- "$url"
@@ -746,24 +799,6 @@ if [ "${NO_FFMPEG:-0}" != 1 ]; then
   seq_ expect http-no-ranges-track "select audio 2 at [0-9.]+s: accepted" "track 2: audio .* selected=1" \
     "track switch: resumed" "<=0 seek failed" "<=0 input failed" "summary: state=ended position=8\." -- \
     --select audio:2 "http://127.0.0.1:$port/tracks.mkv"
-  # The TS probe opens three ranges. Later requests fail, like an expired
-  # URL: a failed seek cannot safely resume the demuxer's old read position.
-  serve --refuse-after-requests 3
-  exits=1 seq_ expect http-seek-failed "403 [Ff]orbidden" "error: seek failed" \
-    "summary: state=error" "<=0 seek completed" "<=0 event: state ended" -- \
-    --seek 1 --seek-after 5 "http://127.0.0.1:$port/offset.ts"
-  # A failed read-ahead loop is an input error after the buffered pass,
-  # not an EOF that silently schedules another seek on the control thread.
-  serve --refuse-after-requests 3
-  exits=1 seq_ expect http-loop-seek-failed "403 [Ff]orbidden" "error: loop seek failed" \
-    "summary: state=error" "<=0 loop to" "<=0 seek completed" \
-    "<=0 event: state ended" -- --loop "http://127.0.0.1:$port/offset.ts"
-  # HLS opens its playlist and segments itself (io_open), through the same
-  # http client. Behind a redirect, relative segment URLs resolve against
-  # where the playlist came from.
-  serve --redirect /moved.m3u8 /hls/index.m3u8
-  seq_ check http-hls 1 - -- "http://127.0.0.1:$port/hls/index.m3u8"
-  seq_ check http-hls-redirect 1 - -- "http://127.0.0.1:$port/moved.m3u8"
 fi
 serve --drop-at 3000000
 seq_ check http-mkv-reconnect 1 - -- "http://127.0.0.1:$port/h264_aac.mkv"
@@ -773,6 +808,50 @@ seq_ check http-mkv-reconnect 1 - -- "http://127.0.0.1:$port/h264_aac.mkv"
 serve
 seq_ check http-frag 1 - -- "http://127.0.0.1:$port/frag_scan.mp4"
 seq_ check http-frag-seek 1 6.200 -- --seek 6.2 --seek-after 1 "http://127.0.0.1:$port/frag.mp4"
+# The TS probe opens three ranges in both builds (the start, the end for
+# the duration, then back). Later requests fail, like an expired URL: a
+# failed seek cannot safely resume the demuxer's old read position.
+serve --refuse-after-requests 3
+exits=1 seq_ expect http-seek-failed "403 [Ff]orbidden" "error: seek failed" \
+  "summary: state=error" "<=0 seek completed" "<=0 event: state ended" -- \
+  --seek 1 --seek-after 5 "http://127.0.0.1:$port/offset.ts"
+# A failed read-ahead loop is an input error after the buffered pass,
+# not an EOF that silently schedules another seek on the control thread.
+serve --refuse-after-requests 3
+exits=1 seq_ expect http-loop-seek-failed "403 [Ff]orbidden" "error: loop seek failed" \
+  "summary: state=error" "<=0 loop to" "<=0 seek completed" \
+  "<=0 event: state ended" -- --loop "http://127.0.0.1:$port/offset.ts"
+serve
+seq_ check http-ts 1 - -- "http://127.0.0.1:$port/offset.ts"
+# HLS reads its playlist and segments through the same http client (the
+# FFmpeg build through io_open). Behind a redirect, relative segment URLs
+# resolve against where the playlist came from.
+serve --redirect /moved.m3u8 /hls/index.m3u8
+seq_ check http-hls 1 - -- "http://127.0.0.1:$port/hls/index.m3u8"
+seq_ check http-hls-redirect 1 - -- "http://127.0.0.1:$port/moved.m3u8"
+# Into the fourth segment (6-8 s): its first frame is 1.443 s + 7 s.
+seq_ check http-hls-seek 1 8.433 -- --seek 7 --seek-after 2 "http://127.0.0.1:$port/hls/index.m3u8"
+# A master playlist plays one variant: FFmpeg's build the first, the
+# FFmpeg-free one the highest bandwidth it can decode (not the VP9 one).
+hls_variant="video size (640x360|1920x1080)"
+[ "${NO_FFMPEG:-0}" = 1 ] && hls_variant="variant 1 of 3: .* 1920x1080"
+seq_ expect http-hls-master "$hls_variant" "summary: state=ended position=12\.000s" -- \
+  "http://127.0.0.1:$port/hls/master.m3u8"
+# Timestamps that start over at a discontinuity go on from where the
+# previous segment ended, also after a seek into the later segment. (The
+# FFmpeg build stops at the discontinuity.)
+if [ "${NO_FFMPEG:-0}" = 1 ]; then
+  seq_ expect http-hls-discontinuity "video size 1280x720" "video size 640x360" \
+    "summary: state=ended position=6\.000s .*backward_jumps=0 " -- "http://127.0.0.1:$port/hls/discontinuity.m3u8"
+  seq_ check http-hls-discontinuity-seek 1 5.433 -- --seek 4 --seek-after 1 \
+    "http://127.0.0.1:$port/hls/discontinuity.m3u8"
+fi
+# Live: segments appear in real time; the playlist reloads until
+# EXT-X-ENDLIST.
+serve --live /hls/live.m3u8 /hls/index.m3u8
+realtime=1 seq_ expect http-hls-live "^seekable=0$" "<=0 event: state (error|buffering)" \
+  "summary: state=ended position=12\.0[0-9]{2}s .*dropped=0 .*backward_jumps=0 " -- \
+  "http://127.0.0.1:$port/hls/live.m3u8"
 serve --drop-at 3000000 --refuse-after-drop
 exits=1 seq_ expect http-lost "state=error" "error: input ended at" -- "$url"
 # Slower than the bitrate: rebuffer in long stretches, not every few frames.

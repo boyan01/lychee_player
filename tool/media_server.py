@@ -13,6 +13,12 @@ Used by tool/regression.sh to test network behaviour:
   --refuse-after-requests N  after N requests, every later one fails with 403
   --no-ranges          ignore Range headers: every response is the whole file
   --redirect FROM TO   answer requests for path FROM with a 302 to path TO
+  --live PATH VOD      answer requests for path PATH with a live HLS
+                       playlist made from the VOD playlist at path VOD (in
+                       the same directory): its first three segments at the
+                       first request, one more each time the previous one
+                       has played in real time, a window of four, and
+                       EXT-X-ENDLIST once all are out
 
 Prints "port N" once listening (pass --port 0 for a free port).
 """
@@ -32,6 +38,7 @@ class State:
         self.stalled = False
         self.dropped = False
         self.requests = 0
+        self.live_start = None
 
     def claim(self, attribute):
         # True for the one caller that flips |attribute| first.
@@ -65,6 +72,9 @@ def make_handler(root, args, state):
                 self.send_header("Location", args.redirect[1])
                 self.send_header("Content-Length", "0")
                 self.end_headers()
+                return
+            if args.live and self.path.split("?")[0] == args.live[0]:
+                self.serve_live(head)
                 return
             path = os.path.join(root, self.path.lstrip("/").split("?")[0])
             if not os.path.isfile(path):
@@ -145,6 +155,47 @@ def make_handler(root, args, state):
                         if delay > 0:
                             time.sleep(delay)
 
+        def serve_live(self, head):
+            vod = os.path.join(root, args.live[1].lstrip("/"))
+            target = 0
+            segments = []  # (EXTINF line, URI)
+            extinf = None
+            with open(vod) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("#EXT-X-TARGETDURATION:"):
+                        target = line.split(":", 1)[1]
+                    elif line.startswith("#EXTINF:"):
+                        extinf = line
+                    elif line and not line.startswith("#"):
+                        segments.append((extinf, line))
+            with state.lock:
+                if state.live_start is None:
+                    state.live_start = time.monotonic()
+                elapsed = time.monotonic() - state.live_start
+            # Segment 3 + k is out once segments 3 .. 3 + k - 1 have played.
+            out = min(3, len(segments))
+            played = 0.0
+            while out < len(segments):
+                played += float(segments[out][0][8:].split(",")[0])
+                if played > elapsed:
+                    break
+                out += 1
+            first = max(out - 4, 0)
+            lines = ["#EXTM3U", "#EXT-X-VERSION:3", f"#EXT-X-TARGETDURATION:{target}",
+                     f"#EXT-X-MEDIA-SEQUENCE:{first}"]
+            for extinf, uri in segments[first:out]:
+                lines += [extinf, uri]
+            if out == len(segments):
+                lines.append("#EXT-X-ENDLIST")
+            body = ("\n".join(lines) + "\n").encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/vnd.apple.mpegurl")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if not head:
+                self.wfile.write(body)
+
     return Handler
 
 
@@ -170,6 +221,7 @@ def main():
     parser.add_argument("--refuse-after-requests", type=int)
     parser.add_argument("--no-ranges", action="store_true")
     parser.add_argument("--redirect", nargs=2, metavar=("FROM", "TO"))
+    parser.add_argument("--live", nargs=2, metavar=("PATH", "VOD"))
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 

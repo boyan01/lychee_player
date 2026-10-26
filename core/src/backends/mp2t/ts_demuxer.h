@@ -1,0 +1,73 @@
+#ifndef LYCHEE_BACKENDS_MP2T_TS_DEMUXER_H_
+#define LYCHEE_BACKENDS_MP2T_TS_DEMUXER_H_
+
+#include <atomic>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "backends/mp2t/ts_reader.h"
+#include "media/data_source.h"
+#include "media/demuxer.h"
+
+namespace lychee {
+
+// MPEG-TS files and streams (ISO/IEC 13818-1) for builds without FFmpeg:
+// the first program's H.264, HEVC and AAC (ADTS) streams; MP3 and AC-3
+// are listed but have no decoder there. Seeks by bisection on PES
+// timestamps when the source can seek; the duration comes from the
+// timestamps at the end of the input.
+class TsDemuxer : public Demuxer {
+ public:
+  TsDemuxer();
+  ~TsDemuxer() override;
+
+  const char* name() const override { return "mpegts"; }
+  bool Open(const std::string& url, std::string* error) override;
+  // Takes a source already opened (and partly read) by the format probe.
+  bool Open(std::unique_ptr<DataSource> source, std::string* error);
+  const MediaInfo& media_info() const override { return media_info_; }
+  void SetEnabledStreams(const std::vector<int>& stream_indices) override;
+  DemuxerReadResult Read(EncodedPacket* packet) override;
+  bool Seek(int64_t time) override;
+  void Interrupt() override;
+  void Abort() override;
+  std::string error() const override { return error_; }
+
+ private:
+  // The first PES packet of |pid| with a PTS at or after |offset| (within
+  // a window), its PTS unwrapped next to |near|. False with *read_error
+  // set if the source failed.
+  bool PtsAt(int64_t offset,
+             int pid,
+             int64_t near,
+             int64_t* pts,
+             bool* read_error);
+  // A packet boundary at or before the data whose |pid| timestamps reach
+  // |time|; -1 if the source failed.
+  int64_t Bisect(int pid, int64_t time);
+  void EstimateDuration();
+  bool Failed();
+
+  std::mutex source_mutex_;
+  std::unique_ptr<DataSource> source_;
+  std::unique_ptr<TsReader> reader_;
+  MediaInfo media_info_;
+  // PtsAt() results of the seek in progress: offset -> 33-bit PTS, or -1.
+  std::map<int64_t, int64_t> pts_cache_;
+  std::vector<bool> enabled_;
+  // After an open or seek: video starts at a keyframe at or after this
+  // offset, audio with the frame that plays at audio_from_.
+  std::vector<bool> need_keyframe_;
+  int64_t video_from_offset_ = -1;
+  int64_t audio_from_ = kNoTimestamp;
+  std::atomic<bool> aborted_{false};
+  std::atomic<bool> interrupted_{false};
+  std::string error_;
+};
+
+}  // namespace lychee
+
+#endif  // LYCHEE_BACKENDS_MP2T_TS_DEMUXER_H_

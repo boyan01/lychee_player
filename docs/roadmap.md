@@ -81,6 +81,17 @@ on top of them.
    skipped (2026-10-26). Done when playback there resumes at the position
    on screen (e.g. by replaying the packets still queued), with
    `http-no-ranges-track` checking the first frame after the switch.
+4. **The FFmpeg build's MPEG-TS and HLS edge cases** (found 2026-10-26
+   comparing with the FFmpeg-free demuxers): HLS with
+   `EXT-X-DISCONTINUITY` where timestamps start over stops at the
+   discontinuity ("input ended at 3.029 s, before its duration of
+   6.000 s", `hls/discontinuity.m3u8`), since FFmpeg's HLS demuxer hands
+   on the reset timestamps; a seek into the second rendition of
+   `resolution_change.ts` shows no frame after it (`rendered=0`); TS
+   seeks land on the keyframe after the target, not before (`offset.ts`
+   at 7.5 s: 19.733 s, where 18.867 s is the target frame). Done when
+   `http-hls-discontinuity*`, `seek-ts*` and `loop-ts`, now run only
+   with `NO_FFMPEG=1`, pass in the FFmpeg build too.
 
 Calling `lychee_player_open()` from an event callback returns -1 (API 9)
 rather than reopening; callers reopen from their own thread. Unit tests
@@ -371,10 +382,10 @@ cases too (track switching, text subtitles, seeks with and without Cues,
 http reconnects) plus damaged files (`mkv-huge-tracks`, `mkv-huge-block`,
 `mkv-corrupt`, `mkv-truncated`, from `tool/mkv_cases.py`). Decisions:
 
-- The probe is MP4 first, then Matroska on a second open of the input:
-  Matroska rejects anything without the EBML magic at its first read, and
-  the error reported is MP4's, so MP4 behaves exactly as before. Over
-  http a Matroska file costs one extra request at open.
+- The probe sends input that starts with the EBML magic to Matroska and
+  anything it does not recognise to MP4, so MP4 behaves exactly as
+  before and unknown input fails with MP4's error (`ProbingDemuxer`,
+  under MPEG-TS and HLS below; it first opened MP4, then Matroska).
 - Matroska stores only pts. H.264 and HEVC packets get a dts from the
   smallest pts among the next 16 packets of the track (kept monotonic),
   which is all the decoder's reordering rule needs.
@@ -416,6 +427,78 @@ FFmpeg's muxer does not write. Decisions:
   moofs are read instead), and fragmented input of unknown size (a live
   fMP4 stream): it plays without a duration or seeks.
 
+MPEG-TS and HLS without FFmpeg (2026-10-26): `ProbingDemuxer`
+(`media/`) reads the input's first KB and hands the same `DataSource`
+to `HlsDemuxer` (`backends/hls`, `#EXTM3U`), `TsDemuxer`
+(`backends/mp2t`, sync bytes a packet apart), `MatroskaDemuxer` (the
+EBML magic) or, for anything else, `Mp4Demuxer`, whose error unknown
+input then reports. It replaced the MP4-then-Matroska probe that lived
+in `factory.cc`; the http source keeps what it read, so the look costs
+no request of its own and Matroska no longer opens the input twice.
+Windows and Android keep `Mp4Demuxer` alone. `NO_FFMPEG=1
+tool/regression.sh` now runs every case with TS and HLS media too.
+Decisions:
+
+- Our own parsers (~2500 lines with HLS) from ISO/IEC 13818-1 and RFC
+  8216, not Chromium's `media/formats/mp2t` and `hls`, which are built
+  around MSE's append-and-evict model like its MP4 parser.
+- One access unit per video PES packet, as muxers write them, passed on
+  as Annex B: `VTVideoDecoder` takes parameter sets in band and starts a
+  new session on a new resolution. The SPS is parsed only for the size,
+  sample aspect ratio and (H.264) colour at open; HEVC's VUI lies behind
+  far more syntax, so HEVC in TS is taken as square pixels.
+- AAC goes out one ADTS frame per packet, header kept (the AudioToolbox
+  decoder makes its configuration from it), timestamped from the PES
+  timestamp plus the samples before it; a frame split across PES packets
+  keeps the timeline it started on. A packet's duration is the distance
+  to the next one of its stream, so each stream holds one packet back.
+- Damage: a continuity counter error passes the damaged PES packet on,
+  as FFmpeg does (decoders conceal; dropping it lost nearly every 1080p
+  frame at one lost TS packet in a hundred); duplicates and packets with
+  `transport_error_indicator` are dropped, PSI sections need a valid CRC,
+  lost sync is found again from two sync bytes a packet apart. Bounds:
+  32 MB per PES packet, 4 KB of section, 4 MB read at open, 16 MB of
+  playlist, 200000 segments. M2TS (192-byte packets) is read too.
+- Timestamps unwrap past 2^33 next to the previous one; the start is the
+  earliest timestamp, the duration from the timestamps in the last 1 MB
+  (growing to 16 MB past damage). `resolution_change.ts` lasts 6.029 s
+  (its last audio frame's end) where FFmpeg says 6.021 s.
+- Seeks bisect on the reference stream's PES timestamps (video if
+  enabled), then read forward from 1, 2, 4 ... 64 s before the target,
+  then from the start, to the keyframe at or before it; audio starts
+  with the frame playing at that keyframe. A window reads only up to
+  where the previous one began, so a seek reads the GOP before the
+  target about once: `seek-ts` (`offset.ts`, whose first GOP is longer
+  than the 7.5 s target) reads ~2.4 MB, 0.18 s in a debug build but
+  ~1.5 s under ThreadSanitizer, where the case counts one stall (the
+  CLI's limit is 2 s with the decode after it; CI runs TSan only with
+  FFmpeg). Each window and bisection step costs a range request over
+  http. A source without range requests does not seek, as with FFmpeg.
+- HLS master playlists play the highest `BANDWIDTH` whose `CODECS` are
+  H.264, HEVC or AAC (or unlisted), the larger picture on a tie; FFmpeg's
+  build plays the first variant. No switching. VOD seeks open the
+  segment holding the target; the player drops the frames before it.
+  Live input starts at the last segment three target durations from the
+  end, reloads a target duration after a reload that brought segments
+  (half of one otherwise), skips ahead when it fell out of the window,
+  and fails after three failed reloads. Each discontinuity sequence gets
+  one offset onto a continuous timeline, fixed when it is first entered
+  (playing or seeking). Segment URLs resolve against the playlist's URL
+  after redirects; reloads ask for the URL first asked for.
+  `EXT-X-BYTERANGE` is read.
+- Refused with an error: `EXT-X-KEY` (AES-128, SAMPLE-AES) and
+  `EXT-X-MAP` (fragmented MP4 segments: `Mp4Demuxer` reads fragments now,
+  but HLS does not feed it yet; Left 2). Alternative renditions (`EXT-X-MEDIA`) are not
+  played: a variant whose audio is only in a group plays without it.
+
+New cases: `ts-hevc10`, `ts-lost-packets`, `ts-corrupt`, `http-ts`,
+`http-hls-seek`, `http-hls-master`, `http-hls-live` (real time; the
+media server's `--live` serves a VOD playlist as a growing window) in
+both builds; `seek-ts*`, `loop-ts` and `http-hls-discontinuity*` only
+without FFmpeg (Known defects 4). `http-seek-failed` and
+`http-loop-seek-failed` run in both builds: the FFmpeg-free TS demuxer
+makes the same three requests before the seek.
+
 Left:
 
 1. Shared IO on Android and Windows: an http `DataSource` there
@@ -423,11 +506,19 @@ Left:
    their FFmpeg-free builds (4, 5) need anyway; then FFmpeg reads through
    it as on Apple. One `NSURLSession` per demuxer would let HLS segments
    reuse connections.
-2. Containers: MPEG-TS, HLS (fragmented MP4 and tx3g are done, above).
-   `Mp4Demuxer` turns `dOps` and `dfLa` into FFmpeg-style extradata
-   (OpusHead, STREAMINFO), so MP3, Opus and FLAC in MP4 decode on Android
-   and through `ATAudioDecoder`. Bitmap subtitles (PGS, DVB, VobSub) have
-   no FFmpeg-free decoder.
+2. Containers: MPEG-TS, HLS, fragmented MP4 and tx3g are done (above).
+   HLS with `EXT-X-MAP` (fMP4 segments): a `DataSource` that joins the
+   init segment to each media segment, opened by `Mp4Demuxer` (its
+   fragments carry `tfdt`), in place of the TS reader. HLS also lacks
+   AES-128 (CommonCrypto, CBC per segment with the key fetched once),
+   `EXT-X-MEDIA` audio renditions, variant switching, and connection
+   reuse: every segment opens its own `NSURLSession`. MP3 in TS goes to
+   `ATAudioDecoder` whole, untested; AC-3 has no FFmpeg-free decoder;
+   DVB and ID3 timed metadata in TS are ignored. `Mp4Demuxer` turns
+   `dOps` and `dfLa` into FFmpeg-style extradata (OpusHead, STREAMINFO),
+   so MP3, Opus and FLAC in MP4 decode on Android and through
+   `ATAudioDecoder`. Bitmap subtitles (PGS, DVB, VobSub) have no
+   FFmpeg-free decoder.
 3. Packaging: a `tool/build_apple.sh` variant (or the Swift package) that
    ships the FFmpeg-free core; iOS compiles (arm64, zero warnings) but has
    not run, and the plugin and Swift package still link FFmpeg.
@@ -465,7 +556,12 @@ Left:
    corpus somewhere. `MatroskaDemuxer` bounds header elements (16 MiB),
    Cues and Attachments (64 MiB), blocks (64 MiB), cue points and
    clusters (4M each) and resyncs at most 16 MiB ahead, but has never
-   been fuzzed: a target like the MP4 one, before it ships.
+   been fuzzed: a target like the MP4 one, before it ships. `TsReader`
+   and the HLS playlist parser have a unit test of 20000 random packets
+   but no fuzzer either. `VTVideoDecoder` gives up after its
+   consecutive-error limit on TS that lost one packet in a thousand
+   (`ts_lost_packets.ts`), where FFmpeg's software decoder conceals the
+   damage and plays on, so `ts-lost-packets` plays it audio only.
 
 The goal is FFmpeg-free builds on Apple platforms, Windows and Android.
 Linux keeps FFmpeg: it has no system audio decoder or demuxer.
