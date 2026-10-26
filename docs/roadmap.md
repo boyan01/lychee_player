@@ -59,21 +59,7 @@ on top of them.
    ran ahead of a slow live decoder, and of events still waiting for the
    control thread's next 10 ms tick; 24 runs six at once now give the
    same counts every run.
-2. **`disposeAll` kills the Linux app**: the integration test's orphan
-   test, run on Linux for the first time (WSL, headless, 2026-10-26),
-   ends with the app gone inside `disposeAll`, whether the orphan is
-   still playing or has played to its end, and with or without an event
-   callback; everything before it passes, and the same test passes on
-   macOS, Android and Windows. Not yet diagnosed: `flutter test` does not
-   show the app's stderr, and the bundle run under plain Xvfb gets no GL.
-   Likely in `dispose_all` / `remove_texture` / `destroy_orphan`
-   (`flutter/linux/lychee_player_plugin.cc`). Done when the integration
-   test passes on WSL (`remote-test run --project flutter/example
-   --platform wsl --mode integration --headless --target
-   integration_test/switch_files_test.dart`, with the media copied into
-   WSL's `/tmp/lychee-media`, which WSL clears when it shuts down) and on
-   the VM.
-3. **A track switch on input that cannot seek loses the read-ahead**: a
+2. **A track switch on input that cannot seek loses the read-ahead**: a
    track switch, new video device or decoder rebuild on input that cannot
    seek (`lychee_player_is_seekable()` 0, e.g. an http server without
    range requests through FFmpeg) does not touch the demuxer and goes on
@@ -81,7 +67,7 @@ on top of them.
    skipped (2026-10-26). Done when playback there resumes at the position
    on screen (e.g. by replaying the packets still queued), with
    `http-no-ranges-track` checking the first frame after the switch.
-4. **The FFmpeg build's MPEG-TS and HLS edge cases** (found 2026-10-26
+3. **The FFmpeg build's MPEG-TS and HLS edge cases** (found 2026-10-26
    comparing with the FFmpeg-free demuxers): HLS with
    `EXT-X-DISCONTINUITY` where timestamps start over stops at the
    discontinuity ("input ended at 3.029 s, before its duration of

@@ -778,6 +778,13 @@ struct _LycheePlayerPlugin {
 
 G_DEFINE_TYPE(LycheePlayerPlugin, lychee_player_plugin, G_TYPE_OBJECT)
 
+// The textures table's key for texture |id|. The id is the FlTexture's
+// address, not a small counter as on other platforms, so it does not fit a
+// gint: GPOINTER_TO_INT() of a key is no id.
+static gpointer texture_key(int64_t id) {
+  return reinterpret_cast<gpointer>(static_cast<intptr_t>(id));
+}
+
 static gboolean release_texture(gpointer texture) {
   g_object_unref(texture);
   return G_SOURCE_REMOVE;
@@ -805,7 +812,7 @@ static FlMethodResponse* create_texture(LycheePlayerPlugin* self,
         "texture", "cannot register texture", nullptr));
   }
   const int64_t id = fl_texture_get_id(FL_TEXTURE(texture));
-  g_hash_table_insert(self->textures, GINT_TO_POINTER(id), texture);
+  g_hash_table_insert(self->textures, texture_key(id), texture);
   g_autoptr(FlValue) result = fl_value_new_int(id);
   return FL_METHOD_RESPONSE(fl_method_success_response_new(result));
 }
@@ -817,16 +824,12 @@ static void destroy_orphan(lychee_player* player) {
   lychee_player_destroy(player);
 }
 
-// Stops texture |id| pulling frames and unregisters it. Returns its player,
-// or NULL if there is no such texture.
-static lychee_player* remove_texture(LycheePlayerPlugin* self, int64_t id) {
-  gpointer texture = nullptr;
-  if (!g_hash_table_steal_extended(self->textures, GINT_TO_POINTER(id),
-                                   nullptr, &texture)) {
-    return nullptr;
-  }
-  lychee_player* player = LYCHEE_TEXTURE(texture)->created_player;
-  lychee_texture_dispose_player(LYCHEE_TEXTURE(texture));
+// Stops |texture|, already out of the table, pulling frames and unregisters
+// it. Returns its player.
+static lychee_player* retire_texture(LycheePlayerPlugin* self,
+                                     LycheeTexture* texture) {
+  lychee_player* player = texture->created_player;
+  lychee_texture_dispose_player(texture);
   fl_texture_registrar_unregister_texture(self->registrar, FL_TEXTURE(texture));
   // The raster thread looks textures up without a reference and may still
   // be inside copy_pixels; keep ours a while so it does not see the texture
@@ -835,11 +838,26 @@ static lychee_player* remove_texture(LycheePlayerPlugin* self, int64_t id) {
   return player;
 }
 
+// Stops texture |id| pulling frames and unregisters it. Returns its player,
+// or NULL if there is no such texture.
+static lychee_player* remove_texture(LycheePlayerPlugin* self, int64_t id) {
+  gpointer texture = nullptr;
+  if (!g_hash_table_steal_extended(self->textures, texture_key(id), nullptr,
+                                   &texture)) {
+    return nullptr;
+  }
+  return retire_texture(self, LYCHEE_TEXTURE(texture));
+}
+
 // After a hot restart: the previous isolate's players are still playing.
+// Walks the table rather than its keys: a key is no int (texture_key).
 static void dispose_all(LycheePlayerPlugin* self) {
-  g_autoptr(GList) ids = g_hash_table_get_keys(self->textures);
-  for (GList* id = ids; id; id = id->next) {
-    destroy_orphan(remove_texture(self, GPOINTER_TO_INT(id->data)));
+  GHashTableIter iter;
+  gpointer texture = nullptr;
+  g_hash_table_iter_init(&iter, self->textures);
+  while (g_hash_table_iter_next(&iter, nullptr, &texture)) {
+    g_hash_table_iter_steal(&iter);
+    destroy_orphan(retire_texture(self, LYCHEE_TEXTURE(texture)));
   }
 }
 
