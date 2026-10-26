@@ -292,18 +292,15 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    package (`remote-test`, Flutter 3.47.7), as does the repository's
    example; the repository's macOS and Android example still build on
    the local artifacts, with nothing downloaded.
-   **Waiting on the user**: the secret `RELEASE_DEPLOY_KEY` (a deploy key
-   with write access), the GitHub environment `pub.dev`, automated
-   publishing on `lychee_player`'s pub.dev Admin page (repository
-   `boyan01/lychee_player`, tag pattern `v{{version}}`, environment
-   `pub.dev`), then the first run. Never run on GitHub: the `macos-26`
-   runner's Xcode, the Android FFmpeg built on Linux, the deploy key's
-   push, the OIDC publish, SwiftPM resolving the release URLs. The first
-   run publishes 1.0.0-beta.1 (the user's choice, 2026-10-26): a
-   prerelease on pub.dev, where 0.4.0 stays what `flutter pub add`
-   picks, and on GitHub. Done when a beta is on pub.dev and a fresh app
-   builds from it on all five platforms; 1.0.0 follows when the beta has
-   been used.
+   1.0.0-beta.1 is out (2026-10-26): `release.yml` and `publish.yml` ran
+   on GitHub (deploy key push, OIDC publish), the GitHub release is a
+   prerelease with 10 assets, and pub.dev lists the beta while `latest`
+   stays 0.4.0. A fresh app depending on `lychee_player: 1.0.0-beta.1`
+   from pub.dev builds on all five platforms (macOS and iOS simulator
+   here, Android, Windows and Linux via WSL), and on macOS (sandboxed,
+   with `network.client`) and the Android emulator it plays
+   `h264_aac.mp4` over http in hardware, with the frameworks and the AAR
+   downloaded from the release. Left: 1.0.0, once the beta has been used.
    Later: the AAR on Maven Central too (what native Android users
    expect; needs a Sonatype account for `tech.soit`); the Windows and
    Linux FFmpeg as release assets in place of BtbN's (Platforms 1 and 2);
