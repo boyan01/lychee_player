@@ -118,7 +118,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tool/release.sh notes >"$RUNNER_TEMP/notes.md"
-          gh release create "v$VERSION" --draft --title "$VERSION" \
+          # 1.0.0-beta.1 and the like are GitHub prereleases, never "latest".
+          prerelease=()
+          [[ "$VERSION" != *-* ]] || prerelease=(--prerelease)
+          gh release create "v$VERSION" --draft "${prerelease[@]}" --title "$VERSION" \
             --notes-file "$RUNNER_TEMP/notes.md" dist/*
       - name: Tag and push
         run: |

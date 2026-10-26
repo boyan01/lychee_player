@@ -268,9 +268,12 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    `boyan01/lychee_player`, tag pattern `v{{version}}`, environment
    `pub.dev`), then the first run. Never run on GitHub: the `macos-26`
    runner's Xcode, the Android FFmpeg built on Linux, the deploy key's
-   push, the OIDC publish, SwiftPM resolving the release URLs. Done when
-   1.0.0 is on pub.dev and a fresh app builds from it on all five
-   platforms.
+   push, the OIDC publish, SwiftPM resolving the release URLs. The first
+   run publishes 1.0.0-beta.1 (the user's choice, 2026-10-26): a
+   prerelease on pub.dev, where 0.4.0 stays what `flutter pub add`
+   picks, and on GitHub. Done when a beta is on pub.dev and a fresh app
+   builds from it on all five platforms; 1.0.0 follows when the beta has
+   been used.
    Later: the AAR on Maven Central too (what native Android users
    expect; needs a Sonatype account for `tech.soit`); the Windows and
    Linux FFmpeg as release assets in place of BtbN's (Platforms 1 and 2);

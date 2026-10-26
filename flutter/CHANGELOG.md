@@ -1,4 +1,4 @@
-## 1.0.0
+## 1.0.0-beta.1
 
 * A rewrite: a video and audio player over a C/C++ core, with hardware
   decoding on macOS, iOS, Android, Windows and Linux. The API is new and
