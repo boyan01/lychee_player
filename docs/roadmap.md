@@ -65,6 +65,10 @@ on top of them.
    lets `LiveSettledLocked` report settled while a frame for the next
    vsync is still being decoded (B-frames in the TS, waiting for the next
    packet, are the first suspect). Done when 24 runs six at once pass.
+   CI's plain job also failed once each on `subtitle-mid-cue` (the cue
+   at the switch never printed; 0 of 24 here with six at once) and
+   `realtime-loop` (drift on the real clock, expected on a hosted VM);
+   until these are fixed, a red plain job needs its log read.
 
 The plugins destroy the players behind their textures when the engine
 goes, and on `disposeAll`, which Dart calls before an isolate's first
