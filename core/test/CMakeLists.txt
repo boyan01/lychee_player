@@ -1,6 +1,8 @@
 add_executable(lychee_unittests
   main.cc
   annexb_test.cc
+  apple_frame_converter_test.cc
+  c_api_test.cc
   audio_renderer_algorithm_test.cc
   cpu_frame_converter_test.cc
   live_timeline_test.cc

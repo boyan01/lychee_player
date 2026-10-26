@@ -176,7 +176,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
 
   static Future<LycheePlayer> create({bool hardwareDecoding = true}) async {
     final config = calloc<native.LycheeConfig>();
-    native.configInit(config);
+    native.configInit(config, sizeOf<native.LycheeConfig>());
     config.ref.videoFrameTypes = native.platformFrameType;
     config.ref.hardwareDecoding = hardwareDecoding ? 1 : 0;
     final player = native.playerCreate(config);
@@ -187,8 +187,17 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue> {
         (Pointer<Void> _, int type, int arg0, int arg1) =>
             instance._onEvent(type, arg0, arg1));
     native.playerSetEventCallback(player, events.nativeFunction, nullptr);
-    final textureId = await _channel
-        .invokeMethod<int>('createTexture', {'player': player.address});
+    int? textureId;
+    try {
+      textureId = await _channel
+          .invokeMethod<int>('createTexture', {'player': player.address});
+    } finally {
+      // No player to return, so nobody else can dispose of these.
+      if (textureId == null) {
+        native.playerDestroy(player);
+        events.close();
+      }
+    }
     instance = LycheePlayer._(player, events, textureId!);
     instance._ticker = Timer.periodic(
         const Duration(milliseconds: 200), (_) => instance._onTick());

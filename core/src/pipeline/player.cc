@@ -45,6 +45,10 @@ std::string ToLower(std::string text) {
   return text;
 }
 
+// The player whose control thread this is. Event callbacks run there, and
+// Open() from one would have to join the thread it runs on.
+thread_local const Player* t_control_thread_player = nullptr;
+
 }  // namespace
 
 Player::Player(const PlayerConfig& config)
@@ -140,8 +144,16 @@ void Player::SetEventCallback(EventCallback callback, void* user_data) {
   event_user_data_ = user_data;
 }
 
+bool Player::OnControlThread() const {
+  if (t_control_thread_player != this) {
+    return false;
+  }
+  LOGE("open from an event callback: call it from another thread");
+  return true;
+}
+
 bool Player::Open(const std::string& url) {
-  if (url.empty()) {
+  if (url.empty() || OnControlThread()) {
     return false;
   }
   std::lock_guard<std::mutex> open_lock(open_mutex_);
@@ -154,6 +166,9 @@ bool Player::Open(const std::string& url) {
 }
 
 bool Player::OpenLive(int64_t latency) {
+  if (OnControlThread()) {
+    return false;
+  }
   std::lock_guard<std::mutex> open_lock(open_mutex_);
   StopPipeline();
   std::lock_guard<std::mutex> lock(mutex_);
@@ -398,9 +413,9 @@ bool Player::SelectTrack(MediaType type, int track) {
       return true;
     }
     *requested = stream == current ? kUnchanged : stream;
-    if (!track_request_.pending()) {
-      return true;
-    }
+    // Even when this cancels the request: it interrupted the read, which
+    // only the control thread's seek resumes.
+    track_request_.resync = true;
     demuxer_->Interrupt();
   }
   condition_.notify_all();
@@ -684,6 +699,7 @@ void Player::ApplyLoopEndLocked() {
 
 void Player::Run(std::string url) {
   SetCurrentThreadName("lychee-player");
+  t_control_thread_player = this;
   std::string error;
   bool prepared = Prepare(url, &error);
   if (!prepared) {
@@ -768,7 +784,7 @@ void Player::Run(std::string url) {
       }
       condition_.notify_all();
     } else if (seek) {
-      if (tracks.pending()) {
+      if (tracks.tracks_changed() || tracks.rebuild_video) {
         ChangeTracks(tracks);
       }
       ProcessSeek(seek_target, loop, resync, resync_loops);

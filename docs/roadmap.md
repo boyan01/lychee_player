@@ -1,6 +1,6 @@
 # Roadmap
 
-State as of 2026-10-25: the core plays files and network streams through
+State as of 2026-10-26: the core plays files and network streams through
 FFmpeg, with accurate seek, pull-based frame selection, playback rate
 (WSOLA), looping and reopening, track selection, text and bitmap
 subtitles, metadata and cover art. The Flutter plugin runs on macOS and iOS
@@ -49,7 +49,25 @@ on top of them.
 
 ## Known defects
 
-None known. Add them here with a done criterion.
+1. **Apple plugin engine teardown leaves players running**: on
+   `detachFromEngineForRegistrar:` the plugin now disposes every texture
+   (display link stopped, player pointer cleared), but the native players
+   belong to Dart, which is gone by then, so nothing calls
+   `lychee_player_destroy` and their threads keep playing. Done when the
+   plugin owns a registry of the players behind its textures and destroys
+   them on detach, and a test that restarts the engine finds no player
+   threads left. Check the Android, Windows and Linux plugins for the same.
+2. **Replacing the log callback from two callbacks at once deadlocks**:
+   `lychee_set_log_callback` waits until no other thread is inside the
+   callback, so two threads that both call it from inside the callback
+   wait on each other. Done when the setter from inside a callback swaps
+   the sink without waiting (the old one stays valid until every caller
+   returns), with a unit test that runs two such threads.
+
+Calling `lychee_player_open()` from an event callback returns -1 (API 9)
+rather than reopening; callers reopen from their own thread. Unit tests
+are off in a shared-library build (`LYCHEE_BUILD_TESTS` needs the static
+core's internals).
 
 ## Features
 

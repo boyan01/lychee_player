@@ -77,6 +77,9 @@ public final class LycheePlayer {
 
   /// Called on the main queue.
   public var onEvent: ((Event) -> Void)?
+  // The LycheePlayerView showing this player, besides onEvent, which stays
+  // the app's: subtitle pictures change without a new frame when paused.
+  var onSubtitleChangedForView: (() -> Void)?
 
   let handle: OpaquePointer
   // Holds onEvent's owner weakly, so callbacks still queued when the player
@@ -89,7 +92,7 @@ public final class LycheePlayer {
   ///     decoded.
   public init(hardwareDecoding: Bool = true, video: Bool = true) {
     var config = lychee_config()
-    lychee_config_init(&config)
+    lychee_config_init(&config, UInt32(MemoryLayout<lychee_config>.size))
     // The decoder's own buffers: 10-bit and HDR as they are.
     config.video_frame_types = video ? LYCHEE_FRAME_CVPIXELBUFFER_NATIVE.rawValue : 0
     config.hardware_decoding = hardwareDecoding ? 1 : 0
@@ -297,6 +300,9 @@ private final class EventSink {
   // Main queue.
   func deliver(_ type: Int32, _ arg0: Int64, _ arg1: Int64) {
     guard let player, let event = player.event(type, arg0, arg1) else { return }
+    if case .subtitleChanged = event {
+      player.onSubtitleChangedForView?()
+    }
     player.onEvent?(event)
   }
 }

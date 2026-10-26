@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <new>
 #include <optional>
 
 #include "base/log.h"
@@ -24,6 +25,8 @@ constexpr uint32_t FourCC(const char (&code)[5]) {
 // The moov box of a file with hours of video is a few MB; anything far
 // larger is not a file this demuxer can read.
 constexpr uint64_t kMaxMoovSize = 256 << 20;
+// Samples in all tracks: 77 hours of 60 fps video. Each takes a Sample.
+constexpr size_t kMaxSamples = 1 << 24;
 
 // Big-endian fields with bounds checks: reads past the end yield zeros
 // and clear ok().
@@ -396,7 +399,13 @@ bool Mp4Demuxer::Open(const std::string& url, std::string* error) {
         }
         filled += static_cast<size_t>(n);
       }
-      if (!ParseMoov(moov.data(), moov.size(), error)) {
+      file_size_ = file_size;
+      try {
+        if (!ParseMoov(moov.data(), moov.size(), error)) {
+          return false;
+        }
+      } catch (const std::bad_alloc&) {
+        *error = "out of memory for the sample tables";
         return false;
       }
       media_info_.seekable = file_size > 0;
@@ -430,6 +439,7 @@ bool Mp4Demuxer::ParseMoov(const uint8_t* data, size_t size, std::string* error)
   media_info_ = MediaInfo();
   media_info_.format_name = "mp4";
   tracks_.clear();
+  sample_budget_ = kMaxSamples;
   for (const Box& box : boxes) {
     if (box.type == FourCC("trak")) {
       ParseTrack(box.payload, box.payload_size, timescale);
@@ -605,6 +615,15 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
     uint32_t fixed = stsz.U32();
     uint32_t count = stsz.U32();
     if (fixed) {
+      // No table backs the count: bound it by the bytes it claims, or a few
+      // bytes of a file ask for gigabytes.
+      if (count > sample_budget_ ||
+          (file_size_ > 0 &&
+           uint64_t{count} * fixed > static_cast<uint64_t>(file_size_))) {
+        LOGW("track %zu: %u samples of %u bytes do not fit; skipped",
+             tracks_.size(), count, fixed);
+        return false;
+      }
       sizes.assign(count, fixed);
     } else {
       for (uint32_t i = 0; i < count && stsz.ok(); ++i) {
@@ -628,6 +647,11 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
     }
   }
   const size_t count = sizes.size();
+  if (count > sample_budget_) {
+    LOGW("track %zu: too many samples (%zu); skipped", tracks_.size(), count);
+    return false;
+  }
+  sample_budget_ -= count;
   Track track;
   track.samples.resize(count);
 

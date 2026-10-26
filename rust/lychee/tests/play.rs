@@ -77,6 +77,7 @@ fn plays_seeks_and_ends() {
     assert_eq!(player.duration().map(|d| d.as_secs()), Some(12));
     assert_eq!(player.video_size(), Some((1920, 1080)));
     assert_eq!(player.artwork(), None);
+    assert_eq!(player.metadata("no-such-key"), None);
     let tracks = player.tracks();
     assert!(
         tracks

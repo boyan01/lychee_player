@@ -89,6 +89,24 @@ T CopyStruct(const T* source) {
   return copy;
 }
 
+// Copies |result| into a caller's struct, no more than its struct_size, and
+// leaves that size as it was: a caller reusing the struct must not have the
+// next call write past it.
+template <typename T>
+void CopyOut(const T& result, T* out) {
+  const uint32_t size = out->struct_size;
+  memcpy(out, &result, std::min<size_t>(size, sizeof(result)));
+  out->struct_size = size;
+}
+
+lychee_config DefaultConfig() {
+  lychee_config config = {};
+  config.struct_size = sizeof(config);
+  config.video_frame_types = LYCHEE_FRAME_CPU_BGRA;
+  config.hardware_decoding = 1;
+  return config;
+}
+
 // |track| as a live StreamInfo; kUnknown type for LYCHEE_CODEC_NONE. False
 // for a codec of the wrong type.
 bool ToLiveStream(const lychee_live_track& track, lychee::StreamInfo* info) {
@@ -149,16 +167,17 @@ void lychee_set_log_callback(lychee_log_callback callback, void* user_data) {
   lychee::SetLogSink(callback, user_data);
 }
 
-void lychee_config_init(lychee_config* config) {
-  memset(config, 0, sizeof(*config));
-  config->struct_size = sizeof(*config);
-  config->video_frame_types = LYCHEE_FRAME_CPU_BGRA;
-  config->hardware_decoding = 1;
+void lychee_config_init(lychee_config* config, uint32_t struct_size) {
+  lychee_config defaults = DefaultConfig();
+  struct_size = std::min<uint32_t>(struct_size, sizeof(defaults));
+  memcpy(config, &defaults, struct_size);
+  if (struct_size >= sizeof(config->struct_size)) {
+    config->struct_size = struct_size;
+  }
 }
 
 lychee_player* lychee_player_create(const lychee_config* config) {
-  lychee_config defaults;
-  lychee_config_init(&defaults);
+  lychee_config defaults = DefaultConfig();
   if (config) {
     // Older callers may pass a smaller struct; keep defaults for the rest.
     memcpy(&defaults, config,
@@ -304,7 +323,6 @@ int32_t lychee_player_get_track_info(lychee_player* player,
   }
   const lychee::TrackInfo& track = tracks[index];
   lychee_track_info result = {};
-  result.struct_size = sizeof(result);
   result.type = static_cast<int32_t>(track.type);
   result.id = track.stream_index;
   result.selected = track.selected ? 1 : 0;
@@ -315,7 +333,7 @@ int32_t lychee_player_get_track_info(lychee_player* player,
   result.height = track.height;
   result.sample_rate = track.sample_rate;
   result.channels = track.channels;
-  memcpy(info, &result, std::min<size_t>(info->struct_size, sizeof(result)));
+  CopyOut(result, info);
   return 0;
 }
 
@@ -458,7 +476,6 @@ int32_t lychee_player_get_error(lychee_player* player,
 
 void lychee_player_get_stats(lychee_player* player, lychee_stats* stats) {
   lychee_stats result = {};
-  result.struct_size = sizeof(result);
   lychee::PlayerStats player_stats = player->player->stats();
   result.hardware_decoding = player_stats.hardware ? 1 : 0;
   result.frames_rendered = player_stats.frames_rendered;
@@ -468,7 +485,7 @@ void lychee_player_get_stats(lychee_player* player, lychee_stats* stats) {
   result.video_buffered_us = player_stats.video_buffered;
   result.audio_buffered_us = player_stats.audio_buffered;
   result.video_decode_time_us = player_stats.video_decode_time;
-  memcpy(stats, &result, std::min<size_t>(stats->struct_size, sizeof(result)));
+  CopyOut(result, stats);
 }
 
 int32_t lychee_player_has_new_frame(lychee_player* player,
@@ -591,7 +608,6 @@ int32_t lychee_testing_live_source_track(lychee_testing_live_source* source,
   const lychee::StreamInfo& info =
       source->demuxer->media_info().streams[source->stream[type]];
   lychee_live_track result = {};
-  result.struct_size = sizeof(result);
   result.type = type;
   if (type == LYCHEE_TRACK_VIDEO) {
     result.codec = info.video.codec == lychee::VideoCodec::kHEVC
@@ -608,7 +624,7 @@ int32_t lychee_testing_live_source_track(lychee_testing_live_source* source,
     result.config = source->audio_config.data();
     result.config_size = static_cast<int32_t>(source->audio_config.size());
   }
-  memcpy(track, &result, std::min<size_t>(track->struct_size, sizeof(result)));
+  CopyOut(result, track);
   return 0;
 }
 

@@ -45,7 +45,13 @@ else
   libass=0
 fi
 cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Debug ${flags[@]+"${flags[@]}"} >/dev/null || exit 1
-cmake --build "$build" 2>&1 | grep -E "error|warning:" && { echo "FAIL build has errors or warnings"; exit 1; }
+build_out="$(cmake --build "$build" 2>&1)"
+build_status=$?
+if [ "$build_status" -ne 0 ] || grep -q "warning:" <<<"$build_out"; then
+  echo "FAIL build (exit $build_status) has errors or warnings"
+  grep -E "error|warning:|FAILED|Undefined" <<<"$build_out" | head -40
+  exit 1
+fi
 cli="$build/examples/cli/lychee_cli"
 
 # Test media, generated once. Synthetic so the expected output is known.
@@ -109,7 +115,18 @@ rng = random.Random(1)
 data[600000:] = bytes(rng.randrange(256) for _ in range(len(data) - 600000))
 open(sys.argv[2], "wb").write(data)' "$media/faststart.mp4" "$media/corrupt.mp4"
 
+# The video's sample size table says 4 billion samples of one byte.
+[ -f "$media/huge_stsz.mp4" ] || python3 -I -c '
+import sys
+data = bytearray(open(sys.argv[1], "rb").read())
+at = data.index(b"stsz")
+data[at + 8:at + 16] = (1).to_bytes(4, "big") + (0xffffffff).to_bytes(4, "big")
+open(sys.argv[2], "wb").write(data)' "$media/loop.mp4" "$media/huge_stsz.mp4"
+
 # Short, for looping and slow playback.
+# 5 s of video, 2 s of audio.
+gen uneven.mp4 -f lavfi -t 5 -i testsrc2=size=640x360:rate=30 -f lavfi -t 2 -i sine=frequency=440:sample_rate=48000 \
+  -c:v libx264 -preset veryfast -pix_fmt yuv420p -c:a aac
 gen loop.mp4 -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 3 \
   -c:v libx264 -preset veryfast -pix_fmt yuv420p -c:a aac
 gen meta.mp4 -i "$media/h264_aac.mp4" -t 4 -c copy -metadata title="Lychee Test" \
@@ -208,7 +225,8 @@ fi
 # Cases run on the library's virtual clock (lychee_cli --virtual-time): as
 # fast as decoding allows, and unaffected by load, so timing checks are
 # exact. realtime=1 before a case plays it on the real clock and audio
-# device instead.
+# device instead. Every case also checks the CLI's exit code: 0, or the
+# one exits=N before the case names (1: the player ended in an error).
 #
 # check NAME EXPECT_HW EXPECT_SEEK_PTS -- CLI_ARGS...
 # EXPECT_HW: 1, 0, or - (no video). EXPECT_SEEK_PTS: seconds, or - for none.
@@ -219,8 +237,10 @@ check() {
     set -- --no-hw "$@"
   fi
   [ "${realtime:-0}" = 1 ] || set -- --virtual-time "$@"
-  local out summary problems="" start=$SECONDS
+  local out status summary problems="" start=$SECONDS
   out="$(TSAN_OPTIONS=halt_on_error=0 "$cli" "$@" 2>&1)"
+  status=$?
+  [ "$status" = "${exits:-0}" ] || problems+=" exit=$status"
   summary="$(grep '^summary:' <<<"$out")"
   grep -q "WARNING: ThreadSanitizer" <<<"$out" && problems+=" tsan-report"
   grep -q "state=ended" <<<"$summary" || problems+=" not-ended"
@@ -251,12 +271,14 @@ check() {
 # extended regex PATTERN. "<=N PATTERN" instead allows at most N matching lines.
 expect() {
   local name="$1"; shift
-  local patterns=() out problems="" start=$SECONDS
+  local patterns=() out status problems="" start=$SECONDS
   while [ "$1" != -- ]; do patterns+=("$1"); shift; done
   shift
   [ "${NO_HW:-0}" = 1 ] && set -- --no-hw "$@"
   [ "${realtime:-0}" = 1 ] || set -- --virtual-time "$@"
   out="$(TSAN_OPTIONS=halt_on_error=0 "$cli" "$@" 2>&1)"
+  status=$?
+  [ "$status" = "${exits:-0}" ] || problems+=" exit=$status"
   grep -q "WARNING: ThreadSanitizer" <<<"$out" && problems+=" tsan-report"
   for pattern in "${patterns[@]}"; do
     if [[ "$pattern" =~ ^\<=([0-9]+)\ (.*)$ ]]; then
@@ -438,6 +460,10 @@ par expect reopen-loading "open -> " "<=0 event: state error" "summary: state=en
 # Track selection keeps the position.
 par expect track-audio "select audio 2 at [0-9.]+s: accepted" "track 2: audio .* lang=fre title=French selected=1" \
   "track switch: resumed [+-]0\.[0-2][0-9]{2}s" "summary: state=ended.* backward_jumps=0 " -- --select audio:2 "$media/tracks.mkv"
+# Switching back before the first switch ran cancels it, and playback
+# goes on.
+par expect track-cancel "select audio 1 at [0-9.]+s: accepted" "track 1: audio .* selected=1" \
+  "summary: state=ended position=8\.[0-9]{3}s" -- --select audio:2 --select audio:1 "$media/tracks.mkv"
 par expect track-no-video "select video -1 at [0-9.]+s: accepted" "video size 0x0" "track switch: resumed [+-]0\.[0-2]" \
   "summary: state=ended position=8\.[0-9]{3}s decoder=none" -- --select video:-1 "$media/tracks.mkv"
 par expect track-subtitle "select subtitle 4 .*: accepted" "select video 1 .*: rejected" \
@@ -445,6 +471,12 @@ par expect track-subtitle "select subtitle 4 .*: accepted" "select video 1 .*: r
   --select subtitle:4 --select video:1 --select-after 0.5 "$media/tracks.mkv"
 # Audio only (video_frame_types 0): the video track is listed but never
 # decoded or selectable.
+# Without the longer track the file ends with the shorter one, and is not
+# cut short.
+par expect audio-only-shorter "<=0 error" "summary: state=ended" -- \
+  --audio-only "$media/uneven.mp4"
+par expect track-off-longer "<=0 error" "summary: state=ended" -- \
+  --select video:-1 --select-after 0.5 "$media/uneven.mp4"
 par expect audio-only-config "track 0: video .* selected=0" "select video 0 .*: rejected" \
   "summary: state=ended position=12\.000s decoder=none .*pulled=0 .*frame_type=0 " -- \
   --audio-only --select video:0 --select-after 1 "$media/h264_aac.mp4"
@@ -462,6 +494,15 @@ par expect decoder-lost-twice "<=0 event: state error" \
 # meanwhile are not counted as dropped, and playback resumes at the clock.
 par expect background "show at " "summary: state=ended .*dropped=0 glitches=[0-3] backward_jumps=0 " -- \
   --hide-after 2 --hide-for 3 "$media/h264_aac.mp4"
+# A track whose tables cannot be real is skipped, not allocated
+# (FFmpeg-free MP4 parser).
+[ "${NO_FFMPEG:-0}" = 1 ] &&
+  par expect huge-sample-table "track 0: .* skipped" "summary: state=ended .*decoder=none " -- "$media/huge_stsz.mp4"
+# Hidden until the end: the stream still ends, with or without audio.
+par expect background-end "<=0 show at" "summary: state=ended position=3\.[0-9]{3}s" -- \
+  --hide-after 0 --hide-for 30 "$media/loop.mp4"
+par expect background-end-video "<=0 show at" "summary: state=ended position=8\.[0-9]{3}s" -- \
+  --hide-after 0 --hide-for 30 "$media/video_only.mp4"
 # Live input (lychee_player_open_live): the CLI pushes a file's packets
 # when a sender would send them. A live input never ends or buffers.
 # live_vbuf is how far ahead decoded video reaches once the last packet is
@@ -571,16 +612,16 @@ serve() {
 }
 trap 'stop_server; rm -rf "$results"' EXIT
 
-par expect truncated-file "state=error" "error: input ended at" -- "$media/truncated.mp4"
+exits=1 par expect truncated-file "state=error" "error: input ended at" -- "$media/truncated.mp4"
 par expect resolution-change "video size 1280x720" "video size 640x360" "state=ended" -- \
   "$media/resolution_change.ts"
-par expect corrupt-file "state=error" "error: (audio|video) decoding failed" -- "$media/corrupt.mp4"
+exits=1 par expect corrupt-file "state=error" "error: (audio|video) decoding failed" -- "$media/corrupt.mp4"
 serve
 seq_ check http          1 - -- "$url"
 serve --drop-at 3000000
 seq_ check http-reconnect 1 - -- "$url"
 serve --drop-at 3000000 --refuse-after-drop
-seq_ expect http-lost "state=error" "error: input ended at" -- "$url"
+exits=1 seq_ expect http-lost "state=error" "error: input ended at" -- "$url"
 # Slower than the bitrate: rebuffer in long stretches, not every few frames.
 serve --rate 550
 realtime=1 seq_ expect http-slow "state=ended" "<=2 event: state buffering" -- "$url"

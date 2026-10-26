@@ -117,6 +117,9 @@ class VideoRenderer {
   // The frame to show at |display_time|. Runs the algorithm once per vsync
   // interval; later calls within the same interval get the same answer.
   std::shared_ptr<VideoFrame> SelectFrameLocked(int64_t display_time);
+  // Nothing has pulled frames for a while (since the start if nothing ever
+  // did): the caller is not showing video, e.g. a view in the background.
+  bool HiddenLocked(int64_t now) const;
 
   MediaClock* const clock_;
   const uint32_t accepted_storage_;
@@ -146,6 +149,7 @@ class VideoRenderer {
   VsyncEstimator vsync_estimator_;
   // NowMicros() of the last HasNewFrame() or Acquire().
   int64_t last_pull_ = kNoTimestamp;
+  const int64_t created_;
   // The frame last handed out by Acquire().
   std::shared_ptr<VideoFrame> current_;
   // |current_| predates the last seek; replace it as soon as possible.

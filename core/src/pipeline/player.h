@@ -176,6 +176,9 @@ class Player {
   int64_t UnloopedPts(int64_t pts) const;
 
  private:
+  // True, and logs why, on this player's control thread: Open() there
+  // would join the thread it runs on.
+  bool OnControlThread() const;
   struct Event {
     PlayerEvent type;
     int64_t arg0;
@@ -201,10 +204,15 @@ class Player {
     // Replace the video renderer even if its stream stays: for a new
     // device, or a lost decoder.
     bool rebuild_video = false;
+    // Seek back to the clock's position even if no track changes: a
+    // cancelled request already interrupted the read.
+    bool resync = false;
     bool tracks_changed() const {
       return video != kUnchanged || audio != kUnchanged;
     }
-    bool pending() const { return tracks_changed() || rebuild_video; }
+    bool pending() const {
+      return tracks_changed() || rebuild_video || resync;
+    }
   };
 
   // Joins all threads and drops the renderers and the demuxer.

@@ -13,7 +13,11 @@ import UIKit
 public final class LycheePlayerView: LycheePlatformView {
   public var player: LycheePlayer? {
     didSet {
-      if player !== oldValue { restart() }
+      guard player !== oldValue else { return }
+      oldValue?.onSubtitleChangedForView = nil
+      // Frames pick up animated subtitles; this, changes while paused.
+      player?.onSubtitleChangedForView = { [weak self] in self?.refreshSubtitle() }
+      restart()
     }
   }
 
@@ -135,6 +139,13 @@ public final class LycheePlayerView: LycheePlatformView {
   private var canvasSize: CGSize {
     guard let size = player?.videoSize else { return .zero }
     return rotation % 180 != 0 ? CGSize(width: size.height, height: size.width) : size
+  }
+
+  private func refreshSubtitle() {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    showSubtitle(player?.subtitlePictures(width: Int(canvasSize.width), height: Int(canvasSize.height)))
+    CATransaction.commit()
   }
 
   private func showSubtitle(_ subtitle: LycheePlayer.SubtitlePictures?) {

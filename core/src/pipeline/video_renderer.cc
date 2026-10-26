@@ -39,7 +39,8 @@ VideoRenderer::VideoRenderer(MediaClock* clock,
       algorithm_([clock](const std::vector<int64_t>& media_times,
                          std::vector<int64_t>* system_times) {
         return clock->SystemTimesFor(media_times, system_times);
-      }) {}
+      }),
+      created_(NowMicros()) {}
 
 VideoRenderer::~VideoRenderer() {
   Stop();
@@ -311,7 +312,9 @@ bool VideoRenderer::HasFramesUntil(int64_t media_time) const {
     return true;
   }
   if (end_time_ != kNoTimestamp) {
-    media_time = std::min(media_time, end_time_ - 1);
+    // Timestamps rounded to microseconds can leave the last frame ending a
+    // microsecond short of the end time.
+    media_time = std::min(media_time, end_time_ - kMicrosPerMilli);
   }
   return algorithm_.frames_queued() > 0 &&
          FrameEnd(*algorithm_.last_frame()) > media_time;
@@ -342,7 +345,15 @@ bool VideoRenderer::Ended(int64_t media_time) const {
   if (end_time_ != kNoTimestamp && media_time >= end_time_) {
     return true;
   }
-  if (!end_of_stream_ || algorithm_.frames_queued() > 1) {
+  if (!end_of_stream_) {
+    return false;
+  }
+  // Hidden: nothing will pull the frames left, so the stream ends with the
+  // last one. It stays queued, to show when the caller pulls again.
+  if (HiddenLocked(NowMicros()) && algorithm_.frames_queued() > 0) {
+    return media_time >= FrameEnd(*algorithm_.last_frame());
+  }
+  if (algorithm_.frames_queued() > 1) {
     return false;
   }
   // The last frame has not been shown yet.
@@ -371,14 +382,18 @@ void VideoRenderer::SetEndTime(int64_t time) {
 void VideoRenderer::ExpireFramesWhileHidden(int64_t now) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (last_pull_ == kNoTimestamp || now - last_pull_ < kHiddenTimeout ||
-        algorithm_.frames_queued() < 2) {
+    if (!HiddenLocked(now) || algorithm_.frames_queued() < 2) {
       return;
     }
     algorithm_.RemoveExpiredFrames(now);
   }
   // Queue space for the decoder.
   condition_.notify_all();
+}
+
+bool VideoRenderer::HiddenLocked(int64_t now) const {
+  return now - (last_pull_ != kNoTimestamp ? last_pull_ : created_) >=
+         kHiddenTimeout;
 }
 
 std::shared_ptr<VideoFrame> VideoRenderer::SelectFrameLocked(

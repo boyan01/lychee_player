@@ -6,7 +6,9 @@
 // Threading:
 // - All lychee_player_* functions are thread-safe.
 // - Callbacks are invoked on internal threads. They must return quickly and
-//   must not call lychee_player_destroy().
+//   must not call lychee_player_destroy(). From an event callback,
+//   lychee_player_open() and lychee_player_open_live() return -1: they
+//   stop the thread the callback runs on, so call them from another one.
 //
 // Time values are in microseconds unless stated otherwise.
 
@@ -48,7 +50,10 @@ extern "C" {
 //    LYCHEE_EVENT_SUBTITLE_CHANGED.
 // 8: LYCHEE_FRAME_CVPIXELBUFFER_NATIVE, for 10-bit and HDR video on Apple
 //    platforms.
-#define LYCHEE_API_VERSION 8
+// 9: lychee_config_init() takes the caller's struct size, so a library
+//    newer than its caller never writes past the caller's struct. Getters
+//    leave the caller's struct_size as it was.
+#define LYCHEE_API_VERSION 9
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -227,7 +232,8 @@ typedef void (*lychee_log_callback)(void* user_data,
                                     const char* message);
 
 typedef struct lychee_config {
-  // Must be sizeof(lychee_config). Set by lychee_config_init().
+  // sizeof(lychee_config) as the caller knows it. Set by
+  // lychee_config_init().
   uint32_t struct_size;
   // Bitmask of lychee_frame_type the caller accepts. 0 plays audio only:
   // video streams are listed as tracks but never read, decoded or
@@ -328,10 +334,16 @@ LYCHEE_EXPORT int32_t lychee_api_version(void);
 LYCHEE_EXPORT int64_t lychee_now_us(void);
 
 LYCHEE_EXPORT void lychee_set_log_level(int32_t level);
+// Sends log lines to |callback| instead of stderr; NULL restores stderr. The
+// callback may run on several threads at once. After this returns the old
+// callback is no longer running, except where this is called from it.
 LYCHEE_EXPORT void lychee_set_log_callback(lychee_log_callback callback,
                                            void* user_data);
 
-LYCHEE_EXPORT void lychee_config_init(lychee_config* config);
+// Fills the first |struct_size| bytes of |config| with the defaults and sets
+// config->struct_size; pass sizeof(lychee_config).
+LYCHEE_EXPORT void lychee_config_init(lychee_config* config,
+                                      uint32_t struct_size);
 
 LYCHEE_EXPORT lychee_player* lychee_player_create(const lychee_config* config);
 LYCHEE_EXPORT void lychee_player_destroy(lychee_player* player);
@@ -553,7 +565,8 @@ LYCHEE_EXPORT int32_t lychee_player_get_artwork(lychee_player* player,
                                                 int32_t buffer_size);
 
 // |stats->struct_size| must be set by the caller; fields past it are not
-// written, so callers built against version 1 keep working.
+// written, so callers built against version 1 keep working. It stays as the
+// caller set it.
 LYCHEE_EXPORT void lychee_player_get_stats(lychee_player* player,
                                            lychee_stats* stats);
 

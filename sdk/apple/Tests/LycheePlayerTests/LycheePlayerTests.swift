@@ -92,6 +92,38 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(player.subtitlePictures(width: 960, height: 540)?.id, subtitle?.id)
   }
 
+  // The view's pictures follow subtitle events, not only new frames: turned
+  // off while paused, they go at once. The app's onEvent still gets them.
+  func testViewClearsSubtitleWhilePaused() throws {
+    let player = LycheePlayer()
+    player.volume = 0
+    let view = LycheePlayerView(frame: CGRect(x: 0, y: 0, width: 960, height: 540))
+    view.player = player
+    let shown = expectation(description: "pictures")
+    let cleared = expectation(description: "none")
+    var paused = false
+    player.onEvent = { event in
+      guard case .subtitleChanged(let pictures) = event else { return }
+      if pictures && !paused { shown.fulfill() }
+      if !pictures && paused { cleared.fulfill() }
+    }
+    player.open("/tmp/lychee-media/sub_pgs.mkv")
+    player.play()
+    wait(for: [shown], timeout: 10)
+    #if os(macOS)
+    let subtitleLayer = try XCTUnwrap(view.layer?.sublayers?.last)
+    #else
+    let subtitleLayer = try XCTUnwrap(view.layer.sublayers?.last)
+    #endif
+    XCTAssertEqual(subtitleLayer.sublayers?.count, 1)
+
+    player.pause()
+    paused = true
+    XCTAssertTrue(player.selectTrack(.subtitle, index: nil))
+    wait(for: [cleared], timeout: 10)
+    XCTAssertEqual(subtitleLayer.sublayers?.count ?? 0, 0)
+  }
+
   func testHDRFramesStay10Bit() {
     let player = LycheePlayer()
     player.volume = 0

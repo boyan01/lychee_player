@@ -71,8 +71,7 @@ final class LycheeConfig extends Struct {
   external int hardwareDecoding;
   // Set by the plugin's native side, not from Dart.
   external Pointer<Void> videoDevice;
-  // Unused: Flutter rotates the texture widget. Declared because
-  // lychee_config_init() writes the whole struct.
+  // Unused: Flutter rotates the texture widget.
   @Int32()
   external int rotateSurfaceFrames;
 }
@@ -124,8 +123,9 @@ final class LycheeTrackInfo extends Struct {
 typedef EventCallbackNative = Void Function(
     Pointer<Void> userData, Int32 type, Int64 arg0, Int64 arg1);
 
-final configInit = _library.lookupFunction<Void Function(Pointer<LycheeConfig>),
-    void Function(Pointer<LycheeConfig>)>('lychee_config_init');
+final configInit = _library.lookupFunction<
+    Void Function(Pointer<LycheeConfig>, Uint32),
+    void Function(Pointer<LycheeConfig>, int)>('lychee_config_init');
 
 final playerCreate = _library.lookupFunction<
     Pointer<Void> Function(Pointer<LycheeConfig>),

@@ -389,7 +389,7 @@ impl Player {
     pub fn new(config: &Config) -> Result<Player> {
         let mut raw_config = unsafe {
             let mut c = std::mem::MaybeUninit::<sys::lychee_config>::uninit();
-            sys::lychee_config_init(c.as_mut_ptr());
+            sys::lychee_config_init(c.as_mut_ptr(), std::mem::size_of::<sys::lychee_config>() as u32);
             c.assume_init()
         };
         raw_config.video_frame_types = config.frame_types.iter().fold(0, |m, t| m | t.bit());
@@ -862,12 +862,16 @@ impl fmt::Debug for Frame {
 fn read_string(read: impl Fn(*mut c_char, i32) -> i32) -> Option<String> {
     let mut buffer = vec![0u8; 256];
     let mut len = read(buffer.as_mut_ptr().cast(), buffer.len() as i32);
+    // -1: no such value.
+    if len <= 0 {
+        return None;
+    }
     if len as usize >= buffer.len() {
         buffer.resize(len as usize + 1, 0);
         len = read(buffer.as_mut_ptr().cast(), buffer.len() as i32);
-    }
-    if len <= 0 {
-        return None;
+        if len <= 0 {
+            return None;
+        }
     }
     buffer.truncate((len as usize).min(buffer.len() - 1));
     Some(String::from_utf8_lossy(&buffer).into_owned())

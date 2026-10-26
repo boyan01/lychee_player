@@ -60,6 +60,10 @@ class Mp4Demuxer : public Demuxer {
   MediaInfo media_info_;
   // Parallel to media_info_.streams.
   std::vector<Track> tracks_;
+  // While parsing: the file's size (-1 if unknown), and how many samples
+  // the tracks may still have (kMaxSamples in all).
+  int64_t file_size_ = -1;
+  size_t sample_budget_ = 0;
   std::atomic<bool> aborted_{false};
   std::atomic<bool> interrupted_{false};
   std::string error_;

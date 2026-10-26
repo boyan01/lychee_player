@@ -437,9 +437,29 @@ void FFmpegDemuxer::Abort() {
 }
 
 bool FFmpegDemuxer::TruncatedAtEnd() const {
-  return declared_duration_ && read_end_ != kNoTimestamp &&
-         read_end_ < media_info_.start_time + media_info_.duration -
-                         kTruncationTolerance;
+  if (!declared_duration_ || read_end_ == kNoTimestamp) {
+    return false;
+  }
+  // Where the enabled streams say they end: the container's duration is the
+  // longest stream's, which may be one not read. A stream that declares
+  // nothing leaves the container's.
+  int64_t end = kNoTimestamp;
+  for (unsigned i = 0; i < format_context_->nb_streams; ++i) {
+    if (!enabled_streams_[i]) {
+      continue;
+    }
+    const AVStream* stream = format_context_->streams[i];
+    const int64_t duration = ToMicros(stream->duration, stream->time_base);
+    if (duration == kNoTimestamp) {
+      end = media_info_.start_time + media_info_.duration;
+      break;
+    }
+    const int64_t start = ToMicros(stream->start_time, stream->time_base);
+    end = std::max(end, (start != kNoTimestamp ? start
+                                               : media_info_.start_time) +
+                            duration);
+  }
+  return end != kNoTimestamp && read_end_ < end - kTruncationTolerance;
 }
 
 }  // namespace lychee

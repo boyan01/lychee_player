@@ -221,7 +221,7 @@ JNIEXPORT jlong JNICALL Java_tech_soit_lychee_LycheePlayer_nativeCreate(
     jboolean hardware_decoding,
     jboolean video) {
   lychee_config config;
-  lychee_config_init(&config);
+  lychee_config_init(&config, sizeof(config));
   config.video_frame_types =
       video ? LYCHEE_FRAME_ANDROID_SURFACE | LYCHEE_FRAME_CPU_RGBA : 0;
   config.hardware_decoding = hardware_decoding;

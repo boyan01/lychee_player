@@ -1,6 +1,7 @@
 #include "base/log.h"
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdarg>
 #include <cstdio>
 #include <mutex>
@@ -14,9 +15,15 @@ namespace lychee {
 namespace {
 
 std::atomic<int> g_level{static_cast<int>(LogLevel::kInfo)};
+// The sink is called without the lock, so it may log, replace itself or
+// call into the library. SetLogSink() waits for the calls in flight, so
+// once it returns the old sink's user data may go.
 std::mutex g_sink_mutex;
+std::condition_variable g_sink_idle;
 LogSink g_sink = nullptr;
 void* g_sink_user_data = nullptr;
+int g_sink_calls = 0;
+thread_local bool t_in_sink = false;
 
 const char* LevelName(LogLevel level) {
   switch (level) {
@@ -45,9 +52,12 @@ LogLevel GetLogLevel() {
 }
 
 void SetLogSink(LogSink sink, void* user_data) {
-  std::lock_guard<std::mutex> lock(g_sink_mutex);
+  std::unique_lock<std::mutex> lock(g_sink_mutex);
   g_sink = sink;
   g_sink_user_data = user_data;
+  // Not for the sink's own call, when it replaces itself.
+  const int own = t_in_sink ? 1 : 0;
+  g_sink_idle.wait(lock, [own] { return g_sink_calls == own; });
 }
 
 void LogMessage(LogLevel level, const char* tag, const char* format, ...) {
@@ -59,9 +69,24 @@ void LogMessage(LogLevel level, const char* tag, const char* format, ...) {
   vsnprintf(message + prefix, sizeof(message) - prefix, format, args);
   va_end(args);
 
-  std::lock_guard<std::mutex> lock(g_sink_mutex);
-  if (g_sink) {
-    g_sink(g_sink_user_data, static_cast<int>(level), message);
+  LogSink sink = nullptr;
+  void* user_data = nullptr;
+  // What the sink logs itself goes to stderr: it could log forever.
+  if (!t_in_sink) {
+    std::lock_guard<std::mutex> lock(g_sink_mutex);
+    sink = g_sink;
+    user_data = g_sink_user_data;
+    g_sink_calls += sink ? 1 : 0;
+  }
+  if (sink) {
+    t_in_sink = true;
+    sink(user_data, static_cast<int>(level), message);
+    t_in_sink = false;
+    {
+      std::lock_guard<std::mutex> lock(g_sink_mutex);
+      g_sink_calls--;
+    }
+    g_sink_idle.notify_all();
   } else {
 #if defined(__ANDROID__)
     // stderr goes nowhere in an app.

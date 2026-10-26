@@ -49,6 +49,8 @@ typedef UIView PlatformView;
                           view:(nullable PlatformView*)view;
 - (void)start;
 // After this returns the player is never touched again and may be destroyed.
+// Idempotent; dealloc calls it too, for textures the engine drops without a
+// disposeTexture.
 - (void)dispose;
 @end
 
@@ -103,6 +105,11 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
     _view = view;
   }
   return self;
+}
+
+// The macOS display link holds self unretained: stop it before self goes.
+- (void)dealloc {
+  [self dispose];
 }
 
 #if TARGET_OS_OSX
@@ -333,6 +340,15 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   } else {
     result(FlutterMethodNotImplemented);
   }
+}
+
+// The engine is going away, possibly before Dart disposed its textures.
+- (void)detachFromEngineForRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
+  for (NSNumber* textureId in _players) {
+    [_players[textureId] dispose];
+    [_textures unregisterTexture:textureId.longLongValue];
+  }
+  [_players removeAllObjects];
 }
 
 @end

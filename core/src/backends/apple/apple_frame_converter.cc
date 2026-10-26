@@ -168,12 +168,18 @@ std::shared_ptr<VideoFrame> AppleFrameConverter::ToBgraPixelBuffer(
       return nullptr;
     }
   } else {
+    // Software decoding may have made RGBA.
+    std::shared_ptr<VideoFrame> bgra = cpu_converter_.Convert(
+        frame, static_cast<uint32_t>(VideoFrameStorage::kCpuBgra));
+    if (!bgra) {
+      return nullptr;
+    }
     output = CreateBgraBuffer(frame->width, frame->height);
     if (!output) {
       return nullptr;
     }
     CVPixelBufferLockBaseAddress(output, 0);
-    CopyRows(frame->data, frame->stride,
+    CopyRows(bgra->data, bgra->stride,
              static_cast<uint8_t*>(CVPixelBufferGetBaseAddress(output)),
              CVPixelBufferGetBytesPerRow(output),
              static_cast<size_t>(frame->width) * 4, frame->height);

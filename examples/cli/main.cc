@@ -617,7 +617,7 @@ int main(int argc, char** argv) {
     lychee_testing_enable_virtual_time();
   }
   lychee_config config;
-  lychee_config_init(&config);
+  lychee_config_init(&config, sizeof(config));
   config.video_frame_types = options.frame_type;
   config.hardware_decoding = options.hardware ? 1 : 0;
 #if defined(_WIN32)
@@ -727,8 +727,10 @@ int main(int argc, char** argv) {
   int64_t loss_position = INT64_MIN;
 
   // Virtual time only: vsyncs where the player's threads did not catch up
-  // within kStallTimeout of real time.
+  // within kStallTimeout of real time. After kMaxStalls the pipeline is
+  // taken to be stuck, and the run stops.
   constexpr auto kStallTimeout = std::chrono::seconds(2);
+  constexpr int64_t kMaxStalls = 5;
   int64_t stalls = 0;
 
   // Live: when the last packet was pushed, and how far ahead of then the
@@ -1027,6 +1029,10 @@ int main(int argc, char** argv) {
       break;
     }
     if (state == LYCHEE_STATE_ENDED) {
+      break;
+    }
+    if (stalls >= kMaxStalls) {
+      printf("stall: giving up\n");
       break;
     }
     // A live input never ends: stop a second after the last packet.

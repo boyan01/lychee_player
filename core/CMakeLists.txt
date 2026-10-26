@@ -109,6 +109,14 @@ if(LYCHEE_WITH_FFMPEG)
   if(LYCHEE_FFMPEG_ROOT)
     add_library(lychee_ffmpeg INTERFACE)
     target_include_directories(lychee_ffmpeg INTERFACE "${LYCHEE_FFMPEG_ROOT}/include")
+    # find_library() keeps what it found in the cache: after a change of
+    # root it would link the old root's libraries with the new headers.
+    if(NOT LYCHEE_FFMPEG_ROOT STREQUAL "${LYCHEE_FFMPEG_FOUND_ROOT}")
+      foreach(lib avformat avcodec swresample swscale avutil)
+        unset(LYCHEE_FFMPEG_${lib} CACHE)
+      endforeach()
+      set(LYCHEE_FFMPEG_FOUND_ROOT "${LYCHEE_FFMPEG_ROOT}" CACHE INTERNAL "")
+    endif()
     foreach(lib avformat avcodec swresample swscale avutil)
       find_library(LYCHEE_FFMPEG_${lib} ${lib} PATHS "${LYCHEE_FFMPEG_ROOT}/lib"
         NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH REQUIRED)

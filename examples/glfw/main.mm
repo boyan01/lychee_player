@@ -278,7 +278,7 @@ int main(int argc, char** argv) {
   }
 
   lychee_config config;
-  lychee_config_init(&config);
+  lychee_config_init(&config, sizeof(config));
   config.video_frame_types = LYCHEE_FRAME_CVPIXELBUFFER;
   config.hardware_decoding = 1;
   lychee_player* player = lychee_player_create(&config);
