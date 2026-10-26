@@ -5,6 +5,7 @@
 #import <Foundation/Foundation.h>
 
 #include <algorithm>
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <vector>
@@ -23,8 +24,13 @@ constexpr size_t kKeepBehind = 1 << 20;
 // A read this far ahead of the data waits for it instead of starting a
 // new request.
 constexpr int64_t kSkipAhead = 512 << 10;
-// Requests in a row that may fail before reads do.
+// Requests in a row that may fail (dropped connections, server errors)
+// before reads do, waiting 0, 1 and 3 s before each: FFmpeg's http
+// reconnect with reconnect_delay_max=4, so both builds ride out the same
+// outages.
 constexpr int kMaxRetries = 3;
+// A connection silent this long counts as dropped (FFmpeg's rw_timeout).
+constexpr NSTimeInterval kIdleTimeout = 10;
 
 }  // namespace
 
@@ -43,8 +49,14 @@ struct HttpState {
   int64_t discard = 0;
   int64_t size = -1;
   bool complete = false;
-  // An HTTP error status: retrying will not help.
+  // A 4xx status: retrying will not help.
   bool refused = false;
+  // The last response took a range request (206, or Accept-Ranges).
+  bool ranges = false;
+  // Where the last response came from, after redirects.
+  std::string location;
+  // App Transport Security refused cleartext http.
+  bool cleartext_refused = false;
   // Requests since data last arrived.
   int retries = 0;
   bool suspended = false;
@@ -65,11 +77,10 @@ struct HttpState {
     suspended = false;
     error.clear();
     NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:url];
-    request.timeoutInterval = 30;
-    if (from > 0) {
-      [request setValue:[NSString stringWithFormat:@"bytes=%lld-", from]
-          forHTTPHeaderField:@"Range"];
-    }
+    request.timeoutInterval = kIdleTimeout;
+    // From 0 too, as FFmpeg does: a 206 says the server takes ranges.
+    [request setValue:[NSString stringWithFormat:@"bytes=%lld-", from]
+        forHTTPHeaderField:@"Range"];
     task = [session dataTaskWithRequest:request];
     [task resume];
   }
@@ -109,14 +120,22 @@ struct HttpState {
   auto* http = static_cast<NSHTTPURLResponse*>(response);
   NSInteger status = http.statusCode;
   if (status >= 400) {
-    state->error = "HTTP " + std::to_string(status);
-    state->refused = true;
+    state->error = "HTTP " + std::to_string(status) + " " +
+                   [NSHTTPURLResponse localizedStringForStatusCode:status].UTF8String;
+    // Server errors may pass; FFmpeg's reconnect_on_http_error=5xx.
+    state->refused = status < 500;
     state->complete = true;
     state->condition.notify_all();
     handler(NSURLSessionResponseCancel);
     return;
   }
   long long length = response.expectedContentLength;
+  if (![http.URL isEqual:state->url]) {
+    state->location = http.URL.absoluteString.UTF8String ?: "";
+  }
+  NSString* accept = http.allHeaderFields[@"Accept-Ranges"];
+  state->ranges = status == 206 ||
+                  (accept && [accept rangeOfString:@"bytes"].location != NSNotFound);
   if (status == 206) {
     // Content-Range: bytes first-last/total
     NSString* range = http.allHeaderFields[@"Content-Range"];
@@ -178,6 +197,10 @@ struct HttpState {
   state->complete = true;
   if (error && state->error.empty()) {
     state->error = error.localizedDescription.UTF8String ?: "network error";
+  }
+  if (error.code == NSURLErrorAppTransportSecurityRequiresSecureConnection) {
+    state->cleartext_refused = true;
+    state->refused = true;
   }
   state->condition.notify_all();
 }
@@ -273,9 +296,15 @@ int64_t HttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
             }
             return -1;
           }
+          int delay = (1 << state.retries) - 1;
           state.retries++;
-          LOGW("reconnecting at %lld after: %s", static_cast<long long>(offset),
+          LOGW("reconnecting at %lld in %d s after: %s",
+               static_cast<long long>(offset), delay,
                state.error.empty() ? "connection closed" : state.error.c_str());
+          if (state.condition.wait_for(lock, std::chrono::seconds(delay),
+                                       [&state] { return state.interrupted; })) {
+            return -1;
+          }
           state.Restart(offset);
           continue;
         }
@@ -284,6 +313,21 @@ int64_t HttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
       state.Restart(offset);
     }
   }
+}
+
+bool HttpDataSource::seekable() const {
+  std::lock_guard<std::mutex> lock(state_->mutex);
+  return state_->ranges;
+}
+
+bool HttpDataSource::cleartext_refused() const {
+  std::lock_guard<std::mutex> lock(state_->mutex);
+  return state_->cleartext_refused;
+}
+
+std::string HttpDataSource::url() const {
+  std::lock_guard<std::mutex> lock(state_->mutex);
+  return state_->location;
 }
 
 int64_t HttpDataSource::size() const {

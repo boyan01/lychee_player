@@ -8,8 +8,9 @@
 
 namespace lychee {
 
-// Random access bytes of a file or URL, for demuxers that parse containers
-// themselves (Mp4Demuxer). The FFmpeg demuxer has its own I/O.
+// Random access bytes of a file or URL: what Mp4Demuxer parses, and what
+// FFmpeg reads on Apple platforms (ffmpeg_demuxer.cc), so both builds
+// share one http client.
 class DataSource {
  public:
   virtual ~DataSource() = default;
@@ -20,6 +21,20 @@ class DataSource {
 
   // Total size in bytes, or -1 if unknown.
   virtual int64_t size() const = 0;
+
+  // Whether a read elsewhere than where the last one ended is cheap. A
+  // server without range requests can still be read at any offset, but
+  // from the start again. Known once a Read() returned.
+  virtual bool seekable() const { return true; }
+
+  // The URL after redirects, known once a Read() returned; empty if there
+  // were none.
+  virtual std::string url() const { return ""; }
+
+  // Whether the last Read() failed because the platform refuses the URL
+  // as it is: cleartext http under App Transport Security in an app
+  // without an exception. A client of its own (FFmpeg's) may still read it.
+  virtual bool cleartext_refused() const { return false; }
 
   // Thread-safe. Makes the current and later Read() calls return -1 until
   // ClearInterrupt().

@@ -67,17 +67,18 @@ if(APPLE)
   list(APPEND LYCHEE_SOURCES
     src/backends/apple/apple_frame_converter.cc
     src/backends/apple/core_audio_sink.cc
+    src/backends/apple/http_data_source.mm
     src/backends/apple/pixel_buffer.cc
+    # Files and http(s) for both demuxers.
+    src/media/data_source.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
-    # Without FFmpeg: MP4 from files and http(s), H.264 and HEVC through
-    # VideoToolbox, AAC and ALAC through AudioToolbox.
+    # Without FFmpeg: MP4, H.264 and HEVC through VideoToolbox, AAC and
+    # ALAC through AudioToolbox.
     list(APPEND LYCHEE_SOURCES
       src/backends/apple/at_audio_decoder.cc
-      src/backends/apple/http_data_source.mm
       src/backends/apple/vt_video_decoder.cc
       src/backends/mp4/mp4_demuxer.cc
-      src/media/data_source.cc
     )
   endif()
   if(IOS)
@@ -156,13 +157,11 @@ if(APPLE)
   if(IOS)
     set_source_files_properties(src/backends/apple/audio_session.mm
       PROPERTIES COMPILE_OPTIONS -fobjc-arc)
-    target_link_libraries(lychee PRIVATE "-framework AVFAudio" "-framework Foundation")
+    target_link_libraries(lychee PRIVATE "-framework AVFAudio")
   endif()
-  if(NOT LYCHEE_WITH_FFMPEG)
-    set_source_files_properties(src/backends/apple/http_data_source.mm
-      PROPERTIES COMPILE_OPTIONS -fobjc-arc)
-    target_link_libraries(lychee PRIVATE "-framework Foundation")
-  endif()
+  set_source_files_properties(src/backends/apple/http_data_source.mm
+    PROPERTIES COMPILE_OPTIONS -fobjc-arc)
+  target_link_libraries(lychee PRIVATE "-framework Foundation")
 endif()
 
 if(ANDROID)

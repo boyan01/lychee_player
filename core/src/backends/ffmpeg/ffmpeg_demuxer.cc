@@ -11,6 +11,12 @@
 #include "backends/ffmpeg/ffmpeg_common.h"
 #include "base/log.h"
 
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+#include <cstddef>
+
+#include "media/data_source.h"
+#endif
+
 #if defined(__ANDROID__)
 #include <dirent.h>
 #include <unistd.h>
@@ -24,6 +30,9 @@
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/display.h>
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+#include <libavutil/opt.h>
+#endif
 }
 
 namespace lychee {
@@ -130,6 +139,58 @@ bool IsNetworkUrl(const std::string& url) {
   return scheme_end != std::string::npos && url.compare(0, scheme_end, "file") != 0;
 }
 
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+// What OpenDataSource reads: paths, file:// and http(s)://. FFmpeg opens
+// the rest itself (data:, and crypto+http:// for AES-128 HLS segments).
+bool ReadsThroughDataSource(const std::string& url) {
+  size_t colon = url.find(':');
+  if (colon == std::string::npos || url.find('/') < colon) {
+    return true;  // A path.
+  }
+  if (url.compare(colon, 3, "://") != 0) {
+    return false;
+  }
+  std::string scheme = url.substr(0, colon);
+  return scheme == "file" || scheme == "http" || scheme == "https";
+}
+
+// FFmpeg's default is 32 KB; files and the http buffer hand over more.
+constexpr int kIoBufferSize = 64 << 10;
+
+// The options an Io answers through av_opt_get(): HLS asks for the
+// "location" of what it opened, the URL after redirects, to resolve the
+// playlist's relative URLs against, as FFmpeg's http protocol answers.
+struct IoOptions {
+  const AVClass* av_class;
+  char* location;
+};
+
+const AVOption kIoOptions[] = {
+    {"location", "URL after redirects", offsetof(IoOptions, location),
+     AV_OPT_TYPE_STRING, {.str = nullptr}, 0, 0, AV_OPT_FLAG_DECODING_PARAM},
+    {nullptr},
+};
+
+const AVClass kIoClass = {
+    .class_name = "lychee_io",
+    .item_name = av_default_item_name,
+    .option = kIoOptions,
+    .version = LIBAVUTIL_VERSION_INT,
+};
+
+// The AVIOContext's class, whose one child is the IoOptions in opaque.
+void* IoChildNext(void* object, void* previous) {
+  return previous ? nullptr : static_cast<AVIOContext*>(object)->opaque;
+}
+
+const AVClass kAvioClass = {
+    .class_name = "AVIOContext",
+    .item_name = av_default_item_name,
+    .version = LIBAVUTIL_VERSION_INT,
+    .child_next = IoChildNext,
+};
+#endif
+
 int RotationFromDisplayMatrix(const AVCodecParameters* parameters) {
   const AVPacketSideData* side_data = av_packet_side_data_get(
       parameters->coded_side_data, parameters->nb_coded_side_data,
@@ -149,6 +210,16 @@ int RotationFromDisplayMatrix(const AVCodecParameters* parameters) {
 
 }  // namespace
 
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+// An AVIOContext's opaque: a DataSource and the position FFmpeg reads at.
+struct FFmpegDemuxer::Io {
+  IoOptions options = {&kIoClass, nullptr};  // First: the AVClass child.
+  FFmpegDemuxer* owner = nullptr;
+  std::unique_ptr<DataSource> source;
+  int64_t position = 0;
+};
+#endif
+
 FFmpegDemuxer::FFmpegDemuxer() : av_packet_(av_packet_alloc()) {}
 
 FFmpegDemuxer::~FFmpegDemuxer() {
@@ -167,6 +238,19 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
   format_context_->interrupt_callback.opaque = this;
 
   AVDictionary* options = nullptr;
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+  // The input and whatever demuxers open themselves go through IoOpen().
+  format_context_->opaque = this;
+  default_io_open_ = format_context_->io_open;
+  default_io_close_ = format_context_->io_close2;
+  format_context_->io_open = &IoOpen;
+  format_context_->io_close2 = &IoClose;
+  // HLS would reuse a segment's FFmpeg http connection for the next one,
+  // which asserts when that segment came through DataSource.
+  av_dict_set(&options, "http_persistent", "0", 0);
+  av_dict_set(&options, "http_multiple", "0", 0);
+#endif
+  // For FFmpeg's http (on Apple, what IoOpen() hands to it).
   if (IsNetworkUrl(url)) {
     // Ride out short outages: reconnect on dropped connections and server
     // errors, give up after about 10 s. Reads block meanwhile, so playback
@@ -191,6 +275,11 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
   av_dict_free(&options);
   if (ret < 0) {
     *error = "avformat_open_input: " + AVErrorString(ret);
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+    if (!io_error_.empty()) {
+      *error = io_error_;
+    }
+#endif
     return false;
   }
   ret = avformat_find_stream_info(format_context_, nullptr);
@@ -200,6 +289,9 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
   }
   BuildMediaInfo();
   enabled_streams_.assign(format_context_->nb_streams, true);
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+  io_error_.clear();  // From an HLS variant that failed, say.
+#endif
   return true;
 }
 
@@ -354,9 +446,16 @@ DemuxerReadResult FFmpegDemuxer::Read(EncodedPacket* packet) {
       av_packet_unref(av_packet_);
       return DemuxerReadResult::kAborted;
     }
-    if (ret == AVERROR_EOF) {
+    if (ret < 0) {
+      std::string cause = ret == AVERROR_EOF ? "" : AVErrorString(ret);
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+      if (ret != AVERROR_EOF && !io_error_.empty()) {
+        cause = io_error_;
+      }
+#endif
       // A truncated file, or a connection that could not be re-established:
-      // FFmpeg reports both as the end of the file.
+      // FFmpeg's http reports both as the end of the file, DataSource the
+      // latter as a read error.
       if (TruncatedAtEnd()) {
         char message[160];
         snprintf(message, sizeof(message),
@@ -365,14 +464,14 @@ DemuxerReadResult FFmpegDemuxer::Read(EncodedPacket* packet) {
                  (read_end_ - media_info_.start_time) / 1e6,
                  media_info_.duration / 1e6);
         error_ = message;
-        LOGE("%s", message);
+        LOGE("%s%s%s", message, cause.empty() ? "" : ": ", cause.c_str());
         return DemuxerReadResult::kError;
       }
-      return DemuxerReadResult::kEndOfStream;
-    }
-    if (ret < 0) {
-      error_ = "read failed: " + AVErrorString(ret);
-      LOGE("av_read_frame: %s", AVErrorString(ret).c_str());
+      if (ret == AVERROR_EOF) {
+        return DemuxerReadResult::kEndOfStream;
+      }
+      error_ = "read failed: " + cause;
+      LOGE("av_read_frame: %s", cause.c_str());
       return DemuxerReadResult::kError;
     }
     int index = av_packet_->stream_index;
@@ -405,6 +504,15 @@ DemuxerReadResult FFmpegDemuxer::Read(EncodedPacket* packet) {
 
 bool FFmpegDemuxer::Seek(int64_t time) {
   interrupted_ = false;
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+  io_error_.clear();
+  if (!aborted_) {
+    std::lock_guard<std::mutex> lock(ios_mutex_);
+    for (const std::unique_ptr<Io>& io : ios_) {
+      io->source->ClearInterrupt();
+    }
+  }
+#endif
   // An interrupted read leaves AVERROR_EXIT in the AVIOContext, and FFmpeg
   // later reports the end of the file as that error (read_frame_internal in
   // libavformat/demux.c). The interrupt was ours; forget it.
@@ -435,10 +543,22 @@ bool FFmpegDemuxer::Seek(int64_t time) {
 
 void FFmpegDemuxer::Interrupt() {
   interrupted_ = true;
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+  std::lock_guard<std::mutex> lock(ios_mutex_);
+  for (const std::unique_ptr<Io>& io : ios_) {
+    io->source->Interrupt();
+  }
+#endif
 }
 
 void FFmpegDemuxer::Abort() {
   aborted_ = true;
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+  std::lock_guard<std::mutex> lock(ios_mutex_);
+  for (const std::unique_ptr<Io>& io : ios_) {
+    io->source->Interrupt();
+  }
+#endif
 }
 
 bool FFmpegDemuxer::TruncatedAtEnd() const {
@@ -466,5 +586,165 @@ bool FFmpegDemuxer::TruncatedAtEnd() const {
   }
   return end != kNoTimestamp && read_end_ < end - kTruncationTolerance;
 }
+
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+int FFmpegDemuxer::IoOpen(AVFormatContext* s, AVIOContext** pb,
+                          const char* url, int flags, AVDictionary** options) {
+  auto* self = static_cast<FFmpegDemuxer*>(s->opaque);
+  if ((flags & AVIO_FLAG_WRITE) || !ReadsThroughDataSource(url)) {
+    return self->default_io_open_(s, pb, url, flags, options);
+  }
+  std::string error;
+  bool cleartext_refused = false;
+  *pb = self->OpenIo(url, &error, &cleartext_refused);
+  if (*pb) {
+    return 0;
+  }
+  if (cleartext_refused) {
+    return self->default_io_open_(s, pb, url, flags, options);
+  }
+  if (self->aborted_ || self->interrupted_) {
+    return AVERROR_EXIT;
+  }
+  LOGE("cannot open: %s", error.c_str());
+  self->io_error_ = error;
+  return AVERROR(EIO);
+}
+
+int FFmpegDemuxer::IoClose(AVFormatContext* s, AVIOContext* pb) {
+  auto* self = static_cast<FFmpegDemuxer*>(s->opaque);
+  if (!pb || pb->read_packet != &ReadPacket) {
+    return self->default_io_close_(s, pb);
+  }
+  self->CloseIo(pb);
+  return 0;
+}
+
+int FFmpegDemuxer::ReadPacket(void* opaque, uint8_t* data, int size) {
+  auto* io = static_cast<Io*>(opaque);
+  int64_t n = io->source->Read(io->position, data, static_cast<size_t>(size));
+  if (n > 0) {
+    io->position += n;
+    return static_cast<int>(n);
+  }
+  if (n == 0) {
+    return AVERROR_EOF;
+  }
+  if (io->source->interrupted()) {
+    return AVERROR_EXIT;
+  }
+  // Demuxers searching for a timestamp try many offsets: say it once.
+  std::string error = io->source->error();
+  if (error != io->owner->io_error_) {
+    LOGE("read at %lld failed: %s", static_cast<long long>(io->position),
+         error.c_str());
+    io->owner->io_error_ = std::move(error);
+  }
+  return AVERROR(EIO);
+}
+
+int64_t FFmpegDemuxer::SeekPacket(void* opaque, int64_t offset, int whence) {
+  auto* io = static_cast<Io*>(opaque);
+  whence &= ~AVSEEK_FORCE;
+  const int64_t size = io->source->size();
+  if (whence == AVSEEK_SIZE) {
+    return size >= 0 ? size : AVERROR(ENOSYS);
+  }
+  int64_t position;
+  switch (whence) {
+    case SEEK_SET:
+      position = offset;
+      break;
+    case SEEK_CUR:
+      position = io->position + offset;
+      break;
+    case SEEK_END:
+      if (size < 0) {
+        return AVERROR(ENOSYS);
+      }
+      position = size + offset;
+      break;
+    default:
+      return AVERROR(EINVAL);
+  }
+  if (position < 0) {
+    return AVERROR(EINVAL);
+  }
+  // The next read goes there; DataSource reads at any offset.
+  io->position = position;
+  return position;
+}
+
+AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url, std::string* error,
+                                   bool* cleartext_refused) {
+  std::unique_ptr<DataSource> source = OpenDataSource(url, error);
+  if (!source) {
+    return nullptr;
+  }
+  auto owned = std::make_unique<Io>();
+  Io* io = owned.get();
+  io->owner = this;
+  io->source = std::move(source);
+  {
+    std::lock_guard<std::mutex> lock(ios_mutex_);
+    if (aborted_ || interrupted_) {
+      io->source->Interrupt();
+    }
+    ios_.push_back(std::move(owned));
+  }
+  auto fail = [&](const std::string& reason) -> AVIOContext* {
+    *error = reason;
+    RemoveIo(io);
+    return nullptr;
+  };
+  // The first bytes surface errors (no such host, HTTP 404) as an open
+  // failure rather than as unrecognised data, and tell whether the server
+  // takes range requests: FFmpeg's http reports one that does not as
+  // unseekable, and demuxers then neither seek nor look at the end of the
+  // file, which would mean reading it all.
+  uint8_t first;
+  if (io->source->Read(0, &first, 1) < 0) {
+    // FFmpeg's http has no such policy, and read these URLs before.
+    *cleartext_refused = io->source->cleartext_refused();
+    if (*cleartext_refused) {
+      LOGI("App Transport Security refuses cleartext http: FFmpeg reads it");
+    }
+    return fail(io->source->error());
+  }
+  auto* buffer = static_cast<uint8_t*>(av_malloc(kIoBufferSize));
+  AVIOContext* pb = buffer ? avio_alloc_context(buffer, kIoBufferSize, 0, io,
+                                                &ReadPacket, nullptr, &SeekPacket)
+                           : nullptr;
+  if (!pb) {
+    av_free(buffer);
+    return fail("out of memory");
+  }
+  pb->seekable = io->source->seekable() ? AVIO_SEEKABLE_NORMAL : 0;
+  pb->av_class = &kAvioClass;
+  // HLS takes whatever "location" says, so it is never empty.
+  std::string location = io->source->url();
+  io->options.location = av_strdup(location.empty() ? url.c_str()
+                                                    : location.c_str());
+  return pb;
+}
+
+void FFmpegDemuxer::CloseIo(AVIOContext* pb) {
+  auto* io = static_cast<Io*>(pb->opaque);
+  av_freep(&pb->buffer);
+  avio_context_free(&pb);
+  av_freep(&io->options.location);
+  RemoveIo(io);
+}
+
+void FFmpegDemuxer::RemoveIo(Io* io) {
+  std::unique_ptr<Io> removed;
+  std::lock_guard<std::mutex> lock(ios_mutex_);
+  auto it = std::find_if(ios_.begin(), ios_.end(),
+                         [io](const std::unique_ptr<Io>& i) { return i.get() == io; });
+  // Destroyed after the unlock: an http source cancels its session.
+  removed = std::move(*it);
+  ios_.erase(it);
+}
+#endif
 
 }  // namespace lychee

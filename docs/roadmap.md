@@ -233,10 +233,48 @@ decoder loss, HDR included) and passes. Decisions:
   are compiled only without FFmpeg, so the shipped xcframework does not
   carry dead code.
 
+Both builds read through `DataSource` on Apple platforms (2026-10-26):
+the FFmpeg demuxer's `io_open` hands FFmpeg an `AVIOContext` over a
+`DataSource` for paths, `file://` and `http(s)://`, the input and what
+demuxers open themselves (HLS playlists and segments) alike, so https
+goes through NSURLSession (system TLS, proxies, HTTP/2) instead of
+FFmpeg's deprecated SecureTransport. Decisions:
+
+- Only on Apple platforms. Android, Windows and Linux have no http
+  `DataSource`, so FFmpeg keeps its own protocols there (Android's
+  mbedTLS `ca_file` through `io_open` unchanged); reading only files
+  through `DataSource` would split one input between two stacks for
+  nothing, and `fopen` takes no UTF-8 paths on Windows.
+- `HttpDataSource` took over the FFmpeg build's network behaviour:
+  reconnects after 0, 1 and 3 s on dropped connections and 5xx (FFmpeg's
+  `reconnect_delay_max=4`), not on 4xx; a connection silent for 10 s
+  counts as dropped (`rw_timeout`); `Range: bytes=0-` from the first
+  request, so a 206 (or `Accept-Ranges`) says the server takes ranges.
+- `DataSource` gained three defaulted methods: `seekable()` (FFmpeg
+  sets `AVIO_SEEKABLE_NORMAL` from it, so a server without ranges is
+  unseekable as with FFmpeg's http, and demuxers do not read the whole
+  file to look at its end), `url()` (after redirects: FFmpeg's HLS asks
+  for the `location` to resolve relative segment URLs) and
+  `cleartext_refused()`. App Transport Security refuses cleartext http
+  to host names in apps without an exception; FFmpeg's http, which read
+  those URLs before, then reads them instead. The FFmpeg-free build has
+  no such fallback: such apps need an ATS exception.
+- `data:` and `crypto+http://` (AES-128 HLS) stay with FFmpeg's
+  protocols. Each opened URL gets its own `NSURLSession`, so HLS
+  segments do not reuse connections; FFmpeg's `http_persistent` is off
+  (it asserts on a mix of FFmpeg's and our contexts).
+- `Mp4Demuxer` still seeks on a server without ranges (it re-reads from
+  the start), where the FFmpeg build reports the input unseekable.
+
+`tool/regression.sh` gained `http-hls` and `http-hls-redirect`.
+
 Left:
 
-1. FFmpeg reading through `DataSource` via a custom `AVIOContext`, so both
-   builds share IO behaviour.
+1. Shared IO on Android and Windows: an http `DataSource` there
+   (Android's `HttpURLConnection` or Cronet through JNI, WinHTTP), which
+   their FFmpeg-free builds (4, 5) need anyway; then FFmpeg reads through
+   it as on Apple. One `NSURLSession` per demuxer would let HLS segments
+   reuse connections.
 2. Containers: fragmented MP4, MPEG-TS, HLS, WebM; tx3g (mov_text)
    subtitles, which the MP4 demuxer skips. MP3 and Opus/FLAC in MP4 are
    listed but have no decoder.

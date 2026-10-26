@@ -218,6 +218,15 @@ gen tracks.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=880:sample_ra
   -metadata:s:a:1 title=French -metadata:s:s:0 language=eng -metadata:s:s:1 language=fre \
   -disposition:s:0 default -disposition:s:1 0
 
+# HLS, 2 s segments, for the http cases.
+if [ ! -f "$media/hls/index.m3u8" ]; then
+  mkdir -p "$media/hls"
+  ffmpeg -hide_banner -loglevel error -y -i "$media/h264_aac.mp4" -c:v libx264 -preset veryfast -g 60 \
+    -sc_threshold 0 -c:a copy -f hls -hls_time 2 -hls_playlist_type vod \
+    -hls_segment_filename "$media/hls/seg%d.ts" "$media/hls/index.m3u8.tmp" &&
+    mv "$media/hls/index.m3u8.tmp" "$media/hls/index.m3u8" || exit 1
+fi
+
 failures=0
 
 # Unit tests first: they pinpoint a failure the playback cases only show.
@@ -655,15 +664,21 @@ if [ "${NO_FFMPEG:-0}" != 1 ]; then
   # The TS probe opens three ranges. Later requests fail, like an expired
   # URL: a failed seek cannot safely resume the demuxer's old read position.
   serve --refuse-after-requests 3
-  exits=1 seq_ expect http-seek-failed "403 Forbidden" "error: seek failed" \
+  exits=1 seq_ expect http-seek-failed "403 [Ff]orbidden" "error: seek failed" \
     "summary: state=error" "<=0 seek completed" "<=0 event: state ended" -- \
     --seek 1 --seek-after 5 "http://127.0.0.1:$port/offset.ts"
   # A failed read-ahead loop is an input error after the buffered pass,
   # not an EOF that silently schedules another seek on the control thread.
   serve --refuse-after-requests 3
-  exits=1 seq_ expect http-loop-seek-failed "403 Forbidden" "error: loop seek failed" \
+  exits=1 seq_ expect http-loop-seek-failed "403 [Ff]orbidden" "error: loop seek failed" \
     "summary: state=error" "<=0 loop to" "<=0 seek completed" \
     "<=0 event: state ended" -- --loop "http://127.0.0.1:$port/offset.ts"
+  # HLS opens its playlist and segments itself (io_open), through the same
+  # http client. Behind a redirect, relative segment URLs resolve against
+  # where the playlist came from.
+  serve --redirect /moved.m3u8 /hls/index.m3u8
+  seq_ check http-hls 1 - -- "http://127.0.0.1:$port/hls/index.m3u8"
+  seq_ check http-hls-redirect 1 - -- "http://127.0.0.1:$port/moved.m3u8"
 fi
 serve --drop-at 3000000 --refuse-after-drop
 exits=1 seq_ expect http-lost "state=error" "error: input ended at" -- "$url"

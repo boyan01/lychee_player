@@ -12,6 +12,7 @@ Used by tool/regression.sh to test network behaviour:
   --refuse-after-drop  after the drop, every request fails with 503
   --refuse-after-requests N  after N requests, every later one fails with 403
   --no-ranges          ignore Range headers: every response is the whole file
+  --redirect FROM TO   answer requests for path FROM with a 302 to path TO
 
 Prints "port N" once listening (pass --port 0 for a free port).
 """
@@ -58,6 +59,12 @@ def make_handler(root, args, state):
         def serve(self, head):
             if args.refuse_after_drop and state.dropped:
                 self.send_error(503)
+                return
+            if args.redirect and self.path.split("?")[0] == args.redirect[0]:
+                self.send_response(302)
+                self.send_header("Location", args.redirect[1])
+                self.send_header("Content-Length", "0")
+                self.end_headers()
                 return
             path = os.path.join(root, self.path.lstrip("/").split("?")[0])
             if not os.path.isfile(path):
@@ -162,6 +169,7 @@ def main():
     parser.add_argument("--refuse-after-drop", action="store_true")
     parser.add_argument("--refuse-after-requests", type=int)
     parser.add_argument("--no-ranges", action="store_true")
+    parser.add_argument("--redirect", nargs=2, metavar=("FROM", "TO"))
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 

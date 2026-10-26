@@ -23,6 +23,9 @@ class HttpDataSource : public DataSource {
 
   int64_t Read(int64_t offset, uint8_t* data, size_t size) override;
   int64_t size() const override;
+  bool seekable() const override;
+  std::string url() const override;
+  bool cleartext_refused() const override;
   void Interrupt() override;
   void ClearInterrupt() override;
   bool interrupted() const override;
