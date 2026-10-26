@@ -7,9 +7,14 @@
 
 #include <memory>
 
+#include "media/stream_info.h"
 #include "media/video_frame.h"
 
 namespace lychee {
+
+// The DXGI color space of YCbCr video with |color| (H.273 code points). An
+// unspecified matrix is BT.709 above 576 lines, BT.601 otherwise.
+DXGI_COLOR_SPACE_TYPE DxgiColorSpace(const ColorInfo& color, int height);
 
 // Turns decoded NV12 / P010 textures into kD3D11Texture frames: a new
 // shared BGRA texture per frame, so a texture another device has opened is
@@ -20,9 +25,9 @@ class D3D11VideoProcessor {
  public:
   // |texture| is a decoder output, |slice| its array index; the picture is
   // its top-left |width| x |height| in |color_space|. Null if the GPU
-  // cannot convert it. Output is SDR BT.709. HDR is the driver's to map:
-  // NVIDIA's maps HLG but clips PQ, so PQ frames do not come here (see
-  // FFmpegVideoDecoder::CreateFrame).
+  // cannot convert it. Output is SDR BT.709. HLG is the video processor's
+  // to map; PQ, which NVIDIA's clips to white, goes through a shader of our
+  // own (ToneMapPq).
   std::shared_ptr<VideoFrame> Convert(ID3D11Texture2D* texture,
                                       UINT slice,
                                       int width,
@@ -31,6 +36,22 @@ class D3D11VideoProcessor {
 
  private:
   bool SetUp(ID3D11Device* device);
+  // Converts |texture|'s |slice| into |output| from |input_space| to
+  // |output_space|; the video processor matches |format| and the sizes.
+  bool Blt(ID3D11Texture2D* texture,
+           UINT slice,
+           DXGI_FORMAT format,
+           UINT input_width,
+           UINT input_height,
+           ID3D11Texture2D* output,
+           UINT output_width,
+           UINT output_height,
+           DXGI_COLOR_SPACE_TYPE input_space,
+           DXGI_COLOR_SPACE_TYPE output_space);
+  // Tone-maps |pq_|, RGB in PQ with BT.2020 primaries, into |output|.
+  bool ToneMapPq(ID3D11Texture2D* output, UINT width, UINT height);
+  // Waits for the GPU to finish what was submitted.
+  bool Finish();
 
   Microsoft::WRL::ComPtr<ID3D11Device> device_;
   Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
@@ -47,6 +68,13 @@ class D3D11VideoProcessor {
   UINT input_height_ = 0;
   UINT output_width_ = 0;
   UINT output_height_ = 0;
+  // PQ: the video processor's RGB output, still in PQ, and the shader that
+  // reads it. Created on the first PQ frame.
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> pq_;
+  Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> pq_view_;
+  Microsoft::WRL::ComPtr<ID3D11VertexShader> vertex_shader_;
+  Microsoft::WRL::ComPtr<ID3D11PixelShader> tone_map_shader_;
+  bool shader_failed_ = false;
 };
 
 }  // namespace lychee

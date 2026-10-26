@@ -108,7 +108,8 @@ core's internals).
    HLG attachments; `native-hdr`), and the Swift `LycheePlayerView` shows
    them in EDR.
    8-bit frames from HDR are tone-mapped to SDR BT.709 (VideoToolbox's
-   pixel transfer, swscale's perceptual intent for software decoding;
+   pixel transfer, swscale's default relative colorimetric intent for
+   software decoding: 203 nits as white, highlights above it clipped;
    `hdr-tonemap*`). HLG comes out darker through VideoToolbox (98 for a
    0.5 signal) than through swscale (142, what BT.2408 gives); that is
    Apple's mapping. Missing:
@@ -116,12 +117,17 @@ core's internals).
      stays on tone-mapped BGRA.
    - Windows: the D3D11 video processor gets each frame's DXGI color
      space (`ID3D11VideoContext1`). On an RTX 4070 Ti it maps HLG to SDR
-     (124 for a 0.5 signal) but clips PQ to white even with HDR10
-     metadata, so PQ frames go through swscale like software decoding
-     (181, as on Apple; `lychee_cli --d3d11` reads the texture back,
-     2026-10-25). That costs a download per frame; a tone-mapping shader
-     after the video processor would keep PQ on the GPU. HDR output needs
-     an R10G10B10A2 or FP16 texture type.
+     (124 for a 0.5 signal, against swscale's 142) but clips PQ to white
+     even with HDR10 metadata, so since 2026-10-26 PQ leaves it still in
+     PQ (R10G10B10A2) and a shader of ours tone-maps it on the GPU like
+     swscale (`D3D11VideoProcessor`, constants explained there).
+     `lychee_cli --d3d11` readbacks against swscale: 0.5 PQ gray 182
+     (181), the bars' center 255 (255), a saturated bright red 255,119,91
+     (255,62,29). Grays and in-gamut colors match within 1; saturated
+     colors at or above white are an approximation (within 67 over 84
+     test colors, median 11), since swscale clips in IPT and the shader in
+     ICtCp. Left: HLG through the shader too, so it matches swscale's 142;
+     HDR output, which needs an R10G10B10A2 or FP16 texture type.
    - Linux: `lychee_dmabuf` already carries P010 and the matrix, but not
      the primaries and transfer function a caller needs for HDR; needs a
      VAAPI machine to check.
