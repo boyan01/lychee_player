@@ -85,7 +85,7 @@ None known. Add them here with a done criterion.
    and later `preferredDynamicRange` alone leaves EDR off (headroom 1.2)
    because VideoToolbox's surfaces carry no headroom, so the view sets
    `contentsHeadroom`. The panels' brightness was measured by headroom
-   and capture, not by eye or photometer.
+   and capture, and looked right by eye (no photometer).
    8-bit frames from HDR are tone-mapped to SDR BT.709 (VideoToolbox's
    pixel transfer, swscale's perceptual intent for software decoding;
    `hdr-tonemap*`). HLG comes out darker through VideoToolbox (98 for a
