@@ -104,90 +104,135 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
 
 ## Verifying a change
 
-`tool/regression.sh` builds the core, runs the unit tests in `core/test`,
-and plays a fixed media matrix through `examples/cli` (headless, simulated
-60 Hz vsync, muted). It prints PASS/FAIL per case; `NO_HW=1` decodes in
-software, as on CI. Cases run in parallel (`JOBS`, default half the cores);
-`ONLY='seek-* rate-*'` runs just the matching ones.
+Test a change at the lowest layer that can see it, and run only the layers
+it touches. A core change does not need a Flutter app: the CLI and the
+platform's native harness see everything the core does, and Flutter in
+between only adds a slow build and the texture bridge, which has tests of
+its own. `tool/changes.sh` names the areas a branch touches (against
+`main`, uncommitted files included); CI runs its jobs for the same areas.
 
-Most cases run on a virtual clock (`lychee_cli --virtual-time`): the CLI
-advances `lychee_now_us()` one vsync at a time, but only once the pipeline
-has decoded enough to play it (`lychee_testing_player_settled`), and audio
-goes to `NullAudioSink`, which renders when the clock moves. Media plays as
-fast as it decodes, and drift, drops and glitches do not depend on machine
-load; `stalls=N` counts vsyncs the pipeline never caught up with. The hooks
-live in `core/src/api/testing.h`, not in the public ABI. Cases that need
-real time (a slow or stalled server, and the `realtime-*` cases that check
-CoreAudio timing) set `realtime=1`.
+The layers, lowest first:
 
-While iterating, build and run the unit tests plus the cases your change
-touches (`ONLY=...`, seconds); run the full matrices once, when done. CI runs
-`NO_HW=1` plain and TSan on every push, so leave those to it unless you
-changed `pipeline/`, threading or teardown. Do not run the `realtime=1`
-cases while a Flutter or Gradle build loads the machine: their drift and
-glitch checks fail for reasons unrelated to your change. Done means:
+1. **Unit tests** (`core/test`, the tiny harness in `core/test/test.h`; no
+   framework): pure algorithms and parsers, such as the clock, queues,
+   frame selection, vsync estimation and demuxer boxes.
+2. **Playback through the CLI**: `tool/regression.sh` builds the core,
+   runs the unit tests, and plays a fixed media matrix through
+   `examples/cli` (headless, simulated 60 Hz vsync, muted). It prints
+   PASS/FAIL per case; `NO_HW=1` decodes in software, as on CI. Cases run
+   in parallel (`JOBS`, default half the cores); `ONLY='seek-* rate-*'`
+   runs just the matching ones. Most cases run on a virtual clock
+   (`lychee_cli --virtual-time`): the CLI advances `lychee_now_us()` one
+   vsync at a time, but only once the pipeline has decoded enough to play
+   it (`lychee_testing_player_settled`), and audio goes to
+   `NullAudioSink`, which renders when the clock moves. Media plays as
+   fast as it decodes, and drift, drops and glitches do not depend on
+   machine load; `stalls=N` counts vsyncs the pipeline never caught up
+   with. The hooks live in `core/src/api/testing.h`, not in the public
+   ABI. Cases that need real time (a slow or stalled server, and the
+   `realtime-*` cases that check CoreAudio timing) set `realtime=1`; do
+   not run them while a Flutter or Gradle build loads the machine.
+3. **The platform's native harness**: the smallest native app that takes
+   the platform's frames to the screen (frame hand-off, conversion,
+   rotation, HDR, the display link), with no Flutter in between, so it
+   also tells core bugs from texture bridge bugs. Run it on the platform
+   and look at a window screenshot: upright, sized right, frames
+   advancing at the video's rate.
+   - macOS: `build/examples/glfw/lychee_glfw FILE` (Metal,
+     `CVPixelBuffer`), and the Swift package's example.
+   - iOS: the Swift package's example on the "iPhone 16" simulator.
+   - Android: the Android SDK's example on an emulator (`Pixel_10`,
+     windowed).
+   - Windows: `examples/glfw` (D3D11 textures), through the
+     `flutter-remote-test` skill.
+   - Linux: `examples/glfw` (OpenGL; CPU frames, dmabufs with VAAPI), on
+     WSL or the Ubuntu VM through the same skill.
+4. **Bindings**: the Swift package (`swift test`), the Rust crates
+   (`cargo test`), each against the media `tool/regression.sh` generates
+   (`MEDIA_ONLY=1` generates it without building).
+5. **The Flutter plugin**: only for changes under `flutter/`, on the
+   platforms whose plugin code changed.
+6. **Packaging**: only for changes to how releases are built.
 
-- `tool/regression.sh` passes with zero build warnings.
-- For changes to `pipeline/`, threading, or teardown: `TSAN=1
-  tool/regression.sh` also passes (it fails on any ThreadSanitizer report).
-- For plugin or Dart changes: `flutter analyze` in `flutter/` is clean, and
-  you have run the example (`cd flutter/example && flutter build macos --debug
-  --dart-define=LYCHEE_URL=/tmp/lychee-media/h264_aac.mp4`, launch the app
-  binary) and looked at a window screenshot. Say in your report what you
-  did not see, e.g. audio you could not hear.
-- For changes to player lifetime or teardown (Dart, plugin, or core):
-  `cd flutter/example && flutter test integration_test -d macos` also
-  passes. It switches files repeatedly and checks that exactly one player's
-  threads remain. On Android it runs the same way (`-d emulator-5554`), but
-  `flutter test` reinstalls the app, so serve the media instead:
-  `python3 tool/serve_media.py /tmp/lychee-media 8765` and
-  `--dart-define=LYCHEE_MEDIA=http://10.0.2.2:8765`.
-- For plugin changes on other platforms: iOS on a simulator (`flutter build
-  ios --simulator`, `xcrun simctl install/launch`, `xcrun simctl io
-  screenshot`), Android on an emulator (`flutter build apk --debug`, `adb
-  install`, `adb exec-out screencap`), Windows and Linux with the
-  `flutter-remote-test` skill (`remote-test ... --project flutter/example`).
-  Look at the screenshot: the stats line should show frames rendering at
-  the video's rate.
-- For changes to the Swift package (`sdk/apple`): `swift test` there
+What each area needs (run `tool/changes.sh`):
+
+- **core**: build and run the unit tests plus the cases the change
+  touches (`ONLY=...`, seconds) while iterating; the full
+  `tool/regression.sh` once, when done, with zero build warnings. CI runs
+  `NO_HW=1` plain and TSan on every core change, so leave those to it
+  unless an area below asks for them.
+- **threads** (`pipeline/`, the C API, teardown): also `TSAN=1
+  tool/regression.sh` (it fails on any ThreadSanitizer report).
+- **parsers** (the FFmpeg-free demuxers): also `NO_FFMPEG=1
+  tool/regression.sh` and `tool/fuzz.sh` (a minute of libFuzzer under
+  ASan and UBSan; Homebrew's LLVM). Add each input it crashes on,
+  minimized, to `core/fuzz/regressions` with the fix.
+- **apple**: `tool/build_apple.sh`, then `swift test` in `sdk/apple`
   (plays through the frame driver and checks the player's lifetime), and
-  build its example
-  (`sdk/apple/Example/Example.xcodeproj`, README has the commands) for
-  macOS and the iOS simulator with zero warnings, run both, and look at
-  the screenshots, including `rotated.mp4` when the view's layout changed.
-  `LycheeFrameDriver` is a port of the plugin's `LycheeTexture`: fix both
-  until the plugin uses the SDK (roadmap, Distribution 3.2).
-- For changes to the Android SDK (`sdk/android`): build it and its example
-  (`sdk/android/gradlew -p sdk/android :lychee:publish
-  :example:assembleDebug`, zero warnings), install the example on an
+  build its example (`sdk/apple/Example/Example.xcodeproj`, README has
+  the commands) for macOS and the iOS simulator with zero warnings, run
+  both, and look at the screenshots, including `rotated.mp4` when the
+  view's layout changed. For what ends up on screen (frame selection,
+  conversion, rotation) also `lychee_glfw`. `LycheeFrameDriver` is a port
+  of the plugin's `LycheeTexture`: fix both until the plugin uses the SDK
+  (roadmap, Distribution 3.2). When the shipped FFmpeg or libass builds
+  change: `FFMPEG_ROOT=third_party/ffmpeg/macos-arm64
+  LIBASS_ROOT=third_party/libass/macos-arm64 tool/regression.sh`.
+- **android**: `sdk/android/gradlew -p sdk/android :lychee:publish
+  :example:assembleDebug` (zero warnings), install the example on an
   emulator or a phone and look at screenshots of `h264_aac.mp4` and
   `rotated.mp4`, each with hardware decoding and without (the `url` and
-  `hw` intent extras). The Flutter plugin uses the same
-  `LycheeFrameDriver`, so also run the Flutter example on Android.
-- For changes to the Rust crates (`rust/`) or to `lychee.h`: `cargo test`,
-  `cargo clippy --all-targets` and `cargo doc --no-deps` in `rust/` with
-  zero warnings (the test plays `h264_aac.mp4` and checks the player's
-  lifetime), and `cargo run --example play -- FILE frame.ppm`; look at the
-  frame.
-- For changes to what ends up on screen (frame selection, conversion,
-  rotation): run `build/examples/glfw/lychee_glfw` on a test file and look at
-  a window screenshot. It has no Flutter in between, so it also tells core
-  bugs from texture bridge bugs.
-- For changes to packaging or releases (`tool/release.sh`,
-  `flutter/prebuilt.json`, the podspec's or the plugin Gradle's
-  download, `Package.swift`, the release workflows): run the release
-  steps into a scratch directory (README, "Releases"), ending with
-  `tool/release.sh check`, which builds a fresh macOS, iOS-simulator and
-  Android app against the packed package with the assets served locally;
-  then `git checkout` the pins it wrote.
-- For changes to the FFmpeg-free parsers (`core/src/backends/mp4`):
-  `NO_FFMPEG=1 tool/regression.sh` and `tool/fuzz.sh` (a minute of
-  libFuzzer under ASan and UBSan; Homebrew's LLVM) pass. Add each input
-  it crashes on, minimized, to `core/fuzz/regressions` with the fix.
-- A new behaviour gets a case in `tool/regression.sh` when the CLI can
-  observe it, and a unit test in `core/test` when it is a pure algorithm
-  (clock, queue, frame selection, vsync estimation). The tests use the tiny
-  harness in `core/test/test.h`; there is no test framework dependency.
+  `hw` intent extras). The Flutter plugin takes its frame driver from
+  the SDK, so a change to `LycheeFrameDriver` also runs the Flutter
+  example on Android.
+- **windows**, **linux**: `tool/regression.sh` on that platform (Linux:
+  `NO_HW=1`) and its `examples/glfw` harness, through the
+  `flutter-remote-test` skill.
+- **abi** (`lychee.h`): bump `LYCHEE_API_VERSION` with a history line,
+  rerun `tool/rust_bindings.sh`, and run every binding that uses what
+  changed (rust, apple, android, flutter).
+- **rust**: `cargo test`, `cargo clippy --all-targets` and `cargo doc
+  --no-deps` in `rust/` with zero warnings (the test plays `h264_aac.mp4`
+  and checks the player's lifetime), and `cargo run --example play --
+  FILE frame.ppm`; look at the frame.
+- **flutter**: `flutter analyze` in `flutter/` is clean, and you have run
+  the example (`cd flutter/example && flutter build macos --debug
+  --dart-define=LYCHEE_URL=/tmp/lychee-media/h264_aac.mp4`, launch the
+  app binary) and looked at a window screenshot; say in your report what
+  you did not see, e.g. audio you could not hear. For player lifetime or
+  teardown (Dart or plugin): `cd flutter/example && flutter test
+  integration_test -d macos`, which switches files repeatedly and checks
+  that exactly one player's threads remain. On Android it runs the same
+  way (`-d emulator-5554`), but `flutter test` reinstalls the app, so
+  serve the media instead: `python3 tool/serve_media.py /tmp/lychee-media
+  8765` and `--dart-define=LYCHEE_MEDIA=http://10.0.2.2:8765`. Plugin
+  code for another platform: its example there (iOS: `flutter build ios
+  --simulator`, `xcrun simctl install/launch`, `xcrun simctl io
+  screenshot`; Android: `flutter build apk --debug`, `adb install`, `adb
+  exec-out screencap`; Windows and Linux: `remote-test ... --project
+  flutter/example`), stats line rendering at the video's rate.
+- **packaging** (`tool/release.sh`, `flutter/prebuilt.json`, the
+  podspec's or the plugin Gradle's download, `Package.swift`, the release
+  workflows): run the release steps into a scratch directory (README,
+  "Releases"), ending with `tool/release.sh check`, which builds a fresh
+  macOS, iOS-simulator and Android app against the packed package with
+  the assets served locally; then `git checkout` the pins it wrote.
+
+Adding a test: put it in the lowest layer that can observe the
+behaviour. A pure algorithm gets a unit test in `core/test`; anything the
+CLI can observe gets a case in `tool/regression.sh`; a binding's
+lifetime or API gets a test in its own package (`swift test`, `cargo
+test`); only behaviour of the Flutter plugin itself (texture
+registration, Dart lifetime, hot restart) goes into
+`flutter/example/integration_test`. What only a screen shows stays a
+harness screenshot. When a new directory or file kind appears, give it an
+area in `tool/changes.sh`.
+
+CI (`.github/workflows/ci.yml`) runs the core on macOS (plain and TSan)
+and Linux, the Apple builds with `swift test` (Flutter's analyze and
+example build only for `flutter/` changes), and the Rust crates, each
+only for its areas. It has no Android, Windows or harness screenshot
+jobs: those stay local.
 
 ## Gotchas
 

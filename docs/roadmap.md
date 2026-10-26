@@ -607,11 +607,11 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    fix both: done for Windows (its notices add zlib and the mingw-w64
    runtime), left for Linux (Platforms 2).
    The playback matrix runs through the shipped macOS FFmpeg
-   (`FFMPEG_ROOT=third_party/ffmpeg/macos-arm64`) in CI's flutter-macos
-   job and in `release.yml` before anything is packed (2026-10-26; its
-   first GitHub run failed only on the live flakes fixed since). Not
-   covered there: the Swift, Rust, Android and Flutter lifetime tests,
-   which run only by hand.
+   (`FFMPEG_ROOT=third_party/ffmpeg/macos-arm64`) in CI's `apple` job
+   and in `release.yml` before anything is packed (2026-10-26; its
+   first GitHub run failed only on the live flakes fixed since). CI also
+   runs `swift test` and the Rust crates now (item 5); the Android and
+   Flutter lifetime tests run only by hand.
    `tool/release.sh build` reuses any `third_party/ffmpeg/PLATFORM` (and
    `third_party/libass/PLATFORM`) that exists, so a changed
    `tool/build_ffmpeg.sh` (or `tool/build_libass.sh`) needs that directory
@@ -735,3 +735,25 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    job on GitHub. TSan stays on macOS: on Linux it needs clang,
    suppressions for FFmpeg, and is far slower than real time. Done when
    the job is green on GitHub.
+5. **Tests by layer, CI by area** (decided by the user 2026-10-26): a
+   change is tested at the lowest layer that sees it (unit tests, the
+   CLI matrix, the platform's native harness, the bindings' own tests)
+   and a Flutter app only for changes to the plugin; AGENTS.md
+   ("Verifying a change") has the layers and what each area needs.
+   `tool/changes.sh` names a branch's areas from the files it touches,
+   and `ci.yml` gates its jobs on them through a `changes` job: core
+   changes run `core-macos` (plain, TSan) and `core-linux`; the `apple`
+   job (xcframeworks, the shipped-FFmpeg matrix, `swift test`) runs for
+   core, Apple and plugin changes, with Flutter's analyze and example
+   build only for `flutter/`; a new `rust` job runs `cargo test`,
+   clippy and docs for `rust/` and `lychee.h`; documentation alone runs
+   nothing, and a change to `ci.yml` or the script runs everything.
+   `MEDIA_ONLY=1 tool/regression.sh` generates the media without a build,
+   for the Swift and Rust tests. Checked locally on past commits (e.g.
+   the Linux plugin fix gives `linux flutter`, the TS/HLS demuxers `core
+   parsers` plus every platform through `factory.cc`); the gated jobs,
+   `swift test` and the Rust job on hosted runners wait on a push. The
+   native harnesses for Windows and Linux are Platforms' `examples/glfw`
+   renderers. Left: CI jobs for Android (the SDK build and its unit
+   tests on an emulator) and Windows (the core and `examples/glfw` build
+   on `windows-latest`); the harness screenshots stay local.

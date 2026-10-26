@@ -4,10 +4,37 @@ on:
   push:
   pull_request:
 
+# Each job runs only for the areas a push or pull request touches
+# (tool/changes.sh; a change to this file or that script runs them all):
+# the core on macOS and Linux, the Apple builds and the Swift package, the
+# Flutter plugin, the Rust crates.
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      core: ${{ steps.areas.outputs.core }}
+      apple: ${{ steps.areas.outputs.apple }}
+      linux: ${{ steps.areas.outputs.linux }}
+      abi: ${{ steps.areas.outputs.abi }}
+      rust: ${{ steps.areas.outputs.rust }}
+      flutter: ${{ steps.areas.outputs.flutter }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Areas
+        id: areas
+        # A pull request against its base; a push against the commit it
+        # replaced (none for a new branch: every area).
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: tool/changes.sh --github "$BASE" "$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
+
   core-macos:
     # Hosted runners are VMs; VideoToolbox may be missing there, so decode in
     # software.
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: macos-15
     strategy:
       fail-fast: false
@@ -24,6 +51,8 @@ jobs:
     # Catches Linux build breaks without a WSL run. Software decoding: no
     # VAAPI on hosted runners. TSan stays on macOS (Linux needs clang and
     # FFmpeg suppressions, and is far slower than real time there).
+    needs: changes
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.linux == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -72,26 +101,30 @@ jobs:
       - name: Regression
         run: NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/linux-x86_64 tool/regression.sh
 
-  flutter-macos:
-    # The pod links the xcframeworks; build them from this commit's core
-    # with the LGPL FFmpeg, as release.yml does (same runner and cache key,
-    # so a release reuses the FFmpeg builds). The regression then plays
-    # the media matrix through that FFmpeg, which leaves out what the core
-    # does not list (core-macos uses Homebrew's full one).
+  apple:
+    # The pod and the Swift package link the xcframeworks; build them from
+    # this commit's core with the LGPL FFmpeg, as release.yml does (same
+    # runner and cache key, so a release reuses the FFmpeg builds). This is
+    # the only job that compiles the core for iOS. The regression then
+    # plays the media matrix through that FFmpeg, which leaves out what the
+    # core does not list (core-macos uses Homebrew's full one); swift test
+    # plays through the Swift package's frame driver. The Flutter steps run
+    # only for changes to the plugin.
+    needs: changes
+    if: >-
+      needs.changes.outputs.core == 'true' || needs.changes.outputs.apple == 'true' ||
+      needs.changes.outputs.flutter == 'true'
     runs-on: macos-26
-    defaults:
-      run:
-        working-directory: flutter
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
+        if: needs.changes.outputs.flutter == 'true'
         with:
           channel: stable
       - name: Install tools
         run: brew install nasm ninja meson pkg-config
       - name: FFmpeg cache key
         id: ffmpeg
-        working-directory: .
         run: |
           inputs="$(cat tool/build_ffmpeg.sh tool/apple_framework.sh; grep -E '^(ffmpeg|mbedtls)_' tool/release.sh; xcodebuild -version)"
           echo "key=ffmpeg-apple-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
@@ -101,7 +134,6 @@ jobs:
           key: ${{ steps.ffmpeg.outputs.key }}
       - name: libass cache key
         id: libass
-        working-directory: .
         run: |
           inputs="$(cat tool/build_libass.sh tool/apple_framework.sh; grep -E '^(libass|freetype|harfbuzz|fribidi|fonts)_' tool/release.sh; xcodebuild -version)"
           echo "key=libass-apple-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
@@ -110,17 +142,47 @@ jobs:
           path: third_party/libass
           key: ${{ steps.libass.outputs.key }}
       - name: Build the xcframeworks
-        working-directory: .
         run: tool/release.sh build apple build-sources
       - name: Regression with the shipped FFmpeg
-        working-directory: .
         # Homebrew's ffmpeg only generates the media; installed after the
         # shipped FFmpeg is built, so that build cannot find it.
         run: |
           brew install ffmpeg pkg-config
           NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 LIBASS_ROOT=third_party/libass/macos-arm64 tool/regression.sh
+      - name: Swift package
+        working-directory: sdk/apple
+        run: swift test
       - name: Analyze
+        if: needs.changes.outputs.flutter == 'true'
+        working-directory: flutter
         run: flutter analyze
       - name: Build example
+        if: needs.changes.outputs.flutter == 'true'
         working-directory: flutter/example
         run: LANG=en_US.UTF-8 flutter build macos --debug
+
+  rust:
+    # The crates build the core themselves (Homebrew's FFmpeg) and play
+    # the media regression.sh generates.
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.abi == 'true'
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: rust
+    env:
+      RUSTFLAGS: -D warnings
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: brew install ffmpeg ninja pkg-config
+      - name: Media
+        working-directory: .
+        run: MEDIA_ONLY=1 tool/regression.sh
+      - name: Test
+        run: cargo test
+      - name: Clippy
+        run: cargo clippy --all-targets
+      - name: Docs
+        run: cargo doc --no-deps

@@ -94,7 +94,9 @@ FFmpeg-free MP4 parser with libFuzzer under ASan and UBSan
 (`FUZZ_SECONDS`, `JOBS`); it needs Homebrew's LLVM (`brew install llvm`,
 a development tool only), since Apple's clang has no libFuzzer runtime.
 Inputs it once crashed on live in `core/fuzz/regressions`, which the unit
-tests replay. Contributors and agents: see
+tests replay. `tool/changes.sh` names the areas a branch touches, which
+decide the checks it needs and the CI jobs that run. Contributors and
+agents: see
 [AGENTS.md](AGENTS.md) and [docs/roadmap.md](docs/roadmap.md).
 
 ## Apple frameworks

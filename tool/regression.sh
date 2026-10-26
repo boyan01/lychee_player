@@ -18,6 +18,8 @@
 #   NO_FFMPEG=1 tool/regression.sh  # macOS without FFmpeg, in build-noffmpeg/:
 #                                 # only the cases with MP4, Matroska,
 #                                 # WebM, MPEG-TS and HLS media, text subtitles
+#   MEDIA_ONLY=1 tool/regression.sh # Only generate the media (for the Swift
+#                                 # and Rust tests), no build
 set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -50,15 +52,6 @@ else
   flags+=(-DLYCHEE_WITH_LIBASS=OFF)
   libass=0
 fi
-cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Debug ${flags[@]+"${flags[@]}"} >/dev/null || exit 1
-build_out="$(cmake --build "$build" 2>&1)"
-build_status=$?
-if [ "$build_status" -ne 0 ] || grep -q "warning:" <<<"$build_out"; then
-  echo "FAIL build (exit $build_status) has errors or warnings"
-  grep -E "error|warning:|FAILED|Undefined" <<<"$build_out" | head -40
-  exit 1
-fi
-cli="$build/examples/cli/lychee_cli"
 
 # Test media, generated once. Synthetic so the expected output is known.
 mkdir -p "$media"
@@ -304,6 +297,18 @@ rng = random.Random(1)
 data[600000:] = bytes(rng.randrange(256) for _ in range(len(data) - 600000))
 open(sys.argv[2], "wb").write(data)' "$media/offset.ts" "$media/corrupt.ts" || exit 1
 
+[ "${MEDIA_ONLY:-0}" = 1 ] && exit 0
+
+cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Debug ${flags[@]+"${flags[@]}"} >/dev/null || exit 1
+build_out="$(cmake --build "$build" 2>&1)"
+build_status=$?
+if [ "$build_status" -ne 0 ] || grep -q "warning:" <<<"$build_out"; then
+  echo "FAIL build (exit $build_status) has errors or warnings"
+  grep -E "error|warning:|FAILED|Undefined" <<<"$build_out" | head -40
+  exit 1
+fi
+cli="$build/examples/cli/lychee_cli"
+
 failures=0
 
 # Unit tests first: they pinpoint a failure the playback cases only show.
@@ -431,8 +436,11 @@ wait_cases() {
 }
 selected() {
   [ -z "${ONLY:-}" ] && return 0
-  local pattern
-  for pattern in $ONLY; do
+  local pattern patterns
+  # Split on spaces without expanding the globs against the working
+  # directory.
+  read -ra patterns <<<"$ONLY"
+  for pattern in "${patterns[@]}"; do
     # shellcheck disable=SC2053
     [[ "$1" == $pattern ]] && return 0
   done
