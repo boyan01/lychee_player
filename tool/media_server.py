@@ -10,6 +10,7 @@ Used by tool/regression.sh to test network behaviour:
   --drop-at OFFSET     the first response to reach file offset OFFSET closes
                        its connection there
   --refuse-after-drop  after the drop, every request fails with 503
+  --no-ranges          ignore Range headers: every response is the whole file
 
 Prints "port N" once listening (pass --port 0 for a free port).
 """
@@ -63,7 +64,7 @@ def make_handler(root, args, state):
             size = os.path.getsize(path)
             start, end = 0, size - 1
             match = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range", ""))
-            if match and (match.group(1) or match.group(2)):
+            if match and (match.group(1) or match.group(2)) and not args.no_ranges:
                 if match.group(1):
                     start = int(match.group(1))
                     if match.group(2):
@@ -80,7 +81,8 @@ def make_handler(root, args, state):
                 self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
             else:
                 self.send_response(200)
-            self.send_header("Accept-Ranges", "bytes")
+            if not args.no_ranges:
+                self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(end - start + 1))
             self.end_headers()
@@ -149,6 +151,7 @@ def main():
     parser.add_argument("--stall-for", type=float, default=5)
     parser.add_argument("--drop-at", type=int)
     parser.add_argument("--refuse-after-drop", action="store_true")
+    parser.add_argument("--no-ranges", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 

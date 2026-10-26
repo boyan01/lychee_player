@@ -275,6 +275,12 @@ void Player::Seek(int64_t position) {
         live_) {
       return;
     }
+    // Once the input is open, a seek it cannot do is not started: the
+    // interrupt alone would cost the read in flight.
+    if ((video_renderer_ || audio_renderer_) && !media_info_.seekable) {
+      LOGW("seek ignored: the input cannot seek");
+      return;
+    }
     position = std::max<int64_t>(position, 0);
     if (media_info_.duration != kNoTimestamp) {
       position = std::min(position, media_info_.duration);
@@ -784,10 +790,12 @@ void Player::Run(std::string url) {
       }
       condition_.notify_all();
     } else if (seek) {
-      if (tracks.tracks_changed() || tracks.rebuild_video) {
+      const bool tracks_changed =
+          tracks.tracks_changed() || tracks.rebuild_video;
+      if (tracks_changed) {
         ChangeTracks(tracks);
       }
-      ProcessSeek(seek_target, loop, resync, resync_loops);
+      ProcessSeek(seek_target, loop, resync, resync_loops, tracks_changed);
       {
         std::lock_guard<std::mutex> lock(mutex_);
         seeking_ = false;
@@ -1214,14 +1222,30 @@ bool Player::WrapLoop() {
 void Player::ProcessSeek(int64_t target,
                          bool loop,
                          bool resync,
-                         int64_t loops) {
+                         int64_t loops,
+                         bool tracks_changed) {
   const int64_t file_target = media_info_.start_time + target;
   // A resync stays in the pass playing; the read thread offsets its packets
   // by as much.
   const int64_t media_target =
       file_target + (loops ? loops * media_info_.duration : 0);
   LOGI("%s to %lld us", loop ? "loop" : "seek", static_cast<long long>(target));
-  demuxer_->Seek(file_target);
+  // A seek from Seek() that fails leaves everything as it was. A seek asked
+  // for before the open finished, on input that turned out not to seek,
+  // never reaches the demuxer. Loops, resyncs and new renderers have no
+  // state to keep, so they flush as if the seek had landed.
+  const bool user_seek = !loop && !resync && !tracks_changed;
+  if (user_seek && (!media_info_.seekable || !demuxer_->Seek(file_target))) {
+    // Playback goes on from where the input is; no seek is reported.
+    LOGW("seek to %lld us failed; playing on", static_cast<long long>(target));
+    std::lock_guard<std::mutex> lock(mutex_);
+    seek_in_progress_ = false;
+    current_seek_reported_ = false;
+    return;
+  }
+  if (!user_seek) {
+    demuxer_->Seek(file_target);
+  }
   generation_++;
   video_queue_.Flush(generation_);
   audio_queue_.Flush(generation_);

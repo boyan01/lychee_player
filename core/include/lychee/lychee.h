@@ -435,6 +435,9 @@ LYCHEE_EXPORT int32_t lychee_player_flush_live(lychee_player* player,
 // Played from the start again if the state is LYCHEE_STATE_ENDED.
 LYCHEE_EXPORT void lychee_player_play(lychee_player* player);
 LYCHEE_EXPORT void lychee_player_pause(lychee_player* player);
+// Ignored on input that cannot seek (e.g. an http server without range
+// requests). A seek that fails leaves playback where it was. Either way no
+// LYCHEE_EVENT_SEEK_COMPLETED is sent: that event means the seek landed.
 LYCHEE_EXPORT void lychee_player_seek(lychee_player* player,
                                       int64_t position_us);
 // 0.0 - 1.0.

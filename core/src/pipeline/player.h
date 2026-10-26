@@ -257,7 +257,8 @@ class Player {
   // |loop|: back to the start at the end; the state stays kReady.
   // |resync|: after a track change, playing on from where playback is, in
   // pass |loops|.
-  void ProcessSeek(int64_t target, bool loop, bool resync, int64_t loops);
+  void ProcessSeek(int64_t target, bool loop, bool resync, int64_t loops,
+                   bool tracks_changed);
   void FinishSeekLocked();
   void UpdateState();
   void UpdateVideoSizeLocked();

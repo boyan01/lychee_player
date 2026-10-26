@@ -637,6 +637,15 @@ serve
 seq_ check http          1 - -- "$url"
 serve --drop-at 3000000
 seq_ check http-reconnect 1 - -- "$url"
+# A server without range requests: FFmpeg cannot seek, so the seek is
+# ignored, not reported, and playback goes on from where it was to the end.
+# (The FFmpeg-free source reads from the start and discards up to the
+# offset: a real seek.)
+if [ "${NO_FFMPEG:-0}" != 1 ]; then
+  serve --no-ranges
+  seq_ expect http-no-ranges "seek ignored" "<=0 seek completed" "<=0 seek took" \
+    "summary: state=ended .*backward_jumps=0 .*stalls=0" -- --seek 8 --seek-after 1 "$url"
+fi
 serve --drop-at 3000000 --refuse-after-drop
 exits=1 seq_ expect http-lost "state=error" "error: input ended at" -- "$url"
 # Slower than the bitrate: rebuffer in long stretches, not every few frames.

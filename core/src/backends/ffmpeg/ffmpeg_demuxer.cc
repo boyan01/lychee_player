@@ -411,7 +411,6 @@ bool FFmpegDemuxer::Seek(int64_t time) {
   if (format_context_->pb && format_context_->pb->error == AVERROR_EXIT) {
     format_context_->pb->error = 0;
   }
-  read_end_ = time;
   // Land on the keyframe at or before |time|; decoders skip ahead to |time|.
   int ret = avformat_seek_file(format_context_, -1, INT64_MIN, time, time, 0);
   if (ret < 0) {
@@ -425,6 +424,7 @@ bool FFmpegDemuxer::Seek(int64_t time) {
          AVErrorString(ret).c_str());
     return false;
   }
+  read_end_ = time;
   return true;
 }
 
