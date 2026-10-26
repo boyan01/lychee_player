@@ -4,6 +4,8 @@
 //
 // Keys: space play/pause, left/right seek -/+5 s, escape quit. --key
 // SEC:NAME presses one at SEC seconds, --seconds N quits after N seconds.
+// --snapshot SEC:FILE writes what the window shows at SEC seconds as a PPM
+// for tool/frame_check.py, --size WxH sets the window's size in points.
 
 #include <lychee/lychee.h>
 
@@ -18,9 +20,12 @@
 #import <QuartzCore/QuartzCore.h>
 
 #include <algorithm>
+#include <cinttypes>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -67,11 +72,46 @@ struct Params {
   int32_t quarter_turns;
 };
 
+// The pixels a quad covering |scale| of a |size| pixels wide view fills
+// (those whose centers it covers): first, count.
+std::pair<int, int> Covered(float scale, int size) {
+  const int first = static_cast<int>(std::ceil((1 - scale) / 2 * size - 0.5f));
+  const int end = static_cast<int>(std::ceil((1 + scale) / 2 * size - 0.5f));
+  return {first, end - first};
+}
+
+// Writes BGRA rows as a binary PPM (RGB, top row first).
+bool WritePpm(const std::string& path,
+              const uint8_t* bgra,
+              size_t stride,
+              int width,
+              int height) {
+  FILE* file = fopen(path.c_str(), "wb");
+  if (!file) return false;
+  fprintf(file, "P6\n%d %d\n255\n", width, height);
+  std::vector<uint8_t> row(static_cast<size_t>(width) * 3);
+  for (int y = 0; y < height; ++y) {
+    const uint8_t* p = bgra + static_cast<size_t>(y) * stride;
+    for (int x = 0; x < width; ++x, p += 4) {
+      row[x * 3] = p[2];
+      row[x * 3 + 1] = p[1];
+      row[x * 3 + 2] = p[0];
+    }
+    fwrite(row.data(), 1, row.size(), file);
+  }
+  fclose(file);
+  return true;
+}
+
 }  // namespace
 
 @interface Renderer : NSObject <CAMetalDisplayLinkDelegate>
 - (instancetype)initWithWindow:(GLFWwindow*)window
-                        player:(lychee_player*)player;
+                        player:(lychee_player*)player
+                      readable:(BOOL)readable;
+// Writes the next drawn frame to |path| once the player has shown one.
+- (void)snapshotTo:(const std::string&)path;
+- (const std::vector<std::string>&)pendingSnapshots;
 - (void)stop;
 @end
 
@@ -87,10 +127,13 @@ struct Params {
   // The frame on screen. Retained here because the lychee_frame that owned
   // it is released as soon as it is acquired.
   CVPixelBufferRef _current;
+  int64_t _currentPts;
+  std::vector<std::string> _snapshots;
 }
 
 - (instancetype)initWithWindow:(GLFWwindow*)window
-                        player:(lychee_player*)player {
+                        player:(lychee_player*)player
+                      readable:(BOOL)readable {
   if (!(self = [super init])) return nil;
   _window = window;
   _player = player;
@@ -119,6 +162,8 @@ struct Params {
   _layer = [CAMetalLayer layer];
   _layer.device = _device;
   _layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+  // Snapshots copy the drawable.
+  _layer.framebufferOnly = !readable;
   NSWindow* nsWindow = glfwGetCocoaWindow(window);
   nsWindow.contentView.layer = _layer;
   nsWindow.contentView.wantsLayer = YES;
@@ -129,6 +174,14 @@ struct Params {
   _displayLink.delegate = self;
   [_displayLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
   return self;
+}
+
+- (void)snapshotTo:(const std::string&)path {
+  _snapshots.push_back(path);
+}
+
+- (const std::vector<std::string>&)pendingSnapshots {
+  return _snapshots;
 }
 
 - (void)stop {
@@ -163,6 +216,7 @@ struct Params {
         CVPixelBufferRetain(buffer);
         if (_current) CVPixelBufferRelease(_current);
         _current = buffer;
+        _currentPts = lychee_frame_get_pts(frame);
       }
       lychee_frame_release(frame);
     }
@@ -181,6 +235,8 @@ struct Params {
 
   CVMetalTextureRef texture = nullptr;
   int32_t video_width = 0, video_height = 0;
+  // Where the frame goes, in the drawable's pixels.
+  std::pair<int, int> columns, rows;
   if (_current &&
       lychee_player_get_video_size(_player, &video_width, &video_height)) {
     CVMetalTextureCacheCreateTextureFromImage(
@@ -198,6 +254,8 @@ struct Params {
         std::min(1.0, video_aspect / view_aspect));
     params.scale[1] = static_cast<float>(
         std::min(1.0, view_aspect / video_aspect));
+    columns = Covered(params.scale[0], width);
+    rows = Covered(params.scale[1], height);
 
     [encoder setRenderPipelineState:_pipeline];
     [encoder setVertexBytes:&params length:sizeof(params) atIndex:0];
@@ -217,8 +275,45 @@ struct Params {
     }];
   }
   [encoder endEncoding];
+
+  // A snapshot reads back what was drawn, once a frame was, at the size
+  // the frame was placed for.
+  id<MTLBuffer> readback = nil;
+  const size_t stride = static_cast<size_t>(width) * 4;
+  if (!_snapshots.empty() && texture &&
+      drawable.texture.width == static_cast<NSUInteger>(width) &&
+      drawable.texture.height == static_cast<NSUInteger>(height)) {
+    readback = [_device newBufferWithLength:stride * height
+                                    options:MTLResourceStorageModeShared];
+    id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
+    [blit copyFromTexture:drawable.texture
+                     sourceSlice:0
+                     sourceLevel:0
+                    sourceOrigin:MTLOriginMake(0, 0, 0)
+                      sourceSize:MTLSizeMake(width, height, 1)
+                        toBuffer:readback
+               destinationOffset:0
+          destinationBytesPerRow:stride
+        destinationBytesPerImage:stride * height];
+    [blit endEncoding];
+  }
   [commands presentDrawable:drawable];
   [commands commit];
+  if (readback) {
+    [commands waitUntilCompleted];
+    for (const std::string& path : _snapshots) {
+      if (!WritePpm(path, static_cast<const uint8_t*>(readback.contents),
+                    stride, width, height)) {
+        printf("snapshot %s failed: cannot write\n", path.c_str());
+        continue;
+      }
+      printf("snapshot %s pts=%" PRId64 " size=%dx%d video=%d,%d,%d,%d\n",
+             path.c_str(), _currentPts, width, height, columns.first,
+             rows.first, columns.second, rows.second);
+    }
+    fflush(stdout);
+    _snapshots.clear();
+  }
 }
 
 @end
@@ -255,6 +350,20 @@ struct ScriptedKey {
   int key;
 };
 
+// --snapshot SEC:FILE; the first colon, so FILE may hold one.
+struct Snapshot {
+  double at;
+  std::string path;
+};
+
+bool ParseSnapshot(const std::string& arg, std::vector<Snapshot>* snapshots) {
+  const size_t colon = arg.find(':');
+  if (colon == std::string::npos || colon + 1 == arg.size()) return false;
+  snapshots->push_back(
+      {atof(arg.substr(0, colon).c_str()), arg.substr(colon + 1)});
+  return true;
+}
+
 bool ParseKey(const std::string& arg, std::vector<ScriptedKey>* keys) {
   const size_t colon = arg.find(':');
   if (colon == std::string::npos) return false;
@@ -274,12 +383,22 @@ bool ParseKey(const std::string& arg, std::vector<ScriptedKey>* keys) {
 int main(int argc, char** argv) {
   std::string url;
   double seconds = 0;
+  int window_width = 960, window_height = 540;
   std::vector<ScriptedKey> keys;
+  std::vector<Snapshot> snapshots;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--seconds" && i + 1 < argc) {
       seconds = atof(argv[++i]);
     } else if (arg == "--key" && i + 1 < argc && ParseKey(argv[i + 1], &keys)) {
+      ++i;
+    } else if (arg == "--snapshot" && i + 1 < argc &&
+               ParseSnapshot(argv[i + 1], &snapshots)) {
+      ++i;
+    } else if (arg == "--size" && i + 1 < argc &&
+               sscanf(argv[i + 1], "%dx%d", &window_width, &window_height) ==
+                   2 &&
+               window_width > 0 && window_height > 0) {
       ++i;
     } else if (!arg.empty() && arg[0] != '-') {
       url = arg;
@@ -291,7 +410,7 @@ int main(int argc, char** argv) {
   if (url.empty()) {
     fprintf(stderr,
             "usage: %s [--seconds N] [--key SEC:space|left|right|escape]... "
-            "<file or url>\n",
+            "[--snapshot SEC:FILE]... [--size WxH] <file or url>\n",
             argv[0]);
     return 2;
   }
@@ -299,13 +418,17 @@ int main(int argc, char** argv) {
                    [](const ScriptedKey& a, const ScriptedKey& b) {
                      return a.at < b.at;
                    });
+  std::stable_sort(
+      snapshots.begin(), snapshots.end(),
+      [](const Snapshot& a, const Snapshot& b) { return a.at < b.at; });
 
   if (!glfwInit()) {
     fprintf(stderr, "glfwInit failed\n");
     return 1;
   }
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-  GLFWwindow* window = glfwCreateWindow(960, 540, "lychee", nullptr, nullptr);
+  GLFWwindow* window =
+      glfwCreateWindow(window_width, window_height, "lychee", nullptr, nullptr);
   if (!window) {
     fprintf(stderr, "glfwCreateWindow failed\n");
     glfwTerminate();
@@ -322,7 +445,9 @@ int main(int argc, char** argv) {
 
   int exit_code = 0;
   @autoreleasepool {
-    Renderer* renderer = [[Renderer alloc] initWithWindow:window player:player];
+    Renderer* renderer = [[Renderer alloc] initWithWindow:window
+                                                   player:player
+                                                 readable:!snapshots.empty()];
     if (!renderer || lychee_player_open(player, url.c_str()) != 0) {
       fprintf(stderr, "could not start playback\n");
       exit_code = 1;
@@ -330,6 +455,7 @@ int main(int argc, char** argv) {
       lychee_player_play(player);
       const int64_t start = lychee_now_us();
       size_t next_key = 0;
+      size_t next_snapshot = 0;
       // glfwWaitEventsTimeout runs the main run loop, which drives the
       // display link.
       while (!glfwWindowShouldClose(window)) {
@@ -347,7 +473,22 @@ int main(int argc, char** argv) {
         while (next_key < keys.size() && elapsed >= keys[next_key].at) {
           OnKey(window, keys[next_key++].key, 0, GLFW_PRESS, 0);
         }
-        if (seconds > 0 && elapsed >= seconds) break;
+        // After the keys due at the same time.
+        while (next_snapshot < snapshots.size() &&
+               elapsed >= snapshots[next_snapshot].at) {
+          [renderer snapshotTo:snapshots[next_snapshot++].path];
+        }
+        // Snapshots due at the end get up to 2 s to see a frame drawn.
+        if (seconds > 0 && elapsed >= seconds &&
+            (renderer.pendingSnapshots.empty() || elapsed >= seconds + 2)) {
+          break;
+        }
+      }
+      for (size_t i = next_snapshot; i < snapshots.size(); ++i) {
+        [renderer snapshotTo:snapshots[i].path];
+      }
+      for (const std::string& path : renderer.pendingSnapshots) {
+        printf("snapshot %s failed: no frame drawn by then\n", path.c_str());
       }
     }
     // Stop drawing before the player goes away.

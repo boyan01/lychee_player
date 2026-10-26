@@ -88,6 +88,26 @@ on top of them.
    fallback that iOS lacks, Features 3), or the software decoder. Done
    when the cause is known and the file plays at its rate in the
    simulator, or the cause is the simulator's alone.
+5. **Untagged HD is read as BT.601 on the CPU and BGRA paths**: the
+   library's convention for video without a matrix is BT.709 above 576
+   lines and BT.601 below (`d3d11_video_processor.h`, the dmabuf
+   export), and Windows' Media Foundation and D3D11 path follows it, but
+   swscale (software decoding on every platform) and the default Apple
+   path (`AppleFrameConverter`'s pixel transfer: `CVPixelBuffer` and
+   `--cpu` frames, so also the Flutter plugin on macOS and iOS) read
+   untagged 1080p as BT.601. `tool/frame_check.py` on `h264_aac.mp4` at
+   1.033 s (2026-10-26): those paths give PSNR 23.8 dB and MAE 9.5
+   against the BT.709 reading (33.9 dB against BT.601), while `--native`
+   frames through the CLI's own pixel transfer give 34.1 dB, Windows'
+   `--d3d11` 34.4 dB; VP9 (VideoToolbox) and AV1 (software) the same.
+   This is the Windows harness's "more saturated" software decoding
+   (Platforms 1). Likely fix: tell swscale the convention's matrix when
+   the frame has none (`ConvertToCpu`), and attach
+   `kCVImageBufferYCbCrMatrixKey` to untagged buffers before the
+   transfer; why the CLI's transfer, with the same session properties,
+   picks BT.709 and the converter's BT.601 is not known. Done when the
+   `frame-*` regression cases pass on the untagged media (`h264_aac.mp4`,
+   `hevc10.mp4`, `rotated.mp4`), so their BT.709-tagged copies can go.
 
 Calling `lychee_player_open()` from an event callback returns -1 (API 9)
 rather than reopening; callers reopen from their own thread. Unit tests
@@ -240,8 +260,13 @@ in a window; OpenGL ES on Linux since 2026-10-26, Platforms 2) and its own
    should fall back to D3D11VA at open, which has not been seen.
    In `examples/glfw` (2026-10-26) software-decoded frames of the untagged
    test bars look more saturated than Media Foundation's and D3D11VA's
-   (pure red and green against slightly shifted ones), probably BT.601
-   against BT.709 for untagged HD; not yet compared with macOS.
+   (pure red and green against slightly shifted ones). Checked by pixels
+   with `--snapshot` and `tool/frame_check.py`: BT.601 against BT.709
+   for untagged HD, as on macOS (Known defects 5). Untagged
+   `h264_aac.mp4` in a 960x540 window gives 31.4 dB through D3D11 and
+   24.2 dB (MAE 8.9) through software decoding; its BT.709-tagged copy
+   42.6 dB through software decoding and 31.4 dB through D3D11 and
+   `--cpu`, and `lychee_cli --d3d11 --frame-ppm` 34.4 dB.
 2. **Linux leftovers**: `tool/build_ffmpeg.sh linux-x86_64` builds the
    decode-only FFmpeg on Ubuntu 22.04 (WSL: 38 s, 8.2 MB of libraries
    against BtbN's 161 MB). It links the system's libva, libva-drm, libdrm
@@ -529,7 +554,7 @@ New cases: `ts-hevc10`, `ts-lost-packets`, `ts-corrupt`, `http-ts`,
 `http-hls-seek`, `http-hls-master`, `http-hls-live` (real time; the
 media server's `--live` serves a VOD playlist as a growing window) in
 both builds; `seek-ts*`, `loop-ts` and `http-hls-discontinuity*` only
-without FFmpeg (Known defects 4). `http-seek-failed` and
+without FFmpeg (Known defects 3). `http-seek-failed` and
 `http-loop-seek-failed` run in both builds: the FFmpeg-free TS demuxer
 makes the same three requests before the seek.
 
@@ -841,6 +866,16 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    renderers. Left: CI jobs for Android (the SDK build and its unit
    tests on an emulator) and Windows (the core and `examples/glfw` build
    on `windows-latest`); the harness screenshots stay local.
+   Frames are checked by pixels since 2026-10-26: `lychee_cli
+   --frame-ppm` and `examples/glfw --snapshot` (macOS and Windows) write
+   what is on screen, and `tool/frame_check.py` compares it with
+   FFmpeg's decode of the same pts (README, "Checking frames by
+   pixels"); the `frame-*` regression cases cover each frame path,
+   10-bit, rotation and PQ tone mapping, and a self-test case keeps the
+   thresholds telling wrong frames apart. Left: the Linux harness (on
+   its own branch), the Swift and Android examples, and
+   VideoToolbox's tone mapping of bright HDR colors, which differs from
+   swscale's reference (`hdr_pq_bars.mp4`: 27.9 dB).
 6. **Compiler and sanitizer checks** (2026-10-26). The top-level
    `CMakeLists.txt` builds the project's own code with `-Wall -Wextra
    -Wimplicit-fallthrough -Wnon-virtual-dtor` (not

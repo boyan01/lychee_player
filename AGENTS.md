@@ -132,12 +132,22 @@ The layers, lowest first:
    ABI. Cases that need real time (a slow or stalled server, and the
    `realtime-*` cases that check CoreAudio timing) set `realtime=1`; do
    not run them while a Flutter or Gradle build loads the machine.
+   `frames` cases check the frame on screen by pixels (`--frame-ppm`
+   and `tool/frame_check.py`): conversion, rotation, tone mapping.
 3. **The platform's native harness**: the smallest native app that takes
    the platform's frames to the screen (frame hand-off, conversion,
    rotation, HDR, the display link), with no Flutter in between, so it
    also tells core bugs from texture bridge bugs. Run it on the platform
-   and look at a window screenshot: upright, sized right, frames
-   advancing at the video's rate.
+   and check what the window drew by pixels rather than by eye:
+   `--snapshot SEC:FILE` (twice, so the pts advance) piped into
+   `python3 -I tool/frame_check.py MEDIA --log -`, which compares each
+   with FFmpeg's frame at its pts, scaled into the video rectangle
+   (README, "Checking frames by pixels"). Use the BT.709-tagged media
+   `tool/regression.sh` generates (`h264_bt709.mp4`, `hevc10_bt709.mp4`,
+   `rotated_bt709.mp4`): untagged
+   HD fails on the paths that read it as BT.601 (roadmap, Known defects).
+   Where a platform has no `--snapshot` yet, look at a window screenshot:
+   upright, sized right, frames advancing at the video's rate.
    - macOS: `build/examples/glfw/lychee_glfw FILE` (Metal,
      `CVPixelBuffer`), and the Swift package's example.
    - iOS: the Swift package's example on the "iPhone 16" simulator.
@@ -246,7 +256,8 @@ lifetime or API gets a test in its own package (`swift test`, `cargo
 test`); only behaviour of the Flutter plugin itself (texture
 registration, Dart lifetime, hot restart) goes into
 `flutter/example/integration_test`. What only a screen shows stays a
-harness screenshot. When a new directory or file kind appears, give it an
+harness snapshot checked by `tool/frame_check.py` (a screenshot where
+there is none). When a new directory or file kind appears, give it an
 area in `tool/changes.sh`.
 
 CI (`.github/workflows/ci.yml`) checks the format of every push, runs

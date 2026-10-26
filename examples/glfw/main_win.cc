@@ -6,6 +6,8 @@
 //
 // Keys: space play/pause, left/right seek -/+5 s, escape quit. --key
 // SEC:NAME presses one at SEC seconds, --seconds N quits after N seconds.
+// --snapshot SEC:FILE writes what the window shows at SEC seconds as a PPM
+// for tool/frame_check.py, --size WxH sets the window's client size.
 
 #include <lychee/lychee.h>
 
@@ -20,10 +22,13 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <cinttypes>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -74,6 +79,37 @@ struct Params {
   int32_t quarter_turns;
   int32_t padding[3];
 };
+
+// The pixels a quad covering |scale| of a |size| pixels wide view fills
+// (those whose centers it covers): first, count.
+std::pair<int, int> Covered(float scale, int size) {
+  const int first = static_cast<int>(std::ceil((1 - scale) / 2 * size - 0.5f));
+  const int end = static_cast<int>(std::ceil((1 + scale) / 2 * size - 0.5f));
+  return {first, end - first};
+}
+
+// Writes BGRA rows as a binary PPM (RGB, top row first).
+bool WritePpm(const std::string& path,
+              const uint8_t* bgra,
+              size_t stride,
+              int width,
+              int height) {
+  FILE* file = fopen(path.c_str(), "wb");
+  if (!file) return false;
+  fprintf(file, "P6\n%d %d\n255\n", width, height);
+  std::vector<uint8_t> row(static_cast<size_t>(width) * 3);
+  for (int y = 0; y < height; ++y) {
+    const uint8_t* p = bgra + static_cast<size_t>(y) * stride;
+    for (int x = 0; x < width; ++x, p += 4) {
+      row[x * 3] = p[2];
+      row[x * 3 + 1] = p[1];
+      row[x * 3 + 2] = p[0];
+    }
+    fwrite(row.data(), 1, row.size(), file);
+  }
+  fclose(file);
+  return true;
+}
 
 // The refresh interval of the monitor showing |window|, in microseconds.
 int64_t RefreshInterval(HWND window) {
@@ -212,6 +248,8 @@ class Renderer {
     const float black[4] = {0, 0, 0, 1};
     context_->ClearRenderTargetView(target_.Get(), black);
     int32_t video_width = 0, video_height = 0;
+    // Where the frame goes, in the back buffer's pixels.
+    std::pair<int, int> columns, rows;
     if (view_ &&
         lychee_player_get_video_size(player_, &video_width, &video_height)) {
       Params params = {};
@@ -225,6 +263,8 @@ class Renderer {
           static_cast<float>(std::min(1.0, video_aspect / view_aspect));
       params.scale[1] =
           static_cast<float>(std::min(1.0, view_aspect / video_aspect));
+      columns = Covered(params.scale[0], width);
+      rows = Covered(params.scale[1], height);
       context_->UpdateSubresource(params_.Get(), 0, nullptr, &params, 0, 0);
 
       const D3D11_VIEWPORT viewport = {0, 0, static_cast<float>(width),
@@ -238,14 +278,59 @@ class Renderer {
       context_->PSSetShaderResources(0, 1, view_.GetAddressOf());
       context_->PSSetSamplers(0, 1, sampler_.GetAddressOf());
       context_->Draw(4, 0);
+      // The flip model discards the back buffer once presented.
+      if (!snapshots_.empty()) {
+        ReadBack(columns, rows);
+      }
     }
     swap_chain_->Present(1, 0);
+  }
+
+  // Writes the next drawn frame to |path| once the player has shown one.
+  void SnapshotTo(const std::string& path) { snapshots_.push_back(path); }
+  const std::vector<std::string>& pending_snapshots() const {
+    return snapshots_;
   }
 
   int64_t d3d11_frames() const { return d3d11_frames_; }
   int64_t cpu_frames() const { return cpu_frames_; }
 
  private:
+  // Reads back what was drawn, through a staging copy of the back buffer.
+  void ReadBack(std::pair<int, int> columns, std::pair<int, int> rows) {
+    ComPtr<ID3D11Texture2D> back_buffer;
+    swap_chain_->GetBuffer(0, IID_PPV_ARGS(&back_buffer));
+    D3D11_TEXTURE2D_DESC desc = {};
+    back_buffer->GetDesc(&desc);
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    desc.MiscFlags = 0;
+    ComPtr<ID3D11Texture2D> staging;
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (FAILED(device_->CreateTexture2D(&desc, nullptr, &staging))) {
+      return;
+    }
+    context_->CopyResource(staging.Get(), back_buffer.Get());
+    if (FAILED(context_->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+      return;
+    }
+    for (const std::string& path : snapshots_) {
+      if (!WritePpm(path, static_cast<const uint8_t*>(mapped.pData),
+                    mapped.RowPitch, static_cast<int>(desc.Width),
+                    static_cast<int>(desc.Height))) {
+        printf("snapshot %s failed: cannot write\n", path.c_str());
+        continue;
+      }
+      printf("snapshot %s pts=%" PRId64 " size=%ux%u video=%d,%d,%d,%d\n",
+             path.c_str(), pts_, desc.Width, desc.Height, columns.first,
+             rows.first, columns.second, rows.second);
+    }
+    context_->Unmap(staging.Get(), 0);
+    fflush(stdout);
+    snapshots_.clear();
+  }
+
   void Show(lychee_frame* frame) {
     ComPtr<ID3D11Texture2D> texture;
     switch (lychee_frame_get_type(frame)) {
@@ -291,6 +376,7 @@ class Renderer {
     // by then: the swap chain lets us draw only after the last present.
     if (frame_) lychee_frame_release(frame_);
     frame_ = frame;
+    pts_ = lychee_frame_get_pts(frame);
   }
 
   // Copies a CPU frame into a texture of ours, reused while the size holds.
@@ -346,6 +432,8 @@ class Renderer {
   ComPtr<ID3D11Texture2D> upload_;
   // What is on screen: view_ reads the frame's texture, or upload_.
   lychee_frame* frame_ = nullptr;
+  int64_t pts_ = 0;
+  std::vector<std::string> snapshots_;
   ComPtr<ID3D11ShaderResourceView> view_;
   float uv_scale_[2] = {1, 1};
   int64_t d3d11_frames_ = 0;
@@ -382,6 +470,20 @@ struct ScriptedKey {
   int key;
 };
 
+// --snapshot SEC:FILE; the first colon, so FILE may hold one (C:\...).
+struct Snapshot {
+  double at;
+  std::string path;
+};
+
+bool ParseSnapshot(const std::string& arg, std::vector<Snapshot>* snapshots) {
+  const size_t colon = arg.find(':');
+  if (colon == std::string::npos || colon + 1 == arg.size()) return false;
+  snapshots->push_back(
+      {atof(arg.substr(0, colon).c_str()), arg.substr(colon + 1)});
+  return true;
+}
+
 bool ParseKey(const std::string& arg, std::vector<ScriptedKey>* keys) {
   const size_t colon = arg.find(':');
   if (colon == std::string::npos) return false;
@@ -403,12 +505,22 @@ int main(int argc, char** argv) {
   double seconds = 0;
   bool cpu = false;
   bool hardware = true;
+  int window_width = 960, window_height = 540;
   std::vector<ScriptedKey> keys;
+  std::vector<Snapshot> snapshots;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--seconds" && i + 1 < argc) {
       seconds = atof(argv[++i]);
     } else if (arg == "--key" && i + 1 < argc && ParseKey(argv[i + 1], &keys)) {
+      ++i;
+    } else if (arg == "--snapshot" && i + 1 < argc &&
+               ParseSnapshot(argv[i + 1], &snapshots)) {
+      ++i;
+    } else if (arg == "--size" && i + 1 < argc &&
+               sscanf(argv[i + 1], "%dx%d", &window_width, &window_height) ==
+                   2 &&
+               window_width > 0 && window_height > 0) {
       ++i;
     } else if (arg == "--cpu") {
       cpu = true;
@@ -424,7 +536,8 @@ int main(int argc, char** argv) {
   if (url.empty()) {
     fprintf(stderr,
             "usage: %s [--seconds N] [--key SEC:space|left|right|escape]... "
-            "[--cpu] [--no-hw] <file or url>\n",
+            "[--snapshot SEC:FILE]... [--size WxH] [--cpu] [--no-hw] "
+            "<file or url>\n",
             argv[0]);
     return 2;
   }
@@ -432,13 +545,17 @@ int main(int argc, char** argv) {
                    [](const ScriptedKey& a, const ScriptedKey& b) {
                      return a.at < b.at;
                    });
+  std::stable_sort(
+      snapshots.begin(), snapshots.end(),
+      [](const Snapshot& a, const Snapshot& b) { return a.at < b.at; });
 
   if (!glfwInit()) {
     fprintf(stderr, "glfwInit failed\n");
     return 1;
   }
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-  GLFWwindow* window = glfwCreateWindow(960, 540, "lychee", nullptr, nullptr);
+  GLFWwindow* window =
+      glfwCreateWindow(window_width, window_height, "lychee", nullptr, nullptr);
   if (!window) {
     fprintf(stderr, "glfwCreateWindow failed\n");
     glfwTerminate();
@@ -469,6 +586,7 @@ int main(int argc, char** argv) {
       lychee_player_play(player);
       const int64_t start = lychee_now_us();
       size_t next_key = 0;
+      size_t next_snapshot = 0;
       while (!glfwWindowShouldClose(window)) {
         renderer.Wait();
         glfwPollEvents();
@@ -485,8 +603,23 @@ int main(int argc, char** argv) {
         while (next_key < keys.size() && elapsed >= keys[next_key].at) {
           OnKey(window, keys[next_key++].key, 0, GLFW_PRESS, 0);
         }
-        if (seconds > 0 && elapsed >= seconds) break;
+        // After the keys due at the same time.
+        while (next_snapshot < snapshots.size() &&
+               elapsed >= snapshots[next_snapshot].at) {
+          renderer.SnapshotTo(snapshots[next_snapshot++].path);
+        }
+        // Snapshots due at the end get up to 2 s to see a frame drawn.
+        if (seconds > 0 && elapsed >= seconds &&
+            (renderer.pending_snapshots().empty() || elapsed >= seconds + 2)) {
+          break;
+        }
         renderer.Draw();
+      }
+      for (size_t i = next_snapshot; i < snapshots.size(); ++i) {
+        renderer.SnapshotTo(snapshots[i].path);
+      }
+      for (const std::string& path : renderer.pending_snapshots()) {
+        printf("snapshot %s failed: no frame drawn by then\n", path.c_str());
       }
     }
 

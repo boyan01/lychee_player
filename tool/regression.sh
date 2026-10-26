@@ -104,6 +104,14 @@ gen vp9_opus.webm -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=fr
 gen av1.mkv -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=330:sample_rate=48000 -t 10 \
   -c:v libsvtav1 -preset 12 -svtav1-params log-level=0 -c:a aac
 gen rotated.mp4 -display_rotation 90 -i "$media/h264_aac.mp4" -c copy
+# The same pictures tagged BT.709 (in the stream and the container), for
+# the frames checked by pixels: untagged HD is BT.709 by the library's
+# convention, which not every frame path follows yet (roadmap).
+gen h264_bt709.mp4 -i "$media/h264_aac.mp4" -t 3 -c copy -color_primaries bt709 -color_trc bt709 -colorspace bt709 \
+  -bsf:v h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1
+gen hevc10_bt709.mp4 -i "$media/hevc10.mp4" -t 3 -c copy -tag:v hvc1 -color_primaries bt709 -color_trc bt709 \
+  -colorspace bt709 -bsf:v hevc_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1
+gen rotated_bt709.mp4 -display_rotation 90 -i "$media/h264_bt709.mp4" -c copy
 gen audio_only.mp3 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a libmp3lame
 gen video_only.mp4 -f lavfi -i testsrc2=size=1280x720:rate=60 -t 8 -c:v libx264 -preset veryfast -pix_fmt yuv420p
 gen offset.ts -i "$media/h264_aac.mp4" -c copy -output_ts_offset 10 -f mpegts
@@ -440,6 +448,34 @@ expect() {
   fi
 }
 
+# frames NAME MEDIA SEC... -- CLI_ARGS: plays MEDIA, writes the frame on
+# screen at each SEC (--frame-ppm, into $build/frames/NAME) and passes if
+# tool/frame_check.py finds each to be MEDIA's frame at its pts, by
+# pixels. self_test=1 also checks that wrong frames fail.
+frames() {
+  local name="$1" file="$2"; shift 2
+  local dir="$build/frames/$name" snapshots=() out status checked problems="" start=$SECONDS
+  mkdir -p "$dir"
+  while [ "$1" != -- ]; do snapshots+=(--frame-ppm "$1:$dir/$1.ppm"); shift; done
+  shift
+  [ "${NO_HW:-0}" = 1 ] && set -- --no-hw "$@"
+  [ "${realtime:-0}" = 1 ] || set -- --virtual-time "$@"
+  out="$("$cli" "$@" "${snapshots[@]}" "$file" 2>&1)"
+  status=$?
+  [ "$status" = 0 ] || problems+=" exit=$status"
+  grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
+  checked="$(grep '^snapshot ' <<<"$out" |
+    python3 -I "$root/tool/frame_check.py" "$file" --log - ${self_test:+--self-test} 2>&1)" ||
+    problems+=" pixels"
+  if [ -z "$problems" ]; then
+    echo "PASS $name ($((SECONDS - start))s)"
+  else
+    echo "FAIL $name ($((SECONDS - start))s):$problems"
+    grep -E '^(summary|error)' <<<"$out" | sed 's/^/     /'
+    sed 's/^/     /' <<<"$checked"
+    print_reports "$out"
+  fi
+}
 
 # Most cases spend their time waiting for media to play in real time, using a
 # few percent of a core, so they run JOBS at a time. Results print in order.
@@ -569,6 +605,25 @@ if [ "$(uname)" = Darwin ]; then
   [ "${NO_HW:-0}" = 1 ] && native_hdr="native frame: BGRA "
   par expect native-hdr "$native_hdr" "frame_type=64 " -- --native --seconds 1 "$media/hdr_pq.mp4"
 fi
+# Frames by pixels, against FFmpeg's decode of the same pts: each frame
+# path (CVPixelBuffer BGRA on Apple, RGBA elsewhere; --cpu; software
+# decoding; Apple's --native buffers converted by VideoToolbox), 10-bit,
+# rotation and HDR tone mapping (a flat PQ gray: VideoToolbox maps bright
+# colors differently from swscale, which the reference uses).
+par frames frame-h264 "$media/h264_bt709.mp4" 0.5 1.5 -- --seconds 1.6
+par frames frame-h264-cpu "$media/h264_bt709.mp4" 1 -- --cpu --seconds 1.1
+par frames frame-h264-sw "$media/h264_bt709.mp4" 1 -- --no-hw --cpu --seconds 1.1
+par frames frame-hevc10 "$media/hevc10_bt709.mp4" 1 -- --seconds 1.1
+par frames frame-rotated "$media/rotated_bt709.mp4" 1 -- --seconds 1.1
+par frames frame-hdr "$media/hdr_pq.mp4" 1 -- --seconds 1.1
+if [ "$(uname)" = Darwin ]; then
+  par frames frame-h264-native "$media/h264_bt709.mp4" 1 -- --native --seconds 1.1
+  par frames frame-hevc10-native "$media/hevc10_bt709.mp4" 1 -- --native --seconds 1.1
+  par frames frame-hdr-native "$media/hdr_pq.mp4" 1 -- --native --seconds 1.1
+fi
+# The thresholds still tell the frame from the one before and after, a
+# wrong turn or size, black, and BT.601 read as BT.709.
+self_test=1 par frames frame-check-self-test "$media/rotated_bt709.mp4" 1 -- --seconds 1.1
 # Reading hardware frames back into CPU memory costs ~50 ms a frame on macOS
 # (far more under TSan); a second of video covers the conversion.
 par expect rgba "frame_type=4 " "rendered=2[0-9] dropped=0 " -- --rgba --seconds 1 "$media/hevc10.mp4"

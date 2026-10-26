@@ -25,6 +25,7 @@
 
 #if defined(__APPLE__)
 #include <CoreVideo/CoreVideo.h>
+#include <VideoToolbox/VideoToolbox.h>
 #elif defined(_WIN32)
 #include <d3d11.h>
 #include <dxgi.h>
@@ -32,6 +33,12 @@
 #endif
 
 namespace {
+
+// --frame-ppm SEC:FILE: the frame on screen at SEC seconds of the run.
+struct FrameSnapshot {
+  double at;
+  std::string path;
+};
 
 struct Options {
   double refresh_rate = 60;
@@ -60,6 +67,8 @@ struct Options {
   // Where to write each subtitle with pictures, drawn on a grey canvas of
   // the video's size (binary PPM), to look at styled ASS.
   std::string subtitle_ppm;
+  // Frames to write as they would be shown (tool/frame_check.py), by time.
+  std::vector<FrameSnapshot> snapshots;
   // Seconds after playback starts to make the video decoder fail as after a
   // GPU reset (testing.h), in order.
   std::vector<double> lose_decoder_after;
@@ -262,6 +271,15 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       const char* v = value();
       if (!v) return false;
       options->subtitle_ppm = v;
+    } else if (arg == "--frame-ppm") {
+      // SEC:FILE; the first colon, so FILE may hold one (C:\...).
+      const char* v = value();
+      if (!v) return false;
+      std::string spec = v;
+      size_t colon = spec.find(':');
+      if (colon == std::string::npos || colon + 1 == spec.size()) return false;
+      options->snapshots.push_back(
+          {atof(spec.substr(0, colon).c_str()), spec.substr(colon + 1)});
     } else if (arg == "--virtual-time") {
       options->virtual_time = true;
     } else if (arg == "--no-hw") {
@@ -446,6 +464,223 @@ void WriteSubtitlePpm(lychee_player* player,
   fprintf(file, "P6\n%d %d\n255\n", width, height);
   fwrite(canvas.data(), 1, canvas.size(), file);
   fclose(file);
+}
+
+// A frame's pixels as RGB, 3 bytes a pixel, top row first.
+struct RgbImage {
+  int width = 0;
+  int height = 0;
+  std::vector<uint8_t> pixels;
+};
+
+// Copies |height| rows of 4-byte pixels into |image|; |bgra| says which way
+// round red and blue are.
+void CopyRgb(const uint8_t* data,
+             size_t stride,
+             int width,
+             int height,
+             bool bgra,
+             RgbImage* image) {
+  image->width = width;
+  image->height = height;
+  image->pixels.resize(static_cast<size_t>(width) * height * 3);
+  uint8_t* out = image->pixels.data();
+  for (int y = 0; y < height; ++y) {
+    const uint8_t* p = data + static_cast<size_t>(y) * stride;
+    for (int x = 0; x < width; ++x, p += 4, out += 3) {
+      out[0] = p[bgra ? 2 : 0];
+      out[1] = p[1];
+      out[2] = p[bgra ? 0 : 2];
+    }
+  }
+}
+
+#if defined(__APPLE__)
+// A CVPixelBuffer frame on the CPU. The decoder's own YCbCr buffers
+// (--native) go through VideoToolbox to SDR BT.709 as their color
+// attachments say, as a display that honors them would show them.
+bool ReadPixelBuffer(CVPixelBufferRef buffer, RgbImage* image) {
+  CVPixelBufferRef bgra = nullptr;
+  if (CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA) {
+    bgra = CVPixelBufferRetain(buffer);
+  } else {
+    VTPixelTransferSessionRef session = nullptr;
+    if (VTPixelTransferSessionCreate(nullptr, &session) != noErr) {
+      return false;
+    }
+    VTSessionSetProperty(session,
+                         kVTPixelTransferPropertyKey_DestinationColorPrimaries,
+                         kCVImageBufferColorPrimaries_ITU_R_709_2);
+    VTSessionSetProperty(
+        session, kVTPixelTransferPropertyKey_DestinationTransferFunction,
+        kCVImageBufferTransferFunction_ITU_R_709_2);
+    VTSessionSetProperty(session,
+                         kVTPixelTransferPropertyKey_DestinationYCbCrMatrix,
+                         kCVImageBufferYCbCrMatrix_ITU_R_709_2);
+    // Tone-mapping HDR needs an IOSurface to write to, as the library's
+    // own converter has.
+    CFDictionaryRef io_surface = CFDictionaryCreate(
+        nullptr, nullptr, nullptr, 0, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    const void* key = kCVPixelBufferIOSurfacePropertiesKey;
+    const void* value = io_surface;
+    CFDictionaryRef attributes = CFDictionaryCreate(
+        nullptr, &key, &value, 1, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    if (CVPixelBufferCreate(nullptr, CVPixelBufferGetWidth(buffer),
+                            CVPixelBufferGetHeight(buffer),
+                            kCVPixelFormatType_32BGRA, attributes,
+                            &bgra) != kCVReturnSuccess ||
+        VTPixelTransferSessionTransferImage(session, buffer, bgra) != noErr) {
+      if (bgra) CVPixelBufferRelease(bgra);
+      bgra = nullptr;
+    }
+    CFRelease(attributes);
+    CFRelease(io_surface);
+    VTPixelTransferSessionInvalidate(session);
+    CFRelease(session);
+    if (!bgra) {
+      return false;
+    }
+  }
+  CVPixelBufferLockBaseAddress(bgra, kCVPixelBufferLock_ReadOnly);
+  CopyRgb(static_cast<const uint8_t*>(CVPixelBufferGetBaseAddress(bgra)),
+          CVPixelBufferGetBytesPerRow(bgra),
+          static_cast<int>(CVPixelBufferGetWidth(bgra)),
+          static_cast<int>(CVPixelBufferGetHeight(bgra)), true, image);
+  CVPixelBufferUnlockBaseAddress(bgra, kCVPixelBufferLock_ReadOnly);
+  CVPixelBufferRelease(bgra);
+  return true;
+}
+#endif
+
+#if defined(_WIN32)
+// A LYCHEE_FRAME_D3D11_TEXTURE frame, copied to a staging texture on
+// |device|. The texture can be larger than the picture.
+bool ReadTexture(ID3D11Device* device,
+                 ID3D11DeviceContext* context,
+                 lychee_frame* frame,
+                 RgbImage* image) {
+  using Microsoft::WRL::ComPtr;
+  auto* texture =
+      static_cast<ID3D11Texture2D*>(lychee_frame_get_native_handle(frame));
+  ComPtr<IDXGIResource> resource;
+  HANDLE shared = nullptr;
+  ComPtr<ID3D11Texture2D> opened;
+  if (FAILED(texture->QueryInterface(IID_PPV_ARGS(&resource))) ||
+      FAILED(resource->GetSharedHandle(&shared)) ||
+      FAILED(device->OpenSharedResource(shared, IID_PPV_ARGS(&opened)))) {
+    return false;
+  }
+  D3D11_TEXTURE2D_DESC desc = {};
+  opened->GetDesc(&desc);
+  desc.MipLevels = desc.ArraySize = 1;
+  desc.SampleDesc = {1, 0};
+  desc.Usage = D3D11_USAGE_STAGING;
+  desc.BindFlags = 0;
+  desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  desc.MiscFlags = 0;
+  ComPtr<ID3D11Texture2D> staging;
+  if (FAILED(device->CreateTexture2D(&desc, nullptr, &staging))) {
+    return false;
+  }
+  context->CopyResource(staging.Get(), opened.Get());
+  D3D11_MAPPED_SUBRESOURCE mapped = {};
+  if (FAILED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+    return false;
+  }
+  CopyRgb(static_cast<const uint8_t*>(mapped.pData), mapped.RowPitch,
+          std::min<int>(lychee_frame_get_width(frame), desc.Width),
+          std::min<int>(lychee_frame_get_height(frame), desc.Height), true,
+          image);
+  context->Unmap(staging.Get(), 0);
+  return true;
+}
+#endif
+
+// |image| turned clockwise by |degrees| (0, 90, 180, 270), as a display
+// would show it.
+RgbImage Rotate(const RgbImage& image, int degrees) {
+  if (degrees % 360 == 0) {
+    return image;
+  }
+  const int w = image.width, h = image.height;
+  RgbImage out;
+  const bool quarter = degrees % 180 != 0;
+  out.width = quarter ? h : w;
+  out.height = quarter ? w : h;
+  out.pixels.resize(image.pixels.size());
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      int ox = 0, oy = 0;
+      switch (degrees % 360) {
+        case 90:
+          ox = h - 1 - y, oy = x;
+          break;
+        case 180:
+          ox = w - 1 - x, oy = h - 1 - y;
+          break;
+        default:  // 270
+          ox = y, oy = w - 1 - x;
+          break;
+      }
+      memcpy(&out.pixels[(static_cast<size_t>(oy) * out.width + ox) * 3],
+             &image.pixels[(static_cast<size_t>(y) * w + x) * 3], 3);
+    }
+  }
+  return out;
+}
+
+// Writes |frame| as shown, upright, to a binary PPM and prints the line
+// tool/frame_check.py reads.
+void WriteFramePpm(lychee_player* player,
+                   lychee_frame* frame,
+                   const std::string& path,
+                   [[maybe_unused]] void* device,
+                   [[maybe_unused]] void* context) {
+  RgbImage image;
+  bool read = false;
+  const int32_t type = lychee_frame_get_type(frame);
+  if (type == LYCHEE_FRAME_CPU_BGRA || type == LYCHEE_FRAME_CPU_RGBA) {
+    int32_t stride = 0;
+    const uint8_t* data = lychee_frame_get_data(frame, &stride);
+    if (data) {
+      CopyRgb(data, stride, lychee_frame_get_width(frame),
+              lychee_frame_get_height(frame), type == LYCHEE_FRAME_CPU_BGRA,
+              &image);
+      read = true;
+    }
+  }
+#if defined(__APPLE__)
+  if (type == LYCHEE_FRAME_CVPIXELBUFFER ||
+      type == LYCHEE_FRAME_CVPIXELBUFFER_NATIVE) {
+    read = ReadPixelBuffer(
+        static_cast<CVPixelBufferRef>(lychee_frame_get_native_handle(frame)),
+        &image);
+  }
+#endif
+#if defined(_WIN32)
+  if (type == LYCHEE_FRAME_D3D11_TEXTURE) {
+    read =
+        ReadTexture(static_cast<ID3D11Device*>(device),
+                    static_cast<ID3D11DeviceContext*>(context), frame, &image);
+  }
+#endif
+  if (!read) {
+    printf("snapshot %s failed: frame type %d\n", path.c_str(), type);
+    return;
+  }
+  image = Rotate(image, lychee_player_get_video_rotation(player));
+  FILE* file = fopen(path.c_str(), "wb");
+  if (!file) {
+    printf("snapshot %s failed: cannot write\n", path.c_str());
+    return;
+  }
+  fprintf(file, "P6\n%d %d\n255\n", image.width, image.height);
+  fwrite(image.pixels.data(), 1, image.pixels.size(), file);
+  fclose(file);
+  printf("snapshot %s pts=%" PRId64 " size=%dx%d\n", path.c_str(),
+         lychee_frame_get_pts(frame), image.width, image.height);
 }
 
 void PrintSubtitleImages(lychee_player* player, const std::string& ppm) {
@@ -655,13 +890,15 @@ int main(int argc, char** argv) {
     fprintf(stderr,
             "usage: %s [--seconds N] [--seek SEC [--seek-after SEC]] "
             "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
-            "[--cpu | --rgba | --native | --d3d11] [--rate R [--rate-after SEC]] [--loop [--loop-off-after SEC]] "
+            "[--cpu | --rgba | --native | --d3d11] [--rate R [--rate-after "
+            "SEC]] [--loop [--loop-off-after SEC]] "
             "[--open-after SEC URL] [--select TYPE:INDEX]... "
             "[--select-after SEC] [--lose-decoder-after SEC]... "
             "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
             "[--live [--latency MS] [--live-jitter MS] "
             "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
-            "[--subtitle-ppm FILE] [--virtual-time] <file or url>\n",
+            "[--subtitle-ppm FILE] [--frame-ppm SEC:FILE]... [--virtual-time] "
+            "<file or url>\n",
             argv[0]);
     return 2;
   }
@@ -778,6 +1015,13 @@ int main(int argc, char** argv) {
   int64_t hidden_until = 0;
   // Position when the decoder was lost; INT64_MIN once the rebuild resumed.
   int64_t loss_position = INT64_MIN;
+  std::stable_sort(options.snapshots.begin(), options.snapshots.end(),
+                   [](const FrameSnapshot& a, const FrameSnapshot& b) {
+                     return a.at < b.at;
+                   });
+  size_t next_snapshot = 0;
+  // The frame on screen, kept while snapshots are due.
+  lychee_frame* shown = nullptr;
 
   // Virtual time only: vsyncs where the player's threads did not catch up
   // within kStallTimeout of real time. After kMaxStalls the pipeline is
@@ -922,11 +1166,33 @@ int main(int argc, char** argv) {
         }
         last_pts = pts;
         frames_pulled++;
-        lychee_frame_release(frame);
+        if (next_snapshot < options.snapshots.size()) {
+          // On screen until the next one: a snapshot may be due before.
+          if (shown) lychee_frame_release(shown);
+          shown = frame;
+        } else {
+          lychee_frame_release(frame);
+        }
       }
     }
     vsyncs_on_screen++;
     steady = steady && playing_steadily;
+    while (shown && next_snapshot < options.snapshots.size() &&
+           now - start >= static_cast<int64_t>(
+                              options.snapshots[next_snapshot].at * 1e6)) {
+#if defined(_WIN32)
+      WriteFramePpm(player, shown, options.snapshots[next_snapshot].path,
+                    device.Get(), context.Get());
+#else
+      WriteFramePpm(player, shown, options.snapshots[next_snapshot].path,
+                    nullptr, nullptr);
+#endif
+      next_snapshot++;
+    }
+    if (shown && next_snapshot == options.snapshots.size()) {
+      lychee_frame_release(shown);
+      shown = nullptr;
+    }
 
     int32_t state = lychee_player_get_state(player);
     int64_t position = lychee_player_get_position(player);
@@ -1122,6 +1388,13 @@ int main(int argc, char** argv) {
   if (center_pixel[0] >= 0) {
     printf("center pixel: %d,%d,%d\n", center_pixel[0], center_pixel[1],
            center_pixel[2]);
+  }
+  for (; next_snapshot < options.snapshots.size(); ++next_snapshot) {
+    printf("snapshot %s failed: no frame by then\n",
+           options.snapshots[next_snapshot].path.c_str());
+  }
+  if (shown) {
+    lychee_frame_release(shown);
   }
   lychee_player_destroy(player);
   return exit_code;

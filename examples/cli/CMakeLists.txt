@@ -1,8 +1,10 @@
 add_executable(lychee_cli main.cc)
 target_link_libraries(lychee_cli PRIVATE lychee)
 if(APPLE)
-  # Describes LYCHEE_FRAME_CVPIXELBUFFER_NATIVE frames.
-  target_link_libraries(lychee_cli PRIVATE "-framework CoreFoundation" "-framework CoreVideo")
+  # Describes LYCHEE_FRAME_CVPIXELBUFFER_NATIVE frames, and --frame-ppm
+  # converts them.
+  target_link_libraries(lychee_cli PRIVATE "-framework CoreFoundation"
+    "-framework CoreVideo" "-framework VideoToolbox")
 elseif(WIN32)
   # --d3d11 reads LYCHEE_FRAME_D3D11_TEXTURE frames back.
   target_link_libraries(lychee_cli PRIVATE d3d11 dxgi)

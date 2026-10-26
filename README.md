@@ -84,13 +84,23 @@ file's packets into a live input when a sender would send them, with
 `--live-flush SEC` and `--live-gap SEC FOR` to simulate the network.
 `--subtitle-ppm FILE` writes each subtitle with pictures (bitmap
 subtitles, styled ASS) onto a grey canvas of the video's size.
+`--frame-ppm SEC:FILE` (repeatable) writes the frame on screen SEC seconds
+into the run, upright, as a binary PPM (CPU frames as they are,
+`CVPixelBuffer`s through VideoToolbox to SDR BT.709, D3D11 textures through
+a staging copy) and prints `snapshot FILE pts=US size=WxH`.
 
 With GLFW installed (`brew install glfw`) the build also produces
 `build/examples/glfw/lychee_glfw path/to/video.mp4`: a window that draws the
 frames with Metal. Space pauses, left/right seek 5 s, escape quits.
 `--seconds N` quits after N seconds and `--key SEC:NAME` (`space`, `left`,
 `right`, `escape`) presses a key at SEC seconds, for unattended runs; it
-then prints a summary (decoder, frames rendered and dropped, position). On
+then prints a summary (decoder, frames rendered and dropped, position).
+`--size WxH` sets the window's client size (in points on macOS, where the
+drawable is that times the display's scale), and `--snapshot SEC:FILE`
+(repeatable; after any `--key` due at the same time) reads back what the
+window drew once a frame is on screen and writes it as a binary PPM,
+printing `snapshot FILE pts=US size=WxH video=X,Y,W,H` (the rectangle the
+frame was fitted into). On
 Windows the same program (`main_win.cc`) draws with Direct3D 11 the frames
 the Flutter plugin takes: shared D3D11 textures on the adapter it draws
 with, CPU BGRA frames otherwise (`--cpu` forces them, `--no-hw` decodes in
@@ -118,6 +128,53 @@ tests replay. `tool/changes.sh` names the areas a branch touches, which
 decide the checks it needs and the CI jobs that run. Contributors and
 agents: see
 [AGENTS.md](AGENTS.md) and [docs/roadmap.md](docs/roadmap.md).
+
+### Checking frames by pixels
+
+`tool/frame_check.py` (Python's standard library and the `ffmpeg` and
+`ffprobe` tools) checks a snapshot against the media: it decodes the frame
+at the snapshot's pts with FFmpeg, upright, scales it to the video
+rectangle, and compares. It prints PASS or FAIL with the numbers and on
+FAIL writes `FILE.diff.ppm` next to the snapshot (the difference, four
+times brighter).
+
+```sh
+lychee_cli --virtual-time --seconds 1.2 --frame-ppm 1:/tmp/f.ppm video.mp4 |
+  python3 -I tool/frame_check.py video.mp4 --log -
+lychee_glfw --seconds 2 --size 800x600 --snapshot 1.5:/tmp/w.ppm video.mp4 |
+  python3 -I tool/frame_check.py video.mp4 --log -
+python3 -I tool/frame_check.py video.mp4 /tmp/w.ppm --pts 1033333 \
+  --video 0,150,1600,900 --self-test
+```
+
+The reference follows the library's conventions: a stream without a color
+matrix is BT.709 above 576 lines and BT.601 below, and HDR is tone-mapped
+to SDR BT.709 by swscale. A snapshot passes with PSNR at least 28 dB, a
+mean absolute error at most 4 (of 255), the worst 32x32 tile's at most 40,
+and, in a window, black outside the video rectangle. On the regression
+media (2026-10-26) the right frame gives 30.4 dB or more, an error of 0.6
+to 1.8 and a worst tile of 5 to 15, through every frame path on macOS
+and Windows, at 1:1 and fitted into windows down to a quarter of its
+size.
+`--self-test` makes wrong frames from the snapshot and checks that each
+fails; there they gave:
+
+| wrong frame | PSNR | error | worst tile |
+| --- | --- | --- | --- |
+| the frame before or after | 19-21 dB | 3.4-12.3 | 68-217 |
+| turned 180 degrees | 0.5-0.8 dB | 228-238 | 245-250 |
+| turned 90 degrees, or a window rectangle of another shape | size or aspect differs | | |
+| 2% too large | 17-18 dB | 6.7-15.3 | 54-214 |
+| 4 pixels to the left (window) | 17.6-20.2 dB | 4.5-7.8 | 47-92 |
+| black | 3.4 dB | 127 | 183 |
+| BT.601 read as BT.709 | 23.4-23.9 dB | 9.2-9.8 | 16-20 |
+
+The frame before or after differs only where the test pattern moves, which
+the worst tile catches. Not covered: VideoToolbox maps bright HDR colors
+differently from swscale (`hdr_pq_bars.mp4` gives 27.9 dB), and fitting a
+frame into a window far smaller than it (GPU bilinear sampling without
+mipmaps aliases) costs PSNR. The reference is decoded from the start of
+the file, so late snapshots of long files take longer.
 
 ## Apple frameworks
 
