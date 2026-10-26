@@ -1244,7 +1244,11 @@ void MatroskaDemuxer::IndexClustersUpTo(int64_t time) {
 }
 
 int64_t MatroskaDemuxer::ToMicros(int64_t ticks) const {
-  // Nanoseconds may overflow; split like Mp4Demuxer's Rescale.
+  // Nanoseconds may overflow; split like Mp4Demuxer's Rescale, and clamp
+  // to 2^33 s as it does, so that times added up cannot overflow.
+  constexpr int64_t kMaxMicros = (int64_t{1} << 33) * kMicrosPerSecond;
+  const int64_t limit = kMaxMicros / timestamp_scale_ * 1000;
+  ticks = std::clamp(ticks, -limit, limit);
   return ticks / 1000 * timestamp_scale_ +
          ticks % 1000 * timestamp_scale_ / 1000;
 }
@@ -1559,11 +1563,13 @@ void MatroskaDemuxer::ParseBlock(std::shared_ptr<std::vector<uint8_t>> bytes,
         uint64_t raw = 0;
         int length = 0;
         ok = ReadVint(data, size, &pos, false, &raw, nullptr, &length);
+        if (!ok) {
+          break;
+        }
         // Signed: the value less half its range.
-        int64_t delta = static_cast<int64_t>(raw) -
-                        ((int64_t{1} << (7 * length - 1)) - 1);
-        frame += delta;
-        ok = ok && frame >= 0 && frame <= static_cast<int64_t>(size);
+        frame +=
+            static_cast<int64_t>(raw) - ((int64_t{1} << (7 * length - 1)) - 1);
+        ok = frame >= 0 && frame <= static_cast<int64_t>(size);
         if (ok) {
           sizes.push_back(static_cast<size_t>(frame));
           total += static_cast<size_t>(frame);
