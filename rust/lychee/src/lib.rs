@@ -7,8 +7,10 @@
 //! or a native handle (`CVPixelBufferRef`, `ID3D11Texture2D*`, a dmabuf),
 //! released when dropped.
 
+use std::cell::Cell;
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::fmt;
+use std::mem::ManuallyDrop;
 use std::ptr::{self, NonNull};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
@@ -365,11 +367,18 @@ type EventCallback = dyn Fn(Event) + Send + Sync;
 // calls a clone outside it.
 struct EventSlot(Mutex<Option<Arc<EventCallback>>>);
 
+thread_local! {
+    // Inside an event callback, on a player's control thread.
+    static IN_EVENT_CALLBACK: Cell<bool> = const { Cell::new(false) };
+}
+
 unsafe extern "C" fn event_trampoline(user_data: *mut c_void, kind: i32, arg0: i64, arg1: i64) {
     let slot = unsafe { &*(user_data as *const EventSlot) };
     let callback = slot.0.lock().unwrap().clone();
     if let (Some(callback), Some(event)) = (callback, Event::from_raw(kind, arg0, arg1)) {
+        IN_EVENT_CALLBACK.set(true);
         callback(event);
+        IN_EVENT_CALLBACK.set(false);
     }
 }
 
@@ -378,7 +387,7 @@ pub struct Player {
     raw: NonNull<sys::lychee_player>,
     // Freed after lychee_player_destroy(), which joins the thread that
     // calls the trampoline.
-    events: Box<EventSlot>,
+    events: ManuallyDrop<Box<EventSlot>>,
 }
 
 // The C ABI is thread-safe.
@@ -405,7 +414,10 @@ impl Player {
                 &*events as *const EventSlot as *mut c_void,
             );
         }
-        Ok(Player { raw, events })
+        Ok(Player {
+            raw,
+            events: ManuallyDrop::new(events),
+        })
     }
 
     fn raw(&self) -> *mut sys::lychee_player {
@@ -414,7 +426,9 @@ impl Player {
 
     /// Calls `callback` with every event, on the player's control thread,
     /// replacing the previous callback. Keep it short: hand events to your
-    /// own thread (a channel).
+    /// own thread (a channel). If the last reference to the player goes
+    /// inside the callback, the player is destroyed on another thread once
+    /// the callback returns.
     pub fn on_event(&self, callback: impl Fn(Event) + Send + Sync + 'static) {
         *self.events.0.lock().unwrap() = Some(Arc::new(callback));
     }
@@ -712,8 +726,33 @@ impl Player {
 
 impl Drop for Player {
     fn drop(&mut self) {
-        // Joins the player's threads: no event is delivered after this.
-        unsafe { sys::lychee_player_destroy(self.raw()) }
+        // Moves what the destroy needs to another thread.
+        struct Owned(NonNull<sys::lychee_player>, ManuallyDrop<Box<EventSlot>>);
+        unsafe impl Send for Owned {}
+        impl Owned {
+            fn destroy(mut self) {
+                // Joins the player's threads: no event is delivered after
+                // this, so the slot can go.
+                unsafe {
+                    sys::lychee_player_destroy(self.0.as_ptr());
+                    ManuallyDrop::drop(&mut self.1);
+                }
+            }
+        }
+        let events = unsafe { ManuallyDrop::take(&mut self.events) };
+        let owned = Owned(self.raw, ManuallyDrop::new(events));
+        if !IN_EVENT_CALLBACK.get() {
+            owned.destroy();
+            return;
+        }
+        // The last reference went inside an event callback (a `Weak`
+        // upgraded there): destroying here would join the thread the
+        // callback runs on. Destroy once the callback has returned. If no
+        // thread can start, leak the player rather than abort: dropping
+        // `owned` unrun frees nothing.
+        let _ = std::thread::Builder::new()
+            .name("lychee-destroy".into())
+            .spawn(move || owned.destroy());
     }
 }
 

@@ -136,6 +136,43 @@ fn destroying_frees_the_callback_and_frames_outlive_it() {
     assert!(frame.data().is_some());
 }
 
+// A callback that holds the player through a `Weak` can end up with the
+// last reference: the player is then dropped on its own control thread.
+#[test]
+fn last_reference_dropped_inside_the_callback() {
+    let (player, events) = open();
+    let player = Arc::new(player);
+    let weak = Arc::downgrade(&player);
+    let (upgraded, wait_upgraded) = mpsc::channel();
+    let (released, wait_released) = mpsc::sync_channel::<()>(0);
+    let (_gone, wait_gone) = mpsc::channel::<()>();
+    let wait_released = std::sync::Mutex::new(Some(wait_released));
+    player.on_event(move |_| {
+        let _ = &_gone;
+        let Some(wait_released) = wait_released.lock().unwrap().take() else {
+            return;
+        };
+        let strong = weak.upgrade().unwrap();
+        upgraded.send(()).unwrap();
+        // The caller lets go meanwhile; this is the last reference.
+        wait_released.recv().unwrap();
+        assert_eq!(Arc::strong_count(&strong), 1);
+        drop(strong);
+    });
+    drop(events);
+    player.play();
+
+    wait_upgraded.recv_timeout(Duration::from_secs(10)).unwrap();
+    drop(player);
+    released.send(()).unwrap();
+    // The player is destroyed once the callback returns, and frees the
+    // callback with its end of the channel.
+    assert_eq!(
+        wait_gone.recv_timeout(Duration::from_secs(10)),
+        Err(mpsc::RecvTimeoutError::Disconnected)
+    );
+}
+
 #[test]
 fn subtitle_pictures() {
     // A PGS box at 660,900, 600x80 on a 1920x1080 canvas, from 1 s.
