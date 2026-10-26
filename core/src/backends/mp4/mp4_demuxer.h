@@ -90,6 +90,7 @@ class Mp4Demuxer : public Demuxer {
     int64_t start = kNoTimestamp;
     int64_t sync_time = kNoTimestamp;
     int64_t end = kNoTimestamp;
+    size_t samples = 0;
   };
   enum class LoadResult { kLoaded, kEnd, kError, kAborted };
 
@@ -183,8 +184,11 @@ class Mp4Demuxer : public Demuxer {
   bool index_complete_ = false;
   int64_t scan_offset_ = 0;
   std::vector<int64_t> scan_decode_times_;
-  // The latest sample end seen while scanning.
+  // The latest sample end seen while scanning, and how many samples the
+  // scans read (kMaxSamples at most: moofs of a few bytes can each list
+  // thousands).
   int64_t fragment_end_ = kNoTimestamp;
+  size_t scanned_samples_ = 0;
 
   std::atomic<bool> aborted_{false};
   std::atomic<bool> interrupted_{false};

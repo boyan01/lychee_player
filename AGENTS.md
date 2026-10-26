@@ -180,6 +180,10 @@ glitch checks fail for reasons unrelated to your change. Done means:
   `tool/release.sh check`, which builds a fresh macOS, iOS-simulator and
   Android app against the packed package with the assets served locally;
   then `git checkout` the pins it wrote.
+- For changes to the FFmpeg-free parsers (`core/src/backends/mp4`):
+  `NO_FFMPEG=1 tool/regression.sh` and `tool/fuzz.sh` (a minute of
+  libFuzzer under ASan and UBSan; Homebrew's LLVM) pass. Add each input
+  it crashes on, minimized, to `core/fuzz/regressions` with the fix.
 - A new behaviour gets a case in `tool/regression.sh` when the CLI can
   observe it, and a unit test in `core/test` when it is a pure algorithm
   (clock, queue, frame selection, vsync estimation). The tests use the tiny

@@ -18,11 +18,12 @@ core/                 C++ core, no UI toolkit dependency
     backends/ffmpeg/  FFmpeg demuxer and decoders (optional, LYCHEE_WITH_FFMPEG)
     backends/apple/   CoreAudio output, CVPixelBuffer conversion; without
                       FFmpeg also VideoToolbox/AudioToolbox decoders, HTTP
-    backends/mp4/     MP4 demuxer for builds without FFmpeg
+    backends/mp4/     MP4 demuxer and tx3g text for builds without FFmpeg
     backends/android/ AAudio output
     backends/windows/ WASAPI output
     backends/linux/   PulseAudio (and PipeWire's pulse server) output
     api/              C API implementation
+  fuzz/               libFuzzer target over the MP4 demuxer (tool/fuzz.sh)
 examples/cli/         headless player for regression testing
 examples/glfw/        windowed player without Flutter (GLFW + Metal, macOS)
 flutter/              Flutter plugin (lib/; darwin/ for iOS and macOS, android/,
@@ -49,9 +50,10 @@ Requires CMake, Ninja, pkg-config and FFmpeg development files
 (`brew install cmake ninja pkg-config ffmpeg`). `-DLYCHEE_WITH_LIBASS=ON`
 renders styled ASS subtitles with libass (`brew install libass`);
 `tool/regression.sh` turns it on where libass is installed. On macOS and
-iOS, `-DLYCHEE_WITH_FFMPEG=OFF` builds without FFmpeg: MP4 files and
-http(s) URLs with H.264/HEVC (VideoToolbox) and AAC/ALAC (AudioToolbox);
-`NO_FFMPEG=1 tool/regression.sh` tests it.
+iOS, `-DLYCHEE_WITH_FFMPEG=OFF` builds without FFmpeg: MP4 files
+(fragmented too) and http(s) URLs with H.264/HEVC (VideoToolbox),
+AAC/ALAC (AudioToolbox) and tx3g subtitles; `NO_FFMPEG=1
+tool/regression.sh` tests it.
 
 ```sh
 cmake -S . -B build -G Ninja
@@ -79,7 +81,12 @@ With GLFW installed (`brew install glfw`) the build also produces
 frames with Metal. Space pauses, left/right seek 5 s, escape quits.
 
 `tool/regression.sh` generates a synthetic media set and runs the CLI over it
-(`TSAN=1` for a ThreadSanitizer build). Contributors and agents: see
+(`TSAN=1` for a ThreadSanitizer build). `tool/fuzz.sh` fuzzes the
+FFmpeg-free MP4 parser with libFuzzer under ASan and UBSan
+(`FUZZ_SECONDS`, `JOBS`); it needs Homebrew's LLVM (`brew install llvm`,
+a development tool only), since Apple's clang has no libFuzzer runtime.
+Inputs it once crashed on live in `core/fuzz/regressions`, which the unit
+tests replay. Contributors and agents: see
 [AGENTS.md](AGENTS.md) and [docs/roadmap.md](docs/roadmap.md).
 
 ## Apple frameworks

@@ -5,10 +5,13 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <string>
 #include <vector>
 
+#include "../fuzz/mp4_demuxer_fuzz.h"
 #include "backends/mp4/mov_text_decoder.h"
 #include "test.h"
 
@@ -198,6 +201,23 @@ TEST(MovTextDecoder, SampleText) {
   // UTF-16 with its byte order mark: "é😀".
   EXPECT_EQ(text(Bytes{0, 8, 0xfe, 0xff, 0x00, 0xe9, 0xd8, 0x3d, 0xde, 0x00}),
             "\xc3\xa9\xf0\x9f\x98\x80");
+}
+
+// Each input in core/fuzz/regressions once crashed, leaked or hit
+// undefined behaviour; here they must just run (tool/fuzz.sh replays them
+// under ASan and UBSan).
+TEST(Mp4Demuxer, FuzzRegressions) {
+  int inputs = 0;
+  for (const auto& entry : std::filesystem::directory_iterator(LYCHEE_FUZZ_REGRESSIONS)) {
+    if (entry.path().filename().string()[0] == '.') {
+      continue;
+    }
+    std::ifstream file(entry.path(), std::ios::binary);
+    Bytes bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    FuzzMp4Demuxer(bytes.data(), bytes.size());
+    ++inputs;
+  }
+  EXPECT_TRUE(inputs > 0);
 }
 
 }  // namespace

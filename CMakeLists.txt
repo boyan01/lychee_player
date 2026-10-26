@@ -19,6 +19,15 @@ endif()
 
 add_subdirectory(core)
 
+# The fuzzers cover the FFmpeg-free parsers (tool/fuzz.sh).
+option(LYCHEE_BUILD_FUZZERS "Build the fuzz targets (Apple, without FFmpeg)" OFF)
+if(LYCHEE_BUILD_FUZZERS)
+  if(NOT APPLE OR LYCHEE_WITH_FFMPEG)
+    message(FATAL_ERROR "LYCHEE_BUILD_FUZZERS needs an Apple build with LYCHEE_WITH_FFMPEG=OFF")
+  endif()
+  add_subdirectory(core/fuzz)
+endif()
+
 if(LYCHEE_BUILD_TESTS)
   enable_testing()
   add_subdirectory(core/test)

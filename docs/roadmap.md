@@ -392,13 +392,28 @@ Left:
    FFmpeg-free AAR variant if native Android users want one, and the
    Flutter plugin on it (its example opens http URLs).
 6. Malformed input: the MP4 parser bounds sample tables, single samples
-   (64 MiB, inside the file) and its allocations (`huge-sample-table`,
-   `huge-sample`, `truncated-file`, `corrupt-file`), but has never been
-   fuzzed. `MatroskaDemuxer` bounds header elements (16 MiB), Cues and
-   Attachments (64 MiB), blocks (64 MiB), cue points and clusters (4M
-   each) and resyncs at most 16 MiB ahead, likewise unfuzzed. A
-   libFuzzer target over each on an in-memory `DataSource` (the unit
-   tests have one), run under ASan, before it ships.
+   (64 MiB, inside the file), moof boxes (32 MiB, 2 M samples, 64 K
+   samples without table bytes, all the scans together 16 M) and its
+   allocations (`huge-sample-table`, `huge-sample`, `truncated-file`,
+   `corrupt-file`, `frag-truncated`). Fuzzed (2026-10-26):
+   `tool/fuzz.sh` runs a libFuzzer target (`core/fuzz`) over
+   `Mp4Demuxer` on an in-memory `DataSource`, with tx3g text, under ASan
+   and UBSan, seeded with small files in every layout (moov, faststart,
+   fragmented with mfra, sidx, moov samples, DASH, a moof per track,
+   ismv, negative composition offsets, HEVC/ALAC, mov_text plain and
+   fragmented). About an hour of CPU in all (5.6 M inputs, 2 workers)
+   found two bugs, both UBSan: a QuickTime sound description's rate as a
+   NaN or huge double converted to int, and `Rescale` overflowing on
+   tick counts far beyond a small timescale (an mfra time). Both are
+   fixed and their inputs are in `core/fuzz/regressions`, which a unit
+   test replays (without sanitizers) and `tool/fuzz.sh` replays first.
+   Homebrew's LLVM is a development-only dependency (Apple's clang has
+   no libFuzzer runtime); CI does not fuzz. Left: fuzz on CI (a Linux
+   job can build the parser alone, it uses no Apple API) and keep the
+   corpus somewhere. `MatroskaDemuxer` bounds header elements (16 MiB),
+   Cues and Attachments (64 MiB), blocks (64 MiB), cue points and
+   clusters (4M each) and resyncs at most 16 MiB ahead, but has never
+   been fuzzed: a target like the MP4 one, before it ships.
 
 The goal is FFmpeg-free builds on Apple platforms, Windows and Android.
 Linux keeps FFmpeg: it has no system audio decoder or demuxer.

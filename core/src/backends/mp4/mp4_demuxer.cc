@@ -153,14 +153,15 @@ std::optional<Box> Find(const std::vector<Box>& boxes, uint32_t type) {
   return std::nullopt;
 }
 
-// |ticks| / |timescale| seconds in microseconds, without overflow: |ticks|
-// is clamped to kMaxTicks, |timescale| a 32-bit field.
+// |ticks| / |timescale| seconds in microseconds, without overflow: the
+// seconds are clamped to 2^33 (272 years, under 2^53 microseconds), and
+// |timescale| is a 32-bit field.
 int64_t Rescale(int64_t ticks, int64_t timescale) {
   if (timescale <= 0) {
     return 0;
   }
-  ticks = ClampTicks(ticks);
-  return ticks / timescale * kMicrosPerSecond +
+  constexpr int64_t kMaxSeconds = int64_t{1} << 33;
+  return std::clamp(ticks / timescale, -kMaxSeconds, kMaxSeconds) * kMicrosPerSecond +
          ticks % timescale * kMicrosPerSecond / timescale;
 }
 
@@ -318,7 +319,8 @@ void ParseAudioEntry(const Box& entry, AudioConfig* config) {
     uint64_t bits = reader.U64();
     double rate;
     memcpy(&rate, &bits, sizeof(rate));
-    config->sample_rate = static_cast<int>(rate);
+    // Converting a NaN or a huge double to int is undefined.
+    config->sample_rate = rate > 0 && rate < 1e7 ? static_cast<int>(rate) : 0;
     config->channels = static_cast<int>(reader.U32());
     reader.Skip(20);
   }
@@ -1378,6 +1380,7 @@ void Mp4Demuxer::ParseMoof(const uint8_t* data,
             track.type != MediaType::kVideo || !(sample_flags & kSampleIsNonSync);
         Sample sample = MakeSample(track, position, sample_size, sync, dts,
                                    composition, duration);
+        summary->samples++;
         if (summary->start == kNoTimestamp || sample.dts < summary->start) {
           summary->start = sample.dts;
         }
@@ -1554,6 +1557,11 @@ Mp4Demuxer::LoadResult Mp4Demuxer::Scan(int64_t* offset,
     MoofSummary summary;
     ParseMoof(moof.data(), moof.size(), box_offset, false, decode_times, &summary);
     fragment_end_ = std::max(fragment_end_, summary.end);
+    scanned_samples_ += summary.samples;
+    if (scanned_samples_ > kMaxSamples) {
+      LOGW("more than %zu samples in the fragments; the rest not indexed", kMaxSamples);
+      return LoadResult::kEnd;
+    }
     if (add_points && summary.sync_time != kNoTimestamp) {
       SeekPoint point = {summary.sync_time, box_offset};
       auto at = std::upper_bound(
