@@ -58,7 +58,8 @@ cli="$build/examples/cli/lychee_cli"
 mkdir -p "$media"
 gen() {
   local out="$media/$1"; shift
-  [ -f "$out" ] || ffmpeg -hide_banner -loglevel error -y "$@" "$out" || exit 1
+  # A failed run must not leave a partial file for the next run to reuse.
+  [ -f "$out" ] || ffmpeg -hide_banner -loglevel error -y "$@" "$out" || { rm -f "$out"; exit 1; }
 }
 src="testsrc2=size=1920x1080:rate=30"
 gen h264_aac.mp4 -f lavfi -i "$src" -f lavfi -i sine=frequency=440:sample_rate=44100 -t 12 \
@@ -86,7 +87,8 @@ gen video_only.mp4 -f lavfi -i testsrc2=size=1280x720:rate=60 -t 8 -c:v libx264 
 gen offset.ts -i "$media/h264_aac.mp4" -c copy -output_ts_offset 10 -f mpegts
 # The index at the front, so a cut file still opens; then cut in half.
 gen faststart.mp4 -i "$media/h264_aac.mp4" -c copy -movflags +faststart
-[ -f "$media/truncated.mp4" ] || head -c 4358118 "$media/faststart.mp4" >"$media/truncated.mp4"
+[ -f "$media/truncated.mp4" ] || { head -c 4358118 "$media/faststart.mp4" >"$media/truncated.tmp" &&
+  mv "$media/truncated.tmp" "$media/truncated.mp4"; } || exit 1
 # Two renditions back to back, like an adaptive stream switching.
 for size in 1280x720 640x360; do
   gen "rendition_$size.ts" -f lavfi -i "testsrc2=size=$size:rate=30" -f lavfi -i sine=frequency=440:sample_rate=48000 \
@@ -113,15 +115,7 @@ import random, sys
 data = bytearray(open(sys.argv[1], "rb").read())
 rng = random.Random(1)
 data[600000:] = bytes(rng.randrange(256) for _ in range(len(data) - 600000))
-open(sys.argv[2], "wb").write(data)' "$media/faststart.mp4" "$media/corrupt.mp4"
-
-# The video's sample size table says 4 billion samples of one byte.
-[ -f "$media/huge_stsz.mp4" ] || python3 -I -c '
-import sys
-data = bytearray(open(sys.argv[1], "rb").read())
-at = data.index(b"stsz")
-data[at + 8:at + 16] = (1).to_bytes(4, "big") + (0xffffffff).to_bytes(4, "big")
-open(sys.argv[2], "wb").write(data)' "$media/loop.mp4" "$media/huge_stsz.mp4"
+open(sys.argv[2], "wb").write(data)' "$media/faststart.mp4" "$media/corrupt.mp4" || exit 1
 
 # Short, for looping and slow playback.
 # 5 s of video, 2 s of audio.
@@ -129,6 +123,13 @@ gen uneven.mp4 -f lavfi -t 5 -i testsrc2=size=640x360:rate=30 -f lavfi -t 2 -i s
   -c:v libx264 -preset veryfast -pix_fmt yuv420p -c:a aac
 gen loop.mp4 -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 3 \
   -c:v libx264 -preset veryfast -pix_fmt yuv420p -c:a aac
+# The video's sample size table says 4 billion samples of one byte.
+[ -f "$media/huge_stsz.mp4" ] || python3 -I -c '
+import sys
+data = bytearray(open(sys.argv[1], "rb").read())
+at = data.index(b"stsz")
+data[at + 8:at + 16] = (1).to_bytes(4, "big") + (0xffffffff).to_bytes(4, "big")
+open(sys.argv[2], "wb").write(data)' "$media/loop.mp4" "$media/huge_stsz.mp4" || exit 1
 gen meta.mp4 -i "$media/h264_aac.mp4" -t 4 -c copy -metadata title="Lychee Test" \
   -metadata artist="Lychee Artist" -metadata album="Lychee Album"
 # Cover art: an ID3 picture (JPEG) and MP4 cover art (PNG).
