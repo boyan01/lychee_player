@@ -92,6 +92,12 @@ on top of them.
    a seek on input that cannot seek (an http server without range
    requests, through FFmpeg) and sends no `SEEK_COMPLETED`, but callers
    cannot tell beforehand, so a UI shows a seek bar that does nothing.
+   If a seekable input rejects an attempted seek, playback now enters
+   ERROR instead of continuing from an uncertain read position; HTTP
+   regressions cover a server that starts rejecting ranges after open,
+   for both user seeks and read-ahead loops. A track switch, new video
+   device or decoder rebuild on input that cannot seek does not touch the
+   demuxer and goes on from its read position, losing what was read ahead.
    Done when `lychee_player_is_seekable()` (an ABI bump) reaches the
    Dart, Swift, Kotlin and Rust wrappers and the Flutter example disables
    its slider.
@@ -332,6 +338,10 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    pub.dev already has `lychee_player` 0.4.0 (the old audio player,
    publisher `soit.tech`), so 1.0.0 is its next version and no first
    manual upload is needed.
+   Android apps keep the AAR's arm64-v8a/x86_64 ABI filters only for a
+   universal APK. Split APK builds use Flutter's filters instead, with
+   `--target-platform=android-arm64,android-x64`; `check` builds and
+   inspects both modes.
    Checked here (2026-10-26): every step of `release.yml` run by hand for
    1.0.0; `check` builds a fresh app for macOS, the iOS simulator and
    Android from the packed package (416 KB) with the assets served

@@ -411,6 +411,11 @@ bool FFmpegDemuxer::Seek(int64_t time) {
   if (format_context_->pb && format_context_->pb->error == AVERROR_EXIT) {
     format_context_->pb->error = 0;
   }
+  // FFmpeg would read forward looking for |time|, losing the read position
+  // for nothing: the target of a resync is behind it.
+  if (!media_info_.seekable) {
+    return false;
+  }
   // Land on the keyframe at or before |time|; decoders skip ahead to |time|.
   int ret = avformat_seek_file(format_context_, -1, INT64_MIN, time, time, 0);
   if (ret < 0) {

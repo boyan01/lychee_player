@@ -173,6 +173,40 @@ fn last_reference_dropped_inside_the_callback() {
     );
 }
 
+// Replacing a callback releases its captures after the call returns. The
+// callback can own the last player reference by then.
+#[test]
+fn last_reference_owned_by_replaced_callback() {
+    let (player, events) = open();
+    let player = Arc::new(player);
+    let callback_player = player.clone();
+    let (entered, wait_entered) = mpsc::channel();
+    let (released, wait_released) = mpsc::sync_channel::<()>(0);
+    let (gone, wait_gone) = mpsc::channel::<()>();
+    let replacement = std::sync::Mutex::new(Some((wait_released, gone)));
+    player.on_event(move |_| {
+        let (wait_released, gone) = replacement.lock().unwrap().take().unwrap();
+        entered.send(()).unwrap();
+        wait_released.recv().unwrap();
+        assert_eq!(Arc::strong_count(&callback_player), 1);
+        callback_player.on_event(move |_| {
+            let _ = &gone;
+        });
+    });
+    drop(events);
+    player.play();
+
+    wait_entered.recv_timeout(Duration::from_secs(10)).unwrap();
+    drop(player);
+    released.send(()).unwrap();
+    // The replacement callback is freed only after native destruction has
+    // joined the control thread and released the event slot.
+    assert_eq!(
+        wait_gone.recv_timeout(Duration::from_secs(10)),
+        Err(mpsc::RecvTimeoutError::Disconnected)
+    );
+}
+
 #[test]
 fn subtitle_pictures() {
     // A PGS box at 660,900, 600x80 on a 1920x1080 canvas, from 1 s.

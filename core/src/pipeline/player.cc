@@ -1197,6 +1197,13 @@ bool Player::WrapLoop() {
     }
   }
   if (!demuxer_->Seek(media_info_.start_time)) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    // Preserve the pass already queued, but do not treat a failed seek as
+    // EOF and retry it from the control thread. A pending request or
+    // shutdown may have interrupted this read-ahead seek intentionally.
+    if (!quit_ && !seek_pending_ && !track_request_.pending()) {
+      input_error_ = "loop seek failed";
+    }
     return false;
   }
   // Each pass lasts the container's duration: audio past it (encoder
@@ -1236,21 +1243,32 @@ void Player::ProcessSeek(int64_t target,
   const int64_t media_target =
       file_target + (loops ? loops * media_info_.duration : 0);
   LOGI("%s to %lld us", loop ? "loop" : "seek", static_cast<long long>(target));
-  // A seek from Seek() that fails leaves everything as it was. A seek asked
-  // for before the open finished, on input that turned out not to seek,
-  // never reaches the demuxer. Loops, resyncs and new renderers have no
-  // state to keep, so they flush as if the seek had landed.
   const bool user_seek = !loop && !resync && !tracks_changed;
-  if (user_seek && (!media_info_.seekable || !demuxer_->Seek(file_target))) {
-    // Playback goes on from where the input is; no seek is reported.
-    LOGW("seek to %lld us failed; playing on", static_cast<long long>(target));
+  if (!media_info_.seekable) {
+    // A user seek queued before the open finished cannot be checked until
+    // the input's capabilities are known. Ignore it.
+    if (user_seek) {
+      LOGW("seek ignored: the input cannot seek");
+      std::lock_guard<std::mutex> lock(mutex_);
+      seek_in_progress_ = false;
+      current_seek_reported_ = false;
+      return;
+    }
+    // A resync goes on from where the input is. The seek fails without
+    // reading; it only clears the interrupt that stopped the read.
+    demuxer_->Seek(file_target);
+  } else if (!demuxer_->Seek(file_target)) {
     std::lock_guard<std::mutex> lock(mutex_);
     seek_in_progress_ = false;
     current_seek_reported_ = false;
+    // A newer request or shutdown can interrupt this seek. Otherwise the
+    // demuxer's read position is no longer trustworthy, even when the
+    // renderers still have buffered data from before the seek.
+    if (!quit_ && !seek_pending_ && !track_request_.pending() &&
+        state_ != PlayerState::kError) {
+      FailLocked("seek failed");
+    }
     return;
-  }
-  if (!user_seek) {
-    demuxer_->Seek(file_target);
   }
   generation_++;
   video_queue_.Flush(generation_);

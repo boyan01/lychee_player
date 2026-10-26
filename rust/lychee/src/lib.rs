@@ -373,13 +373,17 @@ thread_local! {
 }
 
 unsafe extern "C" fn event_trampoline(user_data: *mut c_void, kind: i32, arg0: i64, arg1: i64) {
-    let slot = unsafe { &*(user_data as *const EventSlot) };
-    let callback = slot.0.lock().unwrap().clone();
-    if let (Some(callback), Some(event)) = (callback, Event::from_raw(kind, arg0, arg1)) {
-        IN_EVENT_CALLBACK.set(true);
-        callback(event);
-        IN_EVENT_CALLBACK.set(false);
+    let was_in_callback = IN_EVENT_CALLBACK.replace(true);
+    {
+        let slot = unsafe { &*(user_data as *const EventSlot) };
+        let callback = slot.0.lock().unwrap().clone();
+        if let (Some(callback), Some(event)) = (callback, Event::from_raw(kind, arg0, arg1)) {
+            callback(event);
+        }
+        // Releasing the callback can drop its captured player, even when
+        // the event is unknown. Keep the flag set through that release.
     }
+    IN_EVENT_CALLBACK.set(was_in_callback);
 }
 
 /// A player. Every method can be called from any thread.

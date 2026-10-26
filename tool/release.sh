@@ -238,7 +238,7 @@ Future<void> main() async {
 EOF
   # The plugin's minimums (README).
   sed -i.bak -E 's/minSdk = .*/minSdk = 26/' android/app/build.gradle.kts
-  perl -0pi -e 's/(\n *)(minSdk = 26)/$1$2$1ndk { abiFilters.clear(); abiFilters += listOf("arm64-v8a", "x86_64") }/' \
+  perl -0pi -e 's/(\n *)(minSdk = 26)/$1$2$1if (project.findProperty("split-per-abi") != "true") { ndk { abiFilters.clear(); abiFilters += listOf("arm64-v8a", "x86_64") } }/' \
     android/app/build.gradle.kts
   sed -i.bak -E 's/MACOSX_DEPLOYMENT_TARGET = [0-9.]+;/MACOSX_DEPLOYMENT_TARGET = 11.0;/' \
     macos/Runner.xcodeproj/project.pbxproj
@@ -260,17 +260,23 @@ EOF
   # Every ABI the APK has Flutter for needs the core too, or the app
   # installs on devices where it cannot play.
   check_apk_abis build/app/outputs/flutter-apk/app-debug.apk
+  echo "== Android split APKs"
+  flutter build apk --debug --split-per-abi --target-platform=android-arm64,android-x64 \
+    >"$tmp/android-split.log" 2>&1 || { tail -40 "$tmp/android-split.log"; die "Android split build failed"; }
+  for abi in arm64-v8a x86_64; do
+    check_apk_abis "build/app/outputs/flutter-apk/app-$abi-debug.apk" "$abi"
+  done
   grep -q "GET /$tag/lychee-$v.aar" "$tmp/server.log" && grep -q "GET /$tag/lychee.xcframework.zip" "$tmp/server.log" ||
     die "the builds did not download from the release"
   echo "ok: a fresh app builds with the package and the release of $tag ($tmp)"
 }
 
 # Fails unless every ABI with libflutter.so in APK also has liblychee.so,
-# and arm64-v8a is among them.
+# and the requested ABI (arm64-v8a by default) is among them.
 check_apk_abis() {
-  local libs abi
+  local libs abi required="${2:-arm64-v8a}"
   libs="$(unzip -Z1 "$1" 'lib/*')" || die "cannot list $1"
-  grep -qx 'lib/arm64-v8a/liblychee.so' <<<"$libs" || die "$1 has no arm64-v8a liblychee.so"
+  grep -qx "lib/$required/liblychee.so" <<<"$libs" || die "$1 has no $required liblychee.so"
   for abi in $(sed -nE 's|^lib/([^/]+)/libflutter\.so$|\1|p' <<<"$libs"); do
     grep -qx "lib/$abi/liblychee.so" <<<"$libs" ||
       die "$1 has libflutter.so but no liblychee.so for $abi: set abiFilters (README)"

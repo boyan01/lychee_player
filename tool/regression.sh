@@ -645,6 +645,23 @@ if [ "${NO_FFMPEG:-0}" != 1 ]; then
   serve --no-ranges
   seq_ expect http-no-ranges "seek ignored" "<=0 seek completed" "<=0 seek took" \
     "summary: state=ended .*backward_jumps=0 .*stalls=0" -- --seek 8 --seek-after 1 "$url"
+  # A track switch on it goes on from where the input is: the resync
+  # neither fails nor moves the read position.
+  seq_ expect http-no-ranges-track "select audio 2 at [0-9.]+s: accepted" "track 2: audio .* selected=1" \
+    "track switch: resumed" "<=0 seek failed" "<=0 input failed" "summary: state=ended position=8\." -- \
+    --select audio:2 "http://127.0.0.1:$port/tracks.mkv"
+  # The TS probe opens three ranges. Later requests fail, like an expired
+  # URL: a failed seek cannot safely resume the demuxer's old read position.
+  serve --refuse-after-requests 3
+  exits=1 seq_ expect http-seek-failed "403 Forbidden" "error: seek failed" \
+    "summary: state=error" "<=0 seek completed" "<=0 event: state ended" -- \
+    --seek 1 --seek-after 5 "http://127.0.0.1:$port/offset.ts"
+  # A failed read-ahead loop is an input error after the buffered pass,
+  # not an EOF that silently schedules another seek on the control thread.
+  serve --refuse-after-requests 3
+  exits=1 seq_ expect http-loop-seek-failed "403 Forbidden" "error: loop seek failed" \
+    "summary: state=error" "<=0 loop to" "<=0 seek completed" \
+    "<=0 event: state ended" -- --loop "http://127.0.0.1:$port/offset.ts"
 fi
 serve --drop-at 3000000 --refuse-after-drop
 exits=1 seq_ expect http-lost "state=error" "error: input ended at" -- "$url"

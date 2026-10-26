@@ -160,6 +160,46 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertNil(videoLayer.contents)
   }
 
+  // A player prepared before it is attached sends no new media event, so
+  // replacing the view's player must clear the old picture immediately.
+  func testViewClearsFrameWhenReplacedWithReadyAudioPlayer() throws {
+    let player = LycheePlayer()
+    player.volume = 0
+    let view = LycheePlayerView(frame: CGRect(x: 0, y: 0, width: 480, height: 270))
+    #if os(macOS)
+    let window = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered,
+                          defer: false)
+    window.contentView = view
+    window.orderFront(nil)
+    defer { window.orderOut(nil) }
+    let videoLayer = try XCTUnwrap(view.layer?.sublayers?.first)
+    #else
+    let window = UIWindow(frame: view.frame)
+    window.addSubview(view)
+    window.isHidden = false
+    let videoLayer = try XCTUnwrap(view.layer.sublayers?.first)
+    #endif
+    view.player = player
+    defer { view.player = nil }
+    player.open(url)
+    player.play()
+    let shown = expectation(for: NSPredicate { _, _ in videoLayer.contents != nil }, evaluatedWith: nil)
+    wait(for: [shown], timeout: 10)
+
+    let audio = LycheePlayer()
+    audio.volume = 0
+    let ready = expectation(description: "audio ready")
+    audio.onEvent = { event in
+      if case .stateChanged(.ready) = event { ready.fulfill() }
+    }
+    audio.open("/tmp/lychee-media/audio_only.mp3")
+    wait(for: [ready], timeout: 10)
+    XCTAssertNil(audio.videoSize)
+
+    view.player = audio
+    XCTAssertNil(videoLayer.contents)
+  }
+
   func testHDRFramesStay10Bit() {
     let player = LycheePlayer()
     player.volume = 0

@@ -41,10 +41,19 @@ one running a 32-bit system, as some TV boxes do) the app starts but
 plugin has set its own list there already):
 
 ```kotlin
-ndk {
-    abiFilters.clear()
-    abiFilters += listOf("arm64-v8a", "x86_64")
+if (project.findProperty("split-per-abi") != "true") {
+    ndk {
+        abiFilters.clear()
+        abiFilters += listOf("arm64-v8a", "x86_64")
+    }
 }
+```
+
+Split APKs use a separate ABI configuration, which cannot be combined
+with `ndk.abiFilters`. Select the supported targets on the command line:
+
+```sh
+flutter build apk --split-per-abi --target-platform=android-arm64,android-x64
 ```
 
 On macOS, Flutter's template runs the app in the App Sandbox: add
@@ -62,11 +71,13 @@ and download an LGPL FFmpeg; `LYCHEE_FFMPEG_ROOT` names a local one instead.
 
 ## License
 
-MIT. The FFmpeg libraries it ships are LGPL and dynamically linked; their
-source is attached to each release. An app that ships them must say so in
-its notices: `core/THIRD_PARTY_NOTICES` in this package has the text to
-show (FFmpeg, Mbed TLS, code from Chromium, and their licenses), and the
-prebuilt core carries it into apps (`lychee.framework`, and
+MIT. The FFmpeg libraries it ships are LGPL and dynamically linked.
+`core/THIRD_PARTY_NOTICES` in this package describes their sources and
+builds by platform: Apple and Android use this project's builds, with
+source attached to each release; Windows and Linux use BtbN's builds.
+An app must include the notices for the libraries it ships, including
+BtbN's additional dependencies on Windows and Linux. The prebuilt core
+carries this project's notice into apps (`lychee.framework`, and
 `META-INF/lychee/THIRD_PARTY_NOTICES` in Android APKs).
 
 Source, roadmap and the native SDKs (Swift, Kotlin, Rust):

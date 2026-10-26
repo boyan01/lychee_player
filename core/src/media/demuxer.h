@@ -30,6 +30,7 @@ class Demuxer {
   virtual DemuxerReadResult Read(EncodedPacket* packet) = 0;
 
   // Seeks to the closest keyframe at or before |time| (media timeline).
+  // On input that cannot seek it may fail without moving the read position.
   virtual bool Seek(int64_t time) = 0;
 
   // Thread-safe. Makes the current blocking Read() or Seek() return early

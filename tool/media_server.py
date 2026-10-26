@@ -10,6 +10,7 @@ Used by tool/regression.sh to test network behaviour:
   --drop-at OFFSET     the first response to reach file offset OFFSET closes
                        its connection there
   --refuse-after-drop  after the drop, every request fails with 503
+  --refuse-after-requests N  after N requests, every later one fails with 403
   --no-ranges          ignore Range headers: every response is the whole file
 
 Prints "port N" once listening (pass --port 0 for a free port).
@@ -29,6 +30,7 @@ class State:
         self.lock = threading.Lock()
         self.stalled = False
         self.dropped = False
+        self.requests = 0
 
     def claim(self, attribute):
         # True for the one caller that flips |attribute| first.
@@ -61,6 +63,13 @@ def make_handler(root, args, state):
             if not os.path.isfile(path):
                 self.send_error(404)
                 return
+            if args.refuse_after_requests is not None:
+                with state.lock:
+                    state.requests += 1
+                    refused = state.requests > args.refuse_after_requests
+                if refused:
+                    self.send_error(403)
+                    return
             size = os.path.getsize(path)
             start, end = 0, size - 1
             match = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range", ""))
@@ -151,6 +160,7 @@ def main():
     parser.add_argument("--stall-for", type=float, default=5)
     parser.add_argument("--drop-at", type=int)
     parser.add_argument("--refuse-after-drop", action="store_true")
+    parser.add_argument("--refuse-after-requests", type=int)
     parser.add_argument("--no-ranges", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()

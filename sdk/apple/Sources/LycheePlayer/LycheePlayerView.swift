@@ -15,6 +15,8 @@ public final class LycheePlayerView: LycheePlatformView {
     didSet {
       guard player !== oldValue else { return }
       oldValue?.onEventForView = nil
+      // An already prepared player may send no event and no video frame.
+      clear()
       player?.onEventForView = { [weak self] event in self?.handle(event) }
       restart()
     }
