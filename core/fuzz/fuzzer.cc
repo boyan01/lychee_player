@@ -1,6 +1,7 @@
-// libFuzzer target over Mp4Demuxer (tool/fuzz.sh). Built without
-// libFuzzer (LYCHEE_FUZZ_STANDALONE), it runs the files or directories it
-// is given once each, e.g. to replay a crash under a sanitizer.
+// A libFuzzer target over one of the functions in fuzz_targets.h
+// (LYCHEE_FUZZ_FUNCTION; tool/fuzz.sh). Built without libFuzzer
+// (LYCHEE_FUZZ_STANDALONE), it runs the files or directories it is given
+// once each, e.g. to replay a crash under a sanitizer.
 
 #include <cstdint>
 #include <cstdio>
@@ -10,7 +11,7 @@
 #include <vector>
 
 #include "base/log.h"
-#include "mp4_demuxer_fuzz.h"
+#include "fuzz_targets.h"
 
 extern "C" int LLVMFuzzerInitialize(int*, char***) {
   // Thousands of inputs a second: the parser's warnings would be most of
@@ -20,7 +21,7 @@ extern "C" int LLVMFuzzerInitialize(int*, char***) {
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  lychee::FuzzMp4Demuxer(data, size);
+  lychee::LYCHEE_FUZZ_FUNCTION(data, size);
   return 0;
 }
 

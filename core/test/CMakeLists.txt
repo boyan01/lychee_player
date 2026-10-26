@@ -56,8 +56,8 @@ add_test(NAME lychee_unittests COMMAND lychee_unittests)
 # The FFmpeg-free backends, built only without FFmpeg.
 if(APPLE AND NOT LYCHEE_WITH_FFMPEG)
   target_sources(lychee_unittests PRIVATE
-    hls_playlist_test.cc mp2t_test.cc mp4_demuxer_test.cc)
-  # Inputs the fuzzer crashed on, replayed by a test.
+    fuzz_regressions_test.cc hls_playlist_test.cc mp2t_test.cc mp4_demuxer_test.cc)
+  # Inputs the fuzzers crashed on, replayed by a test.
   target_compile_definitions(lychee_unittests PRIVATE
     LYCHEE_FUZZ_REGRESSIONS="${CMAKE_CURRENT_SOURCE_DIR}/../fuzz/regressions")
 endif()

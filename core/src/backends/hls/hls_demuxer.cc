@@ -65,7 +65,7 @@ bool HlsDemuxer::LoadPlaylist(std::unique_ptr<DataSource> source,
                               std::string* final_url,
                               std::string* error) {
   if (!source) {
-    source = OpenDataSource(url, error);
+    source = opener_(url, error);
     if (!source) {
       return false;
     }
@@ -221,7 +221,7 @@ bool HlsDemuxer::OpenSegment(std::string* error) {
     *error = "HLS with fragmented MP4 segments (EXT-X-MAP) needs FFmpeg";
     return false;
   }
-  std::unique_ptr<DataSource> source = OpenDataSource(segment.url, error);
+  std::unique_ptr<DataSource> source = opener_(segment.url, error);
   if (!source) {
     return false;
   }

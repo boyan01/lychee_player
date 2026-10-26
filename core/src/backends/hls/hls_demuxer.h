@@ -3,10 +3,12 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "backends/hls/hls_playlist.h"
@@ -46,6 +48,13 @@ class HlsDemuxer : public Demuxer {
   void Abort() override;
   std::string error() const override { return error_; }
 
+  // Opens the playlists and segments the input refers to; OpenDataSource
+  // unless set (the fuzzer serves them from memory). Set before Open().
+  using Opener =
+      std::function<std::unique_ptr<DataSource>(const std::string& url,
+                                                std::string* error)>;
+  void set_opener(Opener opener) { opener_ = std::move(opener); }
+
  private:
   struct Segment : HlsSegment {
     // Playlist time: from the start of the first segment known.
@@ -70,6 +79,7 @@ class HlsDemuxer : public Demuxer {
   void Track(DataSource* source);
   bool Failed();
 
+  Opener opener_ = OpenDataSource;
   std::mutex mutex_;
   std::condition_variable wake_;
   DataSource* active_ = nullptr;
