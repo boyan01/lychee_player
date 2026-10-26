@@ -124,6 +124,42 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(subtitleLayer.sublayers?.count ?? 0, 0)
   }
 
+  // Opening media without video on the same player takes the last frame
+  // off the screen: no new frame would replace it.
+  func testViewClearsFrameForMediaWithoutVideo() throws {
+    let player = LycheePlayer()
+    player.volume = 0
+    let view = LycheePlayerView(frame: CGRect(x: 0, y: 0, width: 480, height: 270))
+    // The view pulls frames only in a window.
+    #if os(macOS)
+    let window = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered,
+                          defer: false)
+    window.contentView = view
+    window.orderFront(nil)
+    defer { window.orderOut(nil) }
+    let videoLayer = try XCTUnwrap(view.layer?.sublayers?.first)
+    #else
+    let window = UIWindow(frame: view.frame)
+    window.addSubview(view)
+    window.isHidden = false
+    let videoLayer = try XCTUnwrap(view.layer.sublayers?.first)
+    #endif
+    view.player = player
+    player.open(url)
+    player.play()
+    let shown = expectation(for: NSPredicate { _, _ in videoLayer.contents != nil }, evaluatedWith: nil)
+    wait(for: [shown], timeout: 10)
+
+    let loaded = expectation(description: "media info")
+    player.onEvent = { event in
+      if case .mediaInfo = event { loaded.fulfill() }
+    }
+    player.open("/tmp/lychee-media/audio_only.mp3")
+    wait(for: [loaded], timeout: 10)
+    XCTAssertNil(player.videoSize)
+    XCTAssertNil(videoLayer.contents)
+  }
+
   func testHDRFramesStay10Bit() {
     let player = LycheePlayer()
     player.volume = 0

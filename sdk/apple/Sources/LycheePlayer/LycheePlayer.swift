@@ -78,8 +78,9 @@ public final class LycheePlayer {
   /// Called on the main queue.
   public var onEvent: ((Event) -> Void)?
   // The LycheePlayerView showing this player, besides onEvent, which stays
-  // the app's: subtitle pictures change without a new frame when paused.
-  var onSubtitleChangedForView: (() -> Void)?
+  // the app's: subtitle pictures change without a new frame when paused,
+  // and new media without video brings no frame to replace the last one.
+  var onEventForView: ((Event) -> Void)?
 
   let handle: OpaquePointer
   // Holds onEvent's owner weakly, so callbacks still queued when the player
@@ -300,9 +301,7 @@ private final class EventSink {
   // Main queue.
   func deliver(_ type: Int32, _ arg0: Int64, _ arg1: Int64) {
     guard let player, let event = player.event(type, arg0, arg1) else { return }
-    if case .subtitleChanged = event {
-      player.onSubtitleChangedForView?()
-    }
+    player.onEventForView?(event)
     player.onEvent?(event)
   }
 }

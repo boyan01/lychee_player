@@ -14,9 +14,8 @@ public final class LycheePlayerView: LycheePlatformView {
   public var player: LycheePlayer? {
     didSet {
       guard player !== oldValue else { return }
-      oldValue?.onSubtitleChangedForView = nil
-      // Frames pick up animated subtitles; this, changes while paused.
-      player?.onSubtitleChangedForView = { [weak self] in self?.refreshSubtitle() }
+      oldValue?.onEventForView = nil
+      player?.onEventForView = { [weak self] event in self?.handle(event) }
       restart()
     }
   }
@@ -79,15 +78,41 @@ public final class LycheePlayerView: LycheePlatformView {
     driver?.stop()
     driver = nil
     guard let player else {
-      videoLayer.contents = nil
-      shownFrame = nil
-      showSubtitle(nil)
+      clear()
       return
     }
     guard window != nil else { return }
     let driver = LycheeFrameDriver(player: player) { [weak self] in self?.showFrame() }
     driver.start(following: self)
     self.driver = driver
+  }
+
+  private func handle(_ event: LycheePlayer.Event) {
+    switch event {
+    case .subtitleChanged:
+      // Frames pick up animated subtitles; this, changes while paused.
+      refreshSubtitle()
+    case .stateChanged(.loading):
+      // New media: what is on screen belongs to the old one. Pausing and
+      // the end keep the last frame.
+      clear()
+    case .mediaInfo, .tracksChanged, .videoSizeChanged:
+      // No video (an audio file, the video track turned off): no frame
+      // will replace the last one.
+      if player?.videoSize == nil { clear() }
+    default:
+      break
+    }
+  }
+
+  private func clear() {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    videoLayer.contents = nil
+    shownFrame = nil
+    setHDR(0)
+    showSubtitle(nil)
+    CATransaction.commit()
   }
 
   private func showFrame() {
