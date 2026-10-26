@@ -9,13 +9,14 @@
 #   tool/release.sh sources DIR        download the pinned FFmpeg and Mbed TLS
 #                                      sources into DIR (release assets too:
 #                                      the LGPL asks for the source)
-#   tool/release.sh build apple|android|linux SOURCES
+#   tool/release.sh build apple|android|linux|windows SOURCES
 #                                      build FFmpeg (platforms already in
 #                                      third_party/ffmpeg are kept) and the
 #                                      xcframeworks or the AAR; linux builds
 #                                      only FFmpeg (CI; the plugin still
-#                                      downloads BtbN's)
-#   tool/release.sh pack apple|android OUT
+#                                      downloads BtbN's); windows
+#                                      cross-compiles on Linux (mingw-w64)
+#   tool/release.sh pack apple|android|windows OUT
 #                                      write the release assets into OUT
 #   tool/release.sh pin OUT            pin OUT's assets in flutter/prebuilt.json
 #                                      and Package.swift
@@ -32,7 +33,8 @@
 # The assets: NAME.xcframework.zip for the six Apple frameworks (what
 # SwiftPM's binaryTarget takes; the pod unzips the same files),
 # lychee-VERSION.aar and .pom (the Flutter plugin lays them out as a Maven
-# repository), and the source archives.
+# repository), ffmpeg-windows-x86_64.zip (the Windows plugin's FFmpeg:
+# bin/*.dll, lib/*.lib, include/), and the source archives.
 #
 # pub packs flutter/ only, and the Windows and Linux plugins compile the
 # core: while pub runs, flutter/core is a copy of core/ (gitignored there;
@@ -94,7 +96,7 @@ cmd_sources() {
 }
 
 cmd_build() {
-  local target="${1:?apple, android or linux}" sources src p
+  local target="${1:?apple, android, linux or windows}" sources src p
   cmd_sources "${2:?sources dir}"
   sources="$(cd "$2" && pwd)"
   src="$root/build-ffmpeg/src"
@@ -123,12 +125,16 @@ cmd_build() {
       [ -d "$root/third_party/ffmpeg/linux-x86_64" ] ||
         "$root/tool/build_ffmpeg.sh" linux-x86_64 "$src/ffmpeg-$ffmpeg_version"
       ;;
+    windows)
+      [ -d "$root/third_party/ffmpeg/windows-x86_64" ] ||
+        "$root/tool/build_ffmpeg.sh" windows-x86_64 "$src/ffmpeg-$ffmpeg_version"
+      ;;
     *) die "unknown target $target" ;;
   esac
 }
 
 cmd_pack() {
-  local target="${1:?apple or android}" out f v
+  local target="${1:?apple, android or windows}" out f v stage
   mkdir -p "${2:?out}"
   out="$(cd "$2" && pwd)"
   case "$target" in
@@ -147,6 +153,18 @@ cmd_pack() {
           die "no $f; run tool/release.sh build android"
       done
       ;;
+    windows)
+      # What MSVC builds need, in one directory named like the zip.
+      f="$root/third_party/ffmpeg/windows-x86_64"
+      [ -d "$f/bin" ] || die "no Windows FFmpeg; run tool/release.sh build windows"
+      stage="$(mktemp -d)"
+      mkdir -p "$stage/ffmpeg-windows-x86_64/lib"
+      cp -R "$f/bin" "$f/include" "$stage/ffmpeg-windows-x86_64/"
+      cp "$f"/lib/*.lib "$stage/ffmpeg-windows-x86_64/lib/"
+      rm -f "$out/ffmpeg-windows-x86_64.zip"
+      (cd "$stage" && zip -qr "$out/ffmpeg-windows-x86_64.zip" ffmpeg-windows-x86_64)
+      rm -rf "$stage"
+      ;;
     *) die "unknown target $target" ;;
   esac
 }
@@ -162,7 +180,8 @@ out, tag, manifest, package = (pathlib.Path(a) for a in sys.argv[1:5])
 tag = str(tag)
 frameworks = sys.argv[5:]
 version = tag[1:]
-names = [f"{f}.xcframework.zip" for f in frameworks] + [f"lychee-{version}.aar", f"lychee-{version}.pom"]
+names = [f"{f}.xcframework.zip" for f in frameworks] + [
+    f"lychee-{version}.aar", f"lychee-{version}.pom", "ffmpeg-windows-x86_64.zip"]
 missing = [n for n in names if not (out / n).is_file()]
 if missing:
     sys.exit(f"release.sh: missing in {out}: {' '.join(missing)}")

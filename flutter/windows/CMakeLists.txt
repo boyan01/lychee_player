@@ -11,10 +11,15 @@ cmake_policy(VERSION 3.14...3.25)
 # not be changed.
 set(PLUGIN_NAME "lychee_player_plugin")
 
-# The pinned LGPL FFmpeg, unless one is given.
+# The pinned LGPL FFmpeg, unless one is given: the LYCHEE_FFMPEG_ROOT cache
+# or environment variable, e.g. tool/build_ffmpeg.sh windows-x86_64's
+# output.
 include("${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg.cmake")
 set(LYCHEE_FFMPEG_ROOT "" CACHE PATH
   "Prebuilt LGPL-only FFmpeg (include/, lib/, bin/); downloaded when empty")
+if(NOT LYCHEE_FFMPEG_ROOT AND DEFINED ENV{LYCHEE_FFMPEG_ROOT})
+  file(TO_CMAKE_PATH "$ENV{LYCHEE_FFMPEG_ROOT}" LYCHEE_FFMPEG_ROOT)
+endif()
 if(NOT LYCHEE_FFMPEG_ROOT)
   lychee_fetch_ffmpeg("${CMAKE_BINARY_DIR}/ffmpeg" LYCHEE_FFMPEG_ROOT)
 endif()

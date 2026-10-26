@@ -171,12 +171,32 @@ dmabufs, unverified above). What is left per platform is a renderer in
    Flutter's adapter, and frames reach Flutter's `GpuSurfaceTexture` as
    shared BGRA textures (h264, hevc10 and vp9 with seeks and 1.5x: 0
    dropped; the integration test passes; 2026-10-25, again with Media
-   Foundation 2026-10-26). The FFmpeg DLLs (BtbN's LGPLv3 build, ~120 MB)
-   should become a slim build of our own: a `windows-x86_64` case in
-   `tool/build_ffmpeg.sh` cross-compiling with mingw-w64 in WSL
-   (`--enable-d3d11va`, Schannel for TLS), which needs someone with sudo
-   there to `apt install mingw-w64 nasm` (or a job in `release.yml`:
-   hosted runners have sudo); the release then hosts it, as for Linux.
+   Foundation 2026-10-26). FFmpeg is now our
+   own (2026-10-26): `tool/build_ffmpeg.sh windows-x86_64` cross-compiles
+   the decode-only build with mingw-w64 (WSL: ~60 s), nothing
+   autodetected: w32threads, Schannel, zlib and the D3D11VA hwaccels, with
+   libgcc, zlib and the mingw runtime static, so the DLLs import only
+   kernel32, msvcrt, bcrypt, crypt32, ncrypt, secur32 and ws2_32 (the
+   script checks). 8.4 MB of DLLs (3.5 MB zipped) against BtbN's ~120
+   MB, and LGPL 2.1 (no OpenSSL). FFmpeg 9's Schannel code needs the udp
+   protocol even without DTLS. `release.yml` builds it on ubuntu-24.04 and
+   the release carries `ffmpeg-windows-x86_64.zip`, which
+   `flutter/prebuilt.json` pins and `flutter/windows/ffmpeg.cmake`
+   downloads (`LYCHEE_PREBUILT_URL` mirrors it; `LYCHEE_FFMPEG_ROOT`,
+   CMake or environment, overrides it). 1.0.0-beta.1 carries none, so
+   until the next release pins one the plugin falls back to BtbN's pin:
+   delete that fallback then. Checked on Windows with the WSL build served
+   as the pinned asset: the example plays `h264_aac.mp4`, `hevc10.mp4` and
+   `vp9_opus.webm` with D3D11VA (`hw`), seeks and 1.5x, 0 dropped, and an
+   https mp4 through Schannel; the integration test passes; a fresh app
+   builds from the packed package with the asset from a local mirror, no
+   build warnings. The https file drops 1 frame at 1.5x near its end, and
+   so does its local copy: the file, not TLS. Not seen: AV1 (WSL's
+   mingw-w64 8.0 headers have no `DXVA_PicParams_AV1`, so the WSL build
+   has no AV1 hwaccel and FFmpeg no AV1 software decoder; whether the
+   runner's 11.0 headers enable it is unknown until `release.yml` runs),
+   the `release.yml` job itself, and `lychee_cli` on Windows with this
+   FFmpeg.
    Unverified there: the pixel buffer path for a Flutter without a D3D11
    adapter, multiple monitors, audible output, and `tool/regression.sh`
    (needs bash). The decoder is rebuilt at the position when the adapter
@@ -455,9 +475,10 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    dynamic libraries: macOS and iOS as xcframeworks from
    `tool/build_ffmpeg.sh` + `tool/package_ffmpeg_apple.sh` (the macOS
    example loads only them, 2026-10-25), Android from `tool/build_ffmpeg.sh`,
-   Windows and Linux as BtbN's LGPLv3 downloads (slimming them: Platforms
-   1 and 2). The Apple and Android builds enable only the formats the core
-   plays (about 7 MB per architecture, from 15; 2026-10-25), and
+   Windows from the release (our build, LGPL 2.1 with Schannel; Platforms
+   1), Linux as BtbN's LGPLv3 download (slimming it: Platforms 2). The
+   Apple and Android builds enable only the formats the core plays (about
+   7 MB per architecture, from 15; 2026-10-25), and
    `FFMPEG_ROOT=... tool/regression.sh` checks them. Android's links
    mbedTLS for https, so it is LGPLv3; the core gives mbedTLS Android's
    CA store as a file in the app's cache directory. Releases build
@@ -473,12 +494,14 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    pub package (`core/`). Only the
    development CMake build (CLI, GLFW example, `tool/regression.sh`
    without `FFMPEG_ROOT`) still links Homebrew's GPL FFmpeg.
-   BtbN's Windows and Linux builds link OpenSSL, dav1d, libvpx, libaom,
-   Opus, LAME, libass and more statically (their avcodec configuration),
+   BtbN's Linux build (and the Windows fallback) links OpenSSL, dav1d,
+   libvpx, libaom, Opus, LAME, libass and more statically (their avcodec
+   configuration),
    whose notices we do not ship; `THIRD_PARTY_NOTICES` now says so and
    names BtbN's revision (n9.0.2-17-g2a571b6068), which is not the
    ffmpeg-9.0.2 source the releases attach. Our own FFmpeg-only builds
-   (Platforms 1 and 2) fix both.
+   fix both: done for Windows (its notices add zlib and the mingw-w64
+   runtime), left for Linux (Platforms 2).
    The playback matrix runs through the shipped macOS FFmpeg
    (`FFMPEG_ROOT=third_party/ffmpeg/macos-arm64`) in CI's flutter-macos
    job and in `release.yml` before anything is packed (2026-10-26; its
@@ -533,8 +556,12 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    `h264_aac.mp4` over http in hardware, with the frameworks and the AAR
    downloaded from the release. Left: 1.0.0, once the beta has been used.
    Later: the AAR on Maven Central too (what native Android users
-   expect; needs a Sonatype account for `tech.soit`); the Windows and
-   Linux FFmpeg as release assets in place of BtbN's (Platforms 1 and 2);
+   expect; needs a Sonatype account for `tech.soit`); the Linux FFmpeg as
+   a release asset in place of BtbN's (Platforms 2: `tool/release.sh
+   build linux` builds it for CI; shipping it needs GnuTLS for LGPL 2.1, a pack step, an
+   ubuntu-22.04 job and the Linux CMake reading `prebuilt.json` the way
+   `flutter/windows/ffmpeg.cmake` does); `tool/release.sh check` building
+   a Windows app (it runs on macOS; the Windows check above was by hand);
    strip the AAR's prefab `liblychee.so` (6 MB per ABI against 0.3 MB in
    `jni/`).
 3. **Native SDKs, with Flutter as one consumer** (decided 2026-10-25).

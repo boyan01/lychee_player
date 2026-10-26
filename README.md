@@ -279,9 +279,14 @@ builds win: the xcframeworks in `flutter/darwin/Frameworks` and the AAR in
   `sdk/android/build/repo`, where the plugin looks for it first; rerun the
   publish after changing `core/`. It has the ABIs FFmpeg was built for.
   Needs minSdk 26 (AAudio).
-- **Windows**: `flutter build windows`. The plugin downloads a pinned
-  LGPL-only FFmpeg (BtbN, FFmpeg 9.0, LGPLv3) at configure time and ships its
-  DLLs next to the app. To build the core and `examples/cli` alone: `cmake
+- **Windows**: `flutter build windows`. The plugin downloads the FFmpeg
+  that `flutter/prebuilt.json` pins (`ffmpeg-windows-x86_64.zip`, the
+  release's decode-only LGPL 2.1 build, 8 MB of DLLs; BtbN's LGPLv3 one
+  while the pinned release has none) at configure time and ships its DLLs
+  next to the app; `LYCHEE_FFMPEG_ROOT` (CMake or environment) names a
+  local one instead, e.g. from `tool/build_ffmpeg.sh windows-x86_64 SRC`,
+  which cross-compiles on Linux (`mingw-w64`, `libz-mingw-w64-dev`,
+  `nasm`). To build the core and `examples/cli` alone: `cmake
   -DDEST=C:/ffmpeg -P flutter/windows/ffmpeg.cmake`, then `cmake -S . -B build
   -G "Visual Studio 17 2022" -A x64 -DLYCHEE_FFMPEG_ROOT=<printed dir>` and
   put `<dir>/bin` on `PATH` to run.
@@ -306,7 +311,8 @@ A release is one run of `.github/workflows/release.yml`, after a
 gh workflow run release.yml -f version=1.0.0
 ```
 
-It builds the Apple xcframeworks and the Android AAR, pins them in
+It builds the Apple xcframeworks, the Android AAR and the Windows FFmpeg
+(cross-compiled on Ubuntu), pins them in
 `flutter/prebuilt.json` and `Package.swift` (which lets SwiftPM take
 `sdk/apple` by URL), builds a fresh app against the package pub would
 publish, drafts the GitHub release with the assets and the FFmpeg and
@@ -319,6 +325,7 @@ locally too:
 tool/release.sh version 1.0.0
 tool/release.sh build apple /tmp/sources && tool/release.sh pack apple /tmp/dist
 tool/release.sh build android /tmp/sources && tool/release.sh pack android /tmp/dist
+tool/release.sh build windows /tmp/sources && tool/release.sh pack windows /tmp/dist  # on Linux
 tool/release.sh sources /tmp/dist && tool/release.sh pin /tmp/dist
 tool/release.sh check /tmp/dist   # then git checkout the pins
 ```
@@ -338,9 +345,9 @@ own CMake build (the CLI, the GLFW example, `tool/regression.sh`) links the
 FFmpeg found by pkg-config, which may be a GPL build (Homebrew's is); that
 is for development only. The macOS and iOS builds from
 `tool/build_ffmpeg.sh` are LGPL 2.1+ (the script checks configure's license
-line); the Android build is LGPL 3+, because it links mbedTLS (Apache-2.0)
-for https, and so are the Windows and Linux downloads and the Linux build
-(OpenSSL 3). Distributed apps
+line), and so is the Windows build (Schannel for https); the Android build
+is LGPL 3+, because it links mbedTLS (Apache-2.0) for https, and so are
+the Linux download (BtbN's) and the Linux build (OpenSSL 3). Distributed apps
 must ship an LGPL-only FFmpeg (no `--enable-gpl` / `--enable-nonfree`),
 linked dynamically.
 

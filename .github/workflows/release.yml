@@ -1,6 +1,6 @@
 # Releases VERSION: builds the prebuilt core (Apple xcframeworks, the
-# Android AAR), pins their SHA-256s in flutter/prebuilt.json and
-# Package.swift, checks that a fresh app builds with the package pub would
+# Android AAR) and the Windows plugin's FFmpeg, pins their SHA-256s in
+# flutter/prebuilt.json and Package.swift, checks that a fresh app builds with the package pub would
 # publish, drafts the GitHub release with the assets, and pushes the
 # "Release VERSION" commit and the tag vVERSION. The tag starts publish.yml,
 # which publishes the release and the package.
@@ -88,8 +88,35 @@ jobs:
           path: dist
           if-no-files-found: error
 
+  # The Windows plugin's FFmpeg, cross-compiled with mingw-w64; the plugin
+  # compiles the core itself. build_ffmpeg.sh warns when the mingw-w64
+  # headers lack AV1's DXVA structures (Ubuntu 22.04's do): no AV1 then.
+  windows:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install tools
+        run: sudo apt-get install -y mingw-w64 libz-mingw-w64-dev nasm zip
+      - run: tool/release.sh version "$VERSION"
+      - name: FFmpeg cache key
+        id: ffmpeg
+        run: |
+          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; x86_64-w64-mingw32-gcc --version | head -1; dpkg -s mingw-w64-x86-64-dev | grep ^Version)"
+          echo "key=ffmpeg-windows-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: third_party/ffmpeg
+          key: ${{ steps.ffmpeg.outputs.key }}
+      - run: tool/release.sh build windows build-sources
+      - run: tool/release.sh pack windows dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist
+          if-no-files-found: error
+
   release:
-    needs: [apple, android]
+    needs: [apple, android, windows]
     runs-on: macos-26
     permissions:
       contents: write

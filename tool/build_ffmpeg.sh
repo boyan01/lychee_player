@@ -4,7 +4,8 @@
 #   tool/build_ffmpeg.sh PLATFORM FFMPEG_SOURCE_DIR [MBEDTLS_SOURCE_DIR]
 #
 # PLATFORM: macos-arm64, macos-x86_64, ios-arm64, ios-sim-arm64,
-# ios-sim-x86_64, android-arm64-v8a, android-x86_64, linux-x86_64.
+# ios-sim-x86_64, android-arm64-v8a, android-x86_64, linux-x86_64,
+# windows-x86_64 (cross-compiled on Linux).
 # Output: third_party/ffmpeg/PLATFORM/{include,lib}. For Apple platforms,
 # tool/package_ffmpeg_apple.sh then wraps the libraries into xcframeworks.
 #
@@ -127,6 +128,29 @@ case "$platform" in
     )
     license="LGPL version 3 or later"
     ;;
+  windows-x86_64)
+    # Cross-compiled with mingw-w64 on Linux (Debian/Ubuntu: mingw-w64,
+    # libz-mingw-w64-dev, nasm). Nothing is autodetected, so the build is
+    # the same on every machine: Windows threads, Schannel for TLS (no
+    # OpenSSL, so LGPL 2.1), D3D11VA through the hwdevice API (the core
+    # never asks for DXVA2), and zlib, libgcc and the rest of the mingw
+    # runtime linked statically: the DLLs import Windows' own DLLs only.
+    command -v nasm >/dev/null || { echo "nasm not found" >&2; exit 1; }
+    flags=(
+      --target-os=mingw32 --arch=x86_64 --cross-prefix=x86_64-w64-mingw32-
+      --disable-autodetect
+      --enable-w32threads --enable-schannel --enable-zlib --enable-d3d11va
+      # The core takes D3D11 frames (the *_d3d11va2 hwaccels); FFmpeg's
+      # Makefile compiles those only with the older *_d3d11va ones.
+      --enable-hwaccel=h264_d3d11va,hevc_d3d11va,vp9_d3d11va,av1_d3d11va
+      --enable-hwaccel=h264_d3d11va2,hevc_d3d11va2,vp9_d3d11va2,av1_d3d11va2
+      # FFmpeg 9's Schannel code calls into the udp protocol (for DTLS)
+      # whether DTLS is enabled or not.
+      --enable-protocol=udp
+      --extra-ldflags=-static
+      --pkg-config=false
+    )
+    ;;
   *)
     echo "unknown platform $platform" >&2
     exit 1
@@ -169,6 +193,17 @@ case "$platform" in
       sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | sort -u |
       grep -vE '^(libc|libm|libz|libva|libva-drm|libdrm|libssl|libcrypto|libav(util|codec|format)|libsw(resample|scale))\.so\.[0-9]+$' || true)"
     [ -z "$foreign" ] || { printf 'unexpected dependencies:\n%s\n' "$foreign" >&2; exit 1; }
+    ;;
+  windows-*)
+    # MSVC links the import libraries (avcodec.lib, from dlltool), which
+    # FFmpeg installs next to the DLLs; lib/ is where CMake looks.
+    mv "$out"/bin/*.lib "$out/lib/"
+    foreign="$(for dll in "$out"/bin/*.dll; do x86_64-w64-mingw32-objdump -p "$dll"; done |
+      sed -n 's/^[[:space:]]*DLL Name: //p' | tr 'A-Z' 'a-z' | sort -u |
+      grep -vE '^(kernel32|msvcrt|bcrypt|crypt32|ncrypt|secur32|ws2_32|(avutil|swresample|swscale|avcodec|avformat)-[0-9]+)\.dll$' || true)"
+    [ -z "$foreign" ] || { printf 'imports more than Windows DLLs:\n%s\n' "$foreign" >&2; exit 1; }
+    sed -n '/^Enabled hwaccels:/,/^$/p' configure.log | grep -qw av1_d3d11va2 ||
+      echo "warning: no AV1 D3D11VA: these mingw-w64 headers lack DXVA_PicParams_AV1 (Ubuntu 22.04's do)" >&2
     ;;
 esac
 echo "installed to $out"

@@ -67,16 +67,17 @@ and checks each file against the SHA-256 the package pins. Where GitHub is
 slow or blocked, point `LYCHEE_PREBUILT_URL` at a mirror of
 `https://github.com/boyan01/lychee_player/releases/download` (the files
 are checked the same way). Windows and Linux compile the core with the app
-and download an LGPL FFmpeg; `LYCHEE_FFMPEG_ROOT` names a local one instead.
+and download an LGPL FFmpeg (on Windows from the same release, through the
+same mirror); `LYCHEE_FFMPEG_ROOT` names a local one instead.
 
 ## License
 
 MIT. The FFmpeg libraries it ships are LGPL and dynamically linked.
 `core/THIRD_PARTY_NOTICES` in this package describes their sources and
-builds by platform: Apple and Android use this project's builds, with
-source attached to each release; Windows and Linux use BtbN's builds.
+builds by platform: Apple, Android and Windows use this project's
+builds, with source attached to each release; Linux uses BtbN's build.
 An app must include the notices for the libraries it ships, including
-BtbN's additional dependencies on Windows and Linux. The prebuilt core
+BtbN's additional dependencies on Linux. The prebuilt core
 carries this project's notice into apps (`lychee.framework`, and
 `META-INF/lychee/THIRD_PARTY_NOTICES` in Android APKs).
 
