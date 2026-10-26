@@ -1,5 +1,6 @@
 #include "media/data_source.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -40,7 +41,34 @@ class FileDataSource : public DataSource {
   std::string error_;
 };
 
+class MemoryDataSource : public DataSource {
+ public:
+  explicit MemoryDataSource(std::vector<uint8_t> data) : data_(std::move(data)) {}
+
+  int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
+    if (offset < 0) {
+      return -1;
+    }
+    if (static_cast<uint64_t>(offset) >= data_.size()) {
+      return 0;
+    }
+    size = std::min(size, data_.size() - static_cast<size_t>(offset));
+    memcpy(data, data_.data() + offset, size);
+    return static_cast<int64_t>(size);
+  }
+
+  int64_t size() const override { return static_cast<int64_t>(data_.size()); }
+  std::string error() const override { return "read before the start"; }
+
+ private:
+  const std::vector<uint8_t> data_;
+};
+
 }  // namespace
+
+std::unique_ptr<DataSource> CreateMemoryDataSource(std::vector<uint8_t> data) {
+  return std::make_unique<MemoryDataSource>(std::move(data));
+}
 
 std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
                                            std::string* error) {

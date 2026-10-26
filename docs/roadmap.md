@@ -343,6 +343,31 @@ http reconnects) plus damaged files (`mkv-huge-tracks`, `mkv-huge-block`,
   verified. A/V sync of Opus and MP3 against a reference clip is not
   measured; only that the clock and the audio run to the end together.
 
+Fragmented MP4 and tx3g subtitles (2026-10-26): `Mp4Demuxer` reads a moov
+with `mvex`/`trex` and its `moof`/`traf`/`tfhd`/`tfdt`/`trun` fragments,
+one moof at a time (memory stays one or two fragments), from files and
+http, including the moov's own samples before the first moof (FFmpeg's
+`frag_keyframe` without `empty_moov`), a moof per track (`separate_moof`)
+and Smooth Streaming's layout (no `tfdt`, negative composition offsets,
+which shift dts down as FFmpeg's `dts_shift` does). `TextSubtitleDecoder`
+turns tx3g samples (UTF-8, or UTF-16 after a BOM) into plain text cues, as the FFmpeg build shows them
+(styles dropped). `frag-*`, `http-frag*` and `subtitle-mov-text*` cases
+cover them; unit tests cover `mehd` and fragments without `tfdt`, which
+FFmpeg's muxer does not write. Decisions:
+
+- Seeks find the fragment in `mfra` (read from the end through `mfro`),
+  else in a `sidx` before the first moof that covers the whole file
+  (`global_sidx`); else the moofs are read from the last one known, up
+  to the target (a range request each on http). In a fragment without a
+  keyframe at or before the target, the one before it is tried.
+- The duration is `mehd`'s, else where the last fragment ends: from the
+  last index entry, or, without an index, by reading every moof at open
+  (fast on files; one range request per fragment on http). `mvhd` covers
+  only the moov's samples in fragmented files and is not used.
+- Not read: a `sidx` of `sidx` boxes and DASH's per-segment `sidx` (the
+  moofs are read instead), and fragmented input of unknown size (a live
+  fMP4 stream): it plays without a duration or seeks.
+
 Left:
 
 1. Shared IO on Android and Windows: an http `DataSource` there
@@ -350,11 +375,11 @@ Left:
    their FFmpeg-free builds (4, 5) need anyway; then FFmpeg reads through
    it as on Apple. One `NSURLSession` per demuxer would let HLS segments
    reuse connections.
-2. Containers: fragmented MP4, MPEG-TS, HLS; tx3g (mov_text) subtitles,
-   which the MP4 demuxer skips. `Mp4Demuxer` turns `dOps` and `dfLa`
-   into FFmpeg-style extradata (OpusHead, STREAMINFO), so MP3, Opus and
-   FLAC in MP4 decode on Android and through `ATAudioDecoder`. Bitmap
-   subtitles (PGS, DVB, VobSub) have no FFmpeg-free decoder.
+2. Containers: MPEG-TS, HLS (fragmented MP4 and tx3g are done, above).
+   `Mp4Demuxer` turns `dOps` and `dfLa` into FFmpeg-style extradata
+   (OpusHead, STREAMINFO), so MP3, Opus and FLAC in MP4 decode on Android
+   and through `ATAudioDecoder`. Bitmap subtitles (PGS, DVB, VobSub) have
+   no FFmpeg-free decoder.
 3. Packaging: a `tool/build_apple.sh` variant (or the Swift package) that
    ships the FFmpeg-free core; iOS compiles (arm64, zero warnings) but has
    not run, and the plugin and Swift package still link FFmpeg.

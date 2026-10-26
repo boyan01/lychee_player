@@ -84,11 +84,13 @@ if(APPLE)
     src/media/data_source.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
-    # Without FFmpeg: MP4, H.264 and HEVC through VideoToolbox, AAC and
-    # ALAC through AudioToolbox.
+    # Without FFmpeg: MP4 (also fragmented) from files and http(s), H.264
+    # and HEVC through VideoToolbox, AAC and ALAC through AudioToolbox,
+    # tx3g subtitles.
     list(APPEND LYCHEE_SOURCES
       src/backends/apple/at_audio_decoder.cc
       src/backends/apple/vt_video_decoder.cc
+      src/backends/mp4/mov_text_decoder.cc
       src/backends/mp4/mp4_demuxer.cc
     )
     # Matroska and WebM; VP9 and AV1 through VideoToolbox, Opus, FLAC and

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace lychee {
 
@@ -50,6 +51,9 @@ class DataSource {
 // client (Apple). Null with |error| set if it cannot be opened.
 std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
                                            std::string* error);
+
+// Bytes in memory (tests, the fuzzer).
+std::unique_ptr<DataSource> CreateMemoryDataSource(std::vector<uint8_t> data);
 
 }  // namespace lychee
 

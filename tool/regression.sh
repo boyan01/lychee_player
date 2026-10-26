@@ -137,6 +137,26 @@ data = bytearray(open(sys.argv[1], "rb").read())
 at = data.index(b"stsz") + 16 + 4 * 10
 data[at:at + 4] = (1 << 30).to_bytes(4, "big")
 open(sys.argv[2], "wb").write(data)' "$media/loop.mp4" "$media/huge_sample.mp4" || exit 1
+# Fragmented MP4, a fragment per 1 s keyframe, indexed by mfra; the same
+# with the first fragment's samples in the moov; indexed by a sidx only;
+# Smooth Streaming's layout (no tfdt, negative composition offsets); and
+# without an index, half-second fragments (most without a keyframe) in a
+# moof per track.
+gen frag.mp4 -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 10 \
+  -c:v libx264 -preset veryfast -g 30 -pix_fmt yuv420p -c:a aac -movflags frag_keyframe+empty_moov+default_base_moof
+gen frag_moov.mp4 -i "$media/frag.mp4" -c copy -movflags frag_keyframe
+gen frag_ismv.mp4 -i "$media/frag.mp4" -c copy -f ismv
+gen frag_scan.mp4 -i "$media/frag.mp4" -c copy -frag_duration 500000 \
+  -movflags empty_moov+default_base_moof+separate_moof+skip_trailer
+# global_sidx needs the trailer, which ends with mfra: cut it off.
+gen frag_sidx.tmp.mp4 -i "$media/frag.mp4" -c copy -movflags frag_keyframe+empty_moov+default_base_moof+global_sidx
+[ -f "$media/frag_sidx.mp4" ] || python3 -I -c '
+import sys
+data = open(sys.argv[1], "rb").read()
+at = data.rindex(b"mfra") - 4
+open(sys.argv[2], "wb").write(data[:at])' "$media/frag_sidx.tmp.mp4" "$media/frag_sidx.mp4" || exit 1
+[ -f "$media/frag_truncated.mp4" ] || { head -c 1700000 "$media/frag.mp4" >"$media/frag_truncated.tmp" &&
+  mv "$media/frag_truncated.tmp" "$media/frag_truncated.mp4"; } || exit 1
 gen meta.mp4 -i "$media/h264_aac.mp4" -t 4 -c copy -metadata title="Lychee Test" \
   -metadata artist="Lychee Artist" -metadata album="Lychee Album"
 # Cover art: an ID3 picture (JPEG) and MP4 cover art (PNG).
@@ -379,8 +399,8 @@ selected() {
 # Without FFmpeg: MP4, Matroska and WebM, with text subtitles.
 plays_without_ffmpeg() {
   case "$1" in
-    # Bitmap subtitles have no decoder, and the MP4 demuxer skips tx3g.
-    subtitle-pgs | subtitle-dvb | subtitle-vobsub | subtitle-mov-text) return 1 ;;
+    # Bitmap subtitles have no decoder.
+    subtitle-pgs | subtitle-dvb | subtitle-vobsub) return 1 ;;
     # No software AV1 decoder: av1-videotoolbox instead.
     av1-software) return 1 ;;
   esac
@@ -565,6 +585,22 @@ if [ "${NO_FFMPEG:-0}" = 1 ]; then
   exits=1 par expect mkv-corrupt "state=error" "error: corrupt data at 6\." -- "$media/mkv_corrupt.mkv"
   exits=1 par expect mkv-truncated "state=error" "error: input ended at 7\." -- "$media/mkv_truncated.mkv"
 fi
+# Fragmented MP4: seeks through mfra, into the moov's own samples,
+# through a sidx, by reading the moofs (to a keyframe in an earlier
+# fragment), and without tfdt; loops, and (FFmpeg-free: FFmpeg ends it
+# quietly, not knowing the duration) a file cut in a fragment.
+par check frag             1 - -- "$media/frag.mp4"
+par check frag-seek        1 7.500 -- --seek 7.5 --seek-after 2 "$media/frag.mp4"
+par check frag-moov-seek   1 0.500 -- --seek 0.5 --seek-after 3 "$media/frag_moov.mp4"
+par check frag-sidx-seek   1 6.200 -- --seek 6.2 --seek-after 1 "$media/frag_sidx.mp4"
+par check frag-scan        1 - -- "$media/frag_scan.mp4"
+par check frag-scan-seek   1 8.700 -- --seek 8.7 --seek-after 1 "$media/frag_scan.mp4"
+par check frag-scan-back   1 1.500 -- --seek 1.5 --seek-after 6 "$media/frag_scan.mp4"
+par check frag-ismv-seek   1 4.400 -- --seek 4.4 --seek-after 1 "$media/frag_ismv.mp4"
+par expect frag-loop "summary: state=ready" "loops=2" "summary:.*backward_jumps=0 " "summary:.*glitches=[0-3] " \
+  "<=0 event: state (ended|buffering)" -- --loop --seconds 25 "$media/frag.mp4"
+[ "${NO_FFMPEG:-0}" = 1 ] &&
+  exits=1 par expect frag-truncated "state=error" "error: input ended" -- "$media/frag_truncated.mp4"
 # Hidden until the end: the stream still ends, with or without audio.
 par expect background-end "<=0 show at" "summary: state=ended position=3\.[0-9]{3}s" -- \
   --hide-after 0 --hide-for 30 "$media/loop.mp4"
@@ -634,6 +670,8 @@ if [ "$libass" = 1 ]; then
   par expect subtitle-ass-libass "subtitle images: 1 \| [0-9]+x[0-9]+ at [0-9]+,9[0-9]{2} " -- "$media/sub_ass.mkv"
 fi
 par expect subtitle-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line" -- --seek 3.5 --seek-after 0.5 "$media/sub_srt.mkv"
+par expect subtitle-mov-text-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line \| with break$" "<=0 Hello world" -- \
+  --seek 3.5 --seek-after 0.5 "$media/sub_mov_text.mp4"
 par expect metadata "metadata: title=Lychee Test artist=Lychee Artist album=Lychee Album" "summary: state=ended" -- \
   "$media/meta.mp4"
 par expect artwork-id3 "metadata: title=Lychee Cover" "artwork: [0-9]+ bytes jpeg" "<=0 track 1" \
@@ -729,6 +767,12 @@ if [ "${NO_FFMPEG:-0}" != 1 ]; then
 fi
 serve --drop-at 3000000
 seq_ check http-mkv-reconnect 1 - -- "http://127.0.0.1:$port/h264_aac.mkv"
+# Fragmented over http: the moofs read one by one (frag_scan has no
+# index, so opening reads them all), and a seek through mfra, which is
+# read from the end.
+serve
+seq_ check http-frag 1 - -- "http://127.0.0.1:$port/frag_scan.mp4"
+seq_ check http-frag-seek 1 6.200 -- --seek 6.2 --seek-after 1 "http://127.0.0.1:$port/frag.mp4"
 serve --drop-at 3000000 --refuse-after-drop
 exits=1 seq_ expect http-lost "state=error" "error: input ended at" -- "$url"
 # Slower than the bitrate: rebuffer in long stretches, not every few frames.

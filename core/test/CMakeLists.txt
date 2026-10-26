@@ -53,3 +53,7 @@ target_link_libraries(lychee_unittests PRIVATE lychee)
 target_compile_features(lychee_unittests PRIVATE cxx_std_20)
 add_test(NAME lychee_unittests COMMAND lychee_unittests)
 
+# The FFmpeg-free backends, built only without FFmpeg.
+if(APPLE AND NOT LYCHEE_WITH_FFMPEG)
+  target_sources(lychee_unittests PRIVATE mp4_demuxer_test.cc)
+endif()
