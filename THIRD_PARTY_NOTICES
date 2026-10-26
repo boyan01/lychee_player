@@ -62,11 +62,29 @@ version 3 or later on Android, Windows and Linux. FFmpeg is a trademark
 of Fabrice Bellard, originator of the FFmpeg project.
 
 The FFmpeg libraries are built without --enable-gpl and without
---enable-nonfree. The source code they were built from is attached to
-each lychee_player release
-(https://github.com/boyan01/lychee_player/releases, ffmpeg-VERSION.tar.xz),
-and the build script is tool/build_ffmpeg.sh in the same repository. You
-may replace the FFmpeg libraries in an app with your own build of the
+--enable-nonfree. Where they come from depends on the platform:
+
+- macOS, iOS and Android: built by tool/build_ffmpeg.sh in the
+  lychee_player repository from the FFmpeg release whose source is
+  attached to each lychee_player release
+  (https://github.com/boyan01/lychee_player/releases,
+  ffmpeg-VERSION.tar.xz). They contain FFmpeg only (and Mbed TLS on
+  Android, below).
+- Windows and Linux: the app's build downloads a prebuilt
+  "lgpl-shared" FFmpeg from BtbN's FFmpeg-Builds
+  (https://github.com/BtbN/FFmpeg-Builds, release
+  autobuild-2026-09-30-13-08), built from FFmpeg revision
+  n9.0.2-17-g2a571b6068 (https://github.com/FFmpeg/FFmpeg/commit/2a571b6068,
+  on the release/9.0 branch; not the ffmpeg-9.0.2 release attached to
+  lychee_player's releases) by that project's scripts at that release.
+  Those libraries also contain other libraries linked in statically
+  (among them OpenSSL, dav1d, libvpx, libaom, Opus, LAME, libass,
+  FreeType, HarfBuzz and libxml2), each under its own license. Their
+  notices are not in this file: an app that ships these FFmpeg
+  libraries must take them from BtbN's build. lychee_player means to
+  replace them with an FFmpeg-only build of its own.
+
+You may replace the FFmpeg libraries in an app with your own build of the
 same version.
 
 The texts of the GNU LGPL version 2.1, the GNU LGPL version 3 and the GNU
