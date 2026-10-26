@@ -13,6 +13,9 @@ namespace {
 // A playlist with more is not one this player can hold: a day of 1 s
 // segments is 86400.
 constexpr size_t kMaxSegments = 200000;
+// Durations are clamped to this many seconds (194 days), so that the
+// microseconds of kMaxSegments of them add up without overflow.
+constexpr int64_t kMaxSeconds = int64_t{1} << 24;
 
 bool StartsWith(const std::string& text, const char* prefix) {
   return text.compare(0, std::char_traits<char>::length(prefix), prefix) == 0;
@@ -50,7 +53,8 @@ int64_t ParseInteger(const std::string& text, size_t* used = nullptr) {
 // Written out: strtod follows the locale's decimal separator.
 int64_t ParseSeconds(const std::string& text) {
   size_t used = 0;
-  int64_t micros = ParseInteger(text, &used) * kMicrosPerSecond;
+  int64_t micros =
+      std::min(ParseInteger(text, &used), kMaxSeconds) * kMicrosPerSecond;
   if (used < text.size() && text[used] == '.') {
     int64_t scale = kMicrosPerSecond / 10;
     for (size_t i = used + 1;
@@ -275,7 +279,9 @@ bool ParseHlsPlaylist(const std::string& text,
     } else if (StartsWith(line, "#EXTINF:")) {
       duration = ParseSeconds(line.substr(8));
     } else if (StartsWith(line, "#EXT-X-TARGETDURATION:")) {
-      playlist->target_duration = ParseInteger(line.substr(22)) * kMicrosPerSecond;
+      playlist->target_duration =
+          std::min(ParseInteger(line.substr(22)), kMaxSeconds) *
+          kMicrosPerSecond;
     } else if (StartsWith(line, "#EXT-X-MEDIA-SEQUENCE:")) {
       playlist->media_sequence = ParseInteger(line.substr(22));
     } else if (StartsWith(line, "#EXT-X-DISCONTINUITY-SEQUENCE:")) {
