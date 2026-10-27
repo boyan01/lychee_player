@@ -140,11 +140,17 @@ public final class LycheePlayerView: LycheePlatformView {
   // gets its whole range and HLG its nominal 1000 nits; Core Animation
   // tone-maps that into the headroom the display has.
   private func hdrHeadroom(_ frame: CVPixelBuffer) -> CGFloat {
-    guard let transfer = CVBufferCopyAttachment(frame, kCVImageBufferTransferFunctionKey, nil)
-    else { return 0 }
+    guard let transfer = transferFunction(frame) else { return 0 }
     if CFEqual(transfer, kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ) { return 10000 / 203 }
     if CFEqual(transfer, kCVImageBufferTransferFunction_ITU_R_2100_HLG) { return 1000 / 203 }
     return 0
+  }
+
+  // CVBufferCopyAttachment is macOS 12, and the older getter warns from
+  // there on; macOS 11 shows HDR as SDR.
+  private func transferFunction(_ frame: CVPixelBuffer) -> CFTypeRef? {
+    guard #available(macOS 12.0, *) else { return nil }
+    return CVBufferCopyAttachment(frame, kCVImageBufferTransferFunctionKey, nil)
   }
 
   // EDR costs power, so only while HDR is on screen. Without it the layer
