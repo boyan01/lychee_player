@@ -309,10 +309,12 @@ class Player {
   std::map<int, std::unique_ptr<SubtitleRenderer>> subtitle_renderers_;
   // Input that cannot seek (not live): one per video and audio stream, from
   // Prepare() until StopPipeline(). A resync replays them in place of a
-  // seek. Every audio stream is read, so one switched to midway starts at
-  // the position too; a video stream only once selected. The map does not
-  // change in between; the read thread pushes to it, and the control
-  // thread uses it while the read thread is parked.
+  // seek. Every one of those streams is read, so one switched to midway
+  // starts at the position too. One not selected costs its packets from the
+  // keyframe before the position to the read position (a GOP and the
+  // read-ahead), up to kMaxQueuedBytes. The map does not change in between;
+  // the read thread pushes to it, and the control thread uses it while the
+  // read thread is parked.
   std::map<int, PacketHistory> histories_;
   std::thread thread_;
   std::thread read_thread_;

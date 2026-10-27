@@ -75,9 +75,10 @@ dropped frames and clock drift. Options: `--seek SEC [--seek-after SEC]`,
 `--d3d11` (Windows: shared D3D11 textures, as the Flutter plugin takes them),
 `--refresh HZ`, `--vsync-jitter US`, `--volume 0..1` (muted by default),
 `--rate R [--rate-after SEC]`, `--loop`, `--open-after SEC URL` (reopen on
-the same player), `--select TYPE:INDEX [--select-after SEC]` (TYPE is
-`video`, `audio` or `subtitle`, INDEX a track index as the CLI lists them;
--1 turns the type off), `--virtual-time` (play on a simulated clock, as fast
+the same player), `--select TYPE:INDEX[@SEC] [--select-after SEC]` (TYPE
+is `video`, `audio` or `subtitle`, INDEX a track index as the CLI lists
+them; -1 turns the type off; `@SEC` makes that one SEC seconds in instead
+of `--select-after`'s), `--virtual-time` (play on a simulated clock, as fast
 as the media decodes, with audio to a null sink). `--live` pushes the
 file's packets into a live input when a sender would send them, with
 `--latency MS`, `--live-jitter MS`, `--live-stall SEC FOR`,

@@ -266,6 +266,9 @@ gen tracks.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=880:sample_ra
   -c:v copy -c:a:0 copy -c:a:1 aac -c:s srt -metadata:s:a:0 language=eng -metadata:s:a:1 language=fre \
   -metadata:s:a:1 title=French -metadata:s:s:0 language=eng -metadata:s:s:1 language=fre \
   -disposition:s:0 default -disposition:s:1 0
+# Tracks 0-1 video (1920x1080, one keyframe; 640x360, one a second), 2 audio.
+gen video_tracks.mkv -i "$media/h264_aac.mp4" -map 0:v -map 0:v -map 0:a -t 8 \
+  -c:v:0 copy -c:v:1 libx264 -preset veryfast -g 30 -pix_fmt yuv420p -filter:v:1 scale=640:360 -c:a copy
 
 # HLS, 2 s segments, for the http cases.
 if [ ! -f "$media/hls/index.m3u8" ]; then
@@ -968,6 +971,18 @@ if [ "${NO_FFMPEG:-0}" != 1 ]; then
   seq_ expect http-no-ranges-track-end "track switch: resumed [+-]0\.0[0-9]{2}s" "<=0 input failed" \
     "summary: state=ended position=8\.[0-9]{3}s .*pulled=24[0-2] .*backward_jumps=0 " -- \
     --select audio:2 --select-after 5 "http://127.0.0.1:$port/tracks.mkv"
+  # Every video stream is read too, so another video track, or video
+  # turned off and on again (track 0 has one keyframe, at 0), starts at the
+  # position as from the local file: 240 frames, and 183 with video off from
+  # 1 s to 3 s. Read from the read position, they were 92 and 32.
+  seq_ expect http-no-ranges-track-video "select video 1 at [0-9.]+s: accepted" "track 1: video .* selected=1" \
+    "track switch: resumed [+-]0\.0[0-9]{2}s" "<=0 input failed" \
+    "summary: state=ended position=8\.[0-9]{3}s .*pulled=2(3[5-9]|4[0-2]) .*backward_jumps=0 " -- \
+    --select video:1 "http://127.0.0.1:$port/video_tracks.mkv"
+  seq_ expect http-no-ranges-video-off-on "select video -1 at [0-9.]+s: accepted" \
+    "select video 0 at [0-9.]+s: accepted" "track 0: video .* selected=1" "<=0 input failed" \
+    "summary: state=ended position=8\.[0-9]{3}s .*pulled=1(7[5-9]|8[0-9]) .*backward_jumps=0 " -- \
+    --select video:-1@1 --select video:0@3 "http://127.0.0.1:$port/video_tracks.mkv"
   # A rebuild may skip a frame, as decoder-lost allows (the new renderer
   # goes on after the frame on screen), not the read-ahead's ~120. The
   # CLI's "resumed" line needs it to see the buffering in between, which

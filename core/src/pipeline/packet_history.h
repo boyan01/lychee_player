@@ -13,8 +13,8 @@ namespace lychee {
 // The packets of one stream read since the last keyframe at or before the
 // playback position. On input that cannot seek, a resync replays them so
 // new decoders start where playback is rather than at the read position
-// (Player::ProcessSeek()). The packets are shared with the packet queues,
-// so only those already decoded cost memory.
+// (Player::ProcessSeek()). The packets of a selected stream are shared with
+// its packet queue, so only those already decoded cost memory.
 class PacketHistory {
  public:
   // |every_packet_starts|: a decoder can start at any packet (audio).

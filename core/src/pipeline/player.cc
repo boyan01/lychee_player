@@ -1098,15 +1098,9 @@ void Player::EnableStreamsLocked() {
   for (const auto& [stream, renderer] : subtitle_renderers_) {
     streams.push_back(stream);
   }
-  for (auto& [stream, history] : histories_) {
-    if (stream == video_stream_ || stream == audio_stream_) {
-      continue;
-    }
-    if (media_info_.streams[stream].type == MediaType::kAudio) {
+  for (const auto& [stream, history] : histories_) {
+    if (stream != video_stream_ && stream != audio_stream_) {
       streams.push_back(stream);
-    } else {
-      // Read again later, it would have a gap.
-      history.Clear();
     }
   }
   demuxer_->SetEnabledStreams(streams);

@@ -40,6 +40,14 @@ struct FrameSnapshot {
   std::string path;
 };
 
+// --select TYPE:INDEX[@SEC].
+struct Selection {
+  int32_t type;   // lychee_track_type
+  int32_t index;  // -1 disables the type.
+  // Seconds after playback starts; < 0: --select-after.
+  double after;
+};
+
 struct Options {
   double refresh_rate = 60;
   // Random error added to each vsync timestamp, in microseconds.
@@ -59,8 +67,7 @@ struct Options {
   // starts; 0: right after the first open, while it is still loading.
   std::string reopen_url;
   double reopen_after = -1;
-  // lychee_track_type, track index (-1 disables).
-  std::vector<std::pair<int32_t, int32_t>> selections;
+  std::vector<Selection> selections;
   double select_after = 2;
   bool hardware = true;
   // --dmabuf: the DRM render node to decode on.
@@ -216,7 +223,7 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       options->reopen_after = atof(v);
       options->reopen_url = url;
     } else if (arg == "--select") {
-      // TYPE:INDEX, TYPE one of video, audio, subtitle.
+      // TYPE:INDEX[@SEC], TYPE one of video, audio, subtitle.
       const char* v = value();
       if (!v) return false;
       std::string spec = v;
@@ -228,8 +235,10 @@ bool ParseOptions(int argc, char** argv, Options* options) {
                            : type == "subtitle" ? LYCHEE_TRACK_SUBTITLE
                                                 : 0;
       if (!track_type) return false;
-      options->selections.emplace_back(track_type,
-                                       atoi(spec.c_str() + colon + 1));
+      size_t at = spec.find('@', colon);
+      options->selections.push_back(
+          {track_type, atoi(spec.c_str() + colon + 1),
+           at == std::string::npos ? -1 : atof(spec.c_str() + at + 1)});
     } else if (arg == "--select-after") {
       const char* v = value();
       if (!v) return false;
@@ -910,7 +919,7 @@ int main(int argc, char** argv) {
             "[--cpu | --rgba | --native | --d3d11 | --dmabuf NODE] "
             "[--rate R [--rate-after "
             "SEC]] [--loop [--loop-off-after SEC]] "
-            "[--open-after SEC URL] [--select TYPE:INDEX]... "
+            "[--open-after SEC URL] [--select TYPE:INDEX[@SEC]]... "
             "[--select-after SEC] [--lose-decoder-after SEC]... "
             "[--hang-decoder-after SEC]... "
             "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
@@ -1029,7 +1038,8 @@ int main(int argc, char** argv) {
   // Largest |drift| reported, a second after playback (re)starts.
   int64_t max_drift = 0;
   int64_t loops = 0;
-  bool selected = options.selections.empty();
+  // The selections made so far.
+  std::vector<bool> selected(options.selections.size());
   // Position when the track change was requested; INT64_MIN once reported.
   int64_t select_position = INT64_MIN;
   bool tracks_changed = false;
@@ -1275,15 +1285,24 @@ int main(int argc, char** argv) {
       drift_wall = now;
       drift_position = position;
     }
-    if (!selected && ready_wall != 0 &&
-        now - ready_wall >= static_cast<int64_t>(options.select_after * 1e6)) {
-      selected = true;
-      select_position = position;
-      for (const auto& [type, index] : options.selections) {
-        int32_t result = lychee_player_select_track(player, type, index);
-        printf("select %s %d at %.3fs: %s\n", TrackTypeName(type), index,
-               position / 1e6, result == 0 ? "accepted" : "rejected");
+    for (size_t i = 0; i < options.selections.size() && ready_wall != 0; ++i) {
+      const Selection& selection = options.selections[i];
+      const double after =
+          selection.after < 0 ? options.select_after : selection.after;
+      if (selected[i] || now - ready_wall < static_cast<int64_t>(after * 1e6)) {
+        continue;
       }
+      selected[i] = true;
+      if (select_position == INT64_MIN || tracks_changed) {
+        // A new request: "resumed" waits for its own tracks event.
+        select_position = position;
+        tracks_changed = false;
+      }
+      int32_t result =
+          lychee_player_select_track(player, selection.type, selection.index);
+      printf("select %s %d at %.3fs: %s\n", TrackTypeName(selection.type),
+             selection.index, position / 1e6,
+             result == 0 ? "accepted" : "rejected");
     }
     if (g_tracks_changed.exchange(false)) {
       tracks_changed = true;
