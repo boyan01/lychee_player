@@ -12,12 +12,9 @@ priority.
 Built, but never observed working. Cheap to close; do these before
 building on top of them.
 
-1. **iOS audio sessions on a device**: video plays on an iPhone; not yet
-   seen are audio session interruptions (a call: the sink restarts its
-   unit when it ends) and route changes (unplugging headphones: the sink
-   rereads the output latency).
-2. **Android hardware decoding beyond the happy path**: not yet seen are
-   AAudio route changes, a stream changing resolution midway, and a
+1. **Android hardware decoding beyond the happy path**: not yet seen are
+   AAudio route changes to a USB-C headset (Bluetooth works), a stream
+   changing resolution midway, and a
    device with only one hardware decoder instance (the emulator's H.264
    decoder once failed to start right after a file switch, and FFmpeg
    took over), and Android before 11, where the core finds its cache
@@ -25,7 +22,7 @@ building on top of them.
    `background` case exercises the expiry of
    frames nobody pulled: Choreographer kept pulling in the background on
    the Xiaomi 14.
-3. **Windows**: a real GPU reset (`dxcap -forcetdr`, which also loses the
+2. **Windows**: a real GPU reset (`dxcap -forcetdr`, which also loses the
    plugin's own device; only the simulated `decoder-lost` has run), an
    adapter change during playback (the plugin sets it once), HEVC on a
    machine without the Store's HEVC Video Extensions (should fall back to
@@ -35,11 +32,11 @@ building on top of them.
    mingw-w64 8.0 headers have no AV1 DXVA structures; the runner's
    may), `lychee_cli` with that FFmpeg, and `tool/regression.sh` (needs
    bash).
-4. **Linux**: VAAPI on AMD, Wayland, hardware decoding on arm64, and audio
+3. **Linux**: VAAPI on AMD, Wayland, hardware decoding on arm64, and audio
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays
    slower still).
-5. **Apple without FFmpeg**: AV1 on an M3 or A17 Pro, VP9 on iOS 26.2 or
+4. **Apple without FFmpeg**: AV1 on an M3 or A17 Pro, VP9 on iOS 26.2 or
    later (no runtime here), A/V sync of Opus and MP3 against a reference
    clip, `swift build --traits NoFFmpeg` against the root package's URL
    from a scratch app, and a single TS file whose timestamps start over
@@ -57,6 +54,18 @@ building on top of them.
    start if none has been read yet). Long streams make that slow; only an
    HLS demuxer that knows the segments, as the FFmpeg-free one does,
    would do better.
+3. **iOS VideoToolbox fails for seconds after the app was backgrounded**:
+   on an iPhone 17 (2026-10-27), probably after a timer alarm took the
+   app to the background, 32 packets failed with `-12909` before
+   `video decoder lost` rebuilt the decoder at the position. Playback
+   resumed, but the picture was stuck meanwhile; rebuild after the first
+   few consecutive errors, or on returning to the foreground.
+4. **A route change drops frames on Android**: switching from AirPods back
+   to the speaker (Xiaomi 14, 2026-10-27) dropped 8 frames and moved the
+   position ~0.2 s ahead; the Bluetooth switch before it only moved it
+   back 0.1 s. `AAudioSink::Reopen` restarts the stream, and the clock
+   follows the new one with a step. Done when the step is gone or
+   smaller than a frame.
 
 ## Features
 
