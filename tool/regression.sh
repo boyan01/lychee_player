@@ -925,9 +925,10 @@ exits=1 par expect truncated-file "state=error" "error: input ended at" -- "$med
 par expect resolution-change "video size 1280x720" "video size 640x360" "state=ended" -- \
   "$media/resolution_change.ts"
 # Damaged MPEG-TS: continuity errors pass the damaged data on (audio
-# resyncs on its ADTS headers), and noise ends the input where it starts.
+# resyncs on its ADTS headers), and noise ends the input where it starts
+# (600 KB in: ~0.9 s, a frame or two either way with another x264 build).
 par expect ts-lost-packets "summary: state=ended position=12\.0" -- --audio-only "$media/ts_lost_packets.ts"
-par expect ts-corrupt "summary: state=ended position=0\.9" -- "$media/corrupt.ts"
+par expect ts-corrupt "summary: state=ended position=0\.[89]" -- "$media/corrupt.ts"
 exits=1 par expect corrupt-file "state=error" "error: (audio|video) decoding failed" -- "$media/corrupt.mp4"
 serve
 seq_ check http          1 - -- "$url"
@@ -1015,10 +1016,13 @@ seq_ check http-hls-discontinuity-seek 1 5.433 -- --seek 4 --seek-after 1 \
 seq_ check http-hls-discontinuity-late-seek 1 '14\.43[13]' -- --seek 13 --seek-after 0.2 \
   "http://127.0.0.1:$port/hls/discontinuity_late.m3u8"
 # Live: segments appear in real time; the playlist reloads until
-# EXT-X-ENDLIST.
+# EXT-X-ENDLIST. With no duration the position at the end is where the
+# clock was when the end was seen, a timing check: CI's ASan VM once saw
+# it at 12.106 s.
 serve --live /hls/live.m3u8 /hls/index.m3u8
 realtime=1 seq_ expect http-hls-live "^seekable=0$" "<=0 event: state (error|buffering)" \
-  "summary: state=ended position=12\.0[0-9]{2}s .*backward_jumps=0 " "~summary:.*dropped=0 " -- \
+  "summary: state=ended .*backward_jumps=0 " "~summary: state=ended position=12\.0[0-9]{2}s " \
+  "~summary:.*dropped=0 " -- \
   "http://127.0.0.1:$port/hls/live.m3u8"
 # At 2 MB/s, three times the file's bitrate, the drop comes 1.5 s in,
 # after the open: the Apple http source reads ahead as fast as the server

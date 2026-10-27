@@ -137,9 +137,10 @@ The layers, lowest first:
    ABI. Cases that need real time (a slow or stalled server, and the
    `realtime-*` cases that check CoreAudio timing) set `realtime=1`; do
    not run them while a Flutter or Gradle build loads the machine. CI's
-   VMs are loaded, so CI sets `REALTIME_ADVISORY=1`: their drift,
-   glitches and drops only warn there, and a local run is what checks
-   them.
+   hosted VMs are loaded, so CI sets `REALTIME_ADVISORY=1`: their drift,
+   glitches and drops only warn there. On pushes the plain `core-macos`
+   run goes to an idle self-hosted Mac instead, which checks them
+   strictly.
    `frames` cases check the frame on screen by pixels (`--frame-ppm`
    and `tool/frame_check.py`): conversion, rotation, tone mapping.
 3. **The platform's native harness**: the smallest native app that takes
@@ -276,7 +277,7 @@ there is none). When a new directory or file kind appears, give it an
 area in `tool/changes.sh`.
 
 CI (`.github/workflows/ci.yml`) checks the format of every push, runs
-the ABI check for `lychee.h` changes, the core on macOS (plain, TSan, and ASan with UBSan) and Linux, the Apple builds with `swift test` (Flutter's analyze and
+the ABI check for `lychee.h` changes, the core on macOS (plain, TSan, and ASan with UBSan; for pushes plain and TSan on a self-hosted Intel Mac, which links the LGPL FFmpeg) and Linux, the Apple builds with `swift test` (Flutter's analyze and
 example build only for `flutter/` changes), and the Rust crates, each
 only for its areas. It has no Android, Windows or harness screenshot
 jobs: those stay local.

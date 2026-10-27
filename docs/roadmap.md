@@ -49,7 +49,20 @@ on top of them.
 
 ## Known defects
 
-1. **Realtime timing is checked only on a local machine**: the
+1. **VP9 through VideoToolbox hangs on an Intel Mac**: on a MacBook Pro
+   with UHD 630 and Radeon Pro 5300M (macOS 15.8.2, Homebrew's FFmpeg
+   8.1; 2026-10-27), FFmpeg's hwaccel opens a VP9 session for
+   `vp9_opus.webm` and the state goes to ready, but no frame ever comes
+   out: the decode thread waits in
+   `VTDecompressionSessionWaitForAsynchronousFrames` for good, so the
+   fallback to software never runs and `lychee_player_destroy` blocks in
+   `VideoRenderer::Stop`. Apple Silicon decodes the same file. Not known
+   yet: whether `VTIsHardwareDecodeSupported(kCMVideoCodecType_VP9)` says
+   yes there, and whether FFmpeg 9 behaves the same. Done when VP9 on
+   that machine plays in hardware or falls back to software at open, and
+   `tool/regression.sh` without `NO_HW` passes there.
+
+2. **Realtime timing on CI**: the
    `realtime=1` cases play on the real clock and audio device, so a
    hosted VM's load shows up as drift. CI's macOS jobs failed on them
    three times on 2026-10-26: `realtime-loop` at `max_drift=20.0ms`
@@ -57,9 +70,17 @@ on top of them.
    So CI sets `REALTIME_ADVISORY=1` (2026-10-27): those cases still run
    (the CoreAudio and PulseAudio sinks, slow and stalled servers) with
    their functional checks, but drift, glitches and drops only print and
-   annotate a warning; `http-slow`, `http-stall-seek` and the rest of
-   `http-hls-live` never flaked and stay strict. Done when a quiet runner
-   (self-hosted Mac) runs them without the switch. The virtual-time
+   annotate a warning; `http-slow` and `http-stall-seek` never flaked
+   and stay strict. `http-hls-live`'s end position is a timing check
+   too: CI's ASan VM saw 12.106 s once (2026-10-27). Since 2026-10-27
+   pushes run the plain `core-macos` on an idle self-hosted Intel Mac
+   with the switch off (and TSan there, ASan on a VM: the Mac is ~1.5
+   times quicker per job but runs one at a time). Homebrew has no Intel
+   bottles, so that Mac links the LGPL FFmpeg and generates the media
+   with a pinned static FFmpeg 9; with its x264, `corrupt.ts` ends a
+   frame earlier (0.89 s), which `ts-corrupt` allows. Done when the
+   self-hosted plain job has run green on a few pushes; Linux's realtime
+   cases stay advisory. The virtual-time
    flakes of that day (`live-resolution`, `live-jitter`,
    `subtitle-mid-cue`) are fixed: time ran ahead of a slow live decoder,
    and of events still waiting for the control thread's next 10 ms tick;
@@ -75,7 +96,7 @@ on top of them.
    can come before a slow open has finished; it failed the same way in
    CI's plain `apple` job next, so the server now sends that case at
    2 MB/s and drops 1.5 s in.
-2. **A video stream switched on over input that cannot seek starts at
+3. **A video stream switched on over input that cannot seek starts at
    the read position**: on input that cannot seek
    (`lychee_player_is_seekable()` 0, e.g. an http server without range
    requests through FFmpeg), a resync replays each stream's packets
@@ -88,7 +109,7 @@ on top of them.
    first frame comes up to the read-ahead (~4 s) late. Done when that
    case resumes at the position too (reading every video stream costs
    memory per stream), or is judged not worth it.
-3. **Styled ASS is slow in the iOS 18.1 simulator**: `sub_ass_styled.mkv`
+4. **Styled ASS is slow in the iOS 18.1 simulator**: `sub_ass_styled.mkv`
    in the Flutter example on an iPhone 16 simulator with iOS 18.1 shows
    ~2.6 fps (6 rendered, 4 dropped after 5 s; software decoding, as
    always in the simulator), where `h264_aac.mp4` shows 24 to 30 fps
@@ -98,6 +119,14 @@ on top of them.
    fallback that iOS lacks, Features 3), or the software decoder. Done
    when the cause is known and the file plays at its rate in the
    simulator, or the cause is the simulator's alone.
+5. **An audio device that does not start stalls playback for good**: on
+   a MacBook Pro with its lid closed and only its speakers (2026-10-27),
+   `AudioOutputUnitStart` failed (`afplay` too: "AudioQueueStart failed
+   (35)"); the clock follows the device, so the position stayed put with
+   one frame shown, the player stayed ready, and `realtime-h264` ran
+   until it was killed. It now logs the failure. Done when a sink that
+   cannot start reports an error (or the player falls back to the
+   system clock) instead of waiting.
 
 Calling `lychee_player_open()` from an event callback returns -1 (API 9)
 rather than reopening; callers reopen from their own thread. Unit tests
