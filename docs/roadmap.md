@@ -49,16 +49,21 @@ on top of them.
 
 ## Known defects
 
-1. **`realtime-loop` drifts on CI's hosted VM**: it plays on the real
-   clock and audio device, so load shows up as drift, and CI's plain job
-   failed on it once (2026-10-26). A red plain job (or `core-linux`,
-   which runs the same cases) needs its log read.
-   Done when CI runs the `realtime=1` cases somewhere their timing means
-   something, or not at all. The virtual-time flakes of that day
-   (`live-resolution`, `live-jitter`, `subtitle-mid-cue`) are fixed: time
-   ran ahead of a slow live decoder, and of events still waiting for the
-   control thread's next 10 ms tick; 24 runs six at once now give the
-   same counts every run.
+1. **Realtime timing is checked only on a local machine**: the
+   `realtime=1` cases play on the real clock and audio device, so a
+   hosted VM's load shows up as drift. CI's macOS jobs failed on them
+   three times on 2026-10-26: `realtime-loop` at `max_drift=20.0ms`
+   (under 20 allowed), and `realtime-rate` twice with 5 and 7 glitches.
+   So CI sets `REALTIME_ADVISORY=1` (2026-10-27): those cases still run
+   (the CoreAudio and PulseAudio sinks, slow and stalled servers) with
+   their functional checks, but drift, glitches and drops only print and
+   annotate a warning; `http-slow`, `http-stall-seek` and the rest of
+   `http-hls-live` never flaked and stay strict. Done when a quiet runner
+   (self-hosted Mac) runs them without the switch. The virtual-time
+   flakes of that day (`live-resolution`, `live-jitter`,
+   `subtitle-mid-cue`) are fixed: time ran ahead of a slow live decoder,
+   and of events still waiting for the control thread's next 10 ms tick;
+   24 runs six at once now give the same counts every run.
 2. **A video stream switched on over input that cannot seek starts at
    the read position**: on input that cannot seek
    (`lychee_player_is_seekable()` 0, e.g. an http server without range

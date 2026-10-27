@@ -12,6 +12,8 @@
 #                                 # (clang; LLVM_COV, LLVM_PROFDATA)
 #   MEDIA_DIR=... tool/regression.sh
 #   NO_HW=1 tool/regression.sh    # Software decoding only (CI runners)
+#   REALTIME_ADVISORY=1 tool/regression.sh  # The realtime cases' drift,
+#                                 # glitches and drops only warn (CI's VMs)
 #   ONLY='seek-* rate-2x' tool/regression.sh   # Only cases matching a glob
 #   JOBS=1 tool/regression.sh     # Cases one at a time (default: half the
 #                                 # cores, a quarter under TSan)
@@ -373,6 +375,29 @@ fi
 # device instead. Every case also checks the CLI's exit code: 0, or the
 # one exits=N before the case names (1: the player ended in an error).
 #
+# On a loaded machine (CI's hosted VMs) a realtime case's drift, glitches
+# and drops measure the machine, not the player: REALTIME_ADVISORY=1 makes
+# those checks warn instead of fail there, and keeps the rest.
+
+# timing PROBLEM: a timing check that failed.
+timing() {
+  if [ "${realtime:-0}" = 1 ] && [ "${REALTIME_ADVISORY:-0}" = 1 ]; then
+    advisory+="$1"
+  else
+    problems+="$1"
+  fi
+}
+# pass NAME: the PASS line, and what timing did not hold under
+# REALTIME_ADVISORY=1 (also as a GitHub annotation).
+pass() {
+  echo "PASS $1 ($((SECONDS - start))s)${advisory:+, timing advisory:$advisory}"
+  [ -n "$advisory" ] || return 0
+  grep -E '^summary' <<<"$out" | sed 's/^/     /'
+  if [ "${GITHUB_ACTIONS:-}" = true ]; then
+    echo "::warning title=$1::realtime timing:$advisory"
+  fi
+}
+#
 # check NAME EXPECT_HW EXPECT_SEEK_PTS -- CLI_ARGS...
 # EXPECT_HW: 1, 0, or - (no video). EXPECT_SEEK_PTS: seconds, or - for none.
 check() {
@@ -382,7 +407,7 @@ check() {
     set -- --no-hw "$@"
   fi
   [ "${realtime:-0}" = 1 ] || set -- --virtual-time "$@"
-  local out status summary problems="" start=$SECONDS
+  local out status summary problems="" advisory="" start=$SECONDS
   out="$("$cli" "$@" 2>&1)"
   status=$?
   [ "$status" = "${exits:-0}" ] || problems+=" exit=$status"
@@ -395,17 +420,17 @@ check() {
     grep -q " hw=$hw " <<<"$summary" || problems+=" hw!=$hw"
     local dropped
     dropped="$(sed -E 's/.*dropped=([0-9]+).*/\1/' <<<"$summary")"
-    [ "${dropped:-99}" -le 3 ] || problems+=" dropped=$dropped"
+    [ "${dropped:-99}" -le 3 ] || timing " dropped=$dropped"
     # Frames held for the wrong number of vsyncs (see the CLI).
     local glitches
     glitches="$(sed -E 's/.*glitches=([0-9]+).*/\1/' <<<"$summary")"
-    [ "${glitches:-99}" -le 3 ] || problems+=" glitches=$glitches"
+    [ "${glitches:-99}" -le 3 ] || timing " glitches=$glitches"
   fi
   if [ "$seek_pts" != - ]; then
     grep -q "first_pts_after_seek=$seek_pts" <<<"$summary" || problems+=" seek-landed-elsewhere"
   fi
   if [ -z "$problems" ]; then
-    echo "PASS $name ($((SECONDS - start))s)"
+    pass "$name"
   else
     echo "FAIL $name ($((SECONDS - start))s):$problems"
     grep -E '^(summary|error)' <<<"$out" | sed 's/^/     /'
@@ -415,9 +440,10 @@ check() {
 
 # expect NAME PATTERN... -- CLI_ARGS: passes if the CLI output matches every
 # extended regex PATTERN. "<=N PATTERN" instead allows at most N matching lines.
+# "~PATTERN" is a timing check (see timing).
 expect() {
   local name="$1"; shift
-  local patterns=() out status problems="" start=$SECONDS
+  local patterns=() out status problems="" advisory="" start=$SECONDS
   while [ "$1" != -- ]; do patterns+=("$1"); shift; done
   shift
   [ "${NO_HW:-0}" = 1 ] && set -- --no-hw "$@"
@@ -431,12 +457,14 @@ expect() {
       local count
       count="$(grep -Ec "${BASH_REMATCH[2]}" <<<"$out")"
       [ "$count" -le "${BASH_REMATCH[1]}" ] || problems+=" ${count}x:'${BASH_REMATCH[2]}'"
+    elif [ "${pattern:0:1}" = "~" ]; then
+      grep -Eq "${pattern:1}" <<<"$out" || timing " missing:'${pattern:1}'"
     else
       grep -Eq "$pattern" <<<"$out" || problems+=" missing:'$pattern'"
     fi
   done
   if [ -z "$problems" ]; then
-    echo "PASS $name ($((SECONDS - start))s)"
+    pass "$name"
   else
     echo "FAIL $name ($((SECONDS - start))s):$problems"
     grep -E '^(summary|error|seek took)' <<<"$out" | sed 's/^/     /'
@@ -846,14 +874,15 @@ par expect stats "vbuf=[1-9]\.[0-9]{2}s abuf=[1-9]\.[0-9]{2}s vdec=([1-9][0-9]*\
   --seconds 3 "$media/h264_aac.mp4"
 
 # On the real clock and audio device: the path apps take. Alone, since
-# load on the machine shows up as drift and glitches.
+# load on the machine shows up as drift and glitches (advisory on CI:
+# REALTIME_ADVISORY, above).
 realtime=1 seq_ check realtime-h264 1 - -- "$media/meta.mp4"
 realtime=1 seq_ check realtime-seek 1 3.000 -- --seek 3 --seek-after 1 "$media/meta.mp4"
-realtime=1 seq_ expect realtime-rate "summary: state=ended" "$few_glitches" "$small_drift" -- \
+realtime=1 seq_ expect realtime-rate "summary: state=ended" "~$few_glitches" "~$small_drift" -- \
   --rate 2 "$media/meta.mp4"
 # Drift is measured afresh from each jump back: a loop that stops the audio
 # device and prerolls again shows up as ~60 ms behind.
-realtime=1 seq_ expect realtime-loop "loops=2" "$no_drift" "<=0 event: state (ended|buffering)" -- \
+realtime=1 seq_ expect realtime-loop "loops=2" "~$no_drift" "<=0 event: state (ended|buffering)" -- \
   --loop --seconds 8 "$media/loop.mp4"
 
 # Network cases against a local server that injects faults. Each starts its
@@ -975,7 +1004,7 @@ fi
 # EXT-X-ENDLIST.
 serve --live /hls/live.m3u8 /hls/index.m3u8
 realtime=1 seq_ expect http-hls-live "^seekable=0$" "<=0 event: state (error|buffering)" \
-  "summary: state=ended position=12\.0[0-9]{2}s .*dropped=0 .*backward_jumps=0 " -- \
+  "summary: state=ended position=12\.0[0-9]{2}s .*backward_jumps=0 " "~summary:.*dropped=0 " -- \
   "http://127.0.0.1:$port/hls/live.m3u8"
 serve --drop-at 3000000 --refuse-after-drop
 exits=1 seq_ expect http-lost "state=error" "error: input ended at" -- "$url"

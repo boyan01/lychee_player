@@ -136,7 +136,10 @@ The layers, lowest first:
    with. The hooks live in `core/src/api/testing.h`, not in the public
    ABI. Cases that need real time (a slow or stalled server, and the
    `realtime-*` cases that check CoreAudio timing) set `realtime=1`; do
-   not run them while a Flutter or Gradle build loads the machine.
+   not run them while a Flutter or Gradle build loads the machine. CI's
+   VMs are loaded, so CI sets `REALTIME_ADVISORY=1`: their drift,
+   glitches and drops only warn there, and a local run is what checks
+   them.
    `frames` cases check the frame on screen by pixels (`--frame-ppm`
    and `tool/frame_check.py`): conversion, rotation, tone mapping.
 3. **The platform's native harness**: the smallest native app that takes

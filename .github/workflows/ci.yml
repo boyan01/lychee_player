@@ -8,6 +8,13 @@ on:
 # (tool/changes.sh; a change to this file or that script runs them all):
 # the core on macOS and Linux, the parsers' fuzzers, the Apple builds and
 # the Swift package, the Flutter plugin, the Rust crates.
+
+env:
+  # Hosted runners are loaded VMs: the realtime cases of tool/regression.sh
+  # still run (the real audio sinks, slow and stalled servers), but their
+  # drift, glitches and drops only warn, as an annotation.
+  REALTIME_ADVISORY: 1
+
 jobs:
   changes:
     runs-on: ubuntu-24.04
