@@ -112,7 +112,7 @@ class MatroskaDemuxer : public Demuxer {
   DemuxerReadResult ParseNext();
   // Queues the frames of a Block or SimpleBlock: the first |size| bytes
   // of |bytes|, which has kPacketPadding zero bytes more.
-  void ParseBlock(std::shared_ptr<std::vector<uint8_t>> bytes,
+  void ParseBlock(const std::shared_ptr<std::vector<uint8_t>>& bytes,
                   size_t size,
                   bool simple,
                   bool reference,

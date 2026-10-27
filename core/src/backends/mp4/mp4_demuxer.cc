@@ -951,7 +951,7 @@ Mp4Demuxer::Sample Mp4Demuxer::MakeSample(const Track& track,
                                           int64_t dts,
                                           int64_t composition,
                                           int64_t duration) const {
-  Sample sample;
+  Sample sample{};
   sample.offset = offset;
   sample.size = size;
   sample.sync = sync;
@@ -1353,10 +1353,11 @@ void Mp4Demuxer::ParseMoof(const uint8_t* data,
       }
       // Bound the count by the table, or without one by the bytes the
       // samples claim.
-      const size_t entry = 4 * (((run_flags & kTrunDuration) != 0) +
-                                ((run_flags & kTrunSize) != 0) +
-                                ((run_flags & kTrunFlags) != 0) +
-                                ((run_flags & kTrunCompositionOffset) != 0));
+      const size_t entry =
+          size_t{4} *
+          (((run_flags & kTrunDuration) != 0) + ((run_flags & kTrunSize) != 0) +
+           ((run_flags & kTrunFlags) != 0) +
+           ((run_flags & kTrunCompositionOffset) != 0));
       if (entry > 0) {
         count = std::min(count, run.remaining() / entry);
       } else {
@@ -1464,6 +1465,7 @@ Mp4Demuxer::LoadResult Mp4Demuxer::LoadNextFragment() {
       return result;
     }
     std::vector<int64_t> decode_times;
+    decode_times.reserve(tracks_.size());
     for (const Track& track : tracks_) {
       decode_times.push_back(track.decode_time);
     }
@@ -1544,6 +1546,7 @@ Mp4Demuxer::LoadResult Mp4Demuxer::StartAt(int64_t offset, int64_t time) {
 
 std::vector<int64_t> Mp4Demuxer::DecodeTimesAt(int64_t time) const {
   std::vector<int64_t> decode_times;
+  decode_times.reserve(tracks_.size());
   for (const Track& track : tracks_) {
     decode_times.push_back(ClampTicks(
         ToTicks(time - track.empty, track.timescale) + track.media_time));

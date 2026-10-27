@@ -1490,11 +1490,12 @@ DemuxerReadResult MatroskaDemuxer::ParseNext() {
   }
 }
 
-void MatroskaDemuxer::ParseBlock(std::shared_ptr<std::vector<uint8_t>> bytes,
-                                 size_t size,
-                                 bool simple,
-                                 bool reference,
-                                 int64_t duration_ticks) {
+void MatroskaDemuxer::ParseBlock(
+    const std::shared_ptr<std::vector<uint8_t>>& bytes,
+    size_t size,
+    bool simple,
+    bool reference,
+    int64_t duration_ticks) {
   const uint8_t* data = bytes->data();
   size_t pos = 0;
   uint64_t number = 0;

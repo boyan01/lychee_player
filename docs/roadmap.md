@@ -149,12 +149,9 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    and iOS (`LYCHEE_LIB_DIR` is untried). Windows and Linux native users
    take the C ABI as it is.
 4. **Engineering practices**, in rough order of value:
-   - **clang-tidy**: `tool/tidy.sh --all` finds 34 on macOS (15
-     implicit-widening-of-multiplication-result, 8 incorrect-roundings, 3
-     pro-type-member-init, 3 unnecessary-value-param, 2 branch-clone, 2
-     inefficient-vector-operation, 1 invalid-enum-default-initialization);
-     the Android, Windows and Linux backends are not checked. Fix them,
-     then a CI job running it on a push's changes (macOS, then Linux).
+   - **clang-tidy**: `tool/tidy.sh --all` is clean on macOS; the Android,
+     Windows and Linux backends are not checked. Add a CI job running it
+     on a push's changes (macOS, then Linux).
    - **MSVC `/W4`** for the Windows build, and warnings as errors in the
      plugins' and the Android SDK's own core builds.
    - **CI jobs for Android and Windows**: the SDK build and its unit tests

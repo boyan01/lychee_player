@@ -11,7 +11,7 @@ namespace {
 
 // Queued data beyond this means the decoders stopped taking packets; start
 // over from the next keyframe rather than grow without bound.
-constexpr size_t kMaxQueuedBytes = 16 * 1024 * 1024;
+constexpr size_t kMaxQueuedBytes = size_t{16} * 1024 * 1024;
 
 constexpr uint8_t kStartCode[] = {0, 0, 0, 1};
 

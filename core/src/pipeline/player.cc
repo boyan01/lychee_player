@@ -19,7 +19,7 @@ namespace {
 // stall, wait for this much before playing again)...
 constexpr int64_t kMinQueuedDuration = 3 * kMicrosPerSecond;
 // ...unless the queues already hold this many bytes.
-constexpr size_t kMaxQueuedBytes = 64 * 1024 * 1024;
+constexpr size_t kMaxQueuedBytes = size_t{64} * 1024 * 1024;
 
 const char* StateName(PlayerState state) {
   switch (state) {
@@ -714,7 +714,7 @@ void Player::ApplyLoopEndLocked() {
   }
 }
 
-void Player::Run(std::string url) {
+void Player::Run(const std::string& url) {
   SetCurrentThreadName("lychee-player");
   t_control_thread_player = this;
   std::string error;

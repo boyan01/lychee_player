@@ -226,7 +226,7 @@ class Player {
 
   // Joins all threads and drops the renderers and the demuxer.
   void StopPipeline();
-  void Run(std::string url);
+  void Run(const std::string& url);
   void ReadLoop();
   bool Prepare(const std::string& url, std::string* error);
   // Replaces the renderer of each type in |request|; stream -1 disables it.

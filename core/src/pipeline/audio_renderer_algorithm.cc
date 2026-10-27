@@ -129,7 +129,8 @@ void AudioRendererAlgorithm::BufferQueue::PeekFrames(int count,
     }
     const int n = std::min(frames - offset, count);
     const int channels = buffer->channels;
-    const float* source = buffer->samples.data() + offset * channels;
+    const float* source =
+        buffer->samples.data() + static_cast<ptrdiff_t>(offset) * channels;
     for (int k = 0; k < dest->channels(); ++k) {
       float* out = dest->channel(k) + dest_offset;
       for (int i = 0; i < n; ++i) {
@@ -279,7 +280,7 @@ int AudioRendererAlgorithm::RunWsolaAndFill(AudioBus* dest,
     ola_window_.resize(ola_window_size_);
     wsola::GetPeriodicHanningWindow(&ola_window_);
 
-    transition_window_.resize(ola_window_size_ * 2);
+    transition_window_.resize(static_cast<size_t>(ola_window_size_) * 2);
     wsola::GetPeriodicHanningWindow(&transition_window_);
 
     // Initialize for overlap-and-add of the first block.
@@ -428,7 +429,7 @@ void AudioRendererAlgorithm::UpdateOutputTime(double playback_rate,
   output_time_ += time_change;
   // Center of the search region, in frames.
   const int search_block_center_index =
-      static_cast<int>(output_time_ * playback_rate + 0.5);
+      static_cast<int>(std::lround(output_time_ * playback_rate));
   search_block_index_ = search_block_center_index - search_block_center_offset_;
 }
 
@@ -631,7 +632,7 @@ int DecimatedSearch(int decimation,
                          dot_prod.data());
   similarity[0] = MultiChannelSimilarityMeasure(
       dot_prod.data(), energy_target_block,
-      &energy_candidate_blocks[n * channels], channels);
+      &energy_candidate_blocks[static_cast<size_t>(n) * channels], channels);
 
   // Set the starting point as optimal point.
   float best_similarity = similarity[0];
@@ -646,7 +647,7 @@ int DecimatedSearch(int decimation,
                          dot_prod.data());
   similarity[1] = MultiChannelSimilarityMeasure(
       dot_prod.data(), energy_target_block,
-      &energy_candidate_blocks[n * channels], channels);
+      &energy_candidate_blocks[static_cast<size_t>(n) * channels], channels);
 
   n += decimation;
   if (n >= num_candidate_blocks) {
@@ -660,7 +661,7 @@ int DecimatedSearch(int decimation,
                            dot_prod.data());
     similarity[2] = MultiChannelSimilarityMeasure(
         dot_prod.data(), energy_target_block,
-        &energy_candidate_blocks[n * channels], channels);
+        &energy_candidate_blocks[static_cast<size_t>(n) * channels], channels);
 
     if ((similarity[1] > similarity[0] && similarity[1] >= similarity[2]) ||
         (similarity[1] >= similarity[0] && similarity[1] > similarity[2])) {
@@ -671,9 +672,15 @@ int DecimatedSearch(int decimation,
       QuadraticInterpolation(similarity, &normalized_candidate_index,
                              &candidate_similarity);
 
+      // The offset from the middle point lies in [-0.5, 0.5] and is often
+      // negative, where adding 0.5 and truncating rounds toward zero rather
+      // than to nearest. Chromium's algorithm does this; keep it to pick the
+      // same candidate.
+      // NOLINTBEGIN(bugprone-incorrect-roundings)
       const int candidate_index =
           n - decimation +
           static_cast<int>(normalized_candidate_index * decimation + 0.5f);
+      // NOLINTEND(bugprone-incorrect-roundings)
       if (candidate_similarity > best_similarity &&
           !InInterval(candidate_index, exclude_interval)) {
         optimal_index = candidate_index;
@@ -716,7 +723,7 @@ int FullSearch(int low_limit,
                            dot_prod.data());
     const float similarity = MultiChannelSimilarityMeasure(
         dot_prod.data(), energy_target_block,
-        &energy_candidate_blocks[n * channels], channels);
+        &energy_candidate_blocks[static_cast<size_t>(n) * channels], channels);
     if (similarity > best_similarity) {
       best_similarity = similarity;
       optimal_index = n;
@@ -741,7 +748,8 @@ int OptimalIndex(const AudioBus& search_block,
   constexpr int kSearchDecimation = 5;
 
   std::vector<float> energy_target_block(channels);
-  std::vector<float> energy_candidate_blocks(channels * num_candidate_blocks);
+  std::vector<float> energy_candidate_blocks(static_cast<size_t>(channels) *
+                                             num_candidate_blocks);
 
   // Energy of all candid frames.
   MultiChannelMovingBlockEnergies(search_block, target_size,

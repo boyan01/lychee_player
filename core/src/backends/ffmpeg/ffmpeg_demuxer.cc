@@ -180,7 +180,7 @@ const AVOption kIoOptions[] = {
      0,
      0,
      AV_OPT_FLAG_DECODING_PARAM},
-    {nullptr},
+    {.name = nullptr, .type = AV_OPT_TYPE_FLAGS},
 };
 
 const AVClass kIoClass = {

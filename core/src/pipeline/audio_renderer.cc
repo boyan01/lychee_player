@@ -165,8 +165,10 @@ void AudioRenderer::OnBuffer(std::shared_ptr<AudioBuffer> buffer,
       int skip = static_cast<int>((start_time_ - buffer->pts) *
                                   buffer->sample_rate / kMicrosPerSecond);
       skip = std::min(skip, buffer->frames());
-      buffer->samples.erase(buffer->samples.begin(),
-                            buffer->samples.begin() + skip * buffer->channels);
+      buffer->samples.erase(
+          buffer->samples.begin(),
+          buffer->samples.begin() +
+              static_cast<ptrdiff_t>(skip) * buffer->channels);
       buffer->pts += static_cast<int64_t>(skip) * kMicrosPerSecond /
                      buffer->sample_rate;
     }

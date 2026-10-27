@@ -14,12 +14,12 @@ namespace {
 // Packets read at a time: 96 KB.
 constexpr int64_t kChunkPackets = 512;
 // Bytes looked at for the first sync byte.
-constexpr int64_t kSyncBytes = 64 * 1024;
+constexpr int64_t kSyncBytes = int64_t{64} * 1024;
 constexpr int64_t kWrapTicks = int64_t{1} << 33;
 // A larger distance to the next packet is a gap, not a duration.
 constexpr int64_t kMaxPacketDuration = 10 * kMicrosPerSecond;
 // ADTS frames are at most 8191 bytes; more without one is not ADTS.
-constexpr size_t kMaxAdtsBuffer = 64 * 1024;
+constexpr size_t kMaxAdtsBuffer = size_t{64} * 1024;
 
 // Where 2-3 sync bytes |stride| apart start in |data|, or -1.
 int64_t FindSync(const uint8_t* data, size_t size, int stride) {

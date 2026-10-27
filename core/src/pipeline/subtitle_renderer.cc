@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdlib>
 
 #include "base/log.h"
@@ -205,10 +206,12 @@ std::shared_ptr<const SubtitleImages> SubtitleRenderer::ImagesAt(
     const double sy = height / canvas_height;
     for (const SubtitleBitmap& bitmap : *cue->bitmaps) {
       SubtitleImage image;
-      image.x = static_cast<int>(bitmap.x * sx + 0.5);
-      image.y = static_cast<int>(bitmap.y * sy + 0.5);
-      image.width = std::max(static_cast<int>(bitmap.width * sx + 0.5), 1);
-      image.height = std::max(static_cast<int>(bitmap.height * sy + 0.5), 1);
+      image.x = static_cast<int>(std::lround(bitmap.x * sx));
+      image.y = static_cast<int>(std::lround(bitmap.y * sy));
+      image.width =
+          std::max(static_cast<int>(std::lround(bitmap.width * sx)), 1);
+      image.height =
+          std::max(static_cast<int>(std::lround(bitmap.height * sy)), 1);
       image.bitmap = &bitmap;
       images->images.push_back(image);
     }

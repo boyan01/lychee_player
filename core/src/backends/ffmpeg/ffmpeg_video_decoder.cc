@@ -446,7 +446,8 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
   }
   auto data = std::make_shared<CpuFrameData>();
   int stride = FFALIGN(frame->width * 4, 64);
-  data->data = static_cast<uint8_t*>(av_malloc(stride * frame->height));
+  data->data = static_cast<uint8_t*>(av_malloc(
+      static_cast<size_t>(stride) * static_cast<size_t>(frame->height)));
   if (!data->data) {
     return nullptr;
   }

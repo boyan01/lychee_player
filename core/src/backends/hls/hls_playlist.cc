@@ -291,9 +291,7 @@ bool ParseHlsPlaylist(const std::string& text,
       discontinuity_base = ParseInteger(line.substr(30));
     } else if (line == "#EXT-X-DISCONTINUITY") {
       ++discontinuities;
-    } else if (line == "#EXT-X-ENDLIST") {
-      playlist->ended = true;
-    } else if (line == "#EXT-X-PLAYLIST-TYPE:VOD") {
+    } else if (line == "#EXT-X-ENDLIST" || line == "#EXT-X-PLAYLIST-TYPE:VOD") {
       // A VOD playlist cannot change, ENDLIST or not.
       playlist->ended = true;
     } else if (StartsWith(line, "#EXT-X-BYTERANGE:")) {

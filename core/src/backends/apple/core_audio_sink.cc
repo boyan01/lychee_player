@@ -268,7 +268,7 @@ OSStatus CoreAudioSink::OnRender(void* user_data,
   int written = self->callback_(destination, static_cast<int>(frame_count),
                                 playout_time);
   if (written < static_cast<int>(frame_count)) {
-    memset(destination + written * kChannels, 0,
+    memset(destination + static_cast<ptrdiff_t>(written) * kChannels, 0,
            (frame_count - written) * sizeof(float) * kChannels);
   }
   return noErr;

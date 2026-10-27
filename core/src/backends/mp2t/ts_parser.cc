@@ -21,7 +21,7 @@ uint32_t Crc32(const uint8_t* data, size_t size) {
   static const auto kTable = [] {
     struct Table {
       uint32_t entries[256];
-    } table;
+    } table{};
     for (uint32_t i = 0; i < 256; ++i) {
       uint32_t crc = i << 24;
       for (int bit = 0; bit < 8; ++bit) {

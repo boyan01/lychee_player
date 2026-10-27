@@ -33,6 +33,8 @@ class VideoDecoder {
   virtual void Flush() = 0;
 
   // lychee_player_set_video_surface() changed. Called on any thread.
+  // By value: overrides keep the pointer.
+  // NOLINTNEXTLINE(performance-unnecessary-value-param)
   virtual void SetVideoSurface(std::shared_ptr<void> /*surface*/) {}
 };
 

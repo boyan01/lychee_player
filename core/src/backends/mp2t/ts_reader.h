@@ -93,7 +93,7 @@ class TsReader : private TsParser::Client {
   };
   struct Queued {
     EncodedPacket packet;
-    int64_t offset;
+    int64_t offset = 0;
   };
 
   // TsParser::Client

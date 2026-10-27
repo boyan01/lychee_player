@@ -58,10 +58,9 @@ std::vector<uint8_t> FlacCookie(const std::vector<uint8_t>& config) {
   size_t at = 0;
   if (config.size() == kStreamInfo) {
     at = std::string::npos;
-  } else if (config.size() >= 4 && memcmp(config.data(), "fLaC", 4) == 0) {
-    at = 4;
-  } else if (config.size() >= 4 && config[0] == 0) {
-    at = 4;  // version, flags
+  } else if (config.size() >= 4 &&
+             (memcmp(config.data(), "fLaC", 4) == 0 || config[0] == 0)) {
+    at = 4;  // The marker, or a dfLa box's version and flags.
   }
   std::vector<uint8_t> info;
   if (at == std::string::npos) {
