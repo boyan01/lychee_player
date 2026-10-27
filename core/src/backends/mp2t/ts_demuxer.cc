@@ -94,9 +94,9 @@ void TsDemuxer::EstimateDuration() {
     EncodedPacket packet;
     int64_t offset;
     DemuxerReadResult result;
-    while ((result = reader.Read(&packet, &offset)) ==
-           DemuxerReadResult::kOk) {
-      const int64_t packet_end = packet.pts + std::max<int64_t>(packet.duration, 0);
+    while ((result = reader.Read(&packet, &offset)) == DemuxerReadResult::kOk) {
+      const int64_t packet_end =
+          packet.pts + std::max<int64_t>(packet.duration, 0);
       if (end == kNoTimestamp || packet_end > end) {
         end = packet_end;
       }
@@ -305,8 +305,7 @@ bool TsDemuxer::Seek(int64_t time) {
   int64_t scanned_from = -1;
   for (int64_t backoff = kMicrosPerSecond;; backoff *= 2) {
     const bool from_start = backoff > 64 * kMicrosPerSecond;
-    int64_t start =
-        from_start ? data_start : Bisect(pid, time - backoff);
+    int64_t start = from_start ? data_start : Bisect(pid, time - backoff);
     if (start < 0) {
       if (!Failed()) {
         error_ = source_->error();
@@ -342,8 +341,7 @@ bool TsDemuxer::Seek(int64_t time) {
           break;
         }
         if (scanned_from >= 0 && offset >= scanned_from &&
-            (found_offset < 0 ||
-             packet.pts > found_pts + kMicrosPerSecond)) {
+            (found_offset < 0 || packet.pts > found_pts + kMicrosPerSecond)) {
           break;
         }
         if ((!video || packet.keyframe) && packet.pts <= time) {
@@ -354,8 +352,7 @@ bool TsDemuxer::Seek(int64_t time) {
             return entry.first < found_pts - kMicrosPerSecond;
           });
         }
-      } else if (index < static_cast<int>(enabled_.size()) &&
-                 enabled_[index] &&
+      } else if (index < static_cast<int>(enabled_.size()) && enabled_[index] &&
                  media_info_.streams[index].type == MediaType::kAudio) {
         audio.emplace_back(packet.pts, offset);
       }

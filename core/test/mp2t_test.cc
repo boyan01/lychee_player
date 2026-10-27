@@ -30,7 +30,10 @@ class TsWriter {
   Bytes out;
 
   // One packet; |payload| fits (at most 184 bytes, 182 with |random_access|).
-  void Packet(int pid, bool start, const uint8_t* payload, size_t size,
+  void Packet(int pid,
+              bool start,
+              const uint8_t* payload,
+              size_t size,
               bool random_access = false) {
     const size_t at = out.size();
     out.resize(at + 188, 0xff);
@@ -39,7 +42,8 @@ class TsWriter {
     p[1] = static_cast<uint8_t>((start ? 0x40 : 0) | (pid >> 8));
     p[2] = static_cast<uint8_t>(pid);
     const bool adaptation = size < 184 || random_access;
-    p[3] = static_cast<uint8_t>((adaptation ? 0x30 : 0x10) | (cc_[pid]++ & 0xf));
+    p[3] =
+        static_cast<uint8_t>((adaptation ? 0x30 : 0x10) | (cc_[pid]++ & 0xf));
     size_t header = 4;
     if (adaptation) {
       const size_t length = 183 - size;
@@ -62,8 +66,17 @@ class TsWriter {
   }
 
   void Pat(int pmt_pid) {
-    Bytes s = {0x00, 0xb0, 0, 0x00, 0x01, 0xc1, 0x00, 0x00,
-               0x00, 0x01, static_cast<uint8_t>(0xe0 | (pmt_pid >> 8)),
+    Bytes s = {0x00,
+               0xb0,
+               0,
+               0x00,
+               0x01,
+               0xc1,
+               0x00,
+               0x00,
+               0x00,
+               0x01,
+               static_cast<uint8_t>(0xe0 | (pmt_pid >> 8)),
                static_cast<uint8_t>(pmt_pid)};
     s[2] = static_cast<uint8_t>(s.size() - 3 + 4);
     Section(0, s);
@@ -74,11 +87,14 @@ class TsWriter {
     int pid;
     Bytes descriptors;
   };
-  void Pmt(int pmt_pid, int version, const std::vector<Entry>& entries,
+  void Pmt(int pmt_pid,
+           int version,
+           const std::vector<Entry>& entries,
            bool corrupt = false) {
-    Bytes s = {0x02, 0xb0, 0, 0x00, 0x01,
-               static_cast<uint8_t>(0xc1 | (version << 1)), 0x00, 0x00,
-               0xe1, 0x00, 0xf0, 0x00};
+    Bytes s = {0x02, 0xb0, 0,
+               0x00, 0x01, static_cast<uint8_t>(0xc1 | (version << 1)),
+               0x00, 0x00, 0xe1,
+               0x00, 0xf0, 0x00};
     for (const Entry& e : entries) {
       s.push_back(static_cast<uint8_t>(e.type));
       s.push_back(static_cast<uint8_t>(0xe0 | (e.pid >> 8)));
@@ -96,7 +112,8 @@ class TsWriter {
   }
 
   static void Timestamp(int prefix, int64_t ts, Bytes* out) {
-    out->push_back(static_cast<uint8_t>((prefix << 4) | ((ts >> 29) & 0x0e) | 1));
+    out->push_back(
+        static_cast<uint8_t>((prefix << 4) | ((ts >> 29) & 0x0e) | 1));
     out->push_back(static_cast<uint8_t>(ts >> 22));
     out->push_back(static_cast<uint8_t>(((ts >> 14) & 0xfe) | 1));
     out->push_back(static_cast<uint8_t>(ts >> 7));
@@ -104,10 +121,20 @@ class TsWriter {
   }
 
   // A PES packet; |dts| -1 for none. Returns the TS packets' offsets.
-  std::vector<size_t> Pes(int pid, int stream_id, int64_t pts, int64_t dts,
-                          const Bytes& data, bool random_access = false,
+  std::vector<size_t> Pes(int pid,
+                          int stream_id,
+                          int64_t pts,
+                          int64_t dts,
+                          const Bytes& data,
+                          bool random_access = false,
                           bool known_length = false) {
-    Bytes pes = {0, 0, 1, static_cast<uint8_t>(stream_id), 0, 0, 0x80,
+    Bytes pes = {0,
+                 0,
+                 1,
+                 static_cast<uint8_t>(stream_id),
+                 0,
+                 0,
+                 0x80,
                  static_cast<uint8_t>(dts >= 0 ? 0xc0 : 0x80),
                  static_cast<uint8_t>(dts >= 0 ? 10 : 5)};
     Timestamp(dts >= 0 ? 3 : 2, pts, &pes);
@@ -152,8 +179,8 @@ struct Collector : TsParser::Client {
     programs.push_back(streams);
   }
   void OnPes(const PesPacket& p) override {
-    pes.push_back({p.pid, Bytes(p.data, p.data + p.size), p.pts, p.dts,
-                   p.random_access});
+    pes.push_back(
+        {p.pid, Bytes(p.data, p.data + p.size), p.pts, p.dts, p.random_access});
   }
 };
 
@@ -211,11 +238,13 @@ Bytes AccessUnit(const Bytes& sps, uint8_t slice_header, size_t slice_size) {
 
 Bytes Adts(int rate_index, size_t payload) {
   const size_t length = 7 + payload;
-  Bytes frame = {0xff, 0xf1,
+  Bytes frame = {0xff,
+                 0xf1,
                  static_cast<uint8_t>((1 << 6) | (rate_index << 2)),
                  static_cast<uint8_t>((2 << 6) | (length >> 11)),
                  static_cast<uint8_t>(length >> 3),
-                 static_cast<uint8_t>(((length & 7) << 5) | 0x1f), 0xfc};
+                 static_cast<uint8_t>(((length & 7) << 5) | 0x1f),
+                 0xfc};
   Bytes body = Pattern(payload, 0x42);
   frame.insert(frame.end(), body.begin(), body.end());
   return frame;
@@ -244,9 +273,10 @@ class MemorySource : public DataSource {
 TEST(Mp2t, ParsesProgramAndPes) {
   TsWriter w;
   w.Pat(0x1000);
-  w.Pmt(0x1000, 0, {{0x1b, 0x100, {}},
-                    {0x0f, 0x101, {0x0a, 0x04, 'e', 'n', 'g', 0x00}},
-                    {0x15, 0x102, {}}});
+  w.Pmt(0x1000, 0,
+        {{0x1b, 0x100, {}},
+         {0x0f, 0x101, {0x0a, 0x04, 'e', 'n', 'g', 0x00}},
+         {0x15, 0x102, {}}});
   Bytes video = Pattern(500, 1);
   w.Pes(0x100, 0xe0, 9000, 6000, video, true);
   Bytes audio = Pattern(100, 2);
@@ -288,7 +318,8 @@ TEST(Mp2t, ContinuityErrorsAndDuplicates) {
     data.insert(data.end(), w.out.begin() + static_cast<ptrdiff_t>(packets[i]),
                 w.out.begin() + static_cast<ptrdiff_t>(packets[i] + 188));
     if (i == 2) {
-      data.insert(data.end(), w.out.begin() + static_cast<ptrdiff_t>(packets[i]),
+      data.insert(data.end(),
+                  w.out.begin() + static_cast<ptrdiff_t>(packets[i]),
                   w.out.begin() + static_cast<ptrdiff_t>(packets[i] + 188));
     }
   }
@@ -309,7 +340,7 @@ TEST(Mp2t, PmtVersionsAndCrc) {
   TsWriter w;
   w.Pat(0x1000);
   w.Pmt(0x1000, 0, {{0x1b, 0x100, {}}});
-  w.Pmt(0x1000, 0, {{0x1b, 0x100, {}}});  // Repeated: no new program.
+  w.Pmt(0x1000, 0, {{0x1b, 0x100, {}}});        // Repeated: no new program.
   w.Pmt(0x1000, 1, {{0x1b, 0x200, {}}}, true);  // Bad CRC: ignored.
   w.Pmt(0x1000, 1, {{0x1b, 0x200, {}}, {0x0f, 0x201, {}}});
   w.Pes(0x100, 0xe0, 1000, -1, Pattern(10, 5));  // Gone: not handed out.
@@ -406,7 +437,8 @@ TEST(Mp2t, ParsesSps) {
 
   // Truncated parameter sets are not believed.
   for (size_t cut = 1; cut < kSps1080.size() - 4; ++cut) {
-    Bytes partial(kSps1080.begin(), kSps1080.begin() + static_cast<ptrdiff_t>(cut));
+    Bytes partial(kSps1080.begin(),
+                  kSps1080.begin() + static_cast<ptrdiff_t>(cut));
     Bytes truncated = {0, 0, 1};
     truncated.insert(truncated.end(), partial.begin(), partial.end());
     ParseAccessUnit(truncated.data(), truncated.size(), false, &info);
@@ -447,9 +479,11 @@ TEST(TsReader, UnwrapsTimestampsAndSplitsAdts) {
     frames.insert(frames.end(), frame.begin(), frame.end());
   }
   const size_t split = frames.size() - 20;
-  w.Pes(0x101, 0xc0, wrap - 3000, -1, Bytes(frames.begin(), frames.begin() + static_cast<ptrdiff_t>(split)),
+  w.Pes(0x101, 0xc0, wrap - 3000, -1,
+        Bytes(frames.begin(), frames.begin() + static_cast<ptrdiff_t>(split)),
         false, true);
-  w.Pes(0x101, 0xc0, 1000, -1, Bytes(frames.begin() + static_cast<ptrdiff_t>(split), frames.end()),
+  w.Pes(0x101, 0xc0, 1000, -1,
+        Bytes(frames.begin() + static_cast<ptrdiff_t>(split), frames.end()),
         false, true);
 
   MemorySource source(w.out);
@@ -509,7 +543,9 @@ TEST(TsReader, DetectsPacketSizes) {
   std::string error;
   EXPECT_TRUE(reader.Probe(1 << 20, &error));
   EXPECT_EQ(reader.packet_size(), 192);
-  const char* mp4 = "\0\0\0\x20" "ftypisom";
+  const char* mp4 =
+      "\0\0\0\x20"
+      "ftypisom";
   EXPECT_TRUE(!TsReader::Detect(reinterpret_cast<const uint8_t*>(mp4), 12));
 }
 

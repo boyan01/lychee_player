@@ -66,16 +66,17 @@ std::vector<uint8_t> FlacCookie(const std::vector<uint8_t>& config) {
   std::vector<uint8_t> info;
   if (at == std::string::npos) {
     info = config;
-  } else if (config.size() >= at + 4 + kStreamInfo && (config[at] & 0x7f) == 0) {
+  } else if (config.size() >= at + 4 + kStreamInfo &&
+             (config[at] & 0x7f) == 0) {
     info.assign(config.begin() + at + 4, config.begin() + at + 4 + kStreamInfo);
   } else {
     return {};
   }
   const uint32_t size = 8 + 4 + 4 + kStreamInfo;
-  std::vector<uint8_t> cookie = {
-      0, 0, 0, static_cast<uint8_t>(size), 'd', 'f', 'L', 'a', 0, 0, 0, 0,
-      // The last metadata block: STREAMINFO.
-      0x80, 0, 0, static_cast<uint8_t>(kStreamInfo)};
+  std::vector<uint8_t> cookie = {0, 0, 0, static_cast<uint8_t>(size), 'd', 'f',
+                                 'L', 'a', 0, 0, 0, 0,
+                                 // The last metadata block: STREAMINFO.
+                                 0x80, 0, 0, static_cast<uint8_t>(kStreamInfo)};
   cookie.insert(cookie.end(), info.begin(), info.end());
   return cookie;
 }
@@ -310,8 +311,8 @@ bool ATAudioDecoder::Decode(const EncodedPacket& packet,
       }
       expected = rate > 0 ? expected * output_format_.sample_rate / rate : 0;
       if (expected > frames && next_pts_ != kNoTimestamp) {
-        next_pts_ += (expected - frames) * kMicrosPerSecond /
-                     output_format_.sample_rate;
+        next_pts_ +=
+            (expected - frames) * kMicrosPerSecond / output_format_.sample_rate;
       }
     }
     if (frames > 0) {

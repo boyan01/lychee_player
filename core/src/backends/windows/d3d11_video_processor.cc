@@ -153,8 +153,8 @@ DXGI_COLOR_SPACE_TYPE DxgiColorSpace(const ColorInfo& color, int height) {
     return full ? DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P2020
                 : DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020;
   }
-  const bool bt709 = color.matrix == 2 ? height > 576
-                                       : color.matrix != 5 && color.matrix != 6;
+  const bool bt709 =
+      color.matrix == 2 ? height > 576 : color.matrix != 5 && color.matrix != 6;
   if (bt709) {
     return full ? DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P709
                 : DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709;
@@ -289,8 +289,8 @@ bool D3D11VideoProcessor::Blt(ID3D11Texture2D* texture,
     UINT output_support = 0;
     if (FAILED(video_device_->CreateVideoProcessorEnumerator(&content,
                                                              &enumerator_)) ||
-        FAILED(enumerator_->CheckVideoProcessorFormat(format,
-                                                      &input_support)) ||
+        FAILED(
+            enumerator_->CheckVideoProcessorFormat(format, &input_support)) ||
         !(input_support & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_INPUT) ||
         FAILED(enumerator_->CheckVideoProcessorFormat(
             DXGI_FORMAT_B8G8R8A8_UNORM, &output_support)) ||
@@ -391,8 +391,8 @@ bool D3D11VideoProcessor::ToneMapPq(ID3D11Texture2D* output,
   }
   // The device is the decoder's own; nothing else draws with it, so the
   // state is set without saving what was there.
-  const D3D11_VIEWPORT viewport = {0, 0, static_cast<float>(width),
-                                   static_cast<float>(height), 0, 1};
+  const D3D11_VIEWPORT viewport = {
+      0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1};
   ID3D11RenderTargetView* targets[] = {target.Get()};
   ID3D11ShaderResourceView* views[] = {pq_view_.Get()};
   context_->OMSetRenderTargets(1, targets, nullptr);

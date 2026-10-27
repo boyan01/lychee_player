@@ -87,7 +87,8 @@ bool LibassRasterizer::Initialize(const SubtitleConfig& config,
   // provider.
   const char* fallback = "/system/fonts/NotoSansCJK-Regular.ttc";
   ass_set_fonts(renderer_, access(fallback, R_OK) == 0 ? fallback : nullptr,
-                LYCHEE_LIBASS_DEFAULT_FAMILY, ASS_FONTPROVIDER_NONE, nullptr, 0);
+                LYCHEE_LIBASS_DEFAULT_FAMILY, ASS_FONTPROVIDER_NONE, nullptr,
+                0);
 #else
   // The system's fonts (CoreText, DirectWrite or fontconfig) for what the
   // media does not carry. Fontconfig may build its cache here once.

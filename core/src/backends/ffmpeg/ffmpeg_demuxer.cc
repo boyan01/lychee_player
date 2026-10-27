@@ -172,8 +172,14 @@ struct IoOptions {
 };
 
 const AVOption kIoOptions[] = {
-    {"location", "URL after redirects", offsetof(IoOptions, location),
-     AV_OPT_TYPE_STRING, {.str = nullptr}, 0, 0, AV_OPT_FLAG_DECODING_PARAM},
+    {"location",
+     "URL after redirects",
+     offsetof(IoOptions, location),
+     AV_OPT_TYPE_STRING,
+     {.str = nullptr},
+     0,
+     0,
+     AV_OPT_FLAG_DECODING_PARAM},
     {nullptr},
 };
 
@@ -806,8 +812,11 @@ bool FFmpegDemuxer::TruncatedAtEnd() const {
 }
 
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
-int FFmpegDemuxer::IoOpen(AVFormatContext* s, AVIOContext** pb,
-                          const char* url, int flags, AVDictionary** options) {
+int FFmpegDemuxer::IoOpen(AVFormatContext* s,
+                          AVIOContext** pb,
+                          const char* url,
+                          int flags,
+                          AVDictionary** options) {
   auto* self = static_cast<FFmpegDemuxer*>(s->opaque);
   if ((flags & AVIO_FLAG_WRITE) || !ReadsThroughDataSource(url)) {
     return self->default_io_open_(s, pb, url, flags, options);
@@ -893,7 +902,8 @@ int64_t FFmpegDemuxer::SeekPacket(void* opaque, int64_t offset, int whence) {
   return position;
 }
 
-AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url, std::string* error,
+AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url,
+                                   std::string* error,
                                    bool* cleartext_refused) {
   std::unique_ptr<DataSource> source = OpenDataSource(url, error);
   if (!source) {
@@ -930,9 +940,10 @@ AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url, std::string* error,
     return fail(io->source->error());
   }
   auto* buffer = static_cast<uint8_t*>(av_malloc(kIoBufferSize));
-  AVIOContext* pb = buffer ? avio_alloc_context(buffer, kIoBufferSize, 0, io,
-                                                &ReadPacket, nullptr, &SeekPacket)
-                           : nullptr;
+  AVIOContext* pb = buffer
+                        ? avio_alloc_context(buffer, kIoBufferSize, 0, io,
+                                             &ReadPacket, nullptr, &SeekPacket)
+                        : nullptr;
   if (!pb) {
     av_free(buffer);
     return fail("out of memory");
@@ -941,8 +952,8 @@ AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url, std::string* error,
   pb->av_class = &kAvioClass;
   // HLS takes whatever "location" says, so it is never empty.
   std::string location = io->source->url();
-  io->options.location = av_strdup(location.empty() ? url.c_str()
-                                                    : location.c_str());
+  io->options.location =
+      av_strdup(location.empty() ? url.c_str() : location.c_str());
   return pb;
 }
 
@@ -957,8 +968,9 @@ void FFmpegDemuxer::CloseIo(AVIOContext* pb) {
 void FFmpegDemuxer::RemoveIo(Io* io) {
   std::unique_ptr<Io> removed;
   std::lock_guard<std::mutex> lock(ios_mutex_);
-  auto it = std::find_if(ios_.begin(), ios_.end(),
-                         [io](const std::unique_ptr<Io>& i) { return i.get() == io; });
+  auto it = std::find_if(
+      ios_.begin(), ios_.end(),
+      [io](const std::unique_ptr<Io>& i) { return i.get() == io; });
   // Destroyed after the unlock: an http source cancels its session.
   removed = std::move(*it);
   ios_.erase(it);

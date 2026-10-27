@@ -164,9 +164,10 @@ bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
   AMediaCodec* codec = nullptr;
   if (codecs_ == Codecs::kSoftwareOnly) {
     // Codec2's names from Android 10, OMX's before.
-    const char* names[] = {
-        converter_.hevc() ? "c2.android.hevc.decoder" : "c2.android.avc.decoder",
-        converter_.hevc() ? "OMX.google.hevc.decoder" : "OMX.google.h264.decoder"};
+    const char* names[] = {converter_.hevc() ? "c2.android.hevc.decoder"
+                                             : "c2.android.avc.decoder",
+                           converter_.hevc() ? "OMX.google.hevc.decoder"
+                                             : "OMX.google.h264.decoder"};
     for (const char* name : names) {
       if ((codec = AMediaCodec_createCodecByName(name))) {
         break;

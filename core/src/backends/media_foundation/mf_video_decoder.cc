@@ -101,7 +101,8 @@ MFVideoDecoder::~MFVideoDecoder() {
 }
 
 bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
-  if ((config.codec != VideoCodec::kH264 && config.codec != VideoCodec::kHEVC) ||
+  if ((config.codec != VideoCodec::kH264 &&
+       config.codec != VideoCodec::kHEVC) ||
       !converter_.Initialize(config)) {
     *error = "mediafoundation: not H.264 or HEVC";
     return false;
@@ -135,8 +136,8 @@ bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
       MFT_MESSAGE_SET_D3D_MANAGER,
       reinterpret_cast<ULONG_PTR>(device_manager_.Get()));
   if (FAILED(hr)) {
-    *error = "mediafoundation: MFT_MESSAGE_SET_D3D_MANAGER: " +
-             HResultString(hr);
+    *error =
+        "mediafoundation: MFT_MESSAGE_SET_D3D_MANAGER: " + HResultString(hr);
     return false;
   }
 
@@ -175,8 +176,8 @@ bool MFVideoDecoder::CreateDevice(std::string* error) {
                       : nullptr;
   HRESULT hr = D3D11CreateDevice(
       adapter, adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
-      nullptr, D3D11_CREATE_DEVICE_VIDEO_SUPPORT, nullptr, 0,
-      D3D11_SDK_VERSION, &d3d11_device_, nullptr, nullptr);
+      nullptr, D3D11_CREATE_DEVICE_VIDEO_SUPPORT, nullptr, 0, D3D11_SDK_VERSION,
+      &d3d11_device_, nullptr, nullptr);
   if (FAILED(hr)) {
     *error = "mediafoundation: D3D11CreateDevice: " + HResultString(hr);
     return false;
@@ -227,9 +228,8 @@ bool MFVideoDecoder::SetOutputType() {
     const ColorInfo color = OutputColor(type.Get(), config_.color);
     color_space_ = DxgiColorSpace(color, height_);
     MFT_OUTPUT_STREAM_INFO info = {};
-    provides_samples_ =
-        SUCCEEDED(decoder_->GetOutputStreamInfo(0, &info)) &&
-        (info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES);
+    provides_samples_ = SUCCEEDED(decoder_->GetOutputStreamInfo(0, &info)) &&
+                        (info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES);
     LOGI("%s output %s %dx%d transfer=%d matrix=%d%s", name(),
          subtype == MFVideoFormat_P010 ? "P010" : "NV12", width_, height_,
          color.transfer, color.matrix, provides_samples_ ? "" : " (memory)");
@@ -351,8 +351,8 @@ std::shared_ptr<VideoFrame> MFVideoDecoder::CreateFrame(IMFSample* sample) {
          output_textures_ ? "D3D11 textures" : "CPU BGRA");
   }
   LONGLONG time = 0;
-  frame->pts = SUCCEEDED(sample->GetSampleTime(&time)) ? time / 10
-                                                        : kNoTimestamp;
+  frame->pts =
+      SUCCEEDED(sample->GetSampleTime(&time)) ? time / 10 : kNoTimestamp;
   frame->duration =
       SUCCEEDED(sample->GetSampleDuration(&time)) && time > 0 ? time / 10 : 0;
   return frame;

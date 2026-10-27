@@ -24,8 +24,8 @@ class BitReader {
         ok_ = false;
         return 0;
       }
-      value = (value << 1) |
-              ((data_[position_ / 8] >> (7 - position_ % 8)) & 1);
+      value =
+          (value << 1) | ((data_[position_ / 8] >> (7 - position_ % 8)) & 1);
       ++position_;
     }
     return value;
@@ -79,9 +79,9 @@ std::vector<uint8_t> Rbsp(const uint8_t* nal, size_t size) {
 
 // Table E-1 of ITU-T H.264 (and H.265), aspect_ratio_idc 1 to 16.
 constexpr int kSampleAspectRatios[16][2] = {
-    {1, 1},   {12, 11}, {10, 11}, {16, 11}, {40, 33}, {24, 11},
-    {20, 11}, {32, 11}, {80, 33}, {18, 11}, {15, 11}, {64, 33},
-    {160, 99}, {4, 3},  {3, 2},   {2, 1}};
+    {1, 1},    {12, 11}, {10, 11}, {16, 11}, {40, 33}, {24, 11},
+    {20, 11},  {32, 11}, {80, 33}, {18, 11}, {15, 11}, {64, 33},
+    {160, 99}, {4, 3},   {3, 2},   {2, 1}};
 
 void SkipScalingList(BitReader* reader, int size) {
   int last = 8;
@@ -104,8 +104,19 @@ bool ParseH264Sps(const uint8_t* nal, size_t size, AccessUnitInfo* info) {
   uint32_t chroma_format = 1;
   bool separate_planes = false;
   switch (profile) {
-    case 100: case 110: case 122: case 244: case 44: case 83: case 86:
-    case 118: case 128: case 138: case 139: case 134: case 135:
+    case 100:
+    case 110:
+    case 122:
+    case 244:
+    case 44:
+    case 83:
+    case 86:
+    case 118:
+    case 128:
+    case 138:
+    case 139:
+    case 134:
+    case 135:
       chroma_format = reader.Ue();
       if (chroma_format > 3) {
         return false;
@@ -113,9 +124,9 @@ bool ParseH264Sps(const uint8_t* nal, size_t size, AccessUnitInfo* info) {
       if (chroma_format == 3) {
         separate_planes = reader.Flag();
       }
-      reader.Ue();  // bit_depth_luma_minus8
-      reader.Ue();  // bit_depth_chroma_minus8
-      reader.Flag();  // qpprime_y_zero_transform_bypass_flag
+      reader.Ue();          // bit_depth_luma_minus8
+      reader.Ue();          // bit_depth_chroma_minus8
+      reader.Flag();        // qpprime_y_zero_transform_bypass_flag
       if (reader.Flag()) {  // seq_scaling_matrix_present_flag
         const int lists = chroma_format == 3 ? 12 : 8;
         for (int i = 0; i < lists; ++i) {
@@ -152,7 +163,7 @@ bool ParseH264Sps(const uint8_t* nal, size_t size, AccessUnitInfo* info) {
   if (!frame_mbs_only) {
     reader.Flag();  // mb_adaptive_frame_field_flag
   }
-  reader.Flag();  // direct_8x8_inference_flag
+  reader.Flag();                    // direct_8x8_inference_flag
   uint32_t crop[4] = {0, 0, 0, 0};  // left, right, top, bottom
   if (reader.Flag()) {
     for (uint32_t& value : crop) {
@@ -168,8 +179,7 @@ bool ParseH264Sps(const uint8_t* nal, size_t size, AccessUnitInfo* info) {
   const uint32_t sub_height = chroma_array == 1 ? 2 : 1;
   const uint32_t field_factor = frame_mbs_only ? 1 : 2;
   const uint32_t crop_x = chroma_array == 0 ? 1 : sub_width;
-  const uint32_t crop_y =
-      (chroma_array == 0 ? 1 : sub_height) * field_factor;
+  const uint32_t crop_y = (chroma_array == 0 ? 1 : sub_height) * field_factor;
   const int64_t width = static_cast<int64_t>(width_mbs) * 16 -
                         static_cast<int64_t>(crop_x) * (crop[0] + crop[1]);
   const int64_t height =
@@ -182,7 +192,7 @@ bool ParseH264Sps(const uint8_t* nal, size_t size, AccessUnitInfo* info) {
   info->height = static_cast<int>(height);
   info->sar_num = info->sar_den = 1;
   info->color = ColorInfo();
-  if (reader.Flag()) {  // vui_parameters_present_flag
+  if (reader.Flag()) {    // vui_parameters_present_flag
     if (reader.Flag()) {  // aspect_ratio_info_present_flag
       const uint32_t idc = reader.Bits(8);
       if (idc == 255) {

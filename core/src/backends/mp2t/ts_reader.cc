@@ -135,8 +135,8 @@ bool TsReader::Sync(std::string* error) {
     filled += static_cast<size_t>(n);
   }
   buffer_.resize(filled);
-  for (int stride : {static_cast<int>(kTsPacketSize),
-                     static_cast<int>(kTsPacketSize) + 4}) {
+  for (int stride :
+       {static_cast<int>(kTsPacketSize), static_cast<int>(kTsPacketSize) + 4}) {
     int64_t at = FindSync(buffer_.data(), buffer_.size(), stride);
     if (at >= 0) {
       packet_size_ = stride;
@@ -198,7 +198,8 @@ bool TsReader::ReadMore() {
         }
       }
       if (synced_) {
-        LOGW("lost sync at byte %lld", static_cast<long long>(buffer_offset_ + p));
+        LOGW("lost sync at byte %lld",
+             static_cast<long long>(buffer_offset_ + p));
         synced_ = false;
       }
       p = found || !eof_ ? q : buffer_.size();
@@ -292,15 +293,15 @@ void TsReader::Restart(int64_t offset, int64_t reference) {
   eof_ = false;
   flushed_ = false;
   synced_ = true;
-  reference_ = reference == kNoTimestamp ? kNoTimestamp : MicrosToTicks(reference);
+  reference_ =
+      reference == kNoTimestamp ? kNoTimestamp : MicrosToTicks(reference);
   last_ticks_ = kNoTimestamp;
 }
 
 int64_t TsReader::Unwrap(int64_t ticks) {
   const int64_t reference =
       last_ticks_ != kNoTimestamp ? last_ticks_ : reference_;
-  last_ticks_ =
-      reference == kNoTimestamp ? ticks : Nearest(ticks, reference);
+  last_ticks_ = reference == kNoTimestamp ? ticks : Nearest(ticks, reference);
   return last_ticks_;
 }
 
@@ -364,8 +365,7 @@ void TsReader::OnPes(const PesPacket& pes) {
   TsStream& stream = streams_[index];
   const int64_t pts =
       pes.pts >= 0 ? TicksToMicros(Unwrap(pes.pts)) : kNoTimestamp;
-  const int64_t dts =
-      pes.dts >= 0 ? TicksToMicros(Unwrap(pes.dts)) : pts;
+  const int64_t dts = pes.dts >= 0 ? TicksToMicros(Unwrap(pes.dts)) : pts;
 
   if (stream.info.type == MediaType::kAudio &&
       stream.info.audio.codec == AudioCodec::kAAC) {

@@ -92,7 +92,8 @@ class FileDataSource : public DataSource {
 
 class MemoryDataSource : public DataSource {
  public:
-  explicit MemoryDataSource(std::vector<uint8_t> data) : data_(std::move(data)) {}
+  explicit MemoryDataSource(std::vector<uint8_t> data)
+      : data_(std::move(data)) {}
 
   int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
     if (offset < 0) {

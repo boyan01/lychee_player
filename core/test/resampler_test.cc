@@ -22,7 +22,9 @@ std::vector<float> Sine(double frequency, int rate, int frames, int channels) {
 
 // The largest error against the sine at the output's times, away from the
 // edges, where the filter sees silence.
-double MaxError(const std::vector<float>& output, double frequency, int rate,
+double MaxError(const std::vector<float>& output,
+                double frequency,
+                int rate,
                 int channels) {
   const int frames = static_cast<int>(output.size()) / channels;
   double error = 0;

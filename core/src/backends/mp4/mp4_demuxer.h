@@ -116,10 +116,14 @@ class Mp4Demuxer : public Demuxer {
                  std::vector<int64_t>* decode_times,
                  MoofSummary* summary);
   // Reads the top-level box at |offset|. kEnd at the end of the data.
-  LoadResult ReadBoxHeader(int64_t offset, uint32_t* type, uint64_t* size,
+  LoadResult ReadBoxHeader(int64_t offset,
+                           uint32_t* type,
+                           uint64_t* size,
                            uint64_t* header);
   // Reads the moof at |offset| into |moof|, setting error_ on failure.
-  LoadResult ReadMoof(int64_t offset, uint64_t size, std::vector<uint8_t>* moof);
+  LoadResult ReadMoof(int64_t offset,
+                      uint64_t size,
+                      std::vector<uint8_t>* moof);
   // Reads the next moof into the tracks.
   LoadResult LoadNextFragment();
   // Loads fragments until every enabled track has a sample to read, or

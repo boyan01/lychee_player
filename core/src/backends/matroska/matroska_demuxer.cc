@@ -127,8 +127,13 @@ struct Child {
 // An EBML variable-length integer at |data[*pos]|. IDs keep their marker
 // bits and are at most four bytes. Sizes with every value bit set are
 // unknown (|*unknown|).
-bool ReadVint(const uint8_t* data, size_t size, size_t* pos, bool id,
-              uint64_t* value, bool* unknown = nullptr, int* length = nullptr) {
+bool ReadVint(const uint8_t* data,
+              size_t size,
+              size_t* pos,
+              bool id,
+              uint64_t* value,
+              bool* unknown = nullptr,
+              int* length = nullptr) {
   if (*pos >= size || data[*pos] == 0) {
     return false;
   }
@@ -177,8 +182,8 @@ std::vector<Child> Children(const uint8_t* data, size_t size) {
     if (length > size - pos) {
       break;
     }
-    children.push_back({static_cast<uint32_t>(id), data + pos,
-                        static_cast<size_t>(length)});
+    children.push_back(
+        {static_cast<uint32_t>(id), data + pos, static_cast<size_t>(length)});
     pos += static_cast<size_t>(length);
   }
   return children;
@@ -237,7 +242,8 @@ bool IsTopLevel(uint32_t id) {
 
 // A two-byte AudioSpecificConfig for the old A_AAC/MPEG2/... and
 // A_AAC/MPEG4/... codec IDs, which carry no CodecPrivate.
-std::vector<uint8_t> AacConfig(const std::string& codec_id, int sample_rate,
+std::vector<uint8_t> AacConfig(const std::string& codec_id,
+                               int sample_rate,
                                int channels) {
   int object_type = 2;  // LC
   if (codec_id.find("/MAIN") != std::string::npos) {
@@ -247,16 +253,16 @@ std::vector<uint8_t> AacConfig(const std::string& codec_id, int sample_rate,
   } else if (codec_id.find("/LTP") != std::string::npos) {
     object_type = 4;
   }
-  static const int kRates[] = {96000, 88200, 64000, 48000, 44100,
-                               32000, 24000, 22050, 16000, 12000,
-                               11025, 8000,  7350};
+  static const int kRates[] = {96000, 88200, 64000, 48000, 44100, 32000, 24000,
+                               22050, 16000, 12000, 11025, 8000,  7350};
   int index = 4;
   for (int i = 0; i < 13; ++i) {
     if (kRates[i] == sample_rate) {
       index = i;
     }
   }
-  const int config = (object_type << 11) | (index << 7) | ((channels & 0xf) << 3);
+  const int config =
+      (object_type << 11) | (index << 7) | ((channels & 0xf) << 3);
   return {static_cast<uint8_t>(config >> 8), static_cast<uint8_t>(config)};
 }
 
@@ -349,10 +355,14 @@ void MapSubtitleCodec(const std::string& id, SubtitleConfig* config) {
 
 bool IsFont(const std::string& media_type, const std::string& name) {
   static const char* kTypes[] = {
-      "application/x-truetype-font", "application/x-font-ttf",
-      "application/vnd.ms-opentype", "application/font-sfnt",
-      "font/ttf",                    "font/otf",
-      "font/sfnt",                   "font/collection",
+      "application/x-truetype-font",
+      "application/x-font-ttf",
+      "application/vnd.ms-opentype",
+      "application/font-sfnt",
+      "font/ttf",
+      "font/otf",
+      "font/sfnt",
+      "font/collection",
   };
   for (const char* type : kTypes) {
     if (media_type == type) {
@@ -374,7 +384,8 @@ bool IsFont(const std::string& media_type, const std::string& name) {
 // followed by kPacketPadding zero bytes.
 class BlockBuffer : public PacketBuffer {
  public:
-  BlockBuffer(std::shared_ptr<std::vector<uint8_t>> bytes, size_t offset,
+  BlockBuffer(std::shared_ptr<std::vector<uint8_t>> bytes,
+              size_t offset,
               size_t size)
       : bytes_(std::move(bytes)) {
     data_ = bytes_->data() + offset;
@@ -430,9 +441,10 @@ int64_t MatroskaDemuxer::ReadAt(int64_t offset, uint8_t* data, size_t size) {
     const int64_t at = offset + static_cast<int64_t>(done);
     if (at >= cache_offset_ &&
         at < cache_offset_ + static_cast<int64_t>(cache_.size())) {
-      size_t n = std::min(size - done,
-                          static_cast<size_t>(cache_offset_ +
-                                              static_cast<int64_t>(cache_.size()) - at));
+      size_t n = std::min(
+          size - done,
+          static_cast<size_t>(cache_offset_ +
+                              static_cast<int64_t>(cache_.size()) - at));
       memcpy(data + done, cache_.data() + (at - cache_offset_), n);
       done += n;
       continue;
@@ -477,7 +489,7 @@ MatroskaDemuxer::Status MatroskaDemuxer::ReadElementHeader(int64_t offset,
     // if any were there).
     bool short_read = got < static_cast<int64_t>(sizeof(header));
     return short_read && (got == 0 || header[0] != 0) ? Status::kEnd
-                                                       : Status::kInvalid;
+                                                      : Status::kInvalid;
   }
   element->id = static_cast<uint32_t>(id);
   element->offset = offset;
@@ -554,7 +566,8 @@ bool MatroskaDemuxer::ParseHeaders(std::string* error) {
     status = ReadElementHeader(position, &element);
     if (status != Status::kOk || i > 16 ||
         (element.id != kSegment && element.size < 0)) {
-      *error = status == Status::kError ? source_->error() : "no Matroska segment";
+      *error =
+          status == Status::kError ? source_->error() : "no Matroska segment";
       return false;
     }
     if (element.id == kSegment) {
@@ -656,8 +669,8 @@ bool MatroskaDemuxer::ParseHeaders(std::string* error) {
     LOGW("no Info element: timestamps in milliseconds");
   }
   // The first cluster's timestamp is where the presentation starts.
-  if (first_cluster_ >= 0 && ReadElementHeader(first_cluster_, &element) ==
-                                 Status::kOk) {
+  if (first_cluster_ >= 0 &&
+      ReadElementHeader(first_cluster_, &element) == Status::kOk) {
     uint8_t head[32];
     int64_t got = ReadAt(element.body, head, sizeof(head));
     if (got > 0) {
@@ -669,8 +682,9 @@ bool MatroskaDemuxer::ParseHeaders(std::string* error) {
     }
   }
   media_info_.seekable = file_size_ > 0 && first_cluster_ >= 0;
-  position_ = first_cluster_ >= 0 ? first_cluster_
-                                  : (segment_end_ >= 0 ? segment_end_ : position);
+  position_ = first_cluster_ >= 0
+                  ? first_cluster_
+                  : (segment_end_ >= 0 ? segment_end_ : position);
   in_cluster_ = false;
   LOGI("%s: %zu tracks, duration %.3f s, %s", doc_type.c_str(),
        media_info_.streams.size(),
@@ -865,7 +879,8 @@ bool MatroskaDemuxer::ParseTrackEntry(const uint8_t* data, size_t size) {
           // Only header stripping: zlib, bzlib and LZO need libraries, and
           // encrypted tracks keys.
           if (encoding_type != 0 || !compression || algorithm != 3) {
-            LOGW("track %llu: %s; skipped", static_cast<unsigned long long>(number),
+            LOGW("track %llu: %s; skipped",
+                 static_cast<unsigned long long>(number),
                  encoding_type != 0 ? "encrypted" : "compressed");
             return false;
           }
@@ -905,16 +920,20 @@ bool MatroskaDemuxer::ParseTrackEntry(const uint8_t* data, size_t size) {
       for (const Child& child : Children(video->data, video->size)) {
         switch (child.id) {
           case kPixelWidth:
-            config.width = static_cast<int>(std::min<uint64_t>(UInt(child), 1 << 16));
+            config.width =
+                static_cast<int>(std::min<uint64_t>(UInt(child), 1 << 16));
             break;
           case kPixelHeight:
-            config.height = static_cast<int>(std::min<uint64_t>(UInt(child), 1 << 16));
+            config.height =
+                static_cast<int>(std::min<uint64_t>(UInt(child), 1 << 16));
             break;
           case kDisplayWidth:
-            display_width = static_cast<int64_t>(std::min<uint64_t>(UInt(child), 1 << 16));
+            display_width =
+                static_cast<int64_t>(std::min<uint64_t>(UInt(child), 1 << 16));
             break;
           case kDisplayHeight:
-            display_height = static_cast<int64_t>(std::min<uint64_t>(UInt(child), 1 << 16));
+            display_height =
+                static_cast<int64_t>(std::min<uint64_t>(UInt(child), 1 << 16));
             break;
           case kDisplayUnit:
             display_unit = UInt(child);
@@ -1013,8 +1032,8 @@ bool MatroskaDemuxer::ParseTrackEntry(const uint8_t* data, size_t size) {
 
   // The first track of each type the file marks default, else the first.
   auto pick = [&](int* chosen) {
-    if (*chosen < 0 || (info.default_track &&
-                        !media_info_.streams[*chosen].default_track)) {
+    if (*chosen < 0 ||
+        (info.default_track && !media_info_.streams[*chosen].default_track)) {
       *chosen = info.index;
     }
   };
@@ -1072,9 +1091,9 @@ void MatroskaDemuxer::ParseTags(const std::vector<uint8_t>& body) {
       }
       std::transform(key.begin(), key.end(), key.begin(),
                      [](unsigned char c) { return std::tolower(c); });
-      auto same = std::find_if(
-          media_info_.metadata.begin(), media_info_.metadata.end(),
-          [&](const auto& entry) { return entry.first == key; });
+      auto same =
+          std::find_if(media_info_.metadata.begin(), media_info_.metadata.end(),
+                       [&](const auto& entry) { return entry.first == key; });
       if (same == media_info_.metadata.end()) {
         media_info_.metadata.emplace_back(std::move(key), std::move(value));
       }
@@ -1126,7 +1145,8 @@ void MatroskaDemuxer::ParseCues(const std::vector<uint8_t>& body) {
     std::vector<Child> fields = Children(point.data, point.size);
     for (const Child& field : fields) {
       if (field.id == kCueTime) {
-        time = static_cast<int64_t>(std::min<uint64_t>(UInt(field), 1ull << 52));
+        time =
+            static_cast<int64_t>(std::min<uint64_t>(UInt(field), 1ull << 52));
       }
     }
     if (time < 0) {
@@ -1155,10 +1175,9 @@ void MatroskaDemuxer::ParseCues(const std::vector<uint8_t>& body) {
       cues_.push_back({ToMicros(time), track, absolute});
     }
   }
-  std::stable_sort(cues_.begin(), cues_.end(),
-                   [](const CuePoint& a, const CuePoint& b) {
-                     return a.time < b.time;
-                   });
+  std::stable_sort(
+      cues_.begin(), cues_.end(),
+      [](const CuePoint& a, const CuePoint& b) { return a.time < b.time; });
 }
 
 void MatroskaDemuxer::LoadCues() {
@@ -1262,7 +1281,8 @@ MatroskaDemuxer::Track* MatroskaDemuxer::TrackByNumber(uint64_t number) {
   return nullptr;
 }
 
-void MatroskaDemuxer::SetEnabledStreams(const std::vector<int>& stream_indices) {
+void MatroskaDemuxer::SetEnabledStreams(
+    const std::vector<int>& stream_indices) {
   for (Track& track : tracks_) {
     track.enabled = std::find(stream_indices.begin(), stream_indices.end(),
                               track.stream) != stream_indices.end();
@@ -1442,8 +1462,9 @@ DemuxerReadResult MatroskaDemuxer::ParseNext() {
       // Blocks of tracks not read are skipped unread.
       if (element.id == kSimpleBlock) {
         uint8_t head[8];
-        int64_t got = ReadAt(element.body, head,
-                             static_cast<size_t>(std::min<int64_t>(element.size, 8)));
+        int64_t got =
+            ReadAt(element.body, head,
+                   static_cast<size_t>(std::min<int64_t>(element.size, 8)));
         size_t pos = 0;
         uint64_t number = 0;
         if (got > 0 &&
@@ -1594,8 +1615,8 @@ void MatroskaDemuxer::ParseBlock(std::shared_ptr<std::vector<uint8_t>> bytes,
 
   if (track->webvtt_lines && sizes.size() == 1) {
     for (int line = 0; line < 2; ++line) {
-      const uint8_t* end = static_cast<const uint8_t*>(
-          memchr(data + pos, '\n', sizes[0]));
+      const uint8_t* end =
+          static_cast<const uint8_t*>(memchr(data + pos, '\n', sizes[0]));
       if (!end) {
         break;
       }
@@ -1612,7 +1633,8 @@ void MatroskaDemuxer::ParseBlock(std::shared_ptr<std::vector<uint8_t>> bytes,
     frame_duration = ToMicros((track->default_duration + timestamp_scale_ / 2) /
                               timestamp_scale_);
   } else if (duration_ticks >= 0) {
-    frame_duration = ToMicros(duration_ticks) / static_cast<int64_t>(sizes.size());
+    frame_duration =
+        ToMicros(duration_ticks) / static_cast<int64_t>(sizes.size());
   }
   last_time_ = std::max(
       last_time_, time + frame_duration * static_cast<int64_t>(sizes.size()));
@@ -1699,10 +1721,9 @@ bool MatroskaDemuxer::Seek(int64_t time) {
   uint64_t cue_track = 0;
   int best = -1;
   for (const Track& track : tracks_) {
-    bool has_cues = std::any_of(cues_.begin(), cues_.end(),
-                                [&](const CuePoint& cue) {
-                                  return cue.track == track.number;
-                                });
+    bool has_cues = std::any_of(
+        cues_.begin(), cues_.end(),
+        [&](const CuePoint& cue) { return cue.track == track.number; });
     if (!has_cues) {
       continue;
     }

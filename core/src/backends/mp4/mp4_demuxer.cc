@@ -161,7 +161,8 @@ int64_t Rescale(int64_t ticks, int64_t timescale) {
     return 0;
   }
   constexpr int64_t kMaxSeconds = int64_t{1} << 33;
-  return std::clamp(ticks / timescale, -kMaxSeconds, kMaxSeconds) * kMicrosPerSecond +
+  return std::clamp(ticks / timescale, -kMaxSeconds, kMaxSeconds) *
+             kMicrosPerSecond +
          ticks % timescale * kMicrosPerSecond / timescale;
 }
 
@@ -476,8 +477,9 @@ bool Mp4Demuxer::Open(std::unique_ptr<DataSource> source, std::string* error) {
       file_size_ = file_size;
       try {
         std::vector<uint8_t> moov(size - header_size);
-        LoadResult result = ReadFully(offset + static_cast<int64_t>(header_size),
-                                      moov.data(), moov.size());
+        LoadResult result =
+            ReadFully(offset + static_cast<int64_t>(header_size), moov.data(),
+                      moov.size());
         if (result != LoadResult::kLoaded) {
           *error = result == LoadResult::kEnd ? "truncated moov box" : error_;
           return false;
@@ -582,8 +584,8 @@ bool Mp4Demuxer::ParseMoov(const uint8_t* data, size_t size, std::string* error)
       int box_version = reader.U8();
       reader.Skip(3);
       if (box.type == FourCC("mehd")) {
-        auto fragment_duration =
-            static_cast<int64_t>(box_version == 1 ? reader.U64() : reader.U32());
+        auto fragment_duration = static_cast<int64_t>(
+            box_version == 1 ? reader.U64() : reader.U32());
         if (reader.ok() && fragment_duration > 0) {
           fragment_duration_ = Rescale(fragment_duration, timescale);
         }
@@ -706,7 +708,8 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
   } else {
     // 3GPP timed text (tx3g) or QuickTime text: both a 16-bit length and
     // the text, then style boxes, in each sample.
-    if (entries[0].type != FourCC("tx3g") && entries[0].type != FourCC("text")) {
+    if (entries[0].type != FourCC("tx3g") &&
+        entries[0].type != FourCC("text")) {
       return false;
     }
     info.subtitle.codec_name = "mov_text";
@@ -714,8 +717,8 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
     // As FFmpeg has it: the entry after its reserved bytes and
     // data_reference_index.
     if (entries[0].payload_size > 8) {
-      info.subtitle.extradata.assign(entries[0].payload + 8,
-                                     entries[0].payload + entries[0].payload_size);
+      info.subtitle.extradata.assign(
+          entries[0].payload + 8, entries[0].payload + entries[0].payload_size);
     }
   }
 
@@ -742,7 +745,8 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
           break;
         }
         if (time == -1) {
-          track.empty = ClampTicks(track.empty + Rescale(segment, movie_timescale));
+          track.empty =
+              ClampTicks(track.empty + Rescale(segment, movie_timescale));
         } else {
           track.media_time = std::clamp<int64_t>(time, 0, kMaxTicks);
           break;
@@ -803,8 +807,8 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
     // reader never runs out) would let the count alone fill memory.
     if ((field != 4 && field != 8 && field != 16) ||
         uint64_t{count} * field > uint64_t{stz2.remaining()} * 8) {
-      LOGW("track %zu: bad stz2 (%d-bit, %u samples); skipped",
-           tracks_.size(), field, count);
+      LOGW("track %zu: bad stz2 (%d-bit, %u samples); skipped", tracks_.size(),
+           field, count);
       return false;
     }
     for (uint32_t i = 0; i < count && stz2.ok(); ++i) {
@@ -953,8 +957,9 @@ Mp4Demuxer::Sample Mp4Demuxer::MakeSample(const Track& track,
   sample.sync = sync;
   sample.pts = Rescale(dts + composition - track.media_time, track.timescale) +
                track.empty;
-  sample.dts = Rescale(dts - track.dts_shift - track.media_time, track.timescale) +
-               track.empty;
+  sample.dts =
+      Rescale(dts - track.dts_shift - track.media_time, track.timescale) +
+      track.empty;
   sample.duration = Rescale(duration, track.timescale);
   return sample;
 }
@@ -1067,9 +1072,10 @@ bool Mp4Demuxer::OpenFragments(std::string* error) {
   } else if (fragment_end_ != kNoTimestamp || moov_end != kNoTimestamp) {
     media_info_.duration = std::max(fragment_end_, moov_end);
   }
-  LOGI("fragmented: %zu seek points%s, duration %.3f s", seek_points_.size(),
-       index_complete_ ? "" : " so far",
-       media_info_.duration == kNoTimestamp ? -1.0 : media_info_.duration / 1e6);
+  LOGI(
+      "fragmented: %zu seek points%s, duration %.3f s", seek_points_.size(),
+      index_complete_ ? "" : " so far",
+      media_info_.duration == kNoTimestamp ? -1.0 : media_info_.duration / 1e6);
   return true;
 }
 
@@ -1113,11 +1119,13 @@ bool Mp4Demuxer::ReadMfra() {
     uint32_t lengths = reader.U32();
     uint32_t count = reader.U32();
     // traf_number, trun_number and sample_number take 1 to 4 bytes each.
-    const size_t numbers = ((lengths >> 4) & 3) + ((lengths >> 2) & 3) +
-                           (lengths & 3) + 3;
+    const size_t numbers =
+        ((lengths >> 4) & 3) + ((lengths >> 2) & 3) + (lengths & 3) + 3;
     for (uint32_t i = 0; i < count && reader.ok(); ++i) {
-      int64_t time = static_cast<int64_t>(version == 1 ? reader.U64() : reader.U32());
-      auto moof = static_cast<int64_t>(version == 1 ? reader.U64() : reader.U32());
+      int64_t time =
+          static_cast<int64_t>(version == 1 ? reader.U64() : reader.U32());
+      auto moof =
+          static_cast<int64_t>(version == 1 ? reader.U64() : reader.U32());
       reader.Skip(numbers);
       if (reader.ok() && moof >= first_fragment_offset_ && moof < offset) {
         points.push_back(
@@ -1130,8 +1138,9 @@ bool Mp4Demuxer::ReadMfra() {
   if (points.empty()) {
     return false;
   }
-  std::stable_sort(points.begin(), points.end(),
-                   [](const SeekPoint& a, const SeekPoint& b) { return a.time < b.time; });
+  std::stable_sort(
+      points.begin(), points.end(),
+      [](const SeekPoint& a, const SeekPoint& b) { return a.time < b.time; });
   seek_points_ = std::move(points);
   index_complete_ = true;
   return true;
@@ -1165,7 +1174,8 @@ void Mp4Demuxer::ReadSidx() {
     reader.Skip(3);
     uint32_t id = reader.U32();
     int64_t timescale = reader.U32();
-    auto time = static_cast<int64_t>(version == 1 ? reader.U64() : reader.U32());
+    auto time =
+        static_cast<int64_t>(version == 1 ? reader.U64() : reader.U32());
     uint64_t first_offset = version == 1 ? reader.U64() : reader.U32();
     reader.Skip(2);
     uint16_t count = reader.U16();
@@ -1334,8 +1344,8 @@ void Mp4Demuxer::ParseMoof(const uint8_t* data,
       auto run_flags = static_cast<uint32_t>(run.Bits(3));
       size_t count = run.U32();
       if (run_flags & kTrunDataOffset) {
-        position = base + static_cast<uint64_t>(
-                              static_cast<int64_t>(static_cast<int32_t>(run.U32())));
+        position = base + static_cast<uint64_t>(static_cast<int64_t>(
+                              static_cast<int32_t>(run.U32())));
       }
       uint32_t first_flags = run_flags & kTrunFirstSampleFlags ? run.U32() : 0;
       if (!run.ok()) {
@@ -1373,19 +1383,22 @@ void Mp4Demuxer::ParseMoof(const uint8_t* data,
         }
       }
       for (size_t i = 0; i < count; ++i) {
-        uint32_t duration = run_flags & kTrunDuration ? run.U32() : default_duration;
+        uint32_t duration =
+            run_flags & kTrunDuration ? run.U32() : default_duration;
         uint32_t sample_size = run_flags & kTrunSize ? run.U32() : default_size;
-        uint32_t sample_flags = run_flags & kTrunFlags ? run.U32() : default_flags;
+        uint32_t sample_flags =
+            run_flags & kTrunFlags ? run.U32() : default_flags;
         if (i == 0 && (run_flags & kTrunFirstSampleFlags)) {
           sample_flags = first_flags;
         }
-        int64_t composition =
-            run_flags & kTrunCompositionOffset ? static_cast<int32_t>(run.U32()) : 0;
+        int64_t composition = run_flags & kTrunCompositionOffset
+                                  ? static_cast<int32_t>(run.U32())
+                                  : 0;
         if (!run.ok()) {
           break;
         }
-        const bool sync =
-            track.type != MediaType::kVideo || !(sample_flags & kSampleIsNonSync);
+        const bool sync = track.type != MediaType::kVideo ||
+                          !(sample_flags & kSampleIsNonSync);
         Sample sample = MakeSample(track, position, sample_size, sync, dts,
                                    composition, duration);
         summary->samples++;
@@ -1413,8 +1426,9 @@ Mp4Demuxer::LoadResult Mp4Demuxer::LoadNextFragment() {
   // Only what was not read yet stays.
   for (Track& track : tracks_) {
     if (track.enabled) {
-      track.samples.erase(track.samples.begin(),
-                          track.samples.begin() + static_cast<ptrdiff_t>(track.next));
+      track.samples.erase(
+          track.samples.begin(),
+          track.samples.begin() + static_cast<ptrdiff_t>(track.next));
     } else {
       track.samples.clear();
     }
@@ -1473,7 +1487,8 @@ Mp4Demuxer::LoadResult Mp4Demuxer::FillFragments() {
       }
       // After a seek: from the sample that covers the target (for video,
       // from a keyframe).
-      while (track.skip_before != kNoTimestamp && track.next < track.samples.size()) {
+      while (track.skip_before != kNoTimestamp &&
+             track.next < track.samples.size()) {
         const Sample& sample = track.samples[track.next];
         if (sample.dts + sample.duration > track.skip_before &&
             (sample.sync || track.type != MediaType::kVideo)) {
@@ -1530,8 +1545,8 @@ Mp4Demuxer::LoadResult Mp4Demuxer::StartAt(int64_t offset, int64_t time) {
 std::vector<int64_t> Mp4Demuxer::DecodeTimesAt(int64_t time) const {
   std::vector<int64_t> decode_times;
   for (const Track& track : tracks_) {
-    decode_times.push_back(
-        ClampTicks(ToTicks(time - track.empty, track.timescale) + track.media_time));
+    decode_times.push_back(ClampTicks(
+        ToTicks(time - track.empty, track.timescale) + track.media_time));
   }
   return decode_times;
 }
@@ -1563,11 +1578,13 @@ Mp4Demuxer::LoadResult Mp4Demuxer::Scan(int64_t* offset,
       return result;
     }
     MoofSummary summary;
-    ParseMoof(moof.data(), moof.size(), box_offset, false, decode_times, &summary);
+    ParseMoof(moof.data(), moof.size(), box_offset, false, decode_times,
+              &summary);
     fragment_end_ = std::max(fragment_end_, summary.end);
     scanned_samples_ += summary.samples;
     if (scanned_samples_ > kMaxSamples) {
-      LOGW("more than %zu samples in the fragments; the rest not indexed", kMaxSamples);
+      LOGW("more than %zu samples in the fragments; the rest not indexed",
+           kMaxSamples);
       return LoadResult::kEnd;
     }
     if (add_points && summary.sync_time != kNoTimestamp) {
@@ -1585,7 +1602,8 @@ Mp4Demuxer::LoadResult Mp4Demuxer::Scan(int64_t* offset,
 
 Mp4Demuxer::LoadResult Mp4Demuxer::ScanIndex(int64_t time) {
   if (index_complete_ ||
-      (!seek_points_.empty() && seek_points_.back().offset >= first_fragment_offset_ &&
+      (!seek_points_.empty() &&
+       seek_points_.back().offset >= first_fragment_offset_ &&
        seek_points_.back().time > time)) {
     return LoadResult::kLoaded;
   }
@@ -1610,16 +1628,18 @@ bool Mp4Demuxer::SeekFragments(int64_t time) {
   // keyframe at or before it (an index of fragment starts, B-frames):
   // then the one before.
   size_t point = static_cast<size_t>(
-      std::upper_bound(seek_points_.begin(), seek_points_.end(), time,
-                       [](int64_t t, const SeekPoint& p) { return t < p.time; }) -
+      std::upper_bound(
+          seek_points_.begin(), seek_points_.end(), time,
+          [](int64_t t, const SeekPoint& p) { return t < p.time; }) -
       seek_points_.begin());
   point = point > 0 ? point - 1 : 0;
   Track& seek_track = tracks_[seek_track_];
   size_t keyframe;
   for (;;) {
-    LoadResult result = seek_points_.empty()
-                            ? StartAt(first_fragment_offset_, 0)
-                            : StartAt(seek_points_[point].offset, seek_points_[point].time);
+    LoadResult result =
+        seek_points_.empty()
+            ? StartAt(first_fragment_offset_, 0)
+            : StartAt(seek_points_[point].offset, seek_points_[point].time);
     if (result == LoadResult::kError || result == LoadResult::kAborted) {
       LOGW("seek to %.3f s: %s", time / 1e6,
            result == LoadResult::kAborted ? "interrupted" : error_.c_str());
@@ -1638,7 +1658,8 @@ bool Mp4Demuxer::SeekFragments(int64_t time) {
         break;
       }
     }
-    const bool before = keyframe < samples.size() && samples[keyframe].pts <= time;
+    const bool before =
+        keyframe < samples.size() && samples[keyframe].pts <= time;
     if (before || point == 0 || !seek_track.enabled) {
       break;
     }
@@ -1670,11 +1691,13 @@ void Mp4Demuxer::SetEnabledStreams(const std::vector<int>& stream_indices) {
   }
 }
 
-DemuxerReadResult Mp4Demuxer::Fail(int64_t at, const char* reason, const char* detail) {
+DemuxerReadResult Mp4Demuxer::Fail(int64_t at,
+                                   const char* reason,
+                                   const char* detail) {
   char message[160];
-  snprintf(message, sizeof(message), reason,
-           (at - media_info_.start_time) / 1e6,
-           media_info_.duration == kNoTimestamp ? 0.0 : media_info_.duration / 1e6);
+  snprintf(
+      message, sizeof(message), reason, (at - media_info_.start_time) / 1e6,
+      media_info_.duration == kNoTimestamp ? 0.0 : media_info_.duration / 1e6);
   error_ = message;
   LOGE("%s%s%s", message, *detail ? ": " : "", detail);
   return DemuxerReadResult::kError;
@@ -1727,7 +1750,8 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
       "input ended at %.3f s, before its duration of %.3f s "
       "(truncated file or lost connection)";
   if (sample.size > kMaxSampleSize) {
-    return Fail(sample.pts, "sample at %.3f s (of %.3f s) is too large: corrupt file", "");
+    return Fail(sample.pts,
+                "sample at %.3f s (of %.3f s) is too large: corrupt file", "");
   }
   // Data past the end of the file: the same as a read that ends early,
   // without allocating for it.
@@ -1740,7 +1764,8 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
   try {
     buffer = std::make_shared<Buffer>(sample.size);
   } catch (const std::bad_alloc&) {
-    return Fail(sample.pts, "out of memory for the sample at %.3f s (of %.3f s)", "");
+    return Fail(sample.pts,
+                "out of memory for the sample at %.3f s (of %.3f s)", "");
   }
   size_t filled = 0;
   while (filled < sample.size) {

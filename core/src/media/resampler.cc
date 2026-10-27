@@ -21,9 +21,7 @@ constexpr double kCutoff = 0.9;
 }  // namespace
 
 Resampler::Resampler(int channels, int input_rate, int output_rate)
-    : channels_(channels),
-      input_rate_(input_rate),
-      output_rate_(output_rate) {
+    : channels_(channels), input_rate_(input_rate), output_rate_(output_rate) {
   // Downsampling filters below the output's Nyquist frequency.
   const double cutoff =
       kCutoff * std::min(1.0, static_cast<double>(output_rate) / input_rate);
@@ -58,7 +56,8 @@ void Resampler::Reset() {
   time_ = (kHalf - 1) * output_rate_;
 }
 
-void Resampler::Push(const float* input, int frames,
+void Resampler::Push(const float* input,
+                     int frames,
                      std::vector<float>* output) {
   buffer_.insert(buffer_.end(), input,
                  input + static_cast<size_t>(frames) * channels_);
@@ -66,8 +65,9 @@ void Resampler::Push(const float* input, int frames,
   // Keep only what the next output frame's taps reach back to.
   const int64_t consumed = time_ / output_rate_ - (kHalf - 1);
   if (consumed > 0) {
-    buffer_.erase(buffer_.begin(),
-                  buffer_.begin() + static_cast<ptrdiff_t>(consumed) * channels_);
+    buffer_.erase(
+        buffer_.begin(),
+        buffer_.begin() + static_cast<ptrdiff_t>(consumed) * channels_);
     time_ -= consumed * output_rate_;
   }
 }

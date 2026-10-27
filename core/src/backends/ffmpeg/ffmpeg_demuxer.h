@@ -43,15 +43,19 @@ class FFmpegDemuxer : public Demuxer {
   static int InterruptCallback(void* opaque);
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
   struct Io;
-  static int IoOpen(AVFormatContext* s, AVIOContext** pb, const char* url,
-                    int flags, AVDictionary** options);
+  static int IoOpen(AVFormatContext* s,
+                    AVIOContext** pb,
+                    const char* url,
+                    int flags,
+                    AVDictionary** options);
   static int IoClose(AVFormatContext* s, AVIOContext* pb);
   static int ReadPacket(void* opaque, uint8_t* data, int size);
   static int64_t SeekPacket(void* opaque, int64_t offset, int whence);
   // Null with |error| set if the source cannot be opened or its first
   // bytes cannot be read; |cleartext_refused| then says whether FFmpeg's
   // http should read it instead (DataSource::cleartext_refused()).
-  AVIOContext* OpenIo(const std::string& url, std::string* error,
+  AVIOContext* OpenIo(const std::string& url,
+                      std::string* error,
                       bool* cleartext_refused);
   void CloseIo(AVIOContext* pb);
   void RemoveIo(Io* io);
@@ -104,7 +108,10 @@ class FFmpegDemuxer : public Demuxer {
   std::vector<Timeline> timelines_;
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
   // FFmpeg's own, for URLs DataSource does not read (data:, crypto:).
-  int (*default_io_open_)(AVFormatContext*, AVIOContext**, const char*, int,
+  int (*default_io_open_)(AVFormatContext*,
+                          AVIOContext**,
+                          const char*,
+                          int,
                           AVDictionary**) = nullptr;
   int (*default_io_close_)(AVFormatContext*, AVIOContext*) = nullptr;
   // Every open source: the input's and what demuxers open themselves (HLS

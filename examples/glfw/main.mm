@@ -414,10 +414,9 @@ int main(int argc, char** argv) {
             argv[0]);
     return 2;
   }
-  std::stable_sort(keys.begin(), keys.end(),
-                   [](const ScriptedKey& a, const ScriptedKey& b) {
-                     return a.at < b.at;
-                   });
+  std::stable_sort(
+      keys.begin(), keys.end(),
+      [](const ScriptedKey& a, const ScriptedKey& b) { return a.at < b.at; });
   std::stable_sort(
       snapshots.begin(), snapshots.end(),
       [](const Snapshot& a, const Snapshot& b) { return a.at < b.at; });

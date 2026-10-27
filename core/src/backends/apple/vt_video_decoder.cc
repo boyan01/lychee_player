@@ -90,13 +90,13 @@ class BitReader {
 void SetColor(CFMutableDictionaryRef extensions, const ColorInfo& color) {
   if (CFStringRef primaries =
           CVColorPrimariesGetStringForIntegerCodePoint(color.primaries)) {
-    CFDictionarySetValue(extensions, kCMFormatDescriptionExtension_ColorPrimaries,
-                         primaries);
+    CFDictionarySetValue(
+        extensions, kCMFormatDescriptionExtension_ColorPrimaries, primaries);
   }
   if (CFStringRef transfer =
           CVTransferFunctionGetStringForIntegerCodePoint(color.transfer)) {
-    CFDictionarySetValue(extensions,
-                         kCMFormatDescriptionExtension_TransferFunction, transfer);
+    CFDictionarySetValue(
+        extensions, kCMFormatDescriptionExtension_TransferFunction, transfer);
   }
   if (CFStringRef matrix =
           CVYCbCrMatrixGetStringForIntegerCodePoint(color.matrix)) {
@@ -104,7 +104,8 @@ void SetColor(CFMutableDictionaryRef extensions, const ColorInfo& color) {
                          matrix);
   }
   if (color.full_range) {
-    CFDictionarySetValue(extensions, kCMFormatDescriptionExtension_FullRangeVideo,
+    CFDictionarySetValue(extensions,
+                         kCMFormatDescriptionExtension_FullRangeVideo,
                          kCFBooleanTrue);
   }
 }
@@ -197,12 +198,20 @@ CMVideoFormatDescriptionRef VTVideoDecoder::CreateFormat() const {
     int height = config_.height;
     if (codec_type_ == kCMVideoCodecType_VP9) {
       const ColorInfo& color = config_.color;
-      box = {1, 0, 0, 0,  // version, flags
-             static_cast<uint8_t>(vp9_.profile), static_cast<uint8_t>(vp9_.level),
-             static_cast<uint8_t>((vp9_.bit_depth << 4) | (vp9_.subsampling << 1) |
-                                  (vp9_.full_range ? 1 : 0)),
-             color.primaries, color.transfer, color.matrix,
-             0, 0};  // codecInitializationDataSize
+      box = {
+          1,
+          0,
+          0,
+          0,  // version, flags
+          static_cast<uint8_t>(vp9_.profile),
+          static_cast<uint8_t>(vp9_.level),
+          static_cast<uint8_t>((vp9_.bit_depth << 4) | (vp9_.subsampling << 1) |
+                               (vp9_.full_range ? 1 : 0)),
+          color.primaries,
+          color.transfer,
+          color.matrix,
+          0,
+          0};  // codecInitializationDataSize
       width = vp9_.width;
       height = vp9_.height;
     } else {
@@ -210,15 +219,16 @@ CMVideoFormatDescriptionRef VTVideoDecoder::CreateFormat() const {
     }
     CFMutableDictionaryRef extensions = CreateDictionary();
     CFMutableDictionaryRef atoms = CreateDictionary();
-    CFDataRef data = CFDataCreate(nullptr, box.data(), static_cast<CFIndex>(box.size()));
-    CFDictionarySetValue(atoms,
-                         codec_type_ == kCMVideoCodecType_VP9 ? CFSTR("vpcC")
-                                                              : CFSTR("av1C"),
-                         data);
+    CFDataRef data =
+        CFDataCreate(nullptr, box.data(), static_cast<CFIndex>(box.size()));
+    CFDictionarySetValue(
+        atoms,
+        codec_type_ == kCMVideoCodecType_VP9 ? CFSTR("vpcC") : CFSTR("av1C"),
+        data);
     CFRelease(data);
-    CFDictionarySetValue(extensions,
-                         kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms,
-                         atoms);
+    CFDictionarySetValue(
+        extensions,
+        kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms, atoms);
     CFRelease(atoms);
     SetColor(extensions, config_.color);
     CMVideoFormatDescriptionRef format = nullptr;
@@ -520,7 +530,7 @@ bool VTVideoDecoder::ParseVp9Keyframe(const uint8_t* data,
   if (bits.Read(1) != 0) {  // frame_type: not a key frame
     return false;
   }
-  bits.Read(2);  // show_frame, error_resilient_mode
+  bits.Read(2);                     // show_frame, error_resilient_mode
   if (bits.Read(24) != 0x498342) {  // frame_sync_code
     return false;
   }

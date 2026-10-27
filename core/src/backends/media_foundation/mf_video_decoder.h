@@ -58,7 +58,8 @@ class MFVideoDecoder : public VideoDecoder {
   // whether the decoder allocates its output samples, as it does on D3D11.
   int width_ = 0;
   int height_ = 0;
-  DXGI_COLOR_SPACE_TYPE color_space_ = DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709;
+  DXGI_COLOR_SPACE_TYPE color_space_ =
+      DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709;
   bool provides_samples_ = false;
   bool logged_output_ = false;
   int consecutive_errors_ = 0;

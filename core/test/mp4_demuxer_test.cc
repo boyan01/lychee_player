@@ -44,7 +44,9 @@ Bytes Fields(std::initializer_list<std::pair<uint64_t, int>> fields) {
   return out;
 }
 
-Bytes Zeros(size_t count) { return Bytes(count, 0); }
+Bytes Zeros(size_t count) {
+  return Bytes(count, 0);
+}
 
 Bytes Append(Bytes a, const Bytes& b) {
   a.insert(a.end(), b.begin(), b.end());
@@ -62,39 +64,52 @@ constexpr int kSamplesPerFragment = 10;
 Bytes FragmentedFile(int fragments, uint32_t mehd_ms, bool tfdt) {
   Bytes entry = Append(Zeros(24), Fields({{64, 2}, {48, 2}}));  // 64x48
   entry = Append(entry, Zeros(50));
-  Bytes stbl = Box("stbl", {Box("stsd", {Fields({{0, 4}, {1, 4}}), Box("avc1", {entry})}),
-                            Box("stts", {Zeros(8)}), Box("stsc", {Zeros(8)}),
-                            Box("stsz", {Zeros(12)}), Box("stco", {Zeros(8)})});
-  Bytes trak = Box(
-      "trak",
-      {Box("tkhd", {Fields({{3, 4}, {0, 8}, {1, 4}}), Zeros(68)}),
-       Box("mdia", {Box("mdhd", {Fields({{0, 12}, {kTimescale, 4}, {0, 8}})}),
-                    Box("hdlr", {Zeros(8), Bytes{'v', 'i', 'd', 'e'}, Zeros(12)}),
-                    Box("minf", {stbl})})});
-  Bytes mvex = Box("mvex", {Box("trex", {Fields({{0, 4}, {1, 4}, {1, 4},
-                                                 {kSampleMs, 4}, {kSampleSize, 4},
+  Bytes stbl = Box(
+      "stbl", {Box("stsd", {Fields({{0, 4}, {1, 4}}), Box("avc1", {entry})}),
+               Box("stts", {Zeros(8)}), Box("stsc", {Zeros(8)}),
+               Box("stsz", {Zeros(12)}), Box("stco", {Zeros(8)})});
+  Bytes trak =
+      Box("trak",
+          {Box("tkhd", {Fields({{3, 4}, {0, 8}, {1, 4}}), Zeros(68)}),
+           Box("mdia",
+               {Box("mdhd", {Fields({{0, 12}, {kTimescale, 4}, {0, 8}})}),
+                Box("hdlr", {Zeros(8), Bytes{'v', 'i', 'd', 'e'}, Zeros(12)}),
+                Box("minf", {stbl})})});
+  Bytes mvex = Box("mvex", {Box("trex", {Fields({{0, 4},
+                                                 {1, 4},
+                                                 {1, 4},
+                                                 {kSampleMs, 4},
+                                                 {kSampleSize, 4},
                                                  {0x10000, 4}})})});
   if (mehd_ms > 0) {
     mvex = Box("mvex", {Box("mehd", {Fields({{0, 4}, {mehd_ms, 4}})}),
                         Bytes(mvex.begin() + 8, mvex.end())});
   }
-  Bytes file = Append(Box("ftyp", {Bytes{'i', 's', 'o', 'm'}, Zeros(4)}),
-                      Box("moov", {Box("mvhd", {Fields({{0, 12}, {kTimescale, 4}}), Zeros(84)}),
-                                   trak, mvex}));
+  Bytes file = Append(
+      Box("ftyp", {Bytes{'i', 's', 'o', 'm'}, Zeros(4)}),
+      Box("moov", {Box("mvhd", {Fields({{0, 12}, {kTimescale, 4}}), Zeros(84)}),
+                   trak, mvex}));
   for (int i = 0; i < fragments; ++i) {
     Bytes tfhd = Box("tfhd", {Fields({{0x20000, 4}, {1, 4}})});
-    Bytes decode = tfdt ? Box("tfdt", {Fields({{0, 4}, {uint64_t{1000} * i, 4}})}) : Bytes();
+    Bytes decode =
+        tfdt ? Box("tfdt", {Fields({{0, 4}, {uint64_t{1000} * i, 4}})})
+             : Bytes();
     // trun: data offset and first sample flags (a keyframe); the rest
     // from trex. The data starts after the moof and the mdat header.
     auto moof_with = [&](uint32_t data_offset) {
-      Bytes trun = Box("trun", {Fields({{0x5, 4}, {kSamplesPerFragment, 4},
-                                        {data_offset, 4}, {0, 4}})});
-      return Box("moof", {Box("mfhd", {Fields({{0, 4}, {static_cast<uint64_t>(i) + 1, 4}})}),
-                          Box("traf", {tfhd, decode, trun})});
+      Bytes trun = Box(
+          "trun",
+          {Fields(
+              {{0x5, 4}, {kSamplesPerFragment, 4}, {data_offset, 4}, {0, 4}})});
+      return Box(
+          "moof",
+          {Box("mfhd", {Fields({{0, 4}, {static_cast<uint64_t>(i) + 1, 4}})}),
+           Box("traf", {tfhd, decode, trun})});
     };
     const size_t moof_size = moof_with(0).size();
     file = Append(file, moof_with(static_cast<uint32_t>(moof_size + 8)));
-    file = Append(file, Box("mdat", {Zeros(kSamplesPerFragment * kSampleSize)}));
+    file =
+        Append(file, Box("mdat", {Zeros(kSamplesPerFragment * kSampleSize)}));
   }
   return file;
 }
@@ -165,7 +180,8 @@ TEST(Mp4Demuxer, FragmentsWithoutTfdt) {
 TEST(Mp4Demuxer, HugeDefaultSampleCount) {
   Bytes file = FragmentedFile(1, 0, true);
   const uint8_t kTrun[] = {'t', 'r', 'u', 'n'};
-  auto at = std::search(file.begin(), file.end(), std::begin(kTrun), std::end(kTrun));
+  auto at =
+      std::search(file.begin(), file.end(), std::begin(kTrun), std::end(kTrun));
   EXPECT_TRUE(at != file.end());
   // version and flags, then sample_count.
   for (int i = 0; i < 4; ++i) {
@@ -194,7 +210,8 @@ TEST(TextSubtitleDecoder, MovText) {
   EXPECT_EQ(text(Bytes{0, 0}), "");
   EXPECT_EQ(text(Bytes{0}), "");
   // A length past the end; QuickTime's \r breaks; trailing breaks.
-  EXPECT_EQ(text(Bytes{0, 99, 'a', '\r', 'b', '\r', '\n', 'c', '\n'}), "a\nb\nc");
+  EXPECT_EQ(text(Bytes{0, 99, 'a', '\r', 'b', '\r', '\n', 'c', '\n'}),
+            "a\nb\nc");
   // UTF-16 with its byte order mark: "é😀".
   EXPECT_EQ(text(Bytes{0, 8, 0xfe, 0xff, 0x00, 0xe9, 0xd8, 0x3d, 0xde, 0x00}),
             "\xc3\xa9\xf0\x9f\x98\x80");

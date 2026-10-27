@@ -34,8 +34,8 @@ bool MFAudioDecoder::Initialize(const AudioConfig& config,
     return false;
   }
   if (!StartMediaFoundation() ||
-      FAILED(CoCreateInstance(CLSID_CMSAACDecMFT, nullptr,
-                              CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&decoder_)))) {
+      FAILED(CoCreateInstance(CLSID_CMSAACDecMFT, nullptr, CLSCTX_INPROC_SERVER,
+                              IID_PPV_ARGS(&decoder_)))) {
     *error = "mediafoundation: no AAC decoder";
     return false;
   }
@@ -90,7 +90,8 @@ bool MFAudioDecoder::SetUpOutput() {
       break;
     }
     if (subtype == MFAudioFormat_PCM && !chosen &&
-        MFGetAttributeUINT32(type.Get(), MF_MT_AUDIO_BITS_PER_SAMPLE, 0) == 16) {
+        MFGetAttributeUINT32(type.Get(), MF_MT_AUDIO_BITS_PER_SAMPLE, 0) ==
+            16) {
       chosen = type;
     }
   }
@@ -129,9 +130,9 @@ bool MFAudioDecoder::SetUpOutput() {
   if (out_channels <= 2) {
     // The resampler mixes between layouts by their channel masks.
     output->SetUINT32(MF_MT_AUDIO_CHANNEL_MASK,
-                      out_channels == 1 ? SPEAKER_FRONT_CENTER
-                                        : SPEAKER_FRONT_LEFT |
-                                              SPEAKER_FRONT_RIGHT);
+                      out_channels == 1
+                          ? SPEAKER_FRONT_CENTER
+                          : SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT);
   }
   HRESULT hr;
   if (FAILED(hr = CoCreateInstance(CLSID_CResamplerMediaObject, nullptr,

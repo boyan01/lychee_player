@@ -26,7 +26,6 @@ void AppendUtf8(uint32_t code_point, std::string* out) {
   }
 }
 
-
 bool StartsWithTag(std::string_view text, size_t at, const char* name) {
   const size_t length = strlen(name);
   if (at + length > text.size()) {
@@ -80,8 +79,12 @@ std::string WebVttToPlainText(std::string_view text) {
     const char* reference;
     const char* text;
   } kReferences[] = {
-      {"&amp;", "&"},   {"&lt;", "<"},          {"&gt;", ">"},
-      {"&lrm;", "\xe2\x80\x8e"}, {"&rlm;", "\xe2\x80\x8f"}, {"&nbsp;", " "},
+      {"&amp;", "&"},
+      {"&lt;", "<"},
+      {"&gt;", ">"},
+      {"&lrm;", "\xe2\x80\x8e"},
+      {"&rlm;", "\xe2\x80\x8f"},
+      {"&nbsp;", " "},
   };
   std::string plain;
   for (size_t i = 0; i < text.size(); ++i) {
@@ -201,8 +204,8 @@ std::string TextSubtitleDecoder::ToPlainText(const std::string& codec_name,
     text = SubRipToPlainText(packet);
   }
   // Trailing line breaks would add empty lines under the cue.
-  while (!text.empty() && (text.back() == '\n' || text.back() == ' ' ||
-                           text.back() == '\0')) {
+  while (!text.empty() &&
+         (text.back() == '\n' || text.back() == ' ' || text.back() == '\0')) {
     text.pop_back();
   }
   return text;

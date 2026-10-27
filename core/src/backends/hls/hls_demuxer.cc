@@ -75,8 +75,8 @@ bool HlsDemuxer::LoadPlaylist(std::unique_ptr<DataSource> source,
   uint8_t chunk[16384];
   bool ok = true;
   for (;;) {
-    int64_t n = source->Read(static_cast<int64_t>(text.size()), chunk,
-                             sizeof(chunk));
+    int64_t n =
+        source->Read(static_cast<int64_t>(text.size()), chunk, sizeof(chunk));
     if (n < 0) {
       *error = url + ": " + source->error();
       ok = false;
@@ -342,7 +342,8 @@ DemuxerReadResult HlsDemuxer::WaitForSegments() {
       }
       LOGW("playlist reload failed: %s", error.c_str());
       if (++reload_failures_ >= kMaxReloadFailures) {
-        error_ = error.empty() ? "live playlist became a master playlist" : error;
+        error_ =
+            error.empty() ? "live playlist became a master playlist" : error;
         return DemuxerReadResult::kError;
       }
       last_reload_changed_ = false;
@@ -410,7 +411,8 @@ DemuxerReadResult HlsDemuxer::Read(EncodedPacket* packet) {
       continue;
     }
     const int source_index = packet->stream_index;
-    if (source_index < 0 || source_index >= static_cast<int>(stream_map_.size())) {
+    if (source_index < 0 ||
+        source_index >= static_cast<int>(stream_map_.size())) {
       continue;
     }
     const int index = stream_map_[source_index];

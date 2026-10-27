@@ -48,8 +48,14 @@ int64_t ReadTimestamp(const uint8_t* data) {
 // Stream ids whose PES packets have no optional header (Table 2-21).
 bool HasPesHeader(uint8_t stream_id) {
   switch (stream_id) {
-    case 0xbc: case 0xbe: case 0xbf: case 0xf0: case 0xf1: case 0xf2:
-    case 0xf8: case 0xff:
+    case 0xbc:
+    case 0xbe:
+    case 0xbf:
+    case 0xf0:
+    case 0xf1:
+    case 0xf2:
+    case 0xf8:
+    case 0xff:
       return false;
     default:
       return true;
@@ -136,8 +142,7 @@ void TsParser::Parse(const uint8_t* packet, int64_t offset) {
     }
     ParseSection(section, unit_start, payload, size);
   } else {
-    ParsePes(pid, pes, unit_start, lost, random_access, payload, size,
-             offset);
+    ParsePes(pid, pes, unit_start, lost, random_access, payload, size, offset);
   }
 }
 

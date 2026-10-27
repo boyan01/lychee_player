@@ -8,16 +8,26 @@ namespace lychee {
 
 TEST(HlsPlaylist, ResolvesUrls) {
   const std::string base = "http://a.example/b/c/index.m3u8?token=1";
-  EXPECT_EQ(ResolveUrl(base, "seg0.ts"), std::string("http://a.example/b/c/seg0.ts"));
-  EXPECT_EQ(ResolveUrl(base, "../d/seg.ts?x=2"), std::string("http://a.example/b/d/seg.ts?x=2"));
-  EXPECT_EQ(ResolveUrl(base, "./e/./f/../g.ts"), std::string("http://a.example/b/c/e/g.ts"));
-  EXPECT_EQ(ResolveUrl(base, "/root.ts"), std::string("http://a.example/root.ts"));
-  EXPECT_EQ(ResolveUrl(base, "//cdn.example/x.ts"), std::string("http://cdn.example/x.ts"));
-  EXPECT_EQ(ResolveUrl(base, "https://o.example/y.ts"), std::string("https://o.example/y.ts"));
-  EXPECT_EQ(ResolveUrl(base, "../../../../z.ts"), std::string("http://a.example/z.ts"));
-  EXPECT_EQ(ResolveUrl("http://a.example", "s.ts"), std::string("http://a.example/s.ts"));
-  EXPECT_EQ(ResolveUrl("/tmp/media/hls/index.m3u8", "../r.ts"), std::string("/tmp/media/r.ts"));
-  EXPECT_EQ(ResolveUrl("file:///tmp/hls/index.m3u8", "s.ts"), std::string("file:///tmp/hls/s.ts"));
+  EXPECT_EQ(ResolveUrl(base, "seg0.ts"),
+            std::string("http://a.example/b/c/seg0.ts"));
+  EXPECT_EQ(ResolveUrl(base, "../d/seg.ts?x=2"),
+            std::string("http://a.example/b/d/seg.ts?x=2"));
+  EXPECT_EQ(ResolveUrl(base, "./e/./f/../g.ts"),
+            std::string("http://a.example/b/c/e/g.ts"));
+  EXPECT_EQ(ResolveUrl(base, "/root.ts"),
+            std::string("http://a.example/root.ts"));
+  EXPECT_EQ(ResolveUrl(base, "//cdn.example/x.ts"),
+            std::string("http://cdn.example/x.ts"));
+  EXPECT_EQ(ResolveUrl(base, "https://o.example/y.ts"),
+            std::string("https://o.example/y.ts"));
+  EXPECT_EQ(ResolveUrl(base, "../../../../z.ts"),
+            std::string("http://a.example/z.ts"));
+  EXPECT_EQ(ResolveUrl("http://a.example", "s.ts"),
+            std::string("http://a.example/s.ts"));
+  EXPECT_EQ(ResolveUrl("/tmp/media/hls/index.m3u8", "../r.ts"),
+            std::string("/tmp/media/r.ts"));
+  EXPECT_EQ(ResolveUrl("file:///tmp/hls/index.m3u8", "s.ts"),
+            std::string("file:///tmp/hls/s.ts"));
 }
 
 TEST(HlsPlaylist, ParsesMediaPlaylists) {
@@ -42,7 +52,8 @@ TEST(HlsPlaylist, ParsesMediaPlaylists) {
       "last.ts\n";
   HlsPlaylist playlist;
   std::string error;
-  EXPECT_TRUE(ParseHlsPlaylist(text, "http://h/p/list.m3u8", &playlist, &error));
+  EXPECT_TRUE(
+      ParseHlsPlaylist(text, "http://h/p/list.m3u8", &playlist, &error));
   EXPECT_TRUE(!playlist.master);
   EXPECT_TRUE(!playlist.ended);
   EXPECT_EQ(playlist.target_duration, 6000000);
@@ -65,8 +76,9 @@ TEST(HlsPlaylist, ParsesMediaPlaylists) {
   EXPECT_EQ(playlist.segments[3].sequence, 103);
   EXPECT_EQ(playlist.segments[3].duration, 6000000);
 
-  EXPECT_TRUE(ParseHlsPlaylist("#EXTM3U\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:1,\na.ts\n",
-                               "x", &playlist, &error));
+  EXPECT_TRUE(
+      ParseHlsPlaylist("#EXTM3U\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:1,\na.ts\n",
+                       "x", &playlist, &error));
   EXPECT_TRUE(playlist.ended);
   EXPECT_TRUE(!ParseHlsPlaylist("<html>", "x", &playlist, &error));
   EXPECT_TRUE(!ParseHlsPlaylist("", "x", &playlist, &error));
@@ -76,16 +88,20 @@ TEST(HlsPlaylist, PicksVariants) {
   const std::string text =
       "#EXTM3U\n"
       "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"en\",URI=\"audio.m3u8\"\n"
-      "#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS=\"avc1.64001e,mp4a.40.2\"\n"
+      "#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS=\"avc1."
+      "64001e,mp4a.40.2\"\n"
       "low.m3u8\n"
       "#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=90000,URI=\"iframes.m3u8\"\n"
-      "#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS=\"hvc1.2.4.L123.B0,mp4a.40.2\"\n"
+      "#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS=\"hvc1."
+      "2.4.L123.B0,mp4a.40.2\"\n"
       "high/index.m3u8\n"
-      "#EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=3840x2160,CODECS=\"vp09.00.50.08\"\n"
+      "#EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=3840x2160,CODECS=\"vp09."
+      "00.50.08\"\n"
       "uhd.m3u8\n";
   HlsPlaylist playlist;
   std::string error;
-  EXPECT_TRUE(ParseHlsPlaylist(text, "http://h/master.m3u8", &playlist, &error));
+  EXPECT_TRUE(
+      ParseHlsPlaylist(text, "http://h/master.m3u8", &playlist, &error));
   EXPECT_TRUE(playlist.master);
   EXPECT_EQ(playlist.variants.size(), 3u);
   EXPECT_EQ(playlist.variants[1].width, 1920);
@@ -109,9 +125,12 @@ TEST(HlsPlaylist, Detects) {
   const char playlist[] = "#EXTM3U\n#EXT-X-VERSION:3\n";
   const char bom[] = "\xEF\xBB\xBF#EXTM3U\n";
   const char other[] = "#EXT-X-VERSION:3\n";
-  EXPECT_TRUE(HlsDemuxer::Detect(reinterpret_cast<const uint8_t*>(playlist), sizeof(playlist) - 1));
-  EXPECT_TRUE(HlsDemuxer::Detect(reinterpret_cast<const uint8_t*>(bom), sizeof(bom) - 1));
-  EXPECT_TRUE(!HlsDemuxer::Detect(reinterpret_cast<const uint8_t*>(other), sizeof(other) - 1));
+  EXPECT_TRUE(HlsDemuxer::Detect(reinterpret_cast<const uint8_t*>(playlist),
+                                 sizeof(playlist) - 1));
+  EXPECT_TRUE(HlsDemuxer::Detect(reinterpret_cast<const uint8_t*>(bom),
+                                 sizeof(bom) - 1));
+  EXPECT_TRUE(!HlsDemuxer::Detect(reinterpret_cast<const uint8_t*>(other),
+                                  sizeof(other) - 1));
 }
 
 }  // namespace lychee

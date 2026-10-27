@@ -27,7 +27,8 @@ std::string Trim(const std::string& text) {
   while (begin < end && std::isspace(static_cast<unsigned char>(text[begin]))) {
     ++begin;
   }
-  while (end > begin && std::isspace(static_cast<unsigned char>(text[end - 1]))) {
+  while (end > begin &&
+         std::isspace(static_cast<unsigned char>(text[end - 1]))) {
     --end;
   }
   return text.substr(begin, end - begin);
@@ -89,8 +90,8 @@ std::map<std::string, std::string> ParseAttributes(const std::string& text) {
       i = text.find(',', close);
     } else {
       size_t comma = text.find(',', i);
-      value = Trim(text.substr(i, comma == std::string::npos ? std::string::npos
-                                                             : comma - i));
+      value = Trim(text.substr(
+          i, comma == std::string::npos ? std::string::npos : comma - i));
       i = comma;
     }
     attributes[name] = value;
@@ -188,8 +189,9 @@ std::string ResolveUrl(const std::string& base, const std::string& reference) {
   // The reference's path and its query or fragment.
   const size_t reference_tail = reference.find_first_of("?#");
   const std::string reference_path = reference.substr(0, reference_tail);
-  const std::string reference_query =
-      reference_tail == std::string::npos ? "" : reference.substr(reference_tail);
+  const std::string reference_query = reference_tail == std::string::npos
+                                          ? ""
+                                          : reference.substr(reference_tail);
 
   std::string prefix;  // scheme://authority
   std::string base_path = base.substr(0, base.find_first_of("?#"));
@@ -272,7 +274,8 @@ bool ParseHlsPlaylist(const std::string& text,
       size_t x = resolution.find('x');
       if (x != std::string::npos) {
         variant.width = static_cast<int>(ParseInteger(resolution.substr(0, x)));
-        variant.height = static_cast<int>(ParseInteger(resolution.substr(x + 1)));
+        variant.height =
+            static_cast<int>(ParseInteger(resolution.substr(x + 1)));
       }
       pending_variant = true;
       playlist->master = true;
@@ -297,7 +300,8 @@ bool ParseHlsPlaylist(const std::string& text,
       std::string range = line.substr(17);
       size_t at = range.find('@');
       range_length = ParseInteger(range);
-      range_offset = at == std::string::npos ? -1 : ParseInteger(range.substr(at + 1));
+      range_offset =
+          at == std::string::npos ? -1 : ParseInteger(range.substr(at + 1));
     } else if (StartsWith(line, "#EXT-X-KEY:")) {
       auto attributes = ParseAttributes(line.substr(11));
       encrypted = attributes["METHOD"] != "NONE";
@@ -317,8 +321,8 @@ bool ParseHlsPlaylist(const std::string& text,
       HlsSegment segment;
       segment.url = ResolveUrl(base_url, line);
       segment.duration = std::max<int64_t>(duration, 0);
-      segment.sequence =
-          playlist->media_sequence + static_cast<int64_t>(playlist->segments.size());
+      segment.sequence = playlist->media_sequence +
+                         static_cast<int64_t>(playlist->segments.size());
       segment.discontinuity = discontinuity_base + discontinuities;
       segment.encrypted = encrypted;
       segment.initialization = initialization;
@@ -329,10 +333,10 @@ bool ParseHlsPlaylist(const std::string& text,
           // Right after the previous range of the same resource.
           const HlsSegment* previous =
               playlist->segments.empty() ? nullptr : &playlist->segments.back();
-          segment.offset = previous && previous->url == segment.url &&
-                                   previous->length >= 0
-                               ? previous->offset + previous->length
-                               : 0;
+          segment.offset =
+              previous && previous->url == segment.url && previous->length >= 0
+                  ? previous->offset + previous->length
+                  : 0;
         }
       }
       playlist->segments.push_back(segment);

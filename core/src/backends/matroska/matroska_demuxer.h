@@ -87,8 +87,10 @@ class MatroskaDemuxer : public Demuxer {
   // The element header at |offset|. kEnd at the end of the data.
   Status ReadElementHeader(int64_t offset, Element* element);
   // An element's body, at most |limit| bytes.
-  Status ReadBody(const Element& element, size_t limit,
-                  std::vector<uint8_t>* body, std::string* error);
+  Status ReadBody(const Element& element,
+                  size_t limit,
+                  std::vector<uint8_t>* body,
+                  std::string* error);
 
   bool ParseHeaders(std::string* error);
   void ParseSeekHead(const std::vector<uint8_t>& body);
@@ -110,8 +112,11 @@ class MatroskaDemuxer : public Demuxer {
   DemuxerReadResult ParseNext();
   // Queues the frames of a Block or SimpleBlock: the first |size| bytes
   // of |bytes|, which has kPacketPadding zero bytes more.
-  void ParseBlock(std::shared_ptr<std::vector<uint8_t>> bytes, size_t size,
-                  bool simple, bool reference, int64_t duration_ticks);
+  void ParseBlock(std::shared_ptr<std::vector<uint8_t>> bytes,
+                  size_t size,
+                  bool simple,
+                  bool reference,
+                  int64_t duration_ticks);
   // Sets the dts of unresolved packets that can be resolved now; all of
   // them at the end of the input.
   void ResolveDts(bool all);
@@ -133,8 +138,8 @@ class MatroskaDemuxer : public Demuxer {
   MediaInfo media_info_;
   std::vector<Track> tracks_;
   int64_t timestamp_scale_ = 1000000;  // Nanoseconds per tick.
-  int64_t segment_start_ = 0;  // Offset of the Segment's body.
-  int64_t segment_end_ = -1;   // -1 if unknown.
+  int64_t segment_start_ = 0;          // Offset of the Segment's body.
+  int64_t segment_end_ = -1;           // -1 if unknown.
   int64_t first_cluster_ = -1;
   // Header elements the SeekHead points at, absolute offsets; -1 if none.
   int64_t cues_position_ = -1;

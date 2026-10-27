@@ -62,7 +62,8 @@ class VTVideoDecoder : public VideoDecoder {
   // the av1C, or null.
   CMVideoFormatDescriptionRef CreateFormat() const;
   // The keyframe header's format of a VP9 packet; false if it is none.
-  static bool ParseVp9Keyframe(const uint8_t* data, size_t size,
+  static bool ParseVp9Keyframe(const uint8_t* data,
+                               size_t size,
                                Vp9Format* format);
   bool DecodeSample(const EncodedPacket& packet, const OutputCallback& output);
   // (Re)creates the session for |parameter_sets_|.

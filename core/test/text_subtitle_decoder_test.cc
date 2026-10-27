@@ -12,7 +12,8 @@ std::string Plain(const char* codec, std::string_view packet) {
 }
 
 TEST(TextSubtitleDecoder, SubRipMarkup) {
-  EXPECT_EQ(Plain("subrip", "Hello <i>world</i>\r\n"), std::string("Hello world"));
+  EXPECT_EQ(Plain("subrip", "Hello <i>world</i>\r\n"),
+            std::string("Hello world"));
   EXPECT_EQ(Plain("subrip", "<font color=\"#ff0000\">red</font> <B>bold</b>"),
             std::string("red bold"));
   EXPECT_EQ(Plain("subrip", "{\\an8}top"), std::string("top"));
@@ -23,14 +24,16 @@ TEST(TextSubtitleDecoder, SubRipMarkup) {
 TEST(TextSubtitleDecoder, WebVttMarkup) {
   EXPECT_EQ(Plain("webvtt", "<v Bob>Hi</v> <c.loud>there</c>"),
             std::string("Hi there"));
-  EXPECT_EQ(Plain("webvtt", "a &lt;b&gt; &amp; c&nbsp;d"), std::string("a <b> & c d"));
+  EXPECT_EQ(Plain("webvtt", "a &lt;b&gt; &amp; c&nbsp;d"),
+            std::string("a <b> & c d"));
   EXPECT_EQ(Plain("webvtt", "one <00:00:01.000>two\n"), std::string("one two"));
 }
 
 TEST(TextSubtitleDecoder, AssMarkup) {
   // Matroska's form: ReadOrder, Layer, Style, Name, margins, Effect, Text.
-  EXPECT_EQ(Plain("ass", "0,0,Default,,0,0,0,,{\\b1}Bold{\\b0} and, plain\\Nnext"),
-            std::string("Bold and, plain\nnext"));
+  EXPECT_EQ(
+      Plain("ass", "0,0,Default,,0,0,0,,{\\b1}Bold{\\b0} and, plain\\Nnext"),
+      std::string("Bold and, plain\nnext"));
 }
 
 TEST(TextSubtitleDecoder, MovText) {

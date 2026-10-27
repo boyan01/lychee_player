@@ -132,9 +132,9 @@ ComPtr<ID3DBlob> Compile(const char* entry, const char* target) {
   if (FAILED(D3DCompile(kShaderSource, sizeof(kShaderSource) - 1, nullptr,
                         nullptr, nullptr, entry, target, 0, 0, &code,
                         &errors))) {
-    fprintf(stderr, "shader: %s\n",
-            errors ? static_cast<const char*>(errors->GetBufferPointer())
-                   : entry);
+    fprintf(
+        stderr, "shader: %s\n",
+        errors ? static_cast<const char*>(errors->GetBufferPointer()) : entry);
     return nullptr;
   }
   return code;
@@ -173,9 +173,8 @@ class Renderer {
     desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
     ComPtr<IDXGISwapChain1> swap_chain;
-    if (FAILED(factory->CreateSwapChainForHwnd(device_.Get(), hwnd, &desc,
-                                               nullptr, nullptr,
-                                               &swap_chain)) ||
+    if (FAILED(factory->CreateSwapChainForHwnd(
+            device_.Get(), hwnd, &desc, nullptr, nullptr, &swap_chain)) ||
         FAILED(swap_chain.As(&swap_chain_))) {
       fprintf(stderr, "no swap chain\n");
       return false;
@@ -267,8 +266,8 @@ class Renderer {
       rows = Covered(params.scale[1], height);
       context_->UpdateSubresource(params_.Get(), 0, nullptr, &params, 0, 0);
 
-      const D3D11_VIEWPORT viewport = {0, 0, static_cast<float>(width),
-                                       static_cast<float>(height), 0, 1};
+      const D3D11_VIEWPORT viewport = {
+          0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1};
       context_->RSSetViewports(1, &viewport);
       context_->OMSetRenderTargets(1, target_.GetAddressOf(), nullptr);
       context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -336,14 +335,14 @@ class Renderer {
     switch (lychee_frame_get_type(frame)) {
       case LYCHEE_FRAME_D3D11_TEXTURE: {
         // Made by the player's own device: open it on ours.
-        auto* shared =
-            static_cast<ID3D11Texture2D*>(lychee_frame_get_native_handle(frame));
+        auto* shared = static_cast<ID3D11Texture2D*>(
+            lychee_frame_get_native_handle(frame));
         ComPtr<IDXGIResource> resource;
         HANDLE handle = nullptr;
         if (FAILED(shared->QueryInterface(IID_PPV_ARGS(&resource))) ||
             FAILED(resource->GetSharedHandle(&handle)) ||
-            FAILED(device_->OpenSharedResource(handle,
-                                               IID_PPV_ARGS(&texture)))) {
+            FAILED(
+                device_->OpenSharedResource(handle, IID_PPV_ARGS(&texture)))) {
           lychee_frame_release(frame);
           return;
         }
@@ -541,10 +540,9 @@ int main(int argc, char** argv) {
             argv[0]);
     return 2;
   }
-  std::stable_sort(keys.begin(), keys.end(),
-                   [](const ScriptedKey& a, const ScriptedKey& b) {
-                     return a.at < b.at;
-                   });
+  std::stable_sort(
+      keys.begin(), keys.end(),
+      [](const ScriptedKey& a, const ScriptedKey& b) { return a.at < b.at; });
   std::stable_sort(
       snapshots.begin(), snapshots.end(),
       [](const Snapshot& a, const Snapshot& b) { return a.at < b.at; });

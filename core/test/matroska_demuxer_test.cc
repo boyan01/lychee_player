@@ -136,36 +136,40 @@ Bytes Cluster(uint64_t time, const Bytes& blocks) {
 }
 
 Bytes VideoTrack(int number, const std::string& codec) {
-  return El(kTrackEntry,
-            Cat({UInt(kTrackNumber, number), UInt(kTrackType, 1),
-                 Str(kCodecId, codec),
-                 El(kVideo, Cat({UInt(kPixelWidth, 64),
-                                 UInt(kPixelHeight, 48)}))}));
+  return El(
+      kTrackEntry,
+      Cat({UInt(kTrackNumber, number), UInt(kTrackType, 1),
+           Str(kCodecId, codec),
+           El(kVideo, Cat({UInt(kPixelWidth, 64), UInt(kPixelHeight, 48)}))}));
 }
 
 Bytes AudioTrack(int number, const std::string& codec, const Bytes& more = {}) {
-  return El(kTrackEntry,
-            Cat({UInt(kTrackNumber, number), UInt(kTrackType, 2),
-                 Str(kCodecId, codec),
-                 El(kAudio, Cat({Float(kSamplingFrequency, 44100),
-                                 UInt(kChannels, 2)})),
-                 more}));
+  return El(kTrackEntry, Cat({UInt(kTrackNumber, number), UInt(kTrackType, 2),
+                              Str(kCodecId, codec),
+                              El(kAudio, Cat({Float(kSamplingFrequency, 44100),
+                                              UInt(kChannels, 2)})),
+                              more}));
 }
 
-Bytes Header() { return El(kEbml, Str(kDocType, "webm")); }
+Bytes Header() {
+  return El(kEbml, Str(kDocType, "webm"));
+}
 
 // Milliseconds per tick.
 Bytes Info() {
-  return El(kInfo, Cat({UInt(kTimestampScale, 1000000), Float(kDuration, 3000)}));
+  return El(kInfo,
+            Cat({UInt(kTimestampScale, 1000000), Float(kDuration, 3000)}));
 }
 
 Bytes File(const Bytes& tracks, const Bytes& clusters) {
-  return Cat({Header(), El(kSegment, Cat({Info(), El(kTracks, tracks), clusters}))});
+  return Cat(
+      {Header(), El(kSegment, Cat({Info(), El(kTracks, tracks), clusters}))});
 }
 
 // Cues after the clusters, found through a SeekHead: each entry is a time
 // in ms and the index of its cluster.
-Bytes FileWithCues(const Bytes& tracks, const std::vector<Bytes>& clusters,
+Bytes FileWithCues(const Bytes& tracks,
+                   const std::vector<Bytes>& clusters,
                    const std::vector<std::pair<uint64_t, size_t>>& cues) {
   auto seek_head = [](uint64_t position) {
     return El(kSeekHead, El(kSeek, Cat({El(kSeekId, Id(kCues)),
@@ -180,17 +184,18 @@ Bytes FileWithCues(const Bytes& tracks, const std::vector<Bytes>& clusters,
   }
   Bytes points;
   for (const auto& [time, index] : cues) {
-    points = Cat({points,
-                  El(kCuePoint,
-                     Cat({UInt(kCueTime, time),
-                          El(kCueTrackPositions,
-                             Cat({UInt(kCueTrack, 1),
-                                  UInt(kCueClusterPosition, positions[index])}))}))});
+    points =
+        Cat({points,
+             El(kCuePoint,
+                Cat({UInt(kCueTime, time),
+                     El(kCueTrackPositions,
+                        Cat({UInt(kCueTrack, 1), UInt(kCueClusterPosition,
+                                                      positions[index])}))}))});
   }
   const uint64_t cues_position = before.size() + body.size();
-  return Cat({Header(),
-              El(kSegment, Cat({seek_head(cues_position), Info(),
-                                El(kTracks, tracks), body, El(kCues, points)}))});
+  return Cat({Header(), El(kSegment, Cat({seek_head(cues_position), Info(),
+                                          El(kTracks, tracks), body,
+                                          El(kCues, points)}))});
 }
 
 class MemorySource : public DataSource {
@@ -246,13 +251,16 @@ Packets ReadAll(MatroskaDemuxer* demuxer) {
   return result;
 }
 
-Bytes Filled(size_t size, uint8_t value) { return Bytes(size, value); }
+Bytes Filled(size_t size, uint8_t value) {
+  return Bytes(size, value);
+}
 
 TEST(MatroskaDemuxer, RejectsOtherFormats) {
   MatroskaDemuxer demuxer;
   std::string error;
   // An MP4 ftyp box.
-  EXPECT_TRUE(!Open(&demuxer, {0, 0, 0, 0x20, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'},
+  EXPECT_TRUE(!Open(&demuxer,
+                    {0, 0, 0, 0x20, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'},
                     &error));
   EXPECT_EQ(error, std::string(MatroskaDemuxer::kNotMatroska));
   MatroskaDemuxer empty;
@@ -270,13 +278,13 @@ TEST(MatroskaDemuxer, Lacing) {
   const Bytes fixed = Cat({{3}, Filled(12, 4)});
   // A first frame larger than the block.
   const Bytes broken = {2, 0xff, 0xff, 0x10, 1, 2, 3};
-  const Bytes file = File(
-      AudioTrack(1, "A_OPUS", UInt(kDefaultDuration, 20000000)),
-      Cluster(0, Cat({El(kSimpleBlock, Block(1, 0, 0x80 | 0x02, xiph)),
-                      El(kSimpleBlock, Block(1, 100, 0x80 | 0x06, ebml)),
-                      El(kSimpleBlock, Block(1, 200, 0x80 | 0x04, fixed)),
-                      El(kSimpleBlock, Block(1, 300, 0x80 | 0x02, broken)),
-                      Simple(1, 400, true, {9})})));
+  const Bytes file =
+      File(AudioTrack(1, "A_OPUS", UInt(kDefaultDuration, 20000000)),
+           Cluster(0, Cat({El(kSimpleBlock, Block(1, 0, 0x80 | 0x02, xiph)),
+                           El(kSimpleBlock, Block(1, 100, 0x80 | 0x06, ebml)),
+                           El(kSimpleBlock, Block(1, 200, 0x80 | 0x04, fixed)),
+                           El(kSimpleBlock, Block(1, 300, 0x80 | 0x02, broken)),
+                           Simple(1, 400, true, {9})})));
   MatroskaDemuxer demuxer;
   std::string error;
   EXPECT_TRUE(Open(&demuxer, file, &error));
@@ -365,9 +373,9 @@ TEST(MatroskaDemuxer, UnknownSizeClusters) {
       {Header(),
        Unknown(kSegment,
                Cat({Info(), El(kTracks, VideoTrack(1, "V_VP9")),
-                    Unknown(kCluster, Cat({UInt(kTimestamp, 0),
-                                           Simple(1, 0, true, {1}),
-                                           Simple(1, 500, false, {2})})),
+                    Unknown(kCluster,
+                            Cat({UInt(kTimestamp, 0), Simple(1, 0, true, {1}),
+                                 Simple(1, 500, false, {2})})),
                     Unknown(kCluster, Cat({UInt(kTimestamp, 1000),
                                            Simple(1, 0, true, {3}),
                                            Simple(1, 500, false, {4})}))}))});
@@ -392,16 +400,18 @@ TEST(MatroskaDemuxer, UnknownSizeClusters) {
 // Clusters at 0, 1 and 2 s. The one at 1 s starts with a frame that is
 // not a keyframe, which a seek into it skips.
 std::vector<Bytes> SeekClusters() {
-  return {Cluster(0, Cat({Simple(1, 0, true, {1}), Simple(1, 100, false, {2})})),
-          Cluster(1000, Cat({Simple(1, 0, false, {3}), Simple(1, 200, true, {4})})),
-          Cluster(2000, Cat({Simple(1, 0, true, {5}), Simple(1, 100, false, {6})}))};
+  return {
+      Cluster(0, Cat({Simple(1, 0, true, {1}), Simple(1, 100, false, {2})})),
+      Cluster(1000, Cat({Simple(1, 0, false, {3}), Simple(1, 200, true, {4})})),
+      Cluster(2000,
+              Cat({Simple(1, 0, true, {5}), Simple(1, 100, false, {6})}))};
 }
 
 TEST(MatroskaDemuxer, SeeksThroughCues) {
   // The Cues list only the clusters at 0 and 2 s, so a seek to 1.5 s goes
   // back to 0 s if they are used.
-  const Bytes file = FileWithCues(VideoTrack(1, "V_VP9"), SeekClusters(),
-                                  {{0, 0}, {2000, 2}});
+  const Bytes file =
+      FileWithCues(VideoTrack(1, "V_VP9"), SeekClusters(), {{0, 0}, {2000, 2}});
   MatroskaDemuxer demuxer;
   std::string error;
   EXPECT_TRUE(Open(&demuxer, file, &error));
@@ -442,11 +452,11 @@ TEST(MatroskaDemuxer, SeeksScanningClusters) {
 
 TEST(MatroskaDemuxer, DtsOfReorderedFrames) {
   // H.264 in decode order I P B B P; Matroska stores only the pts.
-  const Bytes file = File(
-      VideoTrack(1, "V_MPEG4/ISO/AVC"),
-      Cluster(0, Cat({Simple(1, 0, true, {1}), Simple(1, 100, false, {2}),
-                      Simple(1, 33, false, {3}), Simple(1, 67, false, {4}),
-                      Simple(1, 133, false, {5})})));
+  const Bytes file =
+      File(VideoTrack(1, "V_MPEG4/ISO/AVC"),
+           Cluster(0, Cat({Simple(1, 0, true, {1}), Simple(1, 100, false, {2}),
+                           Simple(1, 33, false, {3}), Simple(1, 67, false, {4}),
+                           Simple(1, 133, false, {5})})));
   MatroskaDemuxer demuxer;
   std::string error;
   EXPECT_TRUE(Open(&demuxer, file, &error));
@@ -471,10 +481,10 @@ TEST(MatroskaDemuxer, CodecConfiguration) {
                                             UInt(kPrimaries, 9)}))}))}));
   // Opus: 6.5 ms of codec delay comes off the timestamps. AAC without a
   // CodecPrivate gets an AudioSpecificConfig: LC, 44.1 kHz, stereo.
-  const Bytes file = File(
-      Cat({vp9, AudioTrack(2, "A_OPUS", UInt(kCodecDelay, 6500000)),
-           AudioTrack(3, "A_AAC/MPEG4/LC")}),
-      Cluster(0, Simple(2, 0, true, {0xfc})));
+  const Bytes file =
+      File(Cat({vp9, AudioTrack(2, "A_OPUS", UInt(kCodecDelay, 6500000)),
+                AudioTrack(3, "A_AAC/MPEG4/LC")}),
+           Cluster(0, Simple(2, 0, true, {0xfc})));
   MatroskaDemuxer demuxer;
   std::string error;
   EXPECT_TRUE(Open(&demuxer, file, &error));
@@ -504,15 +514,17 @@ TEST(MatroskaDemuxer, CodecConfiguration) {
 
 TEST(MatroskaDemuxer, WebVttCueLines) {
   // WebM's WebVTT: the cue's identifier and settings lines come first.
-  const Bytes subtitle = El(
-      kTrackEntry, Cat({UInt(kTrackNumber, 1), UInt(kTrackType, 0x11),
-                        Str(kCodecId, "D_WEBVTT/SUBTITLES")}));
+  const Bytes subtitle =
+      El(kTrackEntry, Cat({UInt(kTrackNumber, 1), UInt(kTrackType, 0x11),
+                           Str(kCodecId, "D_WEBVTT/SUBTITLES")}));
   const std::string cue = "intro\nline:0\nHello\nthere";
   const Bytes file = File(
       subtitle,
-      Cluster(0, El(kBlockGroup, Cat({El(kBlock, Block(1, 1000, 0,
-                                                      Bytes(cue.begin(), cue.end()))),
-                                      UInt(kBlockDuration, 1500)}))));
+      Cluster(
+          0,
+          El(kBlockGroup,
+             Cat({El(kBlock, Block(1, 1000, 0, Bytes(cue.begin(), cue.end()))),
+                  UInt(kBlockDuration, 1500)}))));
   MatroskaDemuxer demuxer;
   std::string error;
   EXPECT_TRUE(Open(&demuxer, file, &error));
@@ -531,22 +543,23 @@ TEST(MatroskaDemuxer, WebVttCueLines) {
 
 TEST(MatroskaDemuxer, SizeBounds) {
   // A Tracks element claiming 1 GiB is an error, not an allocation.
-  Bytes huge_tracks = Cat({Header(), Unknown(kSegment, Cat({Info(), Id(kTracks),
-                                                            Size(1 << 30),
-                                                            VideoTrack(1, "V_VP9")}))});
+  Bytes huge_tracks =
+      Cat({Header(), Unknown(kSegment, Cat({Info(), Id(kTracks), Size(1 << 30),
+                                            VideoTrack(1, "V_VP9")}))});
   MatroskaDemuxer tracks;
   std::string error;
   EXPECT_TRUE(!Open(&tracks, huge_tracks, &error));
   EXPECT_TRUE(error.find("too large") != std::string::npos);
 
   // So is a block of 1 GiB in a cluster of unknown size.
-  const Bytes huge_block = Cat(
-      {Header(),
-       Unknown(kSegment,
-               Cat({Info(), El(kTracks, VideoTrack(1, "V_VP9")),
-                    Unknown(kCluster, Cat({UInt(kTimestamp, 0),
-                                           Simple(1, 0, true, {1}), Id(kSimpleBlock),
-                                           Size(1 << 30), Block(1, 40, 0x80, {2})}))}))});
+  const Bytes huge_block =
+      Cat({Header(),
+           Unknown(kSegment,
+                   Cat({Info(), El(kTracks, VideoTrack(1, "V_VP9")),
+                        Unknown(kCluster, Cat({UInt(kTimestamp, 0),
+                                               Simple(1, 0, true, {1}),
+                                               Id(kSimpleBlock), Size(1 << 30),
+                                               Block(1, 40, 0x80, {2})}))}))});
   MatroskaDemuxer block;
   EXPECT_TRUE(Open(&block, huge_block, &error));
   Packets read = ReadAll(&block);
@@ -571,10 +584,10 @@ TEST(MatroskaDemuxer, TruncatedFile) {
 
 TEST(MatroskaDemuxer, ResyncsAtTheNextCluster) {
   // Damage between two clusters: reading goes on at the second.
-  const Bytes file = File(
-      VideoTrack(1, "V_VP9"),
-      Cat({Cluster(0, Simple(1, 0, true, {1})), Filled(100, 0),
-           Cluster(1000, Simple(1, 0, true, {2}))}));
+  const Bytes file =
+      File(VideoTrack(1, "V_VP9"),
+           Cat({Cluster(0, Simple(1, 0, true, {1})), Filled(100, 0),
+                Cluster(1000, Simple(1, 0, true, {2}))}));
   MatroskaDemuxer demuxer;
   std::string error;
   EXPECT_TRUE(Open(&demuxer, file, &error));

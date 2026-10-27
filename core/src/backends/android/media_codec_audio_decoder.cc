@@ -146,8 +146,8 @@ bool MediaCodecAudioDecoder::CreateCodec(std::string* error) {
   }
   if (status != AMEDIA_OK) {
     AMediaCodec_delete(codec);
-    *error = "mediacodec: " + codec_name_ + " failed to start: " +
-             std::to_string(status);
+    *error = "mediacodec: " + codec_name_ +
+             " failed to start: " + std::to_string(status);
     return false;
   }
   codec_ = codec;
@@ -296,8 +296,8 @@ void MediaCodecAudioDecoder::ReadOutputFormat() {
     rate_ = rate;
     resampler_.reset();
     if (rate_ != output_format_.sample_rate) {
-      resampler_ = std::make_unique<Resampler>(
-          output_format_.channels, rate_, output_format_.sample_rate);
+      resampler_ = std::make_unique<Resampler>(output_format_.channels, rate_,
+                                               output_format_.sample_rate);
     }
   }
 }
@@ -333,10 +333,9 @@ bool MediaCodecAudioDecoder::DrainOutput(const OutputCallback& output) {
     size_t capacity = 0;
     const uint8_t* data = AMediaCodec_getOutputBuffer(codec_, index, &capacity);
     const int sample_bytes = float_output_ ? 4 : 2;
-    const int frames =
-        data && channels_ > 0 && info.size > 0
-            ? info.size / (sample_bytes * channels_)
-            : 0;
+    const int frames = data && channels_ > 0 && info.size > 0
+                           ? info.size / (sample_bytes * channels_)
+                           : 0;
     if (frames > 0) {
       const size_t samples = static_cast<size_t>(frames) * channels_;
       decoded_.resize(samples);

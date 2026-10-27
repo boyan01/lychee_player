@@ -120,8 +120,9 @@ struct HttpState {
   auto* http = static_cast<NSHTTPURLResponse*>(response);
   NSInteger status = http.statusCode;
   if (status >= 400) {
-    state->error = "HTTP " + std::to_string(status) + " " +
-                   [NSHTTPURLResponse localizedStringForStatusCode:status].UTF8String;
+    state->error =
+        "HTTP " + std::to_string(status) + " " +
+        [NSHTTPURLResponse localizedStringForStatusCode:status].UTF8String;
     // Server errors may pass; FFmpeg's reconnect_on_http_error=5xx.
     state->refused = status < 500;
     state->complete = true;
@@ -134,8 +135,9 @@ struct HttpState {
     state->location = http.URL.absoluteString.UTF8String ?: "";
   }
   NSString* accept = http.allHeaderFields[@"Accept-Ranges"];
-  state->ranges = status == 206 ||
-                  (accept && [accept rangeOfString:@"bytes"].location != NSNotFound);
+  state->ranges =
+      status == 206 ||
+      (accept && [accept rangeOfString:@"bytes"].location != NSNotFound);
   if (status == 206) {
     // Content-Range: bytes first-last/total
     NSString* range = http.allHeaderFields[@"Content-Range"];
@@ -301,8 +303,9 @@ int64_t HttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
           LOGW("reconnecting at %lld in %d s after: %s",
                static_cast<long long>(offset), delay,
                state.error.empty() ? "connection closed" : state.error.c_str());
-          if (state.condition.wait_for(lock, std::chrono::seconds(delay),
-                                       [&state] { return state.interrupted; })) {
+          if (state.condition.wait_for(
+                  lock, std::chrono::seconds(delay),
+                  [&state] { return state.interrupted; })) {
             return -1;
           }
           state.Restart(offset);

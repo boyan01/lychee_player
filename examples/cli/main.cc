@@ -448,9 +448,11 @@ void WriteSubtitlePpm(lychee_player* player,
         // Nearest neighbour, should the picture be scaled.
         const uint8_t* p =
             image.data +
-            static_cast<ptrdiff_t>(y * image.bitmap_height / image.height) * image.stride +
+            static_cast<ptrdiff_t>(y * image.bitmap_height / image.height) *
+                image.stride +
             (x * image.bitmap_width / image.width) * 4;
-        uint8_t* out = canvas.data() + (static_cast<size_t>(cy) * width + cx) * 3;
+        uint8_t* out =
+            canvas.data() + (static_cast<size_t>(cy) * width + cx) * 3;
         for (int c = 0; c < 3; ++c) {
           out[c] = static_cast<uint8_t>(p[c] + out[c] * (255 - p[3]) / 255);
         }
