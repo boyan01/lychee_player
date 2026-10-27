@@ -59,14 +59,19 @@ on top of them.
    ran ahead of a slow live decoder, and of events still waiting for the
    control thread's next 10 ms tick; 24 runs six at once now give the
    same counts every run.
-2. **A track switch on input that cannot seek loses the read-ahead**: a
-   track switch, new video device or decoder rebuild on input that cannot
-   seek (`lychee_player_is_seekable()` 0, e.g. an http server without
-   range requests through FFmpeg) does not touch the demuxer and goes on
-   from its read position, so what the old renderers had queued is
-   skipped (2026-10-26). Done when playback there resumes at the position
-   on screen (e.g. by replaying the packets still queued), with
-   `http-no-ranges-track` checking the first frame after the switch.
+2. **A video stream switched on over input that cannot seek starts at
+   the read position**: on input that cannot seek
+   (`lychee_player_is_seekable()` 0, e.g. an http server without range
+   requests through FFmpeg), a resync replays each stream's packets
+   since the keyframe before the position (`PacketHistory`, 2026-10-27),
+   so an audio track switch, a new video device and a decoder rebuild
+   resume where playback is (`http-no-ranges-track*`,
+   `http-no-ranges-decoder-lost`). Every audio stream is read for that,
+   but only the selected video stream: another video track, or video
+   turned back on, has no packets before the read position, so its
+   first frame comes up to the read-ahead (~4 s) late. Done when that
+   case resumes at the position too (reading every video stream costs
+   memory per stream), or is judged not worth it.
 3. **The FFmpeg build's MPEG-TS and HLS edge cases** (found 2026-10-26
    comparing with the FFmpeg-free demuxers): HLS with
    `EXT-X-DISCONTINUITY` where timestamps start over stops at the

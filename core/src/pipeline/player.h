@@ -15,6 +15,7 @@
 #include "pipeline/audio_renderer.h"
 #include "pipeline/live_demuxer.h"
 #include "pipeline/media_clock.h"
+#include "pipeline/packet_history.h"
 #include "pipeline/packet_queue.h"
 #include "pipeline/subtitle_renderer.h"
 #include "pipeline/video_renderer.h"
@@ -302,6 +303,13 @@ class Player {
   // midway already has the cues read so far. The map itself does not
   // change in between, so the read thread uses it without the lock.
   std::map<int, std::unique_ptr<SubtitleRenderer>> subtitle_renderers_;
+  // Input that cannot seek (not live): one per video and audio stream, from
+  // Prepare() until StopPipeline(). A resync replays them in place of a
+  // seek. Every audio stream is read, so one switched to midway starts at
+  // the position too; a video stream only once selected. The map does not
+  // change in between; the read thread pushes to it, and the control
+  // thread uses it while the read thread is parked.
+  std::map<int, PacketHistory> histories_;
   std::thread thread_;
   std::thread read_thread_;
 

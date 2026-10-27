@@ -909,11 +909,21 @@ if [ "${NO_FFMPEG:-0}" != 1 ]; then
   serve --no-ranges
   seq_ expect http-no-ranges "^seekable=0$" "seek ignored" "<=0 seek completed" "<=0 seek took" \
     "summary: state=ended .*backward_jumps=0 .*stalls=0" -- --seek 8 --seek-after 1 "$url"
-  # A track switch on it goes on from where the input is: the resync
-  # neither fails nor moves the read position.
+  # A track switch or a decoder rebuild on it cannot seek: the renderers
+  # start over from the packets kept since the keyframe before the
+  # position, so playback resumes there and no frame is skipped (8 s at
+  # 30 fps: 242 frames), then the read goes on from where it was. Also
+  # after the input was read to its end.
   seq_ expect http-no-ranges-track "select audio 2 at [0-9.]+s: accepted" "track 2: audio .* selected=1" \
-    "track switch: resumed" "<=0 seek failed" "<=0 input failed" "summary: state=ended position=8\." -- \
+    "track switch: resumed [+-]0\.0[0-9]{2}s" "<=0 seek failed" "<=0 input failed" \
+    "summary: state=ended position=8\.[0-9]{3}s .*pulled=24[0-2] .*backward_jumps=0 " -- \
     --select audio:2 "http://127.0.0.1:$port/tracks.mkv"
+  seq_ expect http-no-ranges-track-end "track switch: resumed [+-]0\.0[0-9]{2}s" "<=0 input failed" \
+    "summary: state=ended position=8\.[0-9]{3}s .*pulled=24[0-2] .*backward_jumps=0 " -- \
+    --select audio:2 --select-after 5 "http://127.0.0.1:$port/tracks.mkv"
+  seq_ expect http-no-ranges-decoder-lost "video rebuilt: resumed [+-]0\.0[0-9]{2}s" "<=0 event: state error" \
+    "summary: state=ended position=12\.000s .*pulled=36[0-9] .*backward_jumps=0 " -- \
+    --lose-decoder-after 2 "http://127.0.0.1:$port/h264_aac.mp4"
 fi
 serve --drop-at 3000000
 seq_ check http-mkv-reconnect 1 - -- "http://127.0.0.1:$port/h264_aac.mkv"

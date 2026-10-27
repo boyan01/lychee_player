@@ -20,6 +20,7 @@ set(LYCHEE_SOURCES
   src/pipeline/live_demuxer.cc
   src/pipeline/live_timeline.cc
   src/pipeline/media_clock.cc
+  src/pipeline/packet_history.cc
   src/pipeline/packet_queue.cc
   src/pipeline/player.cc
   src/pipeline/subtitle_renderer.cc

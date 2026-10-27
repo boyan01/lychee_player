@@ -77,7 +77,12 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
   (a GPU reset) all replace renderers the same way: `ChangeTracks` on the
   control thread, then a resync seek to the clock's position. Video then
   skips frames up to the end of the one on screen, since callers pull
-  frames for display times ahead of the clock.
+  frames for display times ahead of the clock. Input that cannot seek
+  does not move the demuxer: the read thread keeps each video and audio
+  stream's packets since the keyframe at or before the clock
+  (`PacketHistory`, shared with the queues), and the resync pushes them
+  into the flushed queues under the new generation before the read goes
+  on.
 - Looping does not seek: at the end of the input the read thread seeks
   the demuxer back to the start and pushes a boundary packet, and reads
   each later pass with timestamps a duration later (`Player::loops_`), so

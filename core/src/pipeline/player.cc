@@ -99,6 +99,7 @@ void Player::StopPipeline() {
     audio = std::move(audio_renderer_);
     subtitles = std::move(subtitle_renderers_);
     subtitle_renderers_.clear();
+    histories_.clear();
     demuxer = std::move(demuxer_);
     live_ = false;
     live_demuxer_ = nullptr;
@@ -947,12 +948,23 @@ bool Player::Prepare(const std::string& url, std::string* error) {
       }
     }
   }
+  std::map<int, PacketHistory> histories;
+  if (!info.seekable) {
+    for (const StreamInfo& stream : info.streams) {
+      if (stream.type == MediaType::kAudio ||
+          (stream.type == MediaType::kVideo && config_.video_frame_types)) {
+        histories.try_emplace(stream.index, kMaxQueuedBytes,
+                              stream.type == MediaType::kAudio);
+      }
+    }
+  }
   clock_.Reset(info.start_time);
 
   std::lock_guard<std::mutex> lock(mutex_);
   // A live input before may have left it at 1.
   clock_.SetRate(rate_);
   media_info_ = info;
+  histories_ = std::move(histories);
   video_stream_ = video ? info.default_video_stream : -1;
   audio_stream_ = audio ? info.default_audio_stream : -1;
   subtitle_stream_ = subtitles.count(info.default_subtitle_stream)
@@ -1088,6 +1100,17 @@ void Player::EnableStreamsLocked() {
   for (const auto& [stream, renderer] : subtitle_renderers_) {
     streams.push_back(stream);
   }
+  for (auto& [stream, history] : histories_) {
+    if (stream == video_stream_ || stream == audio_stream_) {
+      continue;
+    }
+    if (media_info_.streams[stream].type == MediaType::kAudio) {
+      streams.push_back(stream);
+    } else {
+      // Read again later, it would have a gap.
+      history.Clear();
+    }
+  }
   demuxer_->SetEnabledStreams(streams);
 }
 
@@ -1172,6 +1195,9 @@ void Player::ReadPacket() {
     if (packet->dts != kNoTimestamp) {
       packet->dts += offset;
     }
+  }
+  if (auto it = histories_.find(packet->stream_index); it != histories_.end()) {
+    it->second.Push(packet, clock_.Now());
   }
   int64_t pts = packet->pts;
   if (packet->stream_index == video_stream_) {
@@ -1292,6 +1318,23 @@ void Player::ProcessSeek(int64_t target,
   for (const auto& [stream, subtitle] : subtitle_renderers_) {
     subtitle->Flush();
   }
+  // Input that cannot seek: the renderers start over from the packets kept
+  // since the keyframe before the position, then the read goes on.
+  auto replay = [this](int stream, PacketQueue* queue) {
+    int64_t last_pts = kNoTimestamp;
+    if (auto it = histories_.find(stream); it != histories_.end()) {
+      for (const std::shared_ptr<EncodedPacket>& packet :
+           it->second.packets()) {
+        queue->Push(packet);
+        if (packet->pts != kNoTimestamp) {
+          last_pts = std::max(last_pts, packet->pts);
+        }
+      }
+    }
+    return last_pts;
+  };
+  const int64_t video_last_pts = replay(video_stream_, &video_queue_);
+  const int64_t audio_last_pts = replay(audio_stream_, &audio_queue_);
 
   std::lock_guard<std::mutex> lock(mutex_);
   end_of_input_ = false;
@@ -1304,7 +1347,8 @@ void Player::ProcessSeek(int64_t target,
   if (audio_renderer_) {
     audio_renderer_->SetPlaying(false);
   }
-  video_last_pts_ = audio_last_pts_ = kNoTimestamp;
+  video_last_pts_ = video_last_pts;
+  audio_last_pts_ = audio_last_pts;
   prerolling_ = loop && state_ == PlayerState::kReady;
   if (!prerolling_ && state_ != PlayerState::kLoading &&
       state_ != PlayerState::kError) {
