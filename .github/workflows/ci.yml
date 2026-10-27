@@ -61,6 +61,30 @@ jobs:
           fi
           tool/format.sh --check "$BASE" "$GITHUB_SHA"
 
+  tidy:
+    needs: changes
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.apple == 'true'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install tools
+        run: brew install llvm ffmpeg ninja pkg-config glfw
+      - name: Check
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [ -z "${BASE//0/}" ]; then
+            # A new branch has no previous commit: check all compiled core code.
+            tool/tidy.sh --all
+          else
+            if [ "${{ github.event_name }}" = pull_request ]; then
+              BASE="$(git merge-base "$BASE" "$GITHUB_SHA")"
+            fi
+            tool/tidy.sh "$BASE" "$GITHUB_SHA"
+          fi
+
   abi:
     # lychee.h against the last release's and against the push's or pull
     # request's base (tool/abi_check.py): a change to its ABI, a break or an

@@ -6,6 +6,7 @@
 #
 #   tool/tidy.sh          # this branch's changes since it left main,
 #                         # uncommitted and untracked files included
+#   tool/tidy.sh BASE HEAD # committed changes only; checkout HEAD first
 #   tool/tidy.sh --all    # every line of every core/src file
 #
 # Exits 1 when it finds anything. The compile commands come from the
@@ -19,7 +20,21 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 all=0
-[ "${1:-}" = --all ] && all=1
+base=""
+head=""
+if [ "${1:-}" = --all ] && [ "$#" = 1 ]; then
+  all=1
+elif [ "$#" = 2 ] && [[ "$1" != --* ]]; then
+  base="$(git -C "$root" rev-parse --verify "$1^{commit}")"
+  head="$(git -C "$root" rev-parse --verify "$2^{commit}")"
+  if [ "$head" != "$(git -C "$root" rev-parse HEAD)" ]; then
+    echo "tidy.sh: checkout HEAD before checking its source" >&2
+    exit 1
+  fi
+elif [ "$#" != 0 ]; then
+  echo "usage: tool/tidy.sh [--all | BASE HEAD]" >&2
+  exit 1
+fi
 
 tidy=/opt/homebrew/opt/llvm/bin/clang-tidy
 [ -x "$tidy" ] || tidy="$(command -v clang-tidy || true)"
@@ -34,7 +49,7 @@ configure() {
   cmake -S "$root" -B "$1" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "${@:2}" >/dev/null
 }
-configure "$root/build-tidy"
+configure "$root/build-tidy" -DLYCHEE_FFMPEG_ROOT="${FFMPEG_ROOT:-}"
 configure "$root/build-tidy-noffmpeg" -DLYCHEE_WITH_FFMPEG=OFF
 mkdir -p "$root/build-tidy/merged"
 
@@ -42,10 +57,15 @@ if [ "$all" = 1 ]; then
   diff=""
   untracked=""
 else
-  base="$(git -C "$root" merge-base main HEAD)"
   exts=('*.c' '*.h' '*.cc' '*.cpp' '*.m' '*.mm')
-  diff="$(git -C "$root" diff -U0 --no-color --diff-filter=d "$base" -- "${exts[@]}")"
-  untracked="$(git -C "$root" ls-files --others --exclude-standard -- "${exts[@]}")"
+  if [ -n "$head" ]; then
+    diff="$(git -C "$root" diff -U0 --no-color --diff-filter=d "$base" "$head" -- "${exts[@]}")"
+    untracked=""
+  else
+    base="$(git -C "$root" merge-base main HEAD)"
+    diff="$(git -C "$root" diff -U0 --no-color --diff-filter=d "$base" -- "${exts[@]}")"
+    untracked="$(git -C "$root" ls-files --others --exclude-standard -- "${exts[@]}")"
+  fi
 fi
 
 # Merges the two compile databases (first one wins) and picks the files
