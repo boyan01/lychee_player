@@ -5,8 +5,9 @@ lychee_player is a media player built as a reusable C++ library with a C ABI
 has the layout and build commands.
 
 Before starting a feature or a new platform, read `docs/roadmap.md`: it lists
-what is unfinished, known defects, and the done criteria for each item. Update
-it in the same change when you finish, start, or discover an item.
+what is unfinished, known defects, and the done criteria for each item, and
+nothing that is done. Update it in the same change when you finish (delete the
+item), start, or discover one.
 
 ## Autonomy
 
@@ -14,7 +15,8 @@ Decide and keep going; do not wait for the user's OK on API design,
 implementation choices, test thresholds, docs, minimum OS versions, C ABI
 changes (bump `LYCHEE_API_VERSION` with a history line) or new
 dependencies that fit the design rules below. Put the reason in the commit
-message and, where it matters later, in `docs/roadmap.md`. Commit each
+message and, where it matters later, in a code comment, the README or this
+file; what was done and how it was checked stays in the commit. Commit each
 finished item locally.
 
 Stop and ask only for:
@@ -237,7 +239,7 @@ What each area needs (run `tool/changes.sh`):
   conversion, rotation) also `lychee_glfw`. The plugin's Swift package
   build uses `LycheeFrameDriver`; its pod keeps a port of it
   (`LycheeTexture` in `LycheePlayerPlugin.m`): fix both until CocoaPods
-  support is dropped (roadmap, Distribution 3.2). For the core without
+  support is dropped (roadmap, Distribution 3). For the core without
   FFmpeg: `NO_FFMPEG=1 tool/build_apple.sh` and `swift test --traits
   NoFFmpeg`. When the shipped FFmpeg or libass builds
   change: `FFMPEG_ROOT=third_party/ffmpeg/macos-arm64

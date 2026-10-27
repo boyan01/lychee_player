@@ -54,8 +54,7 @@ jobs:
           key: ${{ steps.libass.outputs.key }}
       - run: tool/release.sh build apple build-sources
       # Nothing is released unless the media matrix plays through the
-      # FFmpeg that ships. A red run of a case the roadmap lists as flaky
-      # on hosted runners needs its log read before dispatching again.
+      # FFmpeg that ships. Read a red run's log before dispatching again.
       - name: Regression with the shipped FFmpeg
         # Homebrew's ffmpeg only generates the media; installed after the
         # shipped FFmpeg is built, so that build cannot find it. A hosted VM
