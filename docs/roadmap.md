@@ -915,11 +915,12 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    `abi` job, AGENTS.md's `abi` area; it reads the header with clang's
    JSON AST and a compiled `sizeof`/`offsetof` probe on the host's ABI
    only, so a layout that differs only on 32-bit or Windows goes
-   unseen; its first run on GitHub waits on a push):
-   - **A stored fuzzing corpus**: CI's `fuzz` job (2026-10-26) runs
-     each parser's fuzzer for a minute on `parsers` changes, from the
-     seeds every time; keep the corpus between runs (an Actions cache,
-     or OSS-Fuzz once the project is public).
+   unseen; its first run on GitHub waits on a push. The stored fuzzing
+   corpus is done too, also unseen on GitHub: CI's `fuzz` job restores the newest
+   `build-fuzz/corpus` from an Actions cache and saves its own after
+   every run, failed ones too; nothing minimizes it yet, so if it grows
+   past a few hundred MB, merge it with libFuzzer's `-merge=1`; OSS-Fuzz
+   once the project is public):
    - **clang-tidy** on changed files (`bugprone-*`, `performance-*`,
      `modernize-use-override`, `cppcoreguidelines-pro-type-member-init`),
      with a checked-in `.clang-tidy`, local first, then in CI.

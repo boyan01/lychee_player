@@ -169,8 +169,24 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends clang-18 libclang-rt-18-dev ninja-build ffmpeg
+      # The corpus each run grew (build-fuzz/corpus), so a minute goes on
+      # from where the last run stopped rather than from the seeds. A
+      # cache cannot be overwritten: each run saves its own, also when it
+      # found a crash, and the next restores the newest.
+      - name: Restore the corpus
+        uses: actions/cache/restore@v4
+        with:
+          path: build-fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: fuzz-corpus-
       - name: Fuzz
         run: LLVM=/usr/lib/llvm-18 JOBS=2 FUZZ_SECONDS=60 tool/fuzz.sh
+      - name: Save the corpus
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: build-fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Crash inputs
         if: failure()
         uses: actions/upload-artifact@v4
