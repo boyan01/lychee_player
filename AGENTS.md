@@ -82,7 +82,12 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
   stream's packets since the keyframe at or before the clock
   (`PacketHistory`, shared with the queues), and the resync pushes them
   into the flushed queues under the new generation before the read goes
-  on.
+  on. So such input reads every stream that keeps a history, selected or
+  not; HLS reads other video streams (variants) only once selected.
+- An audio device that pulls nothing for `AudioRenderer::kDeviceTimeout`
+  (never started, or stalled) is stood in for by the control thread
+  (`PullForStalledDevice`), which renders and drops audio just ahead of the clock, so
+  playback goes on silently; the device takes over on its next pull.
 - Looping does not seek: at the end of the input the read thread seeks
   the demuxer back to the start and pushes a boundary packet, and reads
   each later pass with timestamps a duration later (`Player::loops_`), so
@@ -186,7 +191,7 @@ The layers, lowest first:
      FFmpeg (`tool/build_ffmpeg.sh linux-x86_64`, then
      `LYCHEE_FFMPEG_ROOT=third_party/ffmpeg/linux-x86_64` for the core's
      CMake and for `flutter build linux`): BtbN's aborts there (roadmap,
-     known defect 5). NVIDIA's VAAPI driver hangs, and the player
+     known defect 3). NVIDIA's VAAPI driver hangs, and the player
      falls back to software after 4 s; `nvidia-vaapi-driver` is not
      installed there since 2026-10-27, so libva cannot pick it.
      `lychee_cli --dmabuf /dev/dri/renderDN` decodes into dmabufs on

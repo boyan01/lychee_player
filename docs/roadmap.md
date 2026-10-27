@@ -70,44 +70,36 @@ on top of them.
    can come before a slow open has finished; it failed the same way in
    CI's plain `apple` job next, so the server now sends that case at
    2 MB/s and drops 1.5 s in.
-2. **A video stream switched on over input that cannot seek starts at
-   the read position**: on input that cannot seek
-   (`lychee_player_is_seekable()` 0, e.g. an http server without range
-   requests through FFmpeg), a resync replays each stream's packets
-   since the keyframe before the position (`PacketHistory`, 2026-10-27),
-   so an audio track switch, a new video device and a decoder rebuild
-   resume where playback is (`http-no-ranges-track*`,
-   `http-no-ranges-decoder-lost`). Every audio stream is read for that,
-   but only the selected video stream: another video track, or video
-   turned back on, has no packets before the read position, so its
-   first frame comes up to the read-ahead (~4 s) late. Done when that
-   case resumes at the position too (reading every video stream costs
-   memory per stream), or is judged not worth it.
-3. **Styled ASS is slow in the iOS 18.1 simulator**: `sub_ass_styled.mkv`
-   in the Flutter example on an iPhone 16 simulator with iOS 18.1 shows
-   ~2.6 fps (6 rendered, 4 dropped after 5 s; software decoding, as
-   always in the simulator), where `h264_aac.mp4` shows 24 to 30 fps
-   with none dropped (2026-10-26). The same with the plugin's pod and
-   its Swift package, so not the frame driver; macOS plays the file at
-   30 fps. Not investigated: libass with Core Text there (whose Chinese
-   fallback that iOS lacks, Features 3), or the software decoder. Done
-   when the cause is known and the file plays at its rate in the
-   simulator, or the cause is the simulator's alone.
-4. **An audio device that does not start stalls playback for good**: on
-   a MacBook Pro with its lid closed and only its speakers (2026-10-27),
-   `AudioOutputUnitStart` failed (`afplay` too: "AudioQueueStart failed
-   (35)"); the clock follows the device, so the position stayed put with
-   one frame shown, the player stayed ready, and `realtime-h264` ran
-   until it was killed. It now logs the failure. Done when a sink that
-   cannot start reports an error (or the player falls back to the
-   system clock) instead of waiting.
-
+2. **Styled ASS with Chinese is slow on iOS 18.1**: Core Text's
+   fallback for Han on iOS is `PingFangUI.ttc`, whose outlines are only
+   in an `hvgl` table that FreeType reads through `/usr/lib/libhvf.dylib`.
+   The iOS 18.1 runtime has no such library (only a private
+   `FontServices.framework/libhvf.dylib` without the `HVF_*` API; 18.5,
+   26.5 and 27.0 have it, with the same font file byte for byte), so
+   FreeType fails to open it, Chinese shows as boxes, and libass 0.17.5,
+   which caches no failed fallback, searches Core Text again and tries
+   six PingFang faces for every missing glyph on every frame:
+   `ass_render_frame` takes ~450 ms a frame for five Han glyphs (~2.3
+   fps, Swift example, iPhone 16 simulator, 2026-10-27), while Latin and
+   Hebrew lines take ~0.1 ms, and 18.5, 26.5 and 27.0 take ~0.05 ms with
+   the file at its rate. A real iOS 18.1 device most likely does the same
+   (the runtime keeps the device's dylib layout; not seen on a device). A
+   fallback font does not cure it: 18.1 has no other font covering
+   simplified Chinese (Hiragino as libass's default font still left
+   U+4F60 searched every frame, ~93 ms). `sub_ass_styled.mkv` was made by
+   hand; `tool/regression.sh` does not generate it. Fix candidates: a
+   negative cache of missing glyphs in libass's `ass_font_get_index` (a
+   patch in `tool/build_libass.sh`, or upstream; it would also help
+   Android glyphs no font covers), or rendering libass off the
+   frame-pulling thread, so a slow subtitle frame never holds up video.
+   Done when `sub_ass_styled.mkv` plays at its rate on the iOS 18.1
+   simulator.
 Calling `lychee_player_open()` from an event callback returns -1 (API 9)
 rather than reopening; callers reopen from their own thread. Unit tests
 are off in a shared-library build (`LYCHEE_BUILD_TESTS` needs the static
 core's internals).
 
-5. **BtbN's FFmpeg aborts at the first VAAPI frame on older libva**: the
+3. **BtbN's FFmpeg aborts at the first VAAPI frame on older libva**: the
    Linux plugin takes BtbN's FFmpeg until a release pins ours (both
    architectures from the next release on, 2026-10-27). It loads libva through implib-gen stubs built
    against a newer libva, and mapping the first hardware frame calls
@@ -226,7 +218,7 @@ FFmpeg's software frames (45, 46, 31 and 75 dB) and seek and pause
 through `--key`; the Flutter example under Impeller (profile,
 `--seconds 6`) h264 172 rendered and 0 dropped, hevc10 139 and 0 three
 times in a row, rotated 172 and 1 (at the start), controls drawn. With
-BtbN's FFmpeg it aborts instead (known defect 5). NVIDIA's
+BtbN's FFmpeg it aborts instead (known defect 3). NVIDIA's
 `nvidia-vaapi-driver` 0.0.8 (EGL backend, `renderD129` through
 `lychee_cli --dmabuf`) never returns h264 or vp9 frames; the player gives
 up on it after 4 s and plays on in software, as it does with VideoToolbox's
@@ -1007,9 +999,18 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    every run, failed ones too; nothing minimizes it yet, so if it grows
    past a few hundred MB, merge it with libFuzzer's `-merge=1`; OSS-Fuzz
    once the project is public):
-   - **clang-tidy** on changed files (`bugprone-*`, `performance-*`,
-     `modernize-use-override`, `cppcoreguidelines-pro-type-member-init`),
-     with a checked-in `.clang-tidy`, local first, then in CI.
+   - **clang-tidy**: local part done (2026-10-27): `.clang-tidy`
+     (`bugprone-*`, `performance-*`, `modernize-use-override`,
+     `cppcoreguidelines-pro-type-member-init`, minus the checks it
+     names as noise here) and `tool/tidy.sh`, which reports findings on
+     the lines a branch changed (`--all`: all of `core/src`). `--all` on
+     macOS still finds 34 (15 implicit-widening-of-multiplication-result,
+     8 incorrect-roundings, 3 pro-type-member-init, 3
+     unnecessary-value-param, 2 branch-clone, 2
+     inefficient-vector-operation, 1 invalid-enum-default-initialization);
+     the Android, Windows and Linux backends are not checked on macOS.
+     Left: fix those, then a CI job running `tool/tidy.sh` on the push's
+     changes (macOS, then Linux for its backends).
    - **MSVC `/W4`** for the Windows build, and warnings as errors in the
      plugins' and the Android SDK's own core builds.
    - **Performance benchmarks**: decode and frame-conversion throughput,
