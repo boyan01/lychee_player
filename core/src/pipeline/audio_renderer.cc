@@ -21,6 +21,14 @@ constexpr int64_t kPrerollDuration = 200 * kMicrosPerMilli;
 // Live: a sample this late is still played, so a device clock running a
 // little slow does not cut every buffer.
 constexpr int64_t kLiveLateTolerance = 2 * kMicrosPerMilli;
+// A device that pulls nothing for this long while playing is given up on.
+// Bluetooth headphones take ~300 ms to start.
+constexpr int64_t kDeviceTimeout = 2 * kMicrosPerSecond;
+// Audio pulled for a stalled device reaches this far past now, as a
+// device's buffer does, so the clock does not stop between pulls.
+constexpr int64_t kStalledDeviceLead = 50 * kMicrosPerMilli;
+
+std::atomic<bool> g_devices_stalled{false};
 
 }  // namespace
 
@@ -44,7 +52,10 @@ bool AudioRenderer::Initialize(const AudioConfig& config,
   }
   if (!sink_->Open(
           [this](float* destination, int frames, int64_t playout_time) {
-            return Render(destination, frames, playout_time);
+            if (g_devices_stalled.load(std::memory_order_relaxed)) {
+              return 0;
+            }
+            return Render(destination, frames, playout_time, true);
           },
           error)) {
     return false;
@@ -165,13 +176,23 @@ void AudioRenderer::OnBuffer(std::shared_ptr<AudioBuffer> buffer,
 
 int AudioRenderer::Render(float* destination,
                           int frames,
-                          int64_t playout_time) {
+                          int64_t playout_time,
+                          bool from_device) {
   const float volume = volume_.load();
   const double rate = rate_.load();
   int written = 0;
-  int64_t end_pts = kNoTimestamp;
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (from_device) {
+      device_pull_time_ = NowMicros();
+      if (stalled_playout_time_ != kNoTimestamp) {
+        LOGI("audio device pulls again");
+        stalled_playout_time_ = kNoTimestamp;
+      }
+    } else if (stalled_playout_time_ == kNoTimestamp) {
+      // The device took over meanwhile.
+      return 0;
+    }
     if (!playing_) {
       return 0;
     }
@@ -186,7 +207,7 @@ int AudioRenderer::Render(float* destination,
       written = algorithm_.FillBuffer(
           &render_bus_, 0, std::min(frames, FramesBeforeEndLocked(rate)), rate);
     }
-    end_pts = algorithm_.NextOutputTimestamp();
+    const int64_t end_pts = algorithm_.NextOutputTimestamp();
     if (written == 0 && end_of_stream_) {
       // WSOLA keeps less than a window it cannot use: drop it so the stream
       // can end. Then let video (if any) run on the system clock.
@@ -194,22 +215,26 @@ int AudioRenderer::Render(float* destination,
       clock_->ClearMaxTime();
     } else if (written == 0 && FramesBeforeEndLocked(rate) == 0) {
       clock_->ClearMaxTime();
+    } else if (written > 0 && end_pts != kNoTimestamp && !live_output_lead_) {
+      // Under the lock: a device taking over from PullForStalledDevice()
+      // must not have its update overwritten by an older one.
+      // |written| frames at |rate| cover this much media time.
+      const int64_t span = static_cast<int64_t>(
+          written * rate * kMicrosPerSecond / format_.sample_rate);
+      clock_->UpdateFromAudio(end_pts - span, playout_time, end_pts);
+    }
+    // PullForStalledDevice() drops what it pulls.
+    if (destination) {
+      const int channels = format_.channels;
+      for (int k = 0; k < channels; ++k) {
+        const float* source = render_bus_.channel(k);
+        for (int i = 0; i < written; ++i) {
+          destination[i * channels + k] = source[i] * volume;
+        }
+      }
     }
   }
   condition_.notify_all();
-  const int channels = format_.channels;
-  for (int k = 0; k < channels; ++k) {
-    const float* source = render_bus_.channel(k);
-    for (int i = 0; i < written; ++i) {
-      destination[i * channels + k] = source[i] * volume;
-    }
-  }
-  if (written > 0 && end_pts != kNoTimestamp && !live_output_lead_) {
-    // |written| frames at |rate| cover this much media time.
-    const int64_t span = static_cast<int64_t>(
-        written * rate * kMicrosPerSecond / format_.sample_rate);
-    clock_->UpdateFromAudio(end_pts - span, playout_time, end_pts);
-  }
   return written;
 }
 
@@ -287,12 +312,49 @@ void AudioRenderer::SetPlaying(bool playing) {
       return;
     }
     playing_ = playing;
+    if (playing) {
+      // The device gets kDeviceTimeout from here, or a stalled one is
+      // pulled for from here on.
+      const int64_t now = NowMicros();
+      device_pull_time_ = now;
+      if (stalled_playout_time_ != kNoTimestamp) {
+        stalled_playout_time_ = now;
+      }
+    }
   }
   if (playing) {
     sink_->Start();
   } else {
     sink_->Stop();
   }
+}
+
+void AudioRenderer::PullForStalledDevice(int64_t now) {
+  int64_t playout_time;
+  int frames;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!playing_) {
+      return;
+    }
+    if (stalled_playout_time_ == kNoTimestamp) {
+      if (now - device_pull_time_ < kDeviceTimeout) {
+        return;
+      }
+      LOGW("audio device pulled nothing for %lld ms; playing on without it",
+           static_cast<long long>((now - device_pull_time_) / kMicrosPerMilli));
+      stalled_playout_time_ = now;
+    }
+    playout_time = stalled_playout_time_;
+    frames = static_cast<int>((now + kStalledDeviceLead - playout_time) *
+                              format_.sample_rate / kMicrosPerSecond);
+    if (frames <= 0) {
+      return;
+    }
+    stalled_playout_time_ +=
+        static_cast<int64_t>(frames) * kMicrosPerSecond / format_.sample_rate;
+  }
+  Render(nullptr, frames, playout_time, false);
 }
 
 void AudioRenderer::SetVolume(float volume) {
@@ -357,6 +419,11 @@ bool AudioRenderer::HasError() const {
 int64_t AudioRenderer::buffered_duration() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return BufferedDurationLocked();
+}
+
+// static
+void AudioRenderer::StallDevicesForTesting(bool stalled) {
+  g_devices_stalled = stalled;
 }
 
 int64_t AudioRenderer::BufferedDurationLocked() const {

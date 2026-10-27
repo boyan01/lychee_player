@@ -238,7 +238,7 @@ void CoreAudioSink::Start() {
     OSStatus status = AudioOutputUnitStart(unit_);
     started_ = status == noErr;
     if (!started_) {
-      // The clock follows the device, so playback stays where it is.
+      // The audio renderer plays on without it after a while.
       LOGW("AudioOutputUnitStart failed: %d", static_cast<int>(status));
     }
   }

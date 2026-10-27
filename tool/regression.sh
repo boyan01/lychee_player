@@ -777,6 +777,20 @@ par expect decoder-hung "hang video decoder at" "video rebuilt: resumed [+-]0\.[
   --hang-decoder-after 2 "$media/h264_aac.mp4"
 realtime=1 par expect decoder-hung-destroy "hang video decoder at" "destroyed in [0-4]\." -- \
   --hang-decoder-after 1 --seconds 2 "$media/h264_aac.mp4"
+# An audio device that never pulls (it failed to start, as on a closed
+# laptop lid) is pulled for in real time after 2 s, and playback goes on
+# silently to the end; one that stops midway too, and it takes over again
+# when it pulls. --seconds: a stall fails the case rather than hangs it.
+par expect audio-device-dead "audio device pulled nothing for 20[0-9]{2} ms" \
+  "summary: state=ended position=12\.000s .*backward_jumps=0 .*stalls=0" -- \
+  --stall-audio-after 0 --seconds 20 "$media/h264_aac.mp4"
+par expect audio-device-stalled "stall audio device at 2\." "audio device pulled nothing for 20[0-9]{2} ms" \
+  "audio device pulls again" "summary: state=ended position=12\.000s .*glitches=[0-3] backward_jumps=0 .*stalls=0" -- \
+  --stall-audio-after 2 --stall-audio-for 4 --seconds 20 "$media/h264_aac.mp4"
+# The same with the platform's audio device pulling on its own thread.
+realtime=1 par expect audio-device-stalled-realtime "audio device pulled nothing for 20[0-9]{2} ms" \
+  "audio device pulls again" "summary: state=ready position=[34]\.[0-9]{3}s .*backward_jumps=0 " -- \
+  --stall-audio-after 1 --stall-audio-for 3 --seconds 6 "$media/h264_aac.mp4"
 # Nobody pulls frames for 3 s, as in the background: frames that went by
 # meanwhile are not counted as dropped, and playback resumes at the clock.
 par expect background "show at " "summary: state=ended .*dropped=0 glitches=[0-3] backward_jumps=0 " -- \

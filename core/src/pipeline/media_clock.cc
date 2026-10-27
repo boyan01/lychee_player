@@ -12,22 +12,22 @@ int64_t MediaClock::MediaTimeAt(int64_t system_time) const {
 
 int64_t MediaClock::MediaTimeAtLocked(int64_t system_time) const {
   int64_t media_time = anchor_media_time_;
-  if (playing_) {
+  if (MovingLocked()) {
     media_time += std::llround((system_time - anchor_system_time_) * rate_);
   }
   return std::clamp(media_time, std::min(min_media_time_, max_media_time_),
                     max_media_time_);
 }
 
-bool MediaClock::MovingLocked(int64_t now) const {
-  return playing_ && (!waiting_for_audio_ || now >= anchor_system_time_);
+bool MediaClock::MovingLocked() const {
+  return playing_ && !waiting_for_audio_;
 }
 
 bool MediaClock::SystemTimesFor(const std::vector<int64_t>& media_times,
                                 std::vector<int64_t>* system_times) const {
   int64_t now = NowMicros();
   std::lock_guard<std::mutex> lock(mutex_);
-  const bool moving = MovingLocked(now);
+  const bool moving = MovingLocked();
   int64_t anchor_system_time = moving ? anchor_system_time_ : now;
   system_times->clear();
   for (int64_t media_time : media_times) {
@@ -55,9 +55,6 @@ void MediaClock::Play(bool wait_for_audio) {
   }
   min_media_time_ = anchor_media_time_;
   anchor_system_time_ = NowMicros();
-  if (wait_for_audio) {
-    anchor_system_time_ += kAudioStartTimeout;
-  }
   waiting_for_audio_ = wait_for_audio;
   playing_ = true;
 }
@@ -80,11 +77,6 @@ bool MediaClock::playing() const {
 void MediaClock::SetRate(double rate) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (rate <= 0 || rate == rate_) {
-    return;
-  }
-  if (waiting_for_audio_) {
-    // Time has not moved yet; re-anchoring would start it.
-    rate_ = rate;
     return;
   }
   // Re-anchor so the media time already elapsed keeps the old rate.

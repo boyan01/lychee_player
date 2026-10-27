@@ -24,11 +24,11 @@ class MediaClock {
   // Pauses the clock at |media_time|.
   void Reset(int64_t media_time);
   // With |wait_for_audio|, media time stays put until the audio renderer
-  // reports when its first buffer is heard (or kAudioStartTimeout passes),
-  // instead of running ahead by the output latency and jumping back: video
-  // would skip the frames of that gap. Chromium likewise reports time as
-  // moving only once the audio device renders
-  // (media/renderers/audio_renderer_impl.cc, GetWallClockTimes()).
+  // reports when its first buffer is heard (or that audio ended), instead of
+  // running ahead by the output latency and jumping back: video would skip the
+  // frames of that gap. Chromium likewise reports time as moving only once the
+  // audio device renders (media/renderers/audio_renderer_impl.cc,
+  // GetWallClockTimes()).
   void Play(bool wait_for_audio = false);
   void Pause();
   // Play() was called; time may still be waiting for audio.
@@ -47,13 +47,10 @@ class MediaClock {
   // Lets the clock run freely, e.g. after audio ended but video continues.
   void ClearMaxTime();
 
-  // How long Play(true) waits for audio before running on the system clock.
-  static constexpr int64_t kAudioStartTimeout = kMicrosPerSecond;
-
  private:
   int64_t MediaTimeAtLocked(int64_t system_time) const;
-  // Playing, and not waiting for audio at |now|.
-  bool MovingLocked(int64_t now) const;
+  // Playing, and not waiting for audio.
+  bool MovingLocked() const;
 
   mutable std::mutex mutex_;
   int64_t anchor_media_time_ = 0;
@@ -64,8 +61,7 @@ class MediaClock {
   int64_t min_media_time_ = 0;
   double rate_ = 1.0;
   bool playing_ = false;
-  // Play(true) until the first audio update. |anchor_system_time_| is the
-  // timeout then.
+  // Play(true) until the first audio update.
   bool waiting_for_audio_ = false;
 };
 

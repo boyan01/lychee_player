@@ -86,6 +86,12 @@ struct Options {
     bool hang;
   };
   std::vector<DecoderLoss> lose_decoder_after;
+  // Seconds after playback starts to stop the audio device pulling audio
+  // (testing.h); 0 or less: from the start, as a device that never starts.
+  // It pulls again |stall_audio_for| seconds later, if set.
+  double stall_audio_after = -1;
+  double stall_audio_for = -1;
+  bool stall_audio = false;
   // Stop pulling frames this many seconds after playback starts, as an app
   // in the background does, for |hide_for| seconds.
   double hide_after = -1;
@@ -248,6 +254,15 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       if (!v) return false;
       options->lose_decoder_after.push_back(
           {atof(v), arg == "--hang-decoder-after"});
+    } else if (arg == "--stall-audio-after") {
+      const char* v = value();
+      if (!v) return false;
+      options->stall_audio = true;
+      options->stall_audio_after = atof(v);
+    } else if (arg == "--stall-audio-for") {
+      const char* v = value();
+      if (!v) return false;
+      options->stall_audio_for = atof(v);
     } else if (arg == "--hide-after") {
       const char* v = value();
       if (!v) return false;
@@ -921,7 +936,8 @@ int main(int argc, char** argv) {
             "SEC]] [--loop [--loop-off-after SEC]] "
             "[--open-after SEC URL] [--select TYPE:INDEX[@SEC]]... "
             "[--select-after SEC] [--lose-decoder-after SEC]... "
-            "[--hang-decoder-after SEC]... "
+            "[--hang-decoder-after SEC]... [--stall-audio-after SEC "
+            "[--stall-audio-for SEC]] "
             "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
             "[--live [--latency MS] [--live-jitter MS] "
             "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
@@ -933,6 +949,11 @@ int main(int argc, char** argv) {
 
   if (options.virtual_time) {
     lychee_testing_enable_virtual_time();
+  }
+  if (options.stall_audio && options.stall_audio_after <= 0) {
+    options.stall_audio_after = 0;
+    printf("stall audio device at start\n");
+    lychee_testing_stall_audio_devices(1);
   }
   lychee_config config;
   lychee_config_init(&config, sizeof(config));
@@ -1010,6 +1031,7 @@ int main(int argc, char** argv) {
   int64_t seek_issued_at = 0;
   int64_t first_pts_after_seek = INT64_MIN;
   int64_t ready_wall = 0;
+  bool stalled_audio = false;
   // Wall clock vs. media clock since playback last (re)started, to spot
   // drift.
   int64_t drift_wall = 0;
@@ -1332,6 +1354,25 @@ int main(int argc, char** argv) {
         lychee_testing_hang_video_decoder(player);
       } else {
         lychee_testing_lose_video_decoder(player);
+      }
+    }
+    if (options.stall_audio && ready_wall != 0) {
+      const int64_t since = now - ready_wall;
+      if (!stalled_audio &&
+          since >= static_cast<int64_t>(options.stall_audio_after * 1e6)) {
+        stalled_audio = true;
+        if (options.stall_audio_after > 0) {
+          printf("stall audio device at %.3fs\n", position / 1e6);
+          lychee_testing_stall_audio_devices(1);
+        }
+      }
+      if (stalled_audio && options.stall_audio_for >= 0 &&
+          since >= static_cast<int64_t>(
+                       (options.stall_audio_after + options.stall_audio_for) *
+                       1e6)) {
+        options.stall_audio = false;
+        printf("unstall audio device at %.3fs\n", position / 1e6);
+        lychee_testing_stall_audio_devices(0);
       }
     }
     if (loss_position != INT64_MIN && g_buffering &&

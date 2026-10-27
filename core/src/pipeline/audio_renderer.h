@@ -22,6 +22,11 @@ namespace lychee {
 // drives the media clock. Rates other than 1 are applied with WSOLA, which
 // keeps the pitch.
 //
+// A device that pulls nothing for a while (it failed to start, or stopped,
+// as on a closed laptop lid) is pulled for in real time and its audio
+// dropped (PullForStalledDevice()), so playback goes on silently instead of
+// waiting for it; the device takes over again when it pulls.
+//
 // For a live input (|live_output_lead| set) the clock runs on its own and
 // audio timestamps are deadlines: each sample is played when it is due,
 // late ones are dropped and gaps are filled with silence. The renderer
@@ -45,6 +50,10 @@ class AudioRenderer {
   void SetVolume(float volume);
   // Takes effect from the next buffer the sink pulls.
   void SetRate(double rate);
+  // Call every few milliseconds of |now|: once the device has pulled
+  // nothing for kDeviceTimeout while playing, pulls the audio due by |now|
+  // in its place.
+  void PullForStalledDevice(int64_t now);
 
   bool HasEnoughData() const;
   bool IsStarved() const;
@@ -63,10 +72,19 @@ class AudioRenderer {
   // Decoded audio waiting to be played, in media time.
   int64_t buffered_duration() const;
 
+  // Every renderer's device pulls nothing while |stalled|, as one that
+  // fails to start or stops.
+  static void StallDevicesForTesting(bool stalled);
+
  private:
   void DecodeLoop();
   void OnBuffer(std::shared_ptr<AudioBuffer> buffer, uint64_t generation);
-  int Render(float* destination, int frames, int64_t playout_time);
+  // |from_device|: the sink pulled, not PullForStalledDevice(), which
+  // passes no |destination|.
+  int Render(float* destination,
+             int frames,
+             int64_t playout_time,
+             bool from_device);
   // Writes the samples due from |playout_time| into |render_bus_|.
   int RenderLiveLocked(int frames, int64_t playout_time);
   int64_t BufferedDurationLocked() const;
@@ -87,7 +105,7 @@ class AudioRenderer {
   std::condition_variable condition_;
   // Holds the decoded audio and applies the rate.
   AudioRendererAlgorithm algorithm_;
-  // Render thread only: planar output before interleaving.
+  // Planar output before interleaving.
   AudioBus render_bus_;
   // Live: decoded audio in deadline order, and the frames of the front
   // buffer already played or dropped.
@@ -103,6 +121,11 @@ class AudioRenderer {
   bool waiting_ = false;
   bool playing_ = false;
   bool stopped_ = false;
+  // When the device last pulled, or playing started.
+  int64_t device_pull_time_ = 0;
+  // While the device is stalled: when the audio pulled in its place next
+  // plays.
+  int64_t stalled_playout_time_ = kNoTimestamp;
 };
 
 }  // namespace lychee

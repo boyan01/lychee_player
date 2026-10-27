@@ -18,6 +18,7 @@
 #include "media/annexb.h"
 #include "media/factory.h"
 #include "media/null_audio_sink.h"
+#include "pipeline/audio_renderer.h"
 #include "pipeline/player.h"
 
 using lychee::MediaType;
@@ -568,6 +569,10 @@ void lychee_testing_lose_video_decoder(lychee_player* player) {
 
 void lychee_testing_hang_video_decoder(lychee_player* player) {
   player->player->HangVideoDecoderForTesting();
+}
+
+void lychee_testing_stall_audio_devices(int32_t stalled) {
+  lychee::AudioRenderer::StallDevicesForTesting(stalled != 0);
 }
 
 }  // extern "C"

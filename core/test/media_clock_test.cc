@@ -131,12 +131,17 @@ TEST(MediaClock, WaitsForAudioBeforeMoving) {
   EXPECT_EQ(clock.MediaTimeAt(heard_at + 100 * kMs), 7100 * kMs);
 }
 
-TEST(MediaClock, StopsWaitingForAudioAfterTimeout) {
+// A device that never pulls is the audio renderer's to replace: the clock
+// does not run off on its own, or it would jump back when audio comes.
+TEST(MediaClock, WaitsForAudioWithoutTimeout) {
   MediaClock clock;
   clock.Reset(0);
   clock.Play(true);
-  const int64_t start = NowMicros() + MediaClock::kAudioStartTimeout;
-  EXPECT_NEAR(clock.MediaTimeAt(start + 200 * kMs), 200 * kMs, 5 * kMs);
+  EXPECT_EQ(clock.MediaTimeAt(NowMicros() + 10 * kSecond), 0);
+  // Paused and played again, it still waits.
+  clock.Pause();
+  clock.Play(true);
+  EXPECT_EQ(clock.MediaTimeAt(NowMicros() + 10 * kSecond), 0);
 }
 
 TEST(MediaClock, EndedAudioStopsTheWait) {

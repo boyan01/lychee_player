@@ -1378,6 +1378,9 @@ void Player::UpdateState() {
   if (video_renderer_) {
     video_renderer_->ExpireFramesWhileHidden(NowMicros());
   }
+  if (audio_renderer_) {
+    audio_renderer_->PullForStalledDevice(NowMicros());
+  }
   if (state_ != PlayerState::kError) {
     if (video_renderer_ && video_renderer_->HasError()) {
       FailLocked(std::string("video decoding failed (") +
@@ -1542,6 +1545,9 @@ bool Player::SettledForTesting(int64_t until) const {
   // virtual time cannot run past frames that should have expired.
   if (video_renderer_) {
     video_renderer_->ExpireFramesWhileHidden(NowMicros());
+  }
+  if (audio_renderer_) {
+    audio_renderer_->PullForStalledDevice(NowMicros());
   }
   // The control thread also publishes size and subtitle changes then: wait
   // for it, or virtual time can run past a rendition or a cue before

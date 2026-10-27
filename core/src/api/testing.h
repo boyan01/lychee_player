@@ -31,6 +31,9 @@ LYCHEE_EXPORT void lychee_testing_lose_video_decoder(lychee_player* player);
 // Makes the video decoder hang at its next packet, as a driver that never
 // returns, until the player gives up on it.
 LYCHEE_EXPORT void lychee_testing_hang_video_decoder(lychee_player* player);
+// Non-zero: every player's audio device stops pulling audio, as one that
+// fails to start or stops; zero: it pulls again.
+LYCHEE_EXPORT void lychee_testing_stall_audio_devices(int32_t stalled);
 
 // A file replayed as a live input: its default video and audio streams,
 // in file order, as lychee_player_push_live_packet() takes them (Annex B
