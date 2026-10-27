@@ -93,9 +93,11 @@ fn plays_seeks_and_ends() {
         "{tracks:?}"
     );
 
-    // 30 fps media: about 30 new frames in a second.
+    // 30 fps media, so about 30 new frames in a second here; CI's hosted
+    // VMs decode the 1080p in software beside the other tests and give 9
+    // to 17. The rate is regression.sh's to check, on virtual time.
     let (frames, _) = pull(&player, &events, Duration::from_secs(1), |_| false);
-    assert!(frames >= 20, "{frames} frames in a second");
+    assert!(frames >= 5, "{frames} frames in a second");
 
     player.seek(Duration::from_secs(10));
     wait_for(&player, &events, |e| matches!(e, Event::SeekCompleted(_)));
