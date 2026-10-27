@@ -13,11 +13,11 @@
 #   tool/release.sh build apple|android|linux|windows SOURCES
 #                                      build FFmpeg and libass (platforms
 #                                      already in third_party are kept) and the
-#                                      xcframeworks or the AAR; linux builds
-#                                      only FFmpeg (CI; the plugin still
-#                                      downloads BtbN's); windows
-#                                      cross-compiles on Linux (mingw-w64)
-#   tool/release.sh pack apple|android|windows OUT
+#                                      xcframeworks or the AAR; linux and
+#                                      windows build only FFmpeg (the
+#                                      plugins compile the core), windows
+#                                      cross-compiled on Linux (mingw-w64)
+#   tool/release.sh pack apple|android|linux|windows OUT
 #                                      write the release assets into OUT
 #   tool/release.sh pin OUT            pin OUT's assets in flutter/prebuilt.json
 #                                      and Package.swift
@@ -38,7 +38,8 @@
 # trait),
 # lychee-VERSION.aar and .pom (the Flutter plugin lays them out as a Maven
 # repository), ffmpeg-windows-x86_64.zip (the Windows plugin's FFmpeg:
-# bin/*.dll, lib/*.lib, include/), and the source archives.
+# bin/*.dll, lib/*.lib, include/), ffmpeg-linux-x86_64.tar.xz (the Linux
+# plugin's: lib/*.so*, include/), and the source archives.
 #
 # pub packs flutter/ only, and the Windows and Linux plugins compile the
 # core: while pub runs, flutter/core is a copy of core/ (gitignored there;
@@ -188,7 +189,7 @@ cmd_build() {
 }
 
 cmd_pack() {
-  local target="${1:?apple, android or windows}" out f v stage
+  local target="${1:?apple, android, linux or windows}" out f v stage
   mkdir -p "${2:?out}"
   out="$(cd "$2" && pwd)"
   case "$target" in
@@ -219,6 +220,20 @@ cmd_pack() {
       (cd "$stage" && zip -qr "$out/ffmpeg-windows-x86_64.zip" ffmpeg-windows-x86_64)
       rm -rf "$stage"
       ;;
+    linux)
+      # The libraries with their symlinks (lib*.so for linking, lib*.so.N
+      # for the loader) and the headers, in one directory named like the
+      # archive. Not lib/pkgconfig: it names this machine's prefix.
+      f="$root/third_party/ffmpeg/linux-x86_64"
+      [ -d "$f/lib" ] || die "no Linux FFmpeg; run tool/release.sh build linux"
+      stage="$(mktemp -d)"
+      mkdir -p "$stage/ffmpeg-linux-x86_64/lib"
+      cp -R "$f/include" "$stage/ffmpeg-linux-x86_64/"
+      cp -P "$f"/lib/lib*.so* "$stage/ffmpeg-linux-x86_64/lib/"
+      rm -f "$out/ffmpeg-linux-x86_64.tar.xz"
+      tar cJf "$out/ffmpeg-linux-x86_64.tar.xz" -C "$stage" ffmpeg-linux-x86_64
+      rm -rf "$stage"
+      ;;
     *) die "unknown target $target" ;;
   esac
 }
@@ -235,7 +250,8 @@ tag = str(tag)
 frameworks = sys.argv[5:]
 version = tag[1:]
 names = [f"{f}.xcframework.zip" for f in frameworks] + [
-    f"lychee-{version}.aar", f"lychee-{version}.pom", "ffmpeg-windows-x86_64.zip"]
+    f"lychee-{version}.aar", f"lychee-{version}.pom", "ffmpeg-windows-x86_64.zip",
+    "ffmpeg-linux-x86_64.tar.xz"]
 missing = [n for n in names if not (out / n).is_file()]
 if missing:
     sys.exit(f"release.sh: missing in {out}: {' '.join(missing)}")

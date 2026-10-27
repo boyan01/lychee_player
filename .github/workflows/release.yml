@@ -1,5 +1,5 @@
 # Releases VERSION: builds the prebuilt core (Apple xcframeworks, the
-# Android AAR) and the Windows plugin's FFmpeg, pins their SHA-256s in
+# Android AAR) and the Windows and Linux plugins' FFmpeg, pins their SHA-256s in
 # flutter/prebuilt.json and Package.swift, checks that a fresh app builds with the package pub would
 # publish, drafts the GitHub release with the assets, and pushes the
 # "Release VERSION" commit and the tag vVERSION. The tag starts publish.yml,
@@ -133,8 +133,38 @@ jobs:
           path: dist
           if-no-files-found: error
 
+  # The Linux plugin's FFmpeg, on the oldest Ubuntu it supports: the
+  # libraries need that glibc or newer, and link its libva, libdrm, GnuTLS
+  # and zlib (tool/build_ffmpeg.sh). The plugin compiles the core itself.
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nasm pkg-config \
+            libva-dev libdrm-dev libgnutls28-dev zlib1g-dev xz-utils
+      - run: tool/release.sh version "$VERSION"
+      - name: FFmpeg cache key
+        id: ffmpeg
+        run: |
+          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; lsb_release -ds; gcc --version | head -1)"
+          echo "key=ffmpeg-linux-release-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: third_party/ffmpeg
+          key: ${{ steps.ffmpeg.outputs.key }}
+      - run: tool/release.sh build linux build-sources
+      - run: tool/release.sh pack linux dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist
+          if-no-files-found: error
+
   release:
-    needs: [apple, android, windows]
+    needs: [apple, android, windows, linux]
     runs-on: macos-26
     permissions:
       contents: write

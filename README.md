@@ -403,14 +403,20 @@ builds win: the xcframeworks in `flutter/darwin/Frameworks` and the AAR in
   -DDEST=C:/ffmpeg -P flutter/windows/ffmpeg.cmake`, then `cmake -S . -B build
   -G "Visual Studio 17 2022" -A x64 -DLYCHEE_FFMPEG_ROOT=<printed dir>` and
   put `<dir>/bin` on `PATH` to run.
-- **Linux**: `flutter build linux`. The plugin downloads a pinned LGPL
-  FFmpeg (BtbN, 9.0, LGPLv3) into `~/.cache/lychee_player` on first
-  configure and bundles it next to `liblychee_player.so`; set
-  `LYCHEE_FFMPEG_ROOT` to use your own, e.g. the decode-only
-  `tool/build_ffmpeg.sh linux-x86_64 SRC` (needs `nasm`, `libva-dev`,
-  `libdrm-dev` and `libssl-dev`; build it on the oldest distribution you
-  support; apps then also need `libva2`, `libva-drm2` and `libssl3`). Apps
-  need `libgtk-3` and `libpulse0` at runtime. The core alone needs FFmpeg 8 or newer, which Ubuntu 22.04
+- **Linux**: `flutter build linux`. The plugin downloads the FFmpeg that
+  `flutter/prebuilt.json` pins (`ffmpeg-linux-x86_64.tar.xz`, the
+  release's decode-only LGPL 2.1 build, 8 MB of libraries; BtbN's LGPLv3
+  one on arm64, and while the pinned release has none) into
+  `~/.cache/lychee_player` on first configure and bundles it next to
+  `liblychee_player.so`; `LYCHEE_PREBUILT_URL` mirrors it and
+  `LYCHEE_FFMPEG_ROOT` (CMake or environment) names a local one instead,
+  e.g. from `tool/build_ffmpeg.sh linux-x86_64 SRC` (needs `nasm`,
+  `pkg-config`, `libva-dev`, `libdrm-dev`, `libgnutls28-dev` and
+  `zlib1g-dev`; the release builds it on Ubuntu 22.04, the oldest
+  distribution it supports, for its glibc). Its libraries load the
+  system's libva, libva-drm, libdrm, GnuTLS and zlib (`libva2`,
+  `libva-drm2`, `libdrm2`, `libgnutls30`, `zlib1g`). Apps need
+  `libgtk-3` and `libpulse0` at runtime. The core alone needs FFmpeg 8 or newer, which Ubuntu 22.04
   does not ship: point pkg-config at a prebuilt one
   (`PKG_CONFIG_PATH=<ffmpeg>/lib/pkgconfig`, `LD_LIBRARY_PATH=<ffmpeg>/lib`
   to run the CLI) and install `libpulse-dev`.
@@ -424,8 +430,8 @@ A release is one run of `.github/workflows/release.yml`, after a
 gh workflow run release.yml -f version=1.0.0
 ```
 
-It builds the Apple xcframeworks, the Android AAR and the Windows FFmpeg
-(cross-compiled on Ubuntu), pins them in
+It builds the Apple xcframeworks, the Android AAR and the Windows and
+Linux FFmpeg (on Ubuntu; Windows cross-compiled), pins them in
 `flutter/prebuilt.json` and `Package.swift` (which lets SwiftPM take
 `sdk/apple` by URL), builds a fresh app against the package pub would
 publish, drafts the GitHub release with the assets and the sources of
@@ -440,6 +446,7 @@ tool/release.sh version 1.0.0
 tool/release.sh build apple /tmp/sources && tool/release.sh pack apple /tmp/dist
 tool/release.sh build android /tmp/sources && tool/release.sh pack android /tmp/dist
 tool/release.sh build windows /tmp/sources && tool/release.sh pack windows /tmp/dist  # on Linux
+tool/release.sh build linux /tmp/sources && tool/release.sh pack linux /tmp/dist  # on Ubuntu 22.04
 tool/release.sh sources /tmp/dist && tool/release.sh pin /tmp/dist
 tool/release.sh check /tmp/dist   # then git checkout the pins
 ```
@@ -459,9 +466,10 @@ own CMake build (the CLI, the GLFW example, `tool/regression.sh`) links the
 FFmpeg found by pkg-config, which may be a GPL build (Homebrew's is); that
 is for development only. The macOS and iOS builds from
 `tool/build_ffmpeg.sh` are LGPL 2.1+ (the script checks configure's license
-line), and so is the Windows build (Schannel for https); the Android build
-is LGPL 3+, because it links mbedTLS (Apache-2.0) for https, and so are
-the Linux download (BtbN's) and the Linux build (OpenSSL 3). Distributed apps
+line), and so are the Windows build (Schannel for https) and the Linux
+build (GnuTLS, LGPL 2.1+, the system's); the Android build is LGPL 3+,
+because it links mbedTLS (Apache-2.0) for https, and so is BtbN's Linux
+download (arm64, and x86_64 until a release carries ours). Distributed apps
 must ship an LGPL-only FFmpeg (no `--enable-gpl` / `--enable-nonfree`),
 linked dynamically.
 

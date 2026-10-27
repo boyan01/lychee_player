@@ -25,10 +25,10 @@ file(MAKE_DIRECTORY "${_lychee_out}")
 
 # --- FFmpeg ---------------------------------------------------------------
 # A prebuilt LGPL FFmpeg (include/ and lib/ with shared libraries): the
-# LYCHEE_FFMPEG_ROOT cache variable or environment variable, or else the
-# pinned BtbN build below, downloaded once into ~/.cache/lychee_player.
-# BtbN's lgpl-shared builds are configured with --enable-version3 and
-# without --enable-gpl/--enable-nonfree: LGPL v3.
+# LYCHEE_FFMPEG_ROOT cache variable or environment variable, e.g.
+# tool/build_ffmpeg.sh linux-x86_64's, or else the one prebuilt.json pins
+# (ffmpeg.cmake), downloaded once into ~/.cache/lychee_player.
+include("${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg.cmake")
 set(LYCHEE_FFMPEG_ROOT "" CACHE PATH
   "Prebuilt FFmpeg (include/, lib/); the pinned LGPL build is downloaded when empty")
 if(NOT LYCHEE_FFMPEG_ROOT AND DEFINED ENV{LYCHEE_FFMPEG_ROOT})
@@ -36,56 +36,22 @@ if(NOT LYCHEE_FFMPEG_ROOT AND DEFINED ENV{LYCHEE_FFMPEG_ROOT})
 endif()
 
 if(NOT LYCHEE_FFMPEG_ROOT)
-  set(_ffmpeg_release
-    "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08")
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-    set(_ffmpeg_name "ffmpeg-n9.0.2-17-g2a571b6068-linuxarm64-lgpl-shared-9.0")
-    set(_ffmpeg_sha256 "1aa02c59afe06dea2602b40517a5cb75c0ff6d524f217b5aea1f0ca07977cd51")
-  else()
-    set(_ffmpeg_name "ffmpeg-n9.0.2-17-g2a571b6068-linux64-lgpl-shared-9.0")
-    set(_ffmpeg_sha256 "7a1ba2af36e5beeb98151e766a903b1d115f2206a86571f17f873cd7292c424f")
-  endif()
   if(DEFINED ENV{XDG_CACHE_HOME} AND NOT "$ENV{XDG_CACHE_HOME}" STREQUAL "")
     set(_ffmpeg_cache "$ENV{XDG_CACHE_HOME}/lychee_player")
   else()
     set(_ffmpeg_cache "$ENV{HOME}/.cache/lychee_player")
   endif()
-  set(_ffmpeg_dir "${_ffmpeg_cache}/${_ffmpeg_name}")
-  if(NOT EXISTS "${_ffmpeg_dir}/lib/libavcodec.so")
-    set(_archive "${_ffmpeg_cache}/${_ffmpeg_name}.tar.xz")
-    message(STATUS "Downloading ${_ffmpeg_name}")
-    # GitHub's release CDN drops a connection now and then.
-    foreach(_attempt 1 2 3)
-      file(DOWNLOAD "${_ffmpeg_release}/${_ffmpeg_name}.tar.xz" "${_archive}"
-        EXPECTED_HASH SHA256=${_ffmpeg_sha256} TLS_VERIFY ON STATUS _status)
-      list(GET _status 0 _code)
-      if(_code EQUAL 0)
-        break()
-      endif()
-      file(REMOVE "${_archive}")
-    endforeach()
-    if(NOT _code EQUAL 0)
-      message(FATAL_ERROR "Cannot download FFmpeg: ${_status}. "
-        "Set LYCHEE_FFMPEG_ROOT to a prebuilt LGPL FFmpeg instead.")
-    endif()
-    set(_extract "${_ffmpeg_cache}/extract-${_ffmpeg_name}")
-    file(REMOVE_RECURSE "${_extract}")
-    file(ARCHIVE_EXTRACT INPUT "${_archive}" DESTINATION "${_extract}")
-    file(REMOVE_RECURSE "${_ffmpeg_dir}")
-    file(RENAME "${_extract}/${_ffmpeg_name}" "${_ffmpeg_dir}")
-    file(REMOVE_RECURSE "${_extract}")
-    file(REMOVE "${_archive}")
-  endif()
+  file(MAKE_DIRECTORY "${_ffmpeg_cache}")
   # A normal variable, not cached: a deleted cache directory is downloaded
   # again on the next configure.
-  set(LYCHEE_FFMPEG_ROOT "${_ffmpeg_dir}")
+  lychee_fetch_ffmpeg("${_ffmpeg_cache}" LYCHEE_FFMPEG_ROOT)
 endif()
 message(STATUS "lychee_player: FFmpeg from ${LYCHEE_FFMPEG_ROOT}")
 
 # Copy each library under its SONAME (lib*.so.N, what the loader asks for).
 # configure_file follows the symlinks.
 set(_lychee_ffmpeg_bundle)
-foreach(_lib avformat avcodec avutil swresample swscale)
+foreach(_lib ${LYCHEE_FFMPEG_LIBRARIES})
   file(GLOB _candidates "${LYCHEE_FFMPEG_ROOT}/lib/lib${_lib}.so.[0-9]*")
   set(_soname "")
   foreach(_candidate ${_candidates})

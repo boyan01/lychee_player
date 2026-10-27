@@ -112,12 +112,12 @@ jobs:
       - name: Install tools
         # PulseAudio for the realtime cases: with no sound card it plays to
         # a null sink (auto_null) clocked by the system, so they exercise
-        # the core's PulseAudio sink. nasm, libva and OpenSSL for the FFmpeg
-        # build.
+        # the core's PulseAudio sink. nasm, libva, GnuTLS and zlib for the
+        # FFmpeg build.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm \
-            libva-dev libdrm-dev libssl-dev libpulse-dev pulseaudio
+            libva-dev libdrm-dev libgnutls28-dev zlib1g-dev libpulse-dev pulseaudio
       # The core follows the current FFmpeg API, which apt's (6.1) predates:
       # build the one tool/build_ffmpeg.sh makes for the Linux plugin.
       - name: FFmpeg cache key

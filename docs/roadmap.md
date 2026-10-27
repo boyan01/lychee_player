@@ -255,21 +255,41 @@ in a window; OpenGL ES on Linux since 2026-10-26, Platforms 2) and its own
    through software decoding, and `lychee_cli --d3d11 --frame-ppm`
    34.4 dB. swscale now gets the convention's matrix (2026-10-27; 34.1 dB
    on macOS), which has not yet been seen on Windows.
-2. **Linux leftovers**: `tool/build_ffmpeg.sh linux-x86_64` builds the
-   decode-only FFmpeg on Ubuntu 22.04 (WSL: 38 s, 8.2 MB of libraries
-   against BtbN's 161 MB). It links the system's libva, libva-drm, libdrm
-   and OpenSSL 3, so it is LGPL 3 like BtbN's (GnuTLS would keep LGPL
-   2.1, but WSL has no sudo to install its headers; `nasm` and
-   `libva-dev` came from `apt-get download`). With it, `NO_HW=1
-   FFMPEG_ROOT=... tool/regression.sh` passes in WSL except
-   `realtime-loop`, which fails the same way with BtbN's (WSLg's audio
-   clock, below), and the Flutter example built in WSL with
-   `LYCHEE_FFMPEG_ROOT` plays `h264_aac.mp4` on the 26.04 VM (360 of 360
-   frames, 0 dropped; 2026-10-25), so a 22.04 build runs on 26.04. The
-   plugin still downloads BtbN's: shipping ours needs a place to host it
-   (Distribution 2: a job in `release.yml` and a pin in
-   `flutter/prebuilt.json`, which the Linux CMake would read in place of
-   BtbN's URL; arm64 Linux still needs one too). Unverified there: the Impeller renderer. Flutter
+2. **Linux leftovers**: FFmpeg is our own from the next release
+   (2026-10-27), as on Windows. `tool/build_ffmpeg.sh linux-x86_64` builds
+   the decode-only FFmpeg on Ubuntu 22.04 (WSL: 53 s with the download,
+   8.1 MB of libraries against BtbN's 161 MB) with nothing autodetected
+   and GnuTLS for https, so it is LGPL 2.1 (it linked OpenSSL 3, LGPL 3,
+   while WSL was thought to have no way to install GnuTLS's headers; root
+   from the Windows side can). Its libraries need only libc, libm and the
+   system's libva, libva-drm, libdrm, GnuTLS and zlib (`libva.so.2`,
+   `libva-drm.so.2`, `libdrm.so.2`, `libgnutls.so.30`, `libz.so.1`,
+   sonames unchanged since Ubuntu 20.04 and Debian 11), and glibc 2.35 or
+   newer; the script checks the list and refuses OpenSSL. `release.yml`
+   builds it on ubuntu-22.04 and the release will carry
+   `ffmpeg-linux-x86_64.tar.xz` (2.5 MB: `lib/` with its symlinks,
+   `include/`), which `tool/release.sh pin` pins in `flutter/prebuilt.json`
+   and `flutter/linux/ffmpeg.cmake` downloads into `~/.cache/lychee_player`
+   (`LYCHEE_PREBUILT_URL` mirrors it; `LYCHEE_FFMPEG_ROOT`, CMake or
+   environment, overrides it), checking each library's license string.
+   1.0.0-beta.1 carries none, so until the next release pins one the
+   plugin falls back to BtbN's pin, and arm64 always does (no build of
+   ours: needs an arm64 runner and a machine to try it): delete the
+   x86_64 fallback then. Checked in WSL (2026-10-27): `NO_HW=1
+   FFMPEG_ROOT=... tool/regression.sh` passes except `realtime-loop`
+   (WSLg's audio clock, below; max_drift 24 ms) and `seek-vp9` (lands at
+   7.474 s for 7.5; the same with BtbN's FFmpeg in WSL, and it passes on
+   CI's ubuntu-24.04, so WSL's, not this build's); `lychee_cli` plays two
+   public https mp4s through GnuTLS, 0 dropped; the Flutter example and
+   its integration test (under Xvfb) build with the packed asset served as
+   the pinned file through `LYCHEE_PREBUILT_URL`, downloading it into a
+   fresh cache and bundling its libraries, and the test passes (10 file
+   switches, 4 player threads left). Not seen: the example's window
+   playing (the Windows session was locked, hiding WSLg, the VM was off,
+   and Flutter under Xvfb draws nothing a screenshot sees), this build on
+   a newer distribution (the OpenSSL one ran on the 26.04 VM), and the
+   `release.yml` job itself. GitHub will retire the ubuntu-22.04 image;
+   the job can then run in a `ubuntu:22.04` container. Unverified there: the Impeller renderer. Flutter
    makes Skia forget its GL state around a texture's populate but does
    nothing for Impeller (`ResolveTextureImpeller`), so populate now saves
    and restores what it changes. Whether that is enough is unknown: on the
@@ -756,11 +776,12 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    carry libass); not yet run on GitHub's runners, which now install
    meson.
    Later: the AAR on Maven Central too (what native Android users
-   expect; needs a Sonatype account for `tech.soit`); the Linux FFmpeg as
-   a release asset in place of BtbN's (Platforms 2: `tool/release.sh
-   build linux` builds it for CI; shipping it needs GnuTLS for LGPL 2.1, a pack step, an
-   ubuntu-22.04 job and the Linux CMake reading `prebuilt.json` the way
-   `flutter/windows/ffmpeg.cmake` does); `tool/release.sh check` building
+   expect; needs a Sonatype account for `tech.soit`); the next release
+   carries the Linux FFmpeg (`ffmpeg-linux-x86_64.tar.xz`, LGPL 2.1 with
+   GnuTLS; Platforms 2) in place of BtbN's, after which the x86_64 BtbN
+   fallback in `flutter/linux/ffmpeg.cmake` goes (the job, the pack step
+   and the CMake are done, 2026-10-27; not yet run on GitHub);
+   `tool/release.sh check` building
    a Windows app (it runs on macOS; the Windows check above was by hand);
    strip the AAR's prefab `liblychee.so` (6 MB per ABI against 0.3 MB in
    `jni/`).

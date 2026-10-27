@@ -28,7 +28,7 @@ player.dispose();
 | iOS | 16.0 | `platform :ios, '16.0'` in `ios/Podfile` and the Runner's deployment target |
 | macOS | 11.0 | `platform :osx, '11.0'` in `macos/Podfile` and the Runner's deployment target |
 | Windows | 10 | Visual Studio 2022 |
-| Linux | Ubuntu 22.04 | `libepoxy-dev` and `libpulse-dev` to build |
+| Linux | Ubuntu 22.04 | `libepoxy-dev` and `libpulse-dev` to build; at run time FFmpeg loads the system's `libva2`, `libva-drm2`, `libdrm2`, `libgnutls30` and `zlib1g` |
 
 Hardware decoding: VideoToolbox, MediaCodec, Media Foundation and D3D11VA
 have been seen working; Linux's VAAPI path has never run on a machine with VAAPI, so
@@ -67,17 +67,18 @@ and checks each file against the SHA-256 the package pins. Where GitHub is
 slow or blocked, point `LYCHEE_PREBUILT_URL` at a mirror of
 `https://github.com/boyan01/lychee_player/releases/download` (the files
 are checked the same way). Windows and Linux compile the core with the app
-and download an LGPL FFmpeg (on Windows from the same release, through the
-same mirror); `LYCHEE_FFMPEG_ROOT` names a local one instead.
+and download an LGPL FFmpeg from the same release, through the same mirror
+(Linux on arm64: BtbN's build); `LYCHEE_FFMPEG_ROOT` names a local one
+instead.
 
 ## License
 
 MIT. The FFmpeg libraries it ships are LGPL and dynamically linked.
 `core/THIRD_PARTY_NOTICES` in this package describes their sources and
-builds by platform: Apple, Android and Windows use this project's
-builds, with source attached to each release; Linux uses BtbN's build.
-An app must include the notices for the libraries it ships, including
-BtbN's additional dependencies on Linux. The prebuilt core
+builds by platform: Apple, Android, Windows and Linux x86_64 use this
+project's builds, with source attached to each release; Linux arm64 uses
+BtbN's build. An app must include the notices for the libraries it
+ships, including BtbN's additional dependencies on Linux arm64. The prebuilt core
 carries this project's notice into apps (`lychee.framework`, and
 `META-INF/lychee/THIRD_PARTY_NOTICES` in Android APKs).
 

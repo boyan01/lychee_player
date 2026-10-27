@@ -23,8 +23,11 @@ What each artifact contains:
   from the lychee_player release when the app is built; its DLLs contain
   zlib and parts of the mingw-w64 runtime (4).
 - The Flutter plugin on Linux: the lychee core (1), compiled from source,
-  and FFmpeg (2) under the LGPL version 3 or later (BtbN's lgpl-shared
-  build, downloaded when the app is built).
+  and FFmpeg (2), downloaded when the app is built: on x86_64 from the
+  lychee_player release, under the LGPL version 2.1 or later; on arm64
+  BtbN's lgpl-shared build, under the LGPL version 3 or later. The x86_64
+  build links the system's libva, libdrm, GnuTLS and zlib dynamically; the app
+  does not ship them.
 
 
 1. Chromium
@@ -66,22 +69,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 This software uses libraries from the FFmpeg project
 (https://ffmpeg.org) under the GNU Lesser General Public License
-(LGPL), linked dynamically: version 2.1 or later on macOS, iOS and
-Windows, version 3 or later on Android and Linux. FFmpeg is a trademark
+(LGPL), linked dynamically: version 2.1 or later on macOS, iOS, Windows
+and Linux x86_64, version 3 or later on Android and Linux arm64. FFmpeg
+is a trademark
 of Fabrice Bellard, originator of the FFmpeg project.
 
 The FFmpeg libraries are built without --enable-gpl and without
 --enable-nonfree. Where they come from depends on the platform:
 
-- macOS, iOS, Android and Windows: built by tool/build_ffmpeg.sh in the
-  lychee_player repository from the FFmpeg release whose source is
-  attached to each lychee_player release
+- macOS, iOS, Android, Windows and Linux x86_64: built by
+  tool/build_ffmpeg.sh in the lychee_player repository from the FFmpeg
+  release whose source is attached to each lychee_player release
   (https://github.com/boyan01/lychee_player/releases,
   ffmpeg-VERSION.tar.xz). They contain FFmpeg only, plus Mbed TLS on
-  Android (3) and zlib and the mingw-w64 runtime on Windows (4). (A
-  checkout of the repository between releases that pin no Windows FFmpeg
-  of its own downloads BtbN's, as on Linux below.)
-- Linux: the app's build downloads a prebuilt
+  Android (3) and zlib and the mingw-w64 runtime on Windows (4). On Linux
+  they use the system's GnuTLS (LGPL 2.1 or later), libva, libdrm and
+  zlib, linked dynamically and not shipped. (A checkout of the
+  repository between releases that pin no Windows or Linux FFmpeg of its
+  own downloads BtbN's, as on Linux arm64 below.)
+- Linux arm64: the app's build downloads a prebuilt
   "lgpl-shared" FFmpeg from BtbN's FFmpeg-Builds
   (https://github.com/BtbN/FFmpeg-Builds, release
   autobuild-2026-09-30-13-08), built from FFmpeg revision

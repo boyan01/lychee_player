@@ -114,19 +114,24 @@ case "$platform" in
     ;;
   linux-x86_64)
     # Built on the oldest distribution it should run on (Ubuntu 22.04):
-    # the libraries need its glibc or newer. Links the system's libva,
-    # libva-drm, libdrm and OpenSSL 3 dynamically; apps depend on those
-    # packages. OpenSSL 3 is Apache-2.0, so the build is LGPL 3, as BtbN's.
+    # the libraries need its glibc or newer. Nothing is autodetected, so a
+    # machine with more -dev packages (a CI runner) builds the same thing.
+    # GnuTLS for https: LGPL 2.1, so the build stays LGPL 2.1 (OpenSSL 3
+    # is Apache-2.0, which would make it LGPL 3). Links the system's
+    # libva, libva-drm and libdrm (VAAPI on a DRM render node, no X11),
+    # GnuTLS and zlib dynamically, whose sonames have not changed since
+    # Ubuntu 20.04 and Debian 11: apps depend on those packages (Debian
+    # and Ubuntu: libva2, libva-drm2, libdrm2, libgnutls30, zlib1g).
+    # Needs nasm, pkg-config, libva-dev, libdrm-dev, libgnutls28-dev and
+    # zlib1g-dev.
     command -v nasm >/dev/null || { echo "nasm not found" >&2; exit 1; }
     flags=(
       --target-os=linux --arch=x86_64
+      --disable-autodetect
+      --enable-pthreads --enable-zlib --enable-gnutls
       --enable-vaapi --enable-libdrm
       --enable-hwaccel=h264_vaapi,hevc_vaapi,vp8_vaapi,vp9_vaapi,av1_vaapi
-      --enable-openssl --enable-version3
-      # VAAPI on a DRM render node only, so no libva-x11 or Xlib.
-      --disable-xlib --disable-libxcb --disable-sdl2
     )
-    license="LGPL version 3 or later"
     ;;
   windows-x86_64)
     # Cross-compiled with mingw-w64 on Linux (Debian/Ubuntu: mingw-w64,
@@ -189,9 +194,10 @@ case "$platform" in
     [ -z "$foreign" ] || { printf 'links outside the SDK:\n%s\n' "$foreign" >&2; exit 1; }
     ;;
   linux-*)
+    # Only the system libraries named above; OpenSSL would make it LGPL 3.
     foreign="$(for lib in "$out"/lib/*.so.*[0-9]; do readelf -d "$lib"; done |
       sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | sort -u |
-      grep -vE '^(libc|libm|libz|libva|libva-drm|libdrm|libssl|libcrypto|libav(util|codec|format)|libsw(resample|scale))\.so\.[0-9]+$' || true)"
+      grep -vE '^(libc|libm|libz|libva|libva-drm|libdrm|libgnutls|libav(util|codec|format)|libsw(resample|scale))\.so\.[0-9]+$' || true)"
     [ -z "$foreign" ] || { printf 'unexpected dependencies:\n%s\n' "$foreign" >&2; exit 1; }
     ;;
   windows-*)

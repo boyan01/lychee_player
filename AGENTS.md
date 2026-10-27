@@ -408,11 +408,11 @@ jobs: those stay local.
   logged-in session, keep them topmost without activating them, and take
   the `remote-test screenshot --pid` at least ~5 s before the run ends
   (the screenshot helper starts slowly).
-- WSL has no sudo, but root needs no password from the Windows side
-  (`wsl.exe -d Ubuntu-22.04 -u root -- ...`), which is how apt installs
-  there. It has `nasm`, `libva-dev`, `libgnutls28-dev`, `mingw-w64` and
-  `libz-mingw-w64-dev` (2026-10-26), so `tool/build_ffmpeg.sh
-  linux-x86_64` and `windows-x86_64` both build there, and `libglfw3-dev`,
+- In WSL, `sudo` wants a password, but root needs none from the Windows
+  side (`wsl.exe -d Ubuntu-22.04 -u root -- apt-get install ...`), so any
+  package can be installed. It has `nasm`, `libva-dev`, `libgnutls28-dev`,
+  `mingw-w64` and `libz-mingw-w64-dev` (2026-10-26), so `tool/build_ffmpeg.sh
+  linux-x86_64` (GnuTLS) and `windows-x86_64` both build there, and `libglfw3-dev`,
   `libegl-dev`, `libgles-dev`, `xvfb`, `xdotool` and `imagemagick` for
   `examples/glfw`. Its mingw-w64 (8.0) headers lack AV1's DXVA
   structures, so its Windows FFmpeg has no AV1 (the script warns).
