@@ -218,7 +218,14 @@ What each area needs (run `tool/changes.sh`):
   `flutter-remote-test` skill.
 - **abi** (`lychee.h`): bump `LYCHEE_API_VERSION` with a history line,
   rerun `tool/rust_bindings.sh`, and run every binding that uses what
-  changed (rust, apple, android, flutter).
+  changed (rust, apple, android, flutter). `python3 -I
+  tool/abi_check.py` (CI's `abi` job, against the push's base) compares
+  the header with the last `v*` release's and with where the branch left
+  `main`, uncommitted edits included: it lists breaks (a declaration
+  gone, a field moved, retyped or inserted before the end, a type or
+  enum value changed) and additions, and fails when either has no bump
+  over that header's version. New fields go at the end of a struct
+  that starts with `struct_size`.
 - **rust**: `cargo test`, `cargo clippy --all-targets` and `cargo doc
   --no-deps` in `rust/` with zero warnings (the test plays `h264_aac.mp4`
   and checks the player's lifetime), and `cargo run --example play --
@@ -269,7 +276,7 @@ there is none). When a new directory or file kind appears, give it an
 area in `tool/changes.sh`.
 
 CI (`.github/workflows/ci.yml`) checks the format of every push, runs
-the core on macOS (plain, TSan, and ASan with UBSan) and Linux, the Apple builds with `swift test` (Flutter's analyze and
+the ABI check for `lychee.h` changes, the core on macOS (plain, TSan, and ASan with UBSan) and Linux, the Apple builds with `swift test` (Flutter's analyze and
 example build only for `flutter/` changes), and the Rust crates, each
 only for its areas. It has no Android, Windows or harness screenshot
 jobs: those stay local.

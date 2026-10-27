@@ -910,11 +910,12 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    `.editorconfig` has each language's indentation. Waiting on a push to
    see the new jobs on GitHub; the runner's gcc 13 against the stricter
    warnings is untried.
-7. **Engineering practices still to add**, in rough order of value:
-   - **ABI check against the last release**: diff `lychee.h`'s exported
-     symbols and struct layouts (e.g. `abidiff` on Linux, or a test that
-     compiles the previous release's header against the new library) so a
-     break without a `LYCHEE_API_VERSION` bump fails CI.
+7. **Engineering practices still to add**, in rough order of value
+   (the ABI check is done, 2026-10-27: `tool/abi_check.py` and CI's
+   `abi` job, AGENTS.md's `abi` area; it reads the header with clang's
+   JSON AST and a compiled `sizeof`/`offsetof` probe on the host's ABI
+   only, so a layout that differs only on 32-bit or Windows goes
+   unseen; its first run on GitHub waits on a push):
    - **A stored fuzzing corpus**: CI's `fuzz` job (2026-10-26) runs
      each parser's fuzzer for a minute on `parsers` changes, from the
      seeds every time; keep the corpus between runs (an Actions cache,

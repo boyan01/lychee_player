@@ -17,7 +17,8 @@
 #   apple android windows linux
 #              a platform's backends, SDK or plugin side: that platform's
 #              native harness (and its CI job where there is one)
-#   abi        lychee.h: every binding (rust, apple, android, flutter)
+#   abi        lychee.h: every binding (rust, apple, android, flutter) and
+#              tool/abi_check.py, which the abi check also runs for
 #   rust       the Rust crates
 #   flutter    the Flutter plugin or its example
 #   packaging  releases and prebuilt pins: tool/release.sh check
@@ -90,6 +91,7 @@ while IFS= read -r f; do
     core/src/backends/ffmpeg/*) mark core apple windows linux ;;
     core/src/backends/libass/*) mark core apple android ;;
     core/src/media/factory.cc) mark core parsers apple android windows linux ;;
+    tool/abi_check.py) mark abi ;;
     core/* | CMakeLists.txt | examples/cli/* | tool/regression.sh | tool/*.py) mark core ;;
     examples/glfw/main_win*) mark windows ;;
     examples/glfw/main_linux*) mark linux ;;

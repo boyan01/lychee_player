@@ -6,8 +6,8 @@ on:
 
 # Each job runs only for the areas a push or pull request touches
 # (tool/changes.sh; a change to this file or that script runs them all):
-# the core on macOS and Linux, the parsers' fuzzers, the Apple builds and
-# the Swift package, the Flutter plugin, the Rust crates.
+# the ABI check, the core on macOS and Linux, the parsers' fuzzers, the
+# Apple builds and the Swift package, the Flutter plugin, the Rust crates.
 
 env:
   # Hosted runners are loaded VMs: the realtime cases of tool/regression.sh
@@ -60,6 +60,25 @@ jobs:
             exit 0
           fi
           tool/format.sh --check "$BASE" "$GITHUB_SHA"
+
+  abi:
+    # lychee.h against the last release's and against the push's or pull
+    # request's base (tool/abi_check.py): a change to its ABI, a break or an
+    # addition, needs a LYCHEE_API_VERSION bump with a history line.
+    needs: changes
+    if: needs.changes.outputs.abi == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The release tags.
+          fetch-depth: 0
+      - name: Check
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          clang --version | head -1
+          python3 -I tool/abi_check.py "$BASE"
 
   core-macos:
     # Hosted runners are VMs; VideoToolbox may be missing there, so decode in
