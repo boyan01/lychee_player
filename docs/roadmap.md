@@ -5,7 +5,7 @@ FFmpeg, with accurate seek, pull-based frame selection, playback rate
 (WSOLA), looping and reopening, track selection, text and bitmap
 subtitles, metadata and cover art. The Flutter plugin runs on macOS and iOS
 (VideoToolbox), Android (MediaCodec), Windows (Media Foundation, then
-FFmpeg's D3D11VA) and Linux (VAAPI, never seen working).
+FFmpeg's D3D11VA) and Linux (VAAPI).
 Everything below is unfinished.
 
 Each item says where the work goes and when it is done. Remove an item when it
@@ -34,22 +34,6 @@ on top of them.
    changing resolution midway, and a device
    with only one hardware decoder instance (the emulator's H.264 decoder
    once failed to start right after a file switch, and FFmpeg took over).
-3. **Linux hardware decoding**: FFmpeg's VAAPI hwaccel decodes on the
-   render node of Flutter's EGL display, and frames reach the plugin as
-   dmabufs (`LYCHEE_FRAME_DMABUF`), imported a plane at a time as EGLImages
-   and converted by a shader into the `FlTextureGL`. Neither Linux machine
-   here has VAAPI (the VM's vmwgfx has no VA driver; WSL's d3d12 driver
-   fails to initialize), so only the fallback has been seen: VAAPI is
-   rejected and software frames are uploaded into the same GL texture
-   (h264, hevc10 and vp9 with seeks: 0 dropped; 1-5 dropped at 1.5x on
-   the VM; 2026-10-25). The dual-boot Ubuntu with an RTX 4070 Ti
-   (2026-10-27) has only `nvidia-vaapi-driver`, which hangs (known defect
-   1), and its CPU's iGPU is off. Done when an Intel or AMD machine shows
-   `hw` with 0 dropped for `h264_aac.mp4` and `hevc10.mp4` (P010), with
-   colours matching software decoding. Waiting on the user: such a
-   machine, or the iGPU turned on in that PC's firmware. This is where
-   media-kit had the most texture bugs; budget for it.
-
 ## Known defects
 
 1. **VP9 through VideoToolbox hangs on an Intel Mac**: on a MacBook Pro
@@ -143,6 +127,19 @@ rather than reopening; callers reopen from their own thread. Unit tests
 are off in a shared-library build (`LYCHEE_BUILD_TESTS` needs the static
 core's internals).
 
+6. **BtbN's FFmpeg aborts at the first VAAPI frame on older libva**: the
+   Linux plugin takes BtbN's FFmpeg on x86_64 until a release pins ours,
+   and on arm64 always. It loads libva through implib-gen stubs built
+   against a newer libva, and mapping the first hardware frame calls
+   `vaMapBuffer2` (libva 2.21+). Ubuntu 24.04's libva 2.20 lacks it, so
+   on an Intel iGPU (2026-10-27) the stub asserts and the process aborts
+   for h264, hevc10 and vp9 alike; machines without a working VA driver
+   never get that far. Our own build links the system's libva and plays
+   (Platforms, Linux VAAPI). Until then apps can pass
+   `hardwareDecoding: false` on Linux. Done when the plugin's default
+   FFmpeg on x86_64 is ours (the next release pins it) and arm64's either
+   is ours or leaves VAAPI out.
+
 ## Features
 
 1. **Live input in flutter-airplay**: the core plays pushed packets
@@ -186,8 +183,8 @@ core's internals).
      ICtCp. Left: HLG through the shader too, so it matches swscale's 142;
      HDR output, which needs an R10G10B10A2 or FP16 texture type.
    - Linux: `lychee_dmabuf` already carries P010 and the matrix, but not
-     the primaries and transfer function a caller needs for HDR; needs a
-     VAAPI machine to check.
+     the primaries and transfer function a caller needs for HDR; the
+     dual-boot PC's Intel iGPU (VAAPI, below) can check it.
    - Android: the SDK's SurfaceView shows MediaCodec's HDR output; the
      Flutter plugin's path (MediaCodec into a `SurfaceProducer`) is
      still unchecked, waiting on the user's HDR phone. The API 37
@@ -240,7 +237,18 @@ Every platform plays through FFmpeg software decoding and CPU RGBA frames
 except Apple's (VideoToolbox, `CVPixelBuffer`), Android's (MediaCodec
 rendering straight into the `SurfaceProducer`'s Surface), Windows'
 (Media Foundation or D3D11VA, shared D3D11 textures) and Linux's (VAAPI
-dmabufs, unverified above). What is left per platform is a renderer in
+dmabufs). Linux VAAPI was first seen on 2026-10-27, on the dual-boot
+PC's Intel UHD 770 driving the display (Ubuntu 24.04, X11, iHD 24.1,
+libva 2.20) with our `tool/build_ffmpeg.sh linux-x86_64` built there:
+`lychee_cli` plays h264, hevc10 and vp9 with `hw=1` and 0 dropped;
+`examples/glfw` imports the dmabufs on `renderD128` and draws h264,
+hevc10 (P010), rotated and vp9 with 0 dropped, `--snapshot` matching
+FFmpeg's software frames (45, 46, 31 and 75 dB) and seek and pause
+through `--key`; the Flutter example under Impeller (profile,
+`--seconds 6`) h264 172 rendered and 0 dropped, hevc10 139 and 0 three
+times in a row, rotated 172 and 1 (at the start), controls drawn. With
+BtbN's FFmpeg it aborts instead (known defect 6). Not seen: AMD, and
+Wayland. What is left per platform is a renderer in
 `examples/glfw` (Metal on macOS; Direct3D 11 on Windows since 2026-10-26,
 shared textures and CPU frames, checked with h264, hevc10, rotated and vp9
 in a window; OpenGL ES on Linux since 2026-10-26, Platforms 2) and its own
@@ -358,8 +366,8 @@ in a window; OpenGL ES on Linux since 2026-10-26, Platforms 2) and its own
    loop stalls 25-65 ms now and then there, with any pacing and without
    it. Its swap does not wait for vsync there (100-140 Hz unpaced), so
    the loop sleeps out the refresh itself. The VM's EGL offers dmabuf
-   import (on `renderD128`), but without VAAPI no dmabuf frame has been
-   drawn. `--snapshot` reads back what it drew: against FFmpeg's frame at
+   import (on `renderD128`); dmabuf frames were first drawn on an Intel
+   iGPU (Platforms, above). `--snapshot` reads back what it drew: against FFmpeg's frame at
    the pts it prints, a 1:1 h264 snapshot in WSL is 51.5 dB (vp9 35,
    scaled 28-35; on the VM 29-31) and the next frame 18-20 dB, for
    `h264_aac.mp4`, `rotated.mp4` and `vp9_opus.webm`.

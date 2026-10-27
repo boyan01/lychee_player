@@ -31,8 +31,12 @@ player.dispose();
 | Linux | Ubuntu 22.04 | `libepoxy-dev` and `libpulse-dev` to build; at run time FFmpeg loads the system's `libva2`, `libva-drm2`, `libdrm2`, `libgnutls30` and `zlib1g` |
 
 Hardware decoding: VideoToolbox, MediaCodec, Media Foundation and D3D11VA
-have been seen working; Linux's VAAPI path has never run on a machine with VAAPI, so
-expect software decoding there (see the repository's roadmap).
+have been seen working, and VAAPI on Linux with an Intel GPU. On Linux
+x86_64 this release builds against BtbN's FFmpeg, which aborts at the
+first hardware frame where the system's libva is older than 2.21
+(Ubuntu 24.04 and earlier): pass `hardwareDecoding: false` there, or
+point `LYCHEE_FFMPEG_ROOT` at an FFmpeg built with
+`tool/build_ffmpeg.sh linux-x86_64` (see the repository's roadmap).
 
 The Android core is built for `arm64-v8a` and `x86_64` only. Otherwise
 Flutter also packs a 32-bit engine, and on a 32-bit device (or a 64-bit

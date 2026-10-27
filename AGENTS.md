@@ -179,8 +179,14 @@ The layers, lowest first:
    - Linux: `examples/glfw` (OpenGL; CPU frames, dmabufs with VAAPI), on
      WSL or the Ubuntu VM through the same skill. Those have no real
      GPU; the Windows machine's dual-boot Ubuntu 24.04 (`ssh
-     boyan@192.168.31.212` when booted into it; NVIDIA RTX 4070 Ti, X11,
-     `DISPLAY=:1`) does, but no VAAPI driver that works.
+     boyan@192.168.31.212` when booted into it; X11, `DISPLAY=:1` once
+     the user has logged in) does: an RTX 4070 Ti, and the i9-12900K's
+     UHD 770, which drives the display from the mainboard's port since
+     2026-10-27 and decodes through VAAPI (iHD). Test VAAPI with our
+     FFmpeg (`tool/build_ffmpeg.sh linux-x86_64`, then
+     `LYCHEE_FFMPEG_ROOT=third_party/ffmpeg/linux-x86_64` for the core's
+     CMake and for `flutter build linux`): BtbN's aborts there (roadmap,
+     known defect 6). NVIDIA's VAAPI driver hangs.
 4. **Bindings**: the Swift package (`swift test`), the Rust crates
    (`cargo test`), each against the media `tool/regression.sh` generates
    (`MEDIA_ONLY=1` generates it without building).
