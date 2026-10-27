@@ -11,6 +11,11 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size
 add_subdirectory(../../../core core)
 # Debug apps build native code at -O0, too slow for per-pixel frame work.
 target_compile_options(lychee PRIVATE -O2)
+# Prefab copies this library before AGP strips jni/. Keep only its dynamic
+# symbols in release AARs: native C ABI consumers still link normally, and
+# Debug retains symbols for local debugging.
+target_link_options(lychee PRIVATE "$<$<NOT:$<CONFIG:Debug>>:-Wl,--strip-all>")
+
 
 # JNI for the Kotlin classes; uses only lychee.h.
 add_library(lychee_jni SHARED src/main/cpp/lychee_jni.cc)
