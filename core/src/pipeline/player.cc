@@ -1098,8 +1098,17 @@ void Player::EnableStreamsLocked() {
   for (const auto& [stream, renderer] : subtitle_renderers_) {
     streams.push_back(stream);
   }
-  for (const auto& [stream, history] : histories_) {
-    if (stream != video_stream_ && stream != audio_stream_) {
+  // HLS fetches each variant on its own: reading the other video streams
+  // there would download every variant.
+  const bool hls = media_info_.format_name == "hls";
+  for (auto& [stream, history] : histories_) {
+    if (stream == video_stream_ || stream == audio_stream_) {
+      continue;
+    }
+    if (hls && media_info_.streams[stream].type == MediaType::kVideo) {
+      // Read again later, it would have a gap.
+      history.Clear();
+    } else {
       streams.push_back(stream);
     }
   }
