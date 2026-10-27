@@ -109,6 +109,11 @@ for size in 1280x720 640x360; do
     -t 3 -c:v libx264 -preset veryfast -pix_fmt yuv420p -c:a aac -f mpegts
 done
 gen resolution_change.ts -i "concat:$media/rendition_1280x720.ts|$media/rendition_640x360.ts" -c copy
+# Concatenate bytes, not remuxed packets: the second program starts its
+# timestamps over, as a recorder does after its source restarts.
+[ -f "$media/ts_timestamp_reset.ts" ] || { cat "$media/rendition_1280x720.ts" \
+  "$media/rendition_640x360.ts" >"$media/ts_timestamp_reset.tmp" &&
+  mv "$media/ts_timestamp_reset.tmp" "$media/ts_timestamp_reset.ts"; } || exit 1
 # Live input, as a screen mirroring sender encodes it: no B-frames, audio
 # muxed next to its video.
 gen live_h264.mp4 -f lavfi -i "$src" -f lavfi -i sine=frequency=440:sample_rate=44100 -t 12 \

@@ -38,10 +38,22 @@ building on top of them.
    slower still).
 4. **Apple without FFmpeg**: AV1 on an M3 or A17 Pro, VP9 on iOS 26.2 or
    later (no runtime here), A/V sync of Opus and MP3 against a reference
-   clip, and a single TS file whose timestamps start over
-   (no test media).
+   clip.
 
 ## Known defects
+
+- **Timestamps restarting inside a single TS file without FFmpeg**:
+  `tool/regression.sh` generates `ts_timestamp_reset.ts` by joining two
+  three-second TS files without remuxing. Reproduce with
+  `build-noffmpeg/examples/cli/lychee_cli --virtual-time
+  /tmp/lychee-media/ts_timestamp_reset.ts`: only the first 90 video frames
+  play, the second 90 are dropped, and the reported duration is 3.029 s
+  instead of about 6 s. `TsReader` unwraps 33-bit timestamps but does not
+  join resets; `TsDemuxer` estimates duration and bisects seeks using the
+  raw timeline. Done when both segments play in sync and seeks work on
+  either side of the reset, without scanning an entire large TS at open.
+  Keep the failing playback out of the default regression matrix until
+  the timeline and seek handling are fixed.
 
 1. **VideoToolbox gives up on damaged TS**: on TS that lost one packet in
    a thousand (`ts_lost_packets.ts`) `VTVideoDecoder` reaches its
