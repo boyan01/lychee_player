@@ -70,7 +70,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Install tools
-        run: brew install llvm ffmpeg ninja pkg-config glfw
+        run: |
+          brew install llvm ffmpeg ninja pkg-config glfw
+          echo "$(brew --prefix llvm)/bin" >>"$GITHUB_PATH"
       - name: Check
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
