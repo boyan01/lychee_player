@@ -135,6 +135,8 @@ build_ffmpeg() {
     echo "FFmpeg $platform: reusing matching build"
     return
   fi
+  # Intel assembly is needed only when building, not when reusing it.
+  [ "$platform" != macos-x86_64 ] || command -v nasm >/dev/null || die "macos-x86_64 needs nasm"
   echo "FFmpeg $platform: rebuilding (missing or changed fingerprint)"
   rm -f "$stamp"
   "$root/tool/build_ffmpeg.sh" "$@"
@@ -153,8 +155,6 @@ cmd_build() {
   case "$target" in
     apple)
       for p in "${apple_platforms[@]}"; do
-        # Intel Macs decode in software through the assembly.
-        [ "$p" != macos-x86_64 ] || command -v nasm >/dev/null || die "macos-x86_64 needs nasm"
         build_ffmpeg "$p" "$src/ffmpeg-$ffmpeg_version"
       done
       "$root/tool/package_ffmpeg_apple.sh"
