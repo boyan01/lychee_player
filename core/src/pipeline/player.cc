@@ -89,7 +89,7 @@ void Player::StopPipeline() {
     audio_renderer_->Stop();
   }
 
-  std::unique_ptr<VideoRenderer> video;
+  VideoRenderer::Ptr video;
   std::unique_ptr<AudioRenderer> audio;
   std::map<int, std::unique_ptr<SubtitleRenderer>> subtitles;
   std::unique_ptr<Demuxer> demuxer;
@@ -857,11 +857,9 @@ bool Player::ShouldReadLocked() const {
          !end_of_input_ && state_ != PlayerState::kError && NeedMoreData();
 }
 
-std::unique_ptr<VideoRenderer> Player::CreateVideoRenderer(
-    const StreamInfo& info) {
-  auto video =
-      std::make_unique<VideoRenderer>(&clock_, config_.video_frame_types,
-                                      config_.rotate_surface_frames);
+VideoRenderer::Ptr Player::CreateVideoRenderer(const StreamInfo& info) {
+  VideoRenderer::Ptr video = VideoRenderer::Create(
+      &clock_, config_.video_frame_types, config_.rotate_surface_frames);
   VideoDevice device;
   std::shared_ptr<void> surface;
   bool hardware;
@@ -928,7 +926,7 @@ bool Player::Prepare(const std::string& url, std::string* error) {
        info.format_name.c_str(), static_cast<long long>(info.duration),
        info.streams.size());
 
-  std::unique_ptr<VideoRenderer> video;
+  VideoRenderer::Ptr video;
   std::unique_ptr<AudioRenderer> audio;
   std::map<int, std::unique_ptr<SubtitleRenderer>> subtitles;
   if (info.default_video_stream >= 0 && config_.video_frame_types != 0) {
@@ -1004,7 +1002,7 @@ void Player::ChangeTracks(const TrackRequest& request) {
     }
   }
   if (video_stream != kUnchanged) {
-    std::unique_ptr<VideoRenderer> old;
+    VideoRenderer::Ptr old;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       {
@@ -1022,7 +1020,7 @@ void Player::ChangeTracks(const TrackRequest& request) {
       old.reset();
     }
     video_queue_.Reset(generation_);
-    std::unique_ptr<VideoRenderer> video;
+    VideoRenderer::Ptr video;
     if (video_stream >= 0) {
       video = CreateVideoRenderer(media_info_.streams[video_stream]);
     }
@@ -1135,6 +1133,10 @@ void Player::CheckVideoRendererLocked() {
     video_decoder_losses_++;
     LOGW("video decoder lost (%d since open); rebuilding at the position",
          video_decoder_losses_);
+  } else if (video_renderer_->DecoderHung(clock_running_)) {
+    // Another hardware decoder would likely hang the same way.
+    video_decoder_losses_ = std::max(video_decoder_losses_, 2);
+    LOGW("video decoder hung; rebuilding in software at the position");
   } else if (video_renderer_->device() == video_device_) {
     return;
   }
@@ -1644,6 +1646,13 @@ void Player::LoseVideoDecoderForTesting() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (video_renderer_) {
     video_renderer_->SimulateDecoderLossForTesting();
+  }
+}
+
+void Player::HangVideoDecoderForTesting() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (video_renderer_) {
+    video_renderer_->SimulateDecoderHangForTesting();
   }
 }
 

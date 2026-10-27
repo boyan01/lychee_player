@@ -605,7 +605,11 @@ seq_() { run_case seq "$@"; }
 
 par check h264          1 - -- "$media/h264_aac.mp4"
 par check hevc10        1 - -- "$media/hevc10.mp4"
-par check vp9           1 - -- "$media/vp9_opus.webm"
+# VideoToolbox's VP9 hangs on the Intel Mac these run on: the player
+# gives up on it after 4 s and decodes in software.
+vp9_hw=1
+[ "$(uname -sm)" = "Darwin x86_64" ] && vp9_hw=0
+par check vp9           $vp9_hw - -- "$media/vp9_opus.webm"
 # The shipped FFmpeg decodes AV1 only in hardware: no dav1d (roadmap).
 [ -n "${FFMPEG_ROOT:-}" ] ||
   par check av1-software  0 - -- "$media/av1.mkv"
@@ -675,7 +679,7 @@ par check seek-forward  1 7.500 -- --seek 7.5 --seek-after 2 "$media/h264_aac.mp
 par check seek-backward 1 1.000 -- --seek 1 --seek-after 5 "$media/hevc10.mp4"
 par check seek-near-end 1 11.900 -- --seek 11.9 --seek-after 1 "$media/h264_aac.mp4"
 par check seek-past-end 1 - -- --seek 30 --seek-after 1 "$media/offset.ts"
-par check seek-vp9      1 7.500 -- --seek 7.5 --seek-after 2 "$media/vp9_opus.webm"
+par check seek-vp9      $vp9_hw 7.500 -- --seek 7.5 --seek-after 2 "$media/vp9_opus.webm"
 # Matroska seeks through the Cues, by scanning the clusters without them,
 # and in clusters of unknown size.
 par check seek-mkv      1 7.500 -- --seek 7.5 --seek-after 2 "$media/h264_aac.mkv"
@@ -762,6 +766,14 @@ par expect decoder-lost "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" "<=0 even
 par expect decoder-lost-twice "<=0 event: state error" \
   "summary: state=ended .*decoder=(ffmpeg|videotoolbox-sw) hw=0 .*backward_jumps=0 " -- \
   --lose-decoder-after 2 --lose-decoder-after 5 "$media/h264_aac.mp4"
+# A hardware decoder that never returns (a driver hang) is given up after
+# 4 s without frames and rebuilt in software at the position. Destroying
+# the player meanwhile waits for it no longer than that.
+par expect decoder-hung "hang video decoder at" "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" \
+  "<=0 event: state error" "summary: state=ended .* hw=0 .*backward_jumps=0 .*stalls=0" -- \
+  --hang-decoder-after 2 "$media/h264_aac.mp4"
+realtime=1 par expect decoder-hung-destroy "hang video decoder at" "destroyed in [0-4]\." -- \
+  --hang-decoder-after 1 --seconds 2 "$media/h264_aac.mp4"
 # Nobody pulls frames for 3 s, as in the background: frames that went by
 # meanwhile are not counted as dropped, and playback resumes at the clock.
 par expect background "show at " "summary: state=ended .*dropped=0 glitches=[0-3] backward_jumps=0 " -- \

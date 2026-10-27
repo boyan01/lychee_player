@@ -566,6 +566,10 @@ void lychee_testing_lose_video_decoder(lychee_player* player) {
   player->player->LoseVideoDecoderForTesting();
 }
 
+void lychee_testing_hang_video_decoder(lychee_player* player) {
+  player->player->HangVideoDecoderForTesting();
+}
+
 }  // extern "C"
 
 struct lychee_testing_live_source {

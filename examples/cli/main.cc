@@ -63,6 +63,8 @@ struct Options {
   std::vector<std::pair<int32_t, int32_t>> selections;
   double select_after = 2;
   bool hardware = true;
+  // --dmabuf: the DRM render node to decode on.
+  std::string dmabuf_node;
   bool virtual_time = false;
   // Where to write each subtitle with pictures, drawn on a grey canvas of
   // the video's size (binary PPM), to look at styled ASS.
@@ -70,8 +72,13 @@ struct Options {
   // Frames to write as they would be shown (tool/frame_check.py), by time.
   std::vector<FrameSnapshot> snapshots;
   // Seconds after playback starts to make the video decoder fail as after a
-  // GPU reset (testing.h), in order.
-  std::vector<double> lose_decoder_after;
+  // GPU reset, or hang as in a driver that never returns (testing.h), in
+  // order.
+  struct DecoderLoss {
+    double after;
+    bool hang;
+  };
+  std::vector<DecoderLoss> lose_decoder_after;
   // Stop pulling frames this many seconds after playback starts, as an app
   // in the background does, for |hide_for| seconds.
   double hide_after = -1;
@@ -227,10 +234,11 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       const char* v = value();
       if (!v) return false;
       options->select_after = atof(v);
-    } else if (arg == "--lose-decoder-after") {
+    } else if (arg == "--lose-decoder-after" || arg == "--hang-decoder-after") {
       const char* v = value();
       if (!v) return false;
-      options->lose_decoder_after.push_back(atof(v));
+      options->lose_decoder_after.push_back(
+          {atof(v), arg == "--hang-decoder-after"});
     } else if (arg == "--hide-after") {
       const char* v = value();
       if (!v) return false;
@@ -293,6 +301,13 @@ bool ParseOptions(int argc, char** argv, Options* options) {
     } else if (arg == "--d3d11") {
       // CPU frames too, as the Flutter plugin takes them.
       options->frame_type = LYCHEE_FRAME_D3D11_TEXTURE | LYCHEE_FRAME_CPU_BGRA;
+    } else if (arg == "--dmabuf") {
+      // Dmabufs on the GPU of a DRM render node, CPU frames too, as the
+      // Flutter plugin takes them.
+      const char* v = value();
+      if (!v) return false;
+      options->dmabuf_node = v;
+      options->frame_type = LYCHEE_FRAME_DMABUF | LYCHEE_FRAME_CPU_RGBA;
     } else if (!arg.empty() && arg[0] != '-') {
       options->url = arg;
     } else {
@@ -892,10 +907,12 @@ int main(int argc, char** argv) {
     fprintf(stderr,
             "usage: %s [--seconds N] [--seek SEC [--seek-after SEC]] "
             "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
-            "[--cpu | --rgba | --native | --d3d11] [--rate R [--rate-after "
+            "[--cpu | --rgba | --native | --d3d11 | --dmabuf NODE] "
+            "[--rate R [--rate-after "
             "SEC]] [--loop [--loop-off-after SEC]] "
             "[--open-after SEC URL] [--select TYPE:INDEX]... "
             "[--select-after SEC] [--lose-decoder-after SEC]... "
+            "[--hang-decoder-after SEC]... "
             "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
             "[--live [--latency MS] [--live-jitter MS] "
             "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
@@ -937,6 +954,13 @@ int main(int argc, char** argv) {
 #endif
 
   lychee_player* player = lychee_player_create(&config);
+  if (!options.dmabuf_node.empty()) {
+    lychee_video_device dmabuf_device = {};
+    dmabuf_device.struct_size = sizeof(dmabuf_device);
+    dmabuf_device.type = LYCHEE_VIDEO_DEVICE_DRM_RENDER_NODE;
+    dmabuf_device.path = options.dmabuf_node.c_str();
+    lychee_player_set_video_device(player, &dmabuf_device);
+  }
   lychee_player_set_event_callback(player, &OnEvent, nullptr);
   lychee_player_set_volume(player, options.volume);
   lychee_player_set_looping(player, options.loop ? 1 : 0);
@@ -1276,13 +1300,20 @@ int main(int argc, char** argv) {
     }
     if (next_loss < options.lose_decoder_after.size() &&
         loss_position == INT64_MIN && ready_wall != 0 &&
-        now - ready_wall >= static_cast<int64_t>(
-                                options.lose_decoder_after[next_loss] * 1e6)) {
+        now - ready_wall >=
+            static_cast<int64_t>(options.lose_decoder_after[next_loss].after *
+                                 1e6)) {
+      const bool hang = options.lose_decoder_after[next_loss].hang;
       next_loss++;
       loss_position = position;
       g_buffering = false;
-      printf("lose video decoder at %.3fs\n", position / 1e6);
-      lychee_testing_lose_video_decoder(player);
+      printf("%s video decoder at %.3fs\n", hang ? "hang" : "lose",
+             position / 1e6);
+      if (hang) {
+        lychee_testing_hang_video_decoder(player);
+      } else {
+        lychee_testing_lose_video_decoder(player);
+      }
     }
     if (loss_position != INT64_MIN && g_buffering &&
         state == LYCHEE_STATE_READY) {
@@ -1400,6 +1431,11 @@ int main(int argc, char** argv) {
   if (shown) {
     lychee_frame_release(shown);
   }
+  const auto destroy_start = std::chrono::steady_clock::now();
   lychee_player_destroy(player);
+  printf("destroyed in %.3fs\n",
+         std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                       destroy_start)
+             .count());
   return exit_code;
 }

@@ -160,6 +160,8 @@ class Player {
   bool SettledForTesting(int64_t until) const;
   // Makes the video decoder count as lost, as after a GPU reset.
   void LoseVideoDecoderForTesting();
+  // Makes the video decoder hang, as a driver that never returns.
+  void HangVideoDecoderForTesting();
   std::vector<TrackInfo> tracks() const;
   // Container tag, case-insensitive. False if absent.
   bool metadata(const std::string& key, std::string* value) const;
@@ -237,7 +239,7 @@ class Player {
   // Live: everything pushed so far has been decoded; for
   // SettledForTesting().
   bool LiveSettledLocked() const;
-  std::unique_ptr<VideoRenderer> CreateVideoRenderer(const StreamInfo& info);
+  VideoRenderer::Ptr CreateVideoRenderer(const StreamInfo& info);
   std::unique_ptr<AudioRenderer> CreateAudioRenderer(const StreamInfo& info);
   // The renderer of |subtitle_stream_|, or null.
   SubtitleRenderer* SelectedSubtitleLocked() const;
@@ -298,7 +300,7 @@ class Player {
   LiveDemuxer* live_demuxer_ = nullptr;
   // Written by the live audio renderer, read by |live_demuxer_|.
   std::atomic<int64_t> audio_output_lead_{0};
-  std::unique_ptr<VideoRenderer> video_renderer_;
+  VideoRenderer::Ptr video_renderer_;
   std::unique_ptr<AudioRenderer> audio_renderer_;
   // One per subtitle stream that has a decoder, from Prepare() until
   // StopPipeline(): every subtitle stream is read, so a track switched on
@@ -384,7 +386,7 @@ class Player {
   std::shared_ptr<void> video_surface_;
   // Video decoders lost since the last open or device change. The first is
   // replaced by hardware decoding again (a GPU reset passes), later ones by
-  // software decoding.
+  // software decoding. A hung decoder counts as two.
   int video_decoder_losses_ = 0;
   double rate_ = 1.0;
   bool looping_ = false;

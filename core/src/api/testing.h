@@ -28,6 +28,9 @@ LYCHEE_EXPORT int32_t lychee_testing_player_settled(lychee_player* player,
 // Makes the video decoder fail at its next packet as a hardware decoder
 // does after a GPU reset, so the player rebuilds it.
 LYCHEE_EXPORT void lychee_testing_lose_video_decoder(lychee_player* player);
+// Makes the video decoder hang at its next packet, as a driver that never
+// returns, until the player gives up on it.
+LYCHEE_EXPORT void lychee_testing_hang_video_decoder(lychee_player* player);
 
 // A file replayed as a live input: its default video and audio streams,
 // in file order, as lychee_player_push_live_packet() takes them (Annex B

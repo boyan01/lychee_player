@@ -186,7 +186,11 @@ The layers, lowest first:
      FFmpeg (`tool/build_ffmpeg.sh linux-x86_64`, then
      `LYCHEE_FFMPEG_ROOT=third_party/ffmpeg/linux-x86_64` for the core's
      CMake and for `flutter build linux`): BtbN's aborts there (roadmap,
-     known defect 6). NVIDIA's VAAPI driver hangs.
+     known defect 5). NVIDIA's VAAPI driver hangs, and the player
+     falls back to software after 4 s; `nvidia-vaapi-driver` is not
+     installed there since 2026-10-27, so libva cannot pick it.
+     `lychee_cli --dmabuf /dev/dri/renderDN` decodes into dmabufs on
+     one GPU without a window.
 4. **Bindings**: the Swift package (`swift test`), the Rust crates
    (`cargo test`), each against the media `tool/regression.sh` generates
    (`MEDIA_ONLY=1` generates it without building).

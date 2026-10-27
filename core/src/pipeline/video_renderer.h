@@ -24,13 +24,22 @@ namespace lychee {
 // screen for a given display time. The caller drives presentation (e.g. from
 // the UI toolkit's vsync), so frames are pulled, not pushed. Frames are
 // chosen by VideoRendererAlgorithm, once per vsync.
+//
+// A hardware decoder can hang in the driver, where nothing interrupts it
+// (VideoToolbox's VP9 on Intel Macs, NVIDIA's VAAPI). Stop() then gives up
+// on the decode thread instead of joining it, and Ptr's deleter leaves the
+// renderer to that thread, which deletes it if the decoder ever returns.
 class VideoRenderer {
  public:
+  struct Deleter {
+    void operator()(VideoRenderer* renderer) const;
+  };
+  using Ptr = std::unique_ptr<VideoRenderer, Deleter>;
+
   // |rotate_surface_frames|: see CreateVideoDecoders().
-  VideoRenderer(MediaClock* clock,
-                uint32_t accepted_storage,
-                bool rotate_surface_frames);
-  ~VideoRenderer();
+  static Ptr Create(MediaClock* clock,
+                    uint32_t accepted_storage,
+                    bool rotate_surface_frames);
 
   // Tries the decoders in order and keeps the first that accepts |config|.
   // The ones after it stay as fallbacks for a decoder that fails before its
@@ -48,6 +57,8 @@ class VideoRenderer {
   const VideoDevice& device() const { return device_; }
   void Start();
   // The packet queue must be aborted first so the decode thread can exit.
+  // Returns once the thread has, or once it has been in one decoder call
+  // for kHungDecoderTimeout: then the thread is left behind.
   void Stop();
 
   // After a seek: drops queued frames, and frames before |start_time| that
@@ -83,6 +94,14 @@ class VideoRenderer {
   bool DecoderLost() const;
   // Makes the decoder count as lost at the next packet, for tests.
   void SimulateDecoderLossForTesting() { simulate_loss_ = true; }
+  // A hardware decoder has been in one call for kHungDecoderTimeout while
+  // at most one decoded frame was left to show or the clock ran: frames
+  // that wait could be holding its output buffers. Called periodically;
+  // both count from the first call that sees them.
+  bool DecoderHung(bool clock_running);
+  // Makes the decoder hang at the next packet until Stop() gives up on it,
+  // as a hardware decoder that never returns, for tests.
+  void SimulateDecoderHangForTesting() { simulate_hang_ = true; }
   // Coded size of the frame last handed out by Acquire(); false before the
   // first. Streams can change resolution midway (adaptive streaming).
   bool shown_size(int* width, int* height) const;
@@ -107,6 +126,12 @@ class VideoRenderer {
   int64_t average_decode_time() const;
 
  private:
+  VideoRenderer(MediaClock* clock,
+                uint32_t accepted_storage,
+                bool rotate_surface_frames);
+  // Only through Deleter, or by an abandoned decode thread.
+  ~VideoRenderer() = default;
+
   // Makes the next candidate that accepts |config_| the decoder.
   bool InitializeNextDecoder(std::string* error);
   void DecodeLoop();
@@ -169,7 +194,20 @@ class VideoRenderer {
   // OnFrame() waits for queue space or for the end time to go.
   bool waiting_ = false;
   std::atomic<bool> simulate_loss_{false};
+  std::atomic<bool> simulate_hang_{false};
+  // MonotonicMicros() when the decode thread entered the decoder call it is
+  // in, not counting OnFrame(); 0 outside one.
+  std::atomic<int64_t> in_decoder_since_{0};
+  // MonotonicMicros() since when DecoderHung() has seen the queue drained,
+  // and the clock running.
+  int64_t drained_since_ = kNoTimestamp;
+  int64_t running_since_ = kNoTimestamp;
   bool stopped_ = false;
+  // The decode thread has exited; Stop() gave up on it; Deleter left the
+  // renderer to it.
+  bool exited_ = false;
+  bool abandoned_ = false;
+  bool released_ = false;
   int shown_width_ = 0;
   int shown_height_ = 0;
   int64_t frames_rendered_ = 0;

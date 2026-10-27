@@ -3,6 +3,7 @@
 #include "pipeline/video_renderer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <vector>
@@ -20,6 +21,9 @@ namespace {
 constexpr size_t kMaxQueuedFrames = 5;
 // No pull for this long counts as hidden (ExpireFramesWhileHidden()).
 constexpr int64_t kHiddenTimeout = 250 * kMicrosPerMilli;
+// A decoder call this long counts as hung. Longer than MediaCodec's wait
+// for the last frames at the end of the stream (3 s).
+constexpr int64_t kHungDecoderTimeout = 4 * kMicrosPerSecond;
 // Frames without a duration are assumed to last this long (30 fps).
 constexpr int64_t kDefaultFrameDuration = kMicrosPerSecond / 30;
 int64_t FrameEnd(const VideoFrame& frame) {
@@ -28,6 +32,24 @@ int64_t FrameEnd(const VideoFrame& frame) {
 }
 
 }  // namespace
+
+void VideoRenderer::Deleter::operator()(VideoRenderer* renderer) const {
+  renderer->Stop();
+  {
+    std::lock_guard<std::mutex> lock(renderer->mutex_);
+    if (renderer->abandoned_ && !renderer->exited_) {
+      renderer->released_ = true;
+      return;
+    }
+  }
+  delete renderer;
+}
+
+VideoRenderer::Ptr VideoRenderer::Create(MediaClock* clock,
+                                         uint32_t accepted_storage,
+                                         bool rotate_surface_frames) {
+  return Ptr(new VideoRenderer(clock, accepted_storage, rotate_surface_frames));
+}
 
 VideoRenderer::VideoRenderer(MediaClock* clock,
                              uint32_t accepted_storage,
@@ -40,10 +62,6 @@ VideoRenderer::VideoRenderer(MediaClock* clock,
         return clock->SystemTimesFor(media_times, system_times);
       }),
       created_(NowMicros()) {}
-
-VideoRenderer::~VideoRenderer() {
-  Stop();
-}
 
 bool VideoRenderer::Initialize(const VideoConfig& config,
                                bool allow_hardware,
@@ -95,19 +113,63 @@ void VideoRenderer::Start() {
 }
 
 void VideoRenderer::Stop() {
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    stopped_ = true;
-    // Queued frames can hold the decoder's output buffers (MediaCodec), and
-    // a decoder out of them waits in Decode() for input space; give them
-    // back so it returns and the thread can exit.
-    algorithm_.Reset();
-    selected_.reset();
-  }
+  std::unique_lock<std::mutex> lock(mutex_);
+  stopped_ = true;
+  // Queued frames can hold the decoder's output buffers (MediaCodec), and
+  // a decoder out of them waits in Decode() for input space; give them
+  // back so it returns and the thread can exit.
+  algorithm_.Reset();
+  selected_.reset();
   condition_.notify_all();
-  if (thread_.joinable()) {
-    thread_.join();
+  if (!thread_.joinable()) {
+    return;
   }
+  while (!exited_) {
+    const int64_t since = in_decoder_since_;
+    if (since != 0 && MonotonicMicros() - since >= kHungDecoderTimeout) {
+      // After Stop() the thread touches only this renderer, which Deleter
+      // then leaves to it.
+      LOGW("%s decoder hung; leaving its thread behind", decoder_->name());
+      abandoned_ = true;
+      condition_.notify_all();
+      thread_.detach();
+      return;
+    }
+    condition_.wait_for(lock, std::chrono::milliseconds(20));
+  }
+  lock.unlock();
+  thread_.join();
+}
+
+bool VideoRenderer::DecoderHung(bool clock_running) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const int64_t now = MonotonicMicros();
+  // Since when |condition| has held, from the first call that saw it.
+  auto track = [now](bool condition, int64_t* since) {
+    if (!condition) {
+      *since = kNoTimestamp;
+    } else if (*since == kNoTimestamp) {
+      *since = now;
+    }
+  };
+  track(algorithm_.effective_frames_queued() <= 1, &drained_since_);
+  track(clock_running, &running_since_);
+  const int64_t since = in_decoder_since_;
+  if (since == 0 || !(simulate_hang_ || decoder_->is_hardware())) {
+    return false;
+  }
+  // Frames waiting to be shown can hold the decoder's output buffers
+  // (MediaCodec): a wait counts once they are gone, or while the clock runs
+  // and moves them on.
+  int64_t free_since = kNoTimestamp;
+  for (int64_t time : {drained_since_, running_since_}) {
+    if (time != kNoTimestamp &&
+        (free_since == kNoTimestamp || time < free_since)) {
+      free_since = time;
+    }
+  }
+  return free_since != kNoTimestamp &&
+         now - std::max(since, free_since) >= kHungDecoderTimeout;
 }
 
 void VideoRenderer::DecodeLoop() {
@@ -116,6 +178,7 @@ void VideoRenderer::DecodeLoop() {
   bool flush = false;
   PacketQueue::Entry entry;
   while (queue_->Pop(&entry)) {
+    in_decoder_since_ = MonotonicMicros();
     if (entry.generation != decoder_generation || flush) {
       decoder_->Flush();
       decoder_generation = entry.generation;
@@ -133,8 +196,14 @@ void VideoRenderer::DecodeLoop() {
     // Excludes the time OnFrame() waits for queue space.
     int64_t waited = 0;
     const int64_t decode_start = MonotonicMicros();
-    const bool simulated = simulate_loss_.exchange(false);
+    bool simulated = simulate_loss_.exchange(false);
+    if (simulate_hang_) {
+      std::unique_lock<std::mutex> lock(mutex_);
+      condition_.wait(lock, [this] { return abandoned_; });
+      simulated = true;
+    }
     bool ok = !simulated && Decode(entry.packet, generation, &waited);
+    in_decoder_since_ = 0;
     const int64_t decode_time = MonotonicMicros() - decode_start - waited;
     std::lock_guard<std::mutex> lock(mutex_);
     if (!entry.packet->end_of_stream) {
@@ -163,6 +232,17 @@ void VideoRenderer::DecodeLoop() {
       break;
     }
   }
+  bool release;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    exited_ = true;
+    release = released_;
+    // Under the lock: once it is released, Deleter may delete the renderer.
+    condition_.notify_all();
+  }
+  if (release) {
+    delete this;
+  }
 }
 
 bool VideoRenderer::Decode(const std::shared_ptr<EncodedPacket>& packet,
@@ -170,9 +250,12 @@ bool VideoRenderer::Decode(const std::shared_ptr<EncodedPacket>& packet,
                            int64_t* waited) {
   auto output = [this, generation, waited](std::shared_ptr<VideoFrame> frame) {
     decoder_has_output_ = true;
+    in_decoder_since_ = 0;
     const int64_t start = MonotonicMicros();
     OnFrame(std::move(frame), generation);
-    *waited += MonotonicMicros() - start;
+    const int64_t end = MonotonicMicros();
+    *waited += end - start;
+    in_decoder_since_ = end;
   };
   if (!decoder_has_output_) {
     unconfirmed_packets_.push_back(packet);
@@ -234,6 +317,7 @@ void VideoRenderer::OnFrame(std::shared_ptr<VideoFrame> frame,
                      : (start_time_ != kNoTimestamp ? start_time_ : 0);
   }
   algorithm_.EnqueueFrame(std::move(frame));
+  drained_since_ = kNoTimestamp;
 }
 
 std::shared_ptr<VideoFrame> VideoRenderer::Adapt(
@@ -277,6 +361,8 @@ void VideoRenderer::Flush(uint64_t generation,
     current_stale_ = true;
     first_frame_pending_ = true;
     end_of_stream_ = false;
+    // Frames given back can let a decoder waiting for output buffers go on.
+    drained_since_ = kNoTimestamp;
   }
   condition_.notify_all();
 }

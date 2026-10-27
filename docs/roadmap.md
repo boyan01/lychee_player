@@ -36,27 +36,7 @@ on top of them.
    once failed to start right after a file switch, and FFmpeg took over).
 ## Known defects
 
-1. **VP9 through VideoToolbox hangs on an Intel Mac**: on a MacBook Pro
-   with UHD 630 and Radeon Pro 5300M (macOS 15.8.2, Homebrew's FFmpeg
-   8.1; 2026-10-27), FFmpeg's hwaccel opens a VP9 session for
-   `vp9_opus.webm` and the state goes to ready, but no frame ever comes
-   out: the decode thread waits in
-   `VTDecompressionSessionWaitForAsynchronousFrames` for good, so the
-   fallback to software never runs and `lychee_player_destroy` blocks in
-   `VideoRenderer::Stop`. Apple Silicon decodes the same file. Not known
-   yet: whether `VTIsHardwareDecodeSupported(kCMVideoCodecType_VP9)` says
-   yes there, and whether FFmpeg 9 behaves the same. Done when VP9 on
-   that machine plays in hardware or falls back to software at open, and
-   `tool/regression.sh` without `NO_HW` passes there.
-   Linux has the same kind of hang: with `nvidia-vaapi-driver` 0.0.8 (EGL
-   backend; RTX 4070 Ti, Ubuntu 24.04, 2026-10-27) VAAPI opens, and the
-   first frame's `av_hwframe_map` in `WrapDmabuf` waits in
-   `vaSyncSurface` for good, with the same result. The general fix is
-   the same for both: a decoder that returns no frame within a bound is
-   given up as a failed hardware decoder (the renderer replacement a GPU
-   reset takes), and `Stop` does not wait on it forever.
-
-2. **Realtime timing on CI**: the
+1. **Realtime timing on CI**: the
    `realtime=1` cases play on the real clock and audio device, so a
    hosted VM's load shows up as drift. CI's macOS jobs failed on them
    three times on 2026-10-26: `realtime-loop` at `max_drift=20.0ms`
@@ -90,7 +70,7 @@ on top of them.
    can come before a slow open has finished; it failed the same way in
    CI's plain `apple` job next, so the server now sends that case at
    2 MB/s and drops 1.5 s in.
-3. **A video stream switched on over input that cannot seek starts at
+2. **A video stream switched on over input that cannot seek starts at
    the read position**: on input that cannot seek
    (`lychee_player_is_seekable()` 0, e.g. an http server without range
    requests through FFmpeg), a resync replays each stream's packets
@@ -103,7 +83,7 @@ on top of them.
    first frame comes up to the read-ahead (~4 s) late. Done when that
    case resumes at the position too (reading every video stream costs
    memory per stream), or is judged not worth it.
-4. **Styled ASS is slow in the iOS 18.1 simulator**: `sub_ass_styled.mkv`
+3. **Styled ASS is slow in the iOS 18.1 simulator**: `sub_ass_styled.mkv`
    in the Flutter example on an iPhone 16 simulator with iOS 18.1 shows
    ~2.6 fps (6 rendered, 4 dropped after 5 s; software decoding, as
    always in the simulator), where `h264_aac.mp4` shows 24 to 30 fps
@@ -113,7 +93,7 @@ on top of them.
    fallback that iOS lacks, Features 3), or the software decoder. Done
    when the cause is known and the file plays at its rate in the
    simulator, or the cause is the simulator's alone.
-5. **An audio device that does not start stalls playback for good**: on
+4. **An audio device that does not start stalls playback for good**: on
    a MacBook Pro with its lid closed and only its speakers (2026-10-27),
    `AudioOutputUnitStart` failed (`afplay` too: "AudioQueueStart failed
    (35)"); the clock follows the device, so the position stayed put with
@@ -127,7 +107,7 @@ rather than reopening; callers reopen from their own thread. Unit tests
 are off in a shared-library build (`LYCHEE_BUILD_TESTS` needs the static
 core's internals).
 
-6. **BtbN's FFmpeg aborts at the first VAAPI frame on older libva**: the
+5. **BtbN's FFmpeg aborts at the first VAAPI frame on older libva**: the
    Linux plugin takes BtbN's FFmpeg until a release pins ours (both
    architectures from the next release on, 2026-10-27). It loads libva through implib-gen stubs built
    against a newer libva, and mapping the first hardware frame calls
@@ -246,7 +226,11 @@ FFmpeg's software frames (45, 46, 31 and 75 dB) and seek and pause
 through `--key`; the Flutter example under Impeller (profile,
 `--seconds 6`) h264 172 rendered and 0 dropped, hevc10 139 and 0 three
 times in a row, rotated 172 and 1 (at the start), controls drawn. With
-BtbN's FFmpeg it aborts instead (known defect 6). Not seen: AMD, and
+BtbN's FFmpeg it aborts instead (known defect 5). NVIDIA's
+`nvidia-vaapi-driver` 0.0.8 (EGL backend, `renderD129` through
+`lychee_cli --dmabuf`) never returns h264 or vp9 frames; the player gives
+up on it after 4 s and plays on in software, as it does with VideoToolbox's
+VP9 on the Intel Mac. Not seen: AMD, and
 Wayland. What is left per platform is a renderer in
 `examples/glfw` (Metal on macOS; Direct3D 11 on Windows since 2026-10-26,
 shared textures and CPU frames, checked with h264, hevc10, rotated and vp9

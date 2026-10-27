@@ -87,8 +87,8 @@ jobs:
     # timing (REALTIME_ADVISORY=0); under a sanitizer it stays a warning.
     # Pull requests run on hosted VMs only: the repository is public, and a
     # fork's pull request would run its code on that machine. Software
-    # decoding: VideoToolbox may be missing on a VM, and hangs on VP9 on
-    # that Mac (roadmap, Known defects 1).
+    # decoding: VideoToolbox may be missing on a VM, and VP9 on that Mac
+    # hangs in it for 4 s before the player falls back to software.
     needs: changes
     if: needs.changes.outputs.core == 'true'
     runs-on: ${{ github.event_name == 'push' && matrix.self-hosted && fromJSON('["self-hosted", "macOS", "X64", "quiet"]') || 'macos-15' }}
