@@ -58,10 +58,11 @@ jobs:
       # on hosted runners needs its log read before dispatching again.
       - name: Regression with the shipped FFmpeg
         # Homebrew's ffmpeg only generates the media; installed after the
-        # shipped FFmpeg is built, so that build cannot find it.
+        # shipped FFmpeg is built, so that build cannot find it. A hosted VM
+        # is loaded: the realtime cases' timing only warns, as in ci.yml.
         run: |
           brew install ffmpeg pkg-config
-          NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 LIBASS_ROOT=third_party/libass/macos-arm64 tool/regression.sh
+          REALTIME_ADVISORY=1 NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 LIBASS_ROOT=third_party/libass/macos-arm64 tool/regression.sh
       - run: tool/release.sh pack apple dist
       - uses: actions/upload-artifact@v4
         with:
