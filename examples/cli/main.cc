@@ -13,6 +13,7 @@
 #include <atomic>
 #include <chrono>
 #include <cinttypes>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -84,6 +85,7 @@ struct Options {
   struct DecoderLoss {
     double after;
     bool hang;
+    bool rebuild = false;
   };
   std::vector<DecoderLoss> lose_decoder_after;
   // Seconds after playback starts to stop the audio device pulling audio
@@ -249,11 +251,18 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       const char* v = value();
       if (!v) return false;
       options->select_after = atof(v);
-    } else if (arg == "--lose-decoder-after" || arg == "--hang-decoder-after") {
+    } else if (arg == "--lose-decoder-after" || arg == "--hang-decoder-after" ||
+               arg == "--rebuild-decoder-after") {
       const char* v = value();
       if (!v) return false;
-      options->lose_decoder_after.push_back(
-          {atof(v), arg == "--hang-decoder-after"});
+      char* end = nullptr;
+      const double after = std::strtod(v, &end);
+      if (end == v || *end != '\0' || !std::isfinite(after) || after < 0) {
+        return false;
+      }
+      options->lose_decoder_after.push_back({after,
+                                             arg == "--hang-decoder-after",
+                                             arg == "--rebuild-decoder-after"});
     } else if (arg == "--stall-audio-after") {
       const char* v = value();
       if (!v) return false;
@@ -936,7 +945,8 @@ int main(int argc, char** argv) {
             "SEC]] [--loop [--loop-off-after SEC]] "
             "[--open-after SEC URL] [--select TYPE:INDEX[@SEC]]... "
             "[--select-after SEC] [--lose-decoder-after SEC]... "
-            "[--hang-decoder-after SEC]... [--stall-audio-after SEC "
+            "[--hang-decoder-after SEC]... [--rebuild-decoder-after SEC]... "
+            "[--stall-audio-after SEC "
             "[--stall-audio-for SEC]] "
             "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
             "[--live [--latency MS] [--live-jitter MS] "
@@ -1345,12 +1355,18 @@ int main(int argc, char** argv) {
             static_cast<int64_t>(options.lose_decoder_after[next_loss].after *
                                  1e6)) {
       const bool hang = options.lose_decoder_after[next_loss].hang;
+      const bool rebuild = options.lose_decoder_after[next_loss].rebuild;
       next_loss++;
       loss_position = position;
       g_buffering = false;
-      printf("%s video decoder at %.3fs\n", hang ? "hang" : "lose",
+      printf("%s video decoder at %.3fs\n",
+             hang      ? "hang"
+             : rebuild ? "rebuild"
+                       : "lose",
              position / 1e6);
-      if (hang) {
+      if (rebuild) {
+        lychee_player_rebuild_video_decoder(player);
+      } else if (hang) {
         lychee_testing_hang_video_decoder(player);
       } else {
         lychee_testing_lose_video_decoder(player);

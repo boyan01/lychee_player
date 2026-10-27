@@ -142,10 +142,11 @@ static int64_t HostTimeToMicros(uint64_t host_time) {
 #if TARGET_OS_OSX
   CVDisplayLinkRef _displayLink;
   CGDirectDisplayID _display;
-  NSArray<id<NSObject>>* _observers;
 #else
   CADisplayLink* _displayLink;
+  BOOL _wasBackgrounded;
 #endif
+  NSArray<id<NSObject>>* _observers;
   _Atomic int64_t _nextDisplayTime;
   _Atomic bool _framePending;
 }
@@ -292,9 +293,49 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
                                   selector:@selector(onDisplayLink:)];
   [_displayLink addToRunLoop:NSRunLoop.mainRunLoop
                      forMode:NSRunLoopCommonModes];
+  _wasBackgrounded = UIApplication.sharedApplication.applicationState ==
+                     UIApplicationStateBackground;
+  __weak LycheeTexture* weakSelf = self;
+  NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+  _observers = @[
+    [center addObserverForName:UIApplicationDidEnterBackgroundNotification
+                        object:nil
+                         queue:NSOperationQueue.mainQueue
+                    usingBlock:^(NSNotification* notification) {
+                      LycheeTexture* texture = weakSelf;
+                      if (texture) texture->_wasBackgrounded = YES;
+                    }],
+    [center addObserverForName:UIApplicationDidBecomeActiveNotification
+                        object:nil
+                         queue:NSOperationQueue.mainQueue
+                    usingBlock:^(NSNotification* notification) {
+                      [weakSelf restoreVideoDecoder];
+                    }],
+  ];
+}
+
+- (void)restoreVideoDecoder {
+  if (!_wasBackgrounded) return;
+  _wasBackgrounded = NO;
+  os_unfair_lock_lock(&_lock);
+  if (_player) {
+    lychee_stats stats = {.struct_size = sizeof(stats)};
+    lychee_player_get_stats(_player, &stats);
+#if LYCHEE_API_VERSION >= 12
+    // A checkout may still use the older release pinned by prebuilt.json.
+    if (stats.hardware_decoding) {
+      lychee_player_rebuild_video_decoder(_player);
+    }
+#endif
+  }
+  os_unfair_lock_unlock(&_lock);
 }
 
 - (void)dispose {
+  for (id<NSObject> observer in _observers) {
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+  }
+  _observers = nil;
   // On the main thread, like the display link callback, so no callback runs
   // after this.
   [_displayLink invalidate];

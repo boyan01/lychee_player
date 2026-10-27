@@ -32,12 +32,13 @@ public final class LycheeFrameDriver: NSObject {
   private var nextDisplayTime: Int64 = 0  // Guarded by lock.
   private var framePending = false  // Guarded by lock.
   private let onNewFrame: () -> Void
+  private var observers: [NSObjectProtocol] = []
   #if os(macOS)
   private var displayLink: CVDisplayLink?
   private weak var view: NSView?
-  private var observers: [NSObjectProtocol] = []
   #else
   private var displayLink: CADisplayLink?
+  private var wasBackgrounded = false
   #endif
 
   public init(player: LycheePlayer, onNewFrame: @escaping () -> Void) {
@@ -90,6 +91,18 @@ public final class LycheeFrameDriver: NSObject {
     let link = CADisplayLink(target: WeakTarget(self), selector: #selector(WeakTarget.onDisplayLink))
     link.add(to: .main, forMode: .common)
     displayLink = link
+    wasBackgrounded = UIApplication.shared.applicationState == .background
+    let center = NotificationCenter.default
+    observers = [
+      center.addObserver(forName: UIApplication.didEnterBackgroundNotification,
+                         object: nil, queue: .main) { [weak self] _ in
+        self?.wasBackgrounded = true
+      },
+      center.addObserver(forName: UIApplication.didBecomeActiveNotification,
+                         object: nil, queue: .main) { [weak self] _ in
+        self?.restoreVideoDecoder()
+      },
+    ]
     #endif
   }
 
@@ -97,9 +110,9 @@ public final class LycheeFrameDriver: NSObject {
   /// nothing runs on the display link and the player is not touched again.
   /// Main thread only.
   @objc public func stop() {
-    #if os(macOS)
     observers.forEach(NotificationCenter.default.removeObserver)
     observers = []
+    #if os(macOS)
     if let displayLink {
       // Waits for a running callback to return (measured on macOS 27, see
       // the Flutter plugin's LycheePlayerPlugin.m), so the callback never
@@ -169,6 +182,23 @@ public final class LycheeFrameDriver: NSObject {
     if running { CVDisplayLinkStart(displayLink) }
   }
   #else
+  // VideoToolbox may reject valid packets after background suspension. A
+  // foreground transition gets a new session without lowering the decoder's
+  // tolerance of corrupt input. The core preserves paused/live playback.
+  private func restoreVideoDecoder() {
+    guard wasBackgrounded else { return }
+    wasBackgrounded = false
+    lock.lock()
+    defer { lock.unlock() }
+    guard let handle else { return }
+    var stats = lychee_stats()
+    stats.struct_size = UInt32(MemoryLayout<lychee_stats>.size)
+    lychee_player_get_stats(handle, &stats)
+    if stats.hardware_decoding != 0 {
+      lychee_player_rebuild_video_decoder(handle)
+    }
+  }
+
   // CADisplayLink retains its target; this breaks the cycle.
   private final class WeakTarget: NSObject {
     weak var driver: LycheeFrameDriver?

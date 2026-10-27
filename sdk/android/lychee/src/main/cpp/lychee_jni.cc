@@ -275,6 +275,13 @@ JNIEXPORT void JNICALL Java_tech_soit_lychee_LycheePlayer_nativePause(JNIEnv*,
   lychee_player_pause(Player(handle));
 }
 
+JNIEXPORT void JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeRebuildVideoDecoder(JNIEnv*,
+                                                             jclass,
+                                                             jlong handle) {
+  lychee_player_rebuild_video_decoder(Player(handle));
+}
+
 JNIEXPORT void JNICALL Java_tech_soit_lychee_LycheePlayer_nativeSeek(JNIEnv*,
                                                                      jclass,
                                                                      jlong handle,

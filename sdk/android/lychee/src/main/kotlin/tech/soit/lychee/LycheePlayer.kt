@@ -117,6 +117,9 @@ class LycheePlayer @JvmOverloads constructor(
     fun pause() = nativePause(handle())
 
     /** Ignored where [isSeekable] is false. */
+    /** Recreates video decoding after platform invalidation, keeping playback state. */
+    fun rebuildVideoDecoder() = nativeRebuildVideoDecoder(handle())
+
     fun seekTo(positionMs: Long) = nativeSeek(handle(), positionMs * 1000)
 
     /** 0 - 1. */
@@ -326,6 +329,7 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeOpen(handle: Long, url: ByteArray): Int
         @JvmStatic private external fun nativePlay(handle: Long)
         @JvmStatic private external fun nativePause(handle: Long)
+        @JvmStatic private external fun nativeRebuildVideoDecoder(handle: Long)
         @JvmStatic private external fun nativeSeek(handle: Long, positionUs: Long)
         @JvmStatic private external fun nativeSetVolume(handle: Long, volume: Float)
         @JvmStatic private external fun nativeSetRate(handle: Long, rate: Double)

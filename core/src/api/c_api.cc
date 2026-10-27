@@ -221,6 +221,10 @@ int32_t lychee_player_set_video_device(lychee_player* player,
   return 0;
 }
 
+void lychee_player_rebuild_video_decoder(lychee_player* player) {
+  player->player->RebuildVideoDecoder();
+}
+
 void lychee_player_set_video_surface(lychee_player* player, void* surface) {
   player->player->SetVideoSurface(surface);
 }

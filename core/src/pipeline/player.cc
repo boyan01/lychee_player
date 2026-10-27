@@ -328,6 +328,22 @@ void Player::SetVideoDevice(VideoDevice device) {
   condition_.notify_all();
 }
 
+void Player::RebuildVideoDecoder() {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!video_renderer_ || state_ == PlayerState::kError ||
+        track_request_.rebuild_video) {
+      return;
+    }
+    // An explicit platform recovery gets another hardware attempt, like a
+    // device change. It must not accumulate losses on every foreground.
+    video_decoder_losses_ = 0;
+    track_request_.rebuild_video = true;
+    demuxer_->Interrupt();
+  }
+  condition_.notify_all();
+}
+
 void Player::SetVideoSurface(void* surface) {
   std::shared_ptr<void> retained = RetainVideoSurface(surface);
   std::lock_guard<std::mutex> lock(mutex_);

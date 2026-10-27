@@ -53,6 +53,26 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(player.stats.framesDropped, 0)
   }
 
+  func testRebuildKeepsPausedPlayerPaused() {
+    let player = LycheePlayer()
+    let ready = expectation(description: "ready")
+    player.onEvent = { event in
+      if case .stateChanged(.ready) = event { ready.fulfill() }
+    }
+    player.open(url)
+    wait(for: [ready], timeout: 10)
+    let position = player.position
+    let rebuilt = expectation(description: "rebuilt")
+    player.onEvent = { event in
+      if case .stateChanged(.ready) = event { rebuilt.fulfill() }
+    }
+    player.rebuildVideoDecoder()
+    wait(for: [rebuilt], timeout: 10)
+    XCTAssertFalse(player.isPlaying)
+    XCTAssertEqual(player.position, position, accuracy: 0.001)
+    XCTAssertEqual(player.state, .ready)
+  }
+
   func testReleasedWhileDriverRunning() {
     weak var weakPlayer: LycheePlayer?
     var driver: LycheeFrameDriver?

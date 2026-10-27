@@ -125,6 +125,11 @@ public final class LycheePlayer {
     lychee_player_pause(handle)
   }
 
+  /// Recreates video decoding after a platform invalidates it, keeping playback state.
+  public func rebuildVideoDecoder() {
+    lychee_player_rebuild_video_decoder(handle)
+  }
+
   /// Ignored where ``isSeekable`` is false.
   public func seek(to position: TimeInterval) {
     lychee_player_seek(handle, micros(position))

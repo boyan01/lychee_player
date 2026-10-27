@@ -759,6 +759,11 @@ par expect decoder-lost "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" "<=0 even
 par expect decoder-lost-twice "<=0 event: state error" \
   "summary: state=ended .*decoder=(ffmpeg|videotoolbox-sw) hw=0 .*backward_jumps=0 " -- \
   --lose-decoder-after 2 --lose-decoder-after 5 "$media/h264_aac.mp4"
+# Foreground recovery uses the public API, before any packet fails. Each
+# transition gets a fresh hardware attempt rather than forcing software.
+par expect decoder-rebuild "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" "<=0 event: state error" \
+  "summary: state=ended .* hw=$hw_first .*backward_jumps=0 " -- \
+  --rebuild-decoder-after 2 --rebuild-decoder-after 5 "$media/h264_aac.mp4"
 # A hardware decoder that never returns (a driver hang) is given up after
 # 4 s without frames and rebuilt in software at the position. Destroying
 # the player meanwhile waits for it no longer than that.
@@ -840,6 +845,9 @@ par expect live-hevc "$live_ok" "summary: state=ready .*rendered=300 dropped=0 $
   --live "$media/live_hevc.mp4"
 par expect live-latency "$live_ok" "summary: .*dropped=0 .*live_vbuf=0\.(2[5-9]|30)[0-9]s" -- \
   --live --latency 300 "$media/live_h264.mp4"
+par expect live-decoder-rebuild "rebuild video decoder at" "<=0 event: state error" \
+  "summary: state=ready .*rendered=[23][0-9]{2} .*backward_jumps=0 " -- \
+  --live --rebuild-decoder-after 2 "$media/live_h264.mp4"
 par expect live-audio-only "$live_ok" "summary: state=ready position=1[23]\.[0-9]{3}s decoder=none .*live_abuf=0\.0[4-9][0-9]s" -- \
   --live --audio-only "$media/live_h264.mp4"
 # ALAC, as AirPlay sends: the track's config is its magic cookie.
@@ -990,6 +998,9 @@ if [ "${NO_FFMPEG:-0}" != 1 ]; then
   seq_ expect http-no-ranges-decoder-lost "video rebuilt" "<=0 event: state error" \
     "summary: state=ended position=12\.000s .*pulled=3(5[5-9]|6[0-9]) .*backward_jumps=0 " -- \
     --lose-decoder-after 2 "$url"
+  seq_ expect http-no-ranges-decoder-rebuild "video rebuilt" "<=0 event: state error" \
+    "summary: state=ended position=12\.000s .*pulled=3(5[5-9]|6[0-9]) .*backward_jumps=0 " -- \
+    --rebuild-decoder-after 2 "$url"
 fi
 serve --drop-at 3000000
 seq_ check http-mkv-reconnect 1 - -- "http://127.0.0.1:$port/h264_aac.mkv"

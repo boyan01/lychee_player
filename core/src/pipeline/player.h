@@ -126,6 +126,7 @@ class Player {
   void SetVolume(float volume);
   // Rebuilds the video renderer on |device| during playback.
   void SetVideoDevice(VideoDevice device);
+  void RebuildVideoDecoder();
   // lychee_player_set_video_surface().
   void SetVideoSurface(void* surface);
   // Clamped to [kMinRate, kMaxRate]. Pitch is preserved.

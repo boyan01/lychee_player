@@ -201,6 +201,10 @@ final playerGetStats = _library.lookupFunction<
     void Function(
         Pointer<Void>, Pointer<LycheeStats>)>('lychee_player_get_stats');
 
+final playerRebuildVideoDecoder = _library.lookupFunction<
+    Void Function(Pointer<Void>),
+    void Function(Pointer<Void>)>('lychee_player_rebuild_video_decoder');
+
 final playerSetRate = _library.lookupFunction<
     Void Function(Pointer<Void>, Double),
     void Function(Pointer<Void>, double)>('lychee_player_set_rate');

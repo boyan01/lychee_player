@@ -42,6 +42,14 @@ building on top of them.
 
 ## Known defects
 
+- **Apple framework deployment warning**: `pixel_buffer.cc` calls
+  `CVBufferCopyAttachment`, available on macOS 12+, while the framework
+  targets macOS 11. Both macOS slices warn during `tool/build_apple.sh`.
+  `NO_FFMPEG=1` also warns that `allow_hardware` in `factory.cc` is
+  unused on iOS. Add an availability-safe attachment read while retaining
+  the supported minimum, and account for the iOS argument; done when all
+  Apple slices build without these warnings.
+
 - **Timestamps restarting inside a single TS file without FFmpeg**:
   `tool/regression.sh` generates `ts_timestamp_reset.ts` by joining two
   three-second TS files without remuxing. Reproduce with
@@ -65,12 +73,17 @@ building on top of them.
    start if none has been read yet). Long streams make that slow; only an
    HLS demuxer that knows the segments, as the FFmpeg-free one does,
    would do better.
-3. **iOS VideoToolbox fails for seconds after the app was backgrounded**:
-   on an iPhone 17 (2026-10-27), probably after a timer alarm took the
-   app to the background, 32 packets failed with `-12909` before
-   `video decoder lost` rebuilt the decoder at the position. Playback
-   resumed, but the picture was stuck meanwhile; rebuild after the first
-   few consecutive errors, or on returning to the foreground.
+3. **iOS foreground recovery needs device verification** (waiting on the
+   user): an iPhone 17 (2026-10-27) returned from the background with
+   VideoToolbox rejecting 32 packets (`-12909`) before recovery. The
+   native and Flutter frame drivers now request a fresh hardware decoder
+   on foreground entry. Verify that device scenario resumes promptly,
+   including a paused player. Also distinguish an audio interruption from
+   an actual background transition: an alarm alone may not enter this hook.
+   The simulator cannot reproduce this hardware
+   failure; direct C ABI consumers must call
+   `lychee_player_rebuild_video_decoder()` on their platform's recovery
+   event. Released plugin binaries pinned to API 11 do not have this hook.
 4. **A route change drops frames on Android**: switching from AirPods back
    to the speaker (Xiaomi 14, 2026-10-27) dropped 8 frames and moved the
    position ~0.2 s ahead; the Bluetooth switch before it only moved it

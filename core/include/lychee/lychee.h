@@ -59,7 +59,9 @@ extern "C" {
 //    no longer running; lychee_player_clear_event_callback(), shaped as a
 //    finalizer, for bindings whose callback dies with a garbage-collected
 //    runtime (a Dart isolate a hot restart ends).
-#define LYCHEE_API_VERSION 11
+// 12: lychee_player_rebuild_video_decoder(), for explicit recovery after
+//    a platform invalidates its decoder (e.g. iOS background suspension).
+#define LYCHEE_API_VERSION 12
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -372,6 +374,14 @@ LYCHEE_EXPORT void lychee_player_destroy(lychee_player* player);
 LYCHEE_EXPORT int32_t lychee_player_set_video_device(
     lychee_player* player,
     const lychee_video_device* device);
+
+// Requests a fresh video decoder on the current device, at the current
+// position. Asynchronous; repeated requests pending together are coalesced.
+// Keeps the playback/pause state. Also works with unseekable and live input;
+// live video waits for a fresh keyframe. Does nothing without a video decoder
+// or after an error. Explicit recovery retries hardware if configured, as a
+// device change does, rather than counting as another decoder failure.
+LYCHEE_EXPORT void lychee_player_rebuild_video_decoder(lychee_player* player);
 
 // Android: the ANativeWindow* LYCHEE_FRAME_ANDROID_SURFACE frames are
 // rendered into, or NULL to detach it. The library takes its own

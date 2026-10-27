@@ -710,6 +710,11 @@ impl Player {
         )
     }
 
+    /// Recreates video decoding after platform invalidation, keeping playback state.
+    pub fn rebuild_video_decoder(&self) {
+        unsafe { sys::lychee_player_rebuild_video_decoder(self.raw()) }
+    }
+
     /// Changes the video device frames are decoded on, or none.
     ///
     /// # Safety

@@ -254,6 +254,11 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     if (!_disposed) native.playerPause(_player);
   }
 
+  /// Recreates video decoding after platform invalidation, keeping playback state.
+  void rebuildVideoDecoder() {
+    if (!_disposed) native.playerRebuildVideoDecoder(_player);
+  }
+
   /// Ignored where [LycheePlayerValue.seekable] is false.
   void seek(Duration position) {
     if (!_disposed) native.playerSeek(_player, position.inMicroseconds);
