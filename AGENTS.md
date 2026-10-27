@@ -142,11 +142,10 @@ The layers, lowest first:
    `--snapshot SEC:FILE` (twice, so the pts advance) piped into
    `python3 -I tool/frame_check.py MEDIA --log -`, which compares each
    with FFmpeg's frame at its pts, scaled into the video rectangle
-   (README, "Checking frames by pixels"). Use the BT.709-tagged media
-   `tool/regression.sh` generates (`h264_bt709.mp4`, `hevc10_bt709.mp4`,
-   `rotated_bt709.mp4`): untagged
-   HD fails on the paths that read it as BT.601 (roadmap, Known defects).
-   Where a platform has no `--snapshot` yet, look at a window screenshot:
+   (README, "Checking frames by pixels"). The media `tool/regression.sh`
+   generates has no color tags, so it also checks the library's
+   convention for untagged video (BT.709 above 576 lines, BT.601 at or
+   below), which every frame path has to follow. Where a platform has no `--snapshot` yet, look at a window screenshot:
    upright, sized right, frames advancing at the video's rate.
    - macOS: `build/examples/glfw/lychee_glfw FILE` (Metal,
      `CVPixelBuffer`), and the Swift package's example.

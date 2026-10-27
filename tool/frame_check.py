@@ -295,7 +295,8 @@ def self_test(media, path, pts, video):
         return (f"split[a][b];[b]crop={w}:{h}:{x}:{y},{graph}[v];"
                 f"[a][v]overlay={x}:{y}")
 
-    other = "bt601" if library_matrix(info) != "bt601" else "bt709"
+    bt601 = library_matrix(info) in ("bt601", "smpte170m", "bt470bg")
+    other = "bt709" if bt601 else "bt601"
     cases = [
         ("frame before", path, pts - info["frame_us"], video, None),
         ("frame after", path, pts + info["frame_us"], video, None),

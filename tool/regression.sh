@@ -104,14 +104,10 @@ gen vp9_opus.webm -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=fr
 gen av1.mkv -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=330:sample_rate=48000 -t 10 \
   -c:v libsvtav1 -preset 12 -svtav1-params log-level=0 -c:a aac
 gen rotated.mp4 -display_rotation 90 -i "$media/h264_aac.mp4" -c copy
-# The same pictures tagged BT.709 (in the stream and the container), for
-# the frames checked by pixels: untagged HD is BT.709 by the library's
-# convention, which not every frame path follows yet (roadmap).
-gen h264_bt709.mp4 -i "$media/h264_aac.mp4" -t 3 -c copy -color_primaries bt709 -color_trc bt709 -colorspace bt709 \
-  -bsf:v h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1
-gen hevc10_bt709.mp4 -i "$media/hevc10.mp4" -t 3 -c copy -tag:v hvc1 -color_primaries bt709 -color_trc bt709 \
-  -colorspace bt709 -bsf:v hevc_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1
-gen rotated_bt709.mp4 -display_rotation 90 -i "$media/h264_bt709.mp4" -c copy
+# HD with a BT.601 matrix (in the stream and the container): the tag wins
+# over the convention for untagged HD (BT.709).
+gen h264_bt601.mp4 -i "$media/h264_aac.mp4" -t 3 -c copy -colorspace smpte170m \
+  -bsf:v h264_metadata=matrix_coefficients=6
 gen audio_only.mp3 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a libmp3lame
 gen video_only.mp4 -f lavfi -i testsrc2=size=1280x720:rate=60 -t 8 -c:v libx264 -preset veryfast -pix_fmt yuv420p
 gen offset.ts -i "$media/h264_aac.mp4" -c copy -output_ts_offset 10 -f mpegts
@@ -609,21 +605,27 @@ fi
 # path (CVPixelBuffer BGRA on Apple, RGBA elsewhere; --cpu; software
 # decoding; Apple's --native buffers converted by VideoToolbox), 10-bit,
 # rotation and HDR tone mapping (a flat PQ gray: VideoToolbox maps bright
-# colors differently from swscale, which the reference uses).
-par frames frame-h264 "$media/h264_bt709.mp4" 0.5 1.5 -- --seconds 1.6
-par frames frame-h264-cpu "$media/h264_bt709.mp4" 1 -- --cpu --seconds 1.1
-par frames frame-h264-sw "$media/h264_bt709.mp4" 1 -- --no-hw --cpu --seconds 1.1
-par frames frame-hevc10 "$media/hevc10_bt709.mp4" 1 -- --seconds 1.1
-par frames frame-rotated "$media/rotated_bt709.mp4" 1 -- --seconds 1.1
+# colors differently from swscale, which the reference uses). The test
+# media has no color tags, so these also check the library's convention:
+# BT.709 above 576 lines, BT.601 at or below.
+par frames frame-h264 "$media/h264_aac.mp4" 0.5 1.5 -- --seconds 1.6
+par frames frame-h264-cpu "$media/h264_aac.mp4" 1 -- --cpu --seconds 1.1
+par frames frame-h264-sw "$media/h264_aac.mp4" 1 -- --no-hw --cpu --seconds 1.1
+par frames frame-hevc10 "$media/hevc10.mp4" 1 -- --seconds 1.1
+par frames frame-rotated "$media/rotated.mp4" 1 -- --seconds 1.1
 par frames frame-hdr "$media/hdr_pq.mp4" 1 -- --seconds 1.1
+par frames frame-sd "$media/rendition_640x360.ts" 1 -- --seconds 1.1
+par frames frame-sd-sw "$media/rendition_640x360.ts" 1 -- --no-hw --cpu --seconds 1.1
+par frames frame-bt601 "$media/h264_bt601.mp4" 1 -- --seconds 1.1
+par frames frame-bt601-sw "$media/h264_bt601.mp4" 1 -- --no-hw --cpu --seconds 1.1
 if [ "$(uname)" = Darwin ]; then
-  par frames frame-h264-native "$media/h264_bt709.mp4" 1 -- --native --seconds 1.1
-  par frames frame-hevc10-native "$media/hevc10_bt709.mp4" 1 -- --native --seconds 1.1
+  par frames frame-h264-native "$media/h264_aac.mp4" 1 -- --native --seconds 1.1
+  par frames frame-hevc10-native "$media/hevc10.mp4" 1 -- --native --seconds 1.1
   par frames frame-hdr-native "$media/hdr_pq.mp4" 1 -- --native --seconds 1.1
 fi
 # The thresholds still tell the frame from the one before and after, a
 # wrong turn or size, black, and BT.601 read as BT.709.
-self_test=1 par frames frame-check-self-test "$media/rotated_bt709.mp4" 1 -- --seconds 1.1
+self_test=1 par frames frame-check-self-test "$media/rotated.mp4" 1 -- --seconds 1.1
 # Reading hardware frames back into CPU memory costs ~50 ms a frame on macOS
 # (far more under TSan); a second of video covers the conversion.
 par expect rgba "frame_type=4 " "rendered=2[0-9] dropped=0 " -- --rgba --seconds 1 "$media/hevc10.mp4"

@@ -88,26 +88,6 @@ on top of them.
    fallback that iOS lacks, Features 3), or the software decoder. Done
    when the cause is known and the file plays at its rate in the
    simulator, or the cause is the simulator's alone.
-5. **Untagged HD is read as BT.601 on the CPU and BGRA paths**: the
-   library's convention for video without a matrix is BT.709 above 576
-   lines and BT.601 below (`d3d11_video_processor.h`, the dmabuf
-   export), and Windows' Media Foundation and D3D11 path follows it, but
-   swscale (software decoding on every platform) and the default Apple
-   path (`AppleFrameConverter`'s pixel transfer: `CVPixelBuffer` and
-   `--cpu` frames, so also the Flutter plugin on macOS and iOS) read
-   untagged 1080p as BT.601. `tool/frame_check.py` on `h264_aac.mp4` at
-   1.033 s (2026-10-26): those paths give PSNR 23.8 dB and MAE 9.5
-   against the BT.709 reading (33.9 dB against BT.601), while `--native`
-   frames through the CLI's own pixel transfer give 34.1 dB, Windows'
-   `--d3d11` 34.4 dB; VP9 (VideoToolbox) and AV1 (software) the same.
-   This is the Windows harness's "more saturated" software decoding
-   (Platforms 1). Likely fix: tell swscale the convention's matrix when
-   the frame has none (`ConvertToCpu`), and attach
-   `kCVImageBufferYCbCrMatrixKey` to untagged buffers before the
-   transfer; why the CLI's transfer, with the same session properties,
-   picks BT.709 and the converter's BT.601 is not known. Done when the
-   `frame-*` regression cases pass on the untagged media (`h264_aac.mp4`,
-   `hevc10.mp4`, `rotated.mp4`), so their BT.709-tagged copies can go.
 
 Calling `lychee_player_open()` from an event callback returns -1 (API 9)
 rather than reopening; callers reopen from their own thread. Unit tests
@@ -259,14 +239,12 @@ in a window; OpenGL ES on Linux since 2026-10-26, Platforms 2) and its own
    HEVC Video Extensions, installed on the test machine; one without them
    should fall back to D3D11VA at open, which has not been seen.
    In `examples/glfw` (2026-10-26) software-decoded frames of the untagged
-   test bars look more saturated than Media Foundation's and D3D11VA's
-   (pure red and green against slightly shifted ones). Checked by pixels
-   with `--snapshot` and `tool/frame_check.py`: BT.601 against BT.709
-   for untagged HD, as on macOS (Known defects 5). Untagged
-   `h264_aac.mp4` in a 960x540 window gives 31.4 dB through D3D11 and
-   24.2 dB (MAE 8.9) through software decoding; its BT.709-tagged copy
-   42.6 dB through software decoding and 31.4 dB through D3D11 and
-   `--cpu`, and `lychee_cli --d3d11 --frame-ppm` 34.4 dB.
+   test bars looked more saturated than Media Foundation's and D3D11VA's:
+   swscale read untagged HD as BT.601. Untagged `h264_aac.mp4` in a
+   960x540 window gave 31.4 dB through D3D11 and 24.2 dB (MAE 8.9)
+   through software decoding, and `lychee_cli --d3d11 --frame-ppm`
+   34.4 dB. swscale now gets the convention's matrix (2026-10-27; 34.1 dB
+   on macOS), which has not yet been seen on Windows.
 2. **Linux leftovers**: `tool/build_ffmpeg.sh linux-x86_64` builds the
    decode-only FFmpeg on Ubuntu 22.04 (WSL: 38 s, 8.2 MB of libraries
    against BtbN's 161 MB). It links the system's libva, libva-drm, libdrm

@@ -156,7 +156,7 @@ and, in a window, black outside the video rectangle. On the regression
 media (2026-10-26) the right frame gives 30.4 dB or more, an error of 0.6
 to 1.8 and a worst tile of 5 to 15, through every frame path on macOS
 and Windows, at 1:1 and fitted into windows down to a quarter of its
-size.
+size; the 640x360 rendition through swscale gives 29.8 dB (2026-10-27).
 `--self-test` makes wrong frames from the snapshot and checks that each
 fails; there they gave:
 

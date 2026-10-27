@@ -472,6 +472,12 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
     output->color_primaries = frame->color_primaries;
     output->color_trc = frame->color_trc;
   }
+  if (frame->colorspace == AVCOL_SPC_UNSPECIFIED) {
+    // swscale reads an unspecified matrix as BT.601; untagged HD is BT.709
+    // by the library's convention, as on the D3D11 and dmabuf paths.
+    frame->colorspace =
+        frame->height > 576 ? AVCOL_SPC_BT709 : AVCOL_SPC_SMPTE170M;
+  }
   int ret = sws_scale_frame(sws_context_, output.get(), frame);
   if (ret < 0) {
     LOGE("sws_scale_frame: %s", AVErrorString(ret).c_str());

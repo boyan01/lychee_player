@@ -4,11 +4,37 @@
 
 namespace lychee {
 
+namespace {
+
+// VideoToolbox's decoder attaches no matrix to a stream that has none, and
+// its pixel transfer reads that as BT.601, also for HD. The library's
+// convention is BT.709 above 576 lines (D3D11VideoProcessor, the dmabuf
+// export, swscale in FFmpegVideoDecoder).
+void AttachDefaultMatrix(CVPixelBufferRef buffer) {
+  if (CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA) {
+    return;
+  }
+  CFTypeRef matrix =
+      CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nullptr);
+  if (matrix) {
+    CFRelease(matrix);
+    return;
+  }
+  CVBufferSetAttachment(buffer, kCVImageBufferYCbCrMatrixKey,
+                        CVPixelBufferGetHeight(buffer) > 576
+                            ? kCVImageBufferYCbCrMatrix_ITU_R_709_2
+                            : kCVImageBufferYCbCrMatrix_ITU_R_601_4,
+                        kCVAttachmentMode_ShouldPropagate);
+}
+
+}  // namespace
+
 std::shared_ptr<VideoFrame> WrapPixelBuffer(void* pixel_buffer) {
   if (!pixel_buffer) {
     return nullptr;
   }
   auto buffer = static_cast<CVPixelBufferRef>(pixel_buffer);
+  AttachDefaultMatrix(buffer);
   CVPixelBufferRetain(buffer);
   auto frame = std::make_shared<VideoFrame>();
   frame->storage = VideoFrameStorage::kCVPixelBuffer;
