@@ -235,7 +235,12 @@ int64_t CoreAudioSink::QueryOutputLatency() const {
 
 void CoreAudioSink::Start() {
   if (unit_ && !started_) {
-    started_ = AudioOutputUnitStart(unit_) == noErr;
+    OSStatus status = AudioOutputUnitStart(unit_);
+    started_ = status == noErr;
+    if (!started_) {
+      // The clock follows the device, so playback stays where it is.
+      LOGW("AudioOutputUnitStart failed: %d", static_cast<int>(status));
+    }
   }
 }
 
