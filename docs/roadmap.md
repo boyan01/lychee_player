@@ -13,7 +13,10 @@ Built, but never observed working. Cheap to close; do these before
 building on top of them.
 
 1. **Android hardware decoding beyond the happy path**: not yet seen are
-   AAudio route changes to a USB-C headset (Bluetooth works), a stream
+   AAudio route changes to a USB-C headset, and switching AirPods back to
+   the speaker after clock correction (waiting on the user and the Xiaomi
+   14: the prior run jumped ~0.2 s and dropped 8 frames; verify the step is
+   smaller than a frame). Also missing are a stream
    changing resolution midway, and a
    device with only one hardware decoder instance (the emulator's H.264
    decoder once failed to start right after a file switch, and FFmpeg
@@ -84,12 +87,6 @@ building on top of them.
    failure; direct C ABI consumers must call
    `lychee_player_rebuild_video_decoder()` on their platform's recovery
    event. Released plugin binaries pinned to API 11 do not have this hook.
-4. **A route change drops frames on Android**: switching from AirPods back
-   to the speaker (Xiaomi 14, 2026-10-27) dropped 8 frames and moved the
-   position ~0.2 s ahead; the Bluetooth switch before it only moved it
-   back 0.1 s. `AAudioSink::Reopen` restarts the stream, and the clock
-   follows the new one with a step. Done when the step is gone or
-   smaller than a frame.
 
 ## Features
 

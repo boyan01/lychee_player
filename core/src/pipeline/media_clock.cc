@@ -46,6 +46,7 @@ void MediaClock::Reset(int64_t media_time) {
   min_media_time_ = media_time;
   playing_ = false;
   waiting_for_audio_ = false;
+  has_audio_anchor_ = false;
 }
 
 void MediaClock::Play(bool wait_for_audio) {
@@ -67,6 +68,7 @@ void MediaClock::Pause() {
   anchor_media_time_ = MediaTimeAtLocked(NowMicros());
   playing_ = false;
   waiting_for_audio_ = false;
+  has_audio_anchor_ = false;
 }
 
 bool MediaClock::playing() const {
@@ -98,10 +100,35 @@ void MediaClock::UpdateFromAudio(int64_t media_time,
   if (!playing_) {
     return;
   }
+  // A discontinuity in the samples (for example at a loop boundary) is
+  // intentional. Only slew device timing changes for contiguous audio.
+  // Timestamp rounding at non-integer rates can differ by one microsecond.
+  if (has_audio_anchor_ && max_media_time_ != kInfiniteTime &&
+      std::llabs(media_time - max_media_time_) <= 1) {
+    const int64_t now = NowMicros();
+    const int64_t previous_now =
+        anchor_media_time_ + std::llround((now - anchor_system_time_) * rate_);
+    // After an underrun, the old device timeline has expired: the next
+    // buffer starts where it stopped. Do not smooth that fresh start.
+    if (previous_now < max_media_time_) {
+      const int64_t predicted =
+          anchor_media_time_ +
+          std::llround((system_time - anchor_system_time_) * rate_);
+      // Bound phase correction in media time (one millisecond at 1x).
+      // 200 ms of route latency converges in 200 callbacks; normal device
+      // drift is far smaller than this allowance. Compare unclamped times
+      // so buffers queued before the first audible sample keep its latency.
+      const int64_t limit =
+          std::max<int64_t>(1, std::llround(kMicrosPerMilli * rate_));
+      media_time =
+          predicted + std::clamp(media_time - predicted, -limit, limit);
+    }
+  }
   anchor_media_time_ = media_time;
   anchor_system_time_ = system_time;
   max_media_time_ = max_media_time;
   waiting_for_audio_ = false;
+  has_audio_anchor_ = true;
 }
 
 void MediaClock::ClearMaxTime() {
@@ -115,6 +142,7 @@ void MediaClock::ClearMaxTime() {
   anchor_system_time_ = now;
   max_media_time_ = kInfiniteTime;
   waiting_for_audio_ = false;
+  has_audio_anchor_ = false;
 }
 
 }  // namespace lychee

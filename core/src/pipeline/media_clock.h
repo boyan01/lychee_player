@@ -40,6 +40,8 @@ class MediaClock {
   // Called by the audio renderer for every rendered buffer: |media_time| is
   // heard at |system_time|. The clock does not run past |max_media_time|,
   // the end of the audio handed to the device, so it stalls on underruns.
+  // Once anchored, correct at most 1 ms per buffer: a device route or its
+  // initial latency estimate can change without making video skip a gap.
   void UpdateFromAudio(int64_t media_time,
                        int64_t system_time,
                        int64_t max_media_time);
@@ -63,6 +65,7 @@ class MediaClock {
   bool playing_ = false;
   // Play(true) until the first audio update.
   bool waiting_for_audio_ = false;
+  bool has_audio_anchor_ = false;
 };
 
 }  // namespace lychee
