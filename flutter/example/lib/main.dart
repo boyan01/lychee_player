@@ -1,35 +1,57 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui' show AppExitType;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lychee_player/lychee_player.dart';
 
-void main() => runApp(const ExampleApp());
+/// Desktop command line: `[--seconds N] [file or URL]`. The file or URL
+/// opens at launch (else the LYCHEE_URL define). With --seconds the app
+/// prints a summary line in examples/glfw's format to stderr after N
+/// seconds and quits, for unattended runs.
+void main(List<String> args) {
+  var url = const String.fromEnvironment('LYCHEE_URL');
+  double? seconds;
+  for (var i = 0; i < args.length; i++) {
+    if (args[i] == '--seconds' && i + 1 < args.length) {
+      seconds = double.tryParse(args[++i]);
+    } else if (!args[i].startsWith('-')) {
+      url = args[i];
+    }
+  }
+  runApp(ExampleApp(url: url, seconds: seconds));
+}
 
 class ExampleApp extends StatelessWidget {
-  const ExampleApp({super.key});
+  const ExampleApp({super.key, this.url = '', this.seconds});
+
+  final String url;
+  final double? seconds;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'lychee_player',
       theme: ThemeData(colorSchemeSeed: Colors.deepOrange),
-      home: const PlayerPage(),
+      home: PlayerPage(url: url, seconds: seconds),
     );
   }
 }
 
 class PlayerPage extends StatefulWidget {
-  const PlayerPage({super.key});
+  const PlayerPage({super.key, this.url = '', this.seconds});
+
+  final String url;
+  final double? seconds;
 
   @override
   State<PlayerPage> createState() => _PlayerPageState();
 }
 
 class _PlayerPageState extends State<PlayerPage> {
-  final _url = TextEditingController(
-    text: const String.fromEnvironment('LYCHEE_URL'),
-  );
+  late final _url = TextEditingController(text: widget.url);
   LycheePlayer? _player;
 
   @override
@@ -38,6 +60,25 @@ class _PlayerPageState extends State<PlayerPage> {
     if (_url.text.isNotEmpty) {
       _open();
     }
+    final seconds = widget.seconds;
+    if (seconds != null) {
+      Timer(Duration(microseconds: (seconds * 1e6).round()), _quit);
+    }
+  }
+
+  void _quit() {
+    final player = _player;
+    if (player != null) {
+      final stats = player.getStats();
+      final position = player.value.position.inMicroseconds / 1e6;
+      stderr.writeln('summary: decoder=${stats.videoDecoder} '
+          'hw=${stats.hardwareDecoding ? 1 : 0} '
+          'rendered=${stats.framesRendered} dropped=${stats.framesDropped} '
+          'position=${position.toStringAsFixed(3)} '
+          'state=${player.value.state.name}');
+    }
+    // As if the window were closed.
+    ServicesBinding.instance.exitApplication(AppExitType.required);
   }
 
   Future<void> _open() async {

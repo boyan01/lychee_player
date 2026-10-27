@@ -10,6 +10,7 @@
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  GtkWidget* window;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -24,6 +25,9 @@ static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+  self->window = GTK_WIDGET(window);
+  g_object_add_weak_pointer(G_OBJECT(window),
+                            reinterpret_cast<gpointer*>(&self->window));
 
   // Use a header bar when running in GNOME as this is the common style used
   // by applications and is the setup most users will be using (e.g. Ubuntu
@@ -110,9 +114,17 @@ static void my_application_startup(GApplication* application) {
 
 // Implements GApplication::shutdown.
 static void my_application_shutdown(GApplication* application) {
-  // MyApplication* self = MY_APPLICATION(object);
+  MyApplication* self = MY_APPLICATION(application);
 
-  // Perform any actions required at application shutdown.
+  // Flutter quits by detaching the window from the application, which
+  // leaves the engine and its raster thread running into exit(). NVIDIA's
+  // EGL tears itself down in an atexit handler, and a raster thread still
+  // drawing (video frames keep it busy) then crashes in libnvidia-eglcore.
+  // Destroying the window disposes the view, which shuts the engine down
+  // and joins its threads first.
+  if (self->window != nullptr) {
+    gtk_widget_destroy(self->window);
+  }
 
   G_APPLICATION_CLASS(my_application_parent_class)->shutdown(application);
 }

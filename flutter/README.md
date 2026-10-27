@@ -61,6 +61,13 @@ On macOS, Flutter's template runs the app in the App Sandbox: add
 URLs, and open local files the user picked (`file_selector`) or that live
 in the app's container; other paths fail with "Operation not permitted".
 
+On Linux with NVIDIA's driver, an app that quits while a video plays can
+crash in `libnvidia-eglcore`: Flutter's template leaves its window, and so
+the engine's raster thread, alive into `exit()`, where NVIDIA's EGL tears
+itself down. Destroy the window in the runner's `shutdown`, as the
+example's `linux/runner/my_application.cc` does (keep the window from
+`activate` in the application struct).
+
 The native core comes prebuilt for Android, iOS and macOS: the first build
 downloads it from this version's GitHub release into `~/.cache/lychee_player`
 and checks each file against the SHA-256 the package pins. Where GitHub is

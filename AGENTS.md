@@ -116,6 +116,18 @@ between only adds a slow build and the texture bridge, which has tests of
 its own. `tool/changes.sh` names the areas a branch touches (against
 `main`, uncommitted files included); CI runs its jobs for the same areas.
 
+Drive every app from its command line: the CLI, the native harnesses and
+the Flutter example take the file or URL as an argument, `--seconds N`
+to quit by themselves, and print a `summary:` line (decoder, `hw`,
+rendered, dropped, position) to read instead of a screen. Never click,
+type or move the pointer with `xdotool` or the like, and never read
+numbers off a screenshot: if a check needs a control the app lacks
+(seek, pause, a track), add a flag for it (`--key SEC:NAME`), as the
+harnesses have. Screenshots are only for what a picture shows (upright,
+sized, controls drawn), and pixels go through `tool/frame_check.py`.
+Stop when the item's done criterion is met; something odd found on the
+way goes into `docs/roadmap.md` rather than into a longer test run.
+
 The layers, lowest first:
 
 1. **Unit tests** (`core/test`, the tiny harness in `core/test/test.h`; no
@@ -165,12 +177,20 @@ The layers, lowest first:
      `flutter-remote-test` skill. `--seconds N` and `--key SEC:NAME`
      (README) run it unattended on every desktop platform.
    - Linux: `examples/glfw` (OpenGL; CPU frames, dmabufs with VAAPI), on
-     WSL or the Ubuntu VM through the same skill.
+     WSL or the Ubuntu VM through the same skill. Those have no real
+     GPU; the Windows machine's dual-boot Ubuntu 24.04 (`ssh
+     boyan@192.168.31.212` when booted into it; NVIDIA RTX 4070 Ti, X11,
+     `DISPLAY=:1`) does, but no VAAPI driver that works.
 4. **Bindings**: the Swift package (`swift test`), the Rust crates
    (`cargo test`), each against the media `tool/regression.sh` generates
    (`MEDIA_ONLY=1` generates it without building).
 5. **The Flutter plugin**: only for changes under `flutter/`, on the
-   platforms whose plugin code changed.
+   platforms whose plugin code changed. It checks what only Flutter
+   adds (texture registration, the frame hand-off into the engine, GL
+   state under Impeller, Dart and plugin lifetime), not playback: a seek
+   or a format that works in the native harness works here too. Count
+   its drops only in a profile build on an idle machine; a debug build
+   drops frames to the Dart JIT whatever the plugin does.
 6. **Packaging**: only for changes to how releases are built.
 
 What each area needs (run `tool/changes.sh`):
@@ -232,10 +252,13 @@ What each area needs (run `tool/changes.sh`):
   and checks the player's lifetime), and `cargo run --example play --
   FILE frame.ppm`; look at the frame.
 - **flutter**: `flutter analyze` in `flutter/` is clean, and you have run
-  the example (`cd flutter/example && flutter build macos --debug
-  --dart-define=LYCHEE_URL=/tmp/lychee-media/h264_aac.mp4`, launch the
-  app binary) and looked at a window screenshot; say in your report what
-  you did not see, e.g. audio you could not hear. On macOS and iOS the
+  the example (`cd flutter/example && flutter build macos --profile`,
+  then `build/macos/Build/Products/Profile/lychee_player_example.app/Contents/MacOS/lychee_player_example
+  --seconds 4 /tmp/lychee-media/h264_aac.mp4`; on Linux
+  `build/linux/x64/profile/bundle/lychee_player_example`), read its
+  `summary:` line and exit code, and looked at one window screenshot
+  when the change is about what it draws; say in your report what you
+  did not see, e.g. audio you could not hear. On macOS and iOS the
   plugin builds two ways, with Swift Package Manager (on here) and with
   CocoaPods (`enable-swift-package-manager: false` under `flutter:
   config:` in the example's pubspec, not committed); a change to
@@ -250,7 +273,8 @@ What each area needs (run `tool/changes.sh`):
   --simulator`, `xcrun simctl install/launch`, `xcrun simctl io
   screenshot`; Android: `flutter build apk --debug`, `adb install`, `adb
   exec-out screencap`; Windows and Linux: `remote-test ... --project
-  flutter/example`), stats line rendering at the video's rate.
+  flutter/example` with `--seconds N FILE`), its `summary:` line
+  rendering at the video's rate.
 - **packaging** (`tool/release.sh`, `flutter/prebuilt.json`, the
   podspec's or the plugin Gradle's download, `Package.swift`, the release
   workflows): run the release steps into a scratch directory (README,
@@ -420,6 +444,9 @@ jobs: those stay local.
   Commands sent through Windows' ssh pass cmd.exe (8191 characters, its
   own quoting): copy scripts over with `scp` and run them from `/mnt/c`.
   Linux has no VAAPI here, so run its regression with `NO_HW=1`.
+  `tool/regression.sh` on Ubuntu needs the FFmpeg CI uses to generate
+  its media (BtbN's 9.0 GPL build first on `PATH`): apt's 6.1 writes
+  files that fail `frame-hdr` and the `seek-mkv*` cases.
 - On Linux (WSL Ubuntu 22.04), `TSAN=1` dies with "unexpected memory
   mapping" unless run under `setarch x86_64 -R`. With GCC 11 it then reports
   false double locks and races in `player.cc`: GCC 11's libtsan does not

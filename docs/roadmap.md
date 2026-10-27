@@ -42,10 +42,13 @@ on top of them.
    fails to initialize), so only the fallback has been seen: VAAPI is
    rejected and software frames are uploaded into the same GL texture
    (h264, hevc10 and vp9 with seeks: 0 dropped; 1-5 dropped at 1.5x on
-   the VM; 2026-10-25). Done when an Intel or AMD machine shows `hw` with
-   0 dropped for `h264_aac.mp4` and `hevc10.mp4` (P010), with colours
-   matching software decoding. This is where media-kit had the most
-   texture bugs; budget for it.
+   the VM; 2026-10-25). The dual-boot Ubuntu with an RTX 4070 Ti
+   (2026-10-27) has only `nvidia-vaapi-driver`, which hangs (known defect
+   1), and its CPU's iGPU is off. Done when an Intel or AMD machine shows
+   `hw` with 0 dropped for `h264_aac.mp4` and `hevc10.mp4` (P010), with
+   colours matching software decoding. Waiting on the user: such a
+   machine, or the iGPU turned on in that PC's firmware. This is where
+   media-kit had the most texture bugs; budget for it.
 
 ## Known defects
 
@@ -61,6 +64,13 @@ on top of them.
    yes there, and whether FFmpeg 9 behaves the same. Done when VP9 on
    that machine plays in hardware or falls back to software at open, and
    `tool/regression.sh` without `NO_HW` passes there.
+   Linux has the same kind of hang: with `nvidia-vaapi-driver` 0.0.8 (EGL
+   backend; RTX 4070 Ti, Ubuntu 24.04, 2026-10-27) VAAPI opens, and the
+   first frame's `av_hwframe_map` in `WrapDmabuf` waits in
+   `vaSyncSurface` for good, with the same result. The general fix is
+   the same for both: a decoder that returns no frame within a bound is
+   given up as a failed hardware decoder (the renderer replacement a GPU
+   reset takes), and `Stop` does not wait on it forever.
 
 2. **Realtime timing on CI**: the
    `realtime=1` cases play on the real clock and audio device, so a
@@ -318,15 +328,25 @@ in a window; OpenGL ES on Linux since 2026-10-26, Platforms 2) and its own
    and Flutter under Xvfb draws nothing a screenshot sees), this build on
    a newer distribution (the OpenSSL one ran on the 26.04 VM), and the
    `release.yml` job itself. GitHub will retire the ubuntu-22.04 image;
-   the job can then run in a `ubuntu:22.04` container. Unverified there: the Impeller renderer. Flutter
+   the job can then run in a `ubuntu:22.04` container. Impeller: Flutter
    makes Skia forget its GL state around a texture's populate but does
-   nothing for Impeller (`ResolveTextureImpeller`), so populate now saves
-   and restores what it changes. Whether that is enough is unknown: on the
-   VM, Impeller (OpenGLESSDF on vmwgfx) garbles a plain Flutter app with
-   no plugin as well (a Slider half drawn, text missing, colours not
-   updating; 2026-10-25), so only the integration test (lifetime) passes
-   there. Done when a machine with a real GPU shows the example playing
-   under Impeller with its controls drawn.
+   nothing for Impeller (`ResolveTextureImpeller`), so populate saves and
+   restores what it changes. On the VM, Impeller (OpenGLESSDF on vmwgfx)
+   garbles a plain Flutter app with no plugin as well (2026-10-25), but on
+   a real GPU (Ubuntu 24.04, RTX 4070 Ti, NVIDIA 580.173, X11 at 4K 60 Hz;
+   2026-10-27) the example plays under Impeller (OpenGLESSDF) with its
+   controls drawn: profile build, `--seconds 6`, h264 168 rendered and 3
+   dropped (at the start), hevc10 138 and 0, rotated 171 and 1. A debug
+   build drops more, to the Dart JIT, with Skia as well. On the same
+   machine `tool/regression.sh` (`NO_HW=1`, media from BtbN's FFmpeg 9.0)
+   passes, and `examples/glfw` plays h264, hevc10, rotated and vp9 with 0
+   dropped, `--snapshot` matching FFmpeg's frames and seek and pause
+   through `--key`. There, quitting while a video played crashed 4 times
+   in 30 in `libnvidia-eglcore`: Flutter's template quits by detaching
+   the window, so the raster thread still draws when `exit()` runs
+   NVIDIA's EGL atexit handler. The example's runner now destroys the
+   window in `shutdown` (0 in 40, by `--seconds` and by the window
+   manager's close), and the plugin's README tells apps to do the same.
    `examples/glfw/main_linux.cc` (2026-10-26) is the Flutter-free
    renderer: GLFW with an OpenGL ES 3 context on EGL, taking frames the
    way the plugin does (CPU RGBA uploaded into a texture; dmabufs
