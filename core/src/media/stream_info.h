@@ -58,12 +58,6 @@ struct AudioConfig {
   std::shared_ptr<const CodecPrivate> codec_private;
 };
 
-// A font the media carries for its subtitles (a Matroska attachment).
-struct SubtitleFont {
-  std::string name;
-  std::shared_ptr<const std::vector<uint8_t>> data;
-};
-
 struct SubtitleConfig {
   std::string codec_name;
   // Timed text (SRT, WebVTT, mov_text, ASS, ...) rather than bitmaps.
@@ -101,7 +95,6 @@ struct MediaInfo {
   std::vector<std::pair<std::string, std::string>> metadata;
   // The cover picture as the container stores it (JPEG, PNG, ...), or null.
   std::shared_ptr<const std::vector<uint8_t>> artwork;
-  std::vector<SubtitleFont> fonts;
 };
 
 inline int VideoConfig::display_width() const {

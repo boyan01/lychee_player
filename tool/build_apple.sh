@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
 # Builds the core as lychee.xcframework: one dynamic framework per slice,
-# linked against the FFmpeg and libass xcframeworks, carrying only
-# lychee/lychee.h.
+# linked against the FFmpeg xcframeworks, carrying only lychee/lychee.h.
 #
 #   tool/build_apple.sh
 #   NO_FFMPEG=1 tool/build_apple.sh
 #
-# Needs the FFmpeg and libass builds from tool/build_ffmpeg.sh and
-# tool/build_libass.sh (for their headers) and the xcframeworks from
-# tool/package_ffmpeg_apple.sh (what it links), and
+# Needs the FFmpeg builds from tool/build_ffmpeg.sh (for their headers)
+# and the xcframeworks from tool/package_ffmpeg_apple.sh (what it links),
+# and
 # builds the slices those have: macOS (arm64 + x86_64), iOS (arm64) and the
 # iOS simulator (arm64 + x86_64 in one slice, see package_ffmpeg_apple.sh).
 #
 # Output: flutter/darwin/Frameworks/lychee.xcframework, which the podspec
-# vendors next to FFmpeg and libass.
+# vendors next to FFmpeg.
 #
-# With NO_FFMPEG=1: the core without FFmpeg and libass (our MP4, Matroska,
+# With NO_FFMPEG=1: the core without FFmpeg (our MP4, Matroska,
 # MPEG-TS and HLS demuxers, VideoToolbox and AudioToolbox; ASS as plain
 # text), every slice, needing nothing built before. It links no LGPL code.
 # Output: flutter/darwin/Frameworks/lychee_noffmpeg.xcframework, which
@@ -30,7 +29,6 @@ work="$root/build-apple"
 output=lychee
 [ "${NO_FFMPEG:-0}" != 1 ] || { work+=-noffmpeg; output=lychee_noffmpeg; }
 ffmpeg_libs=(avformat avcodec swresample swscale avutil)
-libass_libs=(ass fribidi)
 version="$(sed -nE 's/^version: ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' "$root/flutter/pubspec.yaml")"
 
 rm -rf "$work"
@@ -61,7 +59,7 @@ for slice in macos ios ios-simulator; do
   if [ "$output" = lychee_noffmpeg ]; then
     cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DBUILD_SHARED_LIBS=ON -DLYCHEE_BUILD_EXAMPLES=OFF -DLYCHEE_BUILD_TESTS=OFF \
-      -DLYCHEE_WITH_FFMPEG=OFF -DLYCHEE_WITH_LIBASS=OFF -DCMAKE_SKIP_BUILD_RPATH=ON \
+      -DLYCHEE_WITH_FFMPEG=OFF -DCMAKE_SKIP_BUILD_RPATH=ON \
       "${cmake_args[@]}" >"$work/$slice.log"
   else
     [ -d "$frameworks/libavcodec.xcframework/$dir" ] || continue
@@ -75,20 +73,10 @@ for slice in macos ios ios-simulator; do
     for lib in "${ffmpeg_libs[@]}"; do
       ln -s "$frameworks/lib$lib.xcframework/$dir/lib$lib.framework/lib$lib" "$ffmpeg/lib/lib$lib.dylib"
     done
-    # The same for libass: styled ASS in every shipped build.
-    libass="$work/$slice/libass"
-    mkdir -p "$libass/lib"
-    ln -s "$root/third_party/libass/$headers/include" "$libass/include"
-    for lib in "${libass_libs[@]}"; do
-      [ -f "$frameworks/lib$lib.xcframework/$dir/lib$lib.framework/lib$lib" ] ||
-        { echo "no $slice slice in lib$lib.xcframework; run tool/build_libass.sh and tool/package_ffmpeg_apple.sh" >&2; exit 1; }
-      ln -s "$frameworks/lib$lib.xcframework/$dir/lib$lib.framework/lib$lib" "$libass/lib/lib$lib.dylib"
-    done
 
     cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DBUILD_SHARED_LIBS=ON -DLYCHEE_BUILD_EXAMPLES=OFF -DLYCHEE_BUILD_TESTS=OFF \
       -DLYCHEE_FFMPEG_ROOT="$ffmpeg" -DCMAKE_SKIP_BUILD_RPATH=ON \
-      -DLYCHEE_WITH_LIBASS=ON -DLYCHEE_LIBASS_ROOT="$libass" \
       "${cmake_args[@]}" >"$work/$slice.log"
   fi
   cmake --build "$build" >>"$work/$slice.log" || { tail -30 "$work/$slice.log"; exit 1; }

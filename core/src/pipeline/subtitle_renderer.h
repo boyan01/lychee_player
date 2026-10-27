@@ -32,12 +32,11 @@ struct SubtitleImages {
 };
 
 // Decodes a subtitle stream into cues and answers what is on screen at a
-// media time: text, and pictures for bitmap subtitles or, with a
-// rasterizer (libass), for styled ASS. Decoding is cheap, so it runs on the
-// read thread as packets arrive. Cues are kept across seeks, since a seek
-// may land after the packet of a cue still on screen; cues read again are
-// ignored. Bitmap cues are dropped, the furthest from the latest first,
-// once they hold more than kMaxBitmapBytes.
+// media time: text, and pictures for bitmap subtitles. Decoding is cheap,
+// so it runs on the read thread as packets arrive. Cues are kept across seeks,
+// since a seek may land after the packet of a cue still on screen; cues read
+// again are ignored. Bitmap cues are dropped, the furthest from the latest
+// first, once they hold more than kMaxBitmapBytes.
 class SubtitleRenderer {
  public:
   static constexpr size_t kMaxBitmapBytes = 32 << 20;
@@ -46,9 +45,7 @@ class SubtitleRenderer {
   ~SubtitleRenderer();
 
   // Without a decoder, cues can only be added with AddCue().
-  bool Initialize(const SubtitleConfig& config,
-                  const std::vector<SubtitleFont>& fonts,
-                  std::string* error);
+  bool Initialize(const SubtitleConfig& config, std::string* error);
 
   // Read thread.
   void Decode(const EncodedPacket& packet);
@@ -76,7 +73,6 @@ class SubtitleRenderer {
   void LimitBitmapsLocked(int64_t latest_start);
 
   std::unique_ptr<SubtitleDecoder> decoder_;
-  std::unique_ptr<SubtitleRasterizer> rasterizer_;
   bool failed_ = false;
 
   mutable std::mutex mutex_;

@@ -6,11 +6,6 @@ project(lychee_android LANGUAGES C CXX)
 set(LYCHEE_FFMPEG_ROOT
   "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/ffmpeg/android-${ANDROID_ABI}"
   CACHE PATH "")
-# libass from tool/build_libass.sh android-ABI, with the default font the
-# core embeds (Android gives libass no font provider).
-set(LYCHEE_LIBASS_ROOT
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/libass/android-${ANDROID_ABI}"
-  CACHE PATH "")
 set(BUILD_SHARED_LIBS ON)
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
 add_subdirectory(../../../core core)

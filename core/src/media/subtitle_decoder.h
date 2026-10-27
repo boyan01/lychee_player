@@ -50,31 +50,6 @@ class SubtitleDecoder {
   virtual void Flush() = 0;
 };
 
-// Renders styled subtitles (ASS/SSA, through libass) into pictures, with
-// their fonts, positions and animations. Decode() runs on the read thread
-// and the rest on any thread; implementations lock.
-class SubtitleRasterizer {
- public:
-  virtual ~SubtitleRasterizer() = default;
-
-  virtual bool Initialize(const SubtitleConfig& config,
-                          const std::vector<SubtitleFont>& fonts,
-                          std::string* error) = 0;
-  virtual void Decode(const EncodedPacket& packet) = 0;
-  // Identifies the events showing at |media_time|: 0 if none, and another
-  // value whenever the set changes.
-  virtual uint64_t EventsAt(int64_t media_time) = 0;
-  // The pictures at |media_time| on a |width| x |height| canvas covering a
-  // video of |video_width| x |video_height|. Returns false, leaving
-  // |bitmaps| alone, if they are the same as the last call returned.
-  virtual bool Render(int64_t media_time,
-                      int width,
-                      int height,
-                      int video_width,
-                      int video_height,
-                      std::vector<SubtitleBitmap>* bitmaps) = 0;
-};
-
 // The plain text of an ASS/SSA event: |line| is a Dialogue line ("Dialogue:
 // Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text") or the
 // same fields after Start and End, prefixed by ReadOrder, as in Matroska and

@@ -244,8 +244,7 @@ class Player {
   // The renderer of |subtitle_stream_|, or null.
   SubtitleRenderer* SelectedSubtitleLocked() const;
   std::unique_ptr<SubtitleRenderer> CreateSubtitleRenderer(
-      const StreamInfo& info,
-      const std::vector<SubtitleFont>& fonts);
+      const StreamInfo& info);
   void EnableStreamsLocked();
   void PublishVideoLocked();
   // A new video renderer is needed: its decoder was lost, or the device

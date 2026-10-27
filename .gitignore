@@ -11,7 +11,6 @@ pubspec.lock
 *.iml
 build-*/
 third_party/ffmpeg/
-third_party/libass/
 flutter/darwin/Frameworks/
 flutter/darwin/lychee_player/Frameworks/
 .cxx/

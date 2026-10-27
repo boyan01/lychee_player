@@ -6,7 +6,7 @@ if(APPLE)
 endif()
 
 # The warnings tool/regression.sh's zero-warning check holds this
-# project's own code to (FFmpeg, libass and GLFW build elsewhere). As in
+# project's own code to (FFmpeg and GLFW build elsewhere). As in
 # Chromium, aggregates may leave fields to their defaults, which C structs
 # that start with struct_size rely on. MSVC keeps its default level for
 # now (roadmap: /W4).

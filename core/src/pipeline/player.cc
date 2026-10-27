@@ -891,11 +891,10 @@ std::unique_ptr<AudioRenderer> Player::CreateAudioRenderer(
 }
 
 std::unique_ptr<SubtitleRenderer> Player::CreateSubtitleRenderer(
-    const StreamInfo& info,
-    const std::vector<SubtitleFont>& fonts) {
+    const StreamInfo& info) {
   auto subtitle = std::make_unique<SubtitleRenderer>();
   std::string error;
-  if (!subtitle->Initialize(info.subtitle, fonts, &error)) {
+  if (!subtitle->Initialize(info.subtitle, &error)) {
     LOGW("subtitle stream %d disabled: %s", info.index, error.c_str());
     return nullptr;
   }
@@ -941,7 +940,7 @@ bool Player::Prepare(const std::string& url, std::string* error) {
   }
   for (const StreamInfo& stream : info.streams) {
     if (stream.type == MediaType::kSubtitle) {
-      if (auto subtitle = CreateSubtitleRenderer(stream, info.fonts)) {
+      if (auto subtitle = CreateSubtitleRenderer(stream)) {
         subtitles[stream.index] = std::move(subtitle);
       }
     }

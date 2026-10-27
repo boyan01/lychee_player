@@ -31,7 +31,6 @@ SubtitleRenderer::SubtitleRenderer() = default;
 SubtitleRenderer::~SubtitleRenderer() = default;
 
 bool SubtitleRenderer::Initialize(const SubtitleConfig& config,
-                                  const std::vector<SubtitleFont>& fonts,
                                   std::string* error) {
   decoder_ = CreateSubtitleDecoder();
   if (!decoder_) {
@@ -42,23 +41,12 @@ bool SubtitleRenderer::Initialize(const SubtitleConfig& config,
     decoder_.reset();
     return false;
   }
-  rasterizer_ = CreateSubtitleRasterizer(config);
-  std::string rasterizer_error;
-  if (rasterizer_ &&
-      !rasterizer_->Initialize(config, fonts, &rasterizer_error)) {
-    LOGW("styled subtitles off, plain text only: %s",
-         rasterizer_error.c_str());
-    rasterizer_.reset();
-  }
   return true;
 }
 
 void SubtitleRenderer::Decode(const EncodedPacket& packet) {
   if (!decoder_ || failed_) {
     return;
-  }
-  if (rasterizer_) {
-    rasterizer_->Decode(packet);
   }
   std::vector<SubtitleCue> cues;
   if (!decoder_->Decode(packet, &cues)) {
@@ -161,9 +149,6 @@ std::string SubtitleRenderer::TextAt(int64_t media_time) const {
 }
 
 uint64_t SubtitleRenderer::ImagesKeyAt(int64_t media_time) const {
-  if (rasterizer_) {
-    return rasterizer_->EventsAt(media_time);
-  }
   std::lock_guard<std::mutex> lock(mutex_);
   // FNV-1a over the start times of the pictures showing.
   uint64_t key = 0;
@@ -189,34 +174,6 @@ std::shared_ptr<const SubtitleImages> SubtitleRenderer::ImagesAt(
   if (width <= 0 || height <= 0) {
     return nullptr;
   }
-  if (rasterizer_) {
-    std::vector<SubtitleBitmap> bitmaps;
-    const bool changed = rasterizer_->Render(media_time, width, height,
-                                             video_width, video_height,
-                                             &bitmaps);
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!changed && width == images_width_ && height == images_height_) {
-      return images_;
-    }
-    images_width_ = width;
-    images_height_ = height;
-    if (bitmaps.empty()) {
-      images_ = nullptr;
-      return nullptr;
-    }
-    auto images = std::make_shared<SubtitleImages>();
-    images->id = next_images_id++;
-    auto held =
-        std::make_shared<const std::vector<SubtitleBitmap>>(std::move(bitmaps));
-    for (const SubtitleBitmap& bitmap : *held) {
-      images->images.push_back(
-          {bitmap.x, bitmap.y, bitmap.width, bitmap.height, &bitmap});
-    }
-    images->bitmaps.push_back(std::move(held));
-    images_ = std::move(images);
-    return images_;
-  }
-
   const uint64_t key = ImagesKeyAt(media_time);
   std::lock_guard<std::mutex> lock(mutex_);
   if (key == images_key_ && width == images_width_ &&

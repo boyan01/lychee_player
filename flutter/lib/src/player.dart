@@ -112,8 +112,8 @@ class LycheePlayerValue {
   /// over the video yourself, unless [subtitlePictures] is set.
   final String? subtitle;
 
-  /// Bitmap subtitles (PGS, DVB, VobSub) and, where the core has libass,
-  /// styled ASS: they hold all of the subtitle, text included. [LycheeVideo]
+  /// Bitmap subtitles (PGS, DVB, VobSub): they hold all of the subtitle,
+  /// text included. [LycheeVideo]
   /// draws them. Null if none.
   final List<LycheeSubtitlePicture>? subtitlePictures;
 

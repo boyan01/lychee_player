@@ -1,16 +1,15 @@
 # One pod for iOS and macOS (sharedDarwinSource in pubspec.yaml).
 #
-# The core, FFmpeg and libass come prebuilt, as the xcframeworks in
-# Frameworks/: lychee.xcframework (tool/build_apple.sh), the LGPL-only
-# FFmpeg ones (tool/build_ffmpeg.sh) and libass with FriBidi
-# (tool/build_libass.sh), both packaged by tool/package_ffmpeg_apple.sh.
+# The core and FFmpeg come prebuilt, as the xcframeworks in Frameworks/:
+# lychee.xcframework (tool/build_apple.sh) and the LGPL-only FFmpeg ones
+# (tool/build_ffmpeg.sh, packaged by tool/package_ffmpeg_apple.sh).
 # The plugin uses only the C ABI in lychee/lychee.h; a pod cannot depend on
 # the Swift package in sdk/apple, so it keeps its own copy of its frame
 # driver (lychee_player/Package.swift uses the SDK's).
 #
 # Frameworks built locally win, when all of them are there. Otherwise they
 # come from the release that ../prebuilt.json pins (tool/release.sh): the
-# xcframeworks it lists (1.0.0-beta.1 had no libass), downloaded once into
+# xcframeworks it lists, downloaded once into
 # ~/.cache/lychee_player and checked against its SHA-256s;
 # LYCHEE_PREBUILT_URL replaces the release URL with a mirror's.
 
@@ -18,7 +17,7 @@ require 'digest'
 require 'fileutils'
 require 'json'
 
-frameworks = %w[lychee libavformat libavcodec libswresample libswscale libavutil libass libfribidi]
+frameworks = %w[lychee libavformat libavcodec libswresample libswscale libavutil]
 
 lambda do
   dir = File.join(__dir__, 'Frameworks')
@@ -81,7 +80,7 @@ Pod::Spec.new do |s|
   # A release's are complete with the ones it has.
   unless File.exist?(File.join(__dir__, 'Frameworks', '.prebuilt')) || present == frameworks
     Pod::UI.warn "lychee_player: missing #{(frameworks - present).join(', ')}.xcframework in Frameworks/; " \
-                 'build them with tool/build_ffmpeg.sh, tool/build_libass.sh, tool/package_ffmpeg_apple.sh ' \
+                 'build them with tool/build_ffmpeg.sh, tool/package_ffmpeg_apple.sh ' \
                  'and tool/build_apple.sh'
   end
   s.vendored_frameworks = present.map { |f| "Frameworks/#{f}.xcframework" }

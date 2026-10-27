@@ -353,33 +353,6 @@ void MapSubtitleCodec(const std::string& id, SubtitleConfig* config) {
   config->codec_name = id;
 }
 
-bool IsFont(const std::string& media_type, const std::string& name) {
-  static const char* kTypes[] = {
-      "application/x-truetype-font",
-      "application/x-font-ttf",
-      "application/vnd.ms-opentype",
-      "application/font-sfnt",
-      "font/ttf",
-      "font/otf",
-      "font/sfnt",
-      "font/collection",
-  };
-  for (const char* type : kTypes) {
-    if (media_type == type) {
-      return true;
-    }
-  }
-  std::string lower = name;
-  std::transform(lower.begin(), lower.end(), lower.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
-  for (const char* suffix : {".ttf", ".otf", ".ttc"}) {
-    if (lower.size() > 4 && lower.compare(lower.size() - 4, 4, suffix) == 0) {
-      return true;
-    }
-  }
-  return false;
-}
-
 // The bytes of a SimpleBlock's single frame, read in place: the body is
 // followed by kPacketPadding zero bytes.
 class BlockBuffer : public PacketBuffer {
@@ -1125,10 +1098,8 @@ void MatroskaDemuxer::ParseAttachments(const std::vector<uint8_t>& body) {
     }
     auto bytes = std::make_shared<const std::vector<uint8_t>>(
         data->data, data->data + data->size);
-    if (IsFont(media_type, name)) {
-      media_info_.fonts.push_back({name, std::move(bytes)});
-    } else if ((media_type == "image/jpeg" || media_type == "image/png") &&
-               name.rfind("cover", 0) == 0 && !media_info_.artwork) {
+    if ((media_type == "image/jpeg" || media_type == "image/png") &&
+        name.rfind("cover", 0) == 0 && !media_info_.artwork) {
       // Matroska's convention for cover art.
       media_info_.artwork = std::move(bytes);
     }

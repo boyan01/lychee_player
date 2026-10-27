@@ -558,16 +558,15 @@ typedef struct lychee_subtitle_image {
 
 // API version 7. The pictures of the subtitle showing at |display_time_us|
 // (lychee_now_us() timebase; 0 for now): bitmap subtitles (PGS, DVB,
-// VobSub) and, in builds with libass, styled ASS/SSA with its fonts and
-// positions. |width| x |height| is the canvas, the rectangle the video
+// VobSub). |width| x |height| is the canvas, the rectangle the video
 // picture is drawn in, in pixels (0, 0 for the video's size); pictures are
-// placed on it and styled text is rendered at its resolution. Returns NULL
-// if the subtitle showing has no pictures (plain text, or none).
+// placed on it. Returns NULL if the subtitle showing has no pictures (plain
+// text, or none).
 //
-// Call it for every frame you draw while the last
-// LYCHEE_EVENT_SUBTITLE_CHANGED had arg1 1: ASS animates between events.
-// While nothing changes it is cheap, and lychee_subtitle_get_id() stays
-// the same, so redraw only when the id does. Any thread; the result stays
+// Call it after LYCHEE_EVENT_SUBTITLE_CHANGED with arg1 1, or for every
+// frame you draw: while nothing changes it is cheap, and
+// lychee_subtitle_get_id() stays the same, so redraw only when the id
+// does. Any thread; the result stays
 // valid until lychee_subtitle_release().
 LYCHEE_EXPORT lychee_subtitle* lychee_player_acquire_subtitle(
     lychee_player* player,

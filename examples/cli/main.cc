@@ -74,7 +74,7 @@ struct Options {
   std::string dmabuf_node;
   bool virtual_time = false;
   // Where to write each subtitle with pictures, drawn on a grey canvas of
-  // the video's size (binary PPM), to look at styled ASS.
+  // the video's size (binary PPM), to look at bitmap subtitles.
   std::string subtitle_ppm;
   // Frames to write as they would be shown (tool/frame_check.py), by time.
   std::vector<FrameSnapshot> snapshots;

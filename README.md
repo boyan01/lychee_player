@@ -50,11 +50,7 @@ after they arrive and adapts to jitter and the audio device's latency.
 ## Building the core
 
 Requires CMake, Ninja, pkg-config and FFmpeg development files
-(`brew install cmake ninja pkg-config ffmpeg`). `-DLYCHEE_WITH_LIBASS=ON`
-renders styled ASS subtitles with libass (`brew install libass`, or
-`-DLYCHEE_LIBASS_ROOT=` a build from `tool/build_libass.sh`);
-`tool/regression.sh` turns it on where libass is installed, or with
-`LIBASS_ROOT=third_party/libass/macos-arm64`. On macOS and
+(`brew install cmake ninja pkg-config ffmpeg`). On macOS and
 iOS, `-DLYCHEE_WITH_FFMPEG=OFF` builds without FFmpeg: MP4 (fragmented
 too), Matroska/WebM, MPEG-TS and HLS (TS segments), from files and http(s)
 URLs, with
@@ -84,7 +80,7 @@ file's packets into a live input when a sender would send them, with
 `--latency MS`, `--live-jitter MS`, `--live-stall SEC FOR`,
 `--live-flush SEC` and `--live-gap SEC FOR` to simulate the network.
 `--subtitle-ppm FILE` writes each subtitle with pictures (bitmap
-subtitles, styled ASS) onto a grey canvas of the video's size.
+subtitles) onto a grey canvas of the video's size.
 `--frame-ppm SEC:FILE` (repeatable) writes the frame on screen SEC seconds
 into the run, upright, as a binary PPM (CPU frames as they are,
 `CVPixelBuffer`s through VideoToolbox to SDR BT.709, D3D11 textures through
@@ -182,30 +178,26 @@ the file, so late snapshots of long files take longer.
 
 The Flutter plugin's iOS/macOS pod and the Swift package both link prebuilt
 xcframeworks from `flutter/darwin/Frameworks`: `lychee.xcframework` (the
-core, a dynamic framework carrying only `lychee/lychee.h`), an LGPL-only
-FFmpeg, and libass (with FreeType and HarfBuzz linked in; system fonts
-through Core Text) with FriBidi, for styled ASS. Build them once, and
-rebuild `lychee.xcframework` after changing `core/` (FFmpeg 9 source tree
-as `SRC`; the libass, FreeType, HarfBuzz and FriBidi trees that
-`tool/release.sh sources` downloads, which `tool/release.sh build apple
-DIR` also unpacks and builds; libass needs `meson`):
+core, a dynamic framework carrying only `lychee/lychee.h`) and an
+LGPL-only FFmpeg. Build them once, and rebuild `lychee.xcframework` after
+changing `core/` (FFmpeg 9 source tree as `SRC`; `tool/release.sh build
+apple DIR` also downloads and builds it):
 
 ```sh
 for p in macos-arm64 macos-x86_64 ios-arm64 ios-sim-arm64 ios-sim-x86_64; do
   tool/build_ffmpeg.sh $p SRC
-  tool/build_libass.sh $p LIBASS FREETYPE HARFBUZZ FRIBIDI
 done
-tool/package_ffmpeg_apple.sh   # FFmpeg, libass and FriBidi xcframeworks
+tool/package_ffmpeg_apple.sh   # FFmpeg xcframeworks
 tool/build_apple.sh            # lychee.xcframework
 ```
 
 Each xcframework has a universal macOS slice, an iOS device slice and one
 simulator slice with both arm64 and x86_64. Leave out platforms you do not
 need; the last two scripts package the ones that were built. The x86_64
-macOS FFmpeg and libass use assembly only if `nasm` is installed.
+macOS FFmpeg uses assembly only if `nasm` is installed.
 
-`NO_FFMPEG=1 tool/build_apple.sh` builds the core without FFmpeg and
-libass as `lychee_noffmpeg.xcframework` (still `lychee.framework` inside;
+`NO_FFMPEG=1 tool/build_apple.sh` builds the core without FFmpeg as
+`lychee_noffmpeg.xcframework` (still `lychee.framework` inside;
 MP4, Matroska/WebM, MPEG-TS and HLS through the core's own demuxers,
 VideoToolbox and AudioToolbox decoders), which needs none of the other
 frameworks. The Flutter plugin does not use it.
@@ -214,8 +206,8 @@ frameworks. The Flutter plugin does not use it.
 
 `sdk/apple` is a Swift package (`LycheePlayer`, macOS 11 / iOS 16) for apps
 without Flutter. Add it as a local package; it takes the xcframeworks above
-as binary targets. Its default trait, `FFmpeg`, links the core with FFmpeg
-and libass; the `NoFFmpeg` trait takes `lychee_noffmpeg.xcframework`
+as binary targets. Its default trait, `FFmpeg`, links the core with FFmpeg;
+the `NoFFmpeg` trait takes `lychee_noffmpeg.xcframework`
 instead, e.g. `.package(path: "sdk/apple", traits: ["NoFFmpeg"])` (Xcode:
 the package reference's traits), and `swift test --traits NoFFmpeg` tests
 it.
@@ -259,11 +251,7 @@ the simulator reads `/tmp` of the Mac.
 core as `liblychee.so` with the LGPL FFmpeg next to it (build it first:
 `tool/build_ffmpeg.sh android-arm64-v8a SRC MBEDTLS_SRC`, with an Mbed TLS
 3.6 release for https, and `android-x86_64` for x86
-emulators) and libass (`tool/build_libass.sh android-arm64-v8a LIBASS
-FREETYPE HARFBUZZ FRIBIDI FONTS`, FONTS the Liberation Fonts TTF release:
-Android gives libass no system fonts, so the core embeds Liberation Sans,
-metrically compatible with the Arial most scripts name, and falls back to
-the system's Noto Sans CJK for what it lacks), and Kotlin classes over it. The core is also a prefab module
+emulators), and Kotlin classes over it. The core is also a prefab module
 (`lychee`, header `lychee/lychee.h`) for native code that uses the C ABI.
 
 ```sh
@@ -365,10 +353,9 @@ player.dispose();
 ```
 
 Text subtitles arrive as plain text in `player.value.subtitle`; the app
-draws them. Bitmap subtitles (PGS, DVB, VobSub), and styled ASS where the
-core has libass (macOS, iOS and Android; not yet Windows and Linux),
-arrive as pictures in `player.value.subtitlePictures`, which `LycheeVideo`
-draws over the video.
+draws them; ASS arrives as its plain text too. Bitmap subtitles (PGS,
+DVB, VobSub) arrive as pictures in `player.value.subtitlePictures`, which
+`LycheeVideo` draws over the video.
 
 The example app (`flutter/example`) turns off the macOS App Sandbox so it can
 open arbitrary paths. It plays `--dart-define=LYCHEE_URL=...` on start.
@@ -436,8 +423,7 @@ Linux FFmpeg (on Ubuntu; Windows cross-compiled), pins them in
 `flutter/prebuilt.json` and `Package.swift` (which lets SwiftPM take
 `sdk/apple` by URL), builds a fresh app against the package pub would
 publish, drafts the GitHub release with the assets and the sources of
-FFmpeg, Mbed TLS, libass, FreeType, HarfBuzz and FriBidi (and the
-Liberation fonts), and pushes the commit `Release VERSION` and the tag
+FFmpeg and Mbed TLS, and pushes the commit `Release VERSION` and the tag
 `vVERSION`. The tag starts `publish.yml`, which publishes the release and
 the package on pub.dev. Each step is a `tool/release.sh` command and runs
 locally too:
@@ -474,10 +460,8 @@ must ship an LGPL-only FFmpeg (no `--enable-gpl` / `--enable-nonfree`),
 linked dynamically.
 
 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) has the notices an app must
-ship with lychee_player (Chromium, FFmpeg, Mbed TLS, libass, FreeType,
-HarfBuzz, FriBidi, Liberation Sans, and their license texts). FriBidi is
-LGPL 2.1+ and stays its own dynamic library; libass (ISC), FreeType (FTL)
-and HarfBuzz (MIT) are linked into one. The prebuilt artifacts carry it: `lychee.framework` and, on
+ship with lychee_player (Chromium, FFmpeg, Mbed TLS, and their license
+texts). The prebuilt artifacts carry it: `lychee.framework` and, on
 Android, `META-INF/lychee/THIRD_PARTY_NOTICES` in the APK.
 
 `tool/build_ffmpeg.sh` builds only what the core plays: MP4/MOV,

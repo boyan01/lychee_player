@@ -54,8 +54,8 @@ public final class LycheePlayer {
     public let channels: Int
   }
 
-  /// Bitmap subtitles (PGS, DVB, VobSub), and styled ASS where the core
-  /// has libass, laid out on a canvas the video fills.
+  /// Bitmap subtitles (PGS, DVB, VobSub), laid out on a canvas the video
+  /// fills.
   public struct SubtitlePictures {
     /// The same for the same pictures, different otherwise.
     public let id: Int64

@@ -88,10 +88,8 @@ while IFS= read -r f; do
     core/src/backends/android/*) mark core android ;;
     core/src/backends/windows/* | core/src/backends/media_foundation/*) mark core windows ;;
     core/src/backends/linux/*) mark core linux ;;
-    # Every platform's shipped build has FFmpeg and libass but Android's,
-    # which has libass only; the factory picks backends per platform.
+    # The factory picks backends per platform.
     core/src/backends/ffmpeg/*) mark core apple windows linux ;;
-    core/src/backends/libass/*) mark core apple android ;;
     core/src/media/factory.cc) mark core parsers apple android windows linux ;;
     tool/abi_check.py) mark abi ;;
     core/* | CMakeLists.txt | examples/cli/* | tool/regression.sh | tool/*.py) mark core ;;
@@ -109,7 +107,6 @@ while IFS= read -r f; do
       mark packaging ;;
     tool/build_apple.sh | tool/apple_framework.sh | tool/package_ffmpeg_apple.sh) mark apple ;;
     tool/build_ffmpeg.sh) mark apple android windows linux ;;
-    tool/build_libass.sh) mark apple android ;;
     tool/rust_bindings.sh) mark rust ;;
     flutter/darwin/*) mark flutter apple ;;
     flutter/android/*) mark flutter android ;;

@@ -11,10 +11,6 @@
 #include "backends/ffmpeg/ffmpeg_video_decoder.h"
 #endif
 
-#if defined(LYCHEE_WITH_LIBASS)
-#include "backends/libass/libass_rasterizer.h"
-#endif
-
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 
@@ -192,18 +188,6 @@ std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder() {
 #else
   return nullptr;
 #endif
-}
-
-std::unique_ptr<SubtitleRasterizer> CreateSubtitleRasterizer(
-    const SubtitleConfig& config) {
-#if defined(LYCHEE_WITH_LIBASS)
-  if (config.codec_name == "ass" || config.codec_name == "ssa") {
-    return std::make_unique<LibassRasterizer>();
-  }
-#else
-  (void)config;
-#endif
-  return nullptr;
 }
 
 std::unique_ptr<AudioSink> CreateAudioSink() {

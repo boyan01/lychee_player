@@ -204,8 +204,8 @@ class LycheePlayer @JvmOverloads constructor(
         get() = nativeGetSubtitle(handle())?.let(::String)
 
     /**
-     * Bitmap subtitles (PGS, DVB, VobSub), and styled ASS where the core has
-     * libass, laid out on a canvas the video fills.
+     * Bitmap subtitles (PGS, DVB, VobSub), laid out on a canvas the video
+     * fills.
      */
     class SubtitlePictures(
         /** The same for the same pictures, different otherwise. */

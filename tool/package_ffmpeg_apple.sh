@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Wraps the FFmpeg libraries from tool/build_ffmpeg.sh, and libass and
-# FriBidi from tool/build_libass.sh, into one xcframework per library.
+# Wraps the FFmpeg libraries from tool/build_ffmpeg.sh into one xcframework
+# per library.
 #
 #   tool/package_ffmpeg_apple.sh
 #
@@ -12,7 +12,7 @@
 #
 # Output: flutter/darwin/Frameworks/LIB.xcframework, which the podspec
 # vendors and tool/build_apple.sh links the core against. Dynamic frameworks
-# keep FFmpeg and FriBidi replaceable, as the LGPL requires.
+# keep FFmpeg replaceable, as the LGPL requires.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,7 +20,6 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 dest="$root/flutter/darwin/Frameworks"
 staging="$root/build-ffmpeg/frameworks"
 ffmpeg_libs=(libavutil libswresample libswscale libavcodec libavformat)
-libass_libs=(libfribidi libass)
 
 # The builds in BUILDS that go into a slice, the ones that exist.
 slice_platforms() {
@@ -70,19 +69,8 @@ package() {
           fi
         done
       done
-      case "$lib" in
-        libass)
-          headers="$prefix/include/ass"; id=tech.soit.lychee.libass
-          # LIBASS_VERSION 0xXYYZZWWW
-          version="$(sed -nE 's/^#define LIBASS_VERSION 0x([0-9])([0-9]{2})([0-9]{2}).*/\1 \2 \3/p' "$headers/ass.h" |
-            { read -r x y z; echo "$x.$((10#$y)).$((10#$z))"; })" ;;
-        libfribidi)
-          headers="$prefix/include/fribidi"; id=tech.soit.lychee.libfribidi
-          version="$(sed -nE 's/^#define FRIBIDI_VERSION "(.*)"/\1/p' "$headers/fribidi-config.h")" ;;
-        *)
-          headers="$prefix/include/$lib"; id="org.ffmpeg.$lib"
-          version="$(sed -nE 's/.*FFMPEG_VERSION "n?([0-9.]+).*/\1/p' "$prefix/include/libavutil/ffversion.h")" ;;
-      esac
+      headers="$prefix/include/$lib"; id="org.ffmpeg.$lib"
+      version="$(sed -nE 's/.*FFMPEG_VERSION "n?([0-9.]+).*/\1/p' "$prefix/include/libavutil/ffversion.h")"
       make_framework "$slice" "$staging/$slice/$lib.framework" "$binary" "$headers" "$id" "$version"
     done
   done
@@ -103,4 +91,3 @@ rm -rf "$staging"
 mkdir -p "$dest"
 rm -f "$dest/.prebuilt"
 package "$root/third_party/ffmpeg" "${ffmpeg_libs[@]}"
-package "$root/third_party/libass" "${libass_libs[@]}"

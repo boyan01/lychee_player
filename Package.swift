@@ -9,7 +9,7 @@
 // release below. tool/release.sh writes `release` when it tags a version;
 // until the first release, the local frameworks.
 //
-// Its NoFFmpeg trait takes the core without FFmpeg and libass, as in
+// Its NoFFmpeg trait takes the core without FFmpeg, as in
 // sdk/apple/Package.swift, from releases that have it:
 //
 //   .package(url: "https://github.com/boyan01/lychee_player", from: "1.0.0",
@@ -33,10 +33,10 @@ let release = (
   ]
 )
 
-// A release's frameworks are the ones it pins (1.0.0-beta.1 had neither
-// libass nor lychee_noffmpeg).
+// A release's frameworks are the ones it pins (1.0.0-beta.1 had no
+// lychee_noffmpeg).
 let frameworks = release.url.isEmpty
-  ? ["lychee", "libavformat", "libavcodec", "libswresample", "libswscale", "libavutil", "libass", "libfribidi"]
+  ? ["lychee", "libavformat", "libavcodec", "libswresample", "libswscale", "libavutil"]
     + (FileManager.default.fileExists(
       atPath: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .appendingPathComponent("flutter/darwin/Frameworks/lychee_noffmpeg.xcframework").path)
@@ -52,8 +52,8 @@ let package = Package(
     .library(name: "LycheePlayer", targets: ["LycheePlayer"]),
   ],
   traits: [
-    .trait(name: "FFmpeg", description: "The core with FFmpeg and libass (LGPL)"),
-    .trait(name: "NoFFmpeg", description: "The core without FFmpeg and libass"),
+    .trait(name: "FFmpeg", description: "The core with FFmpeg (LGPL)"),
+    .trait(name: "NoFFmpeg", description: "The core without FFmpeg"),
     .default(enabledTraits: ["FFmpeg"]),
   ],
   targets: [

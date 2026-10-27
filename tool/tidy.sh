@@ -10,7 +10,7 @@
 #
 # Exits 1 when it finds anything. The compile commands come from the
 # core's CMake build, configured (not built) twice into build-tidy*: with
-# FFmpeg and libass when installed, and without FFmpeg, which compiles
+# FFmpeg, and without FFmpeg, which compiles
 # the FFmpeg-free demuxers and Apple decoders. Files this host does not
 # compile (other platforms' backends) are skipped and named. A changed
 # header is checked through the file of the same name next to it, when
@@ -30,14 +30,12 @@ if [ -z "$tidy" ] || [ -z "$run" ]; then
   exit 1
 fi
 
-libass=OFF
-pkg-config --exists libass 2>/dev/null && libass=ON
 configure() {
   cmake -S "$root" -B "$1" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "${@:2}" >/dev/null
 }
-configure "$root/build-tidy" -DLYCHEE_WITH_LIBASS=$libass
-configure "$root/build-tidy-noffmpeg" -DLYCHEE_WITH_FFMPEG=OFF -DLYCHEE_WITH_LIBASS=OFF
+configure "$root/build-tidy"
+configure "$root/build-tidy-noffmpeg" -DLYCHEE_WITH_FFMPEG=OFF
 mkdir -p "$root/build-tidy/merged"
 
 if [ "$all" = 1 ]; then

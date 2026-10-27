@@ -4,7 +4,7 @@
 // (`flutter config --enable-swift-package-manager`); lychee_player.podspec
 // builds the same sources with CocoaPods.
 //
-// The core, FFmpeg and libass come as the xcframeworks the pod vendors, in
+// The core and FFmpeg come as the xcframeworks the pod vendors, in
 // one of three ways:
 //
 // - A checkout with all of them built in flutter/darwin/Frameworks (no
@@ -32,7 +32,7 @@
 import Foundation
 import PackageDescription
 
-let frameworks = ["lychee", "libavformat", "libavcodec", "libswresample", "libswscale", "libavutil", "libass", "libfribidi"]
+let frameworks = ["lychee", "libavformat", "libavcodec", "libswresample", "libswscale", "libavutil"]
 
 let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent().resolvingSymlinksInPath()
 let fileManager = FileManager.default
@@ -46,9 +46,8 @@ let localBuild = fileManager.fileExists(atPath: "\(sdk)/Package.swift")
   && frameworks.allSatisfy { exists("../Frameworks/\($0).xcframework") }
 let bundledSDK = exists("Sources/LycheePlayer")
 
-// The release's xcframeworks, as ../../prebuilt.json pins them (1.0.0-beta.1
-// had no libass): unzipped in Frameworks/ if they are there, else
-// downloaded.
+// The release's xcframeworks, as ../../prebuilt.json pins them: unzipped in
+// Frameworks/ if they are there, else downloaded.
 func pinnedFrameworks() -> [Target] {
   struct Manifest: Decodable {
     let url: String

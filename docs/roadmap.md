@@ -47,26 +47,11 @@ building on top of them.
 
 ## Known defects
 
-1. **Styled ASS with Chinese is slow on iOS 18.1**: Core Text's fallback
-   for Han there is `PingFangUI.ttc`, whose outlines are only in an
-   `hvgl` table that FreeType reads through `/usr/lib/libhvf.dylib`. The
-   iOS 18.1 runtime has no such library (18.5, 26.5 and 27.0 do), so
-   FreeType cannot open the font, Chinese shows as boxes, and libass
-   0.17.5, which caches no failed fallback, searches Core Text again for
-   every missing glyph on every frame: ~450 ms a frame for five Han
-   glyphs (iPhone 16 simulator, 2026-10-27). A real 18.1 device most
-   likely does the same. No other font on 18.1 covers simplified
-   Chinese. Fix candidates: a negative cache of missing glyphs in
-   libass's `ass_font_get_index` (a patch in `tool/build_libass.sh`, or
-   upstream; it would also help Android glyphs no font covers), or
-   rendering libass off the frame-pulling thread. `sub_ass_styled.mkv`
-   was made by hand; `tool/regression.sh` does not generate it. Done
-   when that file plays at its rate on the iOS 18.1 simulator.
-2. **VideoToolbox gives up on damaged TS**: on TS that lost one packet in
+1. **VideoToolbox gives up on damaged TS**: on TS that lost one packet in
    a thousand (`ts_lost_packets.ts`) `VTVideoDecoder` reaches its
    consecutive-error limit, where FFmpeg's software decoder conceals and
    plays on, so the FFmpeg-free build plays `ts-lost-packets` audio only.
-3. **Slow HLS seeks past a discontinuity with FFmpeg**: FFmpeg's HLS seek
+2. **Slow HLS seeks past a discontinuity with FFmpeg**: FFmpeg's HLS seek
    drops every packet past a discontinuity where timestamps start over,
    so `FFmpegDemuxer` reads from before the first discontinuity (from the
    start if none has been read yet). Long streams make that slow; only an
@@ -105,17 +90,12 @@ building on top of them.
    - Apple: VideoToolbox's tone mapping of bright HDR colors differs from
      swscale's reference (`hdr_pq_bars.mp4`: 27.9 dB), and HLG comes out
      darker (98 for a 0.5 signal against 142); that is Apple's mapping.
-3. **libass on Windows and Linux**: their plugins compile the core
-   without libass, so ASS shows as plain text. Build libass there like
-   their FFmpeg, with DirectWrite and fontconfig for fonts. Done when the
-   Flutter example on Windows and Linux shows `sub_ass_styled.mkv`
-   styled.
-4. **32-bit Android**: the AAR has `arm64-v8a` and `x86_64` only
+3. **32-bit Android**: the AAR has `arm64-v8a` and `x86_64` only
    (decided 2026-10-26). Some TV boxes run a 32-bit system on 64-bit
    chips; supporting them needs `tool/build_ffmpeg.sh
    android-armeabi-v7a`, the ABI in the AAR and the release, and a 32-bit
    device or emulator to run on.
-5. **Software AV1**: the shipped FFmpeg has no AV1 software decoder, so
+4. **Software AV1**: the shipped FFmpeg has no AV1 software decoder, so
    AV1 plays only where the GPU decodes it (on Apple, M3 and A17 Pro and
    later). Add dav1d (BSD) to `tool/build_ffmpeg.sh` if it matters.
 
@@ -135,8 +115,8 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    that joins the init segment to each media segment, opened by
    `Mp4Demuxer`), AES-128 (CommonCrypto, CBC per segment, the key fetched
    once), `EXT-X-MEDIA` audio renditions and variant switching. MP3 in TS
-   is untested; AC-3 and bitmap subtitles (PGS, DVB, VobSub) have no
-   FFmpeg-free decoder; DVB and ID3 timed metadata in TS are ignored.
+   is untested; AC-3 has no FFmpeg-free decoder; DVB and ID3 timed
+   metadata in TS are ignored.
 3. **Windows**: no software video decoder, so a machine without a GPU (or
    a codec its GPU lacks) plays no video; Media Foundation's software mode
    would cover it. AAC in ADTS and other audio codecs have no decoder,
@@ -159,9 +139,8 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    `tool/release.sh check` building Windows and Linux apps (it runs on
    macOS only); strip the AAR's prefab `liblychee.so` (6 MB per ABI
    against 0.3 MB in `jni/`); a stamp with the script's hash on
-   `third_party/ffmpeg/PLATFORM` and `third_party/libass/PLATFORM`, which
-   `tool/release.sh build` reuses as they are, so a changed build script
-   needs them deleted by hand (CI keys its caches on the scripts); the
+   `third_party/ffmpeg/PLATFORM`, which `tool/release.sh build` reuses
+   as it is, so a changed build script needs it deleted by hand (CI keys its caches on the scripts); the
    Linux job in a `ubuntu:22.04` container once GitHub retires that
    image.
 3. **Native SDKs**: drop the pod and the plugin's copy of
@@ -191,7 +170,7 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    - **Soak tests**: hours of looping, seeking and file switching on each
      platform's harness, checking memory and thread counts stay flat.
    - **Supply chain**: Dependabot (or Renovate) for the pinned Actions,
-     GLFW, FFmpeg and libass sources; SHA-pinned Actions; build provenance
+     GLFW and FFmpeg sources; SHA-pinned Actions; build provenance
      attestations and an SBOM for release assets.
    - **Fuzzing corpus**: merge it with libFuzzer's `-merge=1` if it grows
      past a few hundred MB; OSS-Fuzz once the project is public.

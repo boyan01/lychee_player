@@ -30,5 +30,5 @@ CheckOptions:
   # move by size_t; integer truncation (int64_t to int) is still flagged.
   bugprone-narrowing-conversions.WarnOnIntegerToFloatingPointNarrowingConversion: false
   bugprone-narrowing-conversions.WarnOnEquivalentBitWidth: false
-# The library, its tests and examples; not FFmpeg, libass or third_party.
+# The library, its tests and examples; not FFmpeg or third_party.
 HeaderFilterRegex: '/(core/(include|src|test|fuzz)|examples)/'

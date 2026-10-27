@@ -20,8 +20,6 @@
 #   FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh
 #                                 # The shipped FFmpeg (tool/build_ffmpeg.sh)
 #                                 # instead of the system's, in build-lgpl/
-#   LIBASS_ROOT=third_party/libass/macos-arm64 tool/regression.sh
-#                                 # The shipped libass (tool/build_libass.sh)
 #   NO_FFMPEG=1 tool/regression.sh  # macOS without FFmpeg, in build-noffmpeg/:
 #                                 # only the cases with MP4, Matroska,
 #                                 # WebM, MPEG-TS and HLS media, text subtitles
@@ -36,7 +34,7 @@ if [ "${TSAN:-0}" = 1 ]; then
   flags=(-DCMAKE_CXX_FLAGS=-fsanitize=thread -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread)
 elif [ "${ASAN:-0}" = 1 ]; then
   # Every language of the project's own code, so the Objective-C++
-  # backends are checked too. FFmpeg and libass are not instrumented.
+  # backends are checked too. FFmpeg is not instrumented.
   build="$root/build-asan"
   asan="-fsanitize=address,undefined -fno-omit-frame-pointer"
   flags=()
@@ -63,19 +61,6 @@ fi
 if [ "${NO_FFMPEG:-0}" = 1 ]; then
   build="$build-noffmpeg"
   flags+=(-DLYCHEE_WITH_FFMPEG=OFF)
-fi
-
-# Styled subtitles through the libass the apps ship
-# (LIBASS_ROOT=third_party/libass/macos-arm64, tool/build_libass.sh), or
-# where libass is installed; plain text ASS otherwise. Always passed, so
-# CMake's cache does not keep the last root.
-flags+=(-DLYCHEE_LIBASS_ROOT="$([ -z "${LIBASS_ROOT:-}" ] || { cd "$LIBASS_ROOT" && pwd; })")
-if [ -n "${LIBASS_ROOT:-}" ] || pkg-config --exists libass 2>/dev/null; then
-  flags+=(-DLYCHEE_WITH_LIBASS=ON)
-  libass=1
-else
-  flags+=(-DLYCHEE_WITH_LIBASS=OFF)
-  libass=0
 fi
 
 # Test media, generated once. Synthetic so the expected output is known.
@@ -891,10 +876,6 @@ for kind in pgs dvb vobsub; do
     "subtitle at 2\.[5-6][0-9]{2}s: \(none\)" "subtitle images: 1 \| 200x60 at 860,100 opaque=100% rgb=19[0-3]," \
     "summary: state=ended" -- "$media/sub_$kind.mkv"
 done
-# Styled ASS through libass: one picture of the two lines near the bottom.
-if [ "$libass" = 1 ]; then
-  par expect subtitle-ass-libass "subtitle images: 1 \| [0-9]+x[0-9]+ at [0-9]+,9[0-9]{2} " -- "$media/sub_ass.mkv"
-fi
 par expect subtitle-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line" -- --seek 3.5 --seek-after 0.5 "$media/sub_srt.mkv"
 par expect subtitle-mov-text-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line \| with break$" "<=0 Hello world" -- \
   --seek 3.5 --seek-after 0.5 "$media/sub_mov_text.mp4"

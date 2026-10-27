@@ -241,9 +241,8 @@ What each area needs (run `tool/changes.sh`):
   (`LycheeTexture` in `LycheePlayerPlugin.m`): fix both until CocoaPods
   support is dropped (roadmap, Distribution 3). For the core without
   FFmpeg: `NO_FFMPEG=1 tool/build_apple.sh` and `swift test --traits
-  NoFFmpeg`. When the shipped FFmpeg or libass builds
-  change: `FFMPEG_ROOT=third_party/ffmpeg/macos-arm64
-  LIBASS_ROOT=third_party/libass/macos-arm64 tool/regression.sh`.
+  NoFFmpeg`. When the shipped FFmpeg build changes:
+  `FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh`.
 - **android**: `sdk/android/gradlew -p sdk/android :lychee:publish
   :example:assembleDebug` (zero warnings), install the example on an
   emulator or a phone and look at screenshots of `h264_aac.mp4` and
@@ -339,10 +338,10 @@ jobs: those stay local.
   from the release `flutter/prebuilt.json` pins, also inside this
   repository: an example built from a fresh checkout runs the released
   core, not the checkout's. Local builds win only when complete:
-  all eight xcframeworks (lychee, FFmpeg's five, libass, libfribidi) in
+  all six xcframeworks (lychee, FFmpeg's five) in
   `flutter/darwin/Frameworks` without a `.prebuilt` stamp (the pod's mark
   of a download), and `sdk/android/build/repo`. A release brings the
-  xcframeworks its pins list (1.0.0-beta.1 had no libass).
+  xcframeworks its pins list.
 - The plugin's iOS/macOS sources live in
   `flutter/darwin/lychee_player/Sources/lychee_player`, where Flutter's
   Swift Package Manager integration wants them; the podspec compiles the
@@ -390,14 +389,8 @@ jobs: those stay local.
   Homebrew has: the core follows the current FFmpeg API (e.g.
   `sws_free_context`). After a new FFmpeg build, rerun all of them and
   `pod install` in `flutter/example/macos` and `flutter/example/ios`.
-  Styled ASS needs libass the same way, once per platform:
-  `tool/build_libass.sh PLATFORM` into `third_party/libass/` (needs
-  `meson`; `tool/release.sh build apple|android DIR` downloads the pinned
-  sources and builds what is missing), before
-  `tool/package_ffmpeg_apple.sh`; `tool/build_apple.sh` and the SDK's
-  Gradle build stop without it. Check the shipped one with
-  `LIBASS_ROOT=third_party/libass/macos-arm64 tool/regression.sh` and
-  look at `lychee_cli --subtitle-ppm`.
+  Subtitles stay basic (decided 2026-10-27): text, and bitmap subtitles
+  as pictures; ASS shows as its plain text, with no libass.
 - The iOS simulator slice must hold both arm64 and x86_64: Flutter builds the
   simulator for both, and CocoaPods silently copies nothing from an
   xcframework slice that lacks one, so the app fails to link with

@@ -353,15 +353,6 @@ void FFmpegDemuxer::BuildMediaInfo() {
         artwork_is_front = front;
       }
     }
-    if (par->codec_type == AVMEDIA_TYPE_ATTACHMENT && par->extradata_size > 0 &&
-        (par->codec_id == AV_CODEC_ID_TTF || par->codec_id == AV_CODEC_ID_OTF)) {
-      const AVDictionaryEntry* filename =
-          av_dict_get(stream->metadata, "filename", nullptr, 0);
-      media_info_.fonts.push_back(
-          {filename ? filename->value : "",
-           std::make_shared<const std::vector<uint8_t>>(
-               par->extradata, par->extradata + par->extradata_size)});
-    }
     StreamInfo info;
     info.index = static_cast<int>(i);
     info.duration = ToMicros(stream->duration, stream->time_base);

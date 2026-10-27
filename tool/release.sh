@@ -8,11 +8,10 @@
 #                                      a "## VERSION" section
 #   tool/release.sh sources DIR        download the pinned FFmpeg and Mbed TLS
 #                                      sources into DIR (release assets too:
-#                                      the LGPL asks for the source), and
-#                                      libass's with its font
+#                                      the LGPL asks for the source)
 #   tool/release.sh build apple|android|linux|windows SOURCES
-#                                      build FFmpeg and libass (platforms
-#                                      already in third_party are kept) and the
+#                                      build FFmpeg (platforms already in
+#                                      third_party are kept) and the
 #                                      xcframeworks or the AAR; linux and
 #                                      windows build only FFmpeg (the
 #                                      plugins compile the core), linux for
@@ -33,7 +32,7 @@
 #   tool/release.sh notes              print the CHANGELOG section of the
 #                                      pubspec's version
 #
-# The assets: NAME.xcframework.zip for the eight Apple frameworks (what
+# The assets: NAME.xcframework.zip for the six Apple frameworks (what
 # SwiftPM's binaryTarget takes; the pod unzips the same files) and
 # lychee_noffmpeg, the core without FFmpeg (the Swift package's NoFFmpeg
 # trait),
@@ -52,7 +51,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 pubspec="$root/flutter/pubspec.yaml"
 manifest="$root/flutter/prebuilt.json"
-frameworks=(lychee libavformat libavcodec libswresample libswscale libavutil libass libfribidi)
+frameworks=(lychee libavformat libavcodec libswresample libswscale libavutil)
 # What the release has besides: the core without FFmpeg, for SwiftPM only.
 release_frameworks=("${frameworks[@]}" lychee_noffmpeg)
 apple_platforms=(macos-arm64 macos-x86_64 ios-arm64 ios-sim-arm64 ios-sim-x86_64)
@@ -64,24 +63,6 @@ ffmpeg_url=https://ffmpeg.org/releases/ffmpeg-$ffmpeg_version.tar.xz
 mbedtls_version=3.6.7
 mbedtls_sha256=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6
 mbedtls_url=https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$mbedtls_version/mbedtls-$mbedtls_version.tar.bz2
-
-# libass and what tool/build_libass.sh links into it; FriBidi is LGPL 2.1.
-# The Liberation fonts give Android its default font (SIL OFL 1.1).
-libass_version=0.17.5
-libass_sha256=2dca25c0e0c837ddf00b52011b3f82cac1e4ddd3ad018227806b0c2288864acc
-libass_url=https://github.com/libass/libass/releases/download/$libass_version/libass-$libass_version.tar.xz
-freetype_version=2.15.0
-freetype_sha256=93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5
-freetype_url=https://download.savannah.gnu.org/releases/freetype/freetype-$freetype_version.tar.xz
-harfbuzz_version=15.0.0
-harfbuzz_sha256=968536e9abd782f07f7954044c0c4020199fcdd39b41d221ec42d2a3be4a44df
-harfbuzz_url=https://github.com/harfbuzz/harfbuzz/releases/download/$harfbuzz_version/harfbuzz-$harfbuzz_version.tar.xz
-fribidi_version=1.0.17
-fribidi_sha256=6949dcde27d41cebad1fd741fcafc36d55a1020d2d872d4a6eb3914caabbada2
-fribidi_url=https://github.com/fribidi/fribidi/releases/download/v$fribidi_version/fribidi-$fribidi_version.tar.xz
-fonts_version=2.1.5
-fonts_sha256=7191c669bf38899f73a2094ed00f7b800553364f90e2637010a69c0e268f25d0
-fonts_url=https://github.com/liberationfonts/liberation-fonts/files/7261482/liberation-fonts-ttf-$fonts_version.tar.gz
 
 die() { echo "release.sh: $*" >&2; exit 1; }
 sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
@@ -124,25 +105,6 @@ cmd_sources() {
   mkdir -p "$dir"
   download "$ffmpeg_url" "$dir/ffmpeg-$ffmpeg_version.tar.xz" "$ffmpeg_sha256"
   download "$mbedtls_url" "$dir/mbedtls-$mbedtls_version.tar.bz2" "$mbedtls_sha256"
-  download "$libass_url" "$dir/libass-$libass_version.tar.xz" "$libass_sha256"
-  download "$freetype_url" "$dir/freetype-$freetype_version.tar.xz" "$freetype_sha256"
-  download "$harfbuzz_url" "$dir/harfbuzz-$harfbuzz_version.tar.xz" "$harfbuzz_sha256"
-  download "$fribidi_url" "$dir/fribidi-$fribidi_version.tar.xz" "$fribidi_sha256"
-  download "$fonts_url" "$dir/liberation-fonts-ttf-$fonts_version.tar.gz" "$fonts_sha256"
-}
-
-# build_libass PLATFORM SOURCES: tool/build_libass.sh, unless
-# third_party/libass/PLATFORM exists.
-build_libass() {
-  local src="$root/build-libass/src" f
-  [ -d "$root/third_party/libass/$1" ] && return 0
-  mkdir -p "$src"
-  for f in libass-$libass_version freetype-$freetype_version harfbuzz-$harfbuzz_version fribidi-$fribidi_version; do
-    [ -d "$src/$f" ] || tar xJf "$2/$f.tar.xz" -C "$src"
-  done
-  [ -d "$src/liberation-fonts-ttf-$fonts_version" ] || tar xzf "$2/liberation-fonts-ttf-$fonts_version.tar.gz" -C "$src"
-  "$root/tool/build_libass.sh" "$1" "$src/libass-$libass_version" "$src/freetype-$freetype_version" \
-    "$src/harfbuzz-$harfbuzz_version" "$src/fribidi-$fribidi_version" "$src/liberation-fonts-ttf-$fonts_version"
 }
 
 # Linux FFmpeg is built natively, for this machine's architecture.
@@ -169,9 +131,6 @@ cmd_build() {
         [ "$p" != macos-x86_64 ] || command -v nasm >/dev/null || die "macos-x86_64 needs nasm"
         "$root/tool/build_ffmpeg.sh" "$p" "$src/ffmpeg-$ffmpeg_version"
       done
-      for p in "${apple_platforms[@]}"; do
-        build_libass "$p" "$sources"
-      done
       "$root/tool/package_ffmpeg_apple.sh"
       "$root/tool/build_apple.sh"
       NO_FFMPEG=1 "$root/tool/build_apple.sh"
@@ -181,9 +140,6 @@ cmd_build() {
       for p in "${android_platforms[@]}"; do
         [ -d "$root/third_party/ffmpeg/$p" ] && continue
         "$root/tool/build_ffmpeg.sh" "$p" "$src/ffmpeg-$ffmpeg_version" "$src/mbedtls-$mbedtls_version"
-      done
-      for p in "${android_platforms[@]}"; do
-        build_libass "$p" "$sources"
       done
       "$root/sdk/android/gradlew" -p "$root/sdk/android" :lychee:publish
       ;;

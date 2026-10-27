@@ -3,25 +3,21 @@
 // LycheePlayer for macOS and iOS: a Swift player over the C ABI
 // (lychee/lychee.h), a display-link frame driver and a view.
 //
-// The core, FFmpeg and libass come prebuilt, as the xcframeworks the Flutter
-// plugin vendors from flutter/darwin/Frameworks: lychee.xcframework
-// (tool/build_apple.sh), the LGPL-only FFmpeg ones (tool/build_ffmpeg.sh)
-// and libass with FriBidi (tool/build_libass.sh), packaged by
-// tool/package_ffmpeg_apple.sh.
+// The core and FFmpeg come prebuilt, as the xcframeworks the Flutter plugin
+// vendors from flutter/darwin/Frameworks: lychee.xcframework
+// (tool/build_apple.sh) and the LGPL-only FFmpeg ones (tool/build_ffmpeg.sh,
+// packaged by tool/package_ffmpeg_apple.sh). Both show ASS as plain text.
 //
-// The NoFFmpeg trait takes the core without FFmpeg and libass instead
+// The NoFFmpeg trait takes the core without FFmpeg instead
 // (lychee_noffmpeg.xcframework, NO_FFMPEG=1 tool/build_apple.sh): MP4,
 // Matroska and WebM, MPEG-TS and HLS through the core's own demuxers,
-// VideoToolbox and AudioToolbox, ASS as plain text, and nothing under the
-// LGPL. An app enables one of the two traits, e.g.
+// VideoToolbox and AudioToolbox, and nothing under the LGPL. An app enables one of the two traits, e.g.
 // `.package(path: "sdk/apple", traits: ["NoFFmpeg"])`.
 
 import Foundation
 import PackageDescription
 
-let ffmpeg = [
-  "lychee", "libavformat", "libavcodec", "libswresample", "libswscale", "libavutil", "libass", "libfribidi",
-]
+let ffmpeg = ["lychee", "libavformat", "libavcodec", "libswresample", "libswscale", "libavutil"]
 // Only once built: SwiftPM refuses a binary target without its xcframework.
 let noFFmpeg = FileManager.default.fileExists(
   atPath: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -36,8 +32,8 @@ let package = Package(
     .library(name: "LycheePlayer", targets: ["LycheePlayer"]),
   ],
   traits: [
-    .trait(name: "FFmpeg", description: "The core with FFmpeg and libass (LGPL)"),
-    .trait(name: "NoFFmpeg", description: "The core without FFmpeg and libass"),
+    .trait(name: "FFmpeg", description: "The core with FFmpeg (LGPL)"),
+    .trait(name: "NoFFmpeg", description: "The core without FFmpeg"),
     .default(enabledTraits: ["FFmpeg"]),
   ],
   targets: [
