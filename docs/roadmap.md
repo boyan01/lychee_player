@@ -38,8 +38,7 @@ building on top of them.
    slower still).
 4. **Apple without FFmpeg**: AV1 on an M3 or A17 Pro, VP9 on iOS 26.2 or
    later (no runtime here), A/V sync of Opus and MP3 against a reference
-   clip, `swift build --traits NoFFmpeg` against the root package's URL
-   from a scratch app, and a single TS file whose timestamps start over
+   clip, and a single TS file whose timestamps start over
    (no test media).
 
 ## Known defects
