@@ -202,10 +202,12 @@ case "$platform" in
     [ -z "$foreign" ] || { printf 'links outside the SDK:\n%s\n' "$foreign" >&2; exit 1; }
     ;;
   linux-*)
-    # Only the system libraries named above; OpenSSL would make it LGPL 3.
+    # Only the system libraries named above, and glibc's dynamic loader,
+    # which aarch64 builds link for symbols glibc keeps there; OpenSSL
+    # would make it LGPL 3.
     foreign="$(for lib in "$out"/lib/*.so.*[0-9]; do readelf -d "$lib"; done |
       sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | sort -u |
-      grep -vE '^(libc|libm|libz|libva|libva-drm|libdrm|libgnutls|libav(util|codec|format)|libsw(resample|scale))\.so\.[0-9]+$' || true)"
+      grep -vE '^(ld-linux-aarch64|libc|libm|libz|libva|libva-drm|libdrm|libgnutls|libav(util|codec|format)|libsw(resample|scale))\.so\.[0-9]+$' || true)"
     [ -z "$foreign" ] || { printf 'unexpected dependencies:\n%s\n' "$foreign" >&2; exit 1; }
     ;;
   windows-*)

@@ -306,9 +306,14 @@ in a window; OpenGL ES on Linux since 2026-10-26, Platforms 2) and its own
    plugin falls back to BtbN's pin: delete the fallback then. arm64 is
    built the same way on GitHub's `ubuntu-22.04-arm` runner
    (`tool/build_ffmpeg.sh linux-arm64`, `ffmpeg-linux-arm64.tar.xz`;
-   2026-10-27, not yet run there). Left for the user once a release has
-   it: the Flutter example playing in an arm64 Ubuntu VM, software
-   decoding. Hardware decoding on arm64 is not checked. Checked in WSL (2026-10-27): `NO_HW=1
+   2026-10-27, not yet run there). In an arm64 Ubuntu 24.04 VM (VMware
+   Fusion, 2 cores, 2026-10-27) the script builds it once glibc's
+   `ld-linux-aarch64.so.1`, which aarch64 libraries link, is allowed, and
+   `NO_HW=1 FFMPEG_ROOT=... tool/regression.sh` passes except
+   `realtime-loop`: the VM's sound card plays slow (`aplay` takes 7 s
+   for 3 s), so the realtime cases drift by seconds there. The user
+   decided the core is enough: no Flutter example on arm64. Hardware
+   decoding on arm64 is not checked. Checked in WSL (2026-10-27): `NO_HW=1
    FFMPEG_ROOT=... tool/regression.sh` passes except `realtime-loop`
    (WSLg's audio clock, below; max_drift 24 ms) and `seek-vp9` (lands at
    7.474 s for 7.5; the same with BtbN's FFmpeg in WSL, and it passes on
