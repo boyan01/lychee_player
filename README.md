@@ -395,8 +395,7 @@ builds win: the xcframeworks in `flutter/darwin/Frameworks` and the AAR in
   Needs minSdk 26 (AAudio).
 - **Windows**: `flutter build windows`. The plugin downloads the FFmpeg
   that `flutter/prebuilt.json` pins (`ffmpeg-windows-x86_64.zip`, the
-  release's decode-only LGPL 2.1 build, 8 MB of DLLs; BtbN's LGPLv3 one
-  while the pinned release has none) at configure time and ships its DLLs
+  release's decode-only LGPL 2.1 build, 8 MB of DLLs) at configure time and ships its DLLs
   next to the app; `LYCHEE_FFMPEG_ROOT` (CMake or environment) names a
   local one instead, e.g. from `tool/build_ffmpeg.sh windows-x86_64 SRC`,
   which cross-compiles on Linux (`mingw-w64`, `libz-mingw-w64-dev`,
@@ -407,8 +406,7 @@ builds win: the xcframeworks in `flutter/darwin/Frameworks` and the AAR in
 - **Linux**: `flutter build linux`. The plugin downloads the FFmpeg that
   `flutter/prebuilt.json` pins (`ffmpeg-linux-x86_64.tar.xz` or
   `ffmpeg-linux-arm64.tar.xz`, the release's decode-only LGPL 2.1 build,
-  8 MB of libraries; BtbN's LGPLv3 one while the pinned release has
-  none) into
+  8 MB of libraries) into
   `~/.cache/lychee_player` on first configure and bundles it next to
   `liblychee_player.so`; `LYCHEE_PREBUILT_URL` mirrors it and
   `LYCHEE_FFMPEG_ROOT` (CMake or environment) names a local one instead,
@@ -471,8 +469,7 @@ is for development only. The macOS and iOS builds from
 `tool/build_ffmpeg.sh` are LGPL 2.1+ (the script checks configure's license
 line), and so are the Windows build (Schannel for https) and the Linux
 build (GnuTLS, LGPL 2.1+, the system's); the Android build is LGPL 3+,
-because it links mbedTLS (Apache-2.0) for https, and so is BtbN's Linux
-download (until a release carries ours). Distributed apps
+because it links mbedTLS (Apache-2.0) for https. Distributed apps
 must ship an LGPL-only FFmpeg (no `--enable-gpl` / `--enable-nonfree`),
 linked dynamically.
 

@@ -74,31 +74,14 @@ is a trademark
 of Fabrice Bellard, originator of the FFmpeg project.
 
 The FFmpeg libraries are built without --enable-gpl and without
---enable-nonfree. Where they come from depends on the platform:
-
-- macOS, iOS, Android, Windows and Linux: built by
-  tool/build_ffmpeg.sh in the lychee_player repository from the FFmpeg
-  release whose source is attached to each lychee_player release
-  (https://github.com/boyan01/lychee_player/releases,
-  ffmpeg-VERSION.tar.xz). They contain FFmpeg only, plus Mbed TLS on
-  Android (3) and zlib and the mingw-w64 runtime on Windows (4). On Linux
-  they use the system's GnuTLS (LGPL 2.1 or later), libva, libdrm and
-  zlib, linked dynamically and not shipped. (A checkout of the
-  repository between releases that pin no Windows or Linux FFmpeg of its
-  own downloads BtbN's, below.)
-- BtbN's build, which a checkout between releases downloads on Windows
-  and Linux: a prebuilt "lgpl-shared" FFmpeg, under the LGPL version 3
-  or later, from BtbN's FFmpeg-Builds
-  (https://github.com/BtbN/FFmpeg-Builds, release
-  autobuild-2026-09-30-13-08), built from FFmpeg revision
-  n9.0.2-17-g2a571b6068 (https://github.com/FFmpeg/FFmpeg/commit/2a571b6068,
-  on the release/9.0 branch; not the ffmpeg-9.0.2 release attached to
-  lychee_player's releases) by that project's scripts at that release.
-  Those libraries also contain other libraries linked in statically
-  (among them OpenSSL, dav1d, libvpx, libaom, Opus, LAME, libass,
-  FreeType, HarfBuzz and libxml2), each under its own license. Their
-  notices are not in this file: an app that ships these FFmpeg
-  libraries must take them from BtbN's build.
+--enable-nonfree, on every platform by tool/build_ffmpeg.sh in the
+lychee_player repository from the FFmpeg release whose source is
+attached to each lychee_player release
+(https://github.com/boyan01/lychee_player/releases,
+ffmpeg-VERSION.tar.xz). They contain FFmpeg only, plus Mbed TLS on
+Android (3) and zlib and the mingw-w64 runtime on Windows (4). On Linux
+they use the system's GnuTLS (LGPL 2.1 or later), libva, libdrm and
+zlib, linked dynamically and not shipped.
 
 You may replace the FFmpeg libraries in an app with your own build of the
 same version.

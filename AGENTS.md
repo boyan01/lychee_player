@@ -190,8 +190,8 @@ The layers, lowest first:
      2026-10-27 and decodes through VAAPI (iHD). Test VAAPI with our
      FFmpeg (`tool/build_ffmpeg.sh linux-x86_64`, then
      `LYCHEE_FFMPEG_ROOT=third_party/ffmpeg/linux-x86_64` for the core's
-     CMake and for `flutter build linux`): BtbN's aborts there (roadmap,
-     known defect 3). NVIDIA's VAAPI driver hangs, and the player
+     CMake and for `flutter build linux`, or the release's asset).
+     NVIDIA's VAAPI driver hangs, and the player
      falls back to software after 4 s; `nvidia-vaapi-driver` is not
      installed there since 2026-10-27, so libva cannot pick it.
      `lychee_cli --dmabuf /dev/dri/renderDN` decodes into dmabufs on

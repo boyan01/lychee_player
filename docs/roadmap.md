@@ -99,18 +99,6 @@ rather than reopening; callers reopen from their own thread. Unit tests
 are off in a shared-library build (`LYCHEE_BUILD_TESTS` needs the static
 core's internals).
 
-3. **BtbN's FFmpeg aborts at the first VAAPI frame on older libva**: the
-   Linux plugin takes BtbN's FFmpeg until a release pins ours (both
-   architectures from the next release on, 2026-10-27). It loads libva through implib-gen stubs built
-   against a newer libva, and mapping the first hardware frame calls
-   `vaMapBuffer2` (libva 2.21+). Ubuntu 24.04's libva 2.20 lacks it, so
-   on an Intel iGPU (2026-10-27) the stub asserts and the process aborts
-   for h264, hevc10 and vp9 alike; machines without a working VA driver
-   never get that far. Our own build links the system's libva and plays
-   (Platforms, Linux VAAPI). Until then apps can pass
-   `hardwareDecoding: false` on Linux. Done when a release pins ours for
-   x86_64 and arm64 and the BtbN fallback is gone.
-
 ## Features
 
 1. **Live input in flutter-airplay**: the core plays pushed packets
@@ -218,7 +206,9 @@ FFmpeg's software frames (45, 46, 31 and 75 dB) and seek and pause
 through `--key`; the Flutter example under Impeller (profile,
 `--seconds 6`) h264 172 rendered and 0 dropped, hevc10 139 and 0 three
 times in a row, rotated 172 and 1 (at the start), controls drawn. With
-BtbN's FFmpeg it aborts instead (known defect 3). NVIDIA's
+BtbN's FFmpeg, which the plugin took before 1.0.0-beta.2, it aborted
+instead: its implib-gen libva stubs call `vaMapBuffer2` (libva 2.21+),
+which Ubuntu 24.04's 2.20 lacks. NVIDIA's
 `nvidia-vaapi-driver` 0.0.8 (EGL backend, `renderD129` through
 `lychee_cli --dmabuf`) never returns h264 or vp9 frames; the player gives
 up on it after 4 s and plays on in software, as it does with VideoToolbox's
@@ -246,9 +236,8 @@ in a window; OpenGL ES on Linux since 2026-10-26, Platforms 2) and its own
    the release carries `ffmpeg-windows-x86_64.zip`, which
    `flutter/prebuilt.json` pins and `flutter/windows/ffmpeg.cmake`
    downloads (`LYCHEE_PREBUILT_URL` mirrors it; `LYCHEE_FFMPEG_ROOT`,
-   CMake or environment, overrides it). 1.0.0-beta.1 carries none, so
-   until the next release pins one the plugin falls back to BtbN's pin:
-   delete that fallback then. Checked on Windows with the WSL build served
+   CMake or environment, overrides it). From 1.0.0-beta.2 on; the
+   fallback to BtbN's build before it is gone. Checked on Windows with the WSL build served
    as the pinned asset: the example plays `h264_aac.mp4`, `hevc10.mp4` and
    `vp9_opus.webm` with D3D11VA (`hw`), seeks and 1.5x, 0 dropped, and an
    https mp4 through Schannel; the integration test passes; a fresh app
@@ -294,11 +283,10 @@ in a window; OpenGL ES on Linux since 2026-10-26, Platforms 2) and its own
    and `flutter/linux/ffmpeg.cmake` downloads into `~/.cache/lychee_player`
    (`LYCHEE_PREBUILT_URL` mirrors it; `LYCHEE_FFMPEG_ROOT`, CMake or
    environment, overrides it), checking each library's license string.
-   1.0.0-beta.1 carries none, so until the next release pins one the
-   plugin falls back to BtbN's pin: delete the fallback then. arm64 is
-   built the same way on GitHub's `ubuntu-22.04-arm` runner
-   (`tool/build_ffmpeg.sh linux-arm64`, `ffmpeg-linux-arm64.tar.xz`;
-   2026-10-27, not yet run there). In an arm64 Ubuntu 24.04 VM (VMware
+   1.0.0-beta.2 is the first release to carry it; the fallback to BtbN's
+   build is gone. arm64 is built the same way on GitHub's
+   `ubuntu-22.04-arm` runner (`tool/build_ffmpeg.sh linux-arm64`,
+   `ffmpeg-linux-arm64.tar.xz`; first run for 1.0.0-beta.2, 2026-10-27). In an arm64 Ubuntu 24.04 VM (VMware
    Fusion, 2 cores, 2026-10-27) the script builds it once glibc's
    `ld-linux-aarch64.so.1`, which aarch64 libraries link, is allowed, and
    `NO_HW=1 FFMPEG_ROOT=... tool/regression.sh` passes except
@@ -661,10 +649,9 @@ Left:
    127.0.0.1, which ATS allows) in hardware, 219 frames, 0 dropped in
    7.3 s; `vp9_opus.webm` plays its Opus audio only, the video refused
    ("VP9 needs iOS 26.2": VideoToolbox decodes VP9 from there, and no
-   iPhone 16 runtime here is that new). Waiting on the next release: the
-   root `Package.swift` still pins 1.0.0-beta.1, which has no
-   `lychee_noffmpeg`; once a release carries it, check `swift build
-   --traits NoFFmpeg` against the URL package from a scratch app.
+   iPhone 16 runtime here is that new). 1.0.0-beta.2 carries
+   `lychee_noffmpeg`; left: check `swift build --traits NoFFmpeg`
+   against the URL package from a scratch app.
 4. Windows leftovers: without FFmpeg there is no software video
    decoder, so a machine without a GPU (or a codec its GPU lacks) plays
    no video; Media Foundation's software mode would cover it. AAC in
@@ -740,8 +727,7 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    `tool/build_ffmpeg.sh` + `tool/package_ffmpeg_apple.sh` (the macOS
    example loads only them, 2026-10-25), Android from `tool/build_ffmpeg.sh`,
    Windows from the release (our build, LGPL 2.1 with Schannel; Platforms
-   1), Linux as BtbN's LGPLv3 download until the next release carries
-   ours (Platforms 2). The Apple and Android builds enable only the formats the core plays (about
+   1), Linux likewise from 1.0.0-beta.2 (Platforms 2). The Apple and Android builds enable only the formats the core plays (about
    7 MB per architecture, from 15; 2026-10-25), and
    `FFMPEG_ROOT=... tool/regression.sh` checks them. Android's links
    mbedTLS for https, so it is LGPLv3; the core gives mbedTLS Android's
@@ -759,14 +745,10 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    pub package (`core/`). Only the
    development CMake build (CLI, GLFW example, `tool/regression.sh`
    without `FFMPEG_ROOT`) still links Homebrew's GPL FFmpeg.
-   BtbN's Linux build (and the Windows fallback) links OpenSSL, dav1d,
-   libvpx, libaom, Opus, LAME, libass and more statically (their avcodec
-   configuration),
-   whose notices we do not ship; `THIRD_PARTY_NOTICES` now says so and
-   names BtbN's revision (n9.0.2-17-g2a571b6068), which is not the
-   ffmpeg-9.0.2 source the releases attach. Our own FFmpeg-only builds
-   fix both: done for Windows (its notices add zlib and the mingw-w64
-   runtime), for Linux from the next release (Platforms 2).
+   BtbN's builds, which Windows and Linux took before, linked OpenSSL,
+   dav1d, libvpx, libaom and more statically, whose notices we did not
+   ship; our own FFmpeg-only builds replace them from 1.0.0-beta.2 (the
+   Windows notices add zlib and the mingw-w64 runtime).
    The playback matrix runs through the shipped macOS FFmpeg
    (`FFMPEG_ROOT=third_party/ffmpeg/macos-arm64`) in CI's `apple` job
    and in `release.yml` before anything is packed (2026-10-26; its
@@ -822,22 +804,22 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    with `network.client`) and the Android emulator it plays
    `h264_aac.mp4` over http in hardware, with the frameworks and the AAR
    downloaded from the release. Left: 1.0.0, once the beta has been used.
-   The next release adds `libass.xcframework.zip` and
+   1.0.0-beta.2 is out (2026-10-27; 21 assets, pub.dev lists it). Its
+   first run failed only on `realtime-rate`'s timing on the hosted Mac, so
+   the release workflow's regression now warns on realtime timing, as
+   CI's hosted runners do. A release needs no check after publishing:
+   `tool/release.sh check` in `release.yml` already builds fresh apps
+   against the same package and assets (the user, 2026-10-27); a fresh
+   app from pub.dev on every platform only before 1.0.0. 1.0.0-beta.2 added `libass.xcframework.zip` and
    `libfribidi.xcframework.zip` (eight frameworks) and the libass,
    FreeType, HarfBuzz, FriBidi and Liberation fonts sources; the pod and
    the root `Package.swift` take a release's frameworks from its pins, so
    the beta.1 pins keep working. Checked here (2026-10-26): every release
    step into a scratch directory, ending with `tool/release.sh check`
    (fresh macOS, iOS simulator and Android apps download all eight and
-   carry libass); not yet run on GitHub's runners, which now install
-   meson.
+   carry libass); on GitHub's runners for 1.0.0-beta.2.
    Later: the AAR on Maven Central too (what native Android users
-   expect; needs a Sonatype account for `tech.soit`); the next release
-   carries the Linux FFmpeg (`ffmpeg-linux-x86_64.tar.xz` and
-   `ffmpeg-linux-arm64.tar.xz`, LGPL 2.1 with GnuTLS; Platforms 2) in
-   place of BtbN's, after which the BtbN fallback in
-   `flutter/linux/ffmpeg.cmake` goes (the job, the pack step
-   and the CMake are done, 2026-10-27; not yet run on GitHub);
+   expect; needs a Sonatype account for `tech.soit`);
    `tool/release.sh check` building
    a Windows app (it runs on macOS; the Windows check above was by hand);
    strip the AAR's prefab `liblychee.so` (6 MB per ABI against 0.3 MB in
