@@ -1434,17 +1434,24 @@ void Player::UpdateState() {
   UpdateSubtitleLocked();
 }
 
-void Player::UpdateVideoSizeLocked() {
-  int width;
-  int height;
-  if (!video_renderer_ || !video_renderer_->shown_size(&width, &height)) {
-    return;
+bool Player::ShownSizeLocked(int* width, int* height) const {
+  if (!video_renderer_ || !video_renderer_->shown_size(width, height)) {
+    return false;
   }
   // The container's pixel aspect ratio still applies.
   VideoConfig shown = media_info_.streams[video_stream_].video;
-  shown.width = width;
-  shown.height = height;
-  width = shown.display_width();
+  shown.width = *width;
+  shown.height = *height;
+  *width = shown.display_width();
+  return true;
+}
+
+void Player::UpdateVideoSizeLocked() {
+  int width;
+  int height;
+  if (!ShownSizeLocked(&width, &height)) {
+    return;
+  }
   if (width != video_width_ || height != video_height_) {
     LOGI("video size %dx%d -> %dx%d", video_width_, video_height_, width,
          height);
@@ -1531,8 +1538,15 @@ bool Player::SettledForTesting(int64_t until) const {
   if (video_renderer_) {
     video_renderer_->ExpireFramesWhileHidden(NowMicros());
   }
-  // The control thread also publishes subtitle changes then: wait for it,
-  // or virtual time can run past a cue before anyone saw it.
+  // The control thread also publishes size and subtitle changes then: wait
+  // for it, or virtual time can run past a rendition or a cue before
+  // anyone saw it.
+  int width;
+  int height;
+  if (ShownSizeLocked(&width, &height) &&
+      (width != video_width_ || height != video_height_)) {
+    return false;
+  }
   if (const SubtitleRenderer* renderer = SelectedSubtitleLocked()) {
     const int64_t now = clock_.Now() - LoopOffsetLocked(clock_.Now());
     if (renderer->TextAt(now) != subtitle_text_ ||

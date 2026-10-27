@@ -64,6 +64,11 @@ on top of them.
    `subtitle-mid-cue`) are fixed: time ran ahead of a slow live decoder,
    and of events still waiting for the control thread's next 10 ms tick;
    24 runs six at once now give the same counts every run.
+   `live-latency` missed its `live_vbuf` range once (2026-10-27), in a
+   run of most cases at once on the Mac; five runs since did not repeat
+   it. CI's TSan job missed `loop-ts`'s 640x360 event once: virtual time
+   ran past the rendition between two control-thread ticks, so it now
+   waits for a size change to be published, as for subtitles.
 2. **A video stream switched on over input that cannot seek starts at
    the read position**: on input that cannot seek
    (`lychee_player_is_seekable()` 0, e.g. an http server without range

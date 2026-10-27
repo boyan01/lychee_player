@@ -271,6 +271,8 @@ class Player {
   void FinishSeekLocked();
   void UpdateState();
   void UpdateVideoSizeLocked();
+  // The display size of the frame on screen, false before one is shown.
+  bool ShownSizeLocked(int* width, int* height) const;
   void UpdateSubtitleLocked();
   void ApplyPlayingLocked();
   bool PrerollDoneLocked() const;
