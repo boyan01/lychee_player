@@ -68,7 +68,11 @@ on top of them.
    run of most cases at once on the Mac; five runs since did not repeat
    it. CI's TSan job missed `loop-ts`'s 640x360 event once: virtual time
    ran past the rendition between two control-thread ticks, so it now
-   waits for a size change to be published, as for subtitles.
+   waits for a size change to be published, as for subtitles. Also once
+   on CI's TSan job (2026-10-27): `http-lost` failed at the open with
+   "HTTP 503" instead of "input ended at": the Apple http source reads up
+   to 16 MB ahead, so the server's drop at 3 MB and the refused retry
+   can come before a slow open has finished. Not yet made robust.
 2. **A video stream switched on over input that cannot seek starts at
    the read position**: on input that cannot seek
    (`lychee_player_is_seekable()` 0, e.g. an http server without range

@@ -956,8 +956,10 @@ if [ "${NO_FFMPEG:-0}" != 1 ]; then
     "summary: state=ended position=8\.[0-9]{3}s .*pulled=24[0-2] .*backward_jumps=0 " -- \
     --select audio:2 --select-after 5 "http://127.0.0.1:$port/tracks.mkv"
   # A rebuild may skip a frame, as decoder-lost allows (the new renderer
-  # goes on after the frame on screen), not the read-ahead's ~120.
-  seq_ expect http-no-ranges-decoder-lost "video rebuilt: resumed [+-]0\.0[0-9]{2}s" "<=0 event: state error" \
+  # goes on after the frame on screen), not the read-ahead's ~120. The
+  # CLI's "resumed" line needs it to see the buffering in between, which
+  # it missed twice on CI's loaded VMs; the frame count says the same.
+  seq_ expect http-no-ranges-decoder-lost "video rebuilt" "<=0 event: state error" \
     "summary: state=ended position=12\.000s .*pulled=3(5[5-9]|6[0-9]) .*backward_jumps=0 " -- \
     --lose-decoder-after 2 "$url"
 fi

@@ -1027,8 +1027,10 @@ int main(int argc, char** argv) {
 
   // Virtual time only: vsyncs where the player's threads did not catch up
   // within kStallTimeout of real time. After kMaxStalls the pipeline is
-  // taken to be stuck, and the run stops.
-  constexpr auto kStallTimeout = std::chrono::seconds(2);
+  // taken to be stuck, and the run stops. Long enough for a sanitizer build
+  // on a CI VM to decode in software from a keyframe to a seek's target
+  // (seek-ts-hevc10 took over 2 s under ASan).
+  constexpr auto kStallTimeout = std::chrono::seconds(10);
   constexpr int64_t kMaxStalls = 5;
   int64_t stalls = 0;
 
