@@ -15,7 +15,8 @@
 #                                      already in third_party are kept) and the
 #                                      xcframeworks or the AAR; linux and
 #                                      windows build only FFmpeg (the
-#                                      plugins compile the core), windows
+#                                      plugins compile the core), linux for
+#                                      this machine's architecture, windows
 #                                      cross-compiled on Linux (mingw-w64)
 #   tool/release.sh pack apple|android|linux|windows OUT
 #                                      write the release assets into OUT
@@ -38,8 +39,9 @@
 # trait),
 # lychee-VERSION.aar and .pom (the Flutter plugin lays them out as a Maven
 # repository), ffmpeg-windows-x86_64.zip (the Windows plugin's FFmpeg:
-# bin/*.dll, lib/*.lib, include/), ffmpeg-linux-x86_64.tar.xz (the Linux
-# plugin's: lib/*.so*, include/), and the source archives.
+# bin/*.dll, lib/*.lib, include/), ffmpeg-linux-x86_64.tar.xz and
+# ffmpeg-linux-arm64.tar.xz (the Linux plugin's: lib/*.so*, include/; each
+# built on its architecture), and the source archives.
 #
 # pub packs flutter/ only, and the Windows and Linux plugins compile the
 # core: while pub runs, flutter/core is a copy of core/ (gitignored there;
@@ -143,6 +145,15 @@ build_libass() {
     "$src/harfbuzz-$harfbuzz_version" "$src/fribidi-$fribidi_version" "$src/liberation-fonts-ttf-$fonts_version"
 }
 
+# Linux FFmpeg is built natively, for this machine's architecture.
+linux_platform() {
+  case "$(uname -m)" in
+    x86_64) echo linux-x86_64 ;;
+    aarch64) echo linux-arm64 ;;
+    *) die "no Linux FFmpeg for $(uname -m)" ;;
+  esac
+}
+
 cmd_build() {
   local target="${1:?apple, android, linux or windows}" sources src p
   cmd_sources "${2:?sources dir}"
@@ -177,8 +188,9 @@ cmd_build() {
       "$root/sdk/android/gradlew" -p "$root/sdk/android" :lychee:publish
       ;;
     linux)
-      [ -d "$root/third_party/ffmpeg/linux-x86_64" ] ||
-        "$root/tool/build_ffmpeg.sh" linux-x86_64 "$src/ffmpeg-$ffmpeg_version"
+      p="$(linux_platform)"
+      [ -d "$root/third_party/ffmpeg/$p" ] ||
+        "$root/tool/build_ffmpeg.sh" "$p" "$src/ffmpeg-$ffmpeg_version"
       ;;
     windows)
       [ -d "$root/third_party/ffmpeg/windows-x86_64" ] ||
@@ -224,14 +236,16 @@ cmd_pack() {
       # The libraries with their symlinks (lib*.so for linking, lib*.so.N
       # for the loader) and the headers, in one directory named like the
       # archive. Not lib/pkgconfig: it names this machine's prefix.
-      f="$root/third_party/ffmpeg/linux-x86_64"
+      v="$(linux_platform)"
+      f="$root/third_party/ffmpeg/$v"
       [ -d "$f/lib" ] || die "no Linux FFmpeg; run tool/release.sh build linux"
+      v="ffmpeg-$v"
       stage="$(mktemp -d)"
-      mkdir -p "$stage/ffmpeg-linux-x86_64/lib"
-      cp -R "$f/include" "$stage/ffmpeg-linux-x86_64/"
-      cp -P "$f"/lib/lib*.so* "$stage/ffmpeg-linux-x86_64/lib/"
-      rm -f "$out/ffmpeg-linux-x86_64.tar.xz"
-      tar cJf "$out/ffmpeg-linux-x86_64.tar.xz" -C "$stage" ffmpeg-linux-x86_64
+      mkdir -p "$stage/$v/lib"
+      cp -R "$f/include" "$stage/$v/"
+      cp -P "$f"/lib/lib*.so* "$stage/$v/lib/"
+      rm -f "$out/$v.tar.xz"
+      tar cJf "$out/$v.tar.xz" -C "$stage" "$v"
       rm -rf "$stage"
       ;;
     *) die "unknown target $target" ;;
@@ -251,7 +265,7 @@ frameworks = sys.argv[5:]
 version = tag[1:]
 names = [f"{f}.xcframework.zip" for f in frameworks] + [
     f"lychee-{version}.aar", f"lychee-{version}.pom", "ffmpeg-windows-x86_64.zip",
-    "ffmpeg-linux-x86_64.tar.xz"]
+    "ffmpeg-linux-x86_64.tar.xz", "ffmpeg-linux-arm64.tar.xz"]
 missing = [n for n in names if not (out / n).is_file()]
 if missing:
     sys.exit(f"release.sh: missing in {out}: {' '.join(missing)}")

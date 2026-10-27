@@ -23,10 +23,9 @@ What each artifact contains:
   from the lychee_player release when the app is built; its DLLs contain
   zlib and parts of the mingw-w64 runtime (4).
 - The Flutter plugin on Linux: the lychee core (1), compiled from source,
-  and FFmpeg (2), downloaded when the app is built: on x86_64 from the
-  lychee_player release, under the LGPL version 2.1 or later; on arm64
-  BtbN's lgpl-shared build, under the LGPL version 3 or later. The x86_64
-  build links the system's libva, libdrm, GnuTLS and zlib dynamically; the app
+  and FFmpeg (2) under the LGPL version 2.1 or later, downloaded from
+  the lychee_player release when the app is built (x86_64 and arm64). It
+  links the system's libva, libdrm, GnuTLS and zlib dynamically; the app
   does not ship them.
 
 
@@ -70,14 +69,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 This software uses libraries from the FFmpeg project
 (https://ffmpeg.org) under the GNU Lesser General Public License
 (LGPL), linked dynamically: version 2.1 or later on macOS, iOS, Windows
-and Linux x86_64, version 3 or later on Android and Linux arm64. FFmpeg
+and Linux, version 3 or later on Android. FFmpeg
 is a trademark
 of Fabrice Bellard, originator of the FFmpeg project.
 
 The FFmpeg libraries are built without --enable-gpl and without
 --enable-nonfree. Where they come from depends on the platform:
 
-- macOS, iOS, Android, Windows and Linux x86_64: built by
+- macOS, iOS, Android, Windows and Linux: built by
   tool/build_ffmpeg.sh in the lychee_player repository from the FFmpeg
   release whose source is attached to each lychee_player release
   (https://github.com/boyan01/lychee_player/releases,
@@ -86,9 +85,10 @@ The FFmpeg libraries are built without --enable-gpl and without
   they use the system's GnuTLS (LGPL 2.1 or later), libva, libdrm and
   zlib, linked dynamically and not shipped. (A checkout of the
   repository between releases that pin no Windows or Linux FFmpeg of its
-  own downloads BtbN's, as on Linux arm64 below.)
-- Linux arm64: the app's build downloads a prebuilt
-  "lgpl-shared" FFmpeg from BtbN's FFmpeg-Builds
+  own downloads BtbN's, below.)
+- BtbN's build, which a checkout between releases downloads on Windows
+  and Linux: a prebuilt "lgpl-shared" FFmpeg, under the LGPL version 3
+  or later, from BtbN's FFmpeg-Builds
   (https://github.com/BtbN/FFmpeg-Builds, release
   autobuild-2026-09-30-13-08), built from FFmpeg revision
   n9.0.2-17-g2a571b6068 (https://github.com/FFmpeg/FFmpeg/commit/2a571b6068,
@@ -98,8 +98,7 @@ The FFmpeg libraries are built without --enable-gpl and without
   (among them OpenSSL, dav1d, libvpx, libaom, Opus, LAME, libass,
   FreeType, HarfBuzz and libxml2), each under its own license. Their
   notices are not in this file: an app that ships these FFmpeg
-  libraries must take them from BtbN's build. lychee_player means to
-  replace them with an FFmpeg-only build of its own.
+  libraries must take them from BtbN's build.
 
 You may replace the FFmpeg libraries in an app with your own build of the
 same version.

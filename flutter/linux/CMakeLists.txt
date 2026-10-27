@@ -26,7 +26,7 @@ file(MAKE_DIRECTORY "${_lychee_out}")
 # --- FFmpeg ---------------------------------------------------------------
 # A prebuilt LGPL FFmpeg (include/ and lib/ with shared libraries): the
 # LYCHEE_FFMPEG_ROOT cache variable or environment variable, e.g.
-# tool/build_ffmpeg.sh linux-x86_64's, or else the one prebuilt.json pins
+# tool/build_ffmpeg.sh linux-x86_64's or linux-arm64's, or else the one prebuilt.json pins
 # (ffmpeg.cmake), downloaded once into ~/.cache/lychee_player.
 include("${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg.cmake")
 set(LYCHEE_FFMPEG_ROOT "" CACHE PATH

@@ -128,17 +128,16 @@ are off in a shared-library build (`LYCHEE_BUILD_TESTS` needs the static
 core's internals).
 
 6. **BtbN's FFmpeg aborts at the first VAAPI frame on older libva**: the
-   Linux plugin takes BtbN's FFmpeg on x86_64 until a release pins ours,
-   and on arm64 always. It loads libva through implib-gen stubs built
+   Linux plugin takes BtbN's FFmpeg until a release pins ours (both
+   architectures from the next release on, 2026-10-27). It loads libva through implib-gen stubs built
    against a newer libva, and mapping the first hardware frame calls
    `vaMapBuffer2` (libva 2.21+). Ubuntu 24.04's libva 2.20 lacks it, so
    on an Intel iGPU (2026-10-27) the stub asserts and the process aborts
    for h264, hevc10 and vp9 alike; machines without a working VA driver
    never get that far. Our own build links the system's libva and plays
    (Platforms, Linux VAAPI). Until then apps can pass
-   `hardwareDecoding: false` on Linux. Done when the plugin's default
-   FFmpeg on x86_64 is ours (the next release pins it) and arm64's either
-   is ours or leaves VAAPI out.
+   `hardwareDecoding: false` on Linux. Done when a release pins ours for
+   x86_64 and arm64 and the BtbN fallback is gone.
 
 ## Features
 
@@ -320,9 +319,12 @@ in a window; OpenGL ES on Linux since 2026-10-26, Platforms 2) and its own
    (`LYCHEE_PREBUILT_URL` mirrors it; `LYCHEE_FFMPEG_ROOT`, CMake or
    environment, overrides it), checking each library's license string.
    1.0.0-beta.1 carries none, so until the next release pins one the
-   plugin falls back to BtbN's pin, and arm64 always does (no build of
-   ours: needs an arm64 runner and a machine to try it): delete the
-   x86_64 fallback then. Checked in WSL (2026-10-27): `NO_HW=1
+   plugin falls back to BtbN's pin: delete the fallback then. arm64 is
+   built the same way on GitHub's `ubuntu-22.04-arm` runner
+   (`tool/build_ffmpeg.sh linux-arm64`, `ffmpeg-linux-arm64.tar.xz`;
+   2026-10-27, not yet run there). Left for the user once a release has
+   it: the Flutter example playing in an arm64 Ubuntu VM, software
+   decoding. Hardware decoding on arm64 is not checked. Checked in WSL (2026-10-27): `NO_HW=1
    FFMPEG_ROOT=... tool/regression.sh` passes except `realtime-loop`
    (WSLg's audio clock, below; max_drift 24 ms) and `seek-vp9` (lands at
    7.474 s for 7.5; the same with BtbN's FFmpeg in WSL, and it passes on
@@ -757,8 +759,8 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    `tool/build_ffmpeg.sh` + `tool/package_ffmpeg_apple.sh` (the macOS
    example loads only them, 2026-10-25), Android from `tool/build_ffmpeg.sh`,
    Windows from the release (our build, LGPL 2.1 with Schannel; Platforms
-   1), Linux as BtbN's LGPLv3 download (slimming it: Platforms 2). The
-   Apple and Android builds enable only the formats the core plays (about
+   1), Linux as BtbN's LGPLv3 download until the next release carries
+   ours (Platforms 2). The Apple and Android builds enable only the formats the core plays (about
    7 MB per architecture, from 15; 2026-10-25), and
    `FFMPEG_ROOT=... tool/regression.sh` checks them. Android's links
    mbedTLS for https, so it is LGPLv3; the core gives mbedTLS Android's
@@ -783,7 +785,7 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    names BtbN's revision (n9.0.2-17-g2a571b6068), which is not the
    ffmpeg-9.0.2 source the releases attach. Our own FFmpeg-only builds
    fix both: done for Windows (its notices add zlib and the mingw-w64
-   runtime), left for Linux (Platforms 2).
+   runtime), for Linux from the next release (Platforms 2).
    The playback matrix runs through the shipped macOS FFmpeg
    (`FFMPEG_ROOT=third_party/ffmpeg/macos-arm64`) in CI's `apple` job
    and in `release.yml` before anything is packed (2026-10-26; its
@@ -850,9 +852,10 @@ Linux keeps FFmpeg: it has no system audio decoder or demuxer.
    meson.
    Later: the AAR on Maven Central too (what native Android users
    expect; needs a Sonatype account for `tech.soit`); the next release
-   carries the Linux FFmpeg (`ffmpeg-linux-x86_64.tar.xz`, LGPL 2.1 with
-   GnuTLS; Platforms 2) in place of BtbN's, after which the x86_64 BtbN
-   fallback in `flutter/linux/ffmpeg.cmake` goes (the job, the pack step
+   carries the Linux FFmpeg (`ffmpeg-linux-x86_64.tar.xz` and
+   `ffmpeg-linux-arm64.tar.xz`, LGPL 2.1 with GnuTLS; Platforms 2) in
+   place of BtbN's, after which the BtbN fallback in
+   `flutter/linux/ffmpeg.cmake` goes (the job, the pack step
    and the CMake are done, 2026-10-27; not yet run on GitHub);
    `tool/release.sh check` building
    a Windows app (it runs on macOS; the Windows check above was by hand);

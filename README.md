@@ -404,16 +404,18 @@ builds win: the xcframeworks in `flutter/darwin/Frameworks` and the AAR in
   -G "Visual Studio 17 2022" -A x64 -DLYCHEE_FFMPEG_ROOT=<printed dir>` and
   put `<dir>/bin` on `PATH` to run.
 - **Linux**: `flutter build linux`. The plugin downloads the FFmpeg that
-  `flutter/prebuilt.json` pins (`ffmpeg-linux-x86_64.tar.xz`, the
-  release's decode-only LGPL 2.1 build, 8 MB of libraries; BtbN's LGPLv3
-  one on arm64, and while the pinned release has none) into
+  `flutter/prebuilt.json` pins (`ffmpeg-linux-x86_64.tar.xz` or
+  `ffmpeg-linux-arm64.tar.xz`, the release's decode-only LGPL 2.1 build,
+  8 MB of libraries; BtbN's LGPLv3 one while the pinned release has
+  none) into
   `~/.cache/lychee_player` on first configure and bundles it next to
   `liblychee_player.so`; `LYCHEE_PREBUILT_URL` mirrors it and
   `LYCHEE_FFMPEG_ROOT` (CMake or environment) names a local one instead,
-  e.g. from `tool/build_ffmpeg.sh linux-x86_64 SRC` (needs `nasm`,
-  `pkg-config`, `libva-dev`, `libdrm-dev`, `libgnutls28-dev` and
-  `zlib1g-dev`; the release builds it on Ubuntu 22.04, the oldest
-  distribution it supports, for its glibc). Its libraries load the
+  e.g. from `tool/build_ffmpeg.sh linux-x86_64 SRC` or `linux-arm64`,
+  on that architecture (needs `pkg-config`, `libva-dev`, `libdrm-dev`,
+  `libgnutls28-dev`, `zlib1g-dev` and on x86_64 `nasm`; the release
+  builds both on Ubuntu 22.04, the oldest distribution it supports, for
+  its glibc, on GitHub's x86_64 and arm64 runners). Its libraries load the
   system's libva, libva-drm, libdrm, GnuTLS and zlib (`libva2`,
   `libva-drm2`, `libdrm2`, `libgnutls30`, `zlib1g`). Apps need
   `libgtk-3` and `libpulse0` at runtime. The core alone needs FFmpeg 8 or newer, which Ubuntu 22.04
@@ -469,7 +471,7 @@ is for development only. The macOS and iOS builds from
 line), and so are the Windows build (Schannel for https) and the Linux
 build (GnuTLS, LGPL 2.1+, the system's); the Android build is LGPL 3+,
 because it links mbedTLS (Apache-2.0) for https, and so is BtbN's Linux
-download (arm64, and x86_64 until a release carries ours). Distributed apps
+download (until a release carries ours). Distributed apps
 must ship an LGPL-only FFmpeg (no `--enable-gpl` / `--enable-nonfree`),
 linked dynamically.
 

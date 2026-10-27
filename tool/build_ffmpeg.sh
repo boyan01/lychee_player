@@ -5,6 +5,7 @@
 #
 # PLATFORM: macos-arm64, macos-x86_64, ios-arm64, ios-sim-arm64,
 # ios-sim-x86_64, android-arm64-v8a, android-x86_64, linux-x86_64,
+# linux-arm64 (each built on that architecture),
 # windows-x86_64 (cross-compiled on Linux).
 # Output: third_party/ffmpeg/PLATFORM/{include,lib}. For Apple platforms,
 # tool/package_ffmpeg_apple.sh then wraps the libraries into xcframeworks.
@@ -112,8 +113,9 @@ case "$platform" in
     # x86_64 assembly needs nasm; not worth it for the emulator.
     [ "$platform" = android-x86_64 ] && flags+=(--disable-asm)
     ;;
-  linux-x86_64)
-    # Built on the oldest distribution it should run on (Ubuntu 22.04):
+  linux-x86_64 | linux-arm64)
+    # Built natively on the oldest distribution it should run on (Ubuntu
+    # 22.04; GitHub's ubuntu-22.04 and ubuntu-22.04-arm runners):
     # the libraries need its glibc or newer. Nothing is autodetected, so a
     # machine with more -dev packages (a CI runner) builds the same thing.
     # GnuTLS for https: LGPL 2.1, so the build stays LGPL 2.1 (OpenSSL 3
@@ -122,11 +124,17 @@ case "$platform" in
     # GnuTLS and zlib dynamically, whose sonames have not changed since
     # Ubuntu 20.04 and Debian 11: apps depend on those packages (Debian
     # and Ubuntu: libva2, libva-drm2, libdrm2, libgnutls30, zlib1g).
-    # Needs nasm, pkg-config, libva-dev, libdrm-dev, libgnutls28-dev and
-    # zlib1g-dev.
-    command -v nasm >/dev/null || { echo "nasm not found" >&2; exit 1; }
+    # Needs pkg-config, libva-dev, libdrm-dev, libgnutls28-dev, zlib1g-dev
+    # and, on x86_64, nasm.
+    arch=x86_64
+    if [ "$platform" = linux-arm64 ]; then
+      arch=aarch64
+    else
+      command -v nasm >/dev/null || { echo "nasm not found" >&2; exit 1; }
+    fi
+    [ "$(uname -m)" = "$arch" ] || { echo "$platform builds on $arch only" >&2; exit 1; }
     flags=(
-      --target-os=linux --arch=x86_64
+      --target-os=linux --arch="$arch"
       --disable-autodetect
       --enable-pthreads --enable-zlib --enable-gnutls
       --enable-vaapi --enable-libdrm

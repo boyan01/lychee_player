@@ -136,8 +136,12 @@ jobs:
   # The Linux plugin's FFmpeg, on the oldest Ubuntu it supports: the
   # libraries need that glibc or newer, and link its libva, libdrm, GnuTLS
   # and zlib (tool/build_ffmpeg.sh). The plugin compiles the core itself.
+  # Each architecture builds natively on its own runner.
   linux:
-    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        runner: [ubuntu-22.04, ubuntu-22.04-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
       - name: Install tools
@@ -150,7 +154,7 @@ jobs:
         id: ffmpeg
         run: |
           inputs="$(cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; lsb_release -ds; gcc --version | head -1)"
-          echo "key=ffmpeg-linux-release-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
+          echo "key=ffmpeg-linux-release-$(uname -m)-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: third_party/ffmpeg
@@ -159,7 +163,7 @@ jobs:
       - run: tool/release.sh pack linux dist
       - uses: actions/upload-artifact@v4
         with:
-          name: linux
+          name: linux-${{ matrix.runner }}
           path: dist
           if-no-files-found: error
 

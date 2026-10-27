@@ -31,12 +31,7 @@ player.dispose();
 | Linux | Ubuntu 22.04 | `libepoxy-dev` and `libpulse-dev` to build; at run time FFmpeg loads the system's `libva2`, `libva-drm2`, `libdrm2`, `libgnutls30` and `zlib1g` |
 
 Hardware decoding: VideoToolbox, MediaCodec, Media Foundation and D3D11VA
-have been seen working, and VAAPI on Linux with an Intel GPU. On Linux
-x86_64 this release builds against BtbN's FFmpeg, which aborts at the
-first hardware frame where the system's libva is older than 2.21
-(Ubuntu 24.04 and earlier): pass `hardwareDecoding: false` there, or
-point `LYCHEE_FFMPEG_ROOT` at an FFmpeg built with
-`tool/build_ffmpeg.sh linux-x86_64` (see the repository's roadmap).
+have been seen working, and VAAPI on Linux with an Intel GPU.
 
 The Android core is built for `arm64-v8a` and `x86_64` only. Otherwise
 Flutter also packs a 32-bit engine, and on a 32-bit device (or a 64-bit
@@ -78,18 +73,16 @@ and checks each file against the SHA-256 the package pins. Where GitHub is
 slow or blocked, point `LYCHEE_PREBUILT_URL` at a mirror of
 `https://github.com/boyan01/lychee_player/releases/download` (the files
 are checked the same way). Windows and Linux compile the core with the app
-and download an LGPL FFmpeg from the same release, through the same mirror
-(Linux on arm64: BtbN's build); `LYCHEE_FFMPEG_ROOT` names a local one
-instead.
+and download an LGPL FFmpeg from the same release, through the same mirror;
+`LYCHEE_FFMPEG_ROOT` names a local one instead.
 
 ## License
 
 MIT. The FFmpeg libraries it ships are LGPL and dynamically linked.
 `core/THIRD_PARTY_NOTICES` in this package describes their sources and
-builds by platform: Apple, Android, Windows and Linux x86_64 use this
-project's builds, with source attached to each release; Linux arm64 uses
-BtbN's build. An app must include the notices for the libraries it
-ships, including BtbN's additional dependencies on Linux arm64. The prebuilt core
+builds by platform: all use this project's builds, with source attached
+to each release. An app must include the notices for the libraries it
+ships. The prebuilt core
 carries this project's notice into apps (`lychee.framework`, and
 `META-INF/lychee/THIRD_PARTY_NOTICES` in Android APKs).
 
