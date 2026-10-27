@@ -84,7 +84,11 @@ jobs:
             if [ "${{ github.event_name }}" = pull_request ]; then
               BASE="$(git merge-base "$BASE" "$GITHUB_SHA")"
             fi
-            tool/tidy.sh "$BASE" "$GITHUB_SHA"
+            if git diff --name-only "$BASE" "$GITHUB_SHA" -- .clang-tidy tool/tidy.sh | grep -q .; then
+              tool/tidy.sh --all
+            else
+              tool/tidy.sh "$BASE" "$GITHUB_SHA"
+            fi
           fi
 
   abi:
