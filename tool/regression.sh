@@ -1020,7 +1020,11 @@ serve --live /hls/live.m3u8 /hls/index.m3u8
 realtime=1 seq_ expect http-hls-live "^seekable=0$" "<=0 event: state (error|buffering)" \
   "summary: state=ended position=12\.0[0-9]{2}s .*backward_jumps=0 " "~summary:.*dropped=0 " -- \
   "http://127.0.0.1:$port/hls/live.m3u8"
-serve --drop-at 3000000 --refuse-after-drop
+# At 2 MB/s, three times the file's bitrate, the drop comes 1.5 s in,
+# after the open: the Apple http source reads ahead as fast as the server
+# sends, and twice on CI the open itself got the 503 (taken to be a
+# request it made after the drop; not reproduced here).
+serve --drop-at 3000000 --refuse-after-drop --rate 2000
 exits=1 seq_ expect http-lost "state=error" "error: input ended at" -- "$url"
 # Slower than the bitrate: rebuffer in long stretches, not every few frames.
 serve --rate 550

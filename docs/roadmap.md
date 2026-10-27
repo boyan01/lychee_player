@@ -72,7 +72,9 @@ on top of them.
    on CI's TSan job (2026-10-27): `http-lost` failed at the open with
    "HTTP 503" instead of "input ended at": the Apple http source reads up
    to 16 MB ahead, so the server's drop at 3 MB and the refused retry
-   can come before a slow open has finished. Not yet made robust.
+   can come before a slow open has finished; it failed the same way in
+   CI's plain `apple` job next, so the server now sends that case at
+   2 MB/s and drops 1.5 s in.
 2. **A video stream switched on over input that cannot seek starts at
    the read position**: on input that cannot seek
    (`lychee_player_is_seekable()` 0, e.g. an http server without range
