@@ -147,10 +147,7 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    Android users expect; needs a Sonatype account for `tech.soit`);
    `tool/release.sh check` building Windows and Linux apps (it runs on
    macOS only); strip the AAR's prefab `liblychee.so` (6 MB per ABI
-   against 0.3 MB in `jni/`); a stamp with the script's hash on
-   `third_party/ffmpeg/PLATFORM`, which `tool/release.sh build` reuses
-   as it is, so a changed build script needs it deleted by hand (CI keys its caches on the scripts); the
-   Linux job in a `ubuntu:22.04` container once GitHub retires that
+   against 0.3 MB in `jni/`); the Linux job in a `ubuntu:22.04` container once GitHub retires that
    image.
 3. **Native SDKs**: drop the pod and the plugin's copy of
    `LycheeFrameDriver` (`LycheeTexture`) once Flutter drops CocoaPods;

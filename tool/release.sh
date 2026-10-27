@@ -10,8 +10,8 @@
 #                                      sources into DIR (release assets too:
 #                                      the LGPL asks for the source)
 #   tool/release.sh build apple|android|linux|windows SOURCES
-#                                      build FFmpeg (platforms already in
-#                                      third_party are kept) and the
+#                                      build FFmpeg (matching fingerprints
+#                                      in third_party are kept) and the
 #                                      xcframeworks or the AAR; linux and
 #                                      windows build only FFmpeg (the
 #                                      plugins compile the core), linux for
@@ -116,20 +116,46 @@ linux_platform() {
   esac
 }
 
+# The release uses checksum-verified source archives. Reuse only builds
+# made with those pins and scripts, not arbitrary local installs.
+# build_ffmpeg.sh removes the output directory, so a manual build also
+# removes this stamp. Write it only after all build/dependency checks pass.
+build_ffmpeg() {
+  local platform="$1" fingerprint stamp
+  stamp="$root/third_party/ffmpeg/$platform/.release-fingerprint"
+  fingerprint="$({
+    printf '%s\n' "$platform" "$ffmpeg_sha256"
+    [ "${platform#android-}" = "$platform" ] || printf '%s\n' "$mbedtls_sha256"
+    cat "$root/tool/build_ffmpeg.sh" "$root/tool/apple_framework.sh"
+    # configure also accepts these environment overrides.
+    printf '%s\n' "${CC:-}" "${CXX:-}" "${CFLAGS:-}" "${CPPFLAGS:-}" "${LDFLAGS:-}"
+  } | shasum -a 256 | cut -d' ' -f1)"
+  if [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$fingerprint" ] &&
+      [ -f "$root/third_party/ffmpeg/$platform/include/libavcodec/avcodec.h" ]; then
+    echo "FFmpeg $platform: reusing matching build"
+    return
+  fi
+  echo "FFmpeg $platform: rebuilding (missing or changed fingerprint)"
+  rm -f "$stamp"
+  "$root/tool/build_ffmpeg.sh" "$@"
+  printf '%s\n' "$fingerprint" >"$stamp"
+}
+
 cmd_build() {
   local target="${1:?apple, android, linux or windows}" sources src p
   cmd_sources "${2:?sources dir}"
   sources="$(cd "$2" && pwd)"
-  src="$root/build-ffmpeg/src"
+  # Keep extraction tied to the archive too: a changed pin with the same
+  # version must not rebuild from the previous extracted source.
+  src="$root/build-ffmpeg/src/$ffmpeg_sha256-$mbedtls_sha256"
   mkdir -p "$src"
   [ -d "$src/ffmpeg-$ffmpeg_version" ] || tar xJf "$sources/ffmpeg-$ffmpeg_version.tar.xz" -C "$src"
   case "$target" in
     apple)
       for p in "${apple_platforms[@]}"; do
-        [ -d "$root/third_party/ffmpeg/$p" ] && continue
         # Intel Macs decode in software through the assembly.
         [ "$p" != macos-x86_64 ] || command -v nasm >/dev/null || die "macos-x86_64 needs nasm"
-        "$root/tool/build_ffmpeg.sh" "$p" "$src/ffmpeg-$ffmpeg_version"
+        build_ffmpeg "$p" "$src/ffmpeg-$ffmpeg_version"
       done
       "$root/tool/package_ffmpeg_apple.sh"
       "$root/tool/build_apple.sh"
@@ -138,19 +164,16 @@ cmd_build() {
     android)
       [ -d "$src/mbedtls-$mbedtls_version" ] || tar xjf "$sources/mbedtls-$mbedtls_version.tar.bz2" -C "$src"
       for p in "${android_platforms[@]}"; do
-        [ -d "$root/third_party/ffmpeg/$p" ] && continue
-        "$root/tool/build_ffmpeg.sh" "$p" "$src/ffmpeg-$ffmpeg_version" "$src/mbedtls-$mbedtls_version"
+        build_ffmpeg "$p" "$src/ffmpeg-$ffmpeg_version" "$src/mbedtls-$mbedtls_version"
       done
       "$root/sdk/android/gradlew" -p "$root/sdk/android" :lychee:publish
       ;;
     linux)
       p="$(linux_platform)"
-      [ -d "$root/third_party/ffmpeg/$p" ] ||
-        "$root/tool/build_ffmpeg.sh" "$p" "$src/ffmpeg-$ffmpeg_version"
+      build_ffmpeg "$p" "$src/ffmpeg-$ffmpeg_version"
       ;;
     windows)
-      [ -d "$root/third_party/ffmpeg/windows-x86_64" ] ||
-        "$root/tool/build_ffmpeg.sh" windows-x86_64 "$src/ffmpeg-$ffmpeg_version"
+      build_ffmpeg windows-x86_64 "$src/ffmpeg-$ffmpeg_version"
       ;;
     *) die "unknown target $target" ;;
   esac
