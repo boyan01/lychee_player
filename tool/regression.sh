@@ -957,7 +957,7 @@ if [ "${NO_FFMPEG:-0}" != 1 ]; then
     --select audio:2 --select-after 5 "http://127.0.0.1:$port/tracks.mkv"
   seq_ expect http-no-ranges-decoder-lost "video rebuilt: resumed [+-]0\.0[0-9]{2}s" "<=0 event: state error" \
     "summary: state=ended position=12\.000s .*pulled=36[0-9] .*backward_jumps=0 " -- \
-    --lose-decoder-after 2 "http://127.0.0.1:$port/h264_aac.mp4"
+    --lose-decoder-after 2 "$url"
 fi
 serve --drop-at 3000000
 seq_ check http-mkv-reconnect 1 - -- "http://127.0.0.1:$port/h264_aac.mkv"

@@ -616,12 +616,13 @@ bool FFmpegDemuxer::Seek(int64_t time) {
   // rather than the next Read() after the loop began.
   EncodedPacket packet;
   const int ret = ReadNext(&packet);
-  if (ret >= 0) {
-    queued_.push_back(std::move(packet));
-  } else if (ret != AVERROR_EOF) {
+  if (ret < 0) {
+    // The start of what played is not empty: the end here is FFmpeg's http
+    // failing to reopen, which it reports as the end of the file.
     ReadFailed(ret);
     return false;
   }
+  queued_.push_back(std::move(packet));
   return true;
 }
 
