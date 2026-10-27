@@ -77,18 +77,7 @@ on top of them.
    first frame comes up to the read-ahead (~4 s) late. Done when that
    case resumes at the position too (reading every video stream costs
    memory per stream), or is judged not worth it.
-3. **The FFmpeg build's MPEG-TS and HLS edge cases** (found 2026-10-26
-   comparing with the FFmpeg-free demuxers): HLS with
-   `EXT-X-DISCONTINUITY` where timestamps start over stops at the
-   discontinuity ("input ended at 3.029 s, before its duration of
-   6.000 s", `hls/discontinuity.m3u8`), since FFmpeg's HLS demuxer hands
-   on the reset timestamps; a seek into the second rendition of
-   `resolution_change.ts` shows no frame after it (`rendered=0`); TS
-   seeks land on the keyframe after the target, not before (`offset.ts`
-   at 7.5 s: 19.733 s, where 18.867 s is the target frame). Done when
-   `http-hls-discontinuity*`, `seek-ts*` and `loop-ts`, now run only
-   with `NO_FFMPEG=1`, pass in the FFmpeg build too.
-4. **Styled ASS is slow in the iOS 18.1 simulator**: `sub_ass_styled.mkv`
+3. **Styled ASS is slow in the iOS 18.1 simulator**: `sub_ass_styled.mkv`
    in the Flutter example on an iPhone 16 simulator with iOS 18.1 shows
    ~2.6 fps (6 rendered, 4 dropped after 5 s; software decoding, as
    always in the simulator), where `h264_aac.mp4` shows 24 to 30 fps
@@ -560,11 +549,27 @@ Decisions:
 
 New cases: `ts-hevc10`, `ts-lost-packets`, `ts-corrupt`, `http-ts`,
 `http-hls-seek`, `http-hls-master`, `http-hls-live` (real time; the
-media server's `--live` serves a VOD playlist as a growing window) in
-both builds; `seek-ts*`, `loop-ts` and `http-hls-discontinuity*` only
-without FFmpeg (Known defects 3). `http-seek-failed` and
-`http-loop-seek-failed` run in both builds: the FFmpeg-free TS demuxer
-makes the same three requests before the seek.
+media server's `--live` serves a VOD playlist as a growing window),
+`seek-ts*`, `loop-ts` and `http-hls-discontinuity*`, all in both builds.
+`http-seek-failed` and `http-loop-seek-failed` too: the FFmpeg-free TS
+demuxer makes the same three requests before the seek.
+
+The FFmpeg build matches it there since 2026-10-27, in `FFmpegDemuxer`
+for formats FFmpeg marks `AVFMT_TS_DISCONT` (MPEG-TS, HLS). A decode
+time that goes back is a discontinuity: each stream finds it by itself,
+and all take the offset of the first one there, kept across seeks. A
+seek reads on from 1 s before the target (backing off to 64 s, then the
+start) and hands on the packets from the last keyframe at or before it;
+a seek to the start is a byte seek to the first packet. FFmpeg's own TS
+seek bisects to a packet, not a keyframe, and its HLS seek drops every
+packet past a discontinuity where timestamps start over, so a seek
+there reads on from before the first discontinuity (from the start if
+none has been read yet: `http-hls-discontinuity-late-seek`). Long
+streams make that slow; only an HLS demuxer that knows the segments,
+as the FFmpeg-free one does, would do better. The FFmpeg build places
+a later segment where the video before it ended, the FFmpeg-free one by
+the playlist's times (2 ms apart there). Untested: a single TS file
+whose timestamps start over (no test media).
 
 Left:
 

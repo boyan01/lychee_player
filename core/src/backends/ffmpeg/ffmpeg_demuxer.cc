@@ -133,6 +133,12 @@ int64_t ToMicros(int64_t value, AVRational time_base) {
 
 // Data that ends this much before the declared duration is truncated.
 constexpr int64_t kTruncationTolerance = kMicrosPerSecond;
+// A stream's decode time going back by more than this is a discontinuity
+// (as the ffmpeg tool's ts_discontinuity_detect() takes it).
+constexpr int64_t kDiscontinuityTolerance = kMicrosPerSecond / 10;
+// How far before its target a seek reads looking for a keyframe, at most,
+// before reading from the start.
+constexpr int64_t kMaxSeekBackoff = 64 * kMicrosPerSecond;
 
 bool IsNetworkUrl(const std::string& url) {
   size_t scheme_end = url.find("://");
@@ -289,6 +295,9 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
   }
   BuildMediaInfo();
   enabled_streams_.assign(format_context_->nb_streams, true);
+  discontinuous_ = (format_context_->iformat->flags & AVFMT_TS_DISCONT) != 0;
+  offsets_.assign(1, 0);
+  timelines_.assign(format_context_->nb_streams, Timeline());
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
   io_error_.clear();  // From an HLS variant that failed, say.
 #endif
@@ -434,9 +443,57 @@ void FFmpegDemuxer::SetEnabledStreams(const std::vector<int>& stream_indices) {
 }
 
 DemuxerReadResult FFmpegDemuxer::Read(EncodedPacket* packet) {
+  while (!queued_.empty()) {
+    *packet = std::move(queued_.front());
+    queued_.pop_front();
+    if (enabled_streams_[packet->stream_index]) {
+      return DemuxerReadResult::kOk;
+    }
+  }
+  const int ret = ReadNext(packet);
+  return ret < 0 ? ReadFailed(ret) : DemuxerReadResult::kOk;
+}
+
+DemuxerReadResult FFmpegDemuxer::ReadFailed(int ret) {
+  if (aborted_ || interrupted_) {
+    return DemuxerReadResult::kAborted;
+  }
+  if (ret == AVERROR(ENOMEM)) {
+    error_ = "out of memory";
+    return DemuxerReadResult::kError;
+  }
+  std::string cause = ret == AVERROR_EOF ? "" : AVErrorString(ret);
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+  if (ret != AVERROR_EOF && !io_error_.empty()) {
+    cause = io_error_;
+  }
+#endif
+  // A truncated file, or a connection that could not be re-established:
+  // FFmpeg's http reports both as the end of the file, DataSource the
+  // latter as a read error.
+  if (TruncatedAtEnd()) {
+    char message[160];
+    snprintf(message, sizeof(message),
+             "input ended at %.3f s, before its duration of %.3f s "
+             "(truncated file or lost connection)",
+             (read_end_ - media_info_.start_time) / 1e6,
+             media_info_.duration / 1e6);
+    error_ = message;
+    LOGE("%s%s%s", message, cause.empty() ? "" : ": ", cause.c_str());
+    return DemuxerReadResult::kError;
+  }
+  if (ret == AVERROR_EOF) {
+    return DemuxerReadResult::kEndOfStream;
+  }
+  error_ = "read failed: " + cause;
+  LOGE("av_read_frame: %s", cause.c_str());
+  return DemuxerReadResult::kError;
+}
+
+int FFmpegDemuxer::ReadNext(EncodedPacket* packet) {
   for (;;) {
     if (aborted_) {
-      return DemuxerReadResult::kAborted;
+      return AVERROR_EXIT;
     }
     int ret = av_read_frame(format_context_, av_packet_);
     if (ret == AVERROR(EAGAIN)) {
@@ -444,35 +501,10 @@ DemuxerReadResult FFmpegDemuxer::Read(EncodedPacket* packet) {
     }
     if (aborted_ || interrupted_) {
       av_packet_unref(av_packet_);
-      return DemuxerReadResult::kAborted;
+      return AVERROR_EXIT;
     }
     if (ret < 0) {
-      std::string cause = ret == AVERROR_EOF ? "" : AVErrorString(ret);
-#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
-      if (ret != AVERROR_EOF && !io_error_.empty()) {
-        cause = io_error_;
-      }
-#endif
-      // A truncated file, or a connection that could not be re-established:
-      // FFmpeg's http reports both as the end of the file, DataSource the
-      // latter as a read error.
-      if (TruncatedAtEnd()) {
-        char message[160];
-        snprintf(message, sizeof(message),
-                 "input ended at %.3f s, before its duration of %.3f s "
-                 "(truncated file or lost connection)",
-                 (read_end_ - media_info_.start_time) / 1e6,
-                 media_info_.duration / 1e6);
-        error_ = message;
-        LOGE("%s%s%s", message, cause.empty() ? "" : ": ", cause.c_str());
-        return DemuxerReadResult::kError;
-      }
-      if (ret == AVERROR_EOF) {
-        return DemuxerReadResult::kEndOfStream;
-      }
-      error_ = "read failed: " + cause;
-      LOGE("av_read_frame: %s", cause.c_str());
-      return DemuxerReadResult::kError;
+      return ret;
     }
     int index = av_packet_->stream_index;
     if (index < 0 || index >= static_cast<int>(enabled_streams_.size()) ||
@@ -487,6 +519,9 @@ DemuxerReadResult FFmpegDemuxer::Read(EncodedPacket* packet) {
     packet->duration = av_packet_->duration > 0
                            ? ToMicros(av_packet_->duration, time_base)
                            : 0;
+    if (discontinuous_) {
+      ApplyDiscontinuity(index, packet);
+    }
     int64_t start = packet->pts != kNoTimestamp ? packet->pts : packet->dts;
     if (start != kNoTimestamp) {
       read_end_ = std::max(read_end_, start + packet->duration);
@@ -495,11 +530,45 @@ DemuxerReadResult FFmpegDemuxer::Read(EncodedPacket* packet) {
     packet->end_of_stream = false;
     packet->buffer = TakePacketBuffer(av_packet_);
     if (!packet->buffer) {
-      error_ = "out of memory";
-      return DemuxerReadResult::kError;
+      return AVERROR(ENOMEM);
     }
-    return DemuxerReadResult::kOk;
+    return 0;
   }
+}
+
+void FFmpegDemuxer::ApplyDiscontinuity(int stream, EncodedPacket* packet) {
+  Timeline& timeline = timelines_[stream];
+  const int64_t time = packet->dts != kNoTimestamp ? packet->dts : packet->pts;
+  if (time == kNoTimestamp) {
+    return;
+  }
+  // FFmpeg's HLS demuxer ignores EXT-X-DISCONTINUITY and its MPEG-TS
+  // demuxer only unwraps 33 bits, so timestamps that start over reach here
+  // as they are. Within a stream decode times only go forward: one that
+  // goes back is a new discontinuity for this stream. Every stream takes
+  // the offset of the first one to reach it, so they stay in sync; each
+  // finds it by itself, since packets on either side of it interleave.
+  if (timeline.next != kNoTimestamp &&
+      time + offsets_[timeline.passed] + kDiscontinuityTolerance <
+          timeline.next) {
+    ++timeline.passed;
+    if (timeline.passed == offsets_.size()) {
+      offsets_.push_back(timeline.next - time);
+      if (timeline.passed == 1) {
+        first_discontinuity_ = timeline.next;
+      }
+      LOGI("timestamps start over at %.3f s: offset %.3f s",
+           timeline.next / 1e6, offsets_.back() / 1e6);
+    }
+  }
+  const int64_t offset = offsets_[timeline.passed];
+  if (packet->pts != kNoTimestamp) {
+    packet->pts += offset;
+  }
+  if (packet->dts != kNoTimestamp) {
+    packet->dts += offset;
+  }
+  timeline.next = time + offset + packet->duration;
 }
 
 bool FFmpegDemuxer::Seek(int64_t time) {
@@ -524,7 +593,49 @@ bool FFmpegDemuxer::Seek(int64_t time) {
   if (!media_info_.seekable) {
     return false;
   }
+  queued_.clear();
+  read_end_ = time;
   // Land on the keyframe at or before |time|; decoders skip ahead to |time|.
+  if (!discontinuous_) {
+    return SeekFFmpeg(time);
+  }
+  if (time > media_info_.start_time) {
+    return SeekByScanning(time);
+  }
+  if (!SeekToStart()) {
+    return false;
+  }
+  // The byte seek reads nothing. Read now, so that a seek the input cannot
+  // follow fails as a timestamp seek does (a loop: "loop seek failed"),
+  // rather than the next Read() after the loop began.
+  EncodedPacket packet;
+  const int ret = ReadNext(&packet);
+  if (ret >= 0) {
+    queued_.push_back(std::move(packet));
+  } else if (ret != AVERROR_EOF) {
+    ReadFailed(ret);
+    return false;
+  }
+  return true;
+}
+
+bool FFmpegDemuxer::SeekToStart() {
+  // A bisection for the start time finds the last packet at or before it,
+  // which can be the frame after the first keyframe (decoded first, it has
+  // the earlier timestamp): go to the first byte instead.
+  if (format_context_->iformat->flags & AVFMT_NO_BYTE_SEEK) {
+    return SeekFFmpeg(media_info_.start_time);
+  }
+  int ret = av_seek_frame(format_context_, -1, 0, AVSEEK_FLAG_BYTE);
+  if (ret < 0) {
+    LOGE("seek to the start failed: %s", AVErrorString(ret).c_str());
+    return false;
+  }
+  std::fill(timelines_.begin(), timelines_.end(), Timeline());
+  return true;
+}
+
+bool FFmpegDemuxer::SeekFFmpeg(int64_t time) {
   int ret = avformat_seek_file(format_context_, -1, INT64_MIN, time, time, 0);
   if (ret < 0) {
     LOGW("seek to %lld backward failed: %s, retrying any direction",
@@ -537,8 +648,115 @@ bool FFmpegDemuxer::Seek(int64_t time) {
          AVErrorString(ret).c_str());
     return false;
   }
-  read_end_ = time;
+  // Seeks land before the first discontinuity, or the timestamps are not
+  // known to have any: they are taken as they are.
+  std::fill(timelines_.begin(), timelines_.end(), Timeline());
   return true;
+}
+
+bool FFmpegDemuxer::SeekByScanning(int64_t time) {
+  // Video lands on its keyframe at or before |time|, other streams with
+  // what plays from that keyframe on.
+  int reference = -1;
+  for (const StreamInfo& stream : media_info_.streams) {
+    if (enabled_streams_[stream.index] && stream.type == MediaType::kVideo) {
+      reference = stream.index;
+      break;
+    }
+  }
+  for (const StreamInfo& stream : media_info_.streams) {
+    if (reference < 0 && enabled_streams_[stream.index]) {
+      reference = stream.index;
+    }
+  }
+  if (reference < 0) {
+    return SeekFFmpeg(time);
+  }
+  const bool video = media_info_.streams[reference].type == MediaType::kVideo;
+  // FFmpeg's MPEG-TS seek finds a packet before the target by bisection,
+  // not a keyframe (mpegts_get_dts() in libavformat/mpegts.c indexes every
+  // packet as one), so decoding would start at the keyframe after it. Seek
+  // earlier, back off further while the window holds no keyframe, as the
+  // FFmpeg-free TsDemuxer does, and keep what follows the last keyframe.
+  int64_t previous_first = kNoTimestamp;
+  for (int64_t backoff = kMicrosPerSecond;; backoff *= 2) {
+    int64_t from = time - backoff;
+    // FFmpeg's HLS seek drops packets until one reaches the playlist's time
+    // of the target (hls_read_packet() in libavformat/hls.c). After
+    // timestamps started over none does, so it drops all up to the end:
+    // read on from before the first discontinuity instead. (One not read
+    // yet shows as a pass that read nothing; the next reads from the start.)
+    if (first_discontinuity_ != kNoTimestamp) {
+      from = std::min(from, first_discontinuity_ - kMicrosPerSecond);
+    }
+    const bool from_start =
+        from <= media_info_.start_time || backoff > kMaxSeekBackoff;
+    if (!(from_start ? SeekToStart() : SeekFFmpeg(from))) {
+      return false;
+    }
+    queued_.clear();
+    bool found = false;
+    int64_t first = kNoTimestamp;
+    for (;;) {
+      EncodedPacket packet;
+      const int ret = ReadNext(&packet);
+      if (ret == AVERROR_EOF) {
+        break;
+      }
+      if (ret < 0) {
+        ReadFailed(ret);
+        return false;
+      }
+      if (packet.stream_index == reference) {
+        const int64_t at =
+            video && packet.dts != kNoTimestamp ? packet.dts : packet.pts;
+        if (first == kNoTimestamp) {
+          first = at;
+        }
+        if (packet.keyframe && packet.pts != kNoTimestamp &&
+            packet.pts <= time) {
+          // Keep other streams' packets that play from the keyframe on:
+          // FFmpeg hands on a video frame only once the next one starts, so
+          // audio around the keyframe comes before it.
+          const int64_t start = packet.pts;
+          std::erase_if(queued_, [&](const EncodedPacket& queued) {
+            return queued.stream_index == reference ||
+                   queued.pts == kNoTimestamp ||
+                   queued.pts + queued.duration <= start;
+          });
+          queued_.push_back(std::move(packet));
+          found = true;
+          continue;
+        }
+        if (at != kNoTimestamp && at > time) {
+          if (found) {
+            queued_.push_back(std::move(packet));
+          }
+          break;
+        }
+        if (!found) {
+          continue;  // Not decodable without its keyframe.
+        }
+      }
+      queued_.push_back(std::move(packet));
+    }
+    if (found) {
+      return true;
+    }
+    if (from_start) {
+      break;
+    }
+    // Nothing read, as after FFmpeg's HLS seek past a discontinuity, or no
+    // earlier than last time: backing off further will not help.
+    if (first == kNoTimestamp ||
+        (previous_first != kNoTimestamp && first >= previous_first)) {
+      backoff = kMaxSeekBackoff;
+    }
+    previous_first = first;
+  }
+  // Before the first keyframe: play from the start.
+  queued_.clear();
+  return SeekToStart();
 }
 
 void FFmpegDemuxer::Interrupt() {

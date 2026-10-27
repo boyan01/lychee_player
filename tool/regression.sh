@@ -309,6 +309,12 @@ fi
 [ -f "$media/hls/discontinuity.m3u8" ] || printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:3' \
   '#EXT-X-PLAYLIST-TYPE:VOD' '#EXTINF:3.0,' ../rendition_1280x720.ts '#EXT-X-DISCONTINUITY' '#EXTINF:3.0,' \
   ../rendition_640x360.ts '#EXT-X-ENDLIST' >"$media/hls/discontinuity.m3u8"
+# The same discontinuity after the 12 s of index.m3u8, beyond the read-ahead
+# of a seek soon after the open.
+[ -f "$media/hls/discontinuity_late.m3u8" ] || printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:3' \
+  '#EXT-X-PLAYLIST-TYPE:VOD' '#EXTINF:2.0,' seg0.ts '#EXTINF:2.0,' seg1.ts '#EXTINF:2.0,' seg2.ts \
+  '#EXTINF:2.0,' seg3.ts '#EXTINF:2.0,' seg4.ts '#EXTINF:2.0,' seg5.ts '#EXT-X-DISCONTINUITY' \
+  '#EXTINF:3.0,' ../rendition_640x360.ts '#EXT-X-ENDLIST' >"$media/hls/discontinuity_late.m3u8"
 # MPEG-TS that lost one packet in a thousand (continuity errors), and one
 # that turns into noise after 600 KB.
 [ -f "$media/ts_lost_packets.ts" ] || python3 -I -c '
@@ -675,18 +681,17 @@ par check seek-vp9      1 7.500 -- --seek 7.5 --seek-after 2 "$media/vp9_opus.we
 par check seek-mkv      1 7.500 -- --seek 7.5 --seek-after 2 "$media/h264_aac.mkv"
 par check seek-mkv-no-cues 1 1.000 -- --seek 1 --seek-after 5 "$media/mkv_no_cues.mkv"
 par check seek-mkv-unknown-sizes 1 7.500 -- --seek 7.5 --seek-after 2 "$media/mkv_unknown_sizes.mkv"
-# MPEG-TS without FFmpeg seeks by bisection to the keyframe before the
-# target (8.33 s apart here) and lands on the target frame (10 s offset +
-# start 1.377 s + 7.5 s). FFmpeg's seek lands on the keyframe after it.
-if [ "${NO_FFMPEG:-0}" = 1 ]; then
-  par check seek-ts           1 18.867 -- --seek 7.5 --seek-after 2 "$media/offset.ts"
-  par check seek-ts-backward  1 12.367 -- --seek 1 --seek-after 5 "$media/offset.ts"
-  par check seek-ts-hevc10    1 7.442 -- --seek 6 --seek-after 2 "$media/hevc10.ts"
-  # Into the second rendition; FFmpeg's build shows no frame after it.
-  par check seek-ts-rendition 1 5.433 -- --seek 4 --seek-after 1 "$media/resolution_change.ts"
-  par expect loop-ts "video size 640x360" "loops=1" "summary:.*backward_jumps=0 " "<=0 event: state (ended|buffering)" -- \
-    --loop --seconds 9 "$media/resolution_change.ts"
-fi
+# MPEG-TS seeks to the keyframe before the target (8.33 s apart here) and
+# lands on the target frame (10 s offset + start 1.377 s + 7.5 s): by
+# bisection without FFmpeg, by reading on from before it with FFmpeg,
+# whose own seek lands on a packet, not a keyframe.
+par check seek-ts           1 18.867 -- --seek 7.5 --seek-after 2 "$media/offset.ts"
+par check seek-ts-backward  1 12.367 -- --seek 1 --seek-after 5 "$media/offset.ts"
+par check seek-ts-hevc10    1 7.442 -- --seek 6 --seek-after 2 "$media/hevc10.ts"
+# Into the second rendition.
+par check seek-ts-rendition 1 5.433 -- --seek 4 --seek-after 1 "$media/resolution_change.ts"
+par expect loop-ts "video size 640x360" "loops=1" "summary:.*backward_jumps=0 " "<=0 event: state (ended|buffering)" -- \
+  --loop --seconds 9 "$media/resolution_change.ts"
 par check seek-audio    - - -- --seek 3 --seek-after 1 "$media/audio_only.mp3"
 
 # Playback rate. Drift (position vs. wall clock times the rate) stays small
@@ -964,11 +969,12 @@ seq_ check http-frag 1 - -- "http://127.0.0.1:$port/frag_scan.mp4"
 seq_ check http-frag-seek 1 6.200 -- --seek 6.2 --seek-after 1 "http://127.0.0.1:$port/frag.mp4"
 # The TS probe opens three ranges in both builds (the start, the end for
 # the duration, then back). Later requests fail, like an expired URL: a
-# failed seek cannot safely resume the demuxer's old read position.
+# failed seek cannot safely resume the demuxer's old read position. (A
+# seek to near the start may read what the last range still holds.)
 serve --refuse-after-requests 3
 exits=1 seq_ expect http-seek-failed "403 [Ff]orbidden" "error: seek failed" \
   "summary: state=error" "<=0 seek completed" "<=0 event: state ended" -- \
-  --seek 1 --seek-after 5 "http://127.0.0.1:$port/offset.ts"
+  --seek 6 --seek-after 5 "http://127.0.0.1:$port/offset.ts"
 # A failed read-ahead loop is an input error after the buffered pass,
 # not an EOF that silently schedules another seek on the control thread.
 serve --refuse-after-requests 3
@@ -992,14 +998,18 @@ hls_variant="video size (640x360|1920x1080)"
 seq_ expect http-hls-master "$hls_variant" "summary: state=ended position=12\.000s" -- \
   "http://127.0.0.1:$port/hls/master.m3u8"
 # Timestamps that start over at a discontinuity go on from where the
-# previous segment ended, also after a seek into the later segment. (The
-# FFmpeg build stops at the discontinuity.)
-if [ "${NO_FFMPEG:-0}" = 1 ]; then
-  seq_ expect http-hls-discontinuity "video size 1280x720" "video size 640x360" \
-    "summary: state=ended position=6\.000s .*backward_jumps=0 " -- "http://127.0.0.1:$port/hls/discontinuity.m3u8"
-  seq_ check http-hls-discontinuity-seek 1 5.433 -- --seek 4 --seek-after 1 \
-    "http://127.0.0.1:$port/hls/discontinuity.m3u8"
-fi
+# previous segment ended, also after a seek into the later segment (which
+# the FFmpeg build reads on to from before the discontinuity).
+seq_ expect http-hls-discontinuity "video size 1280x720" "video size 640x360" \
+  "summary: state=ended position=6\.000s .*backward_jumps=0 " -- "http://127.0.0.1:$port/hls/discontinuity.m3u8"
+seq_ check http-hls-discontinuity-seek 1 5.433 -- --seek 4 --seek-after 1 \
+  "http://127.0.0.1:$port/hls/discontinuity.m3u8"
+# A seek past a discontinuity not read yet: FFmpeg's HLS seek finds nothing
+# there, and the FFmpeg build reads on from the start. The FFmpeg-free
+# build places the segment by the playlist's times, the FFmpeg build where
+# the video before it ended, 2 ms later.
+seq_ check http-hls-discontinuity-late-seek 1 '14\.43[13]' -- --seek 13 --seek-after 0.2 \
+  "http://127.0.0.1:$port/hls/discontinuity_late.m3u8"
 # Live: segments appear in real time; the playlist reloads until
 # EXT-X-ENDLIST.
 serve --live /hls/live.m3u8 /hls/index.m3u8

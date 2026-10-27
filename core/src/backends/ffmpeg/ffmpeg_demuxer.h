@@ -2,6 +2,7 @@
 #define LYCHEE_BACKENDS_FFMPEG_FFMPEG_DEMUXER_H_
 
 #include <atomic>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -56,6 +57,19 @@ class FFmpegDemuxer : public Demuxer {
   void RemoveIo(Io* io);
 #endif
   void BuildMediaInfo();
+  // The next packet of an enabled stream from FFmpeg: 0, or FFmpeg's error
+  // (AVERROR_EXIT once aborted or interrupted).
+  int ReadNext(EncodedPacket* packet);
+  // What Read() reports for ReadNext()'s error |ret|.
+  DemuxerReadResult ReadFailed(int ret);
+  // Timestamps that start over (or jump back) go on from where the
+  // stream's previous packet ended.
+  void ApplyDiscontinuity(int stream, EncodedPacket* packet);
+  bool SeekFFmpeg(int64_t time);
+  bool SeekToStart();
+  // Formats without an index: seeks to before |time| and reads up to it,
+  // keeping the packets from the keyframe at or before it for Read().
+  bool SeekByScanning(int64_t time);
   // At end of file: whether the data stopped short of the duration the
   // container declares.
   bool TruncatedAtEnd() const;
@@ -71,6 +85,23 @@ class FFmpegDemuxer : public Demuxer {
   bool declared_duration_ = false;
   // End of the data read since open or the last seek.
   int64_t read_end_ = kNoTimestamp;
+  // The format allows timestamp discontinuities and has no index (MPEG-TS,
+  // HLS): FFmpeg's seeks land wherever, and its timestamps may start over.
+  bool discontinuous_ = false;
+  // Read by a seek, for Read() to hand out first.
+  std::deque<EncodedPacket> queued_;
+  // Added to the timestamps after each discontinuity seen ([0] is 0), and
+  // where the first one is on the timeline. Kept across seeks: the same
+  // data gives the same offsets.
+  std::vector<int64_t> offsets_;
+  int64_t first_discontinuity_ = kNoTimestamp;
+  struct Timeline {
+    // Discontinuities this stream has passed since the open or seek.
+    size_t passed = 0;
+    // Where its next packet should start.
+    int64_t next = kNoTimestamp;
+  };
+  std::vector<Timeline> timelines_;
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
   // FFmpeg's own, for URLs DataSource does not read (data:, crypto:).
   int (*default_io_open_)(AVFormatContext*, AVIOContext**, const char*, int,
