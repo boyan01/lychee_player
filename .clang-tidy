@@ -1,0 +1,34 @@
+# clang-tidy for this project's own C, C++ and Objective-C++; run it with
+# tool/tidy.sh (the lines a branch changed) or tool/tidy.sh --all.
+#
+# Turned off, because on this code base they flag idioms rather than bugs:
+# - bugprone-easily-swappable-parameters: (offset, size), (width, height)
+#   and (pts, duration) pairs are everywhere and the names say which is
+#   which.
+# - bugprone-signed-bitwise: byte parsers shift and mask uint8_t, which C++
+#   promotes to int, and flag enums are 1 << n; nothing there is negative.
+# - performance-enum-size: shrinking an enum's base type saves nothing
+#   here, and enums that cross the C ABI must stay int.
+# - bugprone-multi-level-implicit-pointer-conversion: FFmpeg's own API
+#   takes T** as void* (av_freep(&p)).
+# - bugprone-assignment-in-if-condition: clang's -Wparentheses already
+#   catches the accidental kind; what is left is the deliberate
+#   `if ((self = [super init]))` of Objective-C.
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  modernize-use-override,
+  cppcoreguidelines-pro-type-member-init,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-signed-bitwise,
+  -performance-enum-size,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  -bugprone-assignment-in-if-condition
+CheckOptions:
+  # Microseconds go to double seconds for logs and rates, and iterators
+  # move by size_t; integer truncation (int64_t to int) is still flagged.
+  bugprone-narrowing-conversions.WarnOnIntegerToFloatingPointNarrowingConversion: false
+  bugprone-narrowing-conversions.WarnOnEquivalentBitWidth: false
+# The library, its tests and examples; not FFmpeg, libass or third_party.
+HeaderFilterRegex: '/(core/(include|src|test|fuzz)|examples)/'

@@ -296,8 +296,11 @@ What each area needs (run `tool/changes.sh`):
 Before committing C, C++ or Objective-C++, run `tool/format.sh`: it
 formats the lines the branch changed (`.clang-format`, Chromium style;
 older code is reformatted only when someone edits it), and CI's format
-job fails on what it would change. `lychee.h` must stay plain C99:
-`core/test/c_header_test.c` compiles it as such with `-Wpedantic`.
+job fails on what it would change. Then run `tool/tidy.sh` (clang-tidy
+with `.clang-tidy`, on the lines the branch changed) and fix what it
+reports; `--all` checks all of `core/src`, which still has findings.
+`lychee.h` must stay plain C99: `core/test/c_header_test.c` compiles it
+as such with `-Wpedantic`.
 
 Adding a test: put it in the lowest layer that can observe the
 behaviour. A pure algorithm gets a unit test in `core/test`; anything the

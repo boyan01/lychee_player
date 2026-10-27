@@ -75,6 +75,8 @@ while IFS= read -r f; do
     .github/workflows/ci.yml | tool/changes.sh) mark ci ;;
     # CI's format job checks every push.
     .clang-format | .editorconfig | tool/format.sh) ;;
+    # clang-tidy runs locally only, on what a branch changed.
+    .clang-tidy | tool/tidy.sh) ;;
     .github/workflows/*) mark packaging ;;
     core/include/lychee/lychee.h) mark core threads abi rust apple android flutter ;;
     core/src/pipeline/* | core/src/api/* | core/src/base/*) mark core threads ;;
