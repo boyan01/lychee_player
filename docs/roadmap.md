@@ -25,11 +25,20 @@ building on top of them.
    `background` case exercises the expiry of
    frames nobody pulled: Choreographer kept pulling in the background on
    the Xiaomi 14.
-2. **Windows**: a real GPU reset (`dxcap -forcetdr`, which also loses the
-   plugin's own device; only the simulated `decoder-lost` has run), an
-   adapter change during playback (the plugin sets it once), HEVC on a
-   machine without the Store's HEVC Video Extensions (should fall back to
-   D3D11VA at open), multiple monitors, and audible output.
+2. **Windows**: after a real GPU reset (`dxcap -forcetdr`, 2026-10-28)
+   the CLI and `lychee_glfw` recover: ~3-4 s without video, the NVIDIA
+   HDMI audio endpoint goes away so WASAPI reopens, then ~5 s of audio
+   glitches. The Flutter example does not: the engine's ANGLE context is
+   lost (`EGL Error: Context Lost (12302)`) and it draws nothing until it
+   exits; that is Flutter's engine, not the plugin. An adapter change
+   works in the core (`lychee_glfw --adapter 3:1`, Intel to NVIDIA, frames
+   pass `frame_check`), but the plugin sets the adapter once, and a window
+   moved to another GPU's display needs a monitor on the NVIDIA card
+   (hands). HEVC without the Store's HEVC Video Extensions (should fall
+   back to D3D11VA at open) waits on the user: the PC has the free "from
+   Device Manufacturer" package, which neither winget nor the HK Store
+   offers again (only the paid 9NMZLZ57R3T7), so it was not uninstalled.
+   Also multiple monitors, and audible output.
    `tool/regression.sh`'s realtime cases on Windows: `realtime-rate`
    once showed 400 ms of drift and `realtime-seek` 6 glitches while an
    Android emulator loaded the PC (2026-10-28); alone they pass. Rerun

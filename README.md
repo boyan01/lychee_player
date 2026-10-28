@@ -103,7 +103,10 @@ frame was fitted into). On
 Windows the same program (`main_win.cc`) draws with Direct3D 11 the frames
 the Flutter plugin takes: shared D3D11 textures on the adapter it draws
 with, CPU BGRA frames otherwise (`--cpu` forces them, `--no-hw` decodes in
-software); its summary also counts the frames of each kind. CMake
+software); its summary also counts the frames of each kind and the
+device losses (it makes a new device after a GPU reset), and `--adapter
+SEC:N` moves it to the Nth DXGI adapter at SEC seconds, as a window moved
+to a display on another GPU. CMake
 downloads GLFW 3.4 there (hash-pinned; `-DLYCHEE_FETCH_GLFW=OFF` skips the
 example). On Linux (`main_linux.cc`; needs `libglfw3-dev`, `libegl-dev` and
 `libgles-dev`) it draws with OpenGL ES 3 on EGL, as the Flutter plugin

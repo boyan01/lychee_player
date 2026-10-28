@@ -153,22 +153,34 @@ class Renderer {
     return CreateDevice();
   }
 
-  // Creates the device on the first adapter, which the player then decodes
-  // on and makes its textures for, as the plugin passes Flutter's adapter.
-  // Again after a GPU reset (TDR) removed the device.
+  // Moves to adapter |index| (--adapter), as when the window goes to a
+  // display on another GPU and the plugin passes Flutter's new adapter.
+  bool SwitchAdapter(UINT index) {
+    adapter_index_ = index;
+    return CreateDevice();
+  }
+
+  // Creates the device on the adapter, the first unless --adapter moved it,
+  // which the player then decodes on and makes its textures for, as the
+  // plugin passes Flutter's adapter. Again after a GPU reset (TDR) removed
+  // the device.
   bool CreateDevice() {
     ReleaseDevice();
     HWND hwnd = glfwGetWin32Window(window_);
     ComPtr<IDXGIFactory2> factory;
     ComPtr<IDXGIAdapter1> adapter;
     if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) ||
-        FAILED(factory->EnumAdapters1(0, &adapter)) ||
+        FAILED(factory->EnumAdapters1(adapter_index_, &adapter)) ||
         FAILED(D3D11CreateDevice(adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN,
                                  nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
                                  &device_, nullptr, &context_))) {
       fprintf(stderr, "no D3D11 device\n");
       return false;
     }
+    DXGI_ADAPTER_DESC1 adapter_desc = {};
+    adapter->GetDesc1(&adapter_desc);
+    printf("adapter %u: %ls\n", adapter_index_, adapter_desc.Description);
+    fflush(stdout);
 
     // Flip model with a frame latency of one: once the waitable object is
     // signalled, what we draw is shown at the next vblank.
@@ -468,6 +480,7 @@ class Renderer {
   GLFWwindow* window_ = nullptr;
   lychee_player* player_ = nullptr;
   bool cpu_ = false;
+  UINT adapter_index_ = 0;
   ComPtr<ID3D11Device> device_;
   ComPtr<ID3D11DeviceContext> context_;
   ComPtr<IDXGISwapChain2> swap_chain_;
@@ -535,6 +548,20 @@ bool ParseSnapshot(const std::string& arg, std::vector<Snapshot>* snapshots) {
   return true;
 }
 
+// --adapter SEC:N moves to adapter N at SEC seconds.
+struct AdapterSwitch {
+  double at;
+  UINT index;
+};
+
+bool ParseAdapter(const std::string& arg, std::vector<AdapterSwitch>* list) {
+  double at = 0;
+  unsigned index = 0;
+  if (sscanf(arg.c_str(), "%lf:%u", &at, &index) != 2) return false;
+  list->push_back({at, index});
+  return true;
+}
+
 bool ParseKey(const std::string& arg, std::vector<ScriptedKey>* keys) {
   const size_t colon = arg.find(':');
   if (colon == std::string::npos) return false;
@@ -559,6 +586,7 @@ int main(int argc, char** argv) {
   int window_width = 960, window_height = 540;
   std::vector<ScriptedKey> keys;
   std::vector<Snapshot> snapshots;
+  std::vector<AdapterSwitch> adapters;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--seconds" && i + 1 < argc) {
@@ -567,6 +595,9 @@ int main(int argc, char** argv) {
       ++i;
     } else if (arg == "--snapshot" && i + 1 < argc &&
                ParseSnapshot(argv[i + 1], &snapshots)) {
+      ++i;
+    } else if (arg == "--adapter" && i + 1 < argc &&
+               ParseAdapter(argv[i + 1], &adapters)) {
       ++i;
     } else if (arg == "--size" && i + 1 < argc &&
                sscanf(argv[i + 1], "%dx%d", &window_width, &window_height) ==
@@ -585,11 +616,13 @@ int main(int argc, char** argv) {
     }
   }
   if (url.empty()) {
-    fprintf(stderr,
-            "usage: %s [--seconds N] [--key SEC:space|left|right|escape]... "
-            "[--snapshot SEC:FILE]... [--size WxH] [--cpu] [--no-hw] "
-            "<file or url>\n",
-            argv[0]);
+    fprintf(
+        stderr,
+        "usage: %s [--seconds N] [--key SEC:space|left|right|escape]... "
+        "[--snapshot SEC:FILE]... [--adapter SEC:N]... [--size WxH] [--cpu] "
+        "[--no-hw] "
+        "<file or url>\n",
+        argv[0]);
     return 2;
   }
   std::stable_sort(
@@ -598,6 +631,10 @@ int main(int argc, char** argv) {
   std::stable_sort(
       snapshots.begin(), snapshots.end(),
       [](const Snapshot& a, const Snapshot& b) { return a.at < b.at; });
+  std::stable_sort(adapters.begin(), adapters.end(),
+                   [](const AdapterSwitch& a, const AdapterSwitch& b) {
+                     return a.at < b.at;
+                   });
 
   if (!glfwInit()) {
     fprintf(stderr, "glfwInit failed\n");
@@ -637,6 +674,7 @@ int main(int argc, char** argv) {
       const int64_t start = lychee_now_us();
       size_t next_key = 0;
       size_t next_snapshot = 0;
+      size_t next_adapter = 0;
       while (!glfwWindowShouldClose(window)) {
         renderer.Wait();
         glfwPollEvents();
@@ -652,6 +690,12 @@ int main(int argc, char** argv) {
             static_cast<double>(lychee_now_us() - start) / 1e6;
         while (next_key < keys.size() && elapsed >= keys[next_key].at) {
           OnKey(window, keys[next_key++].key, 0, GLFW_PRESS, 0);
+        }
+        while (next_adapter < adapters.size() &&
+               elapsed >= adapters[next_adapter].at) {
+          if (!renderer.SwitchAdapter(adapters[next_adapter++].index)) {
+            exit_code = 1;
+          }
         }
         // After the keys due at the same time.
         while (next_snapshot < snapshots.size() &&
