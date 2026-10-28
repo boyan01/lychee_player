@@ -1002,8 +1002,12 @@ realtime=1 par expect decoder-hung-destroy "hang video decoder at" "destroyed in
 par expect audio-device-dead "audio device pulled nothing for 20[0-9]{2} ms" \
   "summary: state=ended position=12\.000s .*backward_jumps=0 .*stalls=0" -- \
   --stall-audio-after 0 --seconds 20 "$media/h264_aac.mp4"
+# Video holds the frame for the 2 s; under TSan the clock creeps there by
+# a frame or two, so the hold counts as up to 7 glitches instead of 2.
+stalled_glitches='[0-3]'
+[ "${TSAN:-0}" = 1 ] && stalled_glitches='[0-9]'
 par expect audio-device-stalled "stall audio device at 2\." "audio device pulled nothing for 20[0-9]{2} ms" \
-  "audio device pulls again" "summary: state=ended position=12\.000s .*glitches=[0-3] backward_jumps=0 .*stalls=0" -- \
+  "audio device pulls again" "summary: state=ended position=12\.000s .*glitches=$stalled_glitches backward_jumps=0 .*stalls=0" -- \
   --stall-audio-after 2 --stall-audio-for 4 --seconds 20 "$media/h264_aac.mp4"
 # The same with the platform's audio device pulling on its own thread.
 realtime=1 par expect audio-device-stalled-realtime "audio device pulled nothing for 20[0-9]{2} ms" \
