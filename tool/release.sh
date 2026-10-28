@@ -28,7 +28,9 @@
 #                                      with Swift Package Manager) and
 #                                      Android; in Git Bash on Windows for
 #                                      Windows (OUT needs only
-#                                      ffmpeg-windows-x86_64.zip there)
+#                                      ffmpeg-windows-x86_64.zip there);
+#                                      on Linux for Linux (only this
+#                                      architecture's ffmpeg-linux-*.tar.xz)
 #   tool/release.sh sbom OUT           write OUT/lychee_player-VERSION.spdx.json,
 #                                      an SPDX 2.3 SBOM of OUT's assets: what
 #                                      each holds (the core, FFmpeg, Mbed TLS,
@@ -331,6 +333,10 @@ cmd_check() {
     check_windows
     return
   fi
+  if [ "$(uname -s)" = Linux ]; then
+    check_linux
+    return
+  fi
 
   for f in "${release_frameworks[@]}"; do
     pinned="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["files"][sys.argv[2]])' \
@@ -420,6 +426,31 @@ check_windows() {
   grep -q "GET /$tag/ffmpeg-windows-x86_64.zip" "$tmp/server.log" ||
     die "the build did not download from the release"
   echo "ok: a fresh Windows app builds with the package and the release of $tag ($tmp)"
+}
+
+# The Linux app: the plugin compiles the core, as on Windows, and
+# downloads the release's FFmpeg for this machine's architecture into the
+# bundle.
+check_linux() {
+  local arch=x64 p lib
+  [ "$(uname -m)" = x86_64 ] || arch=arm64
+  p="$(linux_platform)"
+  local dir="build/linux/$arch/debug/bundle"
+  create_app linux
+  echo "== Linux"
+  env -u LYCHEE_FFMPEG_ROOT flutter build linux --debug >"$tmp/linux.log" 2>&1 ||
+    { tail -40 "$tmp/linux.log"; die "Linux build failed"; }
+  [ -f "$dir/lib/liblychee_player_plugin.so" ] || die "the Linux app has no liblychee_player_plugin.so"
+  [ -f "$dir/lib/liblychee_player.so" ] || die "the Linux app has no liblychee_player.so (the core)"
+  for lib in avformat avcodec swresample swscale avutil; do
+    compgen -G "$dir/lib/lib$lib.so.[0-9]*" >/dev/null || die "the Linux app has no lib$lib"
+  done
+  # The app finds them in its bundle, not on the system.
+  ldd "$dir/lib/liblychee_player.so" | grep -E 'lib(avformat|avcodec|avutil)' | grep -qv "$dir/lib" &&
+    die "liblychee_player.so loads FFmpeg from outside the bundle: $(ldd "$dir/lib/liblychee_player.so" | grep libav)"
+  grep -q "GET /$tag/ffmpeg-$p.tar.xz" "$tmp/server.log" ||
+    die "the build did not download from the release"
+  echo "ok: a fresh Linux app builds with the package and the release of $tag ($tmp)"
 }
 
 # swift_package_manager true|false: Flutter's Swift Package Manager

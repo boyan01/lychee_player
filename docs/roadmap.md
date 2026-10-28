@@ -60,19 +60,18 @@ building on top of them.
   If it comes back, compare the bare app on the same boot before
   touching the plugin.
 
-1. **MPEG-TS and HLS through FFmpeg's demuxer on Linux and Android**:
-   there the FFmpeg build still reads TS and HLS with `FFmpegDemuxer`,
-   so timestamps that start over inside a TS file
+1. **MPEG-TS and HLS through FFmpeg's demuxer on Android**: there the
+   FFmpeg build still reads TS and HLS with `FFmpegDemuxer`, so
+   timestamps that start over inside a TS file
    (`ts_timestamp_reset.ts`: 3.021 s instead of 6 s, seeks into the
    wrong half), HLS audio renditions on another timeline
    (`hls_alt/master.m3u8`, 1 s out of sync) and slow seeks past an HLS
-   discontinuity remain there; Apple's and Windows' FFmpeg builds open
-   them with the own demuxers (`media/factory.cc`). TS needs only files
-   there; HLS reads through the http `DataSource`, which Android now
-   has. TS video
-   comes without extradata (Annex B, parameter sets in band), which
-   MediaCodec has not been tried with (Media Foundation takes it). Done
-   when `tool/regression.sh`'s `own_ts` cases pass on Linux, and
+   discontinuity remain there; Apple's, Windows' and Linux's FFmpeg
+   builds open them with the own demuxers (`media/factory.cc`). TS
+   needs only files there; HLS reads through the http `DataSource`,
+   which Android now has. TS video comes without extradata (Annex B,
+   parameter sets in band), which MediaCodec has not been tried with
+   (Media Foundation takes it). Done when
    the Android example plays `ts_timestamp_reset.ts` with hardware
    decoding.
 2. **TS runs found while reading, audio first**: where timestamps start
@@ -82,7 +81,15 @@ building on top of them.
    provisional shift until the video sets the run's shift, then steps
    back by the difference (tens of ms). Seen with a synthetic stream in
    `mp2t_test.cc`, not with a real file.
-3. **iOS foreground recovery needs device verification** (waiting on the
+3. **FFmpeg's HLS leaks with a subtitle rendition on Linux**: `ASAN=1
+   tool/regression.sh` on Linux fails `http-hls-subtitles` with 34 KB
+   leaked inside `avformat_open_input` (an AVIOContext buffer and a probe
+   buffer), with FFmpeg 9.0.2 reading through its own http; on Apple
+   FFmpeg reads through `DataSource` (`IoOpen`) and the case is clean.
+   Find whether FFmpeg's `hls` demuxer or how `FFmpegDemuxer` opens it
+   leaves them, and fix or report it upstream; done when that case
+   passes under ASan on Linux.
+4. **iOS foreground recovery needs device verification** (waiting on the
    user): an iPhone 17 (2026-10-27) rejected 32 video packets (`-12909`)
    after an apparent interruption or background transition; the actual
    lifecycle trigger is unconfirmed. The native and Flutter frame drivers
@@ -181,24 +188,25 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    and assets (the user, 2026-10-27).
 2. **Release leftovers**: the AAR on Maven Central too (what native
    Android users expect; needs a Sonatype account for `tech.soit`);
-   `tool/release.sh check` building Linux apps (it builds macOS, iOS and
-   Android apps on macOS and Windows apps in Git Bash on Windows;
-   `release.yml` runs both, the Windows one and the attestations and
-   SBOM since 2026-10-28 and not yet in a release); the Linux job in a `ubuntu:22.04` container once GitHub
+   `release.yml` running `tool/release.sh check` on Linux, where it
+   builds Linux apps by hand only (`release.yml` runs the macOS and
+   Windows checks, the attestations and the SBOM since 2026-10-28, not
+   yet in a release); the Linux job in a `ubuntu:22.04` container once GitHub
    retires that
    image.
 3. **Native SDKs**: drop the pod and the plugin's copy of
    `LycheeFrameDriver` (`LycheeTexture`) once Flutter drops CocoaPods;
-   the Rust crates on crates.io, and built for Linux (`LYCHEE_LIB_DIR`
-   has run on Windows, Android, and iOS with an xcframework slice).
+   the Rust crates on crates.io.
    Windows and Linux native users
    take the C ABI as it is.
 4. **Engineering practices**, in rough order of value:
    - **clang-tidy**: the Android and Windows backends are not checked.
-     `ci.yml`'s `tidy` job runs on Linux too since 2026-10-28 (PyPI's
-     clang-tidy 23, a clang compile database against the LGPL FFmpeg),
-     unverified: it has not run on GitHub, and `tool/tidy.sh` has not
-     run with that wheel on Linux; fix what the first push shows.
+     `tool/tidy.sh` on Linux checks the Linux backend (clang 23, `--all`
+     without findings, 2026-10-28). `ci.yml`'s `tidy` job runs on Linux
+     too since 2026-10-28 (PyPI's clang-tidy 23, a clang compile
+     database against the LGPL FFmpeg), unverified: it has not run on
+     GitHub, and `tool/tidy.sh` has not run with that wheel on Linux;
+     fix what the first push shows.
    - **CI jobs for Android and Windows** (`android`, `core-windows` in
      `ci.yml`, 2026-10-28) have not run on GitHub yet: fix what their
      first push shows (the emulator's MediaCodec snapshots, WASAPI on a
@@ -212,8 +220,8 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
      frame at a time, which is enough to play but not to scrub fast.
    - **Soak tests**: `tool/soak.sh` soaks the core through the CLI on
      macOS, Linux and Windows, and `examples/glfw --soak` the Windows
-     harness. Left: a run on Linux, and soaking the other platform
-     harnesses (`examples/glfw` on macOS and Linux, the Swift and Android
+     harness. Left: soaking the other platform harnesses
+     (`examples/glfw` on macOS and Linux, the Swift and Android
      examples), whose frame hand-off and display link the CLI skips.
    - **Supply chain**: `updates.yml` (weekly, 2026-10-28) lists newer
      FFmpeg, Mbed TLS and GLFW releases than the pins

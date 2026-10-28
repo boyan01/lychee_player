@@ -13,6 +13,8 @@
 #include <windows.h>
 
 #include "backends/windows/http_data_source.h"
+#elif defined(LYCHEE_WITH_FFMPEG)
+#include "backends/ffmpeg/ffmpeg_data_source.h"
 #endif
 
 namespace lychee {
@@ -137,6 +139,8 @@ std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
       return WinHttpDataSource::Open(url, error);
 #elif defined(__ANDROID__)
       return OpenHttpDataSource(url, error);
+#elif defined(LYCHEE_WITH_FFMPEG)
+      return OpenFFmpegHttpDataSource(url, error);
 #else
       *error = "no HTTP client in this build";
       return nullptr;

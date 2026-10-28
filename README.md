@@ -360,7 +360,11 @@ the release's `ffmpeg-windows-x86_64.zip`); `LYCHEE_LIB_DIR` there needs
 `lychee.lib` beside `lychee.dll`. Windows finds DLLs next to the binary or
 on `PATH`: put FFmpeg's `bin/` (and a `LYCHEE_LIB_DIR` outside `target/`)
 there for `cargo test`, and ship `lychee.dll` and the FFmpeg DLLs next to
-the binary. The test reads the media from `MEDIA_DIR` if set.
+the binary. On Linux `LYCHEE_LIB_DIR` takes the core's own CMake build
+(`-DBUILD_SHARED_LIBS=ON`, `build/core/liblychee.so`), which finds FFmpeg
+through its runpath; the loader finds `liblychee.so` itself only inside
+`target/`, so set `LD_LIBRARY_PATH` to a `LYCHEE_LIB_DIR` elsewhere for
+`cargo test`. The test reads the media from `MEDIA_DIR` if set.
 
 For iOS, point `LYCHEE_LIB_DIR` at a slice of `lychee.xcframework` (or
 `lychee_noffmpeg.xcframework`, which needs no FFmpeg), from
@@ -531,7 +535,7 @@ tool/release.sh build android /tmp/sources && tool/release.sh pack android /tmp/
 tool/release.sh build windows /tmp/sources && tool/release.sh pack windows /tmp/dist  # on Linux
 tool/release.sh build linux /tmp/sources && tool/release.sh pack linux /tmp/dist  # on Ubuntu 22.04
 tool/release.sh sources /tmp/dist && tool/release.sh pin /tmp/dist
-tool/release.sh check /tmp/dist   # then git checkout the pins; in Git Bash on Windows it builds a Windows app
+tool/release.sh check /tmp/dist   # then git checkout the pins; in Git Bash on Windows it builds a Windows app, on Linux a Linux app
 tool/release.sh sbom /tmp/dist    # lychee_player-VERSION.spdx.json
 ```
 

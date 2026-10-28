@@ -15,7 +15,8 @@
 # the FFmpeg-free demuxers and Apple decoders. Files this host does not
 # compile (other platforms' backends) are skipped and named. A changed
 # header is checked through the file of the same name next to it, when
-# that exists. Takes Homebrew's LLVM, else clang-tidy from PATH.
+# that exists. Takes Homebrew's LLVM, else clang-tidy from PATH, else the
+# newest /usr/lib/llvm-N (apt.llvm.org).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,8 +39,11 @@ fi
 
 tidy=/opt/homebrew/opt/llvm/bin/clang-tidy
 [ -x "$tidy" ] || tidy="$(command -v clang-tidy || true)"
+# apt.llvm.org's packages (clang-tidy-N): the newest.
+[ -n "$tidy" ] || tidy="$(ls -d /usr/lib/llvm-*/bin/clang-tidy 2>/dev/null | sort -V | tail -n 1)"
 run="$(dirname "$tidy")/run-clang-tidy"
-[ -x "$run" ] || run="$(command -v run-clang-tidy || true)"
+# PyPI's clang-tidy wheel names it run-clang-tidy.py.
+[ -x "$run" ] || run="$(command -v run-clang-tidy || command -v run-clang-tidy.py || true)"
 if [ -z "$tidy" ] || [ -z "$run" ]; then
   echo "tidy.sh: needs clang-tidy and run-clang-tidy (brew install llvm)" >&2
   exit 1
