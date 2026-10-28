@@ -11,6 +11,16 @@ cmake_policy(VERSION 3.14...3.25)
 # not be changed.
 set(PLUGIN_NAME "lychee_player_plugin")
 
+# LYCHEE_WITH_FFMPEG=OFF (cache or environment variable) builds the core
+# without FFmpeg: Media Foundation and the core's own demuxers, no FFmpeg
+# DLLs in the app (README, "Building the core").
+# The environment wins over the cache, so changing it needs no clean build.
+if(DEFINED ENV{LYCHEE_WITH_FFMPEG})
+  set(LYCHEE_WITH_FFMPEG "$ENV{LYCHEE_WITH_FFMPEG}")
+elseif(NOT DEFINED LYCHEE_WITH_FFMPEG)
+  set(LYCHEE_WITH_FFMPEG ON)
+endif()
+
 # The pinned LGPL FFmpeg, unless one is given: the LYCHEE_FFMPEG_ROOT cache
 # or environment variable, e.g. tool/build_ffmpeg.sh windows-x86_64's
 # output.
@@ -20,7 +30,7 @@ set(LYCHEE_FFMPEG_ROOT "" CACHE PATH
 if(NOT LYCHEE_FFMPEG_ROOT AND DEFINED ENV{LYCHEE_FFMPEG_ROOT})
   file(TO_CMAKE_PATH "$ENV{LYCHEE_FFMPEG_ROOT}" LYCHEE_FFMPEG_ROOT)
 endif()
-if(NOT LYCHEE_FFMPEG_ROOT)
+if(LYCHEE_WITH_FFMPEG AND NOT LYCHEE_FFMPEG_ROOT)
   lychee_fetch_ffmpeg("${CMAKE_BINARY_DIR}/ffmpeg" LYCHEE_FFMPEG_ROOT)
 endif()
 
@@ -69,10 +79,12 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
 
 # Shipped next to the app: the core and the FFmpeg libraries it links.
 set(ffmpeg_dlls "")
-foreach(lib ${LYCHEE_FFMPEG_LIBRARIES})
-  file(GLOB dll "${LYCHEE_FFMPEG_ROOT}/bin/${lib}-*.dll")
-  list(APPEND ffmpeg_dlls ${dll})
-endforeach()
+if(LYCHEE_WITH_FFMPEG)
+  foreach(lib ${LYCHEE_FFMPEG_LIBRARIES})
+    file(GLOB dll "${LYCHEE_FFMPEG_ROOT}/bin/${lib}-*.dll")
+    list(APPEND ffmpeg_dlls ${dll})
+  endforeach()
+endif()
 set(lychee_player_bundled_libraries
   $<TARGET_FILE:lychee>
   ${ffmpeg_dlls}

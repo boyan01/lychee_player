@@ -55,8 +55,10 @@ iOS, `-DLYCHEE_WITH_FFMPEG=OFF` builds without FFmpeg: MP4 (fragmented
 too), Matroska/WebM, MPEG-TS and HLS (TS segments), from files and http(s)
 URLs, with
 H.264/HEVC (VideoToolbox), AAC/ALAC (AudioToolbox) and tx3g subtitles;
-`NO_FFMPEG=1 tool/regression.sh` tests it. On Windows it plays MP4 files
-with H.264/HEVC and AAC through Media Foundation, on a GPU only.
+`NO_FFMPEG=1 tool/regression.sh` tests it. On Windows it plays the same
+containers with H.264/HEVC (Media Foundation, on the GPU or the CPU), AAC
+and MP3, and text subtitles; the Flutter plugin builds it so with
+`LYCHEE_WITH_FFMPEG=OFF` in the environment of `flutter build windows`.
 
 ```sh
 cmake -S . -B build -G Ninja

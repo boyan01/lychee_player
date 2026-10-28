@@ -161,8 +161,6 @@ and HEVC in hardware or software, AAC and MP3); Android plays MP4 files.
    HEVC decoded in software shows one frame less than it should
    (`NO_FFMPEG=1 NO_HW=1 ONLY=live-hevc`: 299 of 300; the HEVC extension's
    decoder holds the last frame back, low latency mode set or not).
-   Packaging the FFmpeg-free core for the plugin
-   is not started.
 4. **Android**: http (item 1), an FFmpeg-free AAR variant if native
    Android users want one, and the Flutter plugin on it.
 5. **Fuzzing the live HLS reloads**: they wait real time, so the `hls`

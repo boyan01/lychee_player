@@ -335,8 +335,9 @@ void FFmpegDemuxer::BuildMediaInfo() {
   const AVDictionaryEntry* tag = nullptr;
   while ((tag = av_dict_iterate(ic->metadata, tag))) {
     std::string key = tag->key;
-    std::transform(key.begin(), key.end(), key.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+    std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) {
+      return static_cast<char>(std::tolower(c));
+    });
     media_info_.metadata.emplace_back(std::move(key), tag->value);
   }
 
