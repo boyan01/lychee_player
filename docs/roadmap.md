@@ -143,7 +143,7 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
 2. **Containers**: HLS adapts the variant to the bandwidth only where
    the http source measures it (`DataSource::transfer_rate`: Apple; not
    WinHTTP or `HttpURLConnection` yet), and only between MPEG-TS
-   variants; subtitle renditions (WebVTT) are not read. AC-3 has
+   variants; subtitle renditions in fMP4 (IMSC, WebVTT) are not read. AC-3 has
    no FFmpeg-free decoder; DVB and ID3 timed
    metadata in TS are ignored. Where TS timestamps start over, a jump
    ahead, or a run shorter than a sixteenth of the input, is found only

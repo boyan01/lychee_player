@@ -16,6 +16,8 @@ struct HlsVariant {
   std::string codecs;
   // The GROUP-ID of its audio renditions, or empty.
   std::string audio;
+  // ... and of its subtitle renditions.
+  std::string subtitles;
 };
 
 // An alternative rendition (EXT-X-MEDIA, 4.3.4.1).
@@ -104,6 +106,23 @@ bool HlsCodecsDecodable(const std::string& codecs);
 // this build decodes (H.264, HEVC, AAC; any without CODECS), the larger
 // picture on a tie. -1 if there are none.
 int PickHlsVariant(const std::vector<HlsVariant>& variants);
+
+// A cue of a WebVTT segment; microseconds from the segment's MPEG-2
+// timestamp (see ParseHlsWebVtt).
+struct WebVttCue {
+  int64_t start = 0;
+  int64_t end = 0;
+  // The cue payload, its lines joined by '\n', markup kept.
+  std::string text;
+};
+
+// A WebVTT subtitle segment (RFC 8216 3.5): its cues, and in |mpegts| the
+// 90 kHz MPEG-2 timestamp (33 bits, not unwrapped) that its X-TIMESTAMP-MAP
+// pairs with cue time LOCAL; without one, cue time 0 is MPEG-2 time 0.
+// Cue times are taken relative to LOCAL. False if it is not WebVTT.
+bool ParseHlsWebVtt(const std::string& text,
+                    int64_t* mpegts,
+                    std::vector<WebVttCue>* cues);
 
 }  // namespace lychee
 

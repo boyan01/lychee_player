@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <condition_variable>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -30,7 +31,8 @@ namespace lychee {
 // by the bandwidth its segments arrived at (MPEG-TS segments, whose
 // parameter sets come in band). Its audio renditions
 // (EXT-X-MEDIA) with a playlist of their own are audio streams
-// (DEFAULT=YES the default one), read alongside in decode order.
+// (DEFAULT=YES the default one), read alongside in decode order, and so
+// are its WebVTT subtitle renditions as subtitle streams.
 // VOD seeks by segment; live input starts three target durations from
 // the end and reloads each playlist read as its segments are used up.
 // Each discontinuity sequence gets its own offset onto one continuous
@@ -71,9 +73,9 @@ class HlsDemuxer : public Demuxer {
     std::function<bool(int64_t until)> wait;
   };
   void set_clock(Clock clock) { clock_ = std::move(clock); }
-  // Makes Open() fail for a master playlist with subtitle renditions,
-  // which this demuxer does not read: for builds with a demuxer that
-  // reads them (FFmpeg's). Set before Open().
+  // Makes Open() fail for a master playlist with subtitle renditions
+  // that are not WebVTT, which this demuxer does not read: for builds
+  // with a demuxer that reads them (FFmpeg's). Set before Open().
   void set_refuse_subtitles(bool refuse) { refuse_subtitles_ = refuse; }
 
  private:
@@ -99,8 +101,8 @@ class HlsDemuxer : public Demuxer {
     int64_t last_reload = 0;
     bool last_reload_changed = true;
     int reload_failures = 0;
-    // Only this type of stream is taken from its segments (audio
-    // renditions), or any.
+    // Only this type of stream is taken from its segments (audio and
+    // subtitle renditions), or any.
     MediaType only = MediaType::kUnknown;
     // The media_info_ streams it carries, in segment order.
     std::vector<int> streams;
@@ -123,6 +125,9 @@ class HlsDemuxer : public Demuxer {
     // variant): its samples become Annex B with the parameter sets.
     int annexb_stream = -1;
     AnnexBConverter annexb;
+    // A WebVTT segment: its cues, as packets of the rendition's stream.
+    bool text_open = false;
+    std::deque<EncodedPacket> text;
 
     // The next packet, read ahead to interleave the renditions.
     EncodedPacket next;
@@ -153,6 +158,8 @@ class HlsDemuxer : public Demuxer {
   bool Merge(Rendition* r, const HlsPlaylist& playlist);
   // Opens r->segments[r->current]; the first one adds r's streams.
   bool OpenSegment(Rendition* r, std::string* error);
+  // OpenSegment() for a subtitle rendition.
+  bool OpenWebVtt(Rendition* r, std::string* error);
   void CloseSegment(Rendition* r);
   // Reads |length| bytes (-1: all) of |url| from |offset| (-1: 0), and
   // the source's transfer_rate() into |rate| if given.

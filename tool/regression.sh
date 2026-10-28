@@ -431,7 +431,7 @@ fi
 [ -f "$media/hls/vp9_master.m3u8" ] || printf '%s\n' '#EXTM3U' \
   '#EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=1920x1080,CODECS="vp09.00.40.08,mp4a.40.2"' index.m3u8 \
   >"$media/hls/vp9_master.m3u8"
-# A WebVTT subtitle rendition, which only FFmpeg's HLS reads.
+# A WebVTT subtitle rendition.
 if [ ! -f "$media/hls/subs_master.m3u8" ]; then
   printf '%s\n' WEBVTT '' '00:00:01.000 --> 00:00:03.000' 'Hello' >"$media/hls/subs.vtt"
   printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:12' '#EXT-X-PLAYLIST-TYPE:VOD' '#EXTINF:12.0,' subs.vtt \
@@ -440,6 +440,16 @@ if [ ! -f "$media/hls/subs_master.m3u8" ]; then
     '#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en",DEFAULT=YES,URI="subs.m3u8"' \
     '#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",SUBTITLES="subs"' \
     index.m3u8 >"$media/hls/subs_master.m3u8"
+fi
+# And one in two segments, the first without cues, the second placed by
+# X-TIMESTAMP-MAP: its cue at 10 s on the MPEG-TS timestamps.
+if [ ! -f "$media/hls/vtt_map_master.m3u8" ]; then
+  printf '%s\n' WEBVTT >"$media/hls/vtt_map0.vtt"
+  printf '%s\n' WEBVTT 'X-TIMESTAMP-MAP=MPEGTS:900000,LOCAL:00:00:00.000' '' 'cue-1' \
+    '00:00:00.000 --> 00:00:01.000 align:start' 'Later <i>on</i>' >"$media/hls/vtt_map1.vtt"
+  printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:6' '#EXT-X-PLAYLIST-TYPE:VOD' '#EXTINF:6.0,' vtt_map0.vtt \
+    '#EXTINF:6.0,' vtt_map1.vtt '#EXT-X-ENDLIST' >"$media/hls/vtt_map.m3u8"
+  sed 's|URI="subs.m3u8"|URI="vtt_map.m3u8"|' "$media/hls/subs_master.m3u8" >"$media/hls/vtt_map_master.m3u8"
 fi
 [ -f "$media/hls/live_master.m3u8" ] || sed -e 's|^index\.m3u8|live.m3u8|' \
   -e 's|hls_low/index\.m3u8|hls_low/live.m3u8|' -e '/vp09/,+1d' "$media/hls/master.m3u8" \
@@ -1266,15 +1276,25 @@ hls_variant="video size (640x360|1920x1080)"
 [ "$own_ts" = 1 ] && hls_variant="variant 1 of 3: .* 1920x1080"
 seq_ expect http-hls-master "$hls_variant" "summary: state=ended position=12\.000s" -- \
   "http://127.0.0.1:$port/hls/master.m3u8"
-# A playlist the own demuxer refuses goes to FFmpeg's, and so does one
-# with subtitle renditions, which only FFmpeg's reads.
+# A playlist the own demuxer refuses goes to FFmpeg's.
 if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
   seq_ expect http-hls-fallback "hls: no HLS variant .*; the fallback opens it" "video size 1920x1080" \
     "summary: state=ended position=12\.000s" -- "http://127.0.0.1:$port/hls/vp9_master.m3u8"
 fi
-[ "${NO_FFMPEG:-0}" != 1 ] &&
+# WebVTT renditions are subtitle tracks, their cues on the media's
+# timeline (the video starts at 1.417 s).
+if [ "$own_ts" = 1 ]; then
+  seq_ expect http-hls-subtitles "track 2: subtitle webvtt lang=en title=English selected=1" \
+    "subtitle at 0\.0[0-9]{2}s: Hello$" "subtitle at 1\.5[0-9]{2}s: \(none\)" "summary: state=ended position=12\.000s" -- \
+    "http://127.0.0.1:$port/hls/subs_master.m3u8"
+  seq_ expect http-hls-subtitles-map "subtitle at 8\.5[0-9]{2}s: Later on$" "subtitle at 9\.5[0-9]{2}s: \(none\)" \
+    "summary: state=ended position=12\.000s" -- "http://127.0.0.1:$port/hls/vtt_map_master.m3u8"
+  seq_ expect http-hls-subtitles-seek "subtitle at 9\.[0-9]{3}s: Later on$" -- --seek 9 --seek-after 1 --seconds 3 \
+    "http://127.0.0.1:$port/hls/vtt_map_master.m3u8"
+elif [ "${NO_FFMPEG:-0}" != 1 ]; then
   seq_ expect http-hls-subtitles "track 0: subtitle webvtt lang=en " "summary: state=ended position=12\.000s" -- \
     "http://127.0.0.1:$port/hls/subs_master.m3u8"
+fi
 # The other variants are video tracks, read once selected (TS, and fMP4
 # made Annex B: described by the master playlist, they have no avcC);
 # their audio is the first's, and video off reads only that.
