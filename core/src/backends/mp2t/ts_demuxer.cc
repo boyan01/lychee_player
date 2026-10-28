@@ -40,6 +40,12 @@ constexpr int kRunStartPackets = 16;
 // interleaved up to about this much apart.
 constexpr int64_t kMaxStepBack = kMicrosPerSecond / 2;
 constexpr int64_t kMaxInterleave = kMicrosPerSecond;
+// Timestamps going ahead by more than this start a run (as in TsReader).
+constexpr int64_t kMaxStepAhead = 10 * kMicrosPerSecond;
+// Between two samples, timestamps that go ahead by more than this many
+// times what the bytes play for (at the median rate), and kMaxStepAhead,
+// hold a jump.
+constexpr int64_t kJumpFactor = 4;
 
 std::string HexByte(int value) {
   static const char kDigits[] = "0123456789abcdef";
@@ -182,13 +188,76 @@ bool TsDemuxer::FindRuns(int pid) {
       return false;
     }
   }
+  std::vector<double> rates;
   for (size_t i = 0; i + 1 < samples.size(); ++i) {
-    if (samples[i + 1].second < samples[i].second - kMaxStepBack &&
-        !LocateRun(pid, samples[i], samples[i + 1])) {
+    if (samples[i + 1].second > samples[i].second) {
+      rates.push_back(
+          static_cast<double>(samples[i + 1].second - samples[i].second) /
+          static_cast<double>(samples[i + 1].first - samples[i].first));
+    }
+  }
+  if (!rates.empty()) {
+    std::nth_element(rates.begin(), rates.begin() + rates.size() / 2,
+                     rates.end());
+    micros_per_byte_ = rates[rates.size() / 2];
+  }
+  for (size_t i = 0; i + 1 < samples.size(); ++i) {
+    if (samples[i + 1].second < samples[i].second - kMaxStepBack) {
+      if (!LocateRun(pid, samples[i], samples[i + 1])) {
+        return false;
+      }
+    } else if (JumpsAhead(samples[i], samples[i + 1]) &&
+               !LocateJump(pid, samples[i], samples[i + 1])) {
       return false;
     }
   }
   return true;
+}
+
+bool TsDemuxer::JumpsAhead(std::pair<int64_t, int64_t> before,
+                           std::pair<int64_t, int64_t> after) const {
+  const double played =
+      micros_per_byte_ * static_cast<double>(after.first - before.first);
+  const int64_t step = after.second - before.second;
+  return micros_per_byte_ > 0 && step > kMaxStepAhead &&
+         static_cast<double>(step) > kJumpFactor * played;
+}
+
+bool TsDemuxer::LocateJump(int pid,
+                           std::pair<int64_t, int64_t> before,
+                           std::pair<int64_t, int64_t> after) {
+  // Bisect toward the half whose timestamps go further ahead of what its
+  // bytes play for.
+  const int64_t size = reader_->packet_size();
+  int64_t low = before.first;
+  int64_t high = after.first;
+  int64_t low_pts = before.second;
+  int64_t high_pts = after.second;
+  while (high - low > kRunBisectStop) {
+    int64_t middle = low + (high - low) / 2;
+    middle = low + (middle - low) / size * size;
+    int64_t pts;
+    bool read_error;
+    if (!PtsAt(middle, pid, low_pts, &pts, &read_error)) {
+      if (read_error) {
+        return false;
+      }
+      high = middle;
+      continue;
+    }
+    const double left = static_cast<double>(pts - low_pts) -
+                        micros_per_byte_ * static_cast<double>(middle - low);
+    const double right = static_cast<double>(high_pts - pts) -
+                         micros_per_byte_ * static_cast<double>(high - middle);
+    if (left >= right) {
+      high = middle;
+      high_pts = pts;
+    } else {
+      low = middle;
+      low_pts = pts;
+    }
+  }
+  return ReadAcross(pid, low, high, low_pts, after);
 }
 
 bool TsDemuxer::LocateRun(int pid,
@@ -217,6 +286,14 @@ bool TsDemuxer::LocateRun(int pid,
       high = middle;
     }
   }
+  return ReadAcross(pid, low, high, last, after);
+}
+
+bool TsDemuxer::ReadAcross(int pid,
+                           int64_t low,
+                           int64_t high,
+                           int64_t last,
+                           std::pair<int64_t, int64_t> after) {
   // Read across the reset, from far enough before it for the frame that
   // shows last, which with B-frames is not the last one decoded. Packets
   // come out as their PES ends, so one stream's first packets of the new
@@ -227,6 +304,7 @@ bool TsDemuxer::LocateRun(int pid,
   // Runs are found in input order: the one known at |low| is its own.
   const int64_t run_offset = timeline_[TsReader::RunAt(timeline_, low)].offset;
   const int64_t from = std::max(run_offset, low - kRunBisectStop);
+  const size_t read_in = TsReader::RunAt(timeline_, from);
   reader.SetRange(from, std::min(source_->size(), high + kPtsWindow));
   // A stream's first packet is in the old run if near where reading
   // starts.
@@ -247,17 +325,24 @@ bool TsDemuxer::LocateRun(int pid,
   int64_t end = kNoTimestamp;
   int64_t reset = -1;
   int64_t start = kNoTimestamp;
-  int read_after = 0;
+  int anchor_after = 0;
+  // The anchor's last DTS in the new run, and where it starts over
+  // again within the bytes read: a run shorter than the samples' spacing.
+  int64_t run_dts = kNoTimestamp;
+  int64_t next_reset = -1;
   EncodedPacket packet;
   int64_t offset;
   DemuxerReadResult result;
   while ((result = reader.Read(&packet, &offset)) == DemuxerReadResult::kOk) {
     const int index = packet.stream_index;
     auto it = dts.find(index);
+    // Back, or ahead by more than a packet can last.
     const bool moved = it != dts.end()
                            ? it->second == kNoTimestamp ||
-                                 packet.dts < it->second - kMaxStepBack
-                           : packet.dts < first - kMaxInterleave;
+                                 packet.dts < it->second - kMaxStepBack ||
+                                 packet.dts > it->second + kMaxStepAhead
+                           : packet.dts < first - kMaxInterleave ||
+                                 packet.dts > first + kMaxStepAhead;
     if (!moved) {
       dts[index] = packet.dts;
       if (index == anchor) {
@@ -270,12 +355,21 @@ bool TsDemuxer::LocateRun(int pid,
     if (reset < 0 || offset < reset) {
       reset = offset;
     }
-    if (index == anchor && (start == kNoTimestamp || packet.pts < start)) {
-      start = packet.pts;
+    if (index == anchor) {
+      if (run_dts != kNoTimestamp && (packet.dts < run_dts - kMaxStepBack ||
+                                      packet.dts > run_dts + kMaxStepAhead)) {
+        next_reset = offset;
+        break;
+      }
+      run_dts = packet.dts;
+      // The run's first frame shows first, but with B-frames is not the
+      // first decoded.
+      if (anchor_after++ < kRunStartPackets &&
+          (start == kNoTimestamp || packet.pts < start)) {
+        start = packet.pts;
+      }
     }
-    if (++read_after >= kRunStartPackets && start != kNoTimestamp) {
-      break;
-    }
+    // Read on to the end of the range for another reset.
   }
   if (result == DemuxerReadResult::kError && Failed()) {
     return false;
@@ -283,16 +377,28 @@ bool TsDemuxer::LocateRun(int pid,
   if (reset < 0 || end == kNoTimestamp || start == kNoTimestamp) {
     return true;  // Left to reading.
   }
-  AddRun(reset, start, end);
+  AddRun(reset, start, end, read_in);
+  if (next_reset >= 0) {
+    return ReadAcross(pid, next_reset, next_reset, run_dts, after);
+  }
   if (after.second < start - kMaxStepBack) {
     return LocateRun(pid, {reset, start}, after);
+  }
+  if (JumpsAhead({reset, start}, after)) {
+    return LocateJump(pid, {reset, start}, after);
   }
   return true;
 }
 
-void TsDemuxer::AddRun(int64_t offset, int64_t start, int64_t end) {
-  for (const TsRun& run : timeline_) {
-    if (run.start != kNoTimestamp &&
+void TsDemuxer::AddRun(int64_t offset,
+                       int64_t start,
+                       int64_t end,
+                       size_t read_in) {
+  for (size_t i = 0; i < timeline_.size(); ++i) {
+    const TsRun& run = timeline_[i];
+    // The run read in is the one the timestamps moved from, even where a
+    // short run starts as it does.
+    if (i != read_in && run.start != kNoTimestamp &&
         std::abs(run.offset - offset) < kPtsWindow &&
         std::abs(TsReader::TicksToMicros(
             TsReader::Nearest(TsReader::MicrosToTicks(start),

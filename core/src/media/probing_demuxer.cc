@@ -105,8 +105,8 @@ bool ProbingDemuxer::Open(const std::string& url, std::string* error) {
   // Each demuxer takes the source with what it read so far (the http
   // source keeps it), so the look costs no second request. A fallback
   // after a failed open reads the URL anew: that is rare (SAMPLE-AES,
-  // subtitle renditions, MPEG-2 video), and the own demuxer may have read
-  // anywhere in it.
+  // subtitles other than WebVTT, MPEG-2 video), and the own demuxer may have
+  // read anywhere in it.
   if (HlsDemuxer::Detect(head, filled)) {
     auto hls = std::make_unique<HlsDemuxer>();
     HlsDemuxer* opening = hls.get();

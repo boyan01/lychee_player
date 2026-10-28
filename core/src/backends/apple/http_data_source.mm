@@ -8,9 +8,11 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "base/log.h"
+#include "base/time.h"
 
 namespace lychee {
 
@@ -34,11 +36,62 @@ constexpr NSTimeInterval kIdleTimeout = 10;
 
 }  // namespace
 
-struct HttpState {
+struct HttpState;
+
+}  // namespace lychee
+
+// Hands each task's events to the HttpState that started it.
+@interface LycheeHttpDelegate : NSObject <NSURLSessionDataDelegate>
+- (void)addTask:(NSURLSessionTask*)task
+          state:(std::weak_ptr<lychee::HttpState>)state;
+@end
+
+namespace lychee {
+
+class HttpSession {
+ public:
+  HttpSession() = default;
+  // The session holds its delegate until invalidated.
+  ~HttpSession() { [session_ invalidateAndCancel]; }
+  HttpSession(const HttpSession&) = delete;
+  HttpSession& operator=(const HttpSession&) = delete;
+
+  NSURLSessionDataTask* Start(NSURLRequest* request,
+                              std::weak_ptr<HttpState> state) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!session_) {
+      // Made on the first request: a demuxer's opener may open only files.
+      NSOperationQueue* queue = [[NSOperationQueue alloc] init];
+      queue.maxConcurrentOperationCount = 1;
+      delegate_ = [[LycheeHttpDelegate alloc] init];
+      session_ = [NSURLSession
+          sessionWithConfiguration:[NSURLSessionConfiguration
+                                       ephemeralSessionConfiguration]
+                          delegate:delegate_
+                     delegateQueue:queue];
+    }
+    NSURLSessionDataTask* task = [session_ dataTaskWithRequest:request];
+    [delegate_ addTask:task state:std::move(state)];
+    return task;
+  }
+
+ private:
+  std::mutex mutex_;
+  NSURLSession* session_ = nil;
+  LycheeHttpDelegate* delegate_ = nil;
+};
+
+std::shared_ptr<HttpSession> CreateHttpSession() {
+  @autoreleasepool {
+    return std::make_shared<HttpSession>();
+  }
+}
+
+struct HttpState : std::enable_shared_from_this<HttpState> {
   std::mutex mutex;
   std::condition_variable condition;
   NSURL* url = nil;
-  NSURLSession* session = nil;
+  std::shared_ptr<HttpSession> session;
   NSURLSessionDataTask* task = nil;
   // Bytes [offset, offset + data.size() - head) of the resource, from
   // data[head].
@@ -62,6 +115,33 @@ struct HttpState {
   bool suspended = false;
   bool interrupted = false;
   std::string error;
+  // For transfer_rate(): bytes and microseconds of the spans closed so
+  // far, and the open one (from a request's start or resume to its last
+  // bytes).
+  int64_t received = 0;
+  int64_t receive_micros = 0;
+  int64_t span_start = -1;
+  int64_t span_last = -1;
+  int64_t span_bytes = 0;
+
+  void EndSpan() {
+    if (span_start >= 0 && span_last > span_start) {
+      received += span_bytes;
+      receive_micros += span_last - span_start;
+    }
+    span_start = -1;
+    span_bytes = 0;
+  }
+  void BeginSpan() {
+    EndSpan();
+    span_start = MonotonicMicros();
+    span_last = -1;
+  }
+  void Resume() {
+    suspended = false;
+    BeginSpan();
+    [task resume];
+  }
 
   int64_t end() const { return offset + static_cast<int64_t>(data.size() - head); }
 
@@ -81,33 +161,36 @@ struct HttpState {
     // From 0 too, as FFmpeg does: a 206 says the server takes ranges.
     [request setValue:[NSString stringWithFormat:@"bytes=%lld-", from]
         forHTTPHeaderField:@"Range"];
-    task = [session dataTaskWithRequest:request];
+    task = session->Start(request, weak_from_this());
+    BeginSpan();
     [task resume];
   }
 };
 
 }  // namespace lychee
 
-@interface LycheeHttpDelegate : NSObject <NSURLSessionDataDelegate>
-- (instancetype)initWithState:(std::weak_ptr<lychee::HttpState>)state;
-@end
-
 @implementation LycheeHttpDelegate {
-  std::weak_ptr<lychee::HttpState> _state;
+  std::mutex _mutex;
+  std::unordered_map<NSUInteger, std::weak_ptr<lychee::HttpState>> _states;
 }
 
-- (instancetype)initWithState:(std::weak_ptr<lychee::HttpState>)state {
-  if ((self = [super init])) {
-    _state = std::move(state);
-  }
-  return self;
+- (void)addTask:(NSURLSessionTask*)task
+          state:(std::weak_ptr<lychee::HttpState>)state {
+  std::lock_guard<std::mutex> lock(_mutex);
+  _states[task.taskIdentifier] = std::move(state);
+}
+
+- (std::shared_ptr<lychee::HttpState>)stateOf:(NSURLSessionTask*)task {
+  std::lock_guard<std::mutex> lock(_mutex);
+  auto it = _states.find(task.taskIdentifier);
+  return it != _states.end() ? it->second.lock() : nullptr;
 }
 
 - (void)URLSession:(NSURLSession*)session
               dataTask:(NSURLSessionDataTask*)task
     didReceiveResponse:(NSURLResponse*)response
      completionHandler:(void (^)(NSURLSessionResponseDisposition))handler {
-  std::shared_ptr<lychee::HttpState> state = _state.lock();
+  std::shared_ptr<lychee::HttpState> state = [self stateOf:task];
   if (!state) {
     handler(NSURLSessionResponseCancel);
     return;
@@ -161,7 +244,7 @@ struct HttpState {
 - (void)URLSession:(NSURLSession*)session
           dataTask:(NSURLSessionDataTask*)task
     didReceiveData:(NSData*)data {
-  std::shared_ptr<lychee::HttpState> state = _state.lock();
+  std::shared_ptr<lychee::HttpState> state = [self stateOf:task];
   if (!state) {
     return;
   }
@@ -177,9 +260,12 @@ struct HttpState {
     state->discard -= static_cast<int64_t>(skip);
     state->data.insert(state->data.end(), begin + skip, begin + length);
   }];
+  state->span_bytes += static_cast<int64_t>(data.length);
+  state->span_last = lychee::MonotonicMicros();
   state->retries = 0;
   if (state->data.size() - state->head > lychee::kMaxAhead && !state->suspended) {
     state->suspended = true;
+    state->EndSpan();
     [task suspend];
   }
   state->condition.notify_all();
@@ -188,7 +274,11 @@ struct HttpState {
 - (void)URLSession:(NSURLSession*)session
                     task:(NSURLSessionTask*)task
     didCompleteWithError:(NSError*)error {
-  std::shared_ptr<lychee::HttpState> state = _state.lock();
+  std::shared_ptr<lychee::HttpState> state = [self stateOf:task];
+  {
+    std::lock_guard<std::mutex> lock(_mutex);
+    _states.erase(task.taskIdentifier);
+  }
   if (!state) {
     return;
   }
@@ -197,6 +287,7 @@ struct HttpState {
     return;
   }
   state->complete = true;
+  state->EndSpan();
   if (error && state->error.empty()) {
     state->error = error.localizedDescription.UTF8String ?: "network error";
   }
@@ -211,8 +302,10 @@ struct HttpState {
 
 namespace lychee {
 
-std::unique_ptr<DataSource> HttpDataSource::Open(const std::string& url,
-                                                 std::string* error) {
+std::unique_ptr<DataSource> HttpDataSource::Open(
+    const std::string& url,
+    std::string* error,
+    std::shared_ptr<HttpSession> session) {
   @autoreleasepool {
     NSURL* nsurl = [NSURL URLWithString:@(url.c_str())];
     if (!nsurl) {
@@ -221,14 +314,7 @@ std::unique_ptr<DataSource> HttpDataSource::Open(const std::string& url,
     }
     auto state = std::make_shared<HttpState>();
     state->url = nsurl;
-    NSOperationQueue* queue = [[NSOperationQueue alloc] init];
-    queue.maxConcurrentOperationCount = 1;
-    NSURLSessionConfiguration* configuration =
-        [NSURLSessionConfiguration ephemeralSessionConfiguration];
-    state->session = [NSURLSession
-        sessionWithConfiguration:configuration
-                        delegate:[[LycheeHttpDelegate alloc] initWithState:state]
-                   delegateQueue:queue];
+    state->session = session ? std::move(session) : CreateHttpSession();
     std::lock_guard<std::mutex> lock(state->mutex);
     state->Restart(0);
     return std::unique_ptr<DataSource>(new HttpDataSource(state));
@@ -239,8 +325,8 @@ HttpDataSource::HttpDataSource(std::shared_ptr<HttpState> state)
     : state_(std::move(state)) {}
 
 HttpDataSource::~HttpDataSource() {
-  // The session holds its delegate until invalidated.
-  [state_->session invalidateAndCancel];
+  std::lock_guard<std::mutex> lock(state_->mutex);
+  [state_->task cancel];
 }
 
 int64_t HttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
@@ -271,16 +357,14 @@ int64_t HttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
           }
         }
         if (state.suspended && state.data.size() - start - n < kMaxAhead / 2) {
-          state.suspended = false;
-          [state.task resume];
+          state.Resume();
         }
         return static_cast<int64_t>(n);
       }
       if (offset >= state.offset && offset <= end + kSkipAhead) {
         if (!state.complete) {
           if (state.suspended) {
-            state.suspended = false;
-            [state.task resume];
+            state.Resume();
           }
           state.condition.wait(lock);
           continue;
@@ -352,6 +436,18 @@ void HttpDataSource::ClearInterrupt() {
 bool HttpDataSource::interrupted() const {
   std::lock_guard<std::mutex> lock(state_->mutex);
   return state_->interrupted;
+}
+
+int64_t HttpDataSource::transfer_rate() const {
+  std::lock_guard<std::mutex> lock(state_->mutex);
+  const HttpState& state = *state_;
+  int64_t bytes = state.received;
+  int64_t micros = state.receive_micros;
+  if (state.span_start >= 0 && state.span_last > state.span_start) {
+    bytes += state.span_bytes;
+    micros += state.span_last - state.span_start;
+  }
+  return micros > 0 ? bytes * 8 * kMicrosPerSecond / micros : -1;
 }
 
 std::string HttpDataSource::error() const {

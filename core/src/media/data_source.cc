@@ -126,6 +126,20 @@ std::unique_ptr<DataSource> CreateMemoryDataSource(std::vector<uint8_t> data) {
   return std::make_unique<MemoryDataSource>(std::move(data));
 }
 
+DataSourceOpener CreateSharedOpener() {
+#if defined(__APPLE__)
+  std::shared_ptr<HttpSession> session = CreateHttpSession();
+  return [session](const std::string& url, std::string* error) {
+    if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
+      return HttpDataSource::Open(url, error, session);
+    }
+    return OpenDataSource(url, error);
+  };
+#else
+  return OpenDataSource;
+#endif
+}
+
 std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
                                            std::string* error) {
   std::string path = url;

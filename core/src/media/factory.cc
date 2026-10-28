@@ -27,9 +27,9 @@
 
 #include "backends/android/aaudio_sink.h"
 #include "backends/android/media_codec_video_decoder.h"
+#include "media/probing_demuxer.h"
 #if !defined(LYCHEE_WITH_FFMPEG)
 #include "backends/android/media_codec_audio_decoder.h"
-#include "media/probing_demuxer.h"
 #include "media/text_subtitle_decoder.h"
 #endif
 #elif defined(_WIN32)
@@ -52,14 +52,14 @@
 namespace lychee {
 
 std::unique_ptr<Demuxer> CreateDemuxer() {
-#if defined(LYCHEE_WITH_FFMPEG) && (defined(__APPLE__) || defined(_WIN32))
+#if defined(LYCHEE_WITH_FFMPEG) && \
+    (defined(__APPLE__) || defined(_WIN32) || defined(__ANDROID__))
   // MPEG-TS and HLS through the own demuxers, which put timestamps that
   // start over (in a file, at HLS discontinuities, across audio
   // renditions) on one timeline, and seek HLS by segment; FFmpeg's
   // passes them on as they are. FFmpeg takes the rest and what those
-  // cannot play. Media Foundation takes TS video without extradata
-  // (Annex B, parameter sets in band); on Android it is untested on
-  // MediaCodec (roadmap).
+  // cannot play. Media Foundation and MediaCodec take TS video without
+  // extradata (Annex B, parameter sets in band).
   return std::make_unique<ProbingDemuxer>(
       [](std::unique_ptr<DataSource> probed) -> std::unique_ptr<Demuxer> {
         return std::make_unique<FFmpegDemuxer>(std::move(probed));

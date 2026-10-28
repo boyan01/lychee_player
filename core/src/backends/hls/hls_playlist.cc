@@ -210,6 +210,52 @@ HlsKey ParseKey(const std::string& text, const std::string& base_url) {
   return key;
 }
 
+// A WebVTT timestamp, [hh:]mm:ss.ttt, in microseconds at |*pos| (moved
+// past it); -1 if there is none.
+int64_t ParseVttTime(const std::string& text, size_t* pos) {
+  int64_t parts[3] = {0, 0, 0};
+  int count = 0;
+  size_t i = *pos;
+  for (;;) {
+    size_t digits = 0;
+    int64_t value = 0;
+    while (i < text.size() &&
+           std::isdigit(static_cast<unsigned char>(text[i])) && digits < 10) {
+      value = value * 10 + (text[i] - '0');
+      ++i;
+      ++digits;
+    }
+    if (digits == 0 || count == 3) {
+      return -1;
+    }
+    parts[count++] = value;
+    if (i < text.size() && text[i] == ':') {
+      ++i;
+      continue;
+    }
+    break;
+  }
+  if (count < 2 || i + 4 > text.size() || text[i] != '.') {
+    return -1;
+  }
+  int64_t millis = 0;
+  for (size_t k = 1; k <= 3; ++k) {
+    if (!std::isdigit(static_cast<unsigned char>(text[i + k]))) {
+      return -1;
+    }
+    millis = millis * 10 + (text[i + k] - '0');
+  }
+  *pos = i + 4;
+  const int64_t hours = count == 3 ? parts[0] : 0;
+  const int64_t minutes = parts[count - 2];
+  const int64_t seconds = parts[count - 1];
+  if (minutes > 59 || seconds > 59 || hours > kMaxSeconds / 3600) {
+    return -1;
+  }
+  return ((hours * 60 + minutes) * 60 + seconds) * kMicrosPerSecond +
+         millis * 1000;
+}
+
 }  // namespace
 
 void HlsIv(const HlsKey& key, int64_t sequence, uint8_t iv[16]) {
@@ -317,6 +363,7 @@ bool ParseHlsPlaylist(const std::string& text,
       variant.bandwidth = ParseInteger(attributes["BANDWIDTH"]);
       variant.codecs = attributes["CODECS"];
       variant.audio = attributes["AUDIO"];
+      variant.subtitles = attributes["SUBTITLES"];
       const std::string& resolution = attributes["RESOLUTION"];
       size_t x = resolution.find('x');
       if (x != std::string::npos) {
@@ -463,6 +510,103 @@ int PickHlsVariant(const std::vector<HlsVariant>& variants) {
     }
   }
   return best;
+}
+
+bool ParseHlsWebVtt(const std::string& text,
+                    int64_t* mpegts,
+                    std::vector<WebVttCue>* cues) {
+  cues->clear();
+  *mpegts = 0;
+  std::vector<std::string> lines;
+  size_t begin = 0;
+  while (begin <= text.size()) {
+    size_t end = text.find('\n', begin);
+    if (end == std::string::npos) {
+      end = text.size();
+    }
+    std::string line = text.substr(begin, end - begin);
+    if (!line.empty() && line.back() == '\r') {
+      line.pop_back();
+    }
+    lines.push_back(std::move(line));
+    begin = end + 1;
+  }
+  std::string& first = lines[0];
+  if (StartsWith(first, "\xEF\xBB\xBF")) {
+    first = first.substr(3);
+  }
+  if (!StartsWith(first, "WEBVTT") ||
+      (first.size() > 6 && first[6] != ' ' && first[6] != '\t')) {
+    return false;
+  }
+  int64_t local = 0;
+  size_t i = 1;
+  // The header, up to the first blank line.
+  for (; i < lines.size() && !lines[i].empty(); ++i) {
+    if (!StartsWith(lines[i], "X-TIMESTAMP-MAP=")) {
+      continue;
+    }
+    const std::string& map = lines[i];
+    size_t at = map.find("LOCAL:");
+    if (at != std::string::npos) {
+      at += 6;
+      const int64_t time = ParseVttTime(map, &at);
+      if (time >= 0) {
+        local = time;
+      }
+    }
+    at = map.find("MPEGTS:");
+    if (at != std::string::npos) {
+      *mpegts = ParseInteger(map.substr(at + 7)) & ((int64_t{1} << 33) - 1);
+    }
+  }
+  // Blocks: a cue is an optional identifier, a timing line and its
+  // payload; NOTE, STYLE and REGION blocks have no timing line.
+  while (i < lines.size()) {
+    if (lines[i].empty()) {
+      ++i;
+      continue;
+    }
+    size_t timing = i;
+    if (lines[i].find("-->") == std::string::npos) {
+      timing = i + 1;
+    }
+    if (timing < lines.size() &&
+        lines[timing].find("-->") != std::string::npos) {
+      const std::string& line = lines[timing];
+      size_t pos = 0;
+      while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t')) {
+        ++pos;
+      }
+      const int64_t start = ParseVttTime(line, &pos);
+      size_t arrow = line.find("-->", pos);
+      int64_t end = -1;
+      if (start >= 0 && arrow != std::string::npos) {
+        pos = arrow + 3;
+        while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t')) {
+          ++pos;
+        }
+        end = ParseVttTime(line, &pos);
+      }
+      WebVttCue cue;
+      for (i = timing + 1; i < lines.size() && !lines[i].empty(); ++i) {
+        if (!cue.text.empty()) {
+          cue.text += '\n';
+        }
+        cue.text += lines[i];
+      }
+      if (start >= 0 && end > start && cues->size() < kMaxSegments) {
+        cue.start = start - local;
+        cue.end = end - local;
+        cues->push_back(std::move(cue));
+      }
+      continue;
+    }
+    while (i < lines.size() && !lines[i].empty()) {
+      ++i;
+    }
+  }
+  return true;
 }
 
 }  // namespace lychee

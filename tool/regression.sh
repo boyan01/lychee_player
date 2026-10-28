@@ -167,6 +167,22 @@ gen resolution_change.ts -i "concat:$media/rendition_1280x720.ts|$media/renditio
 [ -f "$media/ts_timestamp_reset.ts" ] || { cat "$media/rendition_1280x720.ts" \
   "$media/rendition_640x360.ts" >"$media/ts_timestamp_reset.tmp" &&
   mv "$media/ts_timestamp_reset.tmp" "$media/ts_timestamp_reset.ts"; } || exit 1
+# Joined the same way, with timestamps jumping 57 s ahead instead.
+gen rendition_640x360_60.ts -i "$media/rendition_640x360.ts" -c copy -output_ts_offset 60 -f mpegts
+[ -f "$media/ts_jump_ahead.ts" ] || { cat "$media/rendition_1280x720.ts" \
+  "$media/rendition_640x360_60.ts" >"$media/ts_jump_ahead.tmp" &&
+  mv "$media/ts_jump_ahead.tmp" "$media/ts_jump_ahead.ts"; } || exit 1
+# Joined the same way, with audio muxed ahead of its video (0.3 s), and
+# a run of 1 s between two of 20 s, which falls between the open's
+# samples; reading the audio first waits for the video to place a run.
+for d in 20 1; do
+  gen "audio_first_$d.ts" -itsoffset 0.3 -f lavfi -i "testsrc2=size=640x360:rate=30:d=$d" \
+    -f lavfi -i "sine=frequency=440:sample_rate=48000:d=$d.3" -c:v libx264 -preset veryfast -g 30 -pix_fmt yuv420p \
+    -c:a aac -pes_payload_size 0 -f mpegts
+done
+[ -f "$media/ts_reset_audio_first.ts" ] || { cat "$media/audio_first_20.ts" "$media/audio_first_1.ts" \
+  "$media/audio_first_20.ts" >"$media/ts_reset_audio_first.tmp" &&
+  mv "$media/ts_reset_audio_first.tmp" "$media/ts_reset_audio_first.ts"; } || exit 1
 # Live input, as a screen mirroring sender encodes it: no B-frames, audio
 # muxed next to its video.
 gen live_h264.mp4 -f lavfi -i "$src" -f lavfi -i sine=frequency=440:sample_rate=44100 -t 12 \
@@ -426,7 +442,7 @@ fi
 [ -f "$media/hls/vp9_master.m3u8" ] || printf '%s\n' '#EXTM3U' \
   '#EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=1920x1080,CODECS="vp09.00.40.08,mp4a.40.2"' index.m3u8 \
   >"$media/hls/vp9_master.m3u8"
-# A WebVTT subtitle rendition, which only FFmpeg's HLS reads.
+# A WebVTT subtitle rendition.
 if [ ! -f "$media/hls/subs_master.m3u8" ]; then
   printf '%s\n' WEBVTT '' '00:00:01.000 --> 00:00:03.000' 'Hello' >"$media/hls/subs.vtt"
   printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:12' '#EXT-X-PLAYLIST-TYPE:VOD' '#EXTINF:12.0,' subs.vtt \
@@ -435,6 +451,16 @@ if [ ! -f "$media/hls/subs_master.m3u8" ]; then
     '#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en",DEFAULT=YES,URI="subs.m3u8"' \
     '#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",SUBTITLES="subs"' \
     index.m3u8 >"$media/hls/subs_master.m3u8"
+fi
+# And one in two segments, the first without cues, the second placed by
+# X-TIMESTAMP-MAP: its cue at 10 s on the MPEG-TS timestamps.
+if [ ! -f "$media/hls/vtt_map_master.m3u8" ]; then
+  printf '%s\n' WEBVTT >"$media/hls/vtt_map0.vtt"
+  printf '%s\n' WEBVTT 'X-TIMESTAMP-MAP=MPEGTS:900000,LOCAL:00:00:00.000' '' 'cue-1' \
+    '00:00:00.000 --> 00:00:01.000 align:start' 'Later <i>on</i>' >"$media/hls/vtt_map1.vtt"
+  printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:6' '#EXT-X-PLAYLIST-TYPE:VOD' '#EXTINF:6.0,' vtt_map0.vtt \
+    '#EXTINF:6.0,' vtt_map1.vtt '#EXT-X-ENDLIST' >"$media/hls/vtt_map.m3u8"
+  sed 's|URI="subs.m3u8"|URI="vtt_map.m3u8"|' "$media/hls/subs_master.m3u8" >"$media/hls/vtt_map_master.m3u8"
 fi
 [ -f "$media/hls/live_master.m3u8" ] || sed -e 's|^index\.m3u8|live.m3u8|' \
   -e 's|hls_low/index\.m3u8|hls_low/live.m3u8|' -e '/vp09/,+1d' "$media/hls/master.m3u8" \
@@ -756,9 +782,11 @@ par check hevc10        1 - -- "$media/hevc10.mp4"
 vp9_hw=1
 [ "$(uname -sm)" = "Darwin x86_64" ] && vp9_hw=0
 par check vp9           $vp9_hw - -- "$media/vp9_opus.webm"
-# The shipped FFmpeg decodes AV1 only in hardware: no dav1d (roadmap).
-[ -n "${FFMPEG_ROOT:-}" ] ||
+# The shipped FFmpeg decodes AV1 in software only with dav1d (Apple and
+# Android releases; tool/build_ffmpeg.sh).
+if [ -z "${FFMPEG_ROOT:-}" ] || grep -q dav1d "$FFMPEG_ROOT/lib/pkgconfig/libavcodec.pc" 2>/dev/null; then
   par check av1-software  0 - -- "$media/av1.mkv"
+fi
 # Without FFmpeg AV1 needs a hardware decoder (M3, A17 Pro): elsewhere the
 # video track is off and the audio plays to the end.
 [ "${NO_FFMPEG:-0}" = 1 ] &&
@@ -861,6 +889,16 @@ if [ "$own_ts" = 1 ]; then
     "$media/ts_timestamp_reset.ts"
   par check seek-ts-reset 1 6.233 -- --seek 4.8 --seek-after 1 "$media/ts_timestamp_reset.ts"
   par check seek-ts-reset-backward 1 2.933 -- --seek 1.5 --seek-after 5 "$media/ts_timestamp_reset.ts"
+  par expect ts-reset-audio-first "duration 41330667 us" \
+    "summary: state=ended position=41\.331s .*dropped=0 .*max_drift=([0-9]|1[0-9])\.[0-9]ms " -- \
+    "$media/ts_reset_audio_first.ts"
+  # Into the short run and the one after it.
+  par check seek-ts-reset-short 1 21.988 -- --seek 20.6 --seek-after 1 "$media/ts_reset_audio_first.ts"
+  par check seek-ts-reset-third 1 31.388 -- --seek 30 --seek-after 1 "$media/ts_reset_audio_first.ts"
+  par expect ts-jump-ahead "duration 6029333 us" \
+    "summary: state=ended position=6\.029s .*rendered=180 dropped=0 glitches=0 " -- "$media/ts_jump_ahead.ts"
+  par check seek-ts-jump 1 6.233 -- --seek 4.8 --seek-after 1 "$media/ts_jump_ahead.ts"
+  par check seek-ts-jump-backward 1 2.933 -- --seek 1.5 --seek-after 5 "$media/ts_jump_ahead.ts"
 fi
 # FFmpeg's decoders take AC-3 from the own demuxer, which hands what it
 # would skip (LATM here) to FFmpeg's demuxer. No AC-3 or LATM without
@@ -1269,15 +1307,25 @@ hls_variant="video size (640x360|1920x1080)"
 [ "$own_ts" = 1 ] && hls_variant="variant 1 of 3: .* 1920x1080"
 seq_ expect http-hls-master "$hls_variant" "summary: state=ended position=12\.000s" -- \
   "http://127.0.0.1:$port/hls/master.m3u8"
-# A playlist the own demuxer refuses goes to FFmpeg's, and so does one
-# with subtitle renditions, which only FFmpeg's reads.
+# A playlist the own demuxer refuses goes to FFmpeg's.
 if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
   seq_ expect http-hls-fallback "hls: no HLS variant .*; the fallback opens it" "video size 1920x1080" \
     "summary: state=ended position=12\.000s" -- "http://127.0.0.1:$port/hls/vp9_master.m3u8"
 fi
-[ "${NO_FFMPEG:-0}" != 1 ] &&
+# WebVTT renditions are subtitle tracks, their cues on the media's
+# timeline (the video starts at 1.417 s).
+if [ "$own_ts" = 1 ]; then
+  seq_ expect http-hls-subtitles "track 2: subtitle webvtt lang=en title=English selected=1" \
+    "subtitle at 0\.0[0-9]{2}s: Hello$" "subtitle at 1\.5[0-9]{2}s: \(none\)" "summary: state=ended position=12\.000s" -- \
+    "http://127.0.0.1:$port/hls/subs_master.m3u8"
+  seq_ expect http-hls-subtitles-map "subtitle at 8\.5[0-9]{2}s: Later on$" "subtitle at 9\.5[0-9]{2}s: \(none\)" \
+    "summary: state=ended position=12\.000s" -- "http://127.0.0.1:$port/hls/vtt_map_master.m3u8"
+  seq_ expect http-hls-subtitles-seek "subtitle at 9\.[0-9]{3}s: Later on$" -- --seek 9 --seek-after 1 --seconds 3 \
+    "http://127.0.0.1:$port/hls/vtt_map_master.m3u8"
+elif [ "${NO_FFMPEG:-0}" != 1 ]; then
   seq_ expect http-hls-subtitles "track 0: subtitle webvtt lang=en " "summary: state=ended position=12\.000s" -- \
     "http://127.0.0.1:$port/hls/subs_master.m3u8"
+fi
 # The other variants are video tracks, read once selected (TS, and fMP4
 # made Annex B: described by the master playlist, they have no avcC);
 # their audio is the first's, and video off reads only that.
@@ -1331,6 +1379,13 @@ if [ "$own_ts" = 1 ]; then
   realtime=1 seq_ expect http-hls-live-renditions "^seekable=0$" "track 2: audio .* lang=fr .*selected=1" \
     "select audio 1 at [0-9.]+s: accepted" "track switch: resumed" "<=0 event: state error" \
     "summary: state=ended .*backward_jumps=0 " -- --select audio:1@4 "http://127.0.0.1:$port/hls_alt/live.m3u8"
+fi
+# Slower than the 1080p variant (5 Mbit/s against 2.5): after its first
+# segment the own HLS goes on with the 800 kbit/s one.
+if [ "$own_ts" = 1 ]; then
+  serve --rate 300
+  seq_ expect http-hls-adaptive "variant .*/hls_low/index\.m3u8 \(800000 bit/s\)" "video size 640x360" \
+    "summary: state=ended position=12\.000s .*backward_jumps=0 " -- "http://127.0.0.1:$port/hls/master.m3u8"
 fi
 # At 2 MB/s, three times the file's bitrate, the drop comes 1.5 s in,
 # after the open: the Apple http source reads ahead as fast as the server

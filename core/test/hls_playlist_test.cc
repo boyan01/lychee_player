@@ -179,4 +179,33 @@ TEST(HlsPlaylist, Detects) {
                                   sizeof(other) - 1));
 }
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(HlsPlaylist, ParsesWebVtt) {
+  int64_t mpegts = -1;
+  std::vector<WebVttCue> cues;
+  EXPECT_TRUE(ParseHlsWebVtt(
+      "\xEF\xBB\xBFWEBVTT - a title\r\n"
+      "X-TIMESTAMP-MAP=LOCAL:00:00:01.000,MPEGTS:8589934592\r\n"
+      "\r\n"
+      "NOTE no cue\n-->\n\n"
+      "STYLE\n::cue { color: red }\n\n"
+      "1\n00:00:02.500 --> 00:00:04.000 align:start\n<b>Two</b>\nlines\n\n"
+      "01:02.000 --> 01:03.500\nShort form\n\n"
+      "00:00:05.000 --> 00:00:04.000\nBackwards\n",
+      &mpegts, &cues));
+  // 2^33 wraps to 0.
+  EXPECT_EQ(mpegts, 0);
+  EXPECT_EQ(cues.size(), 2u);
+  EXPECT_EQ(cues[0].start, 1500000);
+  EXPECT_EQ(cues[0].end, 3000000);
+  EXPECT_TRUE(cues[0].text == "<b>Two</b>\nlines");
+  EXPECT_EQ(cues[1].start, 61000000);
+  EXPECT_TRUE(cues[1].text == "Short form");
+  EXPECT_TRUE(ParseHlsWebVtt("WEBVTT", &mpegts, &cues));
+  EXPECT_TRUE(cues.empty());
+  EXPECT_TRUE(!ParseHlsWebVtt("WEBVTTX\n", &mpegts, &cues));
+  EXPECT_TRUE(
+      !ParseHlsWebVtt("1\n00:00:01.000 --> 00:00:02.000\nx", &mpegts, &cues));
+}
+
 }  // namespace lychee

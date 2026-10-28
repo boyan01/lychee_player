@@ -220,11 +220,28 @@ ANativeWindow* MediaCodecVideoDecoder::TargetWindowLocked() {
 
 bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
                                         std::string* error) {
-  if (!converter_.Initialize(config)) {
-    *error = config.codec == VideoCodec::kH264 || config.codec == VideoCodec::kHEVC
-                 ? "malformed " + config.codec_name + " extradata"
-                 : "MediaCodec decodes only H.264 and HEVC here";
-    return false;
+  codec_type_ = config.codec;
+  switch (config.codec) {
+    case VideoCodec::kH264:
+    case VideoCodec::kHEVC:
+      if (!converter_.Initialize(config)) {
+        *error = "malformed " + config.codec_name + " extradata";
+        return false;
+      }
+      break;
+    case VideoCodec::kVP8:
+    case VideoCodec::kVP9:
+      break;
+    case VideoCodec::kAV1:
+      // av1C, which MediaCodec takes as csd-0 (as MediaExtractor gives it),
+      // if the container has one; the sequence header comes in band too.
+      if (config.extradata.size() >= 4 && config.extradata[0] == 0x81) {
+        av1c_ = config.extradata;
+      }
+      break;
+    default:
+      *error = "MediaCodec decodes only H.264, HEVC, VP8, VP9 and AV1 here";
+      return false;
   }
   rotation_ = rotate_ ? config.rotation : 0;
   low_delay_ = config.low_delay;
@@ -239,14 +256,34 @@ bool MediaCodecVideoDecoder::CreateCodec(
     int height,
     const std::vector<std::vector<uint8_t>>& parameter_sets,
     std::string* error) {
-  const char* mime = converter_.hevc() ? "video/hevc" : "video/avc";
+  // Codec2's software decoders from Android 10, OMX's before (none for
+  // AV1).
+  const char* mime = nullptr;
+  std::vector<const char*> names;
+  switch (codec_type_) {
+    case VideoCodec::kHEVC:
+      mime = "video/hevc";
+      names = {"c2.android.hevc.decoder", "OMX.google.hevc.decoder"};
+      break;
+    case VideoCodec::kVP8:
+      mime = "video/x-vnd.on2.vp8";
+      names = {"c2.android.vp8.decoder", "OMX.google.vp8.decoder"};
+      break;
+    case VideoCodec::kVP9:
+      mime = "video/x-vnd.on2.vp9";
+      names = {"c2.android.vp9.decoder", "OMX.google.vp9.decoder"};
+      break;
+    case VideoCodec::kAV1:
+      mime = "video/av01";
+      names = {"c2.android.av1.decoder", "c2.android.av1-dav1d.decoder"};
+      break;
+    default:
+      mime = "video/avc";
+      names = {"c2.android.avc.decoder", "OMX.google.h264.decoder"};
+      break;
+  }
   AMediaCodec* codec = nullptr;
   if (codecs_ == Codecs::kSoftwareOnly) {
-    // Codec2's names from Android 10, OMX's before.
-    const char* names[] = {converter_.hevc() ? "c2.android.hevc.decoder"
-                                             : "c2.android.avc.decoder",
-                           converter_.hevc() ? "OMX.google.hevc.decoder"
-                                             : "OMX.google.h264.decoder"};
     for (const char* name : names) {
       if ((codec = AMediaCodec_createCodecByName(name))) {
         break;
@@ -283,6 +320,9 @@ bool MediaCodecVideoDecoder::CreateCodec(
   // Parameter sets also go in band before every keyframe; codec specific
   // data covers decoders that want them at configure time.
   std::vector<uint8_t> csd[2];
+  if (!av1c_.empty()) {
+    csd[0] = av1c_;
+  }
   for (const auto& nal : parameter_sets) {
     const int type = converter_.NalType(nal);
     // H.264: SPS in csd-0, PPS in csd-1. HEVC: all in csd-0.
@@ -307,9 +347,9 @@ bool MediaCodecVideoDecoder::CreateCodec(
   // from flutter-airplay's android_video.cpp). Live input has no B-frames,
   // as VTVideoDecoder's low_delay also assumes. A codec that rejects them
   // gets a fresh instance configured without them (0, their default).
-  const bool qualcomm =
-      !converter_.hevc() && (codec_name.rfind("c2.qti.", 0) == 0 ||
-                             codec_name.rfind("OMX.qcom.", 0) == 0);
+  const bool qualcomm = codec_type_ == VideoCodec::kH264 &&
+                        (codec_name.rfind("c2.qti.", 0) == 0 ||
+                         codec_name.rfind("OMX.qcom.", 0) == 0);
   const char* kDecodeOrder = "vendor.qti-ext-dec-picture-order.enable";
   int attempt = low_delay_ ? (qualcomm ? 0 : 1) : 2;
   std::lock_guard<std::mutex> lock(codec_->mutex);
@@ -435,15 +475,20 @@ bool MediaCodecVideoDecoder::Decode(const EncodedPacket& packet,
     return DrainToEnd(output);
   }
 
+  // VP8, VP9 and AV1 go in as they are; a new size in band comes out as
+  // a new output format.
+  const bool annexb =
+      codec_type_ == VideoCodec::kH264 || codec_type_ == VideoCodec::kHEVC;
   annexb_.clear();
-  if (!converter_.Convert(packet.buffer->data(), packet.size(), packet.keyframe,
-                          &annexb_)) {
+  if (annexb && !converter_.Convert(packet.buffer->data(), packet.size(),
+                                    packet.keyframe, &annexb_)) {
     LOGW("skipping a malformed packet at %lld",
          static_cast<long long>(packet.pts));
     return true;
   }
   AccessUnitInfo access_unit;
-  if (ParseAccessUnit(annexb_.data(), annexb_.size(), converter_.hevc(),
+  if (annexb &&
+      ParseAccessUnit(annexb_.data(), annexb_.size(), converter_.hevc(),
                       &access_unit) &&
       access_unit.has_sps &&
       (access_unit.width != coded_width_ ||
@@ -466,8 +511,9 @@ bool MediaCodecVideoDecoder::Decode(const EncodedPacket& packet,
          kMaxInputsWithoutOutput);
     return false;
   }
-  return QueueInput(annexb_.data(), annexb_.size(), pts, 0, output) &&
-         DrainOutput(output);
+  const uint8_t* data = annexb ? annexb_.data() : packet.buffer->data();
+  const size_t size = annexb ? annexb_.size() : packet.size();
+  return QueueInput(data, size, pts, 0, output) && DrainOutput(output);
 }
 
 bool MediaCodecVideoDecoder::DrainToEnd(const OutputCallback& output) {

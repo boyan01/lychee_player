@@ -60,28 +60,7 @@ building on top of them.
   If it comes back, compare the bare app on the same boot before
   touching the plugin.
 
-1. **MPEG-TS and HLS through FFmpeg's demuxer on Android**: there the
-   FFmpeg build still reads TS and HLS with `FFmpegDemuxer`, so
-   timestamps that start over inside a TS file
-   (`ts_timestamp_reset.ts`: 3.021 s instead of 6 s, seeks into the
-   wrong half), HLS audio renditions on another timeline
-   (`hls_alt/master.m3u8`, 1 s out of sync) and slow seeks past an HLS
-   discontinuity remain there; Apple's, Windows' and Linux's FFmpeg
-   builds open them with the own demuxers (`media/factory.cc`). TS
-   needs only files there; HLS reads through the http `DataSource`,
-   which Android now has. TS video comes without extradata (Annex B,
-   parameter sets in band), which MediaCodec has not been tried with
-   (Media Foundation takes it). Done when
-   the Android example plays `ts_timestamp_reset.ts` with hardware
-   decoding.
-2. **TS runs found while reading, audio first**: where timestamps start
-   over in a part of the input the open did not sample, and a run's
-   audio arrives before its video (video PES packets of unknown length
-   are handed out only when the next starts), that audio is placed on a
-   provisional shift until the video sets the run's shift, then steps
-   back by the difference (tens of ms). Seen with a synthetic stream in
-   `mp2t_test.cc`, not with a real file.
-3. **FFmpeg's HLS leaks with a subtitle rendition on Linux**: `ASAN=1
+1. **FFmpeg's HLS leaks with a subtitle rendition on Linux**: `ASAN=1
    tool/regression.sh` on Linux fails `http-hls-subtitles` with 34 KB
    leaked inside `avformat_open_input` (an AVIOContext buffer and a probe
    buffer), with FFmpeg 9.0.2 reading through its own http; on Apple
@@ -89,7 +68,7 @@ building on top of them.
    Find whether FFmpeg's `hls` demuxer or how `FFmpegDemuxer` opens it
    leaves them, and fix or report it upstream; done when that case
    passes under ASan on Linux.
-4. **iOS foreground recovery needs device verification** (waiting on the
+2. **iOS foreground recovery needs device verification** (waiting on the
    user): an iPhone 17 (2026-10-27) rejected 32 video packets (`-12909`)
    after an apparent interruption or background transition; the actual
    lifecycle trigger is unconfirmed. The native and Flutter frame drivers
@@ -139,9 +118,11 @@ building on top of them.
    chips; supporting them needs `tool/build_ffmpeg.sh
    android-armeabi-v7a`, the ABI in the AAR and the release, and a 32-bit
    device or emulator to run on.
-4. **Software AV1**: the shipped FFmpeg has no AV1 software decoder, so
-   AV1 plays only where the GPU decodes it (on Apple, M3 and A17 Pro and
-   later). Add dav1d (BSD) to `tool/build_ffmpeg.sh` if it matters.
+4. **Software AV1 on Linux and Windows**: their shipped FFmpeg has no
+   dav1d (Apple's and Android's have), so AV1 plays there only where the
+   GPU decodes it. `tool/build_ffmpeg.sh` builds dav1d with meson for
+   Apple and Android; Linux would take the same, Windows a mingw-w64
+   cross file.
 
 ## FFmpeg-free builds
 
@@ -150,19 +131,20 @@ Linux keeps FFmpeg (no system audio decoder or demuxer). Apple plays MP4,
 Matroska/WebM, MPEG-TS and HLS without it, and ships
 `lychee_noffmpeg.xcframework`; Windows plays the same containers (H.264
 and HEVC in hardware or software, AAC, MP3, FLAC, ALAC and Opus), and Android too (video
-H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
+H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP,
 `HttpURLConnection`).
 
-1. **Connection reuse**: one `NSURLSession` per demuxer would let HLS
-   segments reuse connections.
-2. **Containers**: HLS switches variants only when a track is selected,
-   not by measured bandwidth; subtitle renditions (WebVTT) are not
-   read. AC-3 has
+1. **Containers**: HLS adapts the variant to the bandwidth only where
+   the http source measures it (`DataSource::transfer_rate`: Apple; not
+   WinHTTP or `HttpURLConnection` yet), and only between MPEG-TS
+   variants; subtitle renditions in fMP4 (IMSC, WebVTT) are not read. AC-3 has
    no FFmpeg-free decoder; DVB and ID3 timed
-   metadata in TS are ignored. Where TS timestamps start over, a jump
-   ahead, or a run shorter than a sixteenth of the input, is found only
-   when played: until then the duration and seeks miss it.
-3. **Windows**: VP9 and AV1 have no decoder (Media Foundation has them
+   metadata in TS are ignored (FFmpeg's build drops them too): the C ABI
+   has no channel for timed data, which would take a track type, an
+   event and an acquire call for its bytes at the clock's time (like
+   subtitles), in every binding; worth it once a caller needs it (HLS
+   ad markers, live captions' ID3).
+2. **Windows**: VP9 and AV1 have no decoder (Media Foundation has them
    only with Store extensions), and
    FLAC in MP4 none either (Windows' decoder refuses it, 0xC00D36E6, with
    the STREAMINFO Windows' own MP4 source passes; FLAC in Matroska
@@ -173,12 +155,11 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    Draining it after each input that gave no frame loses its reference
    frames (only the first frame shows), so it needs a drain only once the
    input pauses.
-4. **Android**: VP8, VP9 and AV1 through MediaCodec
-   (`MediaCodecVideoDecoder` maps only H.264 and HEVC, so WebM's video
-   has no decoder); an FFmpeg-free AAR in the release
-   (`-Plychee.ffmpeg=false` builds it; a second artifact is a publishing
-   decision) if native Android users want one, and the Flutter plugin on
-   it, which is untried.
+3. **Android**: an FFmpeg-free AAR in the release
+   (`-Plychee.ffmpeg=false` builds it, and the Flutter plugin plays on
+   it; a second artifact is a publishing decision) if native Android
+   users want one. VP8, VP9 and AV1 through a phone's hardware MediaCodec
+   are unseen (the emulator has VP8 and VP9, and AV1 only in software).
 ## Distribution and infrastructure
 
 1. **1.0.0**, once the beta has been used. Before it, and only then, a

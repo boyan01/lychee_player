@@ -338,6 +338,26 @@ TEST(Mp2t, ContinuityErrorsAndDuplicates) {
   EXPECT_EQ(c.pes[1].pts, 12000);
 }
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(Mp2t, JoinedFilesRepeatingTheCounter) {
+  // Two files of one PES packet each, joined: the second's first packet
+  // has the counter the first's last one has, but is no duplicate.
+  Bytes data;
+  for (int64_t pts : {9000, 12000}) {
+    TsWriter w;
+    w.Pat(0x1000);
+    w.Pmt(0x1000, 0, {{0x1b, 0x100, {}}});
+    w.Pes(0x100, 0xe0, pts, -1, Pattern(10, static_cast<uint8_t>(pts / 3000)));
+    data.insert(data.end(), w.out.begin(), w.out.end());
+  }
+  Collector c;
+  TsParser parser(&c);
+  Parse(&parser, data);
+  parser.Flush();
+  EXPECT_EQ(c.pes.size(), 2u);
+  EXPECT_EQ(c.pes[1].pts, 12000);
+}
+
 TEST(Mp2t, PmtVersionsAndCrc) {
   TsWriter w;
   w.Pat(0x1000);
@@ -686,6 +706,57 @@ TEST(TsReader, DropsAudioOverlappingTheRunBefore) {
                 audio[i - 1].pts + audio[i - 1].duration);
   }
   EXPECT_NEAR(audio[51].pts, TsReader::TicksToMicros(986160 + 4 * 1920), 1);
+}
+
+TEST(TsReader, HoldsAudioUntilTheVideoPlacesARun) {
+  // Two files joined: in each, 30 video frames from 10 s in PES packets
+  // of unknown length, and AAC at 48 kHz from 0.3 s before the video to
+  // two frames after it, muxed ahead of it. The reader finds the second
+  // run by its audio, but only the video's first frame says where it
+  // goes; the audio waits for it rather than going out on a guess.
+  TsWriter w;
+  for (int run = 0; run < 2; ++run) {
+    w.Pat(0x1000);
+    w.Pmt(0x1000, 0, {{0x1b, 0x100, {}}, {0x0f, 0x101, {}}});
+    int64_t audio = 900000 - 27000;
+    for (int i = 0; i < 30; ++i) {
+      const int64_t pts = 900000 + int64_t{i} * 3000;
+      for (; audio < pts + 3000; audio += 1920) {
+        w.Pes(0x101, 0xc0, audio, -1, Adts(3, 50), false, true);
+      }
+      w.Pes(0x100, 0xe0, pts, -1,
+            AccessUnit(i == 0 ? kSps360 : Bytes(), i == 0 ? 0x65 : 0x41, 300),
+            i == 0);
+    }
+    for (; audio < 990000 + 3840; audio += 1920) {
+      w.Pes(0x101, 0xc0, audio, -1, Adts(3, 50), false, true);
+    }
+  }
+  MemorySource source(w.out);
+  TsTimeline timeline(1);
+  TsReader reader(&source);
+  reader.JoinRuns(&timeline);
+  reader.SetRange(0, -1);
+  std::string error;
+  EXPECT_TRUE(reader.Probe(1 << 20, &error));
+  std::vector<EncodedPacket> video;
+  std::vector<EncodedPacket> audio;
+  EncodedPacket packet;
+  int64_t offset;
+  while (reader.Read(&packet, &offset) == DemuxerReadResult::kOk) {
+    (packet.stream_index == 0 ? video : audio).push_back(packet);
+  }
+  EXPECT_EQ(timeline.size(), 2u);
+  EXPECT_EQ(video.size(), 60u);
+  EXPECT_NEAR(video[30].pts, video[29].pts + 33333, 1);
+  // The second run's audio from before the first run's ends is dropped
+  // (16 frames); the rest is on the video's shift (one second on).
+  EXPECT_EQ(audio.size(), 63u + 47u);
+  for (size_t i = 1; i < audio.size(); ++i) {
+    EXPECT_TRUE(audio[i].pts + audio[i].duration / 2 >=
+                audio[i - 1].pts + audio[i - 1].duration);
+  }
+  EXPECT_NEAR(audio[63].pts, TsReader::TicksToMicros(903720 + 90000), 1);
 }
 
 TEST(TsDemuxer, RefusesStreamsItWouldSkip) {

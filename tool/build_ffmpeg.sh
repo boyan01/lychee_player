@@ -14,6 +14,13 @@
 # Apple platforms use the system's TLS, Android's has no C API. mbedTLS is
 # Apache-2.0, which LGPL 2.1 cannot take, so Android builds are LGPL 3.
 #
+# DAV1D_SOURCE_DIR (a dav1d release; BSD-2, built with meson and ninja),
+# in the environment, adds dav1d on Apple and Android, linked statically
+# into libavcodec: it decodes AV1 where the GPU does not (Apple before M3
+# and A17 Pro, most Android devices). Releases have it
+# (tool/release.sh); without it, and on Linux and Windows, AV1 plays only
+# where the GPU decodes it.
+#
 # License: no --enable-gpl, no --enable-nonfree, and nothing that would need
 # them (x264, x265, fdk-aac, ...). configure's own license summary is
 # checked below.
@@ -59,6 +66,12 @@ case "$platform" in
       ios-sim-x86_64) sdk=iphonesimulator; arch=x86_64; min=-mios-simulator-version-min=$apple_min_ios ;;
     esac
     sysroot="$(xcrun -sdk $sdk --show-sdk-path)"
+    dav1d_cc="$(xcrun -sdk $sdk -f clang)"
+    dav1d_ar="$(xcrun -sdk $sdk -f ar)"
+    dav1d_flags="'-arch', '$arch', '$min', '-isysroot', '$sysroot'"
+    dav1d_system=darwin
+    dav1d_cpu=$arch
+    [ "$arch" = arm64 ] && dav1d_cpu=aarch64
     flags=(
       --target-os=darwin --arch=$arch
       --cc="$(xcrun -sdk $sdk -f clang)" --sysroot="$sysroot"
@@ -76,10 +89,13 @@ case "$platform" in
     # x86_64 assembly needs nasm. The Intel simulator does not need speed;
     # Intel Macs do when they decode in software.
     case "$platform" in
-      ios-sim-x86_64) flags+=(--disable-asm) ;;
+      ios-sim-x86_64) flags+=(--disable-asm); dav1d_asm=false ;;
       macos-x86_64)
-        command -v nasm >/dev/null ||
-          { echo "nasm not found: building without x86 assembly" >&2; flags+=(--disable-asm); } ;;
+        command -v nasm >/dev/null || {
+          echo "nasm not found: building without x86 assembly" >&2
+          flags+=(--disable-asm)
+          dav1d_asm=false
+        } ;;
     esac
     ;;
   android-arm64-v8a|android-x86_64)
@@ -93,6 +109,11 @@ case "$platform" in
       triple=x86_64-linux-android; arch=x86_64; abi=x86_64
     fi
     tls="$work/mbedtls"
+    dav1d_cc="$toolchain/bin/$triple$api-clang"
+    dav1d_ar="$toolchain/bin/llvm-ar"
+    dav1d_flags="'-Wl,-z,max-page-size=16384'"
+    dav1d_system=android
+    dav1d_cpu=$arch
     flags=(
       --target-os=android --arch=$arch
       --cc="$toolchain/bin/$triple$api-clang"
@@ -111,7 +132,7 @@ case "$platform" in
     )
     license="LGPL version 3 or later"
     # x86_64 assembly needs nasm; not worth it for the emulator.
-    [ "$platform" = android-x86_64 ] && flags+=(--disable-asm)
+    [ "$platform" = android-x86_64 ] && { flags+=(--disable-asm); dav1d_asm=false; }
     ;;
   linux-x86_64 | linux-arm64)
     # Built natively on the oldest distribution it should run on (Ubuntu
@@ -182,6 +203,37 @@ if [ -n "${tls:-}" ]; then
     -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF >mbedtls.log 2>&1 &&
     cmake --build "$work/mbedtls-build" --target install >>mbedtls.log 2>&1 ||
     { tail -20 mbedtls.log; exit 1; }
+fi
+if [ -n "${dav1d_cc:-}" ] && [ -z "${DAV1D_SOURCE_DIR:-}" ]; then
+  echo "no DAV1D_SOURCE_DIR: AV1 only in hardware" >&2
+elif [ -n "${dav1d_cc:-}" ]; then
+  dav1d_src="$(cd "$DAV1D_SOURCE_DIR" && pwd)"
+  dav1d="$work/dav1d"
+  cat >dav1d-cross.txt <<CROSS
+[binaries]
+c = '$dav1d_cc'
+ar = '$dav1d_ar'
+
+[built-in options]
+c_args = [$dav1d_flags]
+c_link_args = [$dav1d_flags]
+
+[host_machine]
+system = '$dav1d_system'
+cpu_family = '$dav1d_cpu'
+cpu = '$dav1d_cpu'
+endian = 'little'
+CROSS
+  meson setup "$work/dav1d-build" "$dav1d_src" --cross-file=dav1d-cross.txt \
+    --prefix="$dav1d" --libdir=lib --buildtype=release --default-library=static \
+    -Denable_tools=false -Denable_tests=false -Denable_asm="${dav1d_asm:-true}" \
+    >dav1d.log 2>&1 &&
+    ninja -C "$work/dav1d-build" install >>dav1d.log 2>&1 ||
+    { tail -20 dav1d.log; exit 1; }
+  # pkg-config finds dav1d's .pc only, not the Mac's own libraries.
+  export PKG_CONFIG_LIBDIR="$dav1d/lib/pkgconfig" PKG_CONFIG_PATH=
+  flags+=(--pkg-config=pkg-config --pkg-config-flags=--static
+    --enable-libdav1d --enable-decoder=libdav1d)
 fi
 "$src/configure" "${common[@]}" "${flags[@]}" >configure.log 2>&1 || {
   tail -20 configure.log

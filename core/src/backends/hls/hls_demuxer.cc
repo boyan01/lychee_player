@@ -34,8 +34,10 @@ constexpr int kLiveStartTargetDurations = 3;
 constexpr int kMaxReloadFailures = 3;
 // Segments kept behind the one playing (live).
 constexpr size_t kKeptSegments = 64;
-// Audio renditions of a variant read at most, and other variants listed.
+// Audio and subtitle renditions of a variant read at most, and other
+// variants listed.
 constexpr size_t kMaxAudioRenditions = 8;
+constexpr size_t kMaxSubtitleRenditions = 8;
 constexpr size_t kMaxVariants = 16;
 // About what the player's queues hold ahead of the clock: a rendition
 // enabled while playing starts this much before the read position, so
@@ -43,6 +45,11 @@ constexpr size_t kMaxVariants = 16;
 constexpr int64_t kReadAhead = 5 * kMicrosPerSecond;
 // Segments read whole (encrypted, fMP4) are at most this large.
 constexpr int64_t kMaxSegmentBytes = int64_t{256} << 20;
+// A variant is played if the estimate is at least this much above its
+// bandwidth (in percent), for the times the network slows down.
+constexpr int64_t kBandwidthHeadroom = 133;
+// Smaller segments measure latency more than bandwidth.
+constexpr int64_t kMinMeasuredBytes = 64 << 10;
 
 }  // namespace
 
@@ -136,18 +143,10 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
   auto main = std::make_unique<Rendition>();
   main->url = url;
   std::vector<HlsRendition> audio;
+  std::vector<HlsRendition> subtitles;
   std::vector<HlsVariant> variants;
   int pick = -1;
   if (playlist.master) {
-    if (refuse_subtitles_) {
-      for (const HlsRendition& rendition : playlist.renditions) {
-        if (rendition.type == HlsRendition::Type::kSubtitles &&
-            !rendition.url.empty()) {
-          *error = "subtitle renditions are not read";
-          return false;
-        }
-      }
-    }
     pick = PickHlsVariant(playlist.variants);
     if (pick < 0) {
       *error = playlist.variants.empty()
@@ -165,6 +164,11 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
           !variant.audio.empty() && rendition.group == variant.audio &&
           !rendition.url.empty() && audio.size() < kMaxAudioRenditions) {
         audio.push_back(rendition);
+      }
+      if (rendition.type == HlsRendition::Type::kSubtitles &&
+          !variant.subtitles.empty() && rendition.group == variant.subtitles &&
+          !rendition.url.empty() && subtitles.size() < kMaxSubtitleRenditions) {
+        subtitles.push_back(rendition);
       }
     }
     variants = playlist.variants;
@@ -220,6 +224,38 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
   }
   if (default_audio >= 0) {
     media_info_.default_audio_stream = default_audio;
+  }
+  for (const HlsRendition& info : subtitles) {
+    auto r = std::make_unique<Rendition>();
+    r->url = info.url;
+    r->only = MediaType::kSubtitle;
+    HlsPlaylist list;
+    std::string why;
+    if (!LoadPlaylist(nullptr, r->url, &list, &final_url, &why) ||
+        list.master || !Start(r.get(), list, &why)) {
+      CloseSegment(r.get());
+      if (Failed()) {
+        *error = "aborted";
+        return false;
+      }
+      if (refuse_subtitles_) {
+        *error = "subtitle rendition \"" + info.name + "\": " + why;
+        return false;
+      }
+      LOGW("subtitle rendition \"%s\": %s", info.name.c_str(),
+           list.master ? "a master playlist" : why.c_str());
+      continue;
+    }
+    for (int index : r->streams) {
+      StreamInfo& stream = media_info_.streams[index];
+      stream.language = info.language;
+      stream.title = info.name;
+      stream.default_track = info.is_default;
+      if (info.is_default && media_info_.default_subtitle_stream < 0) {
+        media_info_.default_subtitle_stream = index;
+      }
+    }
+    renditions_.push_back(std::move(r));
   }
   if (pick >= 0) {
     AddVariants(variants, pick);
@@ -365,6 +401,42 @@ void HlsDemuxer::AddVariants(const std::vector<HlsVariant>& variants,
     return std::string(title);
   };
   media_info_.streams[first.video].title = describe(variants[pick]);
+  // The ladder: decodable variants of the played codec and the same
+  // audio, one per URL.
+  const VideoCodec codec_played = played;
+  auto codec_of = [codec_played](const HlsVariant& variant) {
+    const std::string& codecs = variant.codecs;
+    if (codecs.empty()) {
+      return codec_played;
+    }
+    return codecs.find("avc1") != std::string::npos ||
+                   codecs.find("avc3") != std::string::npos
+               ? VideoCodec::kH264
+           : codecs.find("hvc1") != std::string::npos ||
+                   codecs.find("hev1") != std::string::npos
+               ? VideoCodec::kHEVC
+               : VideoCodec::kUnknown;
+  };
+  for (const HlsVariant& variant : variants) {
+    if (HlsCodecsDecodable(variant.codecs) &&
+        codec_of(variant) == codec_played &&
+        variant.audio == variants[pick].audio &&
+        std::none_of(ladder_.begin(), ladder_.end(),
+                     [&variant](const HlsVariant& known) {
+                       return known.url == variant.url;
+                     })) {
+      ladder_.push_back(variant);
+    }
+  }
+  std::stable_sort(ladder_.begin(), ladder_.end(),
+                   [](const HlsVariant& a, const HlsVariant& b) {
+                     return a.bandwidth < b.bandwidth;
+                   });
+  for (size_t i = 0; i < ladder_.size(); ++i) {
+    if (ladder_[i].url == variants[pick].url) {
+      rung_ = i;
+    }
+  }
   std::vector<std::string> urls = {variants[pick].url};
   for (const HlsVariant& variant : variants) {
     if (urls.size() > kMaxVariants ||
@@ -372,19 +444,9 @@ void HlsDemuxer::AddVariants(const std::vector<HlsVariant>& variants,
         !HlsCodecsDecodable(variant.codecs)) {
       continue;
     }
-    VideoCodec codec = played;
-    if (!variant.codecs.empty()) {
-      const std::string& codecs = variant.codecs;
-      codec = codecs.find("avc1") != std::string::npos ||
-                      codecs.find("avc3") != std::string::npos
-                  ? VideoCodec::kH264
-              : codecs.find("hvc1") != std::string::npos ||
-                      codecs.find("hev1") != std::string::npos
-                  ? VideoCodec::kHEVC
-                  : VideoCodec::kUnknown;
-      if (codec == VideoCodec::kUnknown) {
-        continue;  // Audio only.
-      }
+    const VideoCodec codec = codec_of(variant);
+    if (codec == VideoCodec::kUnknown) {
+      continue;  // Audio only.
     }
     urls.push_back(variant.url);
     StreamInfo info;
@@ -445,7 +507,8 @@ bool HlsDemuxer::Fetch(const std::string& url,
                        int64_t offset,
                        int64_t length,
                        std::vector<uint8_t>* data,
-                       std::string* error) {
+                       std::string* error,
+                       int64_t* rate) {
   std::unique_ptr<DataSource> source = opener_(url, error);
   if (!source) {
     return false;
@@ -480,6 +543,9 @@ bool HlsDemuxer::Fetch(const std::string& url,
   if (ok && length >= 0 && static_cast<int64_t>(data->size()) < length) {
     *error = url + ": byte range past the end";
     ok = false;
+  }
+  if (rate) {
+    *rate = source->transfer_rate();
   }
   Track(nullptr);
   return ok;
@@ -586,16 +652,149 @@ bool HlsDemuxer::LoadSegment(Rendition* r,
     *data = r->map_data;
   }
   std::vector<uint8_t> media;
-  if (!Fetch(segment.url, segment.offset, segment.length, &media, error) ||
+  int64_t rate = -1;
+  if (!Fetch(segment.url, segment.offset, segment.length, &media, error,
+             &rate) ||
       (segment.key.method == HlsKey::Method::kAes128 &&
        !Decrypt(segment.key, segment.sequence, &media, error))) {
     return false;
+  }
+  if (r == renditions_[0].get()) {
+    Measure(rate, static_cast<int64_t>(media.size()));
   }
   data->insert(data->end(), media.begin(), media.end());
   return true;
 }
 
+void HlsDemuxer::Measure(int64_t rate, int64_t bytes) {
+  if (rate <= 0 || bytes < kMinMeasuredBytes) {
+    return;
+  }
+  // Halfway to each new segment's: follows a change within a few.
+  estimate_ = estimate_ > 0 ? (estimate_ + rate) / 2 : rate;
+}
+
+void HlsDemuxer::Adapt(Rendition* r) {
+  if (ladder_.size() < 2 || estimate_ <= 0 || r->video < 0 ||
+      !enabled_[r->video] || r->current >= r->segments.size() ||
+      r->segments[r->current].initialization) {
+    return;
+  }
+  size_t want = 0;
+  for (size_t i = 1; i < ladder_.size(); ++i) {
+    if (ladder_[i].bandwidth * kBandwidthHeadroom <= estimate_ * 100) {
+      want = i;
+    }
+  }
+  if (want == rung_) {
+    return;
+  }
+  const HlsVariant& variant = ladder_[want];
+  HlsPlaylist playlist;
+  std::string final_url;
+  std::string error;
+  if (!LoadPlaylist(nullptr, variant.url, &playlist, &final_url, &error) ||
+      playlist.master || playlist.segments.empty() ||
+      std::any_of(playlist.segments.begin(), playlist.segments.end(),
+                  [](const HlsSegment& s) { return s.initialization; })) {
+    LOGW("variant %s: %s", variant.url.c_str(),
+         error.empty() ? "not MPEG-TS" : error.c_str());
+    ladder_.erase(ladder_.begin() + static_cast<ptrdiff_t>(want));
+    if (want < rung_) {
+      --rung_;
+    }
+    return;
+  }
+  Rendition next;
+  Merge(&next, playlist);
+  // Where r goes on: the segment that holds the next one's start (VOD),
+  // or has its number (live), on r's playlist time.
+  const Segment& from = r->segments[r->current];
+  size_t index = next.segments.size();
+  for (size_t i = 0; i < next.segments.size(); ++i) {
+    const Segment& segment = next.segments[i];
+    if (r->live ? segment.sequence == from.sequence
+                : segment.start <= from.start + from.duration / 2) {
+      index = i;
+    }
+  }
+  if (index == next.segments.size()) {
+    return;  // Not in its window yet: on the next segment.
+  }
+  const int64_t delta = r->live ? from.start - next.segments[index].start : 0;
+  for (Segment& segment : next.segments) {
+    segment.start += delta;
+  }
+  LOGI("variant %s (%lld bit/s): %lld bit/s measured", variant.url.c_str(),
+       static_cast<long long>(variant.bandwidth),
+       static_cast<long long>(estimate_));
+  r->url = variant.url;
+  r->segments = std::move(next.segments);
+  r->current = index;
+  r->live = !playlist.ended;
+  r->ended = playlist.ended;
+  r->target_duration = std::max(playlist.target_duration, kMicrosPerSecond);
+  r->last_reload = Now();
+  rung_ = want;
+}
+
+bool HlsDemuxer::OpenWebVtt(Rendition* r, std::string* error) {
+  const Segment& segment = r->segments[r->current];
+  std::vector<uint8_t> data;
+  if (!LoadSegment(r, segment, &data, error)) {
+    return false;
+  }
+  int64_t mpegts = 0;
+  std::vector<WebVttCue> cues;
+  if (!ParseHlsWebVtt(std::string(data.begin(), data.end()), &mpegts, &cues)) {
+    *error = segment.url + ": not WebVTT";
+    return false;
+  }
+  if (r->streams.empty()) {
+    StreamInfo info;
+    info.index = static_cast<int>(media_info_.streams.size());
+    info.type = MediaType::kSubtitle;
+    info.subtitle.codec_name = "webvtt";
+    info.subtitle.text = true;
+    media_info_.streams.push_back(info);
+    r->streams.push_back(info.index);
+  }
+  r->stream_map = {r->streams[0]};
+  if (!r->opened) {
+    // Its playlist times are the first variant's.
+    r->origin = renditions_[0]->origin;
+    r->opened = true;
+  }
+  auto anchor = offsets_.find(segment.discontinuity);
+  r->offset = anchor != offsets_.end() ? anchor->second : 0;
+  // The MPEG-2 timestamp unwrapped next to where the segment plays.
+  const int64_t near =
+      media_info_.start_time + segment.start - r->origin - r->offset;
+  const int64_t base = TsReader::TicksToMicros(
+      TsReader::Nearest(mpegts, TsReader::MicrosToTicks(near)));
+  for (const WebVttCue& cue : cues) {
+    EncodedPacket packet;
+    packet.stream_index = 0;
+    packet.pts = packet.dts = base + cue.start;
+    packet.duration = cue.end - cue.start;
+    packet.keyframe = true;
+    packet.buffer = PacketBuffer::Copy(
+        reinterpret_cast<const uint8_t*>(cue.text.data()), cue.text.size());
+    r->text.push_back(std::move(packet));
+  }
+  // In decode order with the others.
+  std::stable_sort(r->text.begin(), r->text.end(),
+                   [](const EncodedPacket& a, const EncodedPacket& b) {
+                     return a.dts < b.dts;
+                   });
+  r->text_open = true;
+  return true;
+}
+
 bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
+  if (r->only == MediaType::kSubtitle) {
+    return OpenWebVtt(r, error);
+  }
   const Segment& segment = r->segments[r->current];
   if (segment.key.method == HlsKey::Method::kOther ||
       (segment.initialization &&
@@ -744,6 +943,8 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
 void HlsDemuxer::CloseSegment(Rendition* r) {
   r->reader.reset();
   r->mp4.reset();
+  r->text_open = false;
+  r->text.clear();
   std::lock_guard<std::mutex> lock(mutex_);
   if (active_ == r->source.get()) {
     active_ = nullptr;
@@ -890,7 +1091,7 @@ DemuxerReadResult HlsDemuxer::ReadFrom(Rendition* r, EncodedPacket* packet) {
       Load(r, playlist);
       continue;
     }
-    if (!r->reader && !r->mp4) {
+    if (!r->reader && !r->mp4 && !r->text_open) {
       if (r->current >= r->segments.size()) {
         if (!r->live) {
           return DemuxerReadResult::kEndOfStream;
@@ -900,6 +1101,9 @@ DemuxerReadResult HlsDemuxer::ReadFrom(Rendition* r, EncodedPacket* packet) {
           return result;
         }
         continue;
+      }
+      if (r == renditions_[0].get()) {
+        Adapt(r);
       }
       std::string error;
       if (!OpenSegment(r, &error)) {
@@ -915,8 +1119,16 @@ DemuxerReadResult HlsDemuxer::ReadFrom(Rendition* r, EncodedPacket* packet) {
     }
     Track(r->source.get());
     int64_t offset;
-    DemuxerReadResult result =
-        r->mp4 ? r->mp4->Read(packet) : r->reader->Read(packet, &offset);
+    DemuxerReadResult result = DemuxerReadResult::kEndOfStream;
+    if (r->text_open) {
+      if (!r->text.empty()) {
+        *packet = std::move(r->text.front());
+        r->text.pop_front();
+        result = DemuxerReadResult::kOk;
+      }
+    } else {
+      result = r->mp4 ? r->mp4->Read(packet) : r->reader->Read(packet, &offset);
+    }
     if (result == DemuxerReadResult::kError) {
       if (Failed()) {
         return DemuxerReadResult::kAborted;
@@ -927,6 +1139,9 @@ DemuxerReadResult HlsDemuxer::ReadFrom(Rendition* r, EncodedPacket* packet) {
       return result;
     }
     if (result != DemuxerReadResult::kOk) {
+      if (r == renditions_[0].get() && r->reader && r->source) {
+        Measure(r->source->transfer_rate(), r->source->size());
+      }
       CloseSegment(r);
       ++r->current;
       continue;
@@ -969,6 +1184,15 @@ DemuxerReadResult HlsDemuxer::Read(EncodedPacket* packet) {
     Rendition* pick = nullptr;
     for (auto& r : renditions_) {
       if (!Enabled(*r) || r->at_end) {
+        continue;
+      }
+      if (!r->has_next && r->only == MediaType::kSubtitle && !r->text_open &&
+          r->loaded && r->current < r->segments.size() &&
+          last_dts_ != kNoTimestamp &&
+          media_info_.start_time + r->segments[r->current].start - r->origin >
+              last_dts_ + kReadAhead) {
+        // Subtitle segments may hold no cue for long: not fetched far
+        // ahead of the others in search of one.
         continue;
       }
       if (!r->has_next) {

@@ -21,6 +21,9 @@ constexpr int64_t kWrapTicks = int64_t{1} << 33;
 constexpr int64_t kMaxPacketDuration = 10 * kMicrosPerSecond;
 // A stream's DTS going back by more than this starts a new run.
 constexpr int64_t kMaxStepBack = kMicrosPerSecond / 2;
+// Packets of other streams held back for the anchor's first frame in a
+// run found while reading, at most: muxers interleave streams closer.
+constexpr int64_t kMaxHold = 2 * kMicrosPerSecond;
 // ADTS frames are at most 8191 bytes, MP3 frames less; more without one
 // is not either.
 constexpr size_t kMaxAdtsBuffer = size_t{64} * 1024;
@@ -258,6 +261,12 @@ bool TsReader::ReadMore() {
 void TsReader::Flush() {
   flushed_ = true;
   parser_.Flush();
+  for (size_t i = 0; i < states_.size(); ++i) {
+    if (!states_[i].held.empty()) {
+      (*timeline_)[states_[i].run].anchored = true;
+      Release(static_cast<int>(i));
+    }
+  }
   for (StreamState& state : states_) {
     state.adts.clear();
     if (state.pending.valid) {
@@ -315,6 +324,9 @@ void TsReader::Restart(int64_t offset, int64_t reference) {
     state.adts_anchor = kNoTimestamp;
     state.run = -1;
     state.last_ticks = kNoTimestamp;
+    state.run_end = kNoTimestamp;
+    state.left_end = kNoTimestamp;
+    state.held.clear();
     state.end = kNoTimestamp;
     state.overlap_until = kNoTimestamp;
   }
@@ -332,6 +344,7 @@ void TsReader::Restart(int64_t offset, int64_t reference) {
   reference_ =
       reference == kNoTimestamp ? kNoTimestamp : MicrosToTicks(reference);
   last_ticks_ = kNoTimestamp;
+  placed_run_ = -1;
 }
 
 int64_t TsReader::Unwrap(int64_t ticks) {
@@ -382,7 +395,13 @@ void TsReader::Join(int index,
     ticks = Nearest(raw, state.last_ticks);
     const int64_t step = TicksToMicros(ticks - state.last_ticks);
     if (step < -kMaxStepBack || step > kMaxPacketDuration) {
+      if (!state.held.empty()) {
+        timeline[state.run].anchored = true;
+        Release(index);
+      }
       state.run = NextRun(state.run, pes.offset, raw);
+      state.left_end = state.run_end;
+      state.run_end = kNoTimestamp;
       ticks = Nearest(raw, MicrosToTicks(timeline[state.run].start));
       if (!IsAnchor(index)) {
         state.overlap_until = state.end;
@@ -403,18 +422,48 @@ void TsReader::Join(int index,
   }
   if (!run.anchored && state.run > 0) {
     // Found while reading, maybe by another stream: the anchor's first
-    // frame follows the anchor's last one in the run before.
-    const TsRun& previous = timeline[state.run - 1];
-    if (previous.end != kNoTimestamp) {
-      run.shift = previous.end - pts_read;
+    // frame follows the anchor's last one in the run before, as read up
+    // to here if it was (the run's end may include later runs not found
+    // yet).
+    const int64_t previous_end = state.left_end != kNoTimestamp
+                                     ? state.left_end
+                                     : timeline[state.run - 1].end;
+    if (previous_end != kNoTimestamp) {
+      run.shift = previous_end - pts_read;
       *dts = TicksToMicros(ticks) + run.shift;
+      LOGI("timestamps at byte %lld: %lld us on, placed by the video",
+           static_cast<long long>(run.offset),
+           static_cast<long long>(run.shift));
     }
     run.anchored = true;
+    placed_run_ = state.run;
   }
   *pts = pts_read + run.shift;
   const int64_t end = *pts + state.last_duration;
   if (run.end == kNoTimestamp || end > run.end) {
     run.end = end;
+  }
+  if (state.run_end == kNoTimestamp || end > state.run_end) {
+    state.run_end = end;
+  }
+}
+
+bool TsReader::Holds(int index) const {
+  const StreamState& state = states_[index];
+  return timeline_ && state.run > 0 && !IsAnchor(index) &&
+         !(*timeline_)[state.run].anchored;
+}
+
+void TsReader::Release(int index) {
+  StreamState& state = states_[index];
+  std::vector<Held> held = std::move(state.held);
+  state.held.clear();
+  const int64_t shift = (*timeline_)[state.run].shift;
+  for (Held& packet : held) {
+    packet.pes.data = packet.data.data();
+    Deliver(index, packet.pes,
+            packet.pts != kNoTimestamp ? packet.pts + shift : kNoTimestamp,
+            packet.dts != kNoTimestamp ? packet.dts + shift : kNoTimestamp);
   }
 }
 
@@ -462,17 +511,27 @@ int TsReader::NextRun(int run, int64_t offset, int64_t ticks) {
       return static_cast<int>(next);
     }
   }
-  // A reset not found before: go on from where this run got to, until
-  // the anchor's first frame in it sets the shift. Runs after it keep
-  // theirs.
+  // A reset not found before: go on from where the anchor got to in this
+  // run, until its first frame in the new one sets the shift (other
+  // streams wait for it). Runs after it keep theirs.
   TsRun added;
   added.offset = offset;
   added.start = TicksToMicros(ticks);
   added.anchored = false;
   const TsRun& current = timeline[run];
-  added.shift = (current.end != kNoTimestamp ? current.end
-                                             : current.shift + current.start) -
-                added.start;
+  int64_t end = kNoTimestamp;
+  for (size_t i = 0; i < states_.size(); ++i) {
+    const StreamState& state = states_[i];
+    if (IsAnchor(static_cast<int>(i)) && state.run == run &&
+        state.run_end != kNoTimestamp) {
+      end = std::max(end == kNoTimestamp ? state.run_end : end, state.run_end);
+    }
+  }
+  if (end == kNoTimestamp) {
+    end = current.end != kNoTimestamp ? current.end
+                                      : current.shift + current.start;
+  }
+  added.shift = end - added.start;
   LOGI("timestamps start over at byte %lld: %lld us on from %lld us",
        static_cast<long long>(offset), static_cast<long long>(added.shift),
        static_cast<long long>(added.start));
@@ -547,15 +606,53 @@ void TsReader::OnPes(const PesPacket& pes) {
     return;
   }
   const int index = it->second;
-  TsStream& stream = streams_[index];
   int64_t pts;
   int64_t dts;
-  if (timeline_) {
-    Join(index, pes, &pts, &dts);
-  } else {
+  if (!timeline_) {
     pts = pes.pts >= 0 ? TicksToMicros(Unwrap(pes.pts)) : kNoTimestamp;
     dts = pes.dts >= 0 ? TicksToMicros(Unwrap(pes.dts)) : pts;
+    Deliver(index, pes, pts, dts);
+    return;
   }
+  Join(index, pes, &pts, &dts);
+  if (Holds(index)) {
+    // Kept until the anchor places the run, so that the packets go out
+    // on its shift and not on one that would step back.
+    StreamState& state = states_[index];
+    TsRun& run = (*timeline_)[state.run];
+    Held held;
+    held.pes = pes;
+    held.data.assign(pes.data, pes.data + pes.size);
+    held.pts = pts != kNoTimestamp ? pts - run.shift : kNoTimestamp;
+    held.dts = dts != kNoTimestamp ? dts - run.shift : kNoTimestamp;
+    state.held.push_back(std::move(held));
+    const int64_t first = state.held.front().dts;
+    const int64_t last = state.held.back().dts;
+    if (first != kNoTimestamp && last != kNoTimestamp &&
+        last - first > kMaxHold) {
+      // No anchor frame came: the run stays where it is.
+      run.anchored = true;
+      Release(index);
+    }
+    return;
+  }
+  Deliver(index, pes, pts, dts);
+  if (placed_run_ >= 0) {
+    const int placed = placed_run_;
+    placed_run_ = -1;
+    for (size_t i = 0; i < states_.size(); ++i) {
+      if (states_[i].run == placed && !states_[i].held.empty()) {
+        Release(static_cast<int>(i));
+      }
+    }
+  }
+}
+
+void TsReader::Deliver(int index,
+                       const PesPacket& pes,
+                       int64_t pts,
+                       int64_t dts) {
+  TsStream& stream = streams_[index];
 
   if (stream.info.type == MediaType::kAudio &&
       (stream.info.audio.codec == AudioCodec::kAAC ||

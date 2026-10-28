@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <condition_variable>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -25,9 +26,13 @@ namespace lychee {
 // (EXT-X-MAP) segments, for builds without FFmpeg. A master playlist
 // plays one variant (PickHlsVariant) and lists the others it can decode
 // as video streams, described by CODECS and RESOLUTION and read only once
-// selected (their audio is the first's); its audio renditions
+// selected (their audio is the first's). While the first one's stream is
+// selected, it moves between the variants of its codec and audio group
+// by the bandwidth its segments arrived at (MPEG-TS segments, whose
+// parameter sets come in band). Its audio renditions
 // (EXT-X-MEDIA) with a playlist of their own are audio streams
-// (DEFAULT=YES the default one), read alongside in decode order.
+// (DEFAULT=YES the default one), read alongside in decode order, and so
+// are its WebVTT subtitle renditions as subtitle streams.
 // VOD seeks by segment; live input starts three target durations from
 // the end and reloads each playlist read as its segments are used up.
 // Each discontinuity sequence gets its own offset onto one continuous
@@ -55,11 +60,10 @@ class HlsDemuxer : public Demuxer {
   void Abort() override;
   std::string error() const override { return error_; }
 
-  // Opens the playlists and segments the input refers to; OpenDataSource
-  // unless set (the fuzzer serves them from memory). Set before Open().
-  using Opener =
-      std::function<std::unique_ptr<DataSource>(const std::string& url,
-                                                std::string* error)>;
+  // Opens the playlists and segments the input refers to; a shared
+  // opener (CreateSharedOpener) unless set (the fuzzer serves them from
+  // memory). Set before Open().
+  using Opener = DataSourceOpener;
   void set_opener(Opener opener) { opener_ = std::move(opener); }
   // The time between live reloads: MonotonicMicros() and a wait until
   // |until| unless set (the fuzzer advances a clock of its own). |wait|
@@ -69,9 +73,9 @@ class HlsDemuxer : public Demuxer {
     std::function<bool(int64_t until)> wait;
   };
   void set_clock(Clock clock) { clock_ = std::move(clock); }
-  // Makes Open() fail for a master playlist with subtitle renditions,
-  // which this demuxer does not read: for builds with a demuxer that
-  // reads them (FFmpeg's). Set before Open().
+  // Makes Open() fail for a master playlist with subtitle renditions
+  // that are not WebVTT, which this demuxer does not read: for builds
+  // with a demuxer that reads them (FFmpeg's). Set before Open().
   void set_refuse_subtitles(bool refuse) { refuse_subtitles_ = refuse; }
 
  private:
@@ -97,8 +101,8 @@ class HlsDemuxer : public Demuxer {
     int64_t last_reload = 0;
     bool last_reload_changed = true;
     int reload_failures = 0;
-    // Only this type of stream is taken from its segments (audio
-    // renditions), or any.
+    // Only this type of stream is taken from its segments (audio and
+    // subtitle renditions), or any.
     MediaType only = MediaType::kUnknown;
     // The media_info_ streams it carries, in segment order.
     std::vector<int> streams;
@@ -121,6 +125,9 @@ class HlsDemuxer : public Demuxer {
     // variant): its samples become Annex B with the parameter sets.
     int annexb_stream = -1;
     AnnexBConverter annexb;
+    // A WebVTT segment: its cues, as packets of the rendition's stream.
+    bool text_open = false;
+    std::deque<EncodedPacket> text;
 
     // The next packet, read ahead to interleave the renditions.
     EncodedPacket next;
@@ -151,13 +158,17 @@ class HlsDemuxer : public Demuxer {
   bool Merge(Rendition* r, const HlsPlaylist& playlist);
   // Opens r->segments[r->current]; the first one adds r's streams.
   bool OpenSegment(Rendition* r, std::string* error);
+  // OpenSegment() for a subtitle rendition.
+  bool OpenWebVtt(Rendition* r, std::string* error);
   void CloseSegment(Rendition* r);
-  // Reads |length| bytes (-1: all) of |url| from |offset| (-1: 0).
+  // Reads |length| bytes (-1: all) of |url| from |offset| (-1: 0), and
+  // the source's transfer_rate() into |rate| if given.
   bool Fetch(const std::string& url,
              int64_t offset,
              int64_t length,
              std::vector<uint8_t>* data,
-             std::string* error);
+             std::string* error,
+             int64_t* rate = nullptr);
   // Decrypts |data| in place with |key|; the IV defaults to |sequence|.
   bool Decrypt(const HlsKey& key,
                int64_t sequence,
@@ -168,6 +179,11 @@ class HlsDemuxer : public Demuxer {
                    const Segment& segment,
                    std::vector<uint8_t>* data,
                    std::string* error);
+  // Takes a segment's transfer rate (bit/s) into the estimate.
+  void Measure(int64_t rate, int64_t bytes);
+  // Before the first variant opens its next segment: moves it to the
+  // variant the estimate affords, if another.
+  void Adapt(Rendition* r);
   // Live: reloads r's playlist until a segment follows r->current.
   DemuxerReadResult WaitForSegments(Rendition* r);
   // The next packet of r's enabled streams.
@@ -182,7 +198,7 @@ class HlsDemuxer : public Demuxer {
 
   int64_t Now() const;
 
-  Opener opener_ = OpenDataSource;
+  Opener opener_ = CreateSharedOpener();
   bool refuse_subtitles_ = false;
   Clock clock_;
   std::mutex mutex_;
@@ -191,6 +207,12 @@ class HlsDemuxer : public Demuxer {
 
   // The variant played first, then audio renditions, then other variants.
   std::vector<std::unique_ptr<Rendition>> renditions_;
+  // What the first variant moves between, by bandwidth from the lowest,
+  // and the one it reads; the bandwidth estimate (bit/s), 0 until a
+  // segment was measured.
+  std::vector<HlsVariant> ladder_;
+  size_t rung_ = 0;
+  int64_t estimate_ = 0;
   // AES-128 keys by URL.
   std::map<std::string, std::array<uint8_t, 16>> keys_;
   // Discontinuity sequence -> microseconds added to its timestamps.

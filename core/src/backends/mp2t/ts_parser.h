@@ -81,11 +81,14 @@ class TsParser {
   struct Section {
     std::vector<uint8_t> data;
     int continuity = -1;
+    // A hash of the last packet's payload, for telling duplicates.
+    uint64_t payload_hash = 0;
     bool active = false;
   };
   struct Pes {
     std::vector<uint8_t> data;
     int continuity = -1;
+    uint64_t payload_hash = 0;
     bool active = false;
     int64_t offset = 0;
     bool random_access = false;
