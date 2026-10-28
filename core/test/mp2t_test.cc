@@ -338,6 +338,26 @@ TEST(Mp2t, ContinuityErrorsAndDuplicates) {
   EXPECT_EQ(c.pes[1].pts, 12000);
 }
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(Mp2t, JoinedFilesRepeatingTheCounter) {
+  // Two files of one PES packet each, joined: the second's first packet
+  // has the counter the first's last one has, but is no duplicate.
+  Bytes data;
+  for (int64_t pts : {9000, 12000}) {
+    TsWriter w;
+    w.Pat(0x1000);
+    w.Pmt(0x1000, 0, {{0x1b, 0x100, {}}});
+    w.Pes(0x100, 0xe0, pts, -1, Pattern(10, static_cast<uint8_t>(pts / 3000)));
+    data.insert(data.end(), w.out.begin(), w.out.end());
+  }
+  Collector c;
+  TsParser parser(&c);
+  Parse(&parser, data);
+  parser.Flush();
+  EXPECT_EQ(c.pes.size(), 2u);
+  EXPECT_EQ(c.pes[1].pts, 12000);
+}
+
 TEST(Mp2t, PmtVersionsAndCrc) {
   TsWriter w;
   w.Pat(0x1000);

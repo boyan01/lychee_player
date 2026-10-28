@@ -62,6 +62,15 @@ bool HasPesHeader(uint8_t stream_id) {
   }
 }
 
+// FNV-1a.
+uint64_t PayloadHash(const uint8_t* data, size_t size) {
+  uint64_t hash = 0xcbf29ce484222325;
+  for (size_t i = 0; i < size; ++i) {
+    hash = (hash ^ data[i]) * 0x100000001b3;
+  }
+  return hash;
+}
+
 }  // namespace
 
 TsParser::TsParser(Client* client) : client_(client) {}
@@ -122,20 +131,26 @@ void TsParser::Parse(const uint8_t* packet, int64_t offset) {
     return;  // No payload: the counter does not advance.
   }
 
+  const uint8_t* payload = packet + position;
+  const size_t size = kTsPacketSize - position;
+  const uint64_t hash = PayloadHash(payload, size);
+  uint64_t& last_hash = section ? section->payload_hash : pes->payload_hash;
   bool lost = false;
   if (last_continuity >= 0 && !discontinuity) {
-    if (continuity == last_continuity) {
-      return;  // A duplicate packet (2.4.3.3).
+    // A duplicate packet (2.4.3.3) repeats the payload too. Where files
+    // were joined, the next one's first packet may only have the counter
+    // the last one ended with.
+    if (continuity == last_continuity && hash == last_hash) {
+      return;
     }
     lost = continuity != ((last_continuity + 1) & 0xf);
   }
   last_continuity = continuity;
+  last_hash = hash;
   if (scrambling != 0) {
     return;
   }
 
-  const uint8_t* payload = packet + position;
-  const size_t size = kTsPacketSize - position;
   if (section) {
     if (lost) {
       section->active = false;
