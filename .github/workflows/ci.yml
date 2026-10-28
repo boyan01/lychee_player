@@ -98,8 +98,8 @@ jobs:
             libva-dev libdrm-dev libgnutls28-dev zlib1g-dev libpulse-dev \
             libglfw3-dev libegl-dev libgles-dev
           pipx install clang-tidy==23.1.4
-          ln -s "$HOME/.local/bin/run-clang-tidy.py" "$HOME/.local/bin/run-clang-tidy"
-          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+          # Ahead of the runner's /usr/bin/clang-tidy (an older LLVM).
+          pipx environment --value PIPX_BIN_DIR >>"$GITHUB_PATH"
       # The core follows the current FFmpeg API, which apt's (6.1) predates:
       # the headers of the LGPL build core-linux makes (same cache key).
       - name: FFmpeg cache key
@@ -157,111 +157,25 @@ jobs:
           python3 -I tool/abi_check.py "$BASE"
 
   core-macos:
-    # On pushes the plain run and TSan go to an idle self-hosted Mac: about
-    # 1.5 times quicker than a hosted VM, but one at a time, so ASan stays
-    # on a VM next to them. The plain run there checks the realtime cases'
-    # timing (REALTIME_ADVISORY=0); under a sanitizer it stays a warning.
-    # Pull requests run on hosted VMs only: the repository is public, and a
-    # fork's pull request would run its code on that machine. Software
-    # decoding: VideoToolbox may be missing on a VM, and VP9 on that Mac
-    # hangs in it for 4 s before the player falls back to software.
+    # Hosted VMs are loaded, so the realtime cases' timing only warns
+    # (REALTIME_ADVISORY=1). Software decoding: VideoToolbox may be missing
+    # on a VM.
     needs: changes
     if: needs.changes.outputs.core == 'true'
-    runs-on: ${{ github.event_name == 'push' && matrix.self-hosted && fromJSON('["self-hosted", "macOS", "X64", "quiet"]') || 'macos-15' }}
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
         # ThreadSanitizer; AddressSanitizer with UndefinedBehaviorSanitizer.
-        include:
-          - sanitizer: none
-            self-hosted: true
-          - sanitizer: thread
-            self-hosted: true
-          - sanitizer: address
-            self-hosted: false
-    env:
-      REALTIME_ADVISORY: ${{ github.event_name == 'push' && matrix.sanitizer == 'none' && '0' || '1' }}
+        sanitizer: [none, thread, address]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          # The self-hosted Mac keeps its build directories between runs
-          # (a hosted VM starts empty anyway).
-          clean: false
       - name: Install tools
-        if: runner.environment == 'github-hosted'
         run: brew install ffmpeg ninja pkg-config glfw
-      - name: FFmpeg
-        # Homebrew has no bottles for Intel Macs, so the self-hosted Mac does
-        # not take its FFmpeg: the core links the LGPL one
-        # tool/build_ffmpeg.sh makes (kept on the machine per script and
-        # pin), and a pinned static FFmpeg 9 generates the media.
-        if: runner.environment == 'self-hosted'
-        run: |
-          tools="$HOME/ci-tools"
-          cli="$tools/ffmpeg-9.0.2"
-          if [ ! -x "$cli/ffprobe" ]; then
-            url=https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2
-            for f in ffmpeg:7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4 \
-              ffprobe:2322438ed2f6319a691291b247d09c69dcaa3a982460d1f269a7e1af335cfdfd; do
-              curl -fsSL --retry 3 -o "$RUNNER_TEMP/${f%%:*}.zip" "$url/${f%%:*}.zip"
-              echo "${f#*:}  $RUNNER_TEMP/${f%%:*}.zip" | shasum -a 256 -c -
-              unzip -oq "$RUNNER_TEMP/${f%%:*}.zip" -d "$cli"
-            done
-          fi
-          echo "$cli" >>"$GITHUB_PATH"
-          key="$({ cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; } | shasum -a 256 | cut -c1-16)"
-          lib="$tools/ffmpeg-lgpl-$key"
-          if [ ! -d "$lib" ]; then
-            eval "$(grep -E '^ffmpeg_(version|sha256|url)=' tool/release.sh)"
-            curl -fsSL --retry 3 -o "$RUNNER_TEMP/ffmpeg.tar.xz" "$ffmpeg_url"
-            echo "$ffmpeg_sha256  $RUNNER_TEMP/ffmpeg.tar.xz" | shasum -a 256 -c -
-            tar xJf "$RUNNER_TEMP/ffmpeg.tar.xz" -C "$RUNNER_TEMP"
-            rm -rf third_party/ffmpeg/macos-x86_64
-            tool/build_ffmpeg.sh macos-x86_64 "$RUNNER_TEMP/ffmpeg-$ffmpeg_version"
-            mv third_party/ffmpeg/macos-x86_64 "$lib"
-          fi
-          echo "FFMPEG_ROOT=$lib" >>"$GITHUB_ENV"
-          # Media from this commit's script, not an older run's.
-          echo "MEDIA_DIR=$RUNNER_TEMP/media" >>"$GITHUB_ENV"
       - name: Regression
         run: |
           NO_HW=1 TSAN=${{ matrix.sanitizer == 'thread' && 1 || 0 }} \
             ASAN=${{ matrix.sanitizer == 'address' && 1 || 0 }} tool/regression.sh
-
-  bench:
-    # tool/bench.sh per push on the idle self-hosted Mac, once the core
-    # passed there, with the LGPL FFmpeg core-macos built and the pinned
-    # FFmpeg 9 for the media. The table stays on that machine
-    # (~/ci-tools/bench.tsv: one row per case and commit; only one
-    # machine's rows compare, so no hosted VM adds to it) and goes up as
-    # an artifact with each run. tool/bench_compare.py puts this commit's
-    # numbers against the last benchmarked commit's into the job summary
-    # and warns on regressions; it does not fail the run.
-    needs: [changes, core-macos]
-    if: github.event_name == 'push' && needs.changes.outputs.core == 'true'
-    runs-on: [self-hosted, macOS, X64, quiet]
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          clean: false
-      - name: FFmpeg
-        run: |
-          tools="$HOME/ci-tools"
-          echo "$tools/ffmpeg-9.0.2" >>"$GITHUB_PATH"
-          key="$({ cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; } | shasum -a 256 | cut -c1-16)"
-          echo "FFMPEG_ROOT=$tools/ffmpeg-lgpl-$key" >>"$GITHUB_ENV"
-          # The media is made once per version of the script.
-          echo "MEDIA_DIR=$tools/bench-media-$(shasum -a 256 tool/bench.sh | cut -c1-12)" >>"$GITHUB_ENV"
-      - name: Benchmark
-        run: BENCH_TSV="$HOME/ci-tools/bench.tsv" tool/bench.sh
-      - name: Compare
-        run: |
-          python3 -I tool/bench_compare.py "$HOME/ci-tools/bench.tsv" --github | tee -a "$GITHUB_STEP_SUMMARY"
-          cp "$HOME/ci-tools/bench.tsv" "$RUNNER_TEMP/bench.tsv"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: bench
-          path: ${{ runner.temp }}/bench.tsv
 
   core-linux:
     # Catches Linux build breaks without a WSL run. Software decoding: no
@@ -395,11 +309,12 @@ jobs:
           distribution: temurin
           java-version: 21
       - name: Install tools
-        run: sudo apt-get install -y ninja-build pkg-config
+        # meson builds dav1d into FFmpeg (tool/build_ffmpeg.sh).
+        run: sudo apt-get install -y meson ninja-build pkg-config
       - name: FFmpeg cache key
         id: ffmpeg
         run: |
-          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^(ffmpeg|mbedtls)_' tool/release.sh; echo "$ANDROID_NDK_HOME")"
+          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^(ffmpeg|mbedtls|dav1d)_' tool/release.sh; echo "$ANDROID_NDK_HOME")"
           echo "key=ffmpeg-android-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -501,11 +416,12 @@ jobs:
         with:
           channel: stable
       - name: Install tools
-        run: brew install nasm ninja pkg-config
+        # meson builds dav1d into FFmpeg (tool/build_ffmpeg.sh).
+        run: brew install meson nasm ninja pkg-config
       - name: FFmpeg cache key
         id: ffmpeg
         run: |
-          inputs="$(cat tool/build_ffmpeg.sh tool/apple_framework.sh; grep -E '^(ffmpeg|mbedtls)_' tool/release.sh; xcodebuild -version)"
+          inputs="$(cat tool/build_ffmpeg.sh tool/apple_framework.sh; grep -E '^(ffmpeg|mbedtls|dav1d)_' tool/release.sh; xcodebuild -version)"
           echo "key=ffmpeg-apple-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
