@@ -207,8 +207,10 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
      macOS and Linux. Left: a run on Linux and Windows, and soaking the
      platform harnesses (`examples/glfw`, the Swift and Android
      examples), whose frame hand-off and display link the CLI skips.
-   - **Supply chain**: updates for the FFmpeg, GLFW and Mbed TLS sources
-     pinned in `tool/` scripts, which Dependabot cannot read.
+   - **Supply chain**: `updates.yml` (weekly, 2026-10-28) lists newer
+     FFmpeg, Mbed TLS and GLFW releases than the pins
+     (`tool/check_updates.py`); it has not run on GitHub yet: look at
+     its first run, then delete this line.
    - **Fuzzing corpus**: merge it with libFuzzer's `-merge=1` if it grows
      past a few hundred MB; OSS-Fuzz once the project is public.
    - **Coverage** as a CI artifact once someone watches it.

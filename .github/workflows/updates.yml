@@ -1,0 +1,25 @@
+# Lists newer releases of the FFmpeg, Mbed TLS and GLFW sources pinned in
+# tool/release.sh and examples/glfw (tool/check_updates.py), which
+# Dependabot cannot read: in the run's summary and as notices. It opens
+# no issue or pull request; updating a pin stays a change someone makes
+# and checks (AGENTS.md).
+
+name: Updates
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-sources:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 -I tool/check_updates.py --github | tee -a "$GITHUB_STEP_SUMMARY"

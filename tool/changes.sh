@@ -77,6 +77,8 @@ while IFS= read -r f; do
     .clang-format | .editorconfig | tool/format.sh) ;;
     # Run by hand on an idle machine; Dependabot reads its config itself.
     tool/soak.sh | .github/dependabot.yml) ;;
+    # Its own scheduled workflow runs it; it reads no code.
+    tool/check_updates.py | .github/workflows/updates.yml) ;;
     # CI's bench job runs after core-macos, for core changes.
     tool/bench.sh) mark core ;;
     # Changes to the checker also exercise its CI job.
