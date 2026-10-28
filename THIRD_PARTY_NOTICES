@@ -74,8 +74,8 @@ The FFmpeg libraries are built without --enable-gpl and without
 lychee_player repository from the FFmpeg release whose source is
 attached to each lychee_player release
 (https://github.com/boyan01/lychee_player/releases,
-ffmpeg-VERSION.tar.xz). They contain FFmpeg only, plus dav1d on macOS,
-iOS and Android (5), Mbed TLS on Android (3) and zlib and the mingw-w64
+ffmpeg-VERSION.tar.xz). They contain FFmpeg only, plus dav1d (5),
+Mbed TLS on Android (3) and zlib and the mingw-w64
 runtime on Windows (4). On Linux
 they use the system's GnuTLS (LGPL 2.1 or later), libva, libdrm and
 zlib, linked dynamically and not shipped.
@@ -111,9 +111,9 @@ linked statically:
   Exception, which places no conditions on the DLLs.
 
 
-5. dav1d (macOS, iOS and Android)
+5. dav1d
 
-The FFmpeg libraries for macOS, iOS and Android contain dav1d
+The shipped FFmpeg libraries on every platform contain dav1d
 (https://code.videolan.org/videolan/dav1d), the AV1 decoder, linked
 statically into libavcodec. Its source code is attached to each
 lychee_player release (dav1d-VERSION.tar.xz). It carries this license:

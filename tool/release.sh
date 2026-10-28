@@ -75,7 +75,7 @@ ffmpeg_url=https://ffmpeg.org/releases/ffmpeg-$ffmpeg_version.tar.xz
 mbedtls_version=3.6.7
 mbedtls_sha256=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6
 mbedtls_url=https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$mbedtls_version/mbedtls-$mbedtls_version.tar.bz2
-# Software AV1 on Apple and Android (tool/build_ffmpeg.sh).
+# Software AV1 on every platform (tool/build_ffmpeg.sh).
 dav1d_version=1.5.4
 dav1d_sha256=686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5
 dav1d_url=https://downloads.videolan.org/pub/videolan/dav1d/$dav1d_version/dav1d-$dav1d_version.tar.xz
@@ -201,10 +201,10 @@ cmd_build() {
       ;;
     linux)
       p="$(linux_platform)"
-      build_ffmpeg "$p" "$src/ffmpeg-$ffmpeg_version"
+      DAV1D_SOURCE_DIR="$dav1d/dav1d-$dav1d_version" build_ffmpeg "$p" "$src/ffmpeg-$ffmpeg_version"
       ;;
     windows)
-      build_ffmpeg windows-x86_64 "$src/ffmpeg-$ffmpeg_version"
+      DAV1D_SOURCE_DIR="$dav1d/dav1d-$dav1d_version" build_ffmpeg windows-x86_64 "$src/ffmpeg-$ffmpeg_version"
       ;;
     *) die "unknown target $target" ;;
   esac
@@ -518,13 +518,15 @@ cmd_sbom() {
   v="$(version)"
   rm -f "$out/lychee_player-$v.spdx.json"
   python3 -I - "$out" "$v" "$manifest" "$ffmpeg_version" "$ffmpeg_url" "$ffmpeg_sha256" \
-    "$mbedtls_version" "$mbedtls_url" "$mbedtls_sha256" <<'EOF'
+    "$mbedtls_version" "$mbedtls_url" "$mbedtls_sha256" \
+    "$dav1d_version" "$dav1d_url" "$dav1d_sha256" <<'EOF'
 import datetime, hashlib, json, pathlib, sys, uuid
 
 out = pathlib.Path(sys.argv[1])
 version, manifest = sys.argv[2], json.load(open(sys.argv[3]))
 ffmpeg_version, ffmpeg_url, ffmpeg_sha256 = sys.argv[4:7]
 mbedtls_version, mbedtls_url, mbedtls_sha256 = sys.argv[7:10]
+dav1d_version, dav1d_url, dav1d_sha256 = sys.argv[10:13]
 repo = manifest["url"].removesuffix("/releases/download")
 
 def package(id_, name, version, url, license_, sha256=None):
@@ -543,21 +545,24 @@ packages = [
     package("lychee", "lychee_player", version, f"git+{repo}@v{version}", "MIT AND BSD-3-Clause"),
     package("FFmpeg", "FFmpeg", ffmpeg_version, ffmpeg_url, "LGPL-2.1-or-later", ffmpeg_sha256),
     package("MbedTLS", "Mbed TLS", mbedtls_version, mbedtls_url, "Apache-2.0", mbedtls_sha256),
+    package("dav1d", "dav1d", dav1d_version, dav1d_url, "BSD-2-Clause", dav1d_sha256),
     package("zlib", "zlib", "NOASSERTION", "NOASSERTION", "Zlib"),
     package("mingw-w64", "mingw-w64 runtime", "NOASSERTION", "NOASSERTION", "ZPL-2.1"),
 ]
 
 def sources(name):
     if name.startswith("lychee-") and name.endswith(".aar"):
-        return ["lychee", "FFmpeg", "MbedTLS"]
+        return ["lychee", "FFmpeg", "MbedTLS", "dav1d"]
     if name.startswith("lychee-") and name.endswith(".pom"):
         return []
     if name.startswith(("lychee.", "lychee_noffmpeg.")):
         return ["lychee"]
-    if name.startswith(("libav", "libsw", "ffmpeg-linux-")):
+    if name.startswith(("libavcodec.", "ffmpeg-linux-")):
+        return ["FFmpeg", "dav1d"]
+    if name.startswith(("libav", "libsw")):
         return ["FFmpeg"]
     if name == "ffmpeg-windows-x86_64.zip":
-        return ["FFmpeg", "zlib", "mingw-w64"]
+        return ["FFmpeg", "dav1d", "zlib", "mingw-w64"]
     return []  # the source archives, pinned in the packages above
 
 files, relationships = [], [{"spdxElementId": "SPDXRef-DOCUMENT",

@@ -786,8 +786,8 @@ par check hevc10        1 - -- "$media/hevc10.mp4"
 vp9_hw=1
 [ "$(uname -sm)" = "Darwin x86_64" ] && vp9_hw=0
 par check vp9           $vp9_hw - -- "$media/vp9_opus.webm"
-# The shipped FFmpeg decodes AV1 in software only with dav1d (Apple and
-# Android releases; tool/build_ffmpeg.sh).
+# The shipped FFmpeg decodes AV1 in software only with dav1d
+# (tool/build_ffmpeg.sh).
 if [ -z "${FFMPEG_ROOT:-}" ] || grep -q dav1d "$FFMPEG_ROOT/lib/pkgconfig/libavcodec.pc" 2>/dev/null; then
   par check av1-software  0 - -- "$media/av1.mkv"
 fi

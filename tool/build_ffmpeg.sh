@@ -15,10 +15,10 @@
 # Apache-2.0, which LGPL 2.1 cannot take, so Android builds are LGPL 3.
 #
 # DAV1D_SOURCE_DIR (a dav1d release; BSD-2, built with meson and ninja),
-# in the environment, adds dav1d on Apple and Android, linked statically
+# in the environment, adds dav1d on every platform, linked statically
 # into libavcodec: it decodes AV1 where the GPU does not (Apple before M3
 # and A17 Pro, most Android devices). Releases have it
-# (tool/release.sh); without it, and on Linux and Windows, AV1 plays only
+# (tool/release.sh); without it, AV1 plays only
 # where the GPU decodes it.
 #
 # License: no --enable-gpl, no --enable-nonfree, and nothing that would need
@@ -154,6 +154,11 @@ case "$platform" in
       command -v nasm >/dev/null || { echo "nasm not found" >&2; exit 1; }
     fi
     [ "$(uname -m)" = "$arch" ] || { echo "$platform builds on $arch only" >&2; exit 1; }
+    dav1d_cc="${CC:-cc}"
+    dav1d_ar="${AR:-ar}"
+    dav1d_flags=""
+    dav1d_system=linux
+    dav1d_cpu=$arch
     flags=(
       --target-os=linux --arch="$arch"
       --disable-autodetect
@@ -170,6 +175,11 @@ case "$platform" in
     # never asks for DXVA2), and zlib, libgcc and the rest of the mingw
     # runtime linked statically: the DLLs import Windows' own DLLs only.
     command -v nasm >/dev/null || { echo "nasm not found" >&2; exit 1; }
+    dav1d_cc=x86_64-w64-mingw32-gcc
+    dav1d_ar=x86_64-w64-mingw32-ar
+    dav1d_flags="'-static'"
+    dav1d_system=windows
+    dav1d_cpu=x86_64
     flags=(
       --target-os=mingw32 --arch=x86_64 --cross-prefix=x86_64-w64-mingw32-
       --disable-autodetect
@@ -230,9 +240,17 @@ CROSS
     >dav1d.log 2>&1 &&
     ninja -C "$work/dav1d-build" install >>dav1d.log 2>&1 ||
     { tail -20 dav1d.log; exit 1; }
-  # pkg-config finds dav1d's .pc only, not the Mac's own libraries.
-  export PKG_CONFIG_LIBDIR="$dav1d/lib/pkgconfig" PKG_CONFIG_PATH=
-  flags+=(--pkg-config=pkg-config --pkg-config-flags=--static
+  if [ "$dav1d_system" = linux ]; then
+    # Native builds still need the system's GnuTLS, libva and libdrm.
+    export PKG_CONFIG_PATH="$dav1d/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+    # dav1d is static already. --static here would also ask pkg-config
+    # for GnuTLS's private dependencies, though GnuTLS stays shared.
+  else
+    # Cross builds must not find libraries from the build host.
+    export PKG_CONFIG_LIBDIR="$dav1d/lib/pkgconfig" PKG_CONFIG_PATH=
+    flags+=(--pkg-config-flags=--static)
+  fi
+  flags+=(--pkg-config=pkg-config
     --enable-libdav1d --enable-decoder=libdav1d)
 fi
 "$src/configure" "${common[@]}" "${flags[@]}" >configure.log 2>&1 || {

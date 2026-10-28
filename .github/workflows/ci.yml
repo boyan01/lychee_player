@@ -94,7 +94,7 @@ jobs:
         # main_linux.cc's GLFW, EGL and GLES.
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm \
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm meson \
             libva-dev libdrm-dev libgnutls28-dev zlib1g-dev libpulse-dev \
             libglfw3-dev libegl-dev libgles-dev
           pipx install clang-tidy==23.1.4
@@ -106,7 +106,7 @@ jobs:
         if: runner.os == 'Linux'
         id: ffmpeg
         run: |
-          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; lsb_release -ds; gcc --version | head -1)"
+          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^(ffmpeg|dav1d)_' tool/release.sh; lsb_release -ds; gcc --version | head -1)"
           echo "key=ffmpeg-linux-$(echo "$inputs" | sha256sum | cut -c1-16)" >>"$GITHUB_OUTPUT"
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         if: runner.os == 'Linux'
@@ -193,14 +193,14 @@ jobs:
         # FFmpeg build.
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm \
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm meson \
             libva-dev libdrm-dev libgnutls28-dev zlib1g-dev libpulse-dev pulseaudio
       # The core follows the current FFmpeg API, which apt's (6.1) predates:
       # build the one tool/build_ffmpeg.sh makes for the Linux plugin.
       - name: FFmpeg cache key
         id: ffmpeg
         run: |
-          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; lsb_release -ds; gcc --version | head -1)"
+          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^(ffmpeg|dav1d)_' tool/release.sh; lsb_release -ds; gcc --version | head -1)"
           echo "key=ffmpeg-linux-$(echo "$inputs" | sha256sum | cut -c1-16)" >>"$GITHUB_OUTPUT"
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -241,11 +241,11 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install tools
-        run: sudo apt-get install -y mingw-w64 libz-mingw-w64-dev nasm
+        run: sudo apt-get install -y mingw-w64 libz-mingw-w64-dev nasm meson ninja-build pkg-config
       - name: FFmpeg cache key
         id: ffmpeg
         run: |
-          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; x86_64-w64-mingw32-gcc --version | head -1; dpkg -s mingw-w64-x86-64-dev | grep ^Version)"
+          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^(ffmpeg|dav1d)_' tool/release.sh; x86_64-w64-mingw32-gcc --version | head -1; dpkg -s mingw-w64-x86-64-dev | grep ^Version)"
           echo "key=ffmpeg-windows-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
