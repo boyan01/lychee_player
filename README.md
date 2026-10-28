@@ -151,6 +151,11 @@ writes it as a binary PPM (P6, top row first) and prints `snapshot FILE
 pts=US size=WxH video=X,Y,W,H` (the frame's pts on the file's timeline,
 and where the picture is in the PPM).
 
+The Linux GLFW and Flutter shaders use dmabuf color metadata to map PQ
+and HLG to SDR BT.709, with the same 203-nit white and ICtCp gamut
+compression as Windows. HLG uses a 1000-nit reference display. The core
+keeps the original P010 planes and color metadata for native HDR callers.
+
 `tool/regression.sh` generates a synthetic media set and runs the CLI over it
 (`TSAN=1` for a ThreadSanitizer build, `ASAN=1` for AddressSanitizer and
 UndefinedBehaviorSanitizer, `COVERAGE=1` for a line coverage report).

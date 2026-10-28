@@ -88,14 +88,12 @@ building on top of them.
 2. **HDR beyond Apple's SDK**:
    - Flutter: textures are 8-bit SDR on every platform, so the plugin
      stays on tone-mapped BGRA.
-   - Linux: check actual VAAPI dmabuf export on the dual-boot PC's Intel
-     iGPU after the Windows checks finish; WSL has no working VAAPI
-     driver. Boot Ubuntu 24.04 and run the CLI with
-     `--dmabuf /dev/dri/by-path/pci-0000:00:02.0-render` on `hdr_pq.mp4`
-     and `hdr_hlg.mp4`: confirm P010, primaries 9 and transfer 16/18 in
-     the `dmabuf:` line. If remote boot or desktop access needs hands,
-     the user only needs to boot Ubuntu and log in once; the checks can
-     then continue over SSH.
+   - Linux's GLFW and Flutter tone mapping uses Windows' ICtCp gamut
+     approximation rather than swscale's IPT. Flat PQ and HLG match the SDR
+     reference, but a low-brightness eight-color BT.2020/PQ probe gives
+     20.5 dB / MAE 12.1 on Linux (2026-10-28). Compare the chromatic gamut
+     mapping with swscale; done when colored HDR, including saturated
+     highlights, passes the unchanged pixel thresholds in both Linux consumers.
    - Android: the Flutter plugin's path (MediaCodec into a
      `SurfaceProducer`) is unchecked, waiting on the user's HDR phone; the
      emulator has no HEVC Main 10 decoder. If the plugin shows PQ washed

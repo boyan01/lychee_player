@@ -68,9 +68,92 @@ uniform sampler2D luma;
 uniform sampler2D chroma;
 uniform vec3 offset;
 uniform mat3 matrix;
+uniform int color_transfer;
+uniform int color_primaries;
+// Same tone mapping as core/src/backends/windows/d3d11_video_processor.cc:
+// ST 2084 / BT.2100, 203-nit white, and ICtCp gamut compression to BT.709.
+// Matrices here are column-major, unlike the HLSL source. HLG uses the
+// same 1000-nit reference display and system gamma 1.2.
+const float m1 = 2610.0 / 16384.0;
+const float m2 = 2523.0 / 4096.0 * 128.0;
+const float c1 = 3424.0 / 4096.0;
+const float c2 = 2413.0 / 4096.0 * 32.0;
+const float c3 = 2392.0 / 4096.0 * 32.0;
+const mat3 bt2020ToLms = mat3(
+  1688.0, 683.0, 99.0,
+  2146.0, 2951.0, 309.0,
+  262.0, 462.0, 3688.0) / 4096.0;
+const mat3 lmsToIctcp = mat3(
+  2048.0, 6610.0, 17933.0,
+  2048.0, -13613.0, -17390.0,
+  0.0, 7003.0, -543.0) / 4096.0;
+const mat3 ictcpToLms = mat3(
+  1.0, 1.0, 1.0,
+  0.008609, -0.008609, 0.560031,
+  0.111030, -0.111030, -0.320627);
+const mat3 lmsToBt709 = mat3(
+  6.17336, -1.32448, -0.01197,
+  -5.32033, 2.56035, -0.26459,
+  0.14707, -0.23586, 1.27646);
+const mat3 bt709ToBt2020 = mat3(
+  0.627404, 0.069097, 0.016391,
+  0.329283, 0.919540, 0.088013,
+  0.043313, 0.011362, 0.895595);
+
+vec3 pqToNits(vec3 e) {
+  vec3 p = pow(clamp(e, 0.0, 1.0), vec3(1.0 / m2));
+  return 10000.0 * pow(max(p - c1, 0.0) / (c2 - c3 * p), vec3(1.0 / m1));
+}
+vec3 nitsToPq(vec3 nits) {
+  vec3 y = pow(max(nits, 0.0) / 10000.0, vec3(m1));
+  return pow((c1 + c2 * y) / (1.0 + c3 * y), vec3(m2));
+}
+vec3 ictcpToSdr(vec3 ictcp) {
+  return lmsToBt709 * pqToNits(ictcpToLms * ictcp) / 203.0;
+}
+bool inside(vec3 rgb) {
+  return all(greaterThanEqual(rgb, vec3(-1e-4))) &&
+         all(lessThanEqual(rgb, vec3(1.0 + 1e-4)));
+}
+float hlgScene(float e) {
+  return e <= 0.5 ? e * e / 3.0 :
+      (exp((e - 0.55991073) / 0.17883277) + 0.28466892) / 12.0;
+}
+vec3 hlgToNits(vec3 e) {
+  e = clamp(e, 0.0, 1.0);
+  vec3 scene = vec3(hlgScene(e.r), hlgScene(e.g), hlgScene(e.b));
+  vec3 weights = color_primaries == 9 ? vec3(0.2627, 0.6780, 0.0593) :
+                                      vec3(0.2126, 0.7152, 0.0722);
+  float y = dot(scene, weights);
+  return 1000.0 * pow(max(y, 1e-6), 0.2) * scene;
+}
+vec3 hdrToSdr(vec3 encoded) {
+  // H.273: 16 is PQ, 18 is HLG. SDR stays on the existing fast path.
+  if (color_transfer != 16 && color_transfer != 18) return encoded;
+  vec3 nits = color_transfer == 16 ? pqToNits(encoded) : hlgToNits(encoded);
+  if (color_primaries != 9) nits = bt709ToBt2020 * nits;
+  vec3 ictcp = lmsToIctcp * nitsToPq(bt2020ToLms * nits);
+  vec3 rgb = ictcpToSdr(ictcp);
+  if (!inside(rgb)) {
+    float anchor = 0.5 * min(ictcp.x, 0.580689);
+    float lo = 0.0;
+    float hi = 1.0;
+    for (int i = 0; i < 12; ++i) {
+      float t = 0.5 * (lo + hi);
+      if (inside(ictcpToSdr(vec3(mix(anchor, ictcp.x, t), t * ictcp.yz)))) {
+        lo = t;
+      } else {
+        hi = t;
+      }
+    }
+    rgb = ictcpToSdr(vec3(mix(anchor, ictcp.x, lo), lo * ictcp.yz));
+  }
+  return pow(clamp(rgb, 0.0, 1.0), vec3(1.0 / 2.4));
+}
+
 void main() {
   vec3 yuv = vec3(texture2D(luma, uv).r, texture2D(chroma, uv).rg) - offset;
-  gl_FragColor = vec4(matrix * yuv, 1.0);
+  gl_FragColor = vec4(hdrToSdr(matrix * yuv), 1.0);
 }
 )";
 
@@ -391,6 +474,8 @@ struct _LycheeTexture {
   int32_t height;
   GLint offset_location;
   GLint matrix_location;
+  GLint transfer_location;
+  GLint primaries_location;
   // Tightly packed copy, for padded rows where GL cannot skip the padding.
   uint8_t* packed;
   size_t packed_size;
@@ -436,6 +521,8 @@ static gboolean lychee_texture_initialize_program(LycheeTexture* self) {
   glUniform1i(glGetUniformLocation(program, "chroma"), 1);
   self->offset_location = glGetUniformLocation(program, "offset");
   self->matrix_location = glGetUniformLocation(program, "matrix");
+  self->transfer_location = glGetUniformLocation(program, "color_transfer");
+  self->primaries_location = glGetUniformLocation(program, "color_primaries");
   glGenTextures(2, self->gl.planes);
   for (GLuint plane : self->gl.planes) {
     SetSampling(plane);
@@ -560,6 +647,18 @@ static gboolean lychee_texture_convert(LycheeTexture* self,
     glUseProgram(self->gl.program);
     glUniform3fv(self->offset_location, 1, offset);
     glUniformMatrix3fv(self->matrix_location, 1, GL_FALSE, matrix);
+    // API 13 appended these fields. Old descriptors remain SDR.
+    const bool color_metadata =
+        dmabuf->struct_size >= offsetof(lychee_dmabuf, color_transfer) +
+                                   sizeof(dmabuf->color_transfer);
+    int primaries = color_metadata ? dmabuf->color_primaries : 0;
+    if (primaries == 0 || primaries == 2) {
+      primaries =
+          dmabuf->color_matrix == 9 || dmabuf->color_matrix == 10 ? 9 : 1;
+    }
+    glUniform1i(self->transfer_location,
+                color_metadata ? dmabuf->color_transfer : 0);
+    glUniform1i(self->primaries_location, primaries);
     // The renderer's vertex array would otherwise take the attribute.
     if (epoxy_gl_version() >= 30) {
       glBindVertexArray(0);
