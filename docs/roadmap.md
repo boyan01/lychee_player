@@ -160,6 +160,9 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    HEVC decoded in software shows one frame less than it should
    (`NO_FFMPEG=1 NO_HW=1 ONLY=live-hevc`: 299 of 300; the HEVC extension's
    decoder holds the last frame back, low latency mode set or not).
+   Draining it after each input that gave no frame loses its reference
+   frames (only the first frame shows), so it needs a drain only once the
+   input pauses.
 4. **Android**: VP8, VP9 and AV1 through MediaCodec
    (`MediaCodecVideoDecoder` maps only H.264 and HEVC, so WebM's video
    has no decoder); an FFmpeg-free AAR in the release
