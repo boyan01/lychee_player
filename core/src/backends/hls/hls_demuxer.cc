@@ -13,6 +13,10 @@
 
 #if defined(__APPLE__)
 #include <CommonCrypto/CommonCryptor.h>
+#elif defined(_WIN32)
+#include <windows.h>
+
+#include <bcrypt.h>
 #endif
 
 namespace lychee {
@@ -511,6 +515,45 @@ bool HlsDemuxer::Decrypt(const HlsKey& key,
               data->size(), plain.data(), plain.size(), &moved);
   if (status != kCCSuccess) {
     *error = "AES-128 decryption failed (" + std::to_string(status) + ")";
+    return false;
+  }
+  plain.resize(moved);
+  *data = std::move(plain);
+  return true;
+#elif defined(_WIN32)
+  BCRYPT_ALG_HANDLE algorithm = nullptr;
+  BCRYPT_KEY_HANDLE handle = nullptr;
+  NTSTATUS status =
+      BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_AES_ALGORITHM, nullptr, 0);
+  ULONG moved = 0;
+  std::vector<uint8_t> plain(data->size());
+  if (BCRYPT_SUCCESS(status)) {
+    status = BCryptSetProperty(
+        algorithm, BCRYPT_CHAINING_MODE,
+        reinterpret_cast<PUCHAR>(const_cast<wchar_t*>(BCRYPT_CHAIN_MODE_CBC)),
+        sizeof(BCRYPT_CHAIN_MODE_CBC), 0);
+  }
+  if (BCRYPT_SUCCESS(status)) {
+    status = BCryptGenerateSymmetricKey(
+        algorithm, &handle, nullptr, 0, known->second.data(),
+        static_cast<ULONG>(known->second.size()), 0);
+  }
+  if (BCRYPT_SUCCESS(status)) {
+    status = BCryptDecrypt(
+        handle, data->data(), static_cast<ULONG>(data->size()), nullptr, iv,
+        sizeof(iv), plain.data(), static_cast<ULONG>(plain.size()), &moved,
+        BCRYPT_BLOCK_PADDING);
+  }
+  if (handle) {
+    BCryptDestroyKey(handle);
+  }
+  if (algorithm) {
+    BCryptCloseAlgorithmProvider(algorithm, 0);
+  }
+  if (!BCRYPT_SUCCESS(status)) {
+    char code[16];
+    snprintf(code, sizeof(code), "0x%08lx", static_cast<unsigned long>(status));
+    *error = std::string("AES-128 decryption failed (") + code + ")";
     return false;
   }
   plain.resize(moved);

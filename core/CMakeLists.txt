@@ -257,7 +257,7 @@ endif()
 
 if(WIN32)
   target_link_libraries(lychee PRIVATE
-    ole32 avrt d3d11 d3dcompiler mfplat mfuuid winhttp wmcodecdspuuid)
+    bcrypt ole32 avrt d3d11 d3dcompiler mfplat mfuuid winhttp wmcodecdspuuid)
   # base/thread_name.h includes <windows.h>, whose min/max macros break
   # std::min and numeric_limits::max in the files that include it.
   target_compile_definitions(lychee PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
