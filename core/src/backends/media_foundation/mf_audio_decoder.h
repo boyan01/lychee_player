@@ -60,6 +60,8 @@ class MFAudioDecoder : public AudioDecoder {
   // first output; -1 after it.
   int64_t expected_us_ = 0;
   int consecutive_errors_ = 0;
+  // The FLAC MFT consumes STREAMINFO in-band before its first audio frame.
+  bool flac_header_pending_ = true;
 };
 
 }  // namespace lychee

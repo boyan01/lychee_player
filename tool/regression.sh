@@ -420,6 +420,9 @@ for mode in no-cues unknown-sizes huge-tracks huge-block corrupt truncated; do
 done
 gen flac.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=440:sample_rate=44100 -map 0:v -map 1:a -t 5 \
   -c:v copy -c:a flac
+gen flac.mp4 -i "$media/flac.mkv" -c copy -strict -2
+gen flac24.mp4 -i "$media/flac.mkv" -c:v copy -c:a flac -sample_fmt s32 \
+  -bits_per_raw_sample 24 -strict -2
 # Silence, then a tone from 1 s exactly: where the sound starts shows
 # whether the decoder trims the encoder's priming as the container says.
 onset='aevalsrc=if(gte(t\,1)\,0.5*sin(2*PI*440*t)\,0):s=48000:d=3'
@@ -802,7 +805,12 @@ fi
 # video track is off and the audio plays to the end.
 [ "${NO_FFMPEG:-0}" = 1 ] &&
   par expect av1-videotoolbox "track 0: video av1 " "summary: state=ended position=10\.0" -- "$media/av1.mkv"
-par check flac-mkv      1 - -- "$media/flac.mkv"
+par expect flac-mkv "track 1: audio flac .*selected=1" \
+  "summary: state=ended .*audio_onset=" -- --volume 1 "$media/flac.mkv"
+par expect flac-mp4 "track 1: audio flac .*selected=1" \
+  "summary: state=ended .*audio_onset=" -- --volume 1 "$media/flac.mp4"
+par expect flac24-mp4 "track 1: audio flac .*selected=1" \
+  "summary: state=ended .*audio_onset=" -- --volume 1 "$media/flac24.mp4"
 par expect ac3-mp4 "track 0: audio ac3 44100 Hz 1 ch " \
   "summary: state=ended .*audio_onset=-?0\.0[0-9]+s" -- --volume 1 "$media/ac3_audio.mp4"
 par expect ac3-mkv "track 0: audio ac3 44100 Hz 1 ch " \
@@ -1084,6 +1092,16 @@ par expect live-h264 "$live_ok" "^seekable=0$" "summary: state=ready .*rendered=
   --live "$media/live_h264.mp4"
 par expect live-hevc "$live_ok" "summary: state=ready .*rendered=300 dropped=0 ${tsan_glitches:-glitches=[0-3] }backward_jumps=0 .*stalls=0 $live_latency" -- \
   --live "$media/live_hevc.mp4"
+# Windows' software HEVC decoder must finish the last complete picture
+# without a destructive drain, including after input pauses mid-GOP.
+if [ "$windows" = 1 ] && [ "${NO_FFMPEG:-0}" = 1 ]; then
+  par expect live-hevc-software "$live_ok" \
+    "summary: state=ready .*hw=0 .*rendered=300 dropped=0 glitches=[0-3] backward_jumps=0 .*stalls=0" -- \
+    --no-hw --live "$media/live_hevc.mp4"
+  par expect live-hevc-software-stall "$live_ok" \
+    "summary: state=ready .*hw=0 .*rendered=(28[7-9]|29[0-9]|300) dropped=([0-9]|1[0-3]) .*backward_jumps=0 .*stalls=0" -- \
+    --no-hw --live --live-stall 4 0.5 "$media/live_hevc.mp4"
+fi
 par expect live-latency "$live_ok" "summary: .*dropped=0 .*live_vbuf=0\.(2[5-9]|30)[0-9]s" -- \
   --live --latency 300 "$media/live_h264.mp4"
 par expect live-decoder-rebuild "rebuild video decoder at" "<=0 event: state error" \

@@ -158,6 +158,16 @@ bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
   input->SetGUID(MF_MT_SUBTYPE, hevc ? MFVideoFormat_HEVC : MFVideoFormat_H264);
   input->SetUINT32(MF_MT_INTERLACE_MODE,
                    MFVideoInterlace_MixedInterlaceOrProgressive);
+  if (config.low_delay && config.codec == VideoCodec::kHEVC && !hardware_) {
+    // A live packet is one complete picture. Without explicit NAL
+    // lengths the software HEVC MFT waits for the next sample to find
+    // the picture's end, retaining the last frame indefinitely. A drain
+    // releases it but discards the reference pictures needed on resume.
+    // MF_NALU_LENGTH_SET / MF_NALU_LENGTH_INFORMATION let it finish each
+    // picture while keeping those references (Microsoft's HEVC decoder
+    // and NALU length attribute documentation).
+    input->SetUINT32(MF_NALU_LENGTH_SET, TRUE);
+  }
   if (config.width > 0 && config.height > 0) {
     MFSetAttributeSize(input.Get(), MF_MT_FRAME_SIZE, config.width,
                        config.height);
@@ -280,6 +290,39 @@ bool MFVideoDecoder::Decode(const EncodedPacket& packet,
   if (!sample) {
     LOGE("%s: cannot make a sample", name());
     return false;
+  }
+  if (config_.low_delay && config_.codec == VideoCodec::kHEVC && !hardware_) {
+    // Each length includes its Annex B start code, so the spans cover
+    // the entire input sample, including in-band parameter sets.
+    std::vector<DWORD> lengths;
+    size_t previous = 0;
+    for (size_t i = 0; i + 3 <= annexb_.size(); ++i) {
+      size_t prefix = 0;
+      if (annexb_[i] == 0 && annexb_[i + 1] == 0) {
+        if (annexb_[i + 2] == 1) {
+          prefix = 3;
+        } else if (i + 4 <= annexb_.size() && annexb_[i + 2] == 0 &&
+                   annexb_[i + 3] == 1) {
+          prefix = 4;
+        }
+      }
+      if (prefix != 0) {
+        if (i > previous) {
+          lengths.push_back(static_cast<DWORD>(i - previous));
+        }
+        previous = i;
+        i += prefix - 1;
+      }
+    }
+    lengths.push_back(static_cast<DWORD>(annexb_.size() - previous));
+    if (lengths.size() > MAXDWORD / sizeof(DWORD) ||
+        FAILED(sample->SetBlob(
+            MF_NALU_LENGTH_INFORMATION,
+            reinterpret_cast<const uint8_t*>(lengths.data()),
+            static_cast<UINT32>(lengths.size() * sizeof(DWORD))))) {
+      LOGE("%s: cannot describe the input NAL lengths", name());
+      return false;
+    }
   }
   HRESULT hr = decoder_->ProcessInput(0, sample.Get(), 0);
   if (hr == MF_E_NOTACCEPTING) {

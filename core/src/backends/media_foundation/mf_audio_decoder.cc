@@ -66,10 +66,9 @@ std::vector<uint8_t> FlacStreamInfo(const std::vector<uint8_t>& config) {
   return {};
 }
 
-// What the decoder takes as MF_MT_USER_DATA, as Windows' own MP4 source
-// hands it over: for FLAC the STREAMINFO block with its header, marked
-// last; for ALAC the 24-byte ALACSpecificConfig (MP4's alac box comes with
-// its header, version and flags); for Opus the OpusHead packet.
+// Codec initialization bytes: FLAC's STREAMINFO metadata block is passed
+// in-band before the first frame. ALAC's 24-byte ALACSpecificConfig and
+// Opus's OpusHead are passed through MF_MT_USER_DATA.
 std::vector<uint8_t> UserData(AudioCodec codec,
                               const std::vector<uint8_t>& config) {
   switch (codec) {
@@ -207,7 +206,14 @@ bool MFAudioDecoder::Open(const std::vector<uint8_t>& extradata,
       decoder_.Reset();
       return false;
     }
-    if (!user_data.empty()) {
+    if (config_.codec == AudioCodec::kFLAC) {
+      const std::vector<uint8_t> info = FlacStreamInfo(extradata);
+      // Without this required attribute SetInputType returns
+      // MF_E_ATTRIBUTENOTFOUND, regardless of the container.
+      const UINT32 bits = ((info[12] & 1u) << 4) + (info[13] >> 4) + 1;
+      input->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, bits);
+    }
+    if (!user_data.empty() && config_.codec != AudioCodec::kFLAC) {
       input->SetBlob(MF_MT_USER_DATA, user_data.data(),
                      static_cast<UINT32>(user_data.size()));
     }
@@ -238,7 +244,8 @@ bool MFAudioDecoder::Open(const std::vector<uint8_t>& extradata,
 }
 
 bool MFAudioDecoder::SetUpOutput() {
-  // Float if offered, else 16-bit integers.
+  // Float if offered, else byte-aligned PCM. The resampler below converts
+  // integer output, including 24-bit FLAC, into the sink's float format.
   ComPtr<IMFMediaType> chosen;
   for (DWORD i = 0;; ++i) {
     ComPtr<IMFMediaType> type;
@@ -251,9 +258,10 @@ bool MFAudioDecoder::SetUpOutput() {
       chosen = type;
       break;
     }
-    if (subtype == MFAudioFormat_PCM && !chosen &&
-        MFGetAttributeUINT32(type.Get(), MF_MT_AUDIO_BITS_PER_SAMPLE, 0) ==
-            16) {
+    const UINT32 bits =
+        MFGetAttributeUINT32(type.Get(), MF_MT_AUDIO_BITS_PER_SAMPLE, 0);
+    if (subtype == MFAudioFormat_PCM && !chosen && bits > 0 && bits <= 32 &&
+        bits % 8 == 0) {
       chosen = type;
     }
   }
@@ -269,7 +277,13 @@ bool MFAudioDecoder::SetUpOutput() {
   resampler_.Reset();
   float_output_ = subtype == MFAudioFormat_Float;
   decoder_rate_ = rate;
-  decoder_frame_bytes_ = (float_output_ ? 4 : 2) * channels;
+  const int sample_bytes =
+      float_output_
+          ? 4
+          : static_cast<int>(MFGetAttributeUINT32(
+                                 chosen.Get(), MF_MT_AUDIO_BITS_PER_SAMPLE, 0) /
+                             8);
+  decoder_frame_bytes_ = sample_bytes * channels;
   const char* codec = config_.codec_name.c_str();
   if (rate == output_format_.sample_rate &&
       channels == output_format_.channels && float_output_) {
@@ -364,6 +378,17 @@ bool MFAudioDecoder::Decode(const EncodedPacket& packet,
   }
   data += adts;
   size -= adts;
+  std::vector<uint8_t> flac_packet;
+  if (config_.codec == AudioCodec::kFLAC && flac_header_pending_) {
+    // The FLAC MFT parses a native FLAC stream. Container packets contain
+    // only frames, so supply its marker and STREAMINFO once after a flush.
+    flac_packet = {'f', 'L', 'a', 'C'};
+    const auto metadata = UserData(config_.codec, config_.extradata);
+    flac_packet.insert(flac_packet.end(), metadata.begin(), metadata.end());
+    flac_packet.insert(flac_packet.end(), data, data + size);
+    data = flac_packet.data();
+    size = flac_packet.size();
+  }
   if (next_pts_ == kNoTimestamp) {
     next_pts_ = packet.pts;
   }
@@ -384,6 +409,7 @@ bool MFAudioDecoder::Decode(const EncodedPacket& packet,
     LOGW("ProcessInput: %s", HResultString(hr).c_str());
     return ++consecutive_errors_ < kMaxConsecutiveErrors;
   }
+  flac_header_pending_ = false;
   // Microseconds of audio in the packet, for the codecs whose decoders
   // drop their delay.
   int64_t packet_us = 0;
@@ -551,6 +577,7 @@ void MFAudioDecoder::Flush() {
   next_pts_ = kNoTimestamp;
   expected_us_ = 0;
   consecutive_errors_ = 0;
+  flac_header_pending_ = true;
 }
 
 }  // namespace lychee

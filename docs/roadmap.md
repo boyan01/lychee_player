@@ -146,16 +146,7 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    subtitles), in every binding; worth it once a caller needs it (HLS
    ad markers, live captions' ID3).
 2. **Windows**: VP9 and AV1 have no decoder (Media Foundation has them
-   only with Store extensions), and
-   FLAC in MP4 none either (Windows' decoder refuses it, 0xC00D36E6, with
-   the STREAMINFO Windows' own MP4 source passes; FLAC in Matroska
-   plays). Live
-   HEVC decoded in software shows one frame less than it should
-   (`NO_FFMPEG=1 NO_HW=1 ONLY=live-hevc`: 299 of 300; the HEVC extension's
-   decoder holds the last frame back, low latency mode set or not).
-   Draining it after each input that gave no frame loses its reference
-   frames (only the first frame shows), so it needs a drain only once the
-   input pauses.
+   only with Store extensions).
 3. **Android**: an FFmpeg-free AAR in the release
    (`-Plychee.ffmpeg=false` builds it, and the Flutter plugin plays on
    it; a second artifact is a publishing decision) if native Android
