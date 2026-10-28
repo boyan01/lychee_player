@@ -198,11 +198,6 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
      VideoToolbox through FFmpeg decodes 1080p H.264 at ~210 fps on the
      virtual clock against software's ~970 (M-series, 2026-10-28): one
      frame at a time, which is enough to play but not to scrub fast.
-   - **Soak tests**: `tool/soak.sh` soaks the core through the CLI on
-     macOS, Linux and Windows, and `examples/glfw --soak` the Windows
-     harness. Left: soaking the other platform harnesses
-     (`examples/glfw` on macOS and Linux, the Swift and Android
-     examples), whose frame hand-off and display link the CLI skips.
    - **Supply chain**: `updates.yml` (weekly, 2026-10-28) lists newer
      FFmpeg, Mbed TLS and GLFW releases than the pins
      (`tool/check_updates.py`); it has not run on GitHub yet: look at

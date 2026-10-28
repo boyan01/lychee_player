@@ -123,6 +123,10 @@ frames with Metal. Space pauses, left/right seek 5 s, escape quits.
 `--seconds N` quits after N seconds and `--key SEC:NAME` (`space`, `left`,
 `right`, `escape`) presses a key at SEC seconds, for unattended runs; it
 then prints a summary (decoder, frames rendered and dropped, position).
+`--soak SEC URL` loops and, every SEC seconds, seeks twice to random
+positions and then switches to the other file. `MINUTES=10 tool/soak.sh
+-- build/examples/glfw/lychee_glfw --soak 3 OTHER_FILE FILE` checks the
+harness's memory and thread counts while it does so.
 `--size WxH` sets the window's client size (in points on macOS, where the
 drawable is that times the display's scale), and `--snapshot SEC:FILE`
 (repeatable; after any `--key` due at the same time) reads back what the
@@ -135,9 +139,7 @@ with, CPU BGRA frames otherwise (`--cpu` forces them, `--no-hw` decodes in
 software); its summary also counts the frames of each kind and the
 device losses (it makes a new device after a GPU reset), and `--adapter
 SEC:N` moves it to the Nth DXGI adapter at SEC seconds, as a window moved
-to a display on another GPU; `--soak SEC URL` loops and, every SEC
-seconds, seeks to a random position, twice, then opens the other of the
-two files, as the CLI's `--soak` (`tool/soak.sh`). CMake
+to a display on another GPU. CMake
 downloads GLFW 3.4 there (hash-pinned; `-DLYCHEE_FETCH_GLFW=OFF` skips the
 example). On Linux (`main_linux.cc`; needs `libglfw3-dev`, `libegl-dev` and
 `libgles-dev`) it draws with OpenGL ES 3 on EGL, as the Flutter plugin
@@ -311,6 +313,10 @@ xcodebuild -project sdk/apple/Example/Example.xcodeproj -scheme Example \
 build/sdk-apple/Build/Products/Debug/Example.app/Contents/MacOS/Example
 ```
 
+The Swift example accepts the same `--soak SEC URL` and `--seconds N`
+arguments as the GLFW harness. Both its macOS app and iOS simulator app
+repeat seeks and file switches through their display-link frame driver.
+
 For the iOS simulator use `-destination 'generic/platform=iOS Simulator'`,
 `xcrun simctl install booted .../Debug-iphonesimulator/Example.app` and
 `SIMCTL_CHILD_LYCHEE_URL=... xcrun simctl launch booted tech.soit.lychee.example`;
@@ -358,7 +364,9 @@ new Surface when frames switch between MediaCodec and software decoding.
 The example app (`sdk/android/example`, `:example:assembleDebug`) plays the
 `url` intent extra, by default `h264_aac.mp4` from `tool/serve_media.py`
 through `adb reverse tcp:8765 tcp:8765`; `--ez hw false` decodes in
-software:
+software. `--es soak 3 --es soak_url OTHER_URL` repeats seeks and file
+switches every three seconds, and `--es seconds 600` closes the activity
+after ten minutes with a `summary:` line in logcat:
 
 ```sh
 adb shell am start -n tech.soit.lychee.example/.MainActivity --es url http://127.0.0.1:8765/rotated.mp4

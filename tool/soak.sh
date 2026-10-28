@@ -11,6 +11,7 @@
 #   MINUTES=60 tool/soak.sh
 #   CLI=build-asan/examples/cli/lychee_cli tool/soak.sh
 #   tool/soak.sh FILE OTHER_FILE      # default: h264_aac.mp4 and .mkv
+#   tool/soak.sh -- COMMAND ARG...    # a platform harness with --soak
 #
 # macOS, Linux, and Windows in Git Bash (CLI= the regression's build, e.g.
 # build-lgpl/examples/cli/lychee_cli.exe, with FFmpeg's DLLs on PATH;
@@ -26,12 +27,18 @@ file="${1:-$media/h264_aac.mp4}"
 other="${2:-$media/h264_aac.mkv}"
 interval=5
 
-[ -x "$cli" ] || { echo "no $cli: run tool/regression.sh first"; exit 1; }
 log="$(mktemp)"
 samples="$(mktemp)"
 trap 'rm -f "$log" "$samples"; [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null' EXIT
 
-"$cli" --virtual-time --loop --soak 3 "$other" "$file" >"$log" 2>&1 &
+if [ "${1:-}" = -- ]; then
+  shift
+  [ "$#" -gt 0 ] || { echo "soak.sh: expected a harness command after --"; exit 1; }
+  "$@" >"$log" 2>&1 &
+else
+  [ -x "$cli" ] || { echo "no $cli: run tool/regression.sh first"; exit 1; }
+  "$cli" --virtual-time --loop --soak 3 "$other" "$file" >"$log" 2>&1 &
+fi
 pid=$!
 
 # Resident memory in MB and the thread count of $pid; nothing once it is gone.
@@ -58,7 +65,7 @@ while [ "$(date +%s)" -lt "$end" ]; do
   sleep "$interval"
   line="$(sample)"
   if [ -z "$line" ]; then
-    echo "FAIL soak: lychee_cli exited early"
+    echo "FAIL soak: player exited early"
     tail -20 "$log"
     exit 1
   fi

@@ -9,6 +9,7 @@
 // SEC:NAME presses one at SEC seconds, --seconds N quits after N seconds,
 // --size WxH sizes the window, and --snapshot SEC:FILE writes what the
 // window drew at SEC seconds as a PPM.
+// --soak SEC URL loops, seeks twice, then switches files, every SEC seconds.
 
 #include <lychee/lychee.h>
 
@@ -29,6 +30,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -510,6 +512,8 @@ int main(int argc, char** argv) {
   int window_width = 960, window_height = 540;
   std::vector<ScriptedKey> keys;
   std::vector<Snapshot> snapshots;
+  double soak_every = -1;
+  std::string soak_url;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--seconds" && i + 1 < argc) {
@@ -524,6 +528,14 @@ int main(int argc, char** argv) {
     } else if (arg == "--snapshot" && i + 1 < argc &&
                ParseSnapshot(argv[i + 1], &snapshots)) {
       ++i;
+    } else if (arg == "--soak" && i + 2 < argc) {
+      char* end = nullptr;
+      soak_every = std::strtod(argv[++i], &end);
+      if (*end != '\0' || !std::isfinite(soak_every) || soak_every <= 0) {
+        url.clear();
+        break;
+      }
+      soak_url = argv[++i];
     } else if (!arg.empty() && arg[0] != '-') {
       url = arg;
     } else {
@@ -534,7 +546,8 @@ int main(int argc, char** argv) {
   if (url.empty()) {
     fprintf(stderr,
             "usage: %s [--seconds N] [--key SEC:space|left|right|escape]... "
-            "[--size WxH] [--snapshot SEC:FILE]... <file or url>\n",
+            "[--size WxH] [--snapshot SEC:FILE]... [--soak SEC URL] "
+            "<file or url>\n",
             argv[0]);
     return 2;
   }
@@ -599,8 +612,16 @@ int main(int argc, char** argv) {
     fprintf(stderr, "could not start playback\n");
     exit_code = 1;
   } else {
+    if (soak_every > 0) {
+      lychee_player_set_looping(player, 1);
+    }
     lychee_player_play(player);
     const int64_t start = lychee_now_us();
+    // Repeatable stress actions, not a source of unpredictable values.
+    std::mt19937_64 random(1);  // NOLINT(bugprone-random-generator-seed)
+    double soak_next = soak_every;
+    int64_t soak_actions = 0;
+    bool soak_on_alternate = false;
     int64_t tick = start;
     size_t next_key = 0;
     size_t next_snapshot = 0;
@@ -617,6 +638,26 @@ int main(int argc, char** argv) {
       const double elapsed = static_cast<double>(lychee_now_us() - start) / 1e6;
       while (next_key < keys.size() && elapsed >= keys[next_key].at) {
         OnKey(window, keys[next_key++].key, 0, GLFW_PRESS, 0);
+      }
+      if (soak_every > 0 && elapsed >= soak_next) {
+        soak_next = elapsed + soak_every;
+        const int64_t duration = lychee_player_get_duration(player);
+        if (soak_actions++ % 3 == 2) {
+          soak_on_alternate = !soak_on_alternate;
+          const std::string& next = soak_on_alternate ? soak_url : url;
+          printf("soak: open -> %s\n", next.c_str());
+          if (lychee_player_open(player, next.c_str()) != 0) {
+            exit_code = 1;
+            break;
+          }
+          lychee_player_play(player);
+        } else if (duration > 0) {
+          const int64_t target =
+              std::uniform_int_distribution<int64_t>(0, duration - 1)(random);
+          printf("soak: seek -> %.3fs\n", target / 1e6);
+          lychee_player_seek(player, target);
+        }
+        fflush(stdout);
       }
       if (seconds > 0 && elapsed >= seconds) break;
 
