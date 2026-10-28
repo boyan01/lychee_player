@@ -68,9 +68,25 @@ class TsDemuxer : public Demuxer {
   bool LocateRun(int pid,
                  std::pair<int64_t, int64_t> before,
                  std::pair<int64_t, int64_t> after);
+  // The same where timestamps went ahead by much more than the bytes
+  // between them play for (JumpsAhead()).
+  bool LocateJump(int pid,
+                  std::pair<int64_t, int64_t> before,
+                  std::pair<int64_t, int64_t> after);
+  bool JumpsAhead(std::pair<int64_t, int64_t> before,
+                  std::pair<int64_t, int64_t> after) const;
+  // Reads from before |low| to past |high| for where |pid|'s run starts
+  // over, |last| a PTS before it, and adds the run; then LocateRun() or
+  // LocateJump() up to |after|.
+  bool ReadAcross(int pid,
+                  int64_t low,
+                  int64_t high,
+                  int64_t last,
+                  std::pair<int64_t, int64_t> after);
   // A run starting at |offset| with |start|, the run before it having
-  // ended at |end| (both as read).
-  void AddRun(int64_t offset, int64_t start, int64_t end);
+  // ended at |end| (both as read), unless the timeline has it already;
+  // timeline_[read_in], where the timestamps moved from, is not it.
+  void AddRun(int64_t offset, int64_t start, int64_t end, size_t read_in);
   bool Failed();
 
   std::mutex source_mutex_;
@@ -78,6 +94,9 @@ class TsDemuxer : public Demuxer {
   std::unique_ptr<TsReader> reader_;
   MediaInfo media_info_;
   TsTimeline timeline_;
+  // The samples' median of microseconds played per byte (FindRuns()), or
+  // 0.
+  double micros_per_byte_ = 0;
   // PtsAt() results of the seek in progress: offset -> 33-bit PTS, or -1.
   std::map<int64_t, int64_t> pts_cache_;
   std::vector<bool> enabled_;

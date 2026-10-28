@@ -161,9 +161,14 @@ gen resolution_change.ts -i "concat:$media/rendition_1280x720.ts|$media/renditio
 [ -f "$media/ts_timestamp_reset.ts" ] || { cat "$media/rendition_1280x720.ts" \
   "$media/rendition_640x360.ts" >"$media/ts_timestamp_reset.tmp" &&
   mv "$media/ts_timestamp_reset.tmp" "$media/ts_timestamp_reset.ts"; } || exit 1
+# Joined the same way, with timestamps jumping 57 s ahead instead.
+gen rendition_640x360_60.ts -i "$media/rendition_640x360.ts" -c copy -output_ts_offset 60 -f mpegts
+[ -f "$media/ts_jump_ahead.ts" ] || { cat "$media/rendition_1280x720.ts" \
+  "$media/rendition_640x360_60.ts" >"$media/ts_jump_ahead.tmp" &&
+  mv "$media/ts_jump_ahead.tmp" "$media/ts_jump_ahead.ts"; } || exit 1
 # Joined the same way, with audio muxed ahead of its video (0.3 s), and
-# a run of 1 s between two of 20 s that the open's samples miss: reading
-# finds it by the audio, which waits for the video to place the run.
+# a run of 1 s between two of 20 s, which falls between the open's
+# samples; reading the audio first waits for the video to place a run.
 for d in 20 1; do
   gen "audio_first_$d.ts" -itsoffset 0.3 -f lavfi -i "testsrc2=size=640x360:rate=30:d=$d" \
     -f lavfi -i "sine=frequency=440:sample_rate=48000:d=$d.3" -c:v libx264 -preset veryfast -g 30 -pix_fmt yuv420p \
@@ -876,10 +881,16 @@ if [ "$own_ts" = 1 ]; then
     "$media/ts_timestamp_reset.ts"
   par check seek-ts-reset 1 6.233 -- --seek 4.8 --seek-after 1 "$media/ts_timestamp_reset.ts"
   par check seek-ts-reset-backward 1 2.933 -- --seek 1.5 --seek-after 5 "$media/ts_timestamp_reset.ts"
-  # Past the run read finds (at 21.3 s), not to the end: the duration
-  # misses it (roadmap).
-  par expect ts-reset-audio-first "summary: state=ready .*dropped=0 .*max_drift=([0-9]|1[0-9])\.[0-9]ms " -- \
-    --seconds 30 "$media/ts_reset_audio_first.ts"
+  par expect ts-reset-audio-first "duration 41330667 us" \
+    "summary: state=ended position=41\.331s .*dropped=0 .*max_drift=([0-9]|1[0-9])\.[0-9]ms " -- \
+    "$media/ts_reset_audio_first.ts"
+  # Into the short run and the one after it.
+  par check seek-ts-reset-short 1 21.988 -- --seek 20.6 --seek-after 1 "$media/ts_reset_audio_first.ts"
+  par check seek-ts-reset-third 1 31.388 -- --seek 30 --seek-after 1 "$media/ts_reset_audio_first.ts"
+  par expect ts-jump-ahead "duration 6029333 us" \
+    "summary: state=ended position=6\.029s .*rendered=180 dropped=0 glitches=0 " -- "$media/ts_jump_ahead.ts"
+  par check seek-ts-jump 1 6.233 -- --seek 4.8 --seek-after 1 "$media/ts_jump_ahead.ts"
+  par check seek-ts-jump-backward 1 2.933 -- --seek 1.5 --seek-after 5 "$media/ts_jump_ahead.ts"
 fi
 # FFmpeg's decoders take AC-3 from the own demuxer, which hands what it
 # would skip (LATM here) to FFmpeg's demuxer. No AC-3 or LATM without

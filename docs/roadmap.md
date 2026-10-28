@@ -149,9 +149,7 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    has no channel for timed data, which would take a track type, an
    event and an acquire call for its bytes at the clock's time (like
    subtitles), in every binding; worth it once a caller needs it (HLS
-   ad markers, live captions' ID3). Where TS timestamps start over, a jump
-   ahead, or a run shorter than a sixteenth of the input, is found only
-   when played: until then the duration and seeks miss it.
+   ad markers, live captions' ID3).
 3. **Windows**: VP9, AV1, Opus, FLAC and ALAC have no decoder (Media
    Foundation has them only with Store extensions, or not at all). Live
    HEVC decoded in software shows one frame less than it should
