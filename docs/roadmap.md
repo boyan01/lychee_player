@@ -45,14 +45,6 @@ building on top of them.
 
 ## Known defects
 
-- **Apple framework deployment warning**: `pixel_buffer.cc` calls
-  `CVBufferCopyAttachment`, available on macOS 12+, while the framework
-  targets macOS 11. Both macOS slices warn during `tool/build_apple.sh`.
-  `NO_FFMPEG=1` also warns that `allow_hardware` in `factory.cc` is
-  unused on iOS. Add an availability-safe attachment read while retaining
-  the supported minimum, and account for the iOS argument; done when all
-  Apple slices build without these warnings.
-
 - **Timestamps restarting inside a single TS file without FFmpeg**:
   `tool/regression.sh` generates `ts_timestamp_reset.ts` by joining two
   three-second TS files without remuxing. Reproduce with

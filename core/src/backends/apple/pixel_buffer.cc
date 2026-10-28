@@ -6,6 +6,25 @@ namespace lychee {
 
 namespace {
 
+bool HasMatrix(CVPixelBufferRef buffer) {
+  if (__builtin_available(macOS 12, iOS 15, *)) {
+    CFTypeRef matrix =
+        CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nullptr);
+    if (!matrix) {
+      return false;
+    }
+    CFRelease(matrix);
+    return true;
+  }
+#if TARGET_OS_OSX && __MAC_OS_X_VERSION_MIN_REQUIRED < 120000
+  // The framework targets macOS 11, where only the Get variant exists.
+  return CVBufferGetAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nullptr) !=
+         nullptr;
+#else
+  return false;  // Unreachable: macOS 12 or iOS 16 at least.
+#endif
+}
+
 // VideoToolbox's decoder attaches no matrix to a stream that has none, and
 // its pixel transfer reads that as BT.601, also for HD. The library's
 // convention is BT.709 above 576 lines (D3D11VideoProcessor, the dmabuf
@@ -14,10 +33,7 @@ void AttachDefaultMatrix(CVPixelBufferRef buffer) {
   if (CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA) {
     return;
   }
-  CFTypeRef matrix =
-      CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nullptr);
-  if (matrix) {
-    CFRelease(matrix);
+  if (HasMatrix(buffer)) {
     return;
   }
   CVBufferSetAttachment(buffer, kCVImageBufferYCbCrMatrixKey,

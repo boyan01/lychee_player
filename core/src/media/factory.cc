@@ -59,7 +59,7 @@ std::unique_ptr<Demuxer> CreateDemuxer() {
 }
 
 std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
-    bool allow_hardware,
+    [[maybe_unused]] bool allow_hardware,
     uint32_t accepted_storage,
     [[maybe_unused]] const VideoDevice& device,
     [[maybe_unused]] const std::shared_ptr<void>& surface,
