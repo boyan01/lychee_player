@@ -29,6 +29,7 @@ add_library(lychee_parsers STATIC
   ${_src}/backends/mp2t/ts_parser.cc
   ${_src}/backends/mp2t/ts_reader.cc
   ${_src}/backends/mp4/mp4_demuxer.cc
+  ${_src}/backends/mp4/mp4_subtitle.cc
   ${_src}/base/log.cc
   ${_src}/base/time.cc
   ${_src}/media/annexb.cc

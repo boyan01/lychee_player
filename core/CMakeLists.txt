@@ -39,6 +39,7 @@ set(LYCHEE_SOURCES
   src/media/cpu_frame_converter.cc
   src/media/factory.cc
   src/media/null_audio_sink.cc
+  src/media/text_subtitle_decoder.cc
   src/pipeline/audio_renderer.cc
   src/pipeline/audio_renderer_algorithm.cc
   src/pipeline/live_demuxer.cc
@@ -82,6 +83,7 @@ if(ANDROID)
     src/backends/mp2t/ts_parser.cc
     src/backends/mp2t/ts_reader.cc
     src/backends/mp4/mp4_demuxer.cc
+    src/backends/mp4/mp4_subtitle.cc
     src/media/probing_demuxer.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
@@ -92,7 +94,6 @@ if(ANDROID)
     list(APPEND LYCHEE_SOURCES
       src/backends/android/media_codec_audio_decoder.cc
       src/media/resampler.cc
-      src/media/text_subtitle_decoder.cc
     )
   endif()
 endif()
@@ -118,6 +119,7 @@ if(WIN32)
     src/backends/mp2t/ts_parser.cc
     src/backends/mp2t/ts_reader.cc
     src/backends/mp4/mp4_demuxer.cc
+    src/backends/mp4/mp4_subtitle.cc
     src/media/probing_demuxer.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
@@ -125,7 +127,6 @@ if(WIN32)
     # FLAC, ALAC and Opus through Media Foundation, text subtitles.
     list(APPEND LYCHEE_SOURCES
       src/backends/media_foundation/mf_audio_decoder.cc
-      src/media/text_subtitle_decoder.cc
     )
   endif()
 endif()
@@ -148,6 +149,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
       src/backends/mp2t/ts_parser.cc
       src/backends/mp2t/ts_reader.cc
       src/backends/mp4/mp4_demuxer.cc
+      src/backends/mp4/mp4_subtitle.cc
       src/media/data_source.cc
       src/media/probing_demuxer.cc
     )
@@ -173,6 +175,7 @@ if(APPLE)
     src/backends/mp2t/ts_parser.cc
     src/backends/mp2t/ts_reader.cc
     src/backends/mp4/mp4_demuxer.cc
+    src/backends/mp4/mp4_subtitle.cc
     src/media/probing_demuxer.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
@@ -182,7 +185,6 @@ if(APPLE)
     list(APPEND LYCHEE_SOURCES
       src/backends/apple/at_audio_decoder.cc
       src/backends/apple/vt_video_decoder.cc
-      src/media/text_subtitle_decoder.cc
     )
   endif()
   if(IOS)

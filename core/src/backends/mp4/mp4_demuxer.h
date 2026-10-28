@@ -2,6 +2,7 @@
 #define LYCHEE_BACKENDS_MP4_MP4_DEMUXER_H_
 
 #include <atomic>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -14,7 +15,8 @@ namespace lychee {
 
 // MP4 and QuickTime files (ISO/IEC 14496-12), for builds without FFmpeg:
 // sample tables in the moov box, fragmented MP4 (moof boxes after a moov
-// with mvex), or both. Video, audio and tx3g (mov_text) subtitle tracks;
+// with mvex), or both. Video, audio, tx3g (mov_text), boxed WebVTT and
+// IMSC text subtitle tracks;
 // codec configuration is passed through as the container stores it
 // (avcC, hvcC, the AudioSpecificConfig, ALAC's cookie, the tx3g entry).
 //
@@ -55,6 +57,8 @@ class Mp4Demuxer : public Demuxer {
     size_t next = 0;
     bool enabled = true;
     MediaType type = MediaType::kUnknown;
+    // wvtt/stpp samples become ordinary WebVTT cue packets.
+    std::string subtitle_format;
     // From tkhd, mdhd and the edit list: media time |media_time| (in
     // |timescale| units) is at |empty| microseconds.
     uint32_t id = 0;
@@ -162,6 +166,7 @@ class Mp4Demuxer : public Demuxer {
   MediaInfo media_info_;
   // Parallel to media_info_.streams.
   std::vector<Track> tracks_;
+  std::deque<EncodedPacket> subtitle_packets_;
   // While parsing: the file's size (-1 if unknown), and how many samples
   // the tracks may still have (kMaxSamples in all).
   int64_t file_size_ = -1;

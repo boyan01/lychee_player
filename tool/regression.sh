@@ -359,6 +359,10 @@ fi
   '#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS="avc1.64001e,mp4a.40.2"' ../hls_fmp4_low/index.m3u8 \
   '#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2"' index.m3u8 \
   >"$media/hls_fmp4/master.m3u8"
+# ISO BMFF WebVTT and IMSC text subtitle renditions (FFmpeg's muxer
+# cannot generate these sample entries).
+[ -f "$media/hls_fmp4_subtitles/stpp_master.m3u8" ] ||
+  python3 -I "$root/tool/mp4_subtitle_cases.py" "$media" || exit 1
 # AES-128 (FFmpeg encrypts no fMP4): the TS segments with the media
 # sequence number as the IV, the fMP4 ones with an IV attribute and the
 # map in the clear.
@@ -1324,6 +1328,20 @@ if [ "$own_ts" = 1 ]; then
     "summary: state=ended position=12\.000s" -- "http://127.0.0.1:$port/hls/vtt_map_master.m3u8"
   seq_ expect http-hls-subtitles-seek "subtitle at 9\.[0-9]{3}s: Later on$" -- --seek 9 --seek-after 1 --seconds 3 \
     "http://127.0.0.1:$port/hls/vtt_map_master.m3u8"
+  # AAC priming places the variant origin at 0 or 23 ms across FFmpeg
+  # muxer versions; allow that and up to two display intervals for the control-thread event.
+  for codec in stpp wvtt; do
+    label=IMSC
+    [ "$codec" != wvtt ] || label=WebVTT
+    seq_ expect "http-hls-subtitles-$codec" "track 2: subtitle webvtt lang=en title=English selected=1" \
+      "subtitle at (0\.9[6-9][0-9]|1\.0[01][0-9])s: Hello & $label" "subtitle at (2\.9[6-9][0-9]|3\.0[01][0-9])s: \(none\)" \
+      "subtitle at 8\.(4[6-9][0-9]|5[01][0-9])s: Later <$label>" "subtitle at 9\.(4[6-9][0-9]|5[01][0-9])s: \(none\)" \
+      "summary: state=ended position=12\.000s" -- \
+      "http://127.0.0.1:$port/hls_fmp4_subtitles/${codec}_master.m3u8"
+    seq_ expect "http-hls-subtitles-$codec-seek" "subtitle at 9\.[0-9]{3}s: Later <$label>" \
+      "summary: state=ended position=12\.000s" -- --seek 9 --seek-after 0.2 \
+      "http://127.0.0.1:$port/hls_fmp4_subtitles/${codec}_master.m3u8"
+  done
 elif [ "${NO_FFMPEG:-0}" != 1 ]; then
   seq_ expect http-hls-subtitles "track 0: subtitle webvtt lang=en " "summary: state=ended position=12\.000s" -- \
     "http://127.0.0.1:$port/hls/subs_master.m3u8"

@@ -32,7 +32,7 @@ namespace lychee {
 // parameter sets come in band). Its audio renditions
 // (EXT-X-MEDIA) with a playlist of their own are audio streams
 // (DEFAULT=YES the default one), read alongside in decode order, and so
-// are its WebVTT subtitle renditions as subtitle streams.
+// are its WebVTT and fMP4 IMSC text/WebVTT subtitle renditions.
 // VOD seeks by segment; live input starts three target durations from
 // the end and reloads each playlist read as its segments are used up.
 // Each discontinuity sequence gets its own offset onto one continuous
@@ -74,7 +74,7 @@ class HlsDemuxer : public Demuxer {
   };
   void set_clock(Clock clock) { clock_ = std::move(clock); }
   // Makes Open() fail for a master playlist with subtitle renditions
-  // that are not WebVTT, which this demuxer does not read: for builds
+  // that this demuxer cannot read: for builds
   // with a demuxer that reads them (FFmpeg's). Set before Open().
   void set_refuse_subtitles(bool refuse) { refuse_subtitles_ = refuse; }
 

@@ -9,6 +9,7 @@
 #include <new>
 #include <optional>
 
+#include "backends/mp4/mp4_subtitle.h"
 #include "base/log.h"
 
 namespace lychee {
@@ -570,11 +571,8 @@ bool Mp4Demuxer::ParseMoov(const uint8_t* data, size_t size, std::string* error)
       ParseMetadata(box.start, box.size);
     }
   }
-  if (std::none_of(tracks_.begin(), tracks_.end(), [](const Track& track) {
-        return track.type == MediaType::kVideo ||
-               track.type == MediaType::kAudio;
-      })) {
-    *error = "no video or audio track";
+  if (tracks_.empty()) {
+    *error = "no supported track";
     return false;
   }
   if (fragmented_) {
@@ -706,24 +704,30 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
   } else if (info.type == MediaType::kAudio) {
     ParseAudioEntry(entries[0], &info.audio);
   } else {
-    // 3GPP timed text (tx3g) or QuickTime text: both a 16-bit length and
-    // the text, then style boxes, in each sample.
-    if (entries[0].type != FourCC("tx3g") &&
-        entries[0].type != FourCC("text")) {
+    const uint32_t type = entries[0].type;
+    if (type == FourCC("wvtt") || type == FourCC("stpp")) {
+      // Unpack the sample before HLS shifts its track timestamps. Both
+      // builds then consume ordinary WebVTT cues through their decoder.
+      info.subtitle.codec_name = "webvtt";
+    } else if (type == FourCC("tx3g") || type == FourCC("text")) {
+      info.subtitle.codec_name = "mov_text";
+      if (entries[0].payload_size > 8) {
+        info.subtitle.extradata.assign(
+            entries[0].payload + 8,
+            entries[0].payload + entries[0].payload_size);
+      }
+    } else {
       return false;
     }
-    info.subtitle.codec_name = "mov_text";
     info.subtitle.text = true;
-    // As FFmpeg has it: the entry after its reserved bytes and
-    // data_reference_index.
-    if (entries[0].payload_size > 8) {
-      info.subtitle.extradata.assign(
-          entries[0].payload + 8, entries[0].payload + entries[0].payload_size);
-    }
   }
 
   Track track;
   track.type = info.type;
+  if (info.type == MediaType::kSubtitle &&
+      info.subtitle.codec_name == "webvtt") {
+    track.subtitle_format = entries[0].type == FourCC("wvtt") ? "wvtt" : "stpp";
+  }
   track.id = track_id;
   track.timescale = timescale;
   // Edit list: leading empty edits delay the track; the first media edit
@@ -1692,6 +1696,9 @@ void Mp4Demuxer::SetEnabledStreams(const std::vector<int>& stream_indices) {
       tracks_[index].enabled = true;
     }
   }
+  std::erase_if(subtitle_packets_, [this](const EncodedPacket& packet) {
+    return !tracks_[packet.stream_index].enabled;
+  });
 }
 
 DemuxerReadResult Mp4Demuxer::Fail(int64_t at,
@@ -1710,92 +1717,149 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
   if (aborted()) {
     return DemuxerReadResult::kAborted;
   }
-  if (fragmented_) {
-    LoadResult result = FillFragments();
-    if (result == LoadResult::kAborted) {
-      return DemuxerReadResult::kAborted;
+  for (;;) {
+    if (fragmented_) {
+      LoadResult result = FillFragments();
+      if (result == LoadResult::kAborted) {
+        return DemuxerReadResult::kAborted;
+      }
+      if (result == LoadResult::kError) {
+        LOGE("%s", error_.c_str());
+        return DemuxerReadResult::kError;
+      }
     }
-    if (result == LoadResult::kError) {
-      LOGE("%s", error_.c_str());
-      return DemuxerReadResult::kError;
+    // The enabled track whose next sample decodes first.
+    int index = -1;
+    for (size_t i = 0; i < tracks_.size(); ++i) {
+      const Track& track = tracks_[i];
+      if (!track.enabled || track.next >= track.samples.size()) {
+        continue;
+      }
+      if (index < 0 || track.samples[track.next].dts <
+                           tracks_[index].samples[tracks_[index].next].dts) {
+        index = static_cast<int>(i);
+      }
     }
-  }
-  // The enabled track whose next sample decodes first.
-  int index = -1;
-  for (size_t i = 0; i < tracks_.size(); ++i) {
-    const Track& track = tracks_[i];
-    if (!track.enabled || track.next >= track.samples.size()) {
+    if (!subtitle_packets_.empty() &&
+        (index < 0 || subtitle_packets_.front().dts <=
+                          tracks_[index].samples[tracks_[index].next].dts)) {
+      *packet = std::move(subtitle_packets_.front());
+      subtitle_packets_.pop_front();
+      return DemuxerReadResult::kOk;
+    }
+    if (index < 0) {
+      return DemuxerReadResult::kEndOfStream;
+    }
+    Track& track = tracks_[index];
+    const Sample& sample = track.samples[track.next];
+
+    class Buffer : public PacketBuffer {
+     public:
+      explicit Buffer(size_t size) : bytes_(size + kPacketPadding) {
+        data_ = bytes_.data();
+        size_ = size;
+      }
+      uint8_t* writable() { return bytes_.data(); }
+
+     private:
+      std::vector<uint8_t> bytes_;
+    };
+    const char* kEnded =
+        "input ended at %.3f s, before its duration of %.3f s "
+        "(truncated file or lost connection)";
+    if (sample.size > kMaxSampleSize) {
+      return Fail(sample.pts,
+                  "sample at %.3f s (of %.3f s) is too large: corrupt file",
+                  "");
+    }
+    // Data past the end of the file: the same as a read that ends early,
+    // without allocating for it.
+    if (file_size_ > 0 &&
+        (sample.offset > static_cast<uint64_t>(file_size_) ||
+         sample.size > static_cast<uint64_t>(file_size_) - sample.offset)) {
+      return Fail(sample.pts, kEnded, "");
+    }
+    std::shared_ptr<Buffer> buffer;
+    try {
+      buffer = std::make_shared<Buffer>(sample.size);
+    } catch (const std::bad_alloc&) {
+      return Fail(sample.pts,
+                  "out of memory for the sample at %.3f s (of %.3f s)", "");
+    }
+    size_t filled = 0;
+    while (filled < sample.size) {
+      int64_t n =
+          source_->Read(static_cast<int64_t>(sample.offset + filled),
+                        buffer->writable() + filled, sample.size - filled);
+      if (n < 0 && (aborted() || source_->interrupted())) {
+        return DemuxerReadResult::kAborted;
+      }
+      if (n <= 0) {
+        return Fail(sample.pts, kEnded, n < 0 ? source_->error().c_str() : "");
+      }
+      filled += static_cast<size_t>(n);
+    }
+    packet->stream_index = index;
+    packet->pts = sample.pts;
+    packet->dts = sample.dts;
+    packet->duration = sample.duration;
+    packet->keyframe = sample.sync;
+    packet->end_of_stream = false;
+    packet->boundary = false;
+    packet->buffer = std::move(buffer);
+    track.next++;
+    if (!track.subtitle_format.empty()) {
+      std::vector<SubtitleCue> cues;
+      const int64_t subtitle_offset =
+          track.empty - Rescale(track.media_time, track.timescale);
+      if (!ParseMp4Subtitle(
+              track.subtitle_format,
+              std::string_view(
+                  reinterpret_cast<const char*>(packet->buffer->data()),
+                  packet->buffer->size()),
+              packet->pts - subtitle_offset, packet->duration, &cues)) {
+        return Fail(packet->pts,
+                    "invalid subtitle sample at %.3f s (of %.3f s)", "");
+      }
+      if (cues.size() + subtitle_packets_.size() > 4096) {
+        return Fail(packet->pts, "too many subtitle cues at %.3f s (of %.3f s)",
+                    "");
+      }
+      for (const SubtitleCue& cue : cues) {
+        EncodedPacket text;
+        text.stream_index = index;
+        text.pts = text.dts = cue.start + subtitle_offset;
+        text.duration = cue.end - cue.start;
+        text.keyframe = true;
+        // The shared parser already removed markup. Quote literal tag and
+        // entity characters for the WebVTT decoder that follows it.
+        std::string payload;
+        for (char c : cue.text) {
+          if (c == '&') {
+            payload += "&amp;";
+          } else if (c == '<') {
+            payload += "&lt;";
+          } else if (c == '>') {
+            payload += "&gt;";
+          } else {
+            payload += c;
+          }
+        }
+        text.buffer = PacketBuffer::Copy(
+            reinterpret_cast<const uint8_t*>(payload.data()), payload.size());
+        auto at = std::upper_bound(
+            subtitle_packets_.begin(), subtitle_packets_.end(), text.dts,
+            [](int64_t time, const EncodedPacket& p) { return time < p.dts; });
+        subtitle_packets_.insert(at, std::move(text));
+      }
       continue;
     }
-    if (index < 0 || track.samples[track.next].dts <
-                         tracks_[index].samples[tracks_[index].next].dts) {
-      index = static_cast<int>(i);
-    }
+    return DemuxerReadResult::kOk;
   }
-  if (index < 0) {
-    return DemuxerReadResult::kEndOfStream;
-  }
-  Track& track = tracks_[index];
-  const Sample& sample = track.samples[track.next];
-
-  class Buffer : public PacketBuffer {
-   public:
-    explicit Buffer(size_t size) : bytes_(size + kPacketPadding) {
-      data_ = bytes_.data();
-      size_ = size;
-    }
-    uint8_t* writable() { return bytes_.data(); }
-
-   private:
-    std::vector<uint8_t> bytes_;
-  };
-  const char* kEnded =
-      "input ended at %.3f s, before its duration of %.3f s "
-      "(truncated file or lost connection)";
-  if (sample.size > kMaxSampleSize) {
-    return Fail(sample.pts,
-                "sample at %.3f s (of %.3f s) is too large: corrupt file", "");
-  }
-  // Data past the end of the file: the same as a read that ends early,
-  // without allocating for it.
-  if (file_size_ > 0 &&
-      (sample.offset > static_cast<uint64_t>(file_size_) ||
-       sample.size > static_cast<uint64_t>(file_size_) - sample.offset)) {
-    return Fail(sample.pts, kEnded, "");
-  }
-  std::shared_ptr<Buffer> buffer;
-  try {
-    buffer = std::make_shared<Buffer>(sample.size);
-  } catch (const std::bad_alloc&) {
-    return Fail(sample.pts,
-                "out of memory for the sample at %.3f s (of %.3f s)", "");
-  }
-  size_t filled = 0;
-  while (filled < sample.size) {
-    int64_t n = source_->Read(static_cast<int64_t>(sample.offset + filled),
-                              buffer->writable() + filled,
-                              sample.size - filled);
-    if (n < 0 && (aborted() || source_->interrupted())) {
-      return DemuxerReadResult::kAborted;
-    }
-    if (n <= 0) {
-      return Fail(sample.pts, kEnded, n < 0 ? source_->error().c_str() : "");
-    }
-    filled += static_cast<size_t>(n);
-  }
-  packet->stream_index = index;
-  packet->pts = sample.pts;
-  packet->dts = sample.dts;
-  packet->duration = sample.duration;
-  packet->keyframe = sample.sync;
-  packet->end_of_stream = false;
-  packet->boundary = false;
-  packet->buffer = std::move(buffer);
-  track.next++;
-  return DemuxerReadResult::kOk;
 }
 
 bool Mp4Demuxer::Seek(int64_t time) {
+  subtitle_packets_.clear();
   interrupted_ = false;
   if (!aborted_) {
     source_->ClearInterrupt();

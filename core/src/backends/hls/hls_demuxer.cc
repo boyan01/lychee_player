@@ -793,10 +793,10 @@ bool HlsDemuxer::OpenWebVtt(Rendition* r, std::string* error) {
 }
 
 bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
-  if (r->only == MediaType::kSubtitle) {
+  const Segment& segment = r->segments[r->current];
+  if (r->only == MediaType::kSubtitle && !segment.initialization) {
     return OpenWebVtt(r, error);
   }
-  const Segment& segment = r->segments[r->current];
   if (segment.key.method == HlsKey::Method::kOther ||
       (segment.initialization &&
        segment.map.key.method == HlsKey::Method::kOther)) {
@@ -1188,7 +1188,7 @@ DemuxerReadResult HlsDemuxer::Read(EncodedPacket* packet) {
         continue;
       }
       if (!r->has_next && r->only == MediaType::kSubtitle && !r->text_open &&
-          r->loaded && r->current < r->segments.size() &&
+          !r->mp4 && r->loaded && r->current < r->segments.size() &&
           last_dts_ != kNoTimestamp &&
           media_info_.start_time + r->segments[r->current].start - r->origin >
               last_dts_ + kReadAhead) {

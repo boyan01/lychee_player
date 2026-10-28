@@ -137,7 +137,8 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
 1. **Containers**: HLS adapts the variant to the bandwidth only where
    the http source measures it (`DataSource::transfer_rate`: Apple; not
    WinHTTP or `HttpURLConnection` yet), and only between MPEG-TS
-   variants; subtitle renditions in fMP4 (IMSC, WebVTT) are not read. AC-3 has
+   variants. IMSC image-profile subtitles and their auxiliary image resources
+   are not decoded (text-profile IMSC and WebVTT are read from fMP4). AC-3 has
    no FFmpeg-free decoder; DVB and ID3 timed
    metadata in TS are ignored (FFmpeg's build drops them too): the C ABI
    has no channel for timed data, which would take a track type, an
