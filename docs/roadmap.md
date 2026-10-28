@@ -110,9 +110,14 @@ building on top of them.
      (saturated colors at or above white approximate it: swscale clips in
      IPT, the shader in ICtCp). Left: HDR output, which needs an
      R10G10B10A2 or FP16 texture type.
-   - Linux: `lychee_dmabuf` carries P010 and the matrix, but not the
-     primaries and transfer function a caller needs for HDR; the
-     dual-boot PC's Intel iGPU can check it.
+   - Linux: check actual VAAPI dmabuf export on the dual-boot PC's Intel
+     iGPU after the Windows checks finish; WSL has no working VAAPI
+     driver. Boot Ubuntu 24.04 and run the CLI with
+     `--dmabuf /dev/dri/by-path/pci-0000:00:02.0-render` on `hdr_pq.mp4`
+     and `hdr_hlg.mp4`: confirm P010, primaries 9 and transfer 16/18 in
+     the `dmabuf:` line. If remote boot or desktop access needs hands,
+     the user only needs to boot Ubuntu and log in once; the checks can
+     then continue over SSH.
    - Android: the Flutter plugin's path (MediaCodec into a
      `SurfaceProducer`) is unchecked, waiting on the user's HDR phone; the
      emulator has no HEVC Main 10 decoder. If the plugin shows PQ washed

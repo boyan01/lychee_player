@@ -160,6 +160,8 @@ std::shared_ptr<VideoFrame> WrapDmabuf(const AVFrame* frame) {
           ? frame->colorspace
           : (frame->height > 576 ? AVCOL_SPC_BT709 : AVCOL_SPC_SMPTE170M);
   dmabuf.full_range = frame->color_range == AVCOL_RANGE_JPEG;
+  dmabuf.color_primaries = frame->color_primaries;
+  dmabuf.color_transfer = frame->color_trc;
 
   auto result = std::make_shared<VideoFrame>();
   result->storage = VideoFrameStorage::kDmabuf;

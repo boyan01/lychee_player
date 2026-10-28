@@ -61,7 +61,8 @@ extern "C" {
 //    runtime (a Dart isolate a hot restart ends).
 // 12: lychee_player_rebuild_video_decoder(), for explicit recovery after
 //    a platform invalidates its decoder (e.g. iOS background suspension).
-#define LYCHEE_API_VERSION 12
+// 13: lychee_dmabuf carries H.273 color primaries and transfer function.
+#define LYCHEE_API_VERSION 13
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -152,6 +153,12 @@ typedef struct lychee_dmabuf {
   // range, for the YUV to RGB conversion.
   int32_t color_matrix;
   int32_t full_range;
+  // ITU-T H.273 color primaries and transfer characteristics (2 means
+  // unspecified). HDR10 is primaries 9 (BT.2020), transfer 16 (PQ);
+  // HLG uses transfer 18. Present since API 13: check struct_size before
+  // reading these fields from a library built with an older header.
+  int32_t color_primaries;
+  int32_t color_transfer;
 } lychee_dmabuf;
 
 typedef enum lychee_state {

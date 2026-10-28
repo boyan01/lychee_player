@@ -1214,6 +1214,17 @@ int main(int argc, char** argv) {
       if (frame) {
         int64_t pts = lychee_frame_get_pts(frame);
         frame_type = lychee_frame_get_type(frame);
+        if (frame_type == LYCHEE_FRAME_DMABUF && frames_pulled == 0) {
+          const auto* dmabuf = static_cast<const lychee_dmabuf*>(
+              lychee_frame_get_native_handle(frame));
+          if (dmabuf && dmabuf->struct_size >= sizeof(lychee_dmabuf)) {
+            printf("dmabuf: fourcc=%08" PRIx32
+                   " primaries=%d transfer=%d matrix=%d full_range=%d\n",
+                   dmabuf->fourcc, dmabuf->color_primaries,
+                   dmabuf->color_transfer, dmabuf->color_matrix,
+                   dmabuf->full_range);
+          }
+        }
 #if defined(__APPLE__)
         if (frame_type == LYCHEE_FRAME_CVPIXELBUFFER_NATIVE &&
             frames_pulled == 0) {

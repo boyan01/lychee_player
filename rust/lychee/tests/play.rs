@@ -50,6 +50,7 @@ fn pull(
         if player.has_new_frame(display_time) {
             let frame = player.acquire_frame(display_time).unwrap();
             assert_eq!(frame.kind(), Some(FrameType::CpuBgra));
+            assert!(frame.dmabuf().is_none());
             let (data, stride) = frame.data().unwrap();
             assert!(stride >= frame.width() as usize * 4);
             assert_eq!(data.len(), stride * frame.height() as usize);

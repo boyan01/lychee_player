@@ -894,6 +894,23 @@ impl Frame {
     pub fn native_handle(&self) -> *mut c_void {
         unsafe { sys::lychee_frame_get_native_handle(self.raw()) }
     }
+
+    /// Linux: the borrowed DMA-BUF descriptor, including H.273 primaries
+    /// and transfer characteristics. File descriptors stay valid while
+    /// this frame is alive. Returns `None` for other frame types and for
+    /// libraries whose descriptor predates API 13.
+    pub fn dmabuf(&self) -> Option<&sys::lychee_dmabuf> {
+        if self.kind() != Some(FrameType::Dmabuf) {
+            return None;
+        }
+        let descriptor = self.native_handle().cast::<sys::lychee_dmabuf>();
+        if descriptor.is_null()
+            || unsafe { descriptor.cast::<u32>().read() } < size_of::<sys::lychee_dmabuf>() as u32
+        {
+            return None;
+        }
+        Some(unsafe { &*descriptor })
+    }
 }
 
 impl Drop for Frame {
