@@ -142,7 +142,8 @@ building on top of them.
 The goal is FFmpeg-free builds on Apple platforms, Windows and Android;
 Linux keeps FFmpeg (no system audio decoder or demuxer). Apple plays MP4,
 Matroska/WebM, MPEG-TS and HLS without it, and ships
-`lychee_noffmpeg.xcframework`; Android and Windows play MP4 files.
+`lychee_noffmpeg.xcframework`; Windows plays the same containers (H.264
+and HEVC in hardware or software, AAC and MP3); Android plays MP4 files.
 
 1. **Shared IO on Android**: an http `DataSource` there
    (`HttpURLConnection` or Cronet through JNI), which its FFmpeg-free
@@ -155,9 +156,11 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    once), `EXT-X-MEDIA` audio renditions and variant switching. MP3 in TS
    is untested; AC-3 has no FFmpeg-free decoder; DVB and ID3 timed
    metadata in TS are ignored.
-3. **Windows**: no software video decoder, so a machine without a GPU (or
-   a codec its GPU lacks) plays no video; Media Foundation's software mode
-   would cover it. AAC in ADTS and other audio codecs have no decoder.
+3. **Windows**: VP9, AV1, Opus, FLAC and ALAC have no decoder (Media
+   Foundation has them only with Store extensions, or not at all). Live
+   HEVC decoded in software shows one frame less than it should
+   (`NO_FFMPEG=1 NO_HW=1 ONLY=live-hevc`: 299 of 300; the HEVC extension's
+   decoder holds the last frame back, low latency mode set or not).
    Packaging the FFmpeg-free core for the plugin
    is not started.
 4. **Android**: http (item 1), an FFmpeg-free AAR variant if native

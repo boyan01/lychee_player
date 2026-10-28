@@ -611,6 +611,8 @@ plays_without_ffmpeg() {
     esac
     # VideoToolbox decodes VP9 only in hardware.
     [ "${NO_HW:-0}" = 1 ] && [[ "$arg" == *vp9* ]] && return 1
+    # Media Foundation has no VP9 (without the Store's extension) or ALAC.
+    [ "$windows" = 1 ] && [[ "$arg" == *vp9* || "$arg" == *alac* ]] && return 1
   done
   return 0
 }
@@ -805,7 +807,7 @@ par expect decoder-lost "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" "<=0 even
   "summary: state=ended .* hw=$hw_first .*dropped=[0-3] glitches=[0-3] backward_jumps=0 " -- \
   --lose-decoder-after 2 "$media/h264_aac.mp4"
 par expect decoder-lost-twice "<=0 event: state error" \
-  "summary: state=ended .*decoder=(ffmpeg|videotoolbox-sw) hw=0 .*backward_jumps=0 " -- \
+  "summary: state=ended .*decoder=(ffmpeg|videotoolbox-sw|mediafoundation) hw=0 .*backward_jumps=0 " -- \
   --lose-decoder-after 2 --lose-decoder-after 5 "$media/h264_aac.mp4"
 # Foreground recovery uses the public API, before any packet fails. Each
 # transition gets a fresh hardware attempt rather than forcing software.

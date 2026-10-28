@@ -20,23 +20,75 @@ constexpr int kMaxConsecutiveErrors = 10;
 // Output buffers for MFTs that do not say how large theirs should be.
 constexpr DWORD kMinOutputBuffer = 64 * 1024;
 
+// The size of the ADTS header |data| starts with, or 0.
+size_t AdtsHeaderSize(const uint8_t* data, size_t size) {
+  if (size < 7 || data[0] != 0xff || (data[1] & 0xf6) != 0xf0) {
+    return 0;
+  }
+  // Nine bytes with a CRC (protection_absent clear).
+  const size_t header = (data[1] & 1) ? 7 : 9;
+  return header < size ? header : 0;
+}
+
+ComPtr<IMFTransform> CreateMp3Decoder() {
+  ComPtr<IMFTransform> decoder;
+  MFT_REGISTER_TYPE_INFO input = {MFMediaType_Audio, MFAudioFormat_MP3};
+  IMFActivate** activates = nullptr;
+  UINT32 count = 0;
+  if (FAILED(MFTEnumEx(MFT_CATEGORY_AUDIO_DECODER,
+                       MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_LOCALMFT |
+                           MFT_ENUM_FLAG_SORTANDFILTER,
+                       &input, nullptr, &activates, &count))) {
+    return nullptr;
+  }
+  for (UINT32 i = 0; i < count; ++i) {
+    if (!decoder) {
+      activates[i]->ActivateObject(IID_PPV_ARGS(&decoder));
+    }
+    activates[i]->Release();
+  }
+  CoTaskMemFree(activates);
+  return decoder;
+}
+
 }  // namespace
 
 bool MFAudioDecoder::Initialize(const AudioConfig& config,
                                 const AudioOutputFormat& output_format,
                                 std::string* error) {
   output_format_ = output_format;
-  // ADTS (no AudioSpecificConfig) comes only from containers this build
-  // does not read.
-  if (config.codec != AudioCodec::kAAC || config.extradata.empty() ||
-      config.sample_rate <= 0 || config.channels <= 0) {
+  config_ = config;
+  if ((config.codec != AudioCodec::kAAC && config.codec != AudioCodec::kMP3) ||
+      !StartMediaFoundation()) {
     *error = "mediafoundation: no decoder for " + config.codec_name;
     return false;
   }
-  if (!StartMediaFoundation() ||
-      FAILED(CoCreateInstance(CLSID_CMSAACDecMFT, nullptr, CLSCTX_INPROC_SERVER,
-                              IID_PPV_ARGS(&decoder_)))) {
-    *error = "mediafoundation: no AAC decoder";
+  // AAC in ADTS (MPEG-TS) has no AudioSpecificConfig: the decoder is made
+  // from the first packet's header.
+  if (config.codec == AudioCodec::kAAC && config.extradata.empty()) {
+    return true;
+  }
+  if ((config.sample_rate <= 0 || config.channels <= 0) ||
+      !Open(config.extradata, error)) {
+    if (error->empty()) {
+      *error = "mediafoundation: no decoder for " + config.codec_name;
+    }
+    return false;
+  }
+  return true;
+}
+
+bool MFAudioDecoder::Open(const std::vector<uint8_t>& asc, std::string* error) {
+  const bool aac = config_.codec == AudioCodec::kAAC;
+  if (aac) {
+    CoCreateInstance(CLSID_CMSAACDecMFT, nullptr, CLSCTX_INPROC_SERVER,
+                     IID_PPV_ARGS(&decoder_));
+  } else {
+    decoder_ = CreateMp3Decoder();
+  }
+  if (!decoder_) {
+    *error = std::string("mediafoundation: no ") + (aac ? "AAC" : "MP3") +
+             " decoder";
     return false;
   }
   ComPtr<IMFMediaType> input;
@@ -45,29 +97,32 @@ bool MFAudioDecoder::Initialize(const AudioConfig& config,
     return false;
   }
   input->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
-  input->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_AAC);
+  input->SetGUID(MF_MT_SUBTYPE, aac ? MFAudioFormat_AAC : MFAudioFormat_MP3);
   input->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND,
-                   static_cast<UINT32>(config.sample_rate));
+                   static_cast<UINT32>(config_.sample_rate));
   input->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS,
-                   static_cast<UINT32>(config.channels));
-  // Raw AAC; the user data is HEAACWAVEINFO after its WAVEFORMATEX
-  // (payload type 0, profile 0xfe for "not given", the rest zero), then
-  // the AudioSpecificConfig.
-  input->SetUINT32(MF_MT_AAC_PAYLOAD_TYPE, 0);
-  std::vector<uint8_t> user_data(12, 0);
-  user_data[2] = 0xfe;
-  user_data.insert(user_data.end(), config.extradata.begin(),
-                   config.extradata.end());
-  input->SetBlob(MF_MT_USER_DATA, user_data.data(),
-                 static_cast<UINT32>(user_data.size()));
+                   static_cast<UINT32>(config_.channels));
+  if (aac) {
+    // Raw AAC; the user data is HEAACWAVEINFO after its WAVEFORMATEX
+    // (payload type 0, profile 0xfe for "not given", the rest zero), then
+    // the AudioSpecificConfig.
+    input->SetUINT32(MF_MT_AAC_PAYLOAD_TYPE, 0);
+    std::vector<uint8_t> user_data(12, 0);
+    user_data[2] = 0xfe;
+    user_data.insert(user_data.end(), asc.begin(), asc.end());
+    input->SetBlob(MF_MT_USER_DATA, user_data.data(),
+                   static_cast<UINT32>(user_data.size()));
+  }
   HRESULT hr = decoder_->SetInputType(0, input.Get(), 0);
   if (FAILED(hr)) {
-    *error = "mediafoundation: the AAC decoder rejects this stream: " +
+    *error = "mediafoundation: the decoder rejects this stream: " +
              HResultString(hr);
+    decoder_.Reset();
     return false;
   }
   if (!SetUpOutput()) {
     *error = "mediafoundation: no PCM output for this stream";
+    decoder_.Reset();
     return false;
   }
   decoder_->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
@@ -106,9 +161,10 @@ bool MFAudioDecoder::SetUpOutput() {
       MFGetAttributeUINT32(chosen.Get(), MF_MT_AUDIO_NUM_CHANNELS, 0));
   resampler_.Reset();
   float_output_ = subtype == MFAudioFormat_Float;
+  const char* codec = config_.codec == AudioCodec::kAAC ? "aac" : "mp3";
   if (rate == output_format_.sample_rate &&
       channels == output_format_.channels && float_output_) {
-    LOGI("decoder opened for aac %d Hz %d ch", rate, channels);
+    LOGI("decoder opened for %s %d Hz %d ch", codec, rate, channels);
     return true;
   }
 
@@ -149,14 +205,17 @@ bool MFAudioDecoder::SetUpOutput() {
   resampler_->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
   resampler_->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
   float_output_ = true;
-  LOGI("decoder opened for aac %d Hz %d ch -> %d Hz %d ch", rate, channels,
-       output_format_.sample_rate, output_format_.channels);
+  LOGI("decoder opened for %s %d Hz %d ch -> %d Hz %d ch", codec, rate,
+       channels, output_format_.sample_rate, output_format_.channels);
   return true;
 }
 
 bool MFAudioDecoder::Decode(const EncodedPacket& packet,
                             const OutputCallback& output) {
   std::vector<ComPtr<IMFSample>> decoded;
+  if (packet.end_of_stream && !decoder_) {
+    return true;
+  }
   if (packet.end_of_stream) {
     decoder_->ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
     decoder_->ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0);
@@ -168,11 +227,38 @@ bool MFAudioDecoder::Decode(const EncodedPacket& packet,
   if (!packet.buffer || packet.size() == 0) {
     return true;
   }
+  const uint8_t* data = packet.buffer->data();
+  size_t size = packet.size();
+  const size_t adts =
+      config_.codec == AudioCodec::kAAC && config_.extradata.empty()
+          ? AdtsHeaderSize(data, size)
+          : 0;
+  if (!decoder_) {
+    // ADTS: the AudioSpecificConfig from the header's object type,
+    // sampling frequency index and channel configuration.
+    if (adts == 0) {
+      LOGE("AAC without a configuration or ADTS headers");
+      return false;
+    }
+    const int object_type = (data[2] >> 6) + 1;
+    const int frequency = (data[2] >> 2) & 0xf;
+    const int channels = ((data[2] & 1) << 2) | (data[3] >> 6);
+    const std::vector<uint8_t> asc = {
+        static_cast<uint8_t>((object_type << 3) | (frequency >> 1)),
+        static_cast<uint8_t>(((frequency & 1) << 7) | (channels << 3))};
+    std::string error;
+    if (!Open(asc, &error)) {
+      LOGE("%s", error.c_str());
+      return false;
+    }
+  }
+  data += adts;
+  size -= adts;
   if (next_pts_ == kNoTimestamp) {
     next_pts_ = packet.pts;
   }
-  ComPtr<IMFSample> sample = CreateMFSample(
-      packet.buffer->data(), packet.size(), packet.pts, packet.duration);
+  ComPtr<IMFSample> sample =
+      CreateMFSample(data, size, packet.pts, packet.duration);
   if (!sample) {
     return false;
   }
@@ -313,7 +399,9 @@ void MFAudioDecoder::Emit(IMFSample* sample, const OutputCallback& output) {
 }
 
 void MFAudioDecoder::Flush() {
-  decoder_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
+  if (decoder_) {
+    decoder_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
+  }
   if (resampler_) {
     resampler_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
   }
