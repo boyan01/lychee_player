@@ -78,9 +78,8 @@ building on top of them.
 1. **Live input in flutter-airplay**: the core plays pushed packets
    (`lychee_player_open_live`). Left: AAC-ELD, which AirPlay mirroring
    sends, has never been decoded (FFmpeg cannot encode it without
-   libfdk-aac; capture a file from a session); low-latency setup for
-   FFmpeg's hardware decoders (VAAPI, D3D11VA), which get only its
-   `low_delay`; what MediaCodec's `KEY_LOW_LATENCY` saves on a phone (the
+   libfdk-aac; capture a file from a session); what MediaCodec's
+   `KEY_LOW_LATENCY` saves on a phone (the
    emulator's codecs ignore it). After a stall, audio moves up to 500 ms
    behind video and returns over a few seconds, as in flutter-airplay.
    Done when flutter-airplay plays a mirroring session through lychee

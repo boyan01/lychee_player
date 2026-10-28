@@ -240,7 +240,9 @@ bool FFmpegVideoDecoder::Initialize(const VideoConfig& config,
     if (!InitializeHardware(codec, error)) {
       return false;
     }
-    // Hardware decoders do their own pipelining.
+    // Avoid host frame threads ahead of VAAPI/D3D11VA's own pipelining.
+    // LOW_DELAY below applies to hardware too; their reference surface
+    // pools are not an additional presentation queue.
     context_->thread_count = 1;
   } else {
     context_->thread_count = 0;
