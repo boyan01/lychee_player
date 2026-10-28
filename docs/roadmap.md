@@ -142,12 +142,8 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    and assets (the user, 2026-10-27).
 2. **Release leftovers**: the AAR on Maven Central too (what native
    Android users expect; needs a Sonatype account for `tech.soit`);
-   `release.yml` running `tool/release.sh check` on Linux, where it
-   builds Linux apps by hand only (`release.yml` runs the macOS and
-   Windows checks, the attestations and the SBOM since 2026-10-28, not
-   yet in a release); the Linux job in a `ubuntu:22.04` container once GitHub
-   retires that
-   image.
+   the Linux jobs in `ubuntu:22.04` containers once GitHub retires those
+   runner images.
 3. **Native SDKs**: drop the pod and the plugin's copy of
    `LycheeFrameDriver` (`LycheeTexture`) once Flutter drops CocoaPods;
    the Rust crates on crates.io.

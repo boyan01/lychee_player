@@ -1,7 +1,8 @@
 # Releases VERSION: builds the prebuilt core (Apple xcframeworks, the
 # Android AAR) and the Windows and Linux plugins' FFmpeg, pins their SHA-256s in
 # flutter/prebuilt.json and Package.swift, checks that a fresh app builds with the package pub would
-# publish (macOS, iOS and Android on macOS, Windows on Windows), attests
+# publish (macOS, iOS and Android on macOS, Windows and both Linux
+# architectures on their native runners), attests
 # the assets' build provenance and an SPDX SBOM of them (also an asset),
 # drafts the GitHub release with the assets, and pushes the
 # "Release VERSION" commit and the tag vVERSION. The tag starts publish.yml,
@@ -174,8 +175,41 @@ jobs:
       - run: tool/release.sh pin dist
       - run: tool/release.sh check dist
 
+  # Check the native Flutter plugin against the same assets on both Linux
+  # runners. The release waits for these fresh-app builds before publishing.
+  check-linux:
+    needs: [apple, android, windows, linux]
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-22.04, ubuntu-22.04-arm]
+    runs-on: ${{ matrix.runner }}
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Install Linux build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang cmake ninja-build pkg-config \
+            curl git unzip xz-utils python3 libgtk-3-dev libepoxy-dev libpulse-dev \
+            libva-dev libdrm-dev libgnutls28-dev zlib1g-dev libstdc++-12-dev
+      - name: Set up native Flutter
+        # Stable Linux SDK archives are x64-only. A stable Git checkout
+        # bootstraps the native Dart SDK and engine on x64 and arm64.
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >>"$GITHUB_PATH"
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          path: dist
+          merge-multiple: true
+      - run: tool/release.sh version "$VERSION"
+      - run: tool/release.sh pin dist
+      - run: tool/release.sh check dist
+
   release:
-    needs: [apple, android, windows, linux, check-windows]
+    needs: [apple, android, windows, linux, check-windows, check-linux]
     runs-on: macos-26
     permissions:
       contents: write
