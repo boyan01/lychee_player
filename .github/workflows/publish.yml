@@ -17,7 +17,7 @@ jobs:
       contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Check the tag
         run: |
           grep -qx "version: ${GITHUB_REF_NAME#v}" flutter/pubspec.yaml
@@ -28,8 +28,8 @@ jobs:
         run: gh release edit "$GITHUB_REF_NAME" --draft=false
       - name: Check the release's files
         run: tool/release.sh verify
-      - uses: dart-lang/setup-dart@v1
-      - uses: subosito/flutter-action@v2
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
       - run: tool/release.sh publish

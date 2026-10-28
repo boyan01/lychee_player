@@ -184,9 +184,9 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
      per commit.
    - **Soak tests**: hours of looping, seeking and file switching on each
      platform's harness, checking memory and thread counts stay flat.
-   - **Supply chain**: Dependabot (or Renovate) for the pinned Actions,
-     GLFW and FFmpeg sources; SHA-pinned Actions; build provenance
-     attestations and an SBOM for release assets.
+   - **Supply chain**: build provenance attestations and an SBOM for
+     release assets; updates for the FFmpeg, GLFW and Mbed TLS sources
+     pinned in `tool/` scripts, which Dependabot cannot read.
    - **Fuzzing corpus**: merge it with libFuzzer's `-merge=1` if it grows
      past a few hundred MB; OSS-Fuzz once the project is public.
    - **Coverage** as a CI artifact once someone watches it.
