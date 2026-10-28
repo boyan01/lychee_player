@@ -19,6 +19,14 @@ message and, where it matters later, in a code comment, the README or this
 file; what was done and how it was checked stays in the commit. Commit each
 finished item locally.
 
+Finish a feature on every platform it applies to (macOS, iOS, Android,
+Windows, Linux) in one piece of work, not one platform per round: this Mac
+runs the iOS simulator and the Android emulator, and reaches the Windows
+PC, WSL and the Ubuntu VM through the `flutter-remote-test` skill. Leave a
+platform in `docs/roadmap.md` only for the part that needs the user's
+hands, and say there exactly what that is. Likewise, take the items that
+need no hands together, rather than one per session.
+
 Stop and ask only for:
 
 - Pushing, publishing or hosting anything: `git push`, pub.dev,
