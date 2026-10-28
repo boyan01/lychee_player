@@ -19,8 +19,7 @@ building on top of them.
    smaller than a frame). Also missing are a
    device with only one hardware decoder instance (the emulator's H.264
    decoder once failed to start right after a file switch, and FFmpeg
-   took over), and Android before 11, where the core finds its cache
-   directory from the package name (no `TMPDIR`). Only the CLI's
+   took over). Only the CLI's
    `background` case exercises the expiry of
    frames nobody pulled: Choreographer kept pulling in the background on
    the Xiaomi 14.
