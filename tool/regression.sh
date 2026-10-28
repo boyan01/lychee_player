@@ -22,7 +22,7 @@
 #                                 # instead of the system's, in build-lgpl/
 #   NO_FFMPEG=1 tool/regression.sh  # macOS without FFmpeg, in build-noffmpeg/:
 #                                 # only the cases with MP4, Matroska,
-#                                 # WebM, MPEG-TS and HLS media, text subtitles
+#                                 # WebM, MPEG-TS and HLS media, text/bitmap subtitles
 #   MEDIA_ONLY=1 tool/regression.sh # Only generate the media (for the Swift
 #                                 # and Rust tests), no build
 #
@@ -373,7 +373,8 @@ fi
   >"$media/hls_fmp4/master.m3u8"
 # ISO BMFF WebVTT and IMSC text subtitle renditions (FFmpeg's muxer
 # cannot generate these sample entries).
-[ -f "$media/hls_fmp4_subtitles/stpp_master.m3u8" ] ||
+[ -f "$media/hls_fmp4_subtitles/stpp_master.m3u8" ] &&
+[ -f "$media/hls_fmp4_images/external-short_master.m3u8" ] ||
   python3 -I "$root/tool/mp4_subtitle_cases.py" "$media" || exit 1
 # AES-128 (FFmpeg encrypts no fMP4): the TS segments with the media
 # sequence number as the IV, the fMP4 ones with an IV attribute and the
@@ -671,6 +672,12 @@ expect() {
       grep -Eq "$pattern" <<<"$out" || problems+=" missing:'$pattern'"
     fi
   done
+  if [ "${image_transition:-0}" = 1 ] &&
+      ! awk '/^subtitle images: 2 / { seen = 1 }
+             /^subtitle images: 1 / && seen { changed = 1 }
+             END { exit !changed }' <<<"$out"; then
+    problems+=" no-2-to-1-image-transition"
+  fi
   if [ -z "$problems" ]; then
     pass "$name"
   else
@@ -759,10 +766,10 @@ selected() {
   done
   return 1
 }
-# Without FFmpeg: MP4, Matroska, WebM, MPEG-TS and HLS, with text subtitles.
+# Without FFmpeg: MP4, Matroska, WebM, MPEG-TS and HLS, with text/PNG subtitles.
 plays_without_ffmpeg() {
   case "$1" in
-    # Bitmap subtitles have no decoder.
+    # Encoded PGS/DVB/VobSub need FFmpeg; IMSC PNG uses the shared reader.
     subtitle-pgs | subtitle-dvb | subtitle-vobsub) return 1 ;;
     # Windows uses the Store AV1 extension; Apple needs newer hardware.
     av1-software | av1-mp4-software) [ "$windows" = 1 ] || return 1 ;;
@@ -1433,7 +1440,9 @@ if [ "$own_ts" = 1 ]; then
   for codec in stpp wvtt; do
     label=IMSC
     [ "$codec" != wvtt ] || label=WebVTT
-    seq_ expect "http-hls-subtitles-$codec" "track 2: subtitle webvtt lang=en title=English selected=1" \
+    codec_name=webvtt
+    [ "$codec" != stpp ] || codec_name=ttml
+    seq_ expect "http-hls-subtitles-$codec" "track 2: subtitle $codec_name lang=en title=English selected=1" \
       "subtitle at (0\.9[6-9][0-9]|1\.0[01][0-9])s: Hello & $label" "subtitle at (2\.9[6-9][0-9]|3\.0[01][0-9])s: \(none\)" \
       "subtitle at 8\.(4[6-9][0-9]|5[01][0-9])s: Later <$label>" "subtitle at 9\.(4[6-9][0-9]|5[01][0-9])s: \(none\)" \
       "summary: state=ended position=12\.000s" -- \
@@ -1441,6 +1450,26 @@ if [ "$own_ts" = 1 ]; then
     seq_ expect "http-hls-subtitles-$codec-seek" "subtitle at 9\.[0-9]{3}s: Later <$label>" \
       "summary: state=ended position=12\.000s" -- --seek 9 --seek-after 0.2 \
       "http://127.0.0.1:$port/hls_fmp4_subtitles/${codec}_master.m3u8"
+  done
+  for mode in aux external aux-short external-short; do
+    first="subtitle images: 1 \| 480x270 at 480,540 opaque=50% rgb=127,0,127$"
+    both="subtitle images: 2 \| 480x270 at 480,540 opaque=50% rgb=127,0,127 \| 480x270 at 1200,135 opaque=100% rgb=127,127,127$"
+    ending="<=0 subtitle images: 1"
+    seek_images="$both"
+    case "$mode" in *-short) ending="$first"; seek_images="$first" ;; esac
+    image_transition=0
+    case "$mode" in *-short) image_transition=1 ;; esac
+    image_transition="$image_transition" seq_ expect "http-hls-subtitles-image-$mode" \
+      "track 2: subtitle ttml lang=en title=Images selected=1" \
+      "$both" "$ending" "summary: state=ended position=12\.000s" -- \
+      "http://127.0.0.1:$port/hls_fmp4_images/${mode}_master.m3u8"
+    image_transition=0
+    seq_ expect "http-hls-subtitles-image-$mode-seek" "$seek_images" \
+      "summary: state=ready" -- --seek 9 --seek-after 0.5 --seconds 2 \
+      "http://127.0.0.1:$port/hls_fmp4_images/${mode}_master.m3u8"
+    seq_ expect "http-hls-subtitles-image-$mode-close" "$both" \
+      "summary: state=ready" -- --seconds 1.2 \
+      "http://127.0.0.1:$port/hls_fmp4_images/${mode}_master.m3u8"
   done
 elif [ "${NO_FFMPEG:-0}" != 1 ]; then
   seq_ expect http-hls-subtitles "track 0: subtitle webvtt lang=en " "summary: state=ended position=12\.000s" -- \

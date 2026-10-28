@@ -54,7 +54,7 @@ Requires CMake, Ninja, pkg-config and FFmpeg development files
 (`brew install cmake ninja pkg-config ffmpeg`). On macOS and
 iOS, `-DLYCHEE_WITH_FFMPEG=OFF` builds without FFmpeg: MP4 (fragmented
 too), Matroska/WebM, MPEG-TS and HLS (TS and fMP4 segments, AES-128,
-audio renditions, WebVTT and fMP4 WebVTT/IMSC text subtitle renditions,
+audio renditions, WebVTT and fMP4 WebVTT/IMSC subtitle renditions,
 variants as video tracks), from files and http(s)
 URLs, with
 H.264/HEVC (VideoToolbox), AAC, ALAC, MP3, Opus, FLAC and AC-3
@@ -71,8 +71,20 @@ Android's plays them with H.264/HEVC and AAC, MP3, Opus, FLAC, ALAC and AC-3
 through MediaCodec. AC-3 requires an installed system decoder; when one
 is missing, the audio track is disabled and video continues. Both read http(s) through the system (WinHTTP,
 `HttpURLConnection`). IMSC text keeps paragraph/span timing and line breaks;
-styles are dropped. Its image profile and auxiliary image resources are
-not decoded. HLS measures active network transfers on all three system
+styles are dropped. IMSC image subtitles use timed PNG pictures in their
+explicit regions, through the existing bitmap-subtitle API. Region extents
+use pixels and match the PNG dimensions; origins use pixels, or percentages
+when the root canvas has a pixel extent, as defined in
+[IMSC 1.2 section 10](https://www.w3.org/TR/ttml-imsc1.2/#image-profile-constraints).
+Both ISO 14496-30
+`subs` auxiliary resources and relative/absolute file or HTTP(S) image
+URIs are read; PNG dimensions, input and decoded pixels are bounded.
+PNG decoding uses ImageIO, Windows Imaging Component, Android's system
+decoders, and the system libpng on Linux. Android apps on API 26–29 need
+the Java VM retained by `System.loadLibrary("lychee")`; API 30 and later
+also have a native PNG decoder for programs without a VM.
+This is basic image placement,
+with no text styling or layout engine. HLS measures active network transfers on all three system
 HTTP clients and adapts between compatible TS or fMP4 variants.
 
 ```sh
@@ -547,10 +559,10 @@ builds win: the xcframeworks in `flutter/darwin/Frameworks` and the AAR in
   its glibc, on GitHub's x86_64 and arm64 runners). Its libraries load the
   system's libva, libva-drm, libdrm, GnuTLS and zlib (`libva2`,
   `libva-drm2`, `libdrm2`, `libgnutls30`, `zlib1g`). Apps need
-  `libgtk-3` and `libpulse0` at runtime. The core alone needs FFmpeg 8 or newer, which Ubuntu 22.04
+  `libgtk-3`, `libpulse0` and `libpng16-16` at runtime. The core alone needs FFmpeg 8 or newer, which Ubuntu 22.04
   does not ship: point pkg-config at a prebuilt one
   (`PKG_CONFIG_PATH=<ffmpeg>/lib/pkgconfig`, `LD_LIBRARY_PATH=<ffmpeg>/lib`
-  to run the CLI) and install `libpulse-dev`.
+  to run the CLI) and install `libpulse-dev` and `libpng-dev`.
 
 ## Releases
 

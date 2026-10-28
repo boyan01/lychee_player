@@ -22,6 +22,7 @@ class FFmpegSubtitleDecoder : public SubtitleDecoder {
   void Flush() override;
 
  private:
+  bool normalized_ = false;
   static SubtitleBitmap ToBitmap(const AVSubtitleRect& rect);
 
   ScopedAVCodecContext context_;

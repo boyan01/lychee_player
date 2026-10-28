@@ -20,6 +20,7 @@ struct SubtitleBitmap {
   int width = 0;
   int height = 0;
   std::vector<uint8_t> rgba;
+  bool operator==(const SubtitleBitmap&) const = default;
 };
 
 // A timed piece of plain text or, for bitmap subtitles (PGS, DVB, VobSub),
@@ -35,6 +36,12 @@ struct SubtitleCue {
   int canvas_height = 0;
   std::shared_ptr<const std::vector<SubtitleBitmap>> bitmaps;
 };
+
+// Internal, bounded cue packets from shared demuxers. Their pixel bytes count
+// towards the existing packet budgets; pts/duration remain in EncodedPacket so
+// HLS offsets and seamless loops use the same timestamp path as other codecs.
+std::shared_ptr<PacketBuffer> PackSubtitleCue(const SubtitleCue& cue);
+bool UnpackSubtitleCue(const EncodedPacket& packet, SubtitleCue* cue);
 
 // Decodes subtitle packets into cues.
 class SubtitleDecoder {

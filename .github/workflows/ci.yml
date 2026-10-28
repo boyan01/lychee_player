@@ -95,7 +95,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm meson \
-            libva-dev libdrm-dev libgnutls28-dev zlib1g-dev libpulse-dev \
+            libva-dev libdrm-dev libgnutls28-dev zlib1g-dev libpng-dev libpulse-dev \
             libglfw3-dev libegl-dev libgles-dev
           pipx install clang-tidy==23.1.4
           # Ahead of the runner's /usr/bin/clang-tidy (an older LLVM).
@@ -194,7 +194,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm meson \
-            libva-dev libdrm-dev libgnutls28-dev zlib1g-dev libpulse-dev pulseaudio
+            libva-dev libdrm-dev libgnutls28-dev zlib1g-dev libpng-dev libpulse-dev pulseaudio
       # The core follows the current FFmpeg API, which apt's (6.1) predates:
       # build the one tool/build_ffmpeg.sh makes for the Linux plugin.
       - name: FFmpeg cache key
@@ -368,7 +368,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-18 libclang-rt-18-dev ninja-build ffmpeg
+          sudo apt-get install -y --no-install-recommends clang-18 libclang-rt-18-dev ninja-build ffmpeg libpng-dev
       # The corpus each run grew (build-fuzz/corpus), so a minute goes on
       # from where the last run stopped rather than from the seeds. A
       # cache cannot be overwritten: each run saves its own, also when it

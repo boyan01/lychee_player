@@ -32,7 +32,7 @@ namespace lychee {
 // supplying the in-band parameter sets at a keyframe). Its audio renditions
 // (EXT-X-MEDIA) with a playlist of their own are audio streams
 // (DEFAULT=YES the default one), read alongside in decode order, and so
-// are its WebVTT and fMP4 IMSC text/WebVTT subtitle renditions.
+// are its WebVTT and fMP4 IMSC text/image and WebVTT subtitle renditions.
 // VOD seeks by segment; live input starts three target durations from
 // the end and reloads each playlist read as its segments are used up.
 // Each discontinuity sequence gets its own offset onto one continuous

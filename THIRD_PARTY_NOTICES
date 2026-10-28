@@ -21,7 +21,7 @@ What each artifact contains:
 - The Flutter plugin on Linux: the lychee core (1), compiled from source,
   and FFmpeg (2) under the LGPL version 2.1 or later, downloaded from
   the lychee_player release when the app is built (x86_64 and arm64). It
-  links the system's libva, libdrm, GnuTLS and zlib dynamically; the app
+  links the system's libva, libdrm, GnuTLS, zlib and libpng dynamically; the app
   does not ship them.
 
 
@@ -1774,3 +1774,10 @@ BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
 WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
 OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+6. libpng (Linux system library)
+
+PNG subtitle images use the system libpng, dynamically linked and not
+bundled in the release. libpng is under the PNG Reference Library License
+version 2, available with the distribution's package and at:
+https://www.libpng.org/pub/png/src/libpng-LICENSE.txt

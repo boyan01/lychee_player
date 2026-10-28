@@ -6,11 +6,15 @@
 #include "media/text_subtitle_decoder.h"
 
 #include <algorithm>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
 #include <map>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "test.h"
@@ -255,7 +259,9 @@ TEST(Mp4Demuxer, HugeDefaultSampleCount) {
   EXPECT_TRUE(times.size() < 100u);
 }
 
-Bytes SubtitleFile(const char* codec, const Bytes& payload) {
+Bytes SubtitleFile(const char* codec,
+                   const Bytes& payload,
+                   const Bytes& subs = {}) {
   Bytes stbl = Box(
       "stbl", {Box("stsd", {Fields({{0, 4}, {1, 4}}), Box(codec, {Zeros(8)})}),
                Box("stts", {Zeros(8)}), Box("stsc", {Zeros(8)}),
@@ -280,9 +286,10 @@ Bytes SubtitleFile(const char* codec, const Bytes& payload) {
     return Box(
         "moof",
         {Box("mfhd", {Fields({{0, 4}, {1, 4}})}),
-         Box("traf", {Box("tfhd", {Fields({{0x20000, 4}, {1, 4}})}),
-                      Box("tfdt", {Fields({{0, 4}, {0, 4}})}),
-                      Box("trun", {Fields({{1, 4}, {1, 4}, {offset, 4}})})})});
+         Box("traf",
+             {Box("tfhd", {Fields({{0x20000, 4}, {1, 4}})}),
+              Box("tfdt", {Fields({{0, 4}, {0, 4}})}),
+              Box("trun", {Fields({{1, 4}, {1, 4}, {offset, 4}})}), subs})});
   };
   file = Append(file, moof(static_cast<uint32_t>(moof(0).size() + 8)));
   return Append(file, Box("mdat", {payload}));
@@ -298,7 +305,7 @@ TEST(Mp4Demuxer, FragmentedSubtitleSamplesAndSeek) {
   if (!demuxer) {
     return;
   }
-  EXPECT_EQ(demuxer->media_info().streams[0].subtitle.codec_name, "webvtt");
+  EXPECT_EQ(demuxer->media_info().streams[0].subtitle.codec_name, "ttml");
   auto read = [&] {
     EncodedPacket packet;
     EXPECT_TRUE(demuxer->Read(&packet) == DemuxerReadResult::kOk);
@@ -307,12 +314,9 @@ TEST(Mp4Demuxer, FragmentedSubtitleSamplesAndSeek) {
   EncodedPacket first = read();
   EXPECT_EQ(first.pts, 100000);
   EXPECT_EQ(first.duration, 500000);
-  EXPECT_EQ(
-      TextSubtitleDecoder::ToPlainText(
-          "webvtt",
-          std::string_view(reinterpret_cast<const char*>(first.buffer->data()),
-                           first.buffer->size())),
-      "Hello & <b>");
+  SubtitleCue normalized;
+  EXPECT_TRUE(UnpackSubtitleCue(first, &normalized));
+  EXPECT_EQ(normalized.text, "Hello & <b>");
   EXPECT_TRUE(demuxer->Seek(0));  // Drops the queued second paragraph.
   EXPECT_EQ(read().pts, 100000);
   demuxer->SetEnabledStreams({0});  // Keeps this track's queued paragraph.
@@ -332,6 +336,124 @@ TEST(Mp4Demuxer, FragmentedSubtitleSamplesAndSeek) {
     EXPECT_EQ(packet.pts, 0);
     EXPECT_EQ(packet.duration, 1000000);
   }
+}
+
+TEST(Mp4Demuxer, ImscAuxiliarySubsamplesAndSeek) {
+  const std::string xml =
+      "<tt tts:extent='8px 8px'><head><layout><region xml:id='r' "
+      "tts:origin='2px 4px' tts:extent='2px 2px'/></layout></head>"
+      "<body><div region='r' begin='100ms' end='900ms' "
+      "smpte:backgroundImage='urn:mpeg:14496-30:subs:1'/></body></tt>";
+  const Bytes png = {0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00,
+                     0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x02,
+                     0x00, 0x00, 0x00, 0x02, 0x08, 0x06, 0x00, 0x00, 0x00, 0x72,
+                     0xb6, 0x0d, 0x24, 0x00, 0x00, 0x00, 0x15, 0x49, 0x44, 0x41,
+                     0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x08,
+                     0x1b, 0x18, 0x80, 0xf4, 0x7f, 0x10, 0x0b, 0x00, 0x40, 0xd6,
+                     0x07, 0x7a, 0x78, 0xd2, 0x6e, 0xe1, 0x00, 0x00, 0x00, 0x00,
+                     0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+  for (int version : {0, 1}) {
+    const Bytes payload = Append(AsBytes(xml), png);
+    const Bytes sizes = Fields({{xml.size(), version ? 4u : 2u},
+                                {0, 6},
+                                {png.size(), version ? 4u : 2u},
+                                {0, 6}});
+    const Bytes subs =
+        Box("subs", {Fields({{static_cast<uint32_t>(version) << 24, 4},
+                             {1, 4},
+                             {1, 4},
+                             {2, 2}}),
+                     sizes});
+    std::string error;
+    auto demuxer = OpenBytes(SubtitleFile("stpp", payload, subs), &error);
+    EXPECT_TRUE(demuxer != nullptr);
+    if (!demuxer) continue;
+    for (int pass = 0; pass < 2; ++pass) {
+      EncodedPacket packet;
+      EXPECT_TRUE(demuxer->Read(&packet) == DemuxerReadResult::kOk);
+      SubtitleCue cue;
+      EXPECT_TRUE(UnpackSubtitleCue(packet, &cue));
+      EXPECT_EQ(cue.start, 100000);
+      EXPECT_EQ(cue.end, 900000);
+      EXPECT_EQ(cue.canvas_width, 8);
+      EXPECT_TRUE(cue.bitmaps && cue.bitmaps->size() == 1);
+      if (cue.bitmaps && !cue.bitmaps->empty()) {
+        EXPECT_EQ(cue.bitmaps->at(0).x, 2);
+        EXPECT_EQ(cue.bitmaps->at(0).y, 4);
+        EXPECT_EQ(cue.bitmaps->at(0).rgba[0], 255);
+      }
+      EXPECT_TRUE(demuxer->Read(&packet) == DemuxerReadResult::kEndOfStream);
+      EXPECT_TRUE(demuxer->Seek(0));
+    }
+    Bytes broken = subs;
+    broken.back() = 1;  // Reserved/discard fields do not affect the mapping.
+    EXPECT_TRUE(OpenBytes(SubtitleFile("stpp", payload, broken), &error) !=
+                nullptr);
+    // A claimed first sub-sample larger than the sample must be rejected.
+    broken = subs;
+    broken[22] = 0xff;
+    broken[23] = 0xff;
+    auto invalid = OpenBytes(SubtitleFile("stpp", payload, broken), &error);
+    EncodedPacket packet;
+    EXPECT_TRUE(!invalid ||
+                invalid->Read(&packet) == DemuxerReadResult::kError);
+  }
+}
+
+TEST(Mp4Demuxer, InterruptsAnExternalSubtitleResource) {
+  struct State {
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool entered = false;
+    bool interrupted = false;
+  };
+  class Blocked : public DataSource {
+   public:
+    explicit Blocked(std::shared_ptr<State> state) : state_(std::move(state)) {}
+    int64_t Read(int64_t, uint8_t*, size_t) override {
+      std::unique_lock<std::mutex> lock(state_->mutex);
+      state_->entered = true;
+      state_->cv.notify_all();
+      state_->cv.wait(lock, [&] { return state_->interrupted; });
+      return -1;
+    }
+    int64_t size() const override { return -1; }
+    void Interrupt() override {
+      std::lock_guard<std::mutex> lock(state_->mutex);
+      state_->interrupted = true;
+      state_->cv.notify_all();
+    }
+    std::string error() const override { return "interrupted"; }
+
+   private:
+    std::shared_ptr<State> state_;
+  };
+  const std::string xml =
+      "<tt><head><layout><region xml:id='r' tts:extent='2px 2px'/>"
+      "</layout></head><body><div region='r' smpte:backgroundImage='slow.png'/>"
+      "</body></tt>";
+  auto state = std::make_shared<State>();
+  Mp4Demuxer demuxer;
+  std::string error;
+  EXPECT_TRUE(demuxer.Open(
+      CreateMemoryDataSource(SubtitleFile("stpp", AsBytes(xml))), &error,
+      "http://test/subs.mp4", [&](const std::string& url, std::string*) {
+        EXPECT_EQ(url, "http://test/slow.png");
+        return std::make_unique<Blocked>(state);
+      }));
+  DemuxerReadResult result = DemuxerReadResult::kOk;
+  std::thread reader([&] {
+    EncodedPacket packet;
+    result = demuxer.Read(&packet);
+  });
+  {
+    std::unique_lock<std::mutex> lock(state->mutex);
+    EXPECT_TRUE(state->cv.wait_for(lock, std::chrono::seconds(5),
+                                   [&] { return state->entered; }));
+  }
+  demuxer.Interrupt();
+  reader.join();
+  EXPECT_TRUE(result == DemuxerReadResult::kAborted);
 }
 
 TEST(HlsDemuxer, FragmentedSubtitleRenditions) {

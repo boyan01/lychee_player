@@ -76,8 +76,13 @@ void SubtitleRenderer::AddCue(SubtitleCue cue) {
   // Read again after a seek.
   for (auto same = it; same != cues_.begin() && (same - 1)->start == cue.start;
        --same) {
-    if ((same - 1)->text == cue.text &&
-        !(same - 1)->bitmaps == !cue.bitmaps) {
+    const SubtitleCue& previous = *(same - 1);
+    if (previous.end == cue.end && previous.text == cue.text &&
+        previous.canvas_width == cue.canvas_width &&
+        previous.canvas_height == cue.canvas_height &&
+        (previous.bitmaps == cue.bitmaps ||
+         (previous.bitmaps && cue.bitmaps &&
+          *previous.bitmaps == *cue.bitmaps))) {
       return;
     }
   }

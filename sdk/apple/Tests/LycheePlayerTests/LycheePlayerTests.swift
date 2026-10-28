@@ -11,7 +11,7 @@ final class LycheePlayerTests: XCTestCase {
   }
 
   // `swift test --traits NoFFmpeg` runs the core without FFmpeg, which has
-  // no bitmap subtitle decoder and reads no bare MP3 files.
+  // no PGS bitmap decoder and reads no bare MP3 files.
   private func skipWithoutFFmpeg(_ what: String) throws {
     #if NoFFmpeg
     throw XCTSkip("\(what) needs the FFmpeg core")
@@ -121,6 +121,35 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(subtitle?.pictures.first?.rect, CGRect(x: 330, y: 450, width: 300, height: 40))
     XCTAssertEqual(subtitle?.pictures.first?.image.width, 600)
     XCTAssertEqual(player.subtitlePictures(width: 960, height: 540)?.id, subtitle?.id)
+  }
+
+  func testIMSCImagePicturesWithoutAnFFmpegSubtitleCodec() throws {
+    for mode in ["aux", "external", "aux-short", "external-short"] {
+      let player = LycheePlayer()
+      player.volume = 0
+      let shown = expectation(description: "IMSC \(mode) picture")
+      player.onEvent = { event in
+        if case .subtitleChanged(pictures: true) = event { shown.fulfill() }
+      }
+      player.open("/tmp/lychee-media/hls_fmp4_images/\(mode)_master.m3u8")
+      player.play()
+      var driver: LycheeFrameDriver?
+      driver = LycheeFrameDriver(player: player) { _ = driver?.copyFrame() }
+      driver?.start()
+      wait(for: [shown], timeout: 10)
+      player.pause()
+      driver?.stop()
+      driver = nil
+      let pictures = try XCTUnwrap(player.subtitlePictures(width: 960, height: 540))
+      XCTAssertEqual(pictures.pictures.count, 2)
+      let picture = try XCTUnwrap(pictures.pictures.first)
+      XCTAssertEqual(picture.rect, CGRect(x: 240, y: 270, width: 240, height: 135))
+      XCTAssertEqual(picture.image.width, 2)
+      XCTAssertEqual(picture.image.height, 2)
+      let bytes = try XCTUnwrap(picture.image.dataProvider?.data) as Data
+      XCTAssertEqual(Array(bytes.prefix(16)), [255, 0, 0, 255, 0, 128, 0, 128,
+                                               0, 0, 255, 255, 0, 0, 0, 0])
+    }
   }
 
   // The view's pictures follow subtitle events, not only new frames: turned

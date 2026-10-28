@@ -74,3 +74,8 @@ if(NOT MSVC)
     C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
   target_compile_options(lychee_c_header PRIVATE -Wpedantic)
 endif()
+
+# Linux's shared HLS reader also uses the TTML/PNG normalization path.
+if(UNIX AND NOT APPLE AND NOT ANDROID AND LYCHEE_WITH_FFMPEG)
+  target_sources(lychee_unittests PRIVATE mp4_subtitle_test.cc)
+endif()

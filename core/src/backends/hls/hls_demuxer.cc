@@ -822,7 +822,7 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
   }
   if (segment.initialization) {
     mp4 = std::make_unique<Mp4Demuxer>();
-    if (!mp4->Open(std::move(source), error)) {
+    if (!mp4->Open(std::move(source), error, segment.url, opener_)) {
       *error = segment.url + ": " + *error;
       return false;
     }

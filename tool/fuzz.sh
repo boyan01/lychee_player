@@ -3,7 +3,7 @@
 # UndefinedBehaviorSanitizer, in build-fuzz/. One target per parser
 # (core/fuzz/fuzz_targets.h):
 #
-#   mp4           Mp4Demuxer, with tx3g, boxed WebVTT and IMSC text
+#   mp4           Mp4Demuxer, with tx3g, boxed WebVTT and IMSC text/PNG
 #   matroska      MatroskaDemuxer, with its text subtitles
 #   mpegts        TsDemuxer (TsReader, TsParser, the elementary streams)
 #   hls_playlist  the HLS playlist parser
@@ -130,6 +130,7 @@ seeds_mp4() {
   python3 -I "$root/tool/mp4_subtitle_cases.py" "$media" || exit 1
   cp "$media/hls_fmp4_subtitles/stpp.mp4" "$seeds/mp4/stpp.mp4"
   cp "$media/hls_fmp4_subtitles/wvtt.mp4" "$seeds/mp4/wvtt.mp4"
+  cp "$media/hls_fmp4_images/aux.mp4" "$seeds/mp4/imsc_images.mp4"
   printf '%s' '<tt><body><p begin="1s" dur="2s">Hello &amp; IMSC</p></body></tt>' >"$seeds/mp4/imsc.xml"
 
 }

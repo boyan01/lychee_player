@@ -4,9 +4,12 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <map>
 #include <string>
 #include <utility>
 
+#include "backends/hls/hls_playlist.h"
+#include "media/subtitle_image.h"
 #include "media/text_subtitle_decoder.h"
 
 namespace lychee {
@@ -248,6 +251,8 @@ struct Element {
   int paragraph = -1;
   bool preserve = false;
   bool hidden = false;
+  std::string_view region;
+  std::string base;
 };
 struct Text {
   Element element;
@@ -255,15 +260,66 @@ struct Text {
   bool line_break = false;
 };
 
+// IMSC 1.2 sections 10.3/10.4: PNG images exactly fit their pixel-sized
+// regions. Origin may use pixels or percentages; no text layout is involved.
+struct Region {
+  std::string_view origin;
+  std::string_view extent;
+};
+
+bool Pair(std::string_view text,
+          int canvas_width,
+          int canvas_height,
+          bool percent,
+          int* x,
+          int* y) {
+  while (!text.empty() && Space(text.front()))
+    text.remove_prefix(1);
+  const size_t split = text.find_first_of(" \t\r\n");
+  if (split == text.npos) return false;
+  std::string_view values[] = {text.substr(0, split), text.substr(split)};
+  const int canvas[] = {canvas_width, canvas_height};
+  int result[2] = {};
+  for (size_t i = 0; i < 2; ++i) {
+    auto value = values[i];
+    while (!value.empty() && Space(value.front()))
+      value.remove_prefix(1);
+    while (!value.empty() && Space(value.back()))
+      value.remove_suffix(1);
+    const bool relative = percent && value.ends_with('%');
+    const size_t suffix = relative ? 1 : 2;
+    double number = 0;
+    if ((!relative && !value.ends_with("px")) || value.size() <= suffix ||
+        !Number(value.substr(0, value.size() - suffix), &number) ||
+        (relative && canvas[i] <= 0))
+      return false;
+    if (relative) number *= canvas[i] / 100.0;
+    if (number > 16384) return false;
+    result[i] = static_cast<int>(std::lround(number));
+  }
+  *x = result[0];
+  *y = result[1];
+  return true;
+}
+
 bool Ttml(std::string_view xml,
           int64_t start,
           int64_t end,
-          std::vector<SubtitleCue>* cues) {
+          std::vector<SubtitleCue>* cues,
+          const SubtitleResourceReader& resources) {
   std::vector<Element> stack(1);
   std::vector<Text> texts;
   Rates rates;
   int paragraphs = 0;
   bool root = false;
+  int canvas_width = 0;
+  int canvas_height = 0;
+  std::map<std::string_view, Region> regions;
+  struct Image {
+    Element element;
+    std::string uri;
+  };
+  std::vector<Image> images;
   auto add = [&](std::string_view value, bool literal, bool line_break) {
     if (stack.back().paragraph < 0 || stack.back().hidden) {
       return true;
@@ -383,10 +439,10 @@ bool Ttml(std::string_view xml,
           rates.subframes <= 0 || rates.ticks <= 0) {
         return false;
       }
-      if (Attribute(attrs, "profile").find("/image") !=
-              std::string_view::npos ||
-          Attribute(attrs, "contentProfiles").find("/image") !=
-              std::string_view::npos) {
+      const auto extent = Attribute(attrs, "extent");
+      if (!extent.empty() &&
+          (!Pair(extent, 0, 0, false, &canvas_width, &canvas_height) ||
+           canvas_width == 0 || canvas_height == 0)) {
         return false;
       }
       const auto time_base = Attribute(attrs, "timeBase");
@@ -435,6 +491,34 @@ bool Ttml(std::string_view xml,
         return false;
       }
     }
+    if (!Attribute(attrs, "region").empty()) {
+      element.region = Attribute(attrs, "region");
+    }
+    if (!Attribute(attrs, "base").empty()) {
+      std::string base;
+      if (!XmlText(Attribute(attrs, "base"), &base)) return false;
+      element.base = ResolveUrl(element.base, base);
+    }
+    if (Local(name) == "region") {
+      const auto id = Attribute(attrs, "id");
+      if (id.empty() || regions.size() >= kMaxNodes) return false;
+      regions[id] = {Attribute(attrs, "origin"), Attribute(attrs, "extent")};
+    }
+    auto uri = Attribute(attrs, "backgroundImage");
+    if (Local(name) == "image") {
+      uri = Attribute(attrs, "src");
+      const auto type = Attribute(attrs, "type");
+      if (uri.empty() || (!type.empty() && type != "image/png")) return false;
+    }
+    if (!uri.empty() && !element.hidden) {
+      if (images.size() >= 64) return false;
+      Image image{element, {}};
+      if (!XmlText(uri, &image.uri)) return false;
+      if (!element.base.empty()) {
+        image.uri = ResolveUrl(element.base, image.uri);
+      }
+      images.push_back(std::move(image));
+    }
     stack.push_back(element);
     if (Local(name) == "br" && !add({}, true, true)) {
       return false;
@@ -445,6 +529,44 @@ bool Ttml(std::string_view xml,
   }
   if (!root || stack.size() != 1) {
     return false;
+  }
+  size_t image_bytes = 0;
+  for (const Image& image : images) {
+    const int64_t a = std::max(start, image.element.start);
+    const int64_t b = std::min(end, image.element.end);
+    if (a >= b) continue;
+    auto region = regions.find(image.element.region);
+    if (region == regions.end() || !resources) return false;
+    std::vector<uint8_t> png;
+    int width = 0;
+    int height = 0;
+    if (!resources(image.uri, &png) || !SubtitlePngSize(png, &width, &height))
+      return false;
+    const size_t pixels = static_cast<size_t>(width) * height * 4;
+    if (image_bytes + pixels > 16 * kMaxTextBytes) return false;
+    image_bytes += pixels;
+    SubtitleBitmap bitmap;
+    int region_width = 0;
+    int region_height = 0;
+    if (!Pair(region->second.extent, 0, 0, false, &region_width,
+              &region_height) ||
+        region_width != width || region_height != height ||
+        !DecodeSubtitlePng(png, &bitmap))
+      return false;
+    if (!region->second.origin.empty() &&
+        !Pair(region->second.origin, canvas_width, canvas_height, true,
+              &bitmap.x, &bitmap.y))
+      return false;
+    SubtitleCue cue;
+    cue.start = a;
+    cue.end = b;
+    cue.canvas_width = canvas_width;
+    cue.canvas_height = canvas_height;
+    std::vector<SubtitleBitmap> bitmaps;
+    bitmaps.push_back(std::move(bitmap));
+    cue.bitmaps =
+        std::make_shared<const std::vector<SubtitleBitmap>>(std::move(bitmaps));
+    cues->push_back(std::move(cue));
   }
   size_t output_bytes = 0;
   for (int p = 0; p < paragraphs; ++p) {
@@ -560,16 +682,18 @@ bool ParseMp4Subtitle(std::string_view format,
                       std::string_view sample,
                       int64_t start,
                       int64_t duration,
-                      std::vector<SubtitleCue>* cues) {
+                      std::vector<SubtitleCue>* cues,
+                      const SubtitleResourceReader& resources) {
   if (sample.size() > kMaxTextBytes || start < -kMaxTime || start >= kMaxTime ||
       duration <= 0 || duration >= kMaxTime - start) {
     return false;
   }
   const int64_t end = start + duration;
   std::vector<SubtitleCue> parsed;
-  const bool ok = format == "wvtt"
-                      ? WebVtt(sample, start, end, &parsed)
-                      : format == "stpp" && Ttml(sample, start, end, &parsed);
+  const bool ok =
+      format == "wvtt"
+          ? WebVtt(sample, start, end, &parsed)
+          : format == "stpp" && Ttml(sample, start, end, &parsed, resources);
   if (ok) {
     cues->insert(cues->end(), std::make_move_iterator(parsed.begin()),
                  std::make_move_iterator(parsed.end()));

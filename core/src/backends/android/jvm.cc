@@ -2,6 +2,7 @@
 
 #include "backends/android/jvm.h"
 
+#include <android/api-level.h>
 #include <dlfcn.h>
 #include <pthread.h>
 
@@ -33,6 +34,11 @@ JavaVM* GetJavaVm() {
   std::call_once(once, [] {
     pthread_key_create(&detach_key, &Detach);
     if (java_vm.load()) {
+      return;
+    }
+    // Before API 31 libnativehelper's invocation stub aborts without a
+    // JniInvocation instance, rather than reporting that no VM exists.
+    if (android_get_device_api_level() < 31) {
       return;
     }
     using GetCreatedJavaVms = jint (*)(JavaVM**, jsize, jsize*);
