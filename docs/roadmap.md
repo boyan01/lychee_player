@@ -127,9 +127,11 @@ building on top of them.
    chips; supporting them needs `tool/build_ffmpeg.sh
    android-armeabi-v7a`, the ABI in the AAR and the release, and a 32-bit
    device or emulator to run on.
-4. **Software AV1**: the shipped FFmpeg has no AV1 software decoder, so
-   AV1 plays only where the GPU decodes it (on Apple, M3 and A17 Pro and
-   later). Add dav1d (BSD) to `tool/build_ffmpeg.sh` if it matters.
+4. **Software AV1 on Linux and Windows**: their shipped FFmpeg has no
+   dav1d (Apple's and Android's have), so AV1 plays there only where the
+   GPU decodes it. `tool/build_ffmpeg.sh` builds dav1d with meson for
+   Apple and Android; Linux would take the same, Windows a mingw-w64
+   cross file.
 
 ## FFmpeg-free builds
 

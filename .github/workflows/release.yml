@@ -32,12 +32,12 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Install tools
-        run: brew install nasm ninja pkg-config
+        run: brew install meson nasm ninja pkg-config
       - run: tool/release.sh version "$VERSION"
       - name: FFmpeg cache key
         id: ffmpeg
         run: |
-          inputs="$(cat tool/build_ffmpeg.sh tool/apple_framework.sh; grep -E '^(ffmpeg|mbedtls)_' tool/release.sh; xcodebuild -version)"
+          inputs="$(cat tool/build_ffmpeg.sh tool/apple_framework.sh; grep -E '^(ffmpeg|mbedtls|dav1d)_' tool/release.sh; xcodebuild -version)"
           echo "key=ffmpeg-apple-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -69,12 +69,12 @@ jobs:
           distribution: temurin
           java-version: 21
       - name: Install tools
-        run: sudo apt-get install -y ninja-build pkg-config
+        run: sudo apt-get install -y meson ninja-build pkg-config
       - run: tool/release.sh version "$VERSION"
       - name: FFmpeg cache key
         id: ffmpeg
         run: |
-          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^(ffmpeg|mbedtls)_' tool/release.sh; echo "$ANDROID_NDK_HOME")"
+          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^(ffmpeg|mbedtls|dav1d)_' tool/release.sh; echo "$ANDROID_NDK_HOME")"
           echo "key=ffmpeg-android-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:

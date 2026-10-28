@@ -213,6 +213,13 @@ bool FFmpegVideoDecoder::Initialize(const VideoConfig& config,
                                     std::string* error) {
   AVCodecParameters* parameters = CreateCodecParameters(config);
   const AVCodec* codec = avcodec_find_decoder(parameters->codec_id);
+  // FFmpeg prefers libdav1d for AV1, which has no hwaccel; the native
+  // decoder does, and decodes only through one.
+  if (hardware_ && parameters->codec_id == AV_CODEC_ID_AV1) {
+    if (const AVCodec* native = avcodec_find_decoder_by_name("av1")) {
+      codec = native;
+    }
+  }
   if (!codec) {
     avcodec_parameters_free(&parameters);
     *error = "no decoder for " + config.codec_name;

@@ -6,9 +6,10 @@
 #   tool/release.sh version VERSION    set flutter/pubspec.yaml's version;
 #                                      flutter/CHANGELOG.md must have
 #                                      a "## VERSION" section
-#   tool/release.sh sources DIR        download the pinned FFmpeg and Mbed TLS
-#                                      sources into DIR (release assets too:
-#                                      the LGPL asks for the source)
+#   tool/release.sh sources DIR        download the pinned FFmpeg, Mbed TLS
+#                                      and dav1d sources into DIR (release
+#                                      assets too: the LGPL asks for the
+#                                      source)
 #   tool/release.sh build apple|android|linux|windows SOURCES
 #                                      build FFmpeg (matching fingerprints
 #                                      in third_party are kept) and the
@@ -66,6 +67,10 @@ ffmpeg_url=https://ffmpeg.org/releases/ffmpeg-$ffmpeg_version.tar.xz
 mbedtls_version=3.6.7
 mbedtls_sha256=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6
 mbedtls_url=https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$mbedtls_version/mbedtls-$mbedtls_version.tar.bz2
+# Software AV1 on Apple and Android (tool/build_ffmpeg.sh).
+dav1d_version=1.5.4
+dav1d_sha256=686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5
+dav1d_url=https://downloads.videolan.org/pub/videolan/dav1d/$dav1d_version/dav1d-$dav1d_version.tar.xz
 
 windows=0
 case "$(uname -s)" in
@@ -117,6 +122,7 @@ cmd_sources() {
   mkdir -p "$dir"
   download "$ffmpeg_url" "$dir/ffmpeg-$ffmpeg_version.tar.xz" "$ffmpeg_sha256"
   download "$mbedtls_url" "$dir/mbedtls-$mbedtls_version.tar.bz2" "$mbedtls_sha256"
+  download "$dav1d_url" "$dir/dav1d-$dav1d_version.tar.xz" "$dav1d_sha256"
 }
 
 # Linux FFmpeg is built natively, for this machine's architecture.
@@ -138,6 +144,7 @@ build_ffmpeg() {
   fingerprint="$({
     printf '%s\n' "$platform" "$ffmpeg_sha256"
     [ "${platform#android-}" = "$platform" ] || printf '%s\n' "$mbedtls_sha256"
+    printf '%s\n' "${DAV1D_SOURCE_DIR:+$dav1d_sha256}"
     cat "$root/tool/build_ffmpeg.sh" "$root/tool/apple_framework.sh"
     # configure also accepts these environment overrides.
     printf '%s\n' "${CC:-}" "${CXX:-}" "${CFLAGS:-}" "${CPPFLAGS:-}" "${LDFLAGS:-}"
@@ -164,10 +171,13 @@ cmd_build() {
   src="$root/build-ffmpeg/src/$ffmpeg_sha256-$mbedtls_sha256"
   mkdir -p "$src"
   [ -d "$src/ffmpeg-$ffmpeg_version" ] || tar xJf "$sources/ffmpeg-$ffmpeg_version.tar.xz" -C "$src"
+  local dav1d="$root/build-ffmpeg/src/dav1d-$dav1d_sha256"
+  mkdir -p "$dav1d"
+  [ -d "$dav1d/dav1d-$dav1d_version" ] || tar xJf "$sources/dav1d-$dav1d_version.tar.xz" -C "$dav1d"
   case "$target" in
     apple)
       for p in "${apple_platforms[@]}"; do
-        build_ffmpeg "$p" "$src/ffmpeg-$ffmpeg_version"
+        DAV1D_SOURCE_DIR="$dav1d/dav1d-$dav1d_version" build_ffmpeg "$p" "$src/ffmpeg-$ffmpeg_version"
       done
       "$root/tool/package_ffmpeg_apple.sh"
       "$root/tool/build_apple.sh"
@@ -176,7 +186,8 @@ cmd_build() {
     android)
       [ -d "$src/mbedtls-$mbedtls_version" ] || tar xjf "$sources/mbedtls-$mbedtls_version.tar.bz2" -C "$src"
       for p in "${android_platforms[@]}"; do
-        build_ffmpeg "$p" "$src/ffmpeg-$ffmpeg_version" "$src/mbedtls-$mbedtls_version"
+        DAV1D_SOURCE_DIR="$dav1d/dav1d-$dav1d_version" \
+          build_ffmpeg "$p" "$src/ffmpeg-$ffmpeg_version" "$src/mbedtls-$mbedtls_version"
       done
       "$root/sdk/android/gradlew" -p "$root/sdk/android" :lychee:publish
       ;;

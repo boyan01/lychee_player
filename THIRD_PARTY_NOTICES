@@ -10,9 +10,10 @@ What each artifact contains:
 - lychee.xcframework (macOS, iOS) and the libav*.xcframework /
   libsw*.xcframework next to it: the lychee core, which includes code
   ported from Chromium (1), linked dynamically against FFmpeg (2) under the
-  LGPL version 2.1 or later.
+  LGPL version 2.1 or later, which contains dav1d (5).
 - The Android AAR (tech.soit.lychee:lychee): the lychee core (1) and FFmpeg
-  (2) under the LGPL version 3 or later, because it links Mbed TLS (3).
+  (2) under the LGPL version 3 or later, because it links Mbed TLS (3); it
+  contains dav1d (5).
 - The Flutter plugin on Windows: the lychee core (1), compiled from
   source, and FFmpeg (2) under the LGPL version 2.1 or later, downloaded
   from the lychee_player release when the app is built; its DLLs contain
@@ -73,8 +74,9 @@ The FFmpeg libraries are built without --enable-gpl and without
 lychee_player repository from the FFmpeg release whose source is
 attached to each lychee_player release
 (https://github.com/boyan01/lychee_player/releases,
-ffmpeg-VERSION.tar.xz). They contain FFmpeg only, plus Mbed TLS on
-Android (3) and zlib and the mingw-w64 runtime on Windows (4). On Linux
+ffmpeg-VERSION.tar.xz). They contain FFmpeg only, plus dav1d on macOS,
+iOS and Android (5), Mbed TLS on Android (3) and zlib and the mingw-w64
+runtime on Windows (4). On Linux
 they use the system's GnuTLS (LGPL 2.1 or later), libva, libdrm and
 zlib, linked dynamically and not shipped.
 
@@ -107,6 +109,38 @@ linked statically:
   this file; some of its files are in the public domain.
 - GCC's libgcc, under the GPL version 3 with the GCC Runtime Library
   Exception, which places no conditions on the DLLs.
+
+
+5. dav1d (macOS, iOS and Android)
+
+The FFmpeg libraries for macOS, iOS and Android contain dav1d
+(https://code.videolan.org/videolan/dav1d), the AV1 decoder, linked
+statically into libavcodec. Its source code is attached to each
+lychee_player release (dav1d-VERSION.tar.xz). It carries this license:
+
+Copyright © 2018-2025, VideoLAN and dav1d authors
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 ===============================================================================
