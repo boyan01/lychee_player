@@ -57,19 +57,19 @@ building on top of them.
   takes part (a bare `flutter create` app quitting the same way) and fix
   or report it upstream; done when the example exits with 0.
 
-1. **MPEG-TS and HLS through FFmpeg's demuxer off Apple**: on Linux,
-   Windows and Android the FFmpeg build still reads TS and HLS with
-   `FFmpegDemuxer`, so timestamps that start over inside a TS file
+1. **MPEG-TS and HLS through FFmpeg's demuxer on Linux and Android**:
+   there the FFmpeg build still reads TS and HLS with `FFmpegDemuxer`,
+   so timestamps that start over inside a TS file
    (`ts_timestamp_reset.ts`: 3.021 s instead of 6 s, seeks into the
    wrong half), HLS audio renditions on another timeline
    (`hls_alt/master.m3u8`, 1 s out of sync) and slow seeks past an HLS
-   discontinuity remain there; Apple's FFmpeg build opens them with the
-   own demuxers (`media/factory.cc`). TS needs only files there; HLS
-   reads through the http `DataSource`, which Windows and Android now
-   have. TS video
+   discontinuity remain there; Apple's and Windows' FFmpeg builds open
+   them with the own demuxers (`media/factory.cc`). TS needs only files
+   there; HLS reads through the http `DataSource`, which Android now
+   has. TS video
    comes without extradata (Annex B, parameter sets in band), which
-   MediaCodec and Media Foundation have not been tried with. Done when
-   `tool/regression.sh`'s `own_ts` cases pass on Linux and Windows, and
+   MediaCodec has not been tried with (Media Foundation takes it). Done
+   when `tool/regression.sh`'s `own_ts` cases pass on Linux, and
    the Android example plays `ts_timestamp_reset.ts` with hardware
    decoding.
 2. **TS runs found while reading, audio first**: where timestamps start
