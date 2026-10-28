@@ -17,9 +17,11 @@ namespace {
 
 using Bytes = std::vector<uint8_t>;
 
+// Fields wider than eight bytes (zeros, e.g. mdhd's times) start with
+// zeros.
 void Put(Bytes* out, uint64_t value, int bytes) {
   for (int i = bytes - 1; i >= 0; --i) {
-    out->push_back(static_cast<uint8_t>(value >> (8 * i)));
+    out->push_back(i < 8 ? static_cast<uint8_t>(value >> (8 * i)) : 0);
   }
 }
 
