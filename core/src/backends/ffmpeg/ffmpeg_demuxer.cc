@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 #include "backends/ffmpeg/ffmpeg_common.h"
 #include "base/log.h"
@@ -250,6 +251,13 @@ struct FFmpegDemuxer::Io {
 #endif
 
 FFmpegDemuxer::FFmpegDemuxer() : av_packet_(av_packet_alloc()) {}
+
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+FFmpegDemuxer::FFmpegDemuxer(std::unique_ptr<DataSource> input)
+    : FFmpegDemuxer() {
+  input_ = std::move(input);
+}
+#endif
 
 FFmpegDemuxer::~FFmpegDemuxer() {
   avformat_close_input(&format_context_);
@@ -916,7 +924,11 @@ int64_t FFmpegDemuxer::SeekPacket(void* opaque, int64_t offset, int whence) {
 AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url,
                                    std::string* error,
                                    bool* cleartext_refused) {
-  std::unique_ptr<DataSource> source = OpenDataSource(url, error);
+  // The first open is the input's.
+  std::unique_ptr<DataSource> source = std::move(input_);
+  if (!source) {
+    source = OpenDataSource(url, error);
+  }
   if (!source) {
     return nullptr;
   }

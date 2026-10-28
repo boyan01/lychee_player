@@ -19,8 +19,9 @@ core/                 C++ core, no UI toolkit dependency
     backends/apple/   CoreAudio output, CVPixelBuffer conversion; without
                       FFmpeg also VideoToolbox/AudioToolbox decoders, HTTP
     backends/mp4/     MP4 demuxer and tx3g text for builds without FFmpeg
-    backends/mp2t/    MPEG-TS demuxer for builds without FFmpeg
-    backends/hls/     HLS demuxer (TS, fMP4) for builds without FFmpeg
+    backends/mp2t/    MPEG-TS demuxer: without FFmpeg, and with it on Apple
+    backends/hls/     HLS demuxer (TS, fMP4): without FFmpeg, and with it
+                      on Apple, where FFmpeg takes what these cannot play
     backends/android/ AAudio output
     backends/windows/ WASAPI output
     backends/linux/   PulseAudio (and PipeWire's pulse server) output

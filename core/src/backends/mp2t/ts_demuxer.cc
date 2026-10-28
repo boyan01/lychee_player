@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <string>
 #include <utility>
 
 #include "base/log.h"
@@ -40,6 +41,11 @@ constexpr int kRunStartPackets = 16;
 constexpr int64_t kMaxStepBack = kMicrosPerSecond / 2;
 constexpr int64_t kMaxInterleave = kMicrosPerSecond;
 
+std::string HexByte(int value) {
+  static const char kDigits[] = "0123456789abcdef";
+  return {kDigits[(value >> 4) & 0xf], kDigits[value & 0xf]};
+}
+
 }  // namespace
 
 TsDemuxer::TsDemuxer() = default;
@@ -70,6 +76,13 @@ bool TsDemuxer::Open(std::unique_ptr<DataSource> source, std::string* error) {
       *error = "aborted";
     }
     return false;
+  }
+  if (refuse_skipped_) {
+    const std::vector<int>& skipped = reader_->skipped_stream_types();
+    if (!skipped.empty()) {
+      *error = "stream type 0x" + HexByte(skipped[0]) + " not supported";
+      return false;
+    }
   }
   media_info_ = MediaInfo();
   media_info_.format_name = "mpegts";

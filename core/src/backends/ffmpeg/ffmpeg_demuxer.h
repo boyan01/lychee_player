@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "media/data_source.h"
 #include "media/demuxer.h"
 
 struct AVDictionary;
@@ -29,6 +30,11 @@ namespace lychee {
 class FFmpegDemuxer : public Demuxer {
  public:
   FFmpegDemuxer();
+#if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+  // Reads the input through |input|, opened (and partly read) by the
+  // format probe (ProbingDemuxer), rather than opening it again.
+  explicit FFmpegDemuxer(std::unique_ptr<DataSource> input);
+#endif
   ~FFmpegDemuxer() override;
 
   const char* name() const override { return "ffmpeg"; }
@@ -116,6 +122,8 @@ class FFmpegDemuxer : public Demuxer {
                           int,
                           AVDictionary**) = nullptr;
   int (*default_io_close_)(AVFormatContext*, AVIOContext*) = nullptr;
+  // The input's source until FFmpeg opens the input.
+  std::unique_ptr<DataSource> input_;
   // Every open source: the input's and what demuxers open themselves (HLS
   // playlists and segments). Interrupt() and Abort() reach them from other
   // threads under the mutex.

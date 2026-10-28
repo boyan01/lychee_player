@@ -52,24 +52,6 @@ building on top of them.
 
 ## Known defects
 
-- **Timestamps restarting inside a single TS file with FFmpeg**:
-  `FFmpegDemuxer` passes FFmpeg's timestamps on as they are, so
-  `ts_timestamp_reset.ts` (two TS files joined without remuxing) reports
-  3.021 s instead of about 6 s, drifts by up to 3 s, and seeks into the
-  second half land in the first. The FFmpeg-free `TsDemuxer` joins such
-  runs (`TsTimeline`); do the same for FFmpeg's `mpegts` (formats with
-  `AVFMT_TS_DISCONT`). Done when `tool/regression.sh`'s
-  `ts-timestamp-reset` and `seek-ts-reset*` cases, now run only with
-  `NO_FFMPEG=1`, pass in both builds.
-- **HLS audio renditions with FFmpeg**: FFmpeg's HLS demuxer does not
-  put an audio rendition's timestamps on the variant's timeline when
-  they start elsewhere: `hls_alt/master.m3u8` (TS video from 1.4 s,
-  audio renditions in TS and in fMP4 from 0) plays 1 s out of sync
-  (`max_drift=1016ms`), with the tone at 0.02 s instead of 0.95 s, and
-  its tracks have no titles. The FFmpeg-free `HlsDemuxer` shares each
-  discontinuity's offset between renditions. Done when
-  `http-hls-renditions*`, now run only with `NO_FFMPEG=1`, pass in both
-  builds.
 - **The Flutter example crashes on quitting on Windows**: after
   `--seconds N` it calls `exitApplication(AppExitType.required)`, and the
   process ends with 0xC000041D (an access violation in
@@ -87,13 +69,29 @@ building on top of them.
   the supported minimum, and account for the iOS argument; done when all
   Apple slices build without these warnings.
 
-1. **Slow HLS seeks past a discontinuity with FFmpeg**: FFmpeg's HLS seek
-   drops every packet past a discontinuity where timestamps start over,
-   so `FFmpegDemuxer` reads from before the first discontinuity (from the
-   start if none has been read yet). Long streams make that slow; only an
-   HLS demuxer that knows the segments, as the FFmpeg-free one does,
-   would do better.
-2. **iOS foreground recovery needs device verification** (waiting on the
+1. **MPEG-TS and HLS through FFmpeg's demuxer off Apple**: on Linux,
+   Windows and Android the FFmpeg build still reads TS and HLS with
+   `FFmpegDemuxer`, so timestamps that start over inside a TS file
+   (`ts_timestamp_reset.ts`: 3.021 s instead of 6 s, seeks into the
+   wrong half), HLS audio renditions on another timeline
+   (`hls_alt/master.m3u8`, 1 s out of sync) and slow seeks past an HLS
+   discontinuity remain there; Apple's FFmpeg build opens them with the
+   own demuxers (`media/factory.cc`). TS needs only files there; HLS
+   reads through the http `DataSource`, which Windows and Android now
+   have. TS video
+   comes without extradata (Annex B, parameter sets in band), which
+   MediaCodec and Media Foundation have not been tried with. Done when
+   `tool/regression.sh`'s `own_ts` cases pass on Linux and Windows, and
+   the Android example plays `ts_timestamp_reset.ts` with hardware
+   decoding.
+2. **TS runs found while reading, audio first**: where timestamps start
+   over in a part of the input the open did not sample, and a run's
+   audio arrives before its video (video PES packets of unknown length
+   are handed out only when the next starts), that audio is placed on a
+   provisional shift until the video sets the run's shift, then steps
+   back by the difference (tens of ms). Seen with a synthetic stream in
+   `mp2t_test.cc`, not with a real file.
+3. **iOS foreground recovery needs device verification** (waiting on the
    user): an iPhone 17 (2026-10-27) rejected 32 video packets (`-12909`)
    after an apparent interruption or background transition; the actual
    lifecycle trigger is unconfirmed. The native and Flutter frame drivers

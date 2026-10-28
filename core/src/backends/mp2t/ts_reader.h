@@ -98,6 +98,11 @@ class TsReader : private TsParser::Client {
   static size_t RunAt(const TsTimeline& timeline, int64_t offset);
 
   const std::vector<TsStream>& streams() const { return streams_; }
+  // The types of the audio, video and subtitle streams the program lists
+  // that are not in streams() (MPEG-2 video, DVB subtitles, ...), and of
+  // MPEG audio streams whose frames are Layer I or II, which streams()
+  // lists but has no frames of; in the order first seen.
+  const std::vector<int>& skipped_stream_types() const { return skipped_; }
   // Where the first packet starts, and the packet size (188 or 192).
   int64_t data_start() const { return data_start_; }
   int packet_size() const { return packet_size_; }
@@ -130,6 +135,15 @@ class TsReader : private TsParser::Client {
     // restart), and its last DTS there in ticks.
     int run = -1;
     int64_t last_ticks = kNoTimestamp;
+    // The latest end of a packet emitted since the restart; after a
+    // non-anchor stream went on in the next run, where it ended in the
+    // run before.
+    int64_t end = kNoTimestamp;
+    int64_t overlap_until = kNoTimestamp;
+    // Its type in the PMT; MPEG audio: PES packets left to look at for
+    // the layer.
+    int stream_type = 0;
+    int layer_checks = 8;
   };
   struct Queued {
     EncodedPacket packet;
@@ -148,6 +162,11 @@ class TsReader : private TsParser::Client {
   void Flush();
   // AAC in ADTS and MP3: one packet per frame, timed from the PES's PTS.
   void SplitFrames(int stream, const PesPacket& pes, int64_t pts);
+  // Adds |stream_type| to skipped_.
+  void Skip(int stream_type);
+  // MPEG audio: notes Layer I or II from the frame header a PES packet
+  // starts with (muxers align them).
+  void CheckLayer(int stream, const PesPacket& pes);
   // Queues |packet| behind the previous one of its stream.
   void Emit(int stream, EncodedPacket packet, int64_t offset);
   int64_t Unwrap(int64_t ticks);
@@ -173,6 +192,7 @@ class TsReader : private TsParser::Client {
   bool synced_ = true;
 
   std::vector<TsStream> streams_;
+  std::vector<int> skipped_;
   std::vector<StreamState> states_;
   std::map<int, int> stream_by_pid_;
   std::deque<Queued> queue_;

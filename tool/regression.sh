@@ -95,6 +95,10 @@ if [ "${NO_FFMPEG:-0}" = 1 ]; then
   build="$build-noffmpeg"
   flags+=(-DLYCHEE_WITH_FFMPEG=OFF)
 fi
+# MPEG-TS and HLS go to the core's own demuxers on Apple in both builds
+# (media/factory.cc); elsewhere FFmpeg's demuxer reads them.
+own_ts=0
+[ "$(uname)" = Darwin ] && own_ts=1
 
 # Test media, generated once. Synthetic so the expected output is known.
 gen() {
@@ -138,6 +142,10 @@ gen offset.ts -i "$media/h264_aac.mp4" -c copy -output_ts_offset 10 -f mpegts
 # A keyframe a second, as broadcasts have (h264_aac.mp4 has one).
 gen keyframes.ts -i "$media/h264_aac.mp4" -c:v libx264 -preset veryfast -g 30 -c:a copy -f mpegts
 gen hevc10.ts -i "$media/hevc10.mp4" -c copy -f mpegts
+# AC-3 (the own demuxer, FFmpeg's decoder) and LATM AAC (FFmpeg's demuxer)
+# in TS.
+gen ac3.ts -i "$media/h264_aac.mp4" -t 4 -c:v copy -c:a ac3 -f mpegts
+gen latm.ts -i "$media/h264_aac.mp4" -t 4 -c:v copy -c:a aac -mpegts_flags latm -f mpegts
 # The index at the front, so a cut file still opens; then cut in half.
 gen faststart.mp4 -i "$media/h264_aac.mp4" -c copy -movflags +faststart
 [ -f "$media/truncated.mp4" ] || { head -c 4358118 "$media/faststart.mp4" >"$media/truncated.tmp" &&
@@ -407,6 +415,21 @@ fi
   '#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2"' index.m3u8 \
   '#EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=1920x1080,CODECS="vp09.00.40.08,mp4a.40.2"' index.m3u8 \
   >"$media/hls/master.m3u8"
+# Only a variant the own HLS demuxer does not take (said to be VP9, the
+# segments are H.264): FFmpeg's plays it.
+[ -f "$media/hls/vp9_master.m3u8" ] || printf '%s\n' '#EXTM3U' \
+  '#EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=1920x1080,CODECS="vp09.00.40.08,mp4a.40.2"' index.m3u8 \
+  >"$media/hls/vp9_master.m3u8"
+# A WebVTT subtitle rendition, which only FFmpeg's HLS reads.
+if [ ! -f "$media/hls/subs_master.m3u8" ]; then
+  printf '%s\n' WEBVTT '' '00:00:01.000 --> 00:00:03.000' 'Hello' >"$media/hls/subs.vtt"
+  printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:12' '#EXT-X-PLAYLIST-TYPE:VOD' '#EXTINF:12.0,' subs.vtt \
+    '#EXT-X-ENDLIST' >"$media/hls/subs.m3u8"
+  printf '%s\n' '#EXTM3U' \
+    '#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en",DEFAULT=YES,URI="subs.m3u8"' \
+    '#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",SUBTITLES="subs"' \
+    index.m3u8 >"$media/hls/subs_master.m3u8"
+fi
 [ -f "$media/hls/live_master.m3u8" ] || sed -e 's|^index\.m3u8|live.m3u8|' \
   -e 's|hls_low/index\.m3u8|hls_low/live.m3u8|' -e '/vp09/,+1d' "$media/hls/master.m3u8" \
   >"$media/hls/live_master.m3u8"
@@ -817,21 +840,31 @@ par check seek-mkv-no-cues 1 1.000 -- --seek 1 --seek-after 5 "$media/mkv_no_cue
 par check seek-mkv-unknown-sizes 1 7.500 -- --seek 7.5 --seek-after 2 "$media/mkv_unknown_sizes.mkv"
 # MPEG-TS seeks to the keyframe before the target (8.33 s apart here) and
 # lands on the target frame (10 s offset + start 1.377 s + 7.5 s): by
-# bisection without FFmpeg, by reading on from before it with FFmpeg,
-# whose own seek lands on a packet, not a keyframe.
+# bisection in the own demuxer, by reading on from before it with
+# FFmpeg's, whose own seek lands on a packet, not a keyframe.
 par check seek-ts           1 18.867 -- --seek 7.5 --seek-after 2 "$media/offset.ts"
 par check seek-ts-backward  1 12.367 -- --seek 1 --seek-after 5 "$media/offset.ts"
 par check seek-ts-hevc10    1 7.442 -- --seek 6 --seek-after 2 "$media/hevc10.ts"
 # Into the second rendition.
 par check seek-ts-rendition 1 5.433 -- --seek 4 --seek-after 1 "$media/resolution_change.ts"
 # Timestamps that start over midway: the second run follows the first
-# (TsTimeline), and seeks land on either side. FFmpeg's demuxer does not
-# join them (roadmap).
-if [ "${NO_FFMPEG:-0}" = 1 ]; then
+# (TsTimeline), and seeks land on either side. FFmpeg's demuxer, which
+# reads TS elsewhere than on Apple, does not join them (roadmap).
+if [ "$own_ts" = 1 ]; then
   par expect ts-timestamp-reset "summary: state=ended position=6\.029s .*rendered=180 dropped=0 glitches=0 " -- \
     "$media/ts_timestamp_reset.ts"
   par check seek-ts-reset 1 6.233 -- --seek 4.8 --seek-after 1 "$media/ts_timestamp_reset.ts"
   par check seek-ts-reset-backward 1 2.933 -- --seek 1.5 --seek-after 5 "$media/ts_timestamp_reset.ts"
+fi
+# FFmpeg's decoders take AC-3 from the own demuxer, which hands what it
+# would skip (LATM here) to FFmpeg's demuxer. No AC-3 or LATM without
+# FFmpeg.
+if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
+  par expect ts-ac3 "<=0 the fallback opens it" "track 1: audio ac3 44100 Hz 1 ch " \
+    "summary: state=ended position=4\.1[0-9]{2}s .*rendered=122 " -- "$media/ac3.ts"
+  par expect ts-fallback "mpegts: stream type 0x11 not supported; the fallback opens it" \
+    "track 1: audio aac_latm " "summary: state=ended position=4\.1[0-9]{2}s .*rendered=122 .*glitches=0 " -- \
+    "$media/latm.ts"
 fi
 par expect loop-ts "video size 640x360" "loops=1" "summary:.*backward_jumps=0 " "<=0 event: state (ended|buffering)" -- \
   --loop --seconds 9 "$media/resolution_change.ts"
@@ -1182,8 +1215,8 @@ exits=1 seq_ expect http-loop-seek-failed "403 [Ff]orbidden" "error: loop seek f
   "<=0 event: state ended" -- --loop "http://127.0.0.1:$port/offset.ts"
 serve
 seq_ check http-ts 1 - -- "http://127.0.0.1:$port/offset.ts"
-# HLS reads its playlist and segments through the same http client (the
-# FFmpeg build through io_open). Behind a redirect, relative segment URLs
+# HLS reads its playlist and segments through the same http client
+# (FFmpeg's HLS through io_open). Behind a redirect, relative segment URLs
 # resolve against where the playlist came from.
 serve --redirect /moved.m3u8 /hls/index.m3u8
 seq_ check http-hls 1 - -- "http://127.0.0.1:$port/hls/index.m3u8"
@@ -1200,8 +1233,9 @@ seq_ check http-hls-aes-fmp4 1 7.033 -- --seek 7 --seek-after 2 "http://127.0.0.
 # selected; read alongside the variant, the French one's tone sounds where
 # its timestamps put it (its first packet 1.400 s, AAC priming 21.3 ms,
 # the tone at 1 s; the video from 1.467 s). Switching keeps the position.
-# FFmpeg's HLS puts the fMP4 rendition 1 s off (roadmap).
-if [ "${NO_FFMPEG:-0}" = 1 ]; then
+# FFmpeg's HLS, which plays HLS elsewhere than on Apple, puts the fMP4
+# rendition 1 s off (roadmap).
+if [ "$own_ts" = 1 ]; then
   seq_ expect http-hls-renditions "track 1: audio .* lang=en title=English selected=0" \
     "track 2: audio .* lang=fr title=French selected=1" \
     "summary: state=ended position=12\.000s .*backward_jumps=0 .*audio_onset=0\.95[4-6]" -- \
@@ -1211,16 +1245,25 @@ if [ "${NO_FFMPEG:-0}" = 1 ]; then
     --select audio:1@3 "http://127.0.0.1:$port/hls_alt/master.m3u8"
   seq_ check http-hls-renditions-seek 1 8.433 -- --seek 7 --seek-after 2 "http://127.0.0.1:$port/hls_alt/master.m3u8"
 fi
-# A master playlist plays one variant: FFmpeg's build the first, the
-# FFmpeg-free one the highest bandwidth it can decode (not the VP9 one).
+# A master playlist plays one variant: FFmpeg's HLS the first, the own
+# one the highest bandwidth it can decode (not the VP9 one).
 hls_variant="video size (640x360|1920x1080)"
-[ "${NO_FFMPEG:-0}" = 1 ] && hls_variant="variant 1 of 3: .* 1920x1080"
+[ "$own_ts" = 1 ] && hls_variant="variant 1 of 3: .* 1920x1080"
 seq_ expect http-hls-master "$hls_variant" "summary: state=ended position=12\.000s" -- \
   "http://127.0.0.1:$port/hls/master.m3u8"
+# A playlist the own demuxer refuses goes to FFmpeg's, and so does one
+# with subtitle renditions, which only FFmpeg's reads.
+if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
+  seq_ expect http-hls-fallback "hls: no HLS variant .*; the fallback opens it" "video size 1920x1080" \
+    "summary: state=ended position=12\.000s" -- "http://127.0.0.1:$port/hls/vp9_master.m3u8"
+fi
+[ "${NO_FFMPEG:-0}" != 1 ] &&
+  seq_ expect http-hls-subtitles "track 0: subtitle webvtt lang=en " "summary: state=ended position=12\.000s" -- \
+    "http://127.0.0.1:$port/hls/subs_master.m3u8"
 # The other variants are video tracks, read once selected (TS, and fMP4
 # made Annex B: described by the master playlist, they have no avcC);
 # their audio is the first's, and video off reads only that.
-if [ "${NO_FFMPEG:-0}" = 1 ]; then
+if [ "$own_ts" = 1 ]; then
   seq_ expect http-hls-variants "track 2: video h264 640x360 .*title=640x360, 800 kbit/s selected=0" \
     "select video 2 at [0-9.]+s: accepted" "video size 640x360" "track switch: resumed [+-]0\.0[0-9]{2}s" \
     "summary: state=ended position=12\.000s .*pulled=360 .*backward_jumps=0 " -- \
@@ -1234,16 +1277,18 @@ if [ "${NO_FFMPEG:-0}" = 1 ]; then
 fi
 # Timestamps that start over at a discontinuity go on from where the
 # previous segment ended, also after a seek into the later segment (which
-# the FFmpeg build reads on to from before the discontinuity).
+# FFmpeg's HLS reads on to from before the discontinuity).
 seq_ expect http-hls-discontinuity "video size 1280x720" "video size 640x360" \
   "summary: state=ended position=6\.000s .*backward_jumps=0 " -- "http://127.0.0.1:$port/hls/discontinuity.m3u8"
 seq_ check http-hls-discontinuity-seek 1 5.433 -- --seek 4 --seek-after 1 \
   "http://127.0.0.1:$port/hls/discontinuity.m3u8"
 # A seek past a discontinuity not read yet: FFmpeg's HLS seek finds nothing
-# there, and the FFmpeg build reads on from the start. The FFmpeg-free
-# build places the segment by the playlist's times, the FFmpeg build where
-# the video before it ended, 2 ms later.
-seq_ check http-hls-discontinuity-late-seek 1 '14\.43[13]' -- --seek 13 --seek-after 0.2 \
+# there, and FFmpegDemuxer reads on from the start. The own demuxer places
+# the segment by the playlist's times, FFmpegDemuxer where the video
+# before it ended, 2 ms later.
+late_seek='14\.433'
+[ "$own_ts" = 1 ] && late_seek='14\.431'
+seq_ check http-hls-discontinuity-late-seek 1 "$late_seek" -- --seek 13 --seek-after 0.2 \
   "http://127.0.0.1:$port/hls/discontinuity_late.m3u8"
 # Live: segments appear in real time; the playlist reloads until
 # EXT-X-ENDLIST. With no duration the position at the end is where the
@@ -1258,7 +1303,7 @@ realtime=1 seq_ expect http-hls-live "^seekable=0$" "<=0 event: state (error|buf
 # a switch to another variant: it starts at the first one's segment
 # (by media sequence) from a little before the read position, and the
 # audio they share goes on without repeating what was read.
-if [ "${NO_FFMPEG:-0}" = 1 ]; then
+if [ "$own_ts" = 1 ]; then
   serve --live /hls/live.m3u8 /hls/index.m3u8 --live /hls_low/live.m3u8 /hls_low/index.m3u8
   realtime=1 seq_ expect http-hls-live-variants "select video 2 at [0-9.]+s: accepted" "video size 640x360" \
     "<=0 event: state error" "summary: state=ended position=12\.0[0-9]{2}s .*pulled=3(5[5-9]|60) .*backward_jumps=0 " -- \

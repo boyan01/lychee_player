@@ -89,6 +89,34 @@ void Describe(int stream_type, const TsStreamEntry& entry, StreamInfo* info) {
   info->language = entry.language;
 }
 
+// Whether a stream Describe() leaves out carries audio, video or
+// subtitles (MPEG-2 video, DVB subtitles, DTS, ...) rather than data:
+// PSI sections, DSM-CC, ID3 metadata, SCTE-35 cues.
+bool IsOtherMedia(const TsStreamEntry& entry) {
+  switch (entry.stream_type) {
+    case 0x05:
+    case 0x0a:
+    case 0x0b:
+    case 0x0c:
+    case 0x0d:
+    case 0x13:
+    case 0x14:
+    case 0x15:
+    case 0x16:
+    case 0x17:
+    case 0x18:
+    case 0x19:
+    case 0x1a:
+    case 0x7f:
+    case 0x86:
+      return false;
+    case 0x06:
+      return entry.other_media;
+    default:
+      return true;
+  }
+}
+
 }  // namespace
 
 TsReader::TsReader(DataSource* source) : source_(source), parser_(this) {}
@@ -287,6 +315,8 @@ void TsReader::Restart(int64_t offset, int64_t reference) {
     state.adts_anchor = kNoTimestamp;
     state.run = -1;
     state.last_ticks = kNoTimestamp;
+    state.end = kNoTimestamp;
+    state.overlap_until = kNoTimestamp;
   }
   buffer_.clear();
   if (data_start_ >= 0) {
@@ -354,6 +384,9 @@ void TsReader::Join(int index,
     if (step < -kMaxStepBack || step > kMaxPacketDuration) {
       state.run = NextRun(state.run, pes.offset, raw);
       ticks = Nearest(raw, MicrosToTicks(timeline[state.run].start));
+      if (!IsAnchor(index)) {
+        state.overlap_until = state.end;
+      }
     }
   }
   state.last_ticks = ticks;
@@ -382,6 +415,31 @@ void TsReader::Join(int index,
   const int64_t end = *pts + state.last_duration;
   if (run.end == kNoTimestamp || end > run.end) {
     run.end = end;
+  }
+}
+
+void TsReader::Skip(int stream_type) {
+  if (std::find(skipped_.begin(), skipped_.end(), stream_type) ==
+      skipped_.end()) {
+    skipped_.push_back(stream_type);
+  }
+}
+
+void TsReader::CheckLayer(int index, const PesPacket& pes) {
+  StreamState& state = states_[index];
+  if (state.layer_checks == 0 || pes.size < 2) {
+    return;
+  }
+  --state.layer_checks;
+  if (pes.data[0] != 0xff || (pes.data[1] & 0xe0) != 0xe0) {
+    return;
+  }
+  state.layer_checks = 0;
+  const int layer = (pes.data[1] >> 1) & 3;  // 1: Layer III, 0: reserved
+  if (layer > 1) {
+    LOGW("stream %d: MPEG audio Layer %s, not taken", index,
+         layer == 3 ? "I" : "II");
+    Skip(state.stream_type);
   }
 }
 
@@ -435,6 +493,9 @@ void TsReader::OnProgram(const std::vector<TsStreamEntry>& entries) {
     StreamInfo info;
     Describe(entry.stream_type, entry, &info);
     if (info.type == MediaType::kUnknown) {
+      if (IsOtherMedia(entry)) {
+        Skip(entry.stream_type);
+      }
       continue;
     }
     auto same = stream_by_pid_.find(entry.pid);
@@ -442,6 +503,7 @@ void TsReader::OnProgram(const std::vector<TsStreamEntry>& entries) {
         streams_[same->second].info.type == info.type) {
       by_pid[entry.pid] = same->second;
       taken[same->second] = true;
+      states_[same->second].stream_type = entry.stream_type;
     } else {
       unmatched.push_back(&entry);
     }
@@ -474,6 +536,7 @@ void TsReader::OnProgram(const std::vector<TsStreamEntry>& entries) {
     taken[index] = true;
     streams_[index].pid = entry->pid;
     by_pid[entry->pid] = index;
+    states_[index].stream_type = entry->stream_type;
   }
   stream_by_pid_ = std::move(by_pid);
 }
@@ -497,6 +560,9 @@ void TsReader::OnPes(const PesPacket& pes) {
   if (stream.info.type == MediaType::kAudio &&
       (stream.info.audio.codec == AudioCodec::kAAC ||
        stream.info.audio.codec == AudioCodec::kMP3)) {
+    if (stream.info.audio.codec == AudioCodec::kMP3) {
+      CheckLayer(index, pes);
+    }
     SplitFrames(index, pes, pts);
     return;
   }
@@ -521,7 +587,15 @@ void TsReader::OnPes(const PesPacket& pes) {
     // Some encoders mark recovery points (open GOPs, intra refresh)
     // only with the random access indicator and fresh parameter sets.
     packet.keyframe = au.keyframe || (pes.random_access && au.has_sps);
-  } else {
+  } else if (!stream.configured) {
+    // AC-3 and E-AC-3 go to the decoder a PES packet at a time; the
+    // first syncframe describes the stream.
+    AdtsHeader header;
+    if (stream.info.type == MediaType::kAudio &&
+        ParseAc3Header(pes.data, pes.size, &header)) {
+      stream.info.audio.sample_rate = header.sample_rate;
+      stream.info.audio.channels = header.channels;
+    }
     stream.configured = true;
   }
   if (pts == kNoTimestamp) {
@@ -591,11 +665,27 @@ void TsReader::SplitFrames(int index, const PesPacket& pes, int64_t pts) {
 }
 
 void TsReader::Emit(int index, EncodedPacket packet, int64_t offset) {
+  StreamState& state = states_[index];
+  if (state.overlap_until != kNoTimestamp && packet.duration > 0) {
+    // Where files were joined, audio usually ends after the video and
+    // starts before it, so the next run's first frames overlap the end of
+    // the run before. They are dropped (keeping at most half a frame of
+    // overlap): the clock follows audio, and would go back.
+    if (packet.pts + packet.duration / 2 < state.overlap_until) {
+      return;
+    }
+    state.overlap_until = kNoTimestamp;
+  }
+  if (packet.pts != kNoTimestamp) {
+    const int64_t end = packet.pts + std::max<int64_t>(packet.duration, 0);
+    if (state.end == kNoTimestamp || end > state.end) {
+      state.end = end;
+    }
+  }
   TsStream& stream = streams_[index];
   if (stream.first_pts == kNoTimestamp || packet.pts < stream.first_pts) {
     stream.first_pts = packet.pts;
   }
-  StreamState& state = states_[index];
   if (state.pending.valid) {
     EncodedPacket& previous = state.pending.packet;
     const int64_t distance = packet.dts - previous.dts;

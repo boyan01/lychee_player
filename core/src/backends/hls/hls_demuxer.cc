@@ -135,6 +135,15 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
   std::vector<HlsVariant> variants;
   int pick = -1;
   if (playlist.master) {
+    if (refuse_subtitles_) {
+      for (const HlsRendition& rendition : playlist.renditions) {
+        if (rendition.type == HlsRendition::Type::kSubtitles &&
+            !rendition.url.empty()) {
+          *error = "subtitle renditions are not read";
+          return false;
+        }
+      }
+    }
     pick = PickHlsVariant(playlist.variants);
     if (pick < 0) {
       *error = playlist.variants.empty()

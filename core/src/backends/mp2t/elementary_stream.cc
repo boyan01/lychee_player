@@ -417,4 +417,54 @@ bool ParseMp3Header(const uint8_t* data, size_t size, AdtsHeader* header) {
   return header->frame_length > header->header_size;
 }
 
+bool ParseAc3Header(const uint8_t* data, size_t size, AdtsHeader* header) {
+  if (size < 7 || data[0] != 0x0b || data[1] != 0x77) {
+    return false;
+  }
+  static const int kRates[3] = {48000, 44100, 32000};
+  // Channels by acmod: 1+1, 1/0, 2/0, 3/0, 2/1, 3/1, 2/2, 3/2.
+  static const int kChannels[8] = {2, 1, 2, 3, 3, 4, 4, 5};
+  const int bsid = data[5] >> 3;
+  int rate;
+  int acmod;
+  bool lfe;
+  if (bsid <= 10) {
+    // AC-3: crc1, fscod, frmsizecod, bsid, bsmod, acmod, then mixing
+    // levels that depend on acmod, then lfeon.
+    const int fscod = data[4] >> 6;
+    if (fscod == 3) {
+      return false;
+    }
+    rate = kRates[fscod];
+    acmod = data[6] >> 5;
+    int bit = 3;  // Bits of data[6] used.
+    if ((acmod & 1) && acmod != 1) {
+      bit += 2;  // cmixlev
+    }
+    if (acmod & 4) {
+      bit += 2;  // surmixlev
+    }
+    if (acmod == 2) {
+      bit += 2;  // dsurmod
+    }
+    const int byte = 6 + bit / 8;
+    lfe = (data[byte] >> (7 - bit % 8)) & 1;
+  } else if (bsid <= 16) {
+    // E-AC-3: strmtyp, substreamid, frmsiz, fscod, fscod2 or numblkscod,
+    // acmod, lfeon.
+    const int fscod = data[4] >> 6;
+    rate = fscod == 3 ? kRates[(data[4] >> 4) & 3] / 2 : kRates[fscod];
+    if (fscod == 3 && ((data[4] >> 4) & 3) == 3) {
+      return false;
+    }
+    acmod = (data[4] >> 1) & 7;
+    lfe = data[4] & 1;
+  } else {
+    return false;
+  }
+  header->sample_rate = rate;
+  header->channels = kChannels[acmod] + (lfe ? 1 : 0);
+  return true;
+}
+
 }  // namespace lychee

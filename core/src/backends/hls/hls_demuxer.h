@@ -69,6 +69,10 @@ class HlsDemuxer : public Demuxer {
     std::function<bool(int64_t until)> wait;
   };
   void set_clock(Clock clock) { clock_ = std::move(clock); }
+  // Makes Open() fail for a master playlist with subtitle renditions,
+  // which this demuxer does not read: for builds with a demuxer that
+  // reads them (FFmpeg's). Set before Open().
+  void set_refuse_subtitles(bool refuse) { refuse_subtitles_ = refuse; }
 
  private:
   struct Segment : HlsSegment {
@@ -179,6 +183,7 @@ class HlsDemuxer : public Demuxer {
   int64_t Now() const;
 
   Opener opener_ = OpenDataSource;
+  bool refuse_subtitles_ = false;
   Clock clock_;
   std::mutex mutex_;
   std::condition_variable wake_;
