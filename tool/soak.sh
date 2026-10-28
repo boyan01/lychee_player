@@ -12,8 +12,10 @@
 #   CLI=build-asan/examples/cli/lychee_cli tool/soak.sh
 #   tool/soak.sh FILE OTHER_FILE      # default: h264_aac.mp4 and .mkv
 #
-# macOS and Linux. Run tool/regression.sh (or MEDIA_ONLY=1) first for the
-# build and the media.
+# macOS, Linux, and Windows in Git Bash (CLI= the regression's build, e.g.
+# build-lgpl/examples/cli/lychee_cli.exe, with FFmpeg's DLLs on PATH;
+# MEDIA_DIR as C:/...). Run tool/regression.sh (or MEDIA_ONLY=1) first for
+# the build and the media.
 set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -34,7 +36,13 @@ pid=$!
 
 # Resident memory in MB and the thread count of $pid; nothing once it is gone.
 sample() {
-  if [ -r "/proc/$pid/status" ]; then
+  if [ -r "/proc/$pid/winpid" ]; then
+    # A native Windows process: MSYS's /proc knows only its own.
+    local winpid
+    winpid="$(cat "/proc/$pid/winpid")"
+    powershell -NoProfile -Command "\$p = Get-Process -Id $winpid -ErrorAction SilentlyContinue; if (\$p) { '{0} {1}' -f [int](\$p.WorkingSet64 / 1MB), \$p.Threads.Count }" |
+      tr -d '\r'
+  elif [ -r "/proc/$pid/status" ]; then
     awk '/^VmRSS:/ { rss = int($2 / 1024) } /^Threads:/ { n = $2 }
          END { if (rss) print rss, n }' "/proc/$pid/status"
   else
