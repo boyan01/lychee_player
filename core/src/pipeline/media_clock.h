@@ -17,7 +17,8 @@ class MediaClock {
   int64_t MediaTimeAt(int64_t system_time) const;
   int64_t Now() const { return MediaTimeAt(NowMicros()); }
   // The system times at which |media_times| play, as if playing from now on
-  // while paused or waiting for audio. Returns whether time is moving.
+  // while paused, waiting for audio, or after its last supplied sample.
+  // Returns whether time is moving.
   bool SystemTimesFor(const std::vector<int64_t>& media_times,
                       std::vector<int64_t>* system_times) const;
 

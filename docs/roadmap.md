@@ -80,14 +80,6 @@ building on top of them.
    failure; direct C ABI consumers must call
    `lychee_player_rebuild_video_decoder()` on their platform's recovery
    event. Released plugin binaries pinned to API 11 do not have this hook.
-3. **The clock creeps while a stalled audio device is waited for**: in
-   the 2 s before the control thread stands in (`audio-device-stalled`),
-   video should hold one frame, but under TSan 3 more frames go by in
-   small steps, counted as 6 or 7 glitches (2 without TSan). It started
-   with 82f4f6f (NullAudioSink's first-sound scan), which changes nothing
-   but timing, so the creep is an ordering the scan exposes. The case
-   accepts any count under TSan; done when the hold is one frame there
-   too.
 
 ## Features
 

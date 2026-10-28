@@ -81,6 +81,24 @@ TEST(MediaClock, SystemTimesForWhilePausedStartFromNow) {
   EXPECT_NEAR(system_times[0], before, 50 * kMs);
 }
 
+// Test registration allocates before main, as all TEST declarations do.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(MediaClock, AudioUnderrunStopsFrameTimeline) {
+  MediaClock clock;
+  clock.Reset(0);
+  clock.Play(true);
+  const int64_t now = NowMicros();
+  clock.UpdateFromAudio(3 * kSecond, now - 2 * kSecond, 4 * kSecond);
+  std::vector<int64_t> system_times;
+  EXPECT_TRUE(!clock.SystemTimesFor({4 * kSecond, 4100 * kMs}, &system_times));
+  EXPECT_NEAR(system_times[0], now, 50 * kMs);
+  EXPECT_EQ(system_times[1] - system_times[0], 100 * kMs);
+  // The next audio buffer restarts the timeline without changing the rate.
+  clock.UpdateFromAudio(4 * kSecond, now, 4100 * kMs);
+  EXPECT_TRUE(clock.SystemTimesFor({4 * kSecond}, &system_times));
+  EXPECT_EQ(system_times[0], now);
+}
+
 TEST(MediaClock, RateScalesMediaTime) {
   MediaClock clock;
   clock.Reset(0);
