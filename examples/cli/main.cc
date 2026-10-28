@@ -351,6 +351,9 @@ bool ParseOptions(int argc, char** argv, Options* options) {
     } else if (arg == "--d3d11") {
       // CPU frames too, as the Flutter plugin takes them.
       options->frame_type = LYCHEE_FRAME_D3D11_TEXTURE | LYCHEE_FRAME_CPU_BGRA;
+    } else if (arg == "--d3d11-hdr") {
+      options->frame_type = LYCHEE_FRAME_D3D11_TEXTURE_HDR |
+                            LYCHEE_FRAME_D3D11_TEXTURE | LYCHEE_FRAME_CPU_BGRA;
     } else if (arg == "--dmabuf") {
       // Dmabufs on the GPU of a DRM render node, CPU frames too, as the
       // Flutter plugin takes them.
@@ -422,7 +425,23 @@ void PrintMetadata(lychee_player* player) {
 // Subtitle pictures on the video's own canvas: where each goes, and how
 // much of it is opaque and in what colour, to tell text from boxes.
 #if defined(_WIN32)
-// The center pixel of a LYCHEE_FRAME_D3D11_TEXTURE frame, as R, G, B.
+// Normalized RGB bytes, retaining PQ encoding for native HDR textures.
+void TextureRgb(const uint8_t* pixel, DXGI_FORMAT format, int* rgb) {
+  if (format == DXGI_FORMAT_R10G10B10A2_UNORM) {
+    uint32_t value = 0;
+    std::memcpy(&value, pixel, sizeof(value));
+    for (int i = 0; i < 3; ++i) {
+      rgb[i] =
+          static_cast<int>(((value >> (10 * i)) & 1023) * 255 + 511) / 1023;
+    }
+  } else {
+    rgb[0] = pixel[2];
+    rgb[1] = pixel[1];
+    rgb[2] = pixel[0];
+  }
+}
+
+// The center pixel of a D3D11 texture frame, as R, G, B.
 void ReadCenterPixel(ID3D11Device* device,
                      ID3D11DeviceContext* context,
                      lychee_frame* frame,
@@ -439,12 +458,14 @@ void ReadCenterPixel(ID3D11Device* device,
     return;
   }
   D3D11_TEXTURE2D_DESC desc = {};
+  opened->GetDesc(&desc);
   desc.Width = desc.Height = 1;
   desc.MipLevels = desc.ArraySize = 1;
-  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-  desc.SampleDesc.Count = 1;
+  desc.SampleDesc = {1, 0};
   desc.Usage = D3D11_USAGE_STAGING;
+  desc.BindFlags = 0;
   desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  desc.MiscFlags = 0;
   ComPtr<ID3D11Texture2D> staging;
   if (FAILED(device->CreateTexture2D(&desc, nullptr, &staging))) {
     return;
@@ -457,9 +478,14 @@ void ReadCenterPixel(ID3D11Device* device,
   D3D11_MAPPED_SUBRESOURCE mapped = {};
   if (SUCCEEDED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
     const auto* p = static_cast<const uint8_t*>(mapped.pData);
-    rgb[0] = p[2];
-    rgb[1] = p[1];
-    rgb[2] = p[0];
+    TextureRgb(p, desc.Format, rgb);
+    if (desc.Format == DXGI_FORMAT_R10G10B10A2_UNORM) {
+      uint32_t value = 0;
+      std::memcpy(&value, p, sizeof(value));
+      printf(
+          "native frame: R10G10B10A2 transfer=16 primaries=9 rgb10=%u,%u,%u\n",
+          value & 1023, (value >> 10) & 1023, (value >> 20) & 1023);
+    }
     context->Unmap(staging.Get(), 0);
   }
 }
@@ -656,10 +682,28 @@ bool ReadTexture(ID3D11Device* device,
   if (FAILED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
     return false;
   }
-  CopyRgb(static_cast<const uint8_t*>(mapped.pData), mapped.RowPitch,
-          std::min<int>(lychee_frame_get_width(frame), desc.Width),
-          std::min<int>(lychee_frame_get_height(frame), desc.Height), true,
-          image);
+  const int width = std::min<int>(lychee_frame_get_width(frame), desc.Width);
+  const int height = std::min<int>(lychee_frame_get_height(frame), desc.Height);
+  if (desc.Format == DXGI_FORMAT_R10G10B10A2_UNORM) {
+    image->width = width;
+    image->height = height;
+    image->pixels.resize(static_cast<size_t>(width) * height * 3);
+    for (int y = 0; y < height; ++y) {
+      const auto* row = static_cast<const uint8_t*>(mapped.pData) +
+                        static_cast<size_t>(y) * mapped.RowPitch;
+      for (int x = 0; x < width; ++x) {
+        int rgb[3] = {};
+        TextureRgb(row + static_cast<size_t>(x) * 4, desc.Format, rgb);
+        for (int c = 0; c < 3; ++c) {
+          image->pixels[(static_cast<size_t>(y) * width + x) * 3 + c] =
+              static_cast<uint8_t>(rgb[c]);
+        }
+      }
+    }
+  } else {
+    CopyRgb(static_cast<const uint8_t*>(mapped.pData), mapped.RowPitch, width,
+            height, true, image);
+  }
   context->Unmap(staging.Get(), 0);
   return true;
 }
@@ -727,7 +771,8 @@ void WriteFramePpm(lychee_player* player,
   }
 #endif
 #if defined(_WIN32)
-  if (type == LYCHEE_FRAME_D3D11_TEXTURE) {
+  if (type == LYCHEE_FRAME_D3D11_TEXTURE ||
+      type == LYCHEE_FRAME_D3D11_TEXTURE_HDR) {
     read =
         ReadTexture(static_cast<ID3D11Device*>(device),
                     static_cast<ID3D11DeviceContext*>(context), frame, &image);
@@ -954,25 +999,26 @@ class LiveFeed {
 int main(int argc, char** argv) {
   Options options;
   if (!ParseOptions(argc, argv, &options)) {
-    fprintf(stderr,
-            "usage: %s [--seconds N] [--seek SEC [--seek-after SEC]] "
-            "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
-            "[--cpu | --rgba | --native | --d3d11 | --dmabuf NODE | "
-            "--android-surface] "
-            "[--rate R [--rate-after "
-            "SEC]] [--loop [--loop-off-after SEC]] "
-            "[--open-after SEC URL] [--soak SEC URL] [--select "
-            "TYPE:INDEX[@SEC]]... "
-            "[--select-after SEC] [--lose-decoder-after SEC]... "
-            "[--hang-decoder-after SEC]... [--rebuild-decoder-after SEC]... "
-            "[--stall-audio-after SEC "
-            "[--stall-audio-for SEC]] "
-            "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
-            "[--live [--latency MS] [--live-jitter MS] "
-            "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
-            "[--subtitle-ppm FILE] [--frame-ppm SEC:FILE]... [--virtual-time] "
-            "<file or url>\n",
-            argv[0]);
+    fprintf(
+        stderr,
+        "usage: %s [--seconds N] [--seek SEC [--seek-after SEC]] "
+        "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
+        "[--cpu | --rgba | --native | --d3d11 | --d3d11-hdr | --dmabuf NODE | "
+        "--android-surface] "
+        "[--rate R [--rate-after "
+        "SEC]] [--loop [--loop-off-after SEC]] "
+        "[--open-after SEC URL] [--soak SEC URL] [--select "
+        "TYPE:INDEX[@SEC]]... "
+        "[--select-after SEC] [--lose-decoder-after SEC]... "
+        "[--hang-decoder-after SEC]... [--rebuild-decoder-after SEC]... "
+        "[--stall-audio-after SEC "
+        "[--stall-audio-for SEC]] "
+        "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
+        "[--live [--latency MS] [--live-jitter MS] "
+        "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
+        "[--subtitle-ppm FILE] [--frame-ppm SEC:FILE]... [--virtual-time] "
+        "<file or url>\n",
+        argv[0]);
     return 2;
   }
 
@@ -1232,7 +1278,8 @@ int main(int argc, char** argv) {
         }
 #endif
 #if defined(_WIN32)
-        if (frame_type == LYCHEE_FRAME_D3D11_TEXTURE &&
+        if ((frame_type == LYCHEE_FRAME_D3D11_TEXTURE ||
+             frame_type == LYCHEE_FRAME_D3D11_TEXTURE_HDR) &&
             frames_pulled % 30 == 0) {
           ReadCenterPixel(device.Get(), context.Get(), frame, center_pixel);
         }

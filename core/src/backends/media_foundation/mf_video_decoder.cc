@@ -97,7 +97,12 @@ MFVideoDecoder::MFVideoDecoder(uint32_t accepted_storage,
       output_textures_(
           device_.type == VideoDevice::Type::kD3D11Adapter &&
           (accepted_storage &
-           static_cast<uint32_t>(VideoFrameStorage::kD3D11Texture))) {}
+           (static_cast<uint32_t>(VideoFrameStorage::kD3D11Texture) |
+            static_cast<uint32_t>(VideoFrameStorage::kD3D11TextureHdr)))),
+      output_hdr_(
+          output_textures_ &&
+          (accepted_storage &
+           static_cast<uint32_t>(VideoFrameStorage::kD3D11TextureHdr))) {}
 
 MFVideoDecoder::~MFVideoDecoder() {
   if (decoder_) {
@@ -508,8 +513,8 @@ std::shared_ptr<VideoFrame> MFVideoDecoder::CreateFrame(IMFSample* sample) {
       return nullptr;
     }
   }
-  std::shared_ptr<VideoFrame> frame =
-      processor_.Convert(texture.Get(), slice, width_, height_, color_space_);
+  std::shared_ptr<VideoFrame> frame = processor_.Convert(
+      texture.Get(), slice, width_, height_, color_space_, output_hdr_);
   if (frame && !output_textures_) {
     frame = processor_.Download(*frame);
   }

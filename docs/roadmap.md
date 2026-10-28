@@ -99,10 +99,6 @@ building on top of them.
 2. **HDR beyond Apple's SDK**:
    - Flutter: textures are 8-bit SDR on every platform, so the plugin
      stays on tone-mapped BGRA.
-   - Windows: PQ and HLG are tone-mapped by our shader like swscale
-     (saturated colors at or above white approximate it: swscale clips in
-     IPT, the shader in ICtCp). Left: HDR output, which needs an
-     R10G10B10A2 or FP16 texture type.
    - Linux: check actual VAAPI dmabuf export on the dual-boot PC's Intel
      iGPU after the Windows checks finish; WSL has no working VAAPI
      driver. Boot Ubuntu 24.04 and run the CLI with

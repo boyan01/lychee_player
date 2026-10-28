@@ -857,6 +857,38 @@ if [ "$(uname)" = Darwin ]; then
   [ "${NO_HW:-0}" = 1 ] && native_hdr="native frame: BGRA "
   par expect native-hdr "$native_hdr" "frame_type=64 " -- --native --seconds 1 "$media/hdr_pq.mp4"
 fi
+# Windows native HDR has a fixed, independently readable encoding even on
+# an SDR monitor. MF can upload software output; FFmpeg's software path
+# falls back to the accepted CPU type and tone maps it as before.
+if [ "$windows" = 1 ]; then
+  if [ "${NO_HW:-0}" != 1 ] || [ "${NO_FFMPEG:-0}" = 1 ]; then
+    par expect d3d11-hdr-pq "frame_type=128 " \
+      "native frame: R10G10B10A2 transfer=16 primaries=9 rgb10=" \
+      "center pixel: 12[6-9],12[6-9],12[6-9]$" -- --d3d11-hdr --seconds 1.1 "$media/hdr_pq.mp4"
+    par expect d3d11-hdr-hlg "frame_type=128 " \
+      "native frame: R10G10B10A2 transfer=16 primaries=9 rgb10=" \
+      "center pixel: 11[0-5],11[0-5],11[0-5]$" -- --d3d11-hdr --seconds 1.1 "$media/hdr_hlg.mp4"
+  fi
+  sw_hdr_type=1
+  sw_hdr_gray="1(7[5-9]|8[0-9])"
+  sdr_type=16
+  if [ "${NO_FFMPEG:-0}" = 1 ]; then
+    sw_hdr_type=128
+    sw_hdr_gray="12[6-9]"
+  elif [ "${NO_HW:-0}" = 1 ]; then
+    sdr_type=1
+  fi
+  par expect d3d11-hdr-sw "frame_type=$sw_hdr_type " "hw=0 " \
+    "center pixel: $sw_hdr_gray,$sw_hdr_gray,$sw_hdr_gray$" -- \
+    --no-hw --d3d11-hdr --seconds 1.1 "$media/hdr_pq.mp4"
+  par expect d3d11-hdr-sdr "frame_type=$sdr_type " -- \
+    --d3d11-hdr --seconds 1.1 "$media/h264_aac.mp4"
+  par frames frame-d3d11-hdr-sdr "$media/h264_aac.mp4" 1 -- \
+    --d3d11-hdr --seconds 1.1
+  par expect d3d11-sdr-compat "frame_type=$sdr_type " \
+    "center pixel: 1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9])$" -- \
+    --d3d11 --seconds 1.1 "$media/hdr_pq.mp4"
+fi
 # Frames by pixels, against FFmpeg's decode of the same pts: each frame
 # path (CVPixelBuffer BGRA on Apple, RGBA elsewhere; --cpu; software
 # decoding; Apple's --native buffers converted by VideoToolbox), 10-bit,

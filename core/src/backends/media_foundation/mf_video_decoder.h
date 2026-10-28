@@ -54,6 +54,7 @@ class MFVideoDecoder : public VideoDecoder {
   const bool hardware_;
   // Frames go out as textures only if someone can open them.
   const bool output_textures_;
+  const bool output_hdr_;
   VideoConfig config_;
   AnnexBConverter converter_;
   Microsoft::WRL::ComPtr<ID3D11Device> d3d11_device_;

@@ -62,7 +62,8 @@ extern "C" {
 // 12: lychee_player_rebuild_video_decoder(), for explicit recovery after
 //    a platform invalidates its decoder (e.g. iOS background suspension).
 // 13: lychee_dmabuf carries H.273 color primaries and transfer function.
-#define LYCHEE_API_VERSION 13
+// 14: LYCHEE_FRAME_D3D11_TEXTURE_HDR, full-range PQ / BT.2020 R10 output.
+#define LYCHEE_API_VERSION 14
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -104,6 +105,14 @@ typedef enum lychee_frame_type {
   // AVSampleBufferDisplayLayer and Core Image honor them, EDR included.
   // Preferred over LYCHEE_FRAME_CVPIXELBUFFER when both are accepted.
   LYCHEE_FRAME_CVPIXELBUFFER_NATIVE = 1 << 6,
+  // Windows: an ID3D11Texture2D* in DXGI_FORMAT_R10G10B10A2_UNORM, shared
+  // like LYCHEE_FRAME_D3D11_TEXTURE. RGB is full-range BT.2020 with the PQ
+  // transfer function (SMPTE ST 2084, 1.0 = 10000 nits). HLG is converted
+  // using a 1000-nit reference display. Preferred for HDR when accepted.
+  // Also accept LYCHEE_FRAME_D3D11_TEXTURE for SDR content, and a CPU type
+  // for decoder fallback. A presenter can use
+  // DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 for this type.
+  LYCHEE_FRAME_D3D11_TEXTURE_HDR = 1 << 7,
 } lychee_frame_type;
 
 // The GPU the caller renders with. Frames that stay on the GPU (D3D11
@@ -113,8 +122,8 @@ typedef enum lychee_frame_type {
 // on any GPU.
 typedef enum lychee_video_device_type {
   LYCHEE_VIDEO_DEVICE_NONE = 0,
-  // Windows: |handle| is an IDXGIAdapter*, for LYCHEE_FRAME_D3D11_TEXTURE
-  // frames. The library takes its own reference.
+  // Windows: |handle| is an IDXGIAdapter*, for either D3D11 texture type.
+  // The library takes its own reference.
   LYCHEE_VIDEO_DEVICE_D3D11_ADAPTER = 1,
   // Linux: |path| is the DRM render node ("/dev/dri/renderD128"), or ""
   // when the caller does not know it but can import dmabufs, for

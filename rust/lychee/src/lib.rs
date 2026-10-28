@@ -133,10 +133,13 @@ pub enum FrameType {
     /// YCbCr, 8- or 10-bit, with color attachments (HDR included); BGRA
     /// from software decoding.
     CvPixelBufferNative,
+    /// A shared R10G10B10A2 texture (Windows), full-range PQ / BT.2020.
+    /// Accept [`FrameType::D3d11Texture`] too for SDR, and a CPU fallback.
+    D3d11TextureHdr,
 }
 
 impl FrameType {
-    const ALL: [FrameType; 7] = [
+    const ALL: [FrameType; 8] = [
         FrameType::CpuBgra,
         FrameType::CpuRgba,
         FrameType::CvPixelBuffer,
@@ -144,6 +147,7 @@ impl FrameType {
         FrameType::D3d11Texture,
         FrameType::Dmabuf,
         FrameType::CvPixelBufferNative,
+        FrameType::D3d11TextureHdr,
     ];
 
     fn bit(self) -> u32 {
@@ -155,6 +159,7 @@ impl FrameType {
             FrameType::D3d11Texture => sys::LYCHEE_FRAME_D3D11_TEXTURE,
             FrameType::Dmabuf => sys::LYCHEE_FRAME_DMABUF,
             FrameType::CvPixelBufferNative => sys::LYCHEE_FRAME_CVPIXELBUFFER_NATIVE,
+            FrameType::D3d11TextureHdr => sys::LYCHEE_FRAME_D3D11_TEXTURE_HDR,
         }
     }
 

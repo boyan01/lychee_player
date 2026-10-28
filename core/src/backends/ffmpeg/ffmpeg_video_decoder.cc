@@ -401,7 +401,8 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
   if (frame->format == AV_PIX_FMT_D3D11 &&
       device_.type == VideoDevice::Type::kD3D11Adapter &&
       (accepted_storage_ &
-       static_cast<uint32_t>(VideoFrameStorage::kD3D11Texture))) {
+       (static_cast<uint32_t>(VideoFrameStorage::kD3D11Texture) |
+        static_cast<uint32_t>(VideoFrameStorage::kD3D11TextureHdr)))) {
     if (!d3d11_processor_) {
       d3d11_processor_ = std::make_unique<D3D11VideoProcessor>();
     }
@@ -409,7 +410,9 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
     result = d3d11_processor_->Convert(
         reinterpret_cast<ID3D11Texture2D*>(frame->data[0]),
         static_cast<UINT>(reinterpret_cast<intptr_t>(frame->data[1])),
-        frame->width, frame->height, FrameColorSpace(frame));
+        frame->width, frame->height, FrameColorSpace(frame),
+        (accepted_storage_ &
+         static_cast<uint32_t>(VideoFrameStorage::kD3D11TextureHdr)) != 0);
     if (!result && !logged_d3d11_fallback_) {
       logged_d3d11_fallback_ = true;
       LOGW("cannot convert D3D11 frames on the GPU, downloading them");

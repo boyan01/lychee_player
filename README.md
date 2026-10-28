@@ -86,6 +86,8 @@ dropped frames and clock drift. Options: `--seek SEC [--seek-after SEC]`,
 `--no-hw`, `--cpu` (CPU BGRA frames), `--rgba` (CPU RGBA frames),
 `--native` (the decoder's own `CVPixelBuffer`s, 10-bit for HDR),
 `--d3d11` (Windows: shared D3D11 textures, as the Flutter plugin takes them),
+`--d3d11-hdr` (Windows: PQ / BT.2020 R10G10B10A2 textures for HDR,
+BGRA for SDR and CPU fallback),
 `--refresh HZ`, `--vsync-jitter US`, `--volume 0..1` (muted by default),
 `--rate R [--rate-after SEC]`, `--loop`, `--open-after SEC URL` (reopen on
 the same player), `--select TYPE:INDEX[@SEC] [--select-after SEC]` (TYPE
@@ -102,6 +104,18 @@ subtitles) onto a grey canvas of the video's size.
 into the run, upright, as a binary PPM (CPU frames as they are,
 `CVPixelBuffer`s through VideoToolbox to SDR BT.709, D3D11 textures through
 a staging copy) and prints `snapshot FILE pts=US size=WxH`.
+With `--d3d11-hdr`, the dump retains PQ samples normalized to bytes;
+it is a data check, not an SDR preview. The CLI also prints the texture
+format and the center pixel's raw 10-bit RGB values.
+
+Native Windows callers can accept `LYCHEE_FRAME_D3D11_TEXTURE_HDR` to
+keep HDR in a shared `DXGI_FORMAT_R10G10B10A2_UNORM` texture. It carries
+full-range BT.2020 RGB with the PQ transfer function (ST 2084, 1.0 =
+10000 nits); HLG is converted for a 1000-nit reference display. Present
+it using `DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020`. Also accept the
+existing `LYCHEE_FRAME_D3D11_TEXTURE` for SDR and a CPU frame type for
+decoder fallback. Consumers that accept only the old BGRA type continue
+to get HDR tone-mapped to SDR.
 
 With GLFW installed (`brew install glfw`) the build also produces
 `build/examples/glfw/lychee_glfw path/to/video.mp4`: a window that draws the
