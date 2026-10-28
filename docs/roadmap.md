@@ -37,10 +37,6 @@ building on top of them.
    Device Manufacturer" package, which neither winget nor the HK Store
    offers again (only the paid 9NMZLZ57R3T7), so it was not uninstalled.
    Also multiple monitors, and audible output.
-   `tool/regression.sh`'s realtime cases on Windows: `realtime-rate`
-   once showed 400 ms of drift and `realtime-seek` 6 glitches while an
-   Android emulator loaded the PC (2026-10-28); alone they pass. Rerun
-   them on an idle PC.
 3. **Linux**: VAAPI on AMD, Wayland, hardware decoding on arm64, and audio
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays
@@ -52,28 +48,31 @@ building on top of them.
 
 ## Known defects
 
-- **The Flutter example crashes on quitting on Windows**: after
-  `--seconds N` it calls `exitApplication(AppExitType.required)`, and the
-  process ends with 0xC000041D (an access violation in
-  `flutter_windows.dll`, Event Log) instead of 0, even when no file was
-  opened (Flutter 3.47.7, Impeller OpenGL ES, 2026-10-28). The `summary:`
-  line comes first, so runs are still readable. Find whether the plugin
-  takes part (a bare `flutter create` app quitting the same way) and fix
-  or report it upstream; done when the example exits with 0.
+- **The Flutter example crashed on quitting on Windows**: after
+  `--seconds N` it calls `exitApplication(AppExitType.required)`, and
+  every run on 2026-10-28 between 11:07 and 12:22 ended with 0xC000041D
+  (an access violation at `flutter_windows.dll`+0x1e230, Event Log)
+  instead of 0, even when no file was opened (Flutter 3.47.7, Impeller
+  OpenGL ES). After the PC rebooted, the same build exits with 0 in six
+  runs, with a file and without, and so does a bare `flutter create` app
+  quitting the same way; with no file the plugin only registers and
+  unregisters. What the PC's state was before the reboot is unknown.
+  If it comes back, compare the bare app on the same boot before
+  touching the plugin.
 
-1. **MPEG-TS and HLS through FFmpeg's demuxer off Apple**: on Linux,
-   Windows and Android the FFmpeg build still reads TS and HLS with
-   `FFmpegDemuxer`, so timestamps that start over inside a TS file
+1. **MPEG-TS and HLS through FFmpeg's demuxer on Linux and Android**:
+   there the FFmpeg build still reads TS and HLS with `FFmpegDemuxer`,
+   so timestamps that start over inside a TS file
    (`ts_timestamp_reset.ts`: 3.021 s instead of 6 s, seeks into the
    wrong half), HLS audio renditions on another timeline
    (`hls_alt/master.m3u8`, 1 s out of sync) and slow seeks past an HLS
-   discontinuity remain there; Apple's FFmpeg build opens them with the
-   own demuxers (`media/factory.cc`). TS needs only files there; HLS
-   reads through the http `DataSource`, which Windows and Android now
-   have. TS video
+   discontinuity remain there; Apple's and Windows' FFmpeg builds open
+   them with the own demuxers (`media/factory.cc`). TS needs only files
+   there; HLS reads through the http `DataSource`, which Android now
+   has. TS video
    comes without extradata (Annex B, parameter sets in band), which
-   MediaCodec and Media Foundation have not been tried with. Done when
-   `tool/regression.sh`'s `own_ts` cases pass on Linux and Windows, and
+   MediaCodec has not been tried with (Media Foundation takes it). Done
+   when `tool/regression.sh`'s `own_ts` cases pass on Linux, and
    the Android example plays `ts_timestamp_reset.ts` with hardware
    decoding.
 2. **TS runs found while reading, audio first**: where timestamps start
@@ -143,7 +142,7 @@ The goal is FFmpeg-free builds on Apple platforms, Windows and Android;
 Linux keeps FFmpeg (no system audio decoder or demuxer). Apple plays MP4,
 Matroska/WebM, MPEG-TS and HLS without it, and ships
 `lychee_noffmpeg.xcframework`; Windows plays the same containers (H.264
-and HEVC in hardware or software, AAC and MP3), and Android too (video
+and HEVC in hardware or software, AAC, MP3, FLAC, ALAC and Opus), and Android too (video
 H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
 `HttpURLConnection`).
 
@@ -156,11 +155,17 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    metadata in TS are ignored. Where TS timestamps start over, a jump
    ahead, or a run shorter than a sixteenth of the input, is found only
    when played: until then the duration and seeks miss it.
-3. **Windows**: VP9, AV1, Opus, FLAC and ALAC have no decoder (Media
-   Foundation has them only with Store extensions, or not at all). Live
+3. **Windows**: VP9 and AV1 have no decoder (Media Foundation has them
+   only with Store extensions), and
+   FLAC in MP4 none either (Windows' decoder refuses it, 0xC00D36E6, with
+   the STREAMINFO Windows' own MP4 source passes; FLAC in Matroska
+   plays). Live
    HEVC decoded in software shows one frame less than it should
    (`NO_FFMPEG=1 NO_HW=1 ONLY=live-hevc`: 299 of 300; the HEVC extension's
    decoder holds the last frame back, low latency mode set or not).
+   Draining it after each input that gave no frame loses its reference
+   frames (only the first frame shows), so it needs a drain only once the
+   input pauses.
 4. **Android**: VP8, VP9 and AV1 through MediaCodec
    (`MediaCodecVideoDecoder` maps only H.264 and HEVC, so WebM's video
    has no decoder); an FFmpeg-free AAR in the release
@@ -206,8 +211,9 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
      virtual clock against software's ~970 (M-series, 2026-10-28): one
      frame at a time, which is enough to play but not to scrub fast.
    - **Soak tests**: `tool/soak.sh` soaks the core through the CLI on
-     macOS and Linux. Left: a run on Linux and Windows, and soaking the
-     platform harnesses (`examples/glfw`, the Swift and Android
+     macOS, Linux and Windows, and `examples/glfw --soak` the Windows
+     harness. Left: a run on Linux, and soaking the other platform
+     harnesses (`examples/glfw` on macOS and Linux, the Swift and Android
      examples), whose frame hand-off and display link the CLI skips.
    - **Supply chain**: `updates.yml` (weekly, 2026-10-28) lists newer
      FFmpeg, Mbed TLS and GLFW releases than the pins

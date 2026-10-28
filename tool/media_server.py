@@ -11,6 +11,8 @@ Used by tool/regression.sh to test network behaviour:
                        its connection there
   --refuse-after-drop  after the drop, every request fails with 503
   --refuse-after-requests N  after N requests, every later one fails with 403
+  --refuse-after-seconds S   requests S seconds after the first one fail
+                       with 403
   --no-ranges          ignore Range headers: every response is the whole file
   --redirect FROM TO   answer requests for path FROM with a 302 to path TO
   --live PATH VOD      answer requests for path PATH with a live HLS
@@ -39,6 +41,7 @@ class State:
         self.stalled = False
         self.dropped = False
         self.requests = 0
+        self.first_request = None
         self.live_start = None
 
     def claim(self, attribute):
@@ -86,6 +89,15 @@ def make_handler(root, args, state):
                 with state.lock:
                     state.requests += 1
                     refused = state.requests > args.refuse_after_requests
+                if refused:
+                    self.send_error(403)
+                    return
+            if args.refuse_after_seconds is not None:
+                with state.lock:
+                    now = time.monotonic()
+                    if state.first_request is None:
+                        state.first_request = now
+                    refused = now - state.first_request > args.refuse_after_seconds
                 if refused:
                     self.send_error(403)
                     return
@@ -224,6 +236,7 @@ def main():
     parser.add_argument("--drop-at", type=int)
     parser.add_argument("--refuse-after-drop", action="store_true")
     parser.add_argument("--refuse-after-requests", type=int)
+    parser.add_argument("--refuse-after-seconds", type=float)
     parser.add_argument("--no-ranges", action="store_true")
     parser.add_argument("--redirect", nargs=2, metavar=("FROM", "TO"))
     parser.add_argument("--live", nargs=2, action="append", metavar=("PATH", "VOD"))

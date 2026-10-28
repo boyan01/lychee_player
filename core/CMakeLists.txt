@@ -105,22 +105,24 @@ if(WIN32)
     src/backends/windows/wasapi_sink.cc
     # Files and http(s) (WinHTTP) for both demuxers.
     src/media/data_source.cc
+    # MP4, Matroska/WebM, MPEG-TS and HLS from files and http(s). With
+    # FFmpeg only MPEG-TS and HLS go to these (media/factory.cc), FFmpeg
+    # the rest.
+    src/backends/hls/hls_demuxer.cc
+    src/backends/hls/hls_playlist.cc
+    src/backends/matroska/matroska_demuxer.cc
+    src/backends/mp2t/elementary_stream.cc
+    src/backends/mp2t/ts_demuxer.cc
+    src/backends/mp2t/ts_parser.cc
+    src/backends/mp2t/ts_reader.cc
+    src/backends/mp4/mp4_demuxer.cc
+    src/media/probing_demuxer.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
-    # Without FFmpeg: MP4, Matroska/WebM, MPEG-TS and HLS from files and
-    # http(s), H.264 and HEVC in hardware or software, AAC and MP3 through
-    # Media Foundation, text subtitles.
+    # Without FFmpeg: H.264 and HEVC in hardware or software, AAC, MP3,
+    # FLAC, ALAC and Opus through Media Foundation, text subtitles.
     list(APPEND LYCHEE_SOURCES
-      src/backends/hls/hls_demuxer.cc
-      src/backends/hls/hls_playlist.cc
-      src/backends/matroska/matroska_demuxer.cc
       src/backends/media_foundation/mf_audio_decoder.cc
-      src/backends/mp2t/elementary_stream.cc
-      src/backends/mp2t/ts_demuxer.cc
-      src/backends/mp2t/ts_parser.cc
-      src/backends/mp2t/ts_reader.cc
-      src/backends/mp4/mp4_demuxer.cc
-      src/media/probing_demuxer.cc
       src/media/text_subtitle_decoder.cc
     )
   endif()
@@ -257,7 +259,7 @@ endif()
 
 if(WIN32)
   target_link_libraries(lychee PRIVATE
-    ole32 avrt d3d11 d3dcompiler mfplat mfuuid winhttp wmcodecdspuuid)
+    bcrypt ole32 avrt d3d11 d3dcompiler mfplat mfuuid winhttp wmcodecdspuuid)
   # base/thread_name.h includes <windows.h>, whose min/max macros break
   # std::min and numeric_limits::max in the files that include it.
   target_compile_definitions(lychee PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

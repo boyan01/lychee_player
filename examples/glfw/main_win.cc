@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <random>
 #include <string>
 #include <utility>
 #include <vector>
@@ -587,6 +588,11 @@ int main(int argc, char** argv) {
   std::vector<ScriptedKey> keys;
   std::vector<Snapshot> snapshots;
   std::vector<AdapterSwitch> adapters;
+  // --soak: every |soak_every| seconds, seek to a random position, twice,
+  // then open the other of |url| and |soak_url|, looping, as the CLI's
+  // --soak does (tool/soak.sh), here through the window's frame hand-off.
+  double soak_every = -1;
+  std::string soak_url;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--seconds" && i + 1 < argc) {
@@ -604,6 +610,9 @@ int main(int argc, char** argv) {
                    2 &&
                window_width > 0 && window_height > 0) {
       ++i;
+    } else if (arg == "--soak" && i + 2 < argc) {
+      soak_every = atof(argv[++i]);
+      soak_url = argv[++i];
     } else if (arg == "--cpu") {
       cpu = true;
     } else if (arg == "--no-hw") {
@@ -620,7 +629,7 @@ int main(int argc, char** argv) {
         stderr,
         "usage: %s [--seconds N] [--key SEC:space|left|right|escape]... "
         "[--snapshot SEC:FILE]... [--adapter SEC:N]... [--size WxH] [--cpu] "
-        "[--no-hw] "
+        "[--no-hw] [--soak SEC URL] "
         "<file or url>\n",
         argv[0]);
     return 2;
@@ -670,8 +679,15 @@ int main(int argc, char** argv) {
       fprintf(stderr, "could not start playback\n");
       exit_code = 1;
     } else {
+      if (soak_every > 0) {
+        lychee_player_set_looping(player, 1);
+      }
       lychee_player_play(player);
       const int64_t start = lychee_now_us();
+      std::mt19937_64 random(1);
+      double soak_next = soak_every;
+      int64_t soak_actions = 0;
+      bool soak_on_alternate = false;
       size_t next_key = 0;
       size_t next_snapshot = 0;
       size_t next_adapter = 0;
@@ -696,6 +712,26 @@ int main(int argc, char** argv) {
           if (!renderer.SwitchAdapter(adapters[next_adapter++].index)) {
             exit_code = 1;
           }
+        }
+        if (soak_every > 0 && elapsed >= soak_next) {
+          soak_next = elapsed + soak_every;
+          const int64_t duration = lychee_player_get_duration(player);
+          if (soak_actions++ % 3 == 2) {
+            soak_on_alternate = !soak_on_alternate;
+            const std::string& next = soak_on_alternate ? soak_url : url;
+            printf("soak: open -> %s\n", next.c_str());
+            if (lychee_player_open(player, next.c_str()) != 0) {
+              exit_code = 1;
+              break;
+            }
+            lychee_player_play(player);
+          } else if (duration > 0) {
+            const int64_t target =
+                std::uniform_int_distribution<int64_t>(0, duration - 1)(random);
+            printf("soak: seek -> %.3fs\n", target / 1e6);
+            lychee_player_seek(player, target);
+          }
+          fflush(stdout);
         }
         // After the keys due at the same time.
         while (next_snapshot < snapshots.size() &&

@@ -37,9 +37,9 @@
 
 #include "backends/media_foundation/mf_video_decoder.h"
 #include "backends/windows/wasapi_sink.h"
+#include "media/probing_demuxer.h"
 #if !defined(LYCHEE_WITH_FFMPEG)
 #include "backends/media_foundation/mf_audio_decoder.h"
-#include "media/probing_demuxer.h"
 #include "media/text_subtitle_decoder.h"
 #endif
 #elif defined(__linux__)
@@ -49,14 +49,14 @@
 namespace lychee {
 
 std::unique_ptr<Demuxer> CreateDemuxer() {
-#if defined(LYCHEE_WITH_FFMPEG) && defined(__APPLE__)
+#if defined(LYCHEE_WITH_FFMPEG) && (defined(__APPLE__) || defined(_WIN32))
   // MPEG-TS and HLS through the own demuxers, which put timestamps that
   // start over (in a file, at HLS discontinuities, across audio
   // renditions) on one timeline, and seek HLS by segment; FFmpeg's
   // passes them on as they are. FFmpeg takes the rest and what those
-  // cannot play. Elsewhere DataSource has no http client, and TS video
-  // without extradata is untested on MediaCodec and Media Foundation
-  // (roadmap).
+  // cannot play. Media Foundation takes TS video without extradata
+  // (Annex B, parameter sets in band). Elsewhere TS video without
+  // extradata is untested on MediaCodec (roadmap).
   return std::make_unique<ProbingDemuxer>(
       [](std::unique_ptr<DataSource> probed) -> std::unique_ptr<Demuxer> {
         return std::make_unique<FFmpegDemuxer>(std::move(probed));

@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "base/log.h"
+#include "base/time.h"
 
 namespace lychee {
 
@@ -30,9 +31,92 @@ size_t AdtsHeaderSize(const uint8_t* data, size_t size) {
   return header < size ? header : 0;
 }
 
-ComPtr<IMFTransform> CreateMp3Decoder() {
+// The input subtype for |codec|, or GUID_NULL.
+GUID Subtype(AudioCodec codec) {
+  switch (codec) {
+    case AudioCodec::kAAC:
+      return MFAudioFormat_AAC;
+    case AudioCodec::kMP3:
+      return MFAudioFormat_MP3;
+    case AudioCodec::kFLAC:
+      return MFAudioFormat_FLAC;
+    case AudioCodec::kALAC:
+      return MFAudioFormat_ALAC;
+    case AudioCodec::kOpus:
+      return MFAudioFormat_Opus;
+    default:
+      return GUID_NULL;
+  }
+}
+
+// FLAC's STREAMINFO from the container's configuration: the bare block
+// (MP4's dfLa without its header, as FFmpeg has it), or "fLaC" and the
+// metadata blocks (Matroska's CodecPrivate). Empty if none.
+std::vector<uint8_t> FlacStreamInfo(const std::vector<uint8_t>& config) {
+  constexpr size_t kStreamInfo = 34;
+  if (config.size() == kStreamInfo) {
+    return config;
+  }
+  if (config.size() >= 8 + kStreamInfo &&
+      std::memcmp(config.data(), "fLaC", 4) == 0 && (config[4] & 0x7f) == 0) {
+    return {config.begin() + 8, config.begin() + 8 + kStreamInfo};
+  }
+  return {};
+}
+
+// What the decoder takes as MF_MT_USER_DATA, as Windows' own MP4 source
+// hands it over: for FLAC the STREAMINFO block with its header, marked
+// last; for ALAC the 24-byte ALACSpecificConfig (MP4's alac box comes with
+// its header, version and flags); for Opus the OpusHead packet.
+std::vector<uint8_t> UserData(AudioCodec codec,
+                              const std::vector<uint8_t>& config) {
+  switch (codec) {
+    case AudioCodec::kFLAC: {
+      const std::vector<uint8_t> info = FlacStreamInfo(config);
+      if (info.empty()) {
+        return {};
+      }
+      std::vector<uint8_t> block = {0x80, 0, 0,
+                                    static_cast<uint8_t>(info.size())};
+      block.insert(block.end(), info.begin(), info.end());
+      return block;
+    }
+    case AudioCodec::kALAC:
+      if (config.size() >= 12 + 24 && std::memcmp(&config[4], "alac", 4) == 0) {
+        return {config.begin() + 12, config.end()};
+      }
+      return config;
+    default:
+      return config;
+  }
+}
+
+// Samples at 48 kHz in an Opus packet, from its TOC byte (RFC 6716, 3.1).
+// Multistream packets start with the first stream's, of the same length.
+int OpusPacketFrames(const uint8_t* data, size_t size) {
+  if (size < 1) {
+    return 0;
+  }
+  static const int kSilk[] = {480, 960, 1920, 2880};
+  static const int kCelt[] = {120, 240, 480, 960};
+  const int config = data[0] >> 3;
+  const int frame = config < 12   ? kSilk[config & 3]
+                    : config < 16 ? ((config & 1) ? 960 : 480)
+                                  : kCelt[config & 3];
+  switch (data[0] & 3) {
+    case 0:
+      return frame;
+    case 1:
+    case 2:
+      return 2 * frame;
+    default:
+      return size > 1 ? frame * (data[1] & 0x3f) : 0;
+  }
+}
+
+ComPtr<IMFTransform> CreateDecoder(const GUID& subtype) {
   ComPtr<IMFTransform> decoder;
-  MFT_REGISTER_TYPE_INFO input = {MFMediaType_Audio, MFAudioFormat_MP3};
+  MFT_REGISTER_TYPE_INFO input = {MFMediaType_Audio, subtype};
   IMFActivate** activates = nullptr;
   UINT32 count = 0;
   if (FAILED(MFTEnumEx(MFT_CATEGORY_AUDIO_DECODER,
@@ -58,8 +142,7 @@ bool MFAudioDecoder::Initialize(const AudioConfig& config,
                                 std::string* error) {
   output_format_ = output_format;
   config_ = config;
-  if ((config.codec != AudioCodec::kAAC && config.codec != AudioCodec::kMP3) ||
-      !StartMediaFoundation()) {
+  if (Subtype(config.codec) == GUID_NULL || !StartMediaFoundation()) {
     *error = "mediafoundation: no decoder for " + config.codec_name;
     return false;
   }
@@ -78,17 +161,20 @@ bool MFAudioDecoder::Initialize(const AudioConfig& config,
   return true;
 }
 
-bool MFAudioDecoder::Open(const std::vector<uint8_t>& asc, std::string* error) {
+bool MFAudioDecoder::Open(const std::vector<uint8_t>& extradata,
+                          std::string* error) {
   const bool aac = config_.codec == AudioCodec::kAAC;
+  const GUID subtype = Subtype(config_.codec);
   if (aac) {
     CoCreateInstance(CLSID_CMSAACDecMFT, nullptr, CLSCTX_INPROC_SERVER,
                      IID_PPV_ARGS(&decoder_));
   } else {
-    decoder_ = CreateMp3Decoder();
+    // MP3, and Windows' own FLAC, ALAC and Opus decoders (Windows 10).
+    decoder_ = CreateDecoder(subtype);
   }
   if (!decoder_) {
-    *error = std::string("mediafoundation: no ") + (aac ? "AAC" : "MP3") +
-             " decoder";
+    *error =
+        std::string("mediafoundation: no ") + config_.codec_name + " decoder";
     return false;
   }
   ComPtr<IMFMediaType> input;
@@ -97,7 +183,7 @@ bool MFAudioDecoder::Open(const std::vector<uint8_t>& asc, std::string* error) {
     return false;
   }
   input->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
-  input->SetGUID(MF_MT_SUBTYPE, aac ? MFAudioFormat_AAC : MFAudioFormat_MP3);
+  input->SetGUID(MF_MT_SUBTYPE, subtype);
   input->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND,
                    static_cast<UINT32>(config_.sample_rate));
   input->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS,
@@ -109,9 +195,28 @@ bool MFAudioDecoder::Open(const std::vector<uint8_t>& asc, std::string* error) {
     input->SetUINT32(MF_MT_AAC_PAYLOAD_TYPE, 0);
     std::vector<uint8_t> user_data(12, 0);
     user_data[2] = 0xfe;
-    user_data.insert(user_data.end(), asc.begin(), asc.end());
+    user_data.insert(user_data.end(), extradata.begin(), extradata.end());
     input->SetBlob(MF_MT_USER_DATA, user_data.data(),
                    static_cast<UINT32>(user_data.size()));
+  } else if (config_.codec != AudioCodec::kMP3) {
+    const std::vector<uint8_t> user_data = UserData(config_.codec, extradata);
+    if (config_.codec == AudioCodec::kFLAC && user_data.empty()) {
+      *error = "mediafoundation: FLAC without its STREAMINFO";
+      decoder_.Reset();
+      return false;
+    }
+    if (!user_data.empty()) {
+      input->SetBlob(MF_MT_USER_DATA, user_data.data(),
+                     static_cast<UINT32>(user_data.size()));
+    }
+    if (config_.codec == AudioCodec::kALAC && user_data.size() >= 4 &&
+        config_.sample_rate > 0) {
+      // The ALACSpecificConfig starts with the samples per packet.
+      const int64_t frames = (int64_t{user_data[0]} << 24) |
+                             (user_data[1] << 16) | (user_data[2] << 8) |
+                             user_data[3];
+      default_duration_ = frames * kMicrosPerSecond / config_.sample_rate;
+    }
   }
   HRESULT hr = decoder_->SetInputType(0, input.Get(), 0);
   if (FAILED(hr)) {
@@ -161,7 +266,9 @@ bool MFAudioDecoder::SetUpOutput() {
       MFGetAttributeUINT32(chosen.Get(), MF_MT_AUDIO_NUM_CHANNELS, 0));
   resampler_.Reset();
   float_output_ = subtype == MFAudioFormat_Float;
-  const char* codec = config_.codec == AudioCodec::kAAC ? "aac" : "mp3";
+  decoder_rate_ = rate;
+  decoder_frame_bytes_ = (float_output_ ? 4 : 2) * channels;
+  const char* codec = config_.codec_name.c_str();
   if (rate == output_format_.sample_rate &&
       channels == output_format_.channels && float_output_) {
     LOGI("decoder opened for %s %d Hz %d ch", codec, rate, channels);
@@ -222,6 +329,7 @@ bool MFAudioDecoder::Decode(const EncodedPacket& packet,
     bool ok = Pull(decoder_.Get(), &decoded) && Deliver(&decoded, true, output);
     decoder_->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
     next_pts_ = kNoTimestamp;
+    expected_us_ = 0;
     return ok;
   }
   if (!packet.buffer || packet.size() == 0) {
@@ -258,7 +366,8 @@ bool MFAudioDecoder::Decode(const EncodedPacket& packet,
     next_pts_ = packet.pts;
   }
   ComPtr<IMFSample> sample =
-      CreateMFSample(data, size, packet.pts, packet.duration);
+      CreateMFSample(data, size, packet.pts,
+                     packet.duration > 0 ? packet.duration : default_duration_);
   if (!sample) {
     return false;
   }
@@ -273,10 +382,42 @@ bool MFAudioDecoder::Decode(const EncodedPacket& packet,
     LOGW("ProcessInput: %s", HResultString(hr).c_str());
     return ++consecutive_errors_ < kMaxConsecutiveErrors;
   }
+  // Microseconds of audio in the packet, for the codecs whose decoders
+  // drop their delay.
+  int64_t packet_us = 0;
+  if (config_.codec == AudioCodec::kMP3 && config_.sample_rate > 0) {
+    packet_us = (config_.sample_rate < 32000 ? 576 : 1152) * kMicrosPerSecond /
+                config_.sample_rate;
+  } else if (config_.codec == AudioCodec::kOpus) {
+    packet_us = OpusPacketFrames(data, size) * kMicrosPerSecond / 48000;
+  }
   if (!Pull(decoder_.Get(), &decoded)) {
     return ++consecutive_errors_ < kMaxConsecutiveErrors;
   }
   consecutive_errors_ = 0;
+  if (expected_us_ >= 0 && packet_us > 0) {
+    expected_us_ += packet_us;
+    int64_t decoded_bytes = 0;
+    for (ComPtr<IMFSample>& out : decoded) {
+      DWORD length = 0;
+      if (SUCCEEDED(out->GetTotalLength(&length))) {
+        decoded_bytes += length;
+      }
+    }
+    if (decoded_bytes > 0 && decoder_frame_bytes_ > 0 && decoder_rate_ > 0) {
+      // Media Foundation's decoders drop the decoder's delay (529 samples
+      // for MP3, the pre-skip for Opus) from the start, which the
+      // container's timestamps count: the first output is later than the
+      // packets by what it lacks, if less than a packet.
+      const int64_t decoded_us = decoded_bytes / decoder_frame_bytes_ *
+                                 kMicrosPerSecond / decoder_rate_;
+      const int64_t missing = expected_us_ - decoded_us;
+      if (missing > 0 && missing < packet_us && next_pts_ != kNoTimestamp) {
+        next_pts_ += missing;
+      }
+      expected_us_ = -1;
+    }
+  }
   return Deliver(&decoded, false, output);
 }
 
@@ -406,6 +547,7 @@ void MFAudioDecoder::Flush() {
     resampler_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
   }
   next_pts_ = kNoTimestamp;
+  expected_us_ = 0;
   consecutive_errors_ = 0;
 }
 
