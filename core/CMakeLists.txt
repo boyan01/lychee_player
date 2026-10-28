@@ -73,22 +73,24 @@ if(ANDROID)
     # Its SPS parser finds size changes for MediaCodec.
     src/backends/mp2t/elementary_stream.cc
     src/media/data_source.cc
+    # MP4, MPEG-TS, HLS and Matroska from files and http(s). With FFmpeg
+    # only MPEG-TS and HLS go to these (media/factory.cc), as on Apple.
+    src/backends/hls/hls_demuxer.cc
+    src/backends/hls/hls_playlist.cc
+    src/backends/matroska/matroska_demuxer.cc
+    src/backends/mp2t/ts_demuxer.cc
+    src/backends/mp2t/ts_parser.cc
+    src/backends/mp2t/ts_reader.cc
+    src/backends/mp4/mp4_demuxer.cc
+    src/media/probing_demuxer.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
-    # Without FFmpeg: MP4, MPEG-TS, HLS and Matroska from files and
-    # http(s), H.264 and HEVC through MediaCodec (software codecs as the
-    # fallback), AAC, MP3, Opus, FLAC and ALAC through MediaCodec with our
-    # own channel mix and resampler, text subtitles.
+    # Without FFmpeg: H.264, HEVC, VP8, VP9 and AV1 through MediaCodec
+    # (software codecs as the fallback), AAC, MP3, Opus, FLAC and ALAC
+    # through MediaCodec with our own channel mix and resampler, text
+    # subtitles.
     list(APPEND LYCHEE_SOURCES
       src/backends/android/media_codec_audio_decoder.cc
-      src/backends/hls/hls_demuxer.cc
-      src/backends/hls/hls_playlist.cc
-      src/backends/matroska/matroska_demuxer.cc
-      src/backends/mp2t/ts_demuxer.cc
-      src/backends/mp2t/ts_parser.cc
-      src/backends/mp2t/ts_reader.cc
-      src/backends/mp4/mp4_demuxer.cc
-      src/media/probing_demuxer.cc
       src/media/resampler.cc
       src/media/text_subtitle_decoder.cc
     )

@@ -61,14 +61,15 @@ building on top of them.
   takes part (a bare `flutter create` app quitting the same way) and fix
   or report it upstream; done when the example exits with 0.
 
-1. **MPEG-TS and HLS through FFmpeg's demuxer off Apple**: on Linux,
-   Windows and Android the FFmpeg build still reads TS and HLS with
+1. **MPEG-TS and HLS through FFmpeg's demuxer off Apple**: on Linux
+   and Windows the FFmpeg build still reads TS and HLS with
    `FFmpegDemuxer`, so timestamps that start over inside a TS file
    (`ts_timestamp_reset.ts`: 3.021 s instead of 6 s, seeks into the
    wrong half), HLS audio renditions on another timeline
    (`hls_alt/master.m3u8`, 1 s out of sync) and slow seeks past an HLS
-   discontinuity remain there; Apple's FFmpeg build opens them with the
-   own demuxers (`media/factory.cc`). TS needs only files there; HLS
+   discontinuity remain there; Apple's and Android's FFmpeg builds open
+   them with the own demuxers (`media/factory.cc`; Android's not yet
+   played on an emulator, 2026-10-28). TS needs only files there; HLS
    reads through the http `DataSource`, which Windows and Android now
    have. TS video
    comes without extradata (Annex B, parameter sets in band), which
