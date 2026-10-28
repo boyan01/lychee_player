@@ -131,6 +131,7 @@ cmd_sources() {
   download "$ffmpeg_url" "$dir/ffmpeg-$ffmpeg_version.tar.xz" "$ffmpeg_sha256"
   download "$mbedtls_url" "$dir/mbedtls-$mbedtls_version.tar.bz2" "$mbedtls_sha256"
   download "$dav1d_url" "$dir/dav1d-$dav1d_version.tar.xz" "$dav1d_sha256"
+  cp "$root/tool/patches/ffmpeg-hls-subtitle-buffers.patch" "$dir/"
 }
 
 # Linux FFmpeg is built natively, for this machine's architecture.
@@ -153,7 +154,7 @@ build_ffmpeg() {
     printf '%s\n' "$platform" "$ffmpeg_sha256"
     [ "${platform#android-}" = "$platform" ] || printf '%s\n' "$mbedtls_sha256"
     printf '%s\n' "${DAV1D_SOURCE_DIR:+$dav1d_sha256}"
-    cat "$root/tool/build_ffmpeg.sh" "$root/tool/apple_framework.sh"
+    cat "$root/tool/build_ffmpeg.sh" "$root/tool/apple_framework.sh" "$root"/tool/patches/*.patch
     # configure also accepts these environment overrides.
     printf '%s\n' "${CC:-}" "${CXX:-}" "${CFLAGS:-}" "${CPPFLAGS:-}" "${LDFLAGS:-}"
   } | shasum -a 256 | cut -d' ' -f1)"

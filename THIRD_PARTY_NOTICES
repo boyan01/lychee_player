@@ -74,7 +74,9 @@ The FFmpeg libraries are built without --enable-gpl and without
 lychee_player repository from the FFmpeg release whose source is
 attached to each lychee_player release
 (https://github.com/boyan01/lychee_player/releases,
-ffmpeg-VERSION.tar.xz). They contain FFmpeg only, plus dav1d (5),
+ffmpeg-VERSION.tar.xz), with the accompanying
+ffmpeg-hls-subtitle-buffers.patch fixing subtitle buffer ownership in
+libavformat/hls.c. They contain FFmpeg only, plus dav1d (5),
 Mbed TLS on Android (3) and zlib and the mingw-w64
 runtime on Windows (4). On Linux
 they use the system's GnuTLS (LGPL 2.1 or later), libva, libdrm and

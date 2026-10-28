@@ -204,6 +204,14 @@ esac
 rm -rf "$work" "$out"
 mkdir -p "$work"
 cd "$work"
+# FFmpeg 9.0.2's libavformat/hls.c loses a subtitle playlist's unused
+# 32 KB read buffer and overwrites the AVIO probe/previous segment buffer.
+# Compile a patched out-of-tree copy; never change the caller's source
+# tree, which may be shared by other platform builds.
+mkdir -p libavformat
+cp "$src/libavformat/hls.c" libavformat/hls.c
+patch -f -s -p1 <"$root/tool/patches/ffmpeg-hls-subtitle-buffers.patch"
+flags+=(--extra-cflags="-iquote$src/libavformat")
 if [ -n "${tls:-}" ]; then
   cmake -S "$mbedtls" -B "$work/mbedtls-build" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \

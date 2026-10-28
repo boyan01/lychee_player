@@ -114,6 +114,7 @@ while IFS= read -r f; do
       mark packaging ;;
     tool/build_apple.sh | tool/apple_framework.sh | tool/package_ffmpeg_apple.sh) mark apple ;;
     tool/build_ffmpeg.sh) mark apple android windows linux ;;
+    tool/patches/*.patch) mark apple android windows linux packaging ;;
     tool/rust_bindings.sh) mark rust ;;
     flutter/darwin/*) mark flutter apple ;;
     flutter/android/*) mark flutter android ;;

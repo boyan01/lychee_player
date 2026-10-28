@@ -60,14 +60,13 @@ building on top of them.
   If it comes back, compare the bare app on the same boot before
   touching the plugin.
 
-1. **FFmpeg's HLS leaks with a subtitle rendition on Linux**: `ASAN=1
-   tool/regression.sh` on Linux fails `http-hls-subtitles` with 34 KB
-   leaked inside `avformat_open_input` (an AVIOContext buffer and a probe
-   buffer), with FFmpeg 9.0.2 reading through its own http; on Apple
-   FFmpeg reads through `DataSource` (`IoOpen`) and the case is clean.
-   Find whether FFmpeg's `hls` demuxer or how `FFmpegDemuxer` opens it
-   leaves them, and fix or report it upstream; done when that case
-   passes under ASan on Linux.
+1. **FFmpeg's HLS fallback loses WebVTT cues**: on Linux,
+   `http-hls-subtitles-fallback` advertises the subtitle track as selected
+   but never reports its "Hello" cue, with FFmpeg 9.0.2 both before and
+   after the subtitle-buffer patch. The shared HLS parser's normal
+   `http-hls-subtitles` case reports it correctly. Check packet and cue
+   timestamps in the fallback; done when that case also asserts the cue
+   appears and clears at the right times.
 2. **iOS foreground recovery needs device verification** (waiting on the
    user): an iPhone 17 (2026-10-27) rejected 32 video packets (`-12909`)
    after an apparent interruption or background transition; the actual
@@ -177,6 +176,18 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    Windows and Linux native users
    take the C ABI as it is.
 4. **Engineering practices**, in rough order of value:
+   - **FFmpeg upstream report** (waiting on the user to submit; no report
+     has been sent). Suggested report text: "FFmpeg 9.0.2's HLS demuxer
+     leaks 34,848 bytes for a WebVTT subtitle rendition. On Linux,
+     `ASAN=1 NO_HW=1 ONLY=http-hls-subtitles-fallback FFMPEG_ROOT=UNPATCHED tool/regression.sh`
+     in lychee_player reproduces it. In
+     `libavformat/hls.c`, `hls_read_header` allocates an unused 32 KB
+     `read_buffer` before installing the subtitle's dummy WEBVTT buffer;
+     `init_subtitle_context` then overwrites the 2,080-byte AVIO probe
+     buffer (and subsequent segment buffers) without freeing it.
+     Allocate only the buffer installed in AVIO, and free its current
+     buffer before initializing a new subtitle segment. The proposed
+     patch is `tool/patches/ffmpeg-hls-subtitle-buffers.patch`."
    - **clang-tidy**: the Android and Windows backends are not checked.
      `tool/tidy.sh` on Linux checks the Linux backend (clang 23, `--all`
      without findings, 2026-10-28). `ci.yml`'s `tidy` job runs on Linux

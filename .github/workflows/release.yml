@@ -39,7 +39,7 @@ jobs:
       - name: FFmpeg cache key
         id: ffmpeg
         run: |
-          inputs="$(cat tool/build_ffmpeg.sh tool/apple_framework.sh; grep -E '^(ffmpeg|mbedtls|dav1d)_' tool/release.sh; xcodebuild -version)"
+          inputs="$(cat tool/build_ffmpeg.sh tool/apple_framework.sh tool/patches/*.patch; grep -E '^(ffmpeg|mbedtls|dav1d)_' tool/release.sh; xcodebuild -version)"
           echo "key=ffmpeg-apple-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -76,7 +76,7 @@ jobs:
       - name: FFmpeg cache key
         id: ffmpeg
         run: |
-          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^(ffmpeg|mbedtls|dav1d)_' tool/release.sh; echo "$ANDROID_NDK_HOME")"
+          inputs="$(cat tool/build_ffmpeg.sh tool/patches/*.patch; grep -E '^(ffmpeg|mbedtls|dav1d)_' tool/release.sh; echo "$ANDROID_NDK_HOME")"
           echo "key=ffmpeg-android-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -103,7 +103,7 @@ jobs:
       - name: FFmpeg cache key
         id: ffmpeg
         run: |
-          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^(ffmpeg|dav1d)_' tool/release.sh; x86_64-w64-mingw32-gcc --version | head -1; dpkg -s mingw-w64-x86-64-dev | grep ^Version)"
+          inputs="$(cat tool/build_ffmpeg.sh tool/patches/*.patch; grep -E '^(ffmpeg|dav1d)_' tool/release.sh; x86_64-w64-mingw32-gcc --version | head -1; dpkg -s mingw-w64-x86-64-dev | grep ^Version)"
           echo "key=ffmpeg-windows-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -137,7 +137,7 @@ jobs:
       - name: FFmpeg cache key
         id: ffmpeg
         run: |
-          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^(ffmpeg|dav1d)_' tool/release.sh; lsb_release -ds; gcc --version | head -1)"
+          inputs="$(cat tool/build_ffmpeg.sh tool/patches/*.patch; grep -E '^(ffmpeg|dav1d)_' tool/release.sh; lsb_release -ds; gcc --version | head -1)"
           echo "key=ffmpeg-linux-release-$(uname -m)-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:

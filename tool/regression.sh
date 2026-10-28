@@ -52,7 +52,6 @@ abspath() {
 if [ "$windows" = 1 ] && ! python3 -c '' 2>/dev/null; then
   python3() { python "$@"; }
 fi
-
 root="$(abspath "$(dirname "$0")/..")"
 media="${MEDIA_DIR:-/tmp/lychee-media}"
 mkdir -p "$media"
@@ -456,6 +455,10 @@ if [ ! -f "$media/hls/subs_master.m3u8" ]; then
     '#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",SUBTITLES="subs"' \
     index.m3u8 >"$media/hls/subs_master.m3u8"
 fi
+# Force FFmpeg's HLS fallback while keeping the same H.264 segments.
+# Its subtitle probe and each new segment must release their AVIO buffers.
+[ -f "$media/hls/subs_fallback.m3u8" ] || sed 's/avc1.640028/vp09.00.40.08/' \
+  "$media/hls/subs_master.m3u8" >"$media/hls/subs_fallback.m3u8"
 # And one in two segments, the first without cues, the second placed by
 # X-TIMESTAMP-MAP: its cue at 10 s on the MPEG-TS timestamps.
 if [ ! -f "$media/hls/vtt_map_master.m3u8" ]; then
@@ -516,7 +519,7 @@ cli="$build/examples/cli/lychee_cli"
 # report rather than the first; the patterns below fail it.
 export TSAN_OPTIONS=halt_on_error=0
 export UBSAN_OPTIONS=print_stacktrace=1
-sanitizer_reports="WARNING: ThreadSanitizer|ERROR: AddressSanitizer|runtime error:"
+sanitizer_reports="WARNING: ThreadSanitizer|ERROR: (AddressSanitizer|LeakSanitizer)|runtime error:"
 # The start of the first report in $1, if any.
 print_reports() {
   grep -Eq "$sanitizer_reports" <<<"$1" || return 0
@@ -1317,6 +1320,11 @@ seq_ expect http-hls-master "$hls_variant" "summary: state=ended position=12\.00
 if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
   seq_ expect http-hls-fallback "hls: no HLS variant .*; the fallback opens it" "video size 1920x1080" \
     "summary: state=ended position=12\.000s" -- "http://127.0.0.1:$port/hls/vp9_master.m3u8"
+  seq_ expect http-hls-subtitles-fallback "hls: no HLS variant .*; the fallback opens it" \
+    "track 0: subtitle webvtt lang=en .*selected=1" \
+    "summary: state=ended position=12\.000s" -- "http://127.0.0.1:$port/hls/subs_fallback.m3u8"
+  seq_ expect http-hls-subtitles-fallback-close "hls: no HLS variant .*; the fallback opens it" \
+    "summary: state=ready" -- --seconds 1 "http://127.0.0.1:$port/hls/subs_fallback.m3u8"
 fi
 # WebVTT renditions are subtitle tracks, their cues on the media's
 # timeline (the video starts at 1.417 s).
