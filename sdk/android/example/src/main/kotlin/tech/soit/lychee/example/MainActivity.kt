@@ -1,11 +1,15 @@
 // Plays the "url" extra (default: h264_aac.mp4 from tool/serve_media.py,
 // through `adb reverse tcp:8765 tcp:8765`) on a loop, with a stats line
 // under the video. The "hw" extra (default true) turns hardware decoding
-// off.
+// off. Starting it again while it runs (am start without -S) opens the new
+// "url" on the same player: a file switch. With "fresh" (true), on a new
+// player instead, closing the old one a second later, as apps that make a
+// player per file do: two hardware decoders are open for that second.
 
 package tech.soit.lychee.example
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
@@ -50,6 +54,21 @@ class MainActivity : Activity() {
             addView(video, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(status)
         })
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val url = intent.getStringExtra("url") ?: return
+        Log.i("lychee-example", "switching to $url")
+        if (intent.getBooleanExtra("fresh", false)) {
+            val old = player
+            player = LycheePlayer(hardwareDecoding = intent.getBooleanExtra("hw", true))
+            player.isLooping = true
+            video.player = player
+            handler.postDelayed({ old.close() }, 1000)
+        }
+        player.open(url)
+        player.play()
     }
 
     override fun onStart() {

@@ -6,9 +6,12 @@
 #include <android/native_window.h>
 #include <dlfcn.h>
 #include <media/NdkMediaFormat.h>
+#include <sys/system_properties.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -30,6 +33,19 @@ constexpr int64_t kEndOfStreamTimeoutUs = 3 * kMicrosPerSecond;
 constexpr int kMaxInputsWithoutOutput = 64;
 // Waiting at a size change for the frames of the old codec to be shown.
 constexpr int64_t kRestartTimeoutUs = kMicrosPerSecond;
+
+// Hardware codecs started in this process and not deleted yet.
+std::atomic<int> hardware_codecs{0};
+
+// A test hook, not API: `adb shell setprop debug.lychee.max_hw_video_codecs
+// N` makes hardware codecs fail to start while N are open, as on devices
+// with fewer decoder instances than the emulator's four. 0 or unset: no
+// limit.
+int MaxHardwareCodecs() {
+  char value[PROP_VALUE_MAX] = {};
+  __system_property_get("debug.lychee.max_hw_video_codecs", value);
+  return atoi(value);
+}
 
 // One output buffer, owned by the frame that shows it.
 class OutputBuffer {
@@ -161,14 +177,21 @@ MediaCodecVideoDecoder::~MediaCodecVideoDecoder() {
   {
     std::lock_guard<std::mutex> lock(codec_->mutex);
     if (codec_->codec) {
-      AMediaCodec_stop(codec_->codec);
-      AMediaCodec_delete(codec_->codec);
-      codec_->codec = nullptr;
+      DeleteCodecLocked();
     }
   }
   // After the codec: it may render into the placeholder until deleted.
   if (placeholder_) {
     AImageReader_delete(placeholder_);
+  }
+}
+
+void MediaCodecVideoDecoder::DeleteCodecLocked() {
+  AMediaCodec_stop(codec_->codec);
+  AMediaCodec_delete(codec_->codec);
+  codec_->codec = nullptr;
+  if (hardware_) {
+    hardware_codecs--;
   }
 }
 
@@ -283,7 +306,13 @@ bool MediaCodecVideoDecoder::CreateCodec(
               : AMEDIA_ERROR_UNKNOWN;
   AMediaFormat_delete(format);
   if (status == AMEDIA_OK) {
-    status = AMediaCodec_start(codec);
+    const int limit = hardware_ ? MaxHardwareCodecs() : 0;
+    if (limit > 0 && hardware_codecs >= limit) {
+      LOGW("debug.lychee.max_hw_video_codecs: %d open", limit);
+      status = AMEDIA_ERROR_UNKNOWN;
+    } else {
+      status = AMediaCodec_start(codec);
+    }
   }
   if (status != AMEDIA_OK) {
     AMediaCodec_delete(codec);
@@ -291,6 +320,9 @@ bool MediaCodecVideoDecoder::CreateCodec(
     return false;
   }
   codec_->codec = codec;
+  if (hardware_) {
+    hardware_codecs++;
+  }
   LOGI("%s opened for %s %dx%d", codec_name.c_str(), mime, width, height);
   return true;
 }
@@ -329,9 +361,7 @@ bool MediaCodecVideoDecoder::Restart(int width,
   }
   {
     std::lock_guard<std::mutex> lock(codec_->mutex);
-    AMediaCodec_stop(codec_->codec);
-    AMediaCodec_delete(codec_->codec);
-    codec_->codec = nullptr;
+    DeleteCodecLocked();
     codec_->epoch++;
     codec_->outstanding = 0;
   }

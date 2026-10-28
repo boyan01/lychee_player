@@ -68,6 +68,8 @@ class MediaCodecVideoDecoder : public VideoDecoder {
                    int height,
                    const std::vector<std::vector<uint8_t>>& parameter_sets,
                    std::string* error);
+  // Stops and deletes codec_->codec.
+  void DeleteCodecLocked();
   // Replaces the codec with one for a new coded size, after the frames
   // decoded so far.
   bool Restart(int width, int height, const OutputCallback& output);

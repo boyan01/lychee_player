@@ -399,6 +399,12 @@ jobs: those stay local.
 - Apple minimums are macOS 11 and iOS 16 (`tool/apple_framework.sh` and the
   podspec): the Xcode 27 SDK's libc++ warns below macOS 11 / iOS 15, and
   `AppleFrameConverter` uses `VTPixelTransferSession` (iOS 16).
+- An emulator on the Windows PC (its SDK has `lychee_api34`, `lychee_api30`
+  and `lychee_api29`, WHPX) gets media from `tool/serve_media.py` run on
+  the PC, at `http://10.0.2.2:PORT`: served from the Mac across the LAN,
+  about one http file switch in ten lost the last byte of a response and
+  failed to open. Start the emulator, like any window there, from a
+  scheduled task in the logged-in session.
 - Real devices get media from `tool/serve_media.py`. Android: `adb reverse
   tcp:8765 tcp:8765`, then `http://127.0.0.1:8765/...`; Xiaomi phones
   refuse `adb install` (`INSTALL_FAILED_USER_RESTRICTED`) until someone

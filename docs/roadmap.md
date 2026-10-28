@@ -16,10 +16,7 @@ building on top of them.
    AAudio route changes to a USB-C headset, and switching AirPods back to
    the speaker after clock correction (waiting on the user and the Xiaomi
    14: the prior run jumped ~0.2 s and dropped 8 frames; verify the step is
-   smaller than a frame). Also missing are a
-   device with only one hardware decoder instance (the emulator's H.264
-   decoder once failed to start right after a file switch, and FFmpeg
-   took over). Only the CLI's
+   smaller than a frame). Only the CLI's
    `background` case exercises the expiry of
    frames nobody pulled: Choreographer kept pulling in the background on
    the Xiaomi 14.
