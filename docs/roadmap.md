@@ -183,8 +183,7 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    image.
 3. **Native SDKs**: drop the pod and the plugin's copy of
    `LycheeFrameDriver` (`LycheeTexture`) once Flutter drops CocoaPods;
-   the Rust crates on crates.io, and built for Linux (`LYCHEE_LIB_DIR`
-   has run on Windows, Android, and iOS with an xcframework slice).
+   the Rust crates on crates.io.
    Windows and Linux native users
    take the C ABI as it is.
 4. **Engineering practices**, in rough order of value:
