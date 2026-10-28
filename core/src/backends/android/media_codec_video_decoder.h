@@ -28,7 +28,8 @@ namespace lychee {
 //
 // Ported from flutter-airplay's native/backends/android/android_video.cpp.
 // Files need no low-latency mode or decode-order output: MediaCodec
-// reorders by itself, and the renderer picks frames per vsync.
+// reorders by itself, and the renderer picks frames per vsync. Live input
+// (VideoConfig::low_delay) asks for both.
 class MediaCodecVideoDecoder : public VideoDecoder {
  public:
   // Which codecs to take. With FFmpeg, its decoders are the better
@@ -95,6 +96,8 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   std::shared_ptr<void> surface_;
   const bool rotate_;
   int rotation_ = 0;
+  // Live input: VideoConfig::low_delay.
+  bool low_delay_ = false;
   ANativeWindow* window_ = nullptr;
   AImageReader* placeholder_ = nullptr;
   int coded_width_ = 0;

@@ -227,6 +227,7 @@ bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
     return false;
   }
   rotation_ = rotate_ ? config.rotation : 0;
+  low_delay_ = config.low_delay;
   // A live input may not know the size; the stream's SPS decides it then.
   const int width = config.width > 0 ? config.width : 1920;
   const int height = config.height > 0 ? config.height : 1080;
@@ -299,11 +300,40 @@ bool MediaCodecVideoDecoder::CreateCodec(
   coded_height_ = height;
   width_ = width;
   height_ = height;
+  // Live input wants each frame out as soon as it is decoded: low latency
+  // mode (KEY_LOW_LATENCY, API 30; ignored before), and on Qualcomm's H.264
+  // decoders output in decode order, which otherwise hold back streams with
+  // POC type 0 and no VUI reorder limit even in low latency mode (ported
+  // from flutter-airplay's android_video.cpp). Live input has no B-frames,
+  // as VTVideoDecoder's low_delay also assumes. A codec that rejects them
+  // gets a fresh instance configured without them (0, their default).
+  const bool qualcomm =
+      !converter_.hevc() && (codec_name.rfind("c2.qti.", 0) == 0 ||
+                             codec_name.rfind("OMX.qcom.", 0) == 0);
+  const char* kDecodeOrder = "vendor.qti-ext-dec-picture-order.enable";
+  int attempt = low_delay_ ? (qualcomm ? 0 : 1) : 2;
   std::lock_guard<std::mutex> lock(codec_->mutex);
   window_ = TargetWindowLocked();
-  media_status_t status =
-      window_ ? AMediaCodec_configure(codec, format, window_, nullptr, 0)
-              : AMEDIA_ERROR_UNKNOWN;
+  media_status_t status = AMEDIA_ERROR_UNKNOWN;
+  for (; window_ && attempt <= 2; ++attempt) {
+    if (low_delay_) {
+      AMediaFormat_setInt32(format, kDecodeOrder, attempt == 0);
+      AMediaFormat_setInt32(format, "low-latency", attempt <= 1);
+    }
+    status = AMediaCodec_configure(codec, format, window_, nullptr, 0);
+    if (status == AMEDIA_OK || attempt == 2) {
+      break;
+    }
+    LOGW("%s rejected low latency setup %d: %d", codec_name.c_str(), attempt,
+         status);
+    AMediaCodec_delete(codec);
+    codec = AMediaCodec_createCodecByName(codec_name.c_str());
+    if (!codec) {
+      AMediaFormat_delete(format);
+      *error = "cannot create " + codec_name + " again";
+      return false;
+    }
+  }
   AMediaFormat_delete(format);
   if (status == AMEDIA_OK) {
     const int limit = hardware_ ? MaxHardwareCodecs() : 0;
@@ -323,7 +353,10 @@ bool MediaCodecVideoDecoder::CreateCodec(
   if (hardware_) {
     hardware_codecs++;
   }
-  LOGI("%s opened for %s %dx%d", codec_name.c_str(), mime, width, height);
+  LOGI("%s opened for %s %dx%d%s", codec_name.c_str(), mime, width, height,
+       attempt == 0   ? ", low latency, decode order"
+       : attempt == 1 ? ", low latency"
+                      : "");
   return true;
 }
 

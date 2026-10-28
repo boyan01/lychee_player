@@ -179,7 +179,14 @@ The layers, lowest first:
      `CVPixelBuffer`), and the Swift package's example.
    - iOS: the Swift package's example on the "iPhone 16" simulator.
    - Android: the Android SDK's example on an emulator (`Pixel_10`,
-     windowed).
+     windowed). For what needs no window, `lychee_cli` cross-builds
+     with the NDK (`cmake -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/
+     android.toolchain.cmake -DANDROID_ABI=x86_64 -DANDROID_PLATFORM=26
+     -DANDROID_STL=c++_shared -DBUILD_SHARED_LIBS=ON
+     -DLYCHEE_FFMPEG_ROOT=third_party/ffmpeg/android-x86_64`) and runs
+     from `adb shell` in `/data/local/tmp` beside its libraries
+     (`LD_LIBRARY_PATH=.`); `--android-surface` decodes through
+     MediaCodec, in real time only.
    - Windows: `examples/glfw` (D3D11 textures), through the
      `flutter-remote-test` skill. `--seconds N` and `--key SEC:NAME`
      (README) run it unattended on every desktop platform.

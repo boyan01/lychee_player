@@ -329,6 +329,11 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       options->frame_type = LYCHEE_FRAME_CPU_BGRA;
     } else if (arg == "--rgba") {
       options->frame_type = LYCHEE_FRAME_CPU_RGBA;
+    } else if (arg == "--android-surface") {
+      // Android: MediaCodec frames, shown in no window (the core's
+      // placeholder). Real time only: the codec holds a few frames, short
+      // of what --virtual-time waits for, and the player takes it as hung.
+      options->frame_type = LYCHEE_FRAME_ANDROID_SURFACE;
     } else if (arg == "--native") {
       options->frame_type = LYCHEE_FRAME_CVPIXELBUFFER_NATIVE;
     } else if (arg == "--d3d11") {
@@ -940,7 +945,8 @@ int main(int argc, char** argv) {
     fprintf(stderr,
             "usage: %s [--seconds N] [--seek SEC [--seek-after SEC]] "
             "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
-            "[--cpu | --rgba | --native | --d3d11 | --dmabuf NODE] "
+            "[--cpu | --rgba | --native | --d3d11 | --dmabuf NODE | "
+            "--android-surface] "
             "[--rate R [--rate-after "
             "SEC]] [--loop [--loop-off-after SEC]] "
             "[--open-after SEC URL] [--select TYPE:INDEX[@SEC]]... "
