@@ -142,6 +142,10 @@ fi
 
 args=(-clang-tidy-binary "$tidy" -p "$root/build-tidy/merged" -quiet -hide-progress)
 [ -n "$line_filter" ] && args+=(-line-filter "$line_filter")
+# Homebrew's clang reads its SDK from a config file naming the Command
+# Line Tools' SDK, which machines with only Xcode (CI's) lack: without
+# it no standard header is found.
+[ "$(uname)" = Darwin ] && args+=(-extra-arg="-isysroot$(xcrun --show-sdk-path)")
 out="$root/build-tidy/merged/output.txt"
 status=0
 "$run" "${args[@]}" "${files[@]}" >"$out" 2>&1 || status=$?

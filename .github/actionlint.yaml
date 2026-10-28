@@ -1,3 +1,0 @@
-self-hosted-runner:
-  # core-macos in ci.yml.
-  labels: [quiet]

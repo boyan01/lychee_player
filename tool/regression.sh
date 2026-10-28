@@ -1381,8 +1381,9 @@ if [ "$own_ts" = 1 ]; then
     "summary: state=ended .*backward_jumps=0 " -- --select audio:1@4 "http://127.0.0.1:$port/hls_alt/live.m3u8"
 fi
 # Slower than the 1080p variant (5 Mbit/s against 2.5): after its first
-# segment the own HLS goes on with the 800 kbit/s one.
-if [ "$own_ts" = 1 ]; then
+# segment the own HLS goes on with the 800 kbit/s one. Only Apple's http
+# source measures the transfer rate (DataSource::transfer_rate).
+if [ "$own_ts" = 1 ] && [ "$(uname)" = Darwin ]; then
   serve --rate 300
   seq_ expect http-hls-adaptive "variant .*/hls_low/index\.m3u8 \(800000 bit/s\)" "video size 640x360" \
     "summary: state=ended position=12\.000s .*backward_jumps=0 " -- "http://127.0.0.1:$port/hls/master.m3u8"

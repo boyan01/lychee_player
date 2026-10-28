@@ -768,10 +768,11 @@ bool HlsDemuxer::OpenWebVtt(Rendition* r, std::string* error) {
   auto anchor = offsets_.find(segment.discontinuity);
   r->offset = anchor != offsets_.end() ? anchor->second : 0;
   // The MPEG-2 timestamp unwrapped next to where the segment plays.
-  const int64_t near =
+  // (Not `near`: <windows.h> defines it as a macro.)
+  const int64_t around =
       media_info_.start_time + segment.start - r->origin - r->offset;
   const int64_t base = TsReader::TicksToMicros(
-      TsReader::Nearest(mpegts, TsReader::MicrosToTicks(near)));
+      TsReader::Nearest(mpegts, TsReader::MicrosToTicks(around)));
   for (const WebVttCue& cue : cues) {
     EncodedPacket packet;
     packet.stream_index = 0;
