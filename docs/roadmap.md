@@ -30,11 +30,10 @@ building on top of them.
    adapter change during playback (the plugin sets it once), HEVC on a
    machine without the Store's HEVC Video Extensions (should fall back to
    D3D11VA at open), the pixel buffer path for a Flutter without a D3D11
-   adapter, multiple monitors, audible output, and swscale's BT.709 for
-   untagged HD (seen on macOS only). `tool/regression.sh`'s realtime
-   cases on Windows: `realtime-rate` once showed 400 ms of drift and
-   `realtime-seek` 6 glitches while an Android emulator loaded the PC
-   (2026-10-28); alone they pass. Rerun them on an idle PC.
+   adapter, multiple monitors, and audible output. `tool/regression.sh`'s
+   realtime cases on Windows: `realtime-rate` once showed 400 ms of
+   drift and `realtime-seek` 6 glitches while an Android emulator loaded
+   the PC (2026-10-28); alone they pass. Rerun them on an idle PC.
 3. **Linux**: VAAPI on AMD, Wayland, hardware decoding on arm64, and audio
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays
