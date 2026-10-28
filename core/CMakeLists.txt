@@ -119,8 +119,8 @@ if(WIN32)
     src/media/probing_demuxer.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
-    # Without FFmpeg: H.264 and HEVC in hardware or software, AAC and MP3
-    # through Media Foundation, text subtitles.
+    # Without FFmpeg: H.264 and HEVC in hardware or software, AAC, MP3 and
+    # FLAC through Media Foundation, text subtitles.
     list(APPEND LYCHEE_SOURCES
       src/backends/media_foundation/mf_audio_decoder.cc
       src/media/text_subtitle_decoder.cc

@@ -139,7 +139,7 @@ The goal is FFmpeg-free builds on Apple platforms, Windows and Android;
 Linux keeps FFmpeg (no system audio decoder or demuxer). Apple plays MP4,
 Matroska/WebM, MPEG-TS and HLS without it, and ships
 `lychee_noffmpeg.xcframework`; Windows plays the same containers (H.264
-and HEVC in hardware or software, AAC and MP3), and Android too (video
+and HEVC in hardware or software, AAC, MP3 and FLAC), and Android too (video
 H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
 `HttpURLConnection`).
 
@@ -152,8 +152,11 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    metadata in TS are ignored. Where TS timestamps start over, a jump
    ahead, or a run shorter than a sixteenth of the input, is found only
    when played: until then the duration and seeks miss it.
-3. **Windows**: VP9, AV1, Opus, FLAC and ALAC have no decoder (Media
-   Foundation has them only with Store extensions, or not at all). Live
+3. **Windows**: VP9, AV1, Opus and ALAC have no decoder (Media
+   Foundation has them only with Store extensions, or not at all), and
+   FLAC in MP4 none either (Windows' decoder refuses it, 0xC00D36E6, with
+   the STREAMINFO Windows' own MP4 source passes; FLAC in Matroska
+   plays). Live
    HEVC decoded in software shows one frame less than it should
    (`NO_FFMPEG=1 NO_HW=1 ONLY=live-hevc`: 299 of 300; the HEVC extension's
    decoder holds the last frame back, low latency mode set or not).

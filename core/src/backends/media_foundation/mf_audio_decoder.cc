@@ -30,9 +30,59 @@ size_t AdtsHeaderSize(const uint8_t* data, size_t size) {
   return header < size ? header : 0;
 }
 
-ComPtr<IMFTransform> CreateMp3Decoder() {
+// The input subtype for |codec|, or GUID_NULL.
+GUID Subtype(AudioCodec codec) {
+  switch (codec) {
+    case AudioCodec::kAAC:
+      return MFAudioFormat_AAC;
+    case AudioCodec::kMP3:
+      return MFAudioFormat_MP3;
+    case AudioCodec::kFLAC:
+      return MFAudioFormat_FLAC;
+    default:
+      return GUID_NULL;
+  }
+}
+
+// FLAC's STREAMINFO from the container's configuration: the bare block
+// (MP4's dfLa without its header, as FFmpeg has it), or "fLaC" and the
+// metadata blocks (Matroska's CodecPrivate). Empty if none.
+std::vector<uint8_t> FlacStreamInfo(const std::vector<uint8_t>& config) {
+  constexpr size_t kStreamInfo = 34;
+  if (config.size() == kStreamInfo) {
+    return config;
+  }
+  if (config.size() >= 8 + kStreamInfo &&
+      std::memcmp(config.data(), "fLaC", 4) == 0 && (config[4] & 0x7f) == 0) {
+    return {config.begin() + 8, config.begin() + 8 + kStreamInfo};
+  }
+  return {};
+}
+
+// What the decoder takes as MF_MT_USER_DATA, as Windows' own MP4 source
+// hands it over: for FLAC the STREAMINFO block with its header, marked
+// last.
+std::vector<uint8_t> UserData(AudioCodec codec,
+                              const std::vector<uint8_t>& config) {
+  switch (codec) {
+    case AudioCodec::kFLAC: {
+      const std::vector<uint8_t> info = FlacStreamInfo(config);
+      if (info.empty()) {
+        return {};
+      }
+      std::vector<uint8_t> block = {0x80, 0, 0,
+                                    static_cast<uint8_t>(info.size())};
+      block.insert(block.end(), info.begin(), info.end());
+      return block;
+    }
+    default:
+      return config;
+  }
+}
+
+ComPtr<IMFTransform> CreateDecoder(const GUID& subtype) {
   ComPtr<IMFTransform> decoder;
-  MFT_REGISTER_TYPE_INFO input = {MFMediaType_Audio, MFAudioFormat_MP3};
+  MFT_REGISTER_TYPE_INFO input = {MFMediaType_Audio, subtype};
   IMFActivate** activates = nullptr;
   UINT32 count = 0;
   if (FAILED(MFTEnumEx(MFT_CATEGORY_AUDIO_DECODER,
@@ -58,8 +108,7 @@ bool MFAudioDecoder::Initialize(const AudioConfig& config,
                                 std::string* error) {
   output_format_ = output_format;
   config_ = config;
-  if ((config.codec != AudioCodec::kAAC && config.codec != AudioCodec::kMP3) ||
-      !StartMediaFoundation()) {
+  if (Subtype(config.codec) == GUID_NULL || !StartMediaFoundation()) {
     *error = "mediafoundation: no decoder for " + config.codec_name;
     return false;
   }
@@ -78,17 +127,20 @@ bool MFAudioDecoder::Initialize(const AudioConfig& config,
   return true;
 }
 
-bool MFAudioDecoder::Open(const std::vector<uint8_t>& asc, std::string* error) {
+bool MFAudioDecoder::Open(const std::vector<uint8_t>& extradata,
+                          std::string* error) {
   const bool aac = config_.codec == AudioCodec::kAAC;
+  const GUID subtype = Subtype(config_.codec);
   if (aac) {
     CoCreateInstance(CLSID_CMSAACDecMFT, nullptr, CLSCTX_INPROC_SERVER,
                      IID_PPV_ARGS(&decoder_));
   } else {
-    decoder_ = CreateMp3Decoder();
+    // MP3, and Windows' own FLAC decoder (Windows 10).
+    decoder_ = CreateDecoder(subtype);
   }
   if (!decoder_) {
-    *error = std::string("mediafoundation: no ") + (aac ? "AAC" : "MP3") +
-             " decoder";
+    *error =
+        std::string("mediafoundation: no ") + config_.codec_name + " decoder";
     return false;
   }
   ComPtr<IMFMediaType> input;
@@ -97,7 +149,7 @@ bool MFAudioDecoder::Open(const std::vector<uint8_t>& asc, std::string* error) {
     return false;
   }
   input->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
-  input->SetGUID(MF_MT_SUBTYPE, aac ? MFAudioFormat_AAC : MFAudioFormat_MP3);
+  input->SetGUID(MF_MT_SUBTYPE, subtype);
   input->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND,
                    static_cast<UINT32>(config_.sample_rate));
   input->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS,
@@ -109,9 +161,20 @@ bool MFAudioDecoder::Open(const std::vector<uint8_t>& asc, std::string* error) {
     input->SetUINT32(MF_MT_AAC_PAYLOAD_TYPE, 0);
     std::vector<uint8_t> user_data(12, 0);
     user_data[2] = 0xfe;
-    user_data.insert(user_data.end(), asc.begin(), asc.end());
+    user_data.insert(user_data.end(), extradata.begin(), extradata.end());
     input->SetBlob(MF_MT_USER_DATA, user_data.data(),
                    static_cast<UINT32>(user_data.size()));
+  } else if (config_.codec != AudioCodec::kMP3) {
+    const std::vector<uint8_t> user_data = UserData(config_.codec, extradata);
+    if (config_.codec == AudioCodec::kFLAC && user_data.empty()) {
+      *error = "mediafoundation: FLAC without its STREAMINFO";
+      decoder_.Reset();
+      return false;
+    }
+    if (!user_data.empty()) {
+      input->SetBlob(MF_MT_USER_DATA, user_data.data(),
+                     static_cast<UINT32>(user_data.size()));
+    }
   }
   HRESULT hr = decoder_->SetInputType(0, input.Get(), 0);
   if (FAILED(hr)) {
@@ -161,7 +224,7 @@ bool MFAudioDecoder::SetUpOutput() {
       MFGetAttributeUINT32(chosen.Get(), MF_MT_AUDIO_NUM_CHANNELS, 0));
   resampler_.Reset();
   float_output_ = subtype == MFAudioFormat_Float;
-  const char* codec = config_.codec == AudioCodec::kAAC ? "aac" : "mp3";
+  const char* codec = config_.codec_name.c_str();
   if (rate == output_format_.sample_rate &&
       channels == output_format_.channels && float_output_) {
     LOGI("decoder opened for %s %d Hz %d ch", codec, rate, channels);
