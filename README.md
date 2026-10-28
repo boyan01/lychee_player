@@ -514,8 +514,10 @@ It builds the Apple xcframeworks, the Android AAR and the Windows and
 Linux FFmpeg (on Ubuntu; Windows cross-compiled), pins them in
 `flutter/prebuilt.json` and `Package.swift` (which lets SwiftPM take
 `sdk/apple` by URL), builds a fresh app against the package pub would
-publish, drafts the GitHub release with the assets and the sources of
-FFmpeg and Mbed TLS, and pushes the commit `Release VERSION` and the tag
+publish (macOS, iOS and Android on macOS, Windows on Windows), attests
+the assets' build provenance and an SPDX SBOM of them, drafts the GitHub
+release with the assets, the SBOM and the sources of FFmpeg and Mbed TLS,
+and pushes the commit `Release VERSION` and the tag
 `vVERSION`. The tag starts `publish.yml`, which publishes the release and
 the package on pub.dev. Each step is a `tool/release.sh` command and runs
 locally too:
@@ -528,7 +530,12 @@ tool/release.sh build windows /tmp/sources && tool/release.sh pack windows /tmp/
 tool/release.sh build linux /tmp/sources && tool/release.sh pack linux /tmp/dist  # on Ubuntu 22.04
 tool/release.sh sources /tmp/dist && tool/release.sh pin /tmp/dist
 tool/release.sh check /tmp/dist   # then git checkout the pins; in Git Bash on Windows it builds a Windows app
+tool/release.sh sbom /tmp/dist    # lychee_player-VERSION.spdx.json
 ```
+
+Anyone can check an asset against the workflow that built it:
+`gh attestation verify ASSET --repo boyan01/lychee_player` (provenance;
+`--predicate-type https://spdx.dev/Document/v2.3` for the SBOM).
 
 Once per repository: a deploy key with write access whose private key is
 the secret `RELEASE_DEPLOY_KEY` (the workflow's own token cannot start

@@ -1,7 +1,9 @@
 # Releases VERSION: builds the prebuilt core (Apple xcframeworks, the
 # Android AAR) and the Windows and Linux plugins' FFmpeg, pins their SHA-256s in
 # flutter/prebuilt.json and Package.swift, checks that a fresh app builds with the package pub would
-# publish, drafts the GitHub release with the assets, and pushes the
+# publish (macOS, iOS and Android on macOS, Windows on Windows), attests
+# the assets' build provenance and an SPDX SBOM of them (also an asset),
+# drafts the GitHub release with the assets, and pushes the
 # "Release VERSION" commit and the tag vVERSION. The tag starts publish.yml,
 # which publishes the release and the package.
 #
@@ -149,11 +151,38 @@ jobs:
           path: dist
           if-no-files-found: error
 
-  release:
+  # tool/release.sh check for Windows, in Git Bash: a fresh app builds
+  # with the package and downloads the release's FFmpeg. The pins are the
+  # ones the release job computes from the same assets; nothing here is
+  # committed.
+  check-windows:
     needs: [apple, android, windows, linux]
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          path: dist
+          merge-multiple: true
+      - run: tool/release.sh version "$VERSION"
+      - run: tool/release.sh pin dist
+      - run: tool/release.sh check dist
+
+  release:
+    needs: [apple, android, windows, linux, check-windows]
     runs-on: macos-26
     permissions:
       contents: write
+      # The attestations: a Sigstore certificate for the workflow's
+      # identity, stored with the repository.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -181,6 +210,20 @@ jobs:
           git add Package.swift flutter/pubspec.yaml flutter/prebuilt.json
           git commit -m "Release $VERSION"
       - run: tool/release.sh check dist
+      # Provenance and the SBOM attest the assets the checks passed, the
+      # SBOM's file aside; it joins them afterwards as an asset of its own.
+      - name: SBOM
+        run: |
+          tool/release.sh sbom dist
+          mv dist/*.spdx.json "$RUNNER_TEMP/sbom.spdx.json"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/*
+          sbom-path: ${{ runner.temp }}/sbom.spdx.json
+      - run: mv "$RUNNER_TEMP/sbom.spdx.json" "dist/lychee_player-$VERSION.spdx.json"
       # Before the tag exists: publish.yml, which the tag starts, publishes
       # this draft.
       - name: Draft the release

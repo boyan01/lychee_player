@@ -7,6 +7,12 @@
 #   tool/bench.sh                  # Release build in build-release/
 #   NO_FFMPEG=1 tool/bench.sh      # without FFmpeg, in build-release-noffmpeg/
 #   ONLY='1080p-*' tool/bench.sh   # only cases matching a glob
+#   FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/bench.sh
+#                                  # the shipped FFmpeg (tool/build_ffmpeg.sh)
+#                                  # instead of the system's, in
+#                                  # build-release-lgpl/
+#   BENCH_TSV=FILE tool/bench.sh   # append to FILE instead (CI keeps one
+#                                  # table per machine there)
 #
 # Per case it prints and appends to build-release*/bench.tsv (one row per
 # case and commit, "+" after the commit when the tree was dirty):
@@ -27,6 +33,9 @@ flags=()
 if [ "${NO_FFMPEG:-0}" = 1 ]; then
   build="$build-noffmpeg"
   flags+=(-DLYCHEE_WITH_FFMPEG=OFF)
+elif [ -n "${FFMPEG_ROOT:-}" ]; then
+  build="$build-lgpl"
+  flags+=(-DLYCHEE_FFMPEG_ROOT="$(cd "$FFMPEG_ROOT" && pwd)")
 fi
 
 mkdir -p "$media"
@@ -54,7 +63,7 @@ cli="$build/examples/cli/lychee_cli"
 
 commit="$(git -C "$root" rev-parse --short=12 HEAD)"
 [ -z "$(git -C "$root" status --porcelain -- core examples)" ] || commit="$commit+"
-results="$build/bench.tsv"
+results="${BENCH_TSV:-$build/bench.tsv}"
 [ -f "$results" ] || printf 'date\tcommit\tcase\tdecoder\tfps\topen_ms\tseek_ms\trss_mb\n' >"$results"
 
 # Peak RSS in MB from time's report, on macOS (-l, bytes) or Linux (-v, KB).

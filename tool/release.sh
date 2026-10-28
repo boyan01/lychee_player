@@ -29,6 +29,12 @@
 #                                      Android; in Git Bash on Windows for
 #                                      Windows (OUT needs only
 #                                      ffmpeg-windows-x86_64.zip there)
+#   tool/release.sh sbom OUT           write OUT/lychee_player-VERSION.spdx.json,
+#                                      an SPDX 2.3 SBOM of OUT's assets: what
+#                                      each holds (the core, FFmpeg, Mbed TLS,
+#                                      zlib and mingw-w64's runtime, as
+#                                      THIRD_PARTY_NOTICES lists) and the pins
+#                                      of their sources
 #   tool/release.sh verify             download what prebuilt.json pins from
 #                                      the release and check it
 #   tool/release.sh publish            flutter pub publish --force
@@ -464,6 +470,85 @@ for name, sha in m["files"].items():
   done
 }
 
+cmd_sbom() {
+  local out v
+  out="$(cd "${1:?out}" && pwd)"
+  v="$(version)"
+  rm -f "$out/lychee_player-$v.spdx.json"
+  python3 -I - "$out" "$v" "$manifest" "$ffmpeg_version" "$ffmpeg_url" "$ffmpeg_sha256" \
+    "$mbedtls_version" "$mbedtls_url" "$mbedtls_sha256" <<'EOF'
+import datetime, hashlib, json, pathlib, sys, uuid
+
+out = pathlib.Path(sys.argv[1])
+version, manifest = sys.argv[2], json.load(open(sys.argv[3]))
+ffmpeg_version, ffmpeg_url, ffmpeg_sha256 = sys.argv[4:7]
+mbedtls_version, mbedtls_url, mbedtls_sha256 = sys.argv[7:10]
+repo = manifest["url"].removesuffix("/releases/download")
+
+def package(id_, name, version, url, license_, sha256=None):
+    p = {"SPDXID": f"SPDXRef-Package-{id_}", "name": name, "versionInfo": version,
+         "downloadLocation": url, "filesAnalyzed": False,
+         "licenseConcluded": license_, "licenseDeclared": license_,
+         "copyrightText": "NOASSERTION"}
+    if sha256:
+        p["checksums"] = [{"algorithm": "SHA256", "checksumValue": sha256}]
+    return p
+
+# THIRD_PARTY_NOTICES: the core carries code ported from Chromium (BSD-3);
+# the AAR's FFmpeg is LGPL 3 because it links Mbed TLS (Apache 2.0); the
+# Windows FFmpeg DLLs carry zlib and parts of mingw-w64's runtime.
+packages = [
+    package("lychee", "lychee_player", version, f"git+{repo}@v{version}", "MIT AND BSD-3-Clause"),
+    package("FFmpeg", "FFmpeg", ffmpeg_version, ffmpeg_url, "LGPL-2.1-or-later", ffmpeg_sha256),
+    package("MbedTLS", "Mbed TLS", mbedtls_version, mbedtls_url, "Apache-2.0", mbedtls_sha256),
+    package("zlib", "zlib", "NOASSERTION", "NOASSERTION", "Zlib"),
+    package("mingw-w64", "mingw-w64 runtime", "NOASSERTION", "NOASSERTION", "ZPL-2.1"),
+]
+
+def sources(name):
+    if name.startswith("lychee-") and name.endswith(".aar"):
+        return ["lychee", "FFmpeg", "MbedTLS"]
+    if name.startswith("lychee-") and name.endswith(".pom"):
+        return []
+    if name.startswith(("lychee.", "lychee_noffmpeg.")):
+        return ["lychee"]
+    if name.startswith(("libav", "libsw", "ffmpeg-linux-")):
+        return ["FFmpeg"]
+    if name == "ffmpeg-windows-x86_64.zip":
+        return ["FFmpeg", "zlib", "mingw-w64"]
+    return []  # the source archives, pinned in the packages above
+
+files, relationships = [], [{"spdxElementId": "SPDXRef-DOCUMENT",
+                             "relationshipType": "DESCRIBES",
+                             "relatedSpdxElement": "SPDXRef-Package-lychee"}]
+for i, path in enumerate(sorted(p for p in out.iterdir() if p.is_file())):
+    id_ = f"SPDXRef-File-{i}"
+    data = path.read_bytes()
+    # SPDX 2.3 wants SHA-1 for every file; SHA-256 is what the pins use.
+    files.append({"SPDXID": id_, "fileName": f"./{path.name}",
+                  "checksums": [{"algorithm": a.upper(), "checksumValue": hashlib.new(a, data).hexdigest()}
+                                for a in ("sha1", "sha256")],
+                  "licenseConcluded": "NOASSERTION", "copyrightText": "NOASSERTION"})
+    relationships.append({"spdxElementId": "SPDXRef-DOCUMENT",
+                          "relationshipType": "DESCRIBES", "relatedSpdxElement": id_})
+    for source in sources(path.name):
+        relationships.append({"spdxElementId": id_, "relationshipType": "GENERATED_FROM",
+                              "relatedSpdxElement": f"SPDXRef-Package-{source}"})
+
+doc = {
+    "spdxVersion": "SPDX-2.3", "dataLicense": "CC0-1.0", "SPDXID": "SPDXRef-DOCUMENT",
+    "name": f"lychee_player-{version}",
+    "documentNamespace": f"{repo}/releases/tag/v{version}/spdx/{uuid.uuid4()}",
+    "creationInfo": {"created": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                     "creators": ["Tool: lychee_player tool/release.sh"]},
+    "packages": packages, "files": files, "relationships": relationships,
+}
+target = out / f"lychee_player-{version}.spdx.json"
+target.write_text(json.dumps(doc, indent=1) + "\n")
+print(f"wrote {target.name}: {len(files)} files")
+EOF
+}
+
 cmd_publish() {
   with_core flutter pub publish --force
 }
@@ -475,6 +560,6 @@ cmd_notes() {
 cmd="${1:-}"
 shift || true
 case "$cmd" in
-  version|sources|build|pack|pin|check|verify|publish|notes) "cmd_$cmd" "$@" ;;
+  version|sources|build|pack|pin|check|sbom|verify|publish|notes) "cmd_$cmd" "$@" ;;
   *) sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

@@ -76,7 +76,11 @@ while IFS= read -r f; do
     # CI's format job checks every push.
     .clang-format | .editorconfig | tool/format.sh) ;;
     # Run by hand on an idle machine; Dependabot reads its config itself.
-    tool/bench.sh | tool/soak.sh | .github/dependabot.yml) ;;
+    tool/soak.sh | .github/dependabot.yml) ;;
+    # Its own scheduled workflow runs it; it reads no code.
+    tool/check_updates.py | .github/workflows/updates.yml) ;;
+    # CI's bench job runs after core-macos, for core changes.
+    tool/bench.sh) mark core ;;
     # Changes to the checker also exercise its CI job.
     .clang-tidy | tool/tidy.sh) mark core ;;
     .github/workflows/*) mark packaging ;;
@@ -94,6 +98,7 @@ while IFS= read -r f; do
     core/src/backends/ffmpeg/*) mark core apple windows linux ;;
     core/src/media/factory.cc) mark core parsers apple android windows linux ;;
     tool/abi_check.py) mark abi ;;
+    tool/android_check.sh) mark android ;;
     core/* | CMakeLists.txt | examples/cli/* | tool/regression.sh | tool/*.py) mark core ;;
     examples/glfw/main_win*) mark windows ;;
     examples/glfw/main_linux*) mark linux ;;

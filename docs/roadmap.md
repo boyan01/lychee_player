@@ -177,8 +177,9 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
 2. **Release leftovers**: the AAR on Maven Central too (what native
    Android users expect; needs a Sonatype account for `tech.soit`);
    `tool/release.sh check` building Linux apps (it builds macOS, iOS and
-   Android apps on macOS and Windows apps in Git Bash on Windows, which
-   `release.yml` does not run yet); the Linux job in a `ubuntu:22.04` container once GitHub
+   Android apps on macOS and Windows apps in Git Bash on Windows;
+   `release.yml` runs both, the Windows one and the attestations and
+   SBOM since 2026-10-28 and not yet in a release); the Linux job in a `ubuntu:22.04` container once GitHub
    retires that
    image.
 3. **Native SDKs**: drop the pod and the plugin's copy of
@@ -188,14 +189,19 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    Windows and Linux native users
    take the C ABI as it is.
 4. **Engineering practices**, in rough order of value:
-   - **clang-tidy**: the Android, Windows and Linux backends are not
-     checked. Add Linux to the changed-lines CI check, after validating
-     its compiler database and diagnostics on Linux.
-   - **CI jobs for Android and Windows**: the SDK build and its unit tests
-     on an emulator; the core and `examples/glfw` on `windows-latest`.
-   - **Performance benchmarks**: `tool/bench.sh` measures them on one
-     machine, by hand; left are running it per commit on the idle
-     self-hosted Mac and keeping the table somewhere CI can compare.
+   - **clang-tidy**: the Android and Windows backends are not checked.
+     `ci.yml`'s `tidy` job runs on Linux too since 2026-10-28 (PyPI's
+     clang-tidy 23, a clang compile database against the LGPL FFmpeg),
+     unverified: it has not run on GitHub, and `tool/tidy.sh` has not
+     run with that wheel on Linux; fix what the first push shows.
+   - **CI jobs for Android and Windows** (`android`, `core-windows` in
+     `ci.yml`, 2026-10-28) have not run on GitHub yet: fix what their
+     first push shows (the emulator's MediaCodec snapshots, WASAPI on a
+     VM without an audio device), then delete this line.
+   - **Performance benchmarks**: `ci.yml`'s `bench` job (2026-10-28)
+     runs `tool/bench.sh` per push on the idle self-hosted Mac, keeps the
+     table there and compares with `tool/bench_compare.py`; it has not
+     run on GitHub yet: check its first summary, then delete this part.
      VideoToolbox through FFmpeg decodes 1080p H.264 at ~210 fps on the
      virtual clock against software's ~970 (M-series, 2026-10-28): one
      frame at a time, which is enough to play but not to scrub fast.
@@ -203,9 +209,10 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
      macOS and Linux. Left: a run on Linux and Windows, and soaking the
      platform harnesses (`examples/glfw`, the Swift and Android
      examples), whose frame hand-off and display link the CLI skips.
-   - **Supply chain**: build provenance attestations and an SBOM for
-     release assets; updates for the FFmpeg, GLFW and Mbed TLS sources
-     pinned in `tool/` scripts, which Dependabot cannot read.
+   - **Supply chain**: `updates.yml` (weekly, 2026-10-28) lists newer
+     FFmpeg, Mbed TLS and GLFW releases than the pins
+     (`tool/check_updates.py`); it has not run on GitHub yet: look at
+     its first run, then delete this line.
    - **Fuzzing corpus**: merge it with libFuzzer's `-merge=1` if it grows
      past a few hundred MB; OSS-Fuzz once the project is public.
    - **Coverage** as a CI artifact once someone watches it.

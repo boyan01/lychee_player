@@ -6,8 +6,9 @@ on:
 
 # Each job runs only for the areas a push or pull request touches
 # (tool/changes.sh; a change to this file or that script runs them all):
-# the ABI check, the core on macOS and Linux, the parsers' fuzzers, the
-# Apple builds and the Swift package, the Flutter plugin, the Rust crates.
+# the ABI check, the core on macOS, Linux and Windows, the parsers'
+# fuzzers, the Apple builds and the Swift package, the Android SDK on an
+# emulator, the Flutter plugin, the Rust crates.
 
 env:
   # Hosted runners are loaded VMs: the realtime cases of tool/regression.sh
@@ -22,6 +23,8 @@ jobs:
       core: ${{ steps.areas.outputs.core }}
       parsers: ${{ steps.areas.outputs.parsers }}
       apple: ${{ steps.areas.outputs.apple }}
+      android: ${{ steps.areas.outputs.android }}
+      windows: ${{ steps.areas.outputs.windows }}
       linux: ${{ steps.areas.outputs.linux }}
       abi: ${{ steps.areas.outputs.abi }}
       rust: ${{ steps.areas.outputs.rust }}
@@ -62,17 +65,60 @@ jobs:
           tool/format.sh --check "$BASE" "$GITHUB_SHA"
 
   tidy:
+    # tool/tidy.sh on the lines a push or pull request changed, on macOS
+    # (the Apple backends) and on Linux (the Linux backends and
+    # examples/glfw's main_linux.cc, which macOS does not compile).
     needs: changes
-    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.apple == 'true'
-    runs-on: macos-15
+    if: >-
+      needs.changes.outputs.core == 'true' || needs.changes.outputs.apple == 'true' ||
+      needs.changes.outputs.linux == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - name: Install tools
+        if: runner.os == 'macOS'
         run: |
           brew install llvm ffmpeg ninja pkg-config glfw
           echo "$(brew --prefix llvm)/bin" >>"$GITHUB_PATH"
+      - name: Install tools
+        if: runner.os == 'Linux'
+        # clang-tidy from PyPI at the major version of Homebrew's LLVM on
+        # macOS, so both report the same checks; its wheel names the runner
+        # run-clang-tidy.py. The headers of the Linux backends and of
+        # main_linux.cc's GLFW, EGL and GLES.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm \
+            libva-dev libdrm-dev libgnutls28-dev zlib1g-dev libpulse-dev \
+            libglfw3-dev libegl-dev libgles-dev
+          pipx install clang-tidy==23.1.4
+          ln -s "$HOME/.local/bin/run-clang-tidy.py" "$HOME/.local/bin/run-clang-tidy"
+          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+      # The core follows the current FFmpeg API, which apt's (6.1) predates:
+      # the headers of the LGPL build core-linux makes (same cache key).
+      - name: FFmpeg cache key
+        if: runner.os == 'Linux'
+        id: ffmpeg
+        run: |
+          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; lsb_release -ds; gcc --version | head -1)"
+          echo "key=ffmpeg-linux-$(echo "$inputs" | sha256sum | cut -c1-16)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: runner.os == 'Linux'
+        with:
+          path: third_party/ffmpeg/linux-x86_64
+          key: ${{ steps.ffmpeg.outputs.key }}
+      - name: Build FFmpeg
+        if: runner.os == 'Linux'
+        run: |
+          tool/release.sh build linux build-sources
+          # A compile database from clang, which clang-tidy reads as its own.
+          printf '%s\n' FFMPEG_ROOT=third_party/ffmpeg/linux-x86_64 CC=clang CXX=clang++ >>"$GITHUB_ENV"
       - name: Check
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -182,6 +228,41 @@ jobs:
           NO_HW=1 TSAN=${{ matrix.sanitizer == 'thread' && 1 || 0 }} \
             ASAN=${{ matrix.sanitizer == 'address' && 1 || 0 }} tool/regression.sh
 
+  bench:
+    # tool/bench.sh per push on the idle self-hosted Mac, once the core
+    # passed there, with the LGPL FFmpeg core-macos built and the pinned
+    # FFmpeg 9 for the media. The table stays on that machine
+    # (~/ci-tools/bench.tsv: one row per case and commit; only one
+    # machine's rows compare, so no hosted VM adds to it) and goes up as
+    # an artifact with each run. tool/bench_compare.py puts this commit's
+    # numbers against the last benchmarked commit's into the job summary
+    # and warns on regressions; it does not fail the run.
+    needs: [changes, core-macos]
+    if: github.event_name == 'push' && needs.changes.outputs.core == 'true'
+    runs-on: [self-hosted, macOS, X64, quiet]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          clean: false
+      - name: FFmpeg
+        run: |
+          tools="$HOME/ci-tools"
+          echo "$tools/ffmpeg-9.0.2" >>"$GITHUB_PATH"
+          key="$({ cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; } | shasum -a 256 | cut -c1-16)"
+          echo "FFMPEG_ROOT=$tools/ffmpeg-lgpl-$key" >>"$GITHUB_ENV"
+          # The media is made once per version of the script.
+          echo "MEDIA_DIR=$tools/bench-media-$(shasum -a 256 tool/bench.sh | cut -c1-12)" >>"$GITHUB_ENV"
+      - name: Benchmark
+        run: BENCH_TSV="$HOME/ci-tools/bench.tsv" tool/bench.sh
+      - name: Compare
+        run: |
+          python3 -I tool/bench_compare.py "$HOME/ci-tools/bench.tsv" --github | tee -a "$GITHUB_STEP_SUMMARY"
+          cp "$HOME/ci-tools/bench.tsv" "$RUNNER_TEMP/bench.tsv"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bench
+          path: ${{ runner.temp }}/bench.tsv
+
   core-linux:
     # Catches Linux build breaks without a WSL run. Software decoding: no
     # VAAPI on hosted runners. TSan stays on macOS (Linux needs clang and
@@ -235,6 +316,128 @@ jobs:
           pactl info | grep -E '^(Server Version|Default Sink)'
       - name: Regression
         run: NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/linux-x86_64 tool/regression.sh
+
+  ffmpeg-windows:
+    # The Windows plugin's FFmpeg, cross-compiled with mingw-w64 as
+    # release.yml does (same runner and cache key, so a release reuses it),
+    # for core-windows to link: it has no FFmpeg of its own.
+    needs: changes
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.windows == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install tools
+        run: sudo apt-get install -y mingw-w64 libz-mingw-w64-dev nasm
+      - name: FFmpeg cache key
+        id: ffmpeg
+        run: |
+          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; x86_64-w64-mingw32-gcc --version | head -1; dpkg -s mingw-w64-x86-64-dev | grep ^Version)"
+          echo "key=ffmpeg-windows-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/ffmpeg
+          key: ${{ steps.ffmpeg.outputs.key }}
+      - run: tool/release.sh build windows build-sources
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ffmpeg-windows-x86_64
+          path: third_party/ffmpeg/windows-x86_64
+          if-no-files-found: error
+          retention-days: 1
+
+  core-windows:
+    # The core, its unit tests, the media matrix and examples/glfw
+    # (tool/regression.sh builds every target) with MSVC in Git Bash, as
+    # on the Windows PC. Software decoding: a hosted VM has no GPU, so no
+    # D3D11 video decoding; its realtime cases only warn (REALTIME_ADVISORY,
+    # above).
+    needs: [changes, ffmpeg-windows]
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: ffmpeg-windows-x86_64
+          path: third_party/ffmpeg/windows-x86_64
+      # vcvars64's environment for the steps after it, so CMake's Ninja
+      # build finds cl.
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+      - name: Install tools
+        run: command -v ninja || choco install -y --no-progress ninja
+      - name: FFmpeg for the test media
+        # Only generates the media: the BtbN release core-linux takes, for
+        # Windows.
+        run: |
+          name=ffmpeg-n9.0.2-17-g2a571b6068-win64-gpl-9.0
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$name.zip" \
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/$name.zip"
+          echo "a0e45723c72141975f51d8666302e614711745f3102b704ca3f82c897a58d278  $RUNNER_TEMP/$name.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/$name.zip" -d "$RUNNER_TEMP"
+          cygpath -w "$RUNNER_TEMP/$name/bin" >>"$GITHUB_PATH"
+      - name: Regression
+        run: NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/windows-x86_64 tool/regression.sh
+
+  android:
+    # The SDK (the AAR with its FFmpeg, as release.yml builds it) and its
+    # example, then on an x86_64 emulator tool/android_check.sh: the core's
+    # unit tests cross-built with the NDK, and snapshots of the example
+    # playing in software and through MediaCodec, checked by pixels.
+    needs: changes
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.android == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Install tools
+        run: sudo apt-get install -y ninja-build pkg-config
+      - name: FFmpeg cache key
+        id: ffmpeg
+        run: |
+          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^(ffmpeg|mbedtls)_' tool/release.sh; echo "$ANDROID_NDK_HOME")"
+          echo "key=ffmpeg-android-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/ffmpeg
+          key: ${{ steps.ffmpeg.outputs.key }}
+      - name: Build the AAR
+        run: tool/release.sh build android build-sources
+      - name: Build the example
+        run: sdk/android/gradlew -p sdk/android :example:assembleDebug
+      - name: FFmpeg for the test media
+        # Generates the media and the references tool/frame_check.py
+        # compares with: the BtbN release core-linux takes.
+        run: |
+          name=ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$name.tar.xz" \
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/$name.tar.xz"
+          echo "68ee646831adaae2495618346f3bba94ff207ff83bbd34d643e7004730d66269  $RUNNER_TEMP/$name.tar.xz" | sha256sum -c -
+          tar xJf "$RUNNER_TEMP/$name.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$name/bin" >>"$GITHUB_PATH"
+      - name: Media
+        run: MEDIA_ONLY=1 tool/regression.sh
+      - name: KVM
+        # The emulator needs hardware acceleration, which hosted Linux
+        # runners have but do not open to the runner's user.
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Emulator
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -no-snapshot -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: tool/android_check.sh
 
   fuzz:
     # The FFmpeg-free parsers under libFuzzer with ASan and UBSan
