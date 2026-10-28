@@ -46,6 +46,16 @@ building on top of them.
    simulator has no VP9 decoder (`VTDecompressionSessionCreate` -12906,
    2026-10-28).
 
+5. **macOS Swift example SD snapshots**: with the FFmpeg-free core,
+   ScreenCaptureKit snapshots after HLS switches to 640x360 differ from
+   `tool/frame_check.py`'s low-variant reference (17.6 dB, mean error
+   about 20, 2026-10-28). The same frames through macOS GLFW pass at
+   30.7-31.9 dB, and the iOS Swift view passes at 33 dB. A static low
+   variant plays but its attempted captures failed, so this does not
+   establish an adaptation regression. Isolate Core Animation's color
+   matching from ScreenCaptureKit's capture conversion; done when both
+   Swift snapshots match the low variant's pixels, with advancing pts.
+
 ## Known defects
 
 - **The Flutter example crashed on quitting on Windows**: after
@@ -128,10 +138,7 @@ and HEVC in hardware or software, AAC, MP3, FLAC, ALAC and Opus), and Android to
 H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP,
 `HttpURLConnection`).
 
-1. **Containers**: HLS adapts the variant to the bandwidth only where
-   the http source measures it (`DataSource::transfer_rate`: Apple; not
-   WinHTTP or `HttpURLConnection` yet), and only between MPEG-TS
-   variants. IMSC image-profile subtitles and their auxiliary image resources
+1. **Containers**: IMSC image-profile subtitles and their auxiliary image resources
    are not decoded (text-profile IMSC and WebVTT are read from fMP4). AC-3 has
    no FFmpeg-free decoder; DVB and ID3 timed
    metadata in TS are ignored (FFmpeg's build drops them too): the C ABI

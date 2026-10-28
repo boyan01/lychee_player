@@ -676,8 +676,7 @@ void HlsDemuxer::Measure(int64_t rate, int64_t bytes) {
 
 void HlsDemuxer::Adapt(Rendition* r) {
   if (ladder_.size() < 2 || estimate_ <= 0 || r->video < 0 ||
-      !enabled_[r->video] || r->current >= r->segments.size() ||
-      r->segments[r->current].initialization) {
+      !enabled_[r->video] || r->current >= r->segments.size()) {
     return;
   }
   size_t want = 0;
@@ -694,11 +693,9 @@ void HlsDemuxer::Adapt(Rendition* r) {
   std::string final_url;
   std::string error;
   if (!LoadPlaylist(nullptr, variant.url, &playlist, &final_url, &error) ||
-      playlist.master || playlist.segments.empty() ||
-      std::any_of(playlist.segments.begin(), playlist.segments.end(),
-                  [](const HlsSegment& s) { return s.initialization; })) {
+      playlist.master || playlist.segments.empty()) {
     LOGW("variant %s: %s", variant.url.c_str(),
-         error.empty() ? "not MPEG-TS" : error.c_str());
+         error.empty() ? "empty media playlist" : error.c_str());
     ladder_.erase(ladder_.begin() + static_cast<ptrdiff_t>(want));
     if (want < rung_) {
       --rung_;
@@ -864,6 +861,14 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
       const int index = static_cast<int>(media_info_.streams.size());
       media_info_.streams.push_back(info);
       media_info_.streams.back().index = index;
+      if (mp4 && info.type == MediaType::kVideo &&
+          (info.video.codec == VideoCodec::kH264 ||
+           info.video.codec == VideoCodec::kHEVC)) {
+        // Every fMP4 keyframe carries this segment map's parameter sets,
+        // as TS already does. A later variant can then replace them in
+        // band, without keeping the first variant's avcC/hvcC.
+        media_info_.streams.back().video.extradata.clear();
+      }
       r->streams.push_back(index);
       if (info.type == MediaType::kVideo &&
           media_info_.default_video_stream < 0) {
@@ -901,8 +906,7 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
     }
     r->stream_map.push_back(index);
     if (mp4 && index >= 0 && stream.type == MediaType::kVideo &&
-        media_info_.streams[index].video.extradata.empty() &&
-        !stream.video.extradata.empty() && r->annexb.Initialize(stream.video)) {
+        r->annexb.Initialize(stream.video)) {
       annexb_stream = static_cast<int>(i);
     }
     const int64_t first_pts = streams[i].second;

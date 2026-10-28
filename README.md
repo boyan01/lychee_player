@@ -66,7 +66,8 @@ Android's plays them with H.264/HEVC and AAC, MP3, Opus, FLAC and ALAC
 through MediaCodec. Both read http(s) through the system (WinHTTP,
 `HttpURLConnection`). IMSC text keeps paragraph/span timing and line breaks;
 styles are dropped. Its image profile and auxiliary image resources are
-not decoded.
+not decoded. HLS measures active network transfers on all three system
+HTTP clients and adapts between compatible TS or fMP4 variants.
 
 ```sh
 cmake -S . -B build -G Ninja

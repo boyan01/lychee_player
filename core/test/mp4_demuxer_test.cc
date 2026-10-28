@@ -363,6 +363,89 @@ TEST(HlsDemuxer, FragmentedSubtitleRenditions) {
   }
 }
 
+class RateSource : public DataSource {
+ public:
+  explicit RateSource(Bytes bytes)
+      : source_(CreateMemoryDataSource(std::move(bytes))) {}
+  int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
+    return source_->Read(offset, data, size);
+  }
+  int64_t size() const override { return source_->size(); }
+  std::string error() const override { return source_->error(); }
+  int64_t transfer_rate() const override { return 1000000; }
+
+ private:
+  std::unique_ptr<DataSource> source_;
+};
+
+TEST(HlsDemuxer, AdaptsFragmentedVariantsAtTheNextSegment) {
+  std::map<std::string, Bytes> resources;
+  std::map<std::string, int> fetched;
+  auto text = [&](const std::string& path, const std::string& value) {
+    resources["http://test/" + path] = AsBytes(value);
+  };
+  text("master.m3u8",
+       "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=500000,RESOLUTION=64x48,CODECS="
+       "\"avc1.64001e\"\n"
+       "low/"
+       "list.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=64x48,CODECS="
+       "\"avc1.64001e\"\n"
+       "high/list.m3u8\n");
+  const std::string playlist =
+      "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MAP:URI=\"init.mp4\"\n"
+      "#EXTINF:1,\nseg0.m4s\n#EXTINF:1,\nseg1.m4s\n#EXT-X-ENDLIST\n";
+  Bytes first = FragmentedFile(1, 0, true);
+  Bytes second = first;
+  const uint8_t kTfdt[] = {'t', 'f', 'd', 't'};
+  auto at = std::search(second.begin(), second.end(), std::begin(kTfdt),
+                        std::end(kTfdt));
+  EXPECT_TRUE(at != second.end());
+  if (at == second.end()) {
+    return;
+  }
+  // Version/flags then a decode time of 1000 ticks (the next second).
+  at[8] = 0;
+  at[9] = 0;
+  at[10] = 3;
+  at[11] = 0xe8;
+  // Enough transferred bytes to measure bandwidth rather than latency.
+  const Bytes padding = Box("free", {Zeros(64 << 10)});
+  first = Append(first, padding);
+  second = Append(second, padding);
+  for (const std::string level : {"high", "low"}) {
+    text(level + "/list.m3u8", playlist);
+    resources["http://test/" + level + "/init.mp4"] = {};
+    resources["http://test/" + level + "/seg0.m4s"] = first;
+    resources["http://test/" + level + "/seg1.m4s"] = second;
+  }
+  HlsDemuxer demuxer;
+  demuxer.set_opener([&](const std::string& url,
+                         std::string* error) -> std::unique_ptr<DataSource> {
+    auto found = resources.find(url);
+    if (found == resources.end()) {
+      *error = "not found";
+      return nullptr;
+    }
+    ++fetched[url];
+    return std::make_unique<RateSource>(found->second);
+  });
+  std::string error;
+  EXPECT_TRUE(demuxer.Open("http://test/master.m3u8", &error));
+  demuxer.SetEnabledStreams({0});
+  int packets = 0;
+  int64_t last = -1;
+  EncodedPacket packet;
+  while (packets < 30 && demuxer.Read(&packet) == DemuxerReadResult::kOk) {
+    EXPECT_EQ(packet.stream_index, 0);
+    last = packet.pts;
+    ++packets;
+  }
+  EXPECT_EQ(packets, 20);
+  EXPECT_EQ(last, 1900000);
+  EXPECT_EQ(fetched["http://test/high/seg1.m4s"], 0);
+  EXPECT_EQ(fetched["http://test/low/seg1.m4s"], 1);
+}
+
 TEST(TextSubtitleDecoder, MovText) {
   auto text = [](const Bytes& bytes) {
     return TextSubtitleDecoder::MovTextToPlainText(bytes.data(), bytes.size());

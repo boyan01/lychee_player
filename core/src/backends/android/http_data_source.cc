@@ -7,11 +7,13 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <vector>
 
 #include "backends/android/jvm.h"
 #include "base/log.h"
+#include "base/time.h"
 
 namespace lychee {
 
@@ -251,6 +253,19 @@ class HttpDataSource : public DataSource {
     return interrupted_ ? "interrupted" : error_;
   }
 
+  int64_t transfer_rate() const override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (receive_micros_ <= 0 || received_ <= 0) {
+      return -1;
+    }
+    const long double rate = static_cast<long double>(received_) * 8 *
+                             kMicrosPerSecond /
+                             static_cast<long double>(receive_micros_);
+    return rate >= static_cast<long double>(std::numeric_limits<int64_t>::max())
+               ? std::numeric_limits<int64_t>::max()
+               : static_cast<int64_t>(rate);
+  }
+
  private:
   int64_t end() const {
     return offset_ + static_cast<int64_t>(data_.size() - head_);
@@ -352,6 +367,7 @@ class HttpDataSource : public DataSource {
     env->CallVoidMethod(connection, jni_.set_request_property,
                         env->NewStringUTF("Accept-Encoding"),
                         env->NewStringUTF("identity"));
+    const int64_t began = MonotonicMicros();
     jint status = env->CallIntMethod(connection, jni_.get_response_code);
     if (env->ExceptionCheck()) {
       return Fail(env, false);
@@ -405,6 +421,7 @@ class HttpDataSource : public DataSource {
     if (location != url_) {
       location_ = location;
     }
+    receive_micros_ += MonotonicMicros() - began;
     ranges_ = status == 206 || accept.find("bytes") != std::string::npos;
     if (total >= 0) {
       size_ = total;
@@ -452,6 +469,7 @@ class HttpDataSource : public DataSource {
   // Appends what the stream gives. Returns the bytes read, 0 at its end,
   // or -1 with error_ set.
   int64_t ReadStream(JNIEnv* env) {
+    const int64_t began = MonotonicMicros();
     jint n = env->CallIntMethod(stream_, jni_.read, chunk_, 0, kChunk);
     if (env->ExceptionCheck()) {
       Fail(env, false);
@@ -459,6 +477,11 @@ class HttpDataSource : public DataSource {
     }
     if (n < 0) {
       return 0;
+    }
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      received_ += n;
+      receive_micros_ += MonotonicMicros() - began;
     }
     size_t skip = static_cast<size_t>(std::min<int64_t>(discard_, n));
     discard_ -= static_cast<int64_t>(skip);
@@ -510,6 +533,10 @@ class HttpDataSource : public DataSource {
   // The request in flight, for Interrupt().
   jobject connection_ = nullptr;
   int64_t size_ = -1;
+  // Only connection/stream I/O is timed; time spent consuming buffered
+  // packets belongs to the caller rather than the link.
+  int64_t received_ = 0;
+  int64_t receive_micros_ = 0;
   bool ranges_ = false;
   std::string location_;
   bool cleartext_refused_ = false;

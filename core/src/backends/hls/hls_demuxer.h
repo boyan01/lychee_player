@@ -28,8 +28,8 @@ namespace lychee {
 // as video streams, described by CODECS and RESOLUTION and read only once
 // selected (their audio is the first's). While the first one's stream is
 // selected, it moves between the variants of its codec and audio group
-// by the bandwidth its segments arrived at (MPEG-TS segments, whose
-// parameter sets come in band). Its audio renditions
+// by the bandwidth its segments arrived at (TS, or fMP4 with each map
+// supplying the in-band parameter sets at a keyframe). Its audio renditions
 // (EXT-X-MEDIA) with a playlist of their own are audio streams
 // (DEFAULT=YES the default one), read alongside in decode order, and so
 // are its WebVTT and fMP4 IMSC text/WebVTT subtitle renditions.
