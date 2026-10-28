@@ -25,7 +25,10 @@ namespace lychee {
 // (EXT-X-MAP) segments, for builds without FFmpeg. A master playlist
 // plays one variant (PickHlsVariant) and lists the others it can decode
 // as video streams, described by CODECS and RESOLUTION and read only once
-// selected (their audio is the first's); its audio renditions
+// selected (their audio is the first's). While the first one's stream is
+// selected, it moves between the variants of its codec and audio group
+// by the bandwidth its segments arrived at (MPEG-TS segments, whose
+// parameter sets come in band). Its audio renditions
 // (EXT-X-MEDIA) with a playlist of their own are audio streams
 // (DEFAULT=YES the default one), read alongside in decode order.
 // VOD seeks by segment; live input starts three target durations from
@@ -151,12 +154,14 @@ class HlsDemuxer : public Demuxer {
   // Opens r->segments[r->current]; the first one adds r's streams.
   bool OpenSegment(Rendition* r, std::string* error);
   void CloseSegment(Rendition* r);
-  // Reads |length| bytes (-1: all) of |url| from |offset| (-1: 0).
+  // Reads |length| bytes (-1: all) of |url| from |offset| (-1: 0), and
+  // the source's transfer_rate() into |rate| if given.
   bool Fetch(const std::string& url,
              int64_t offset,
              int64_t length,
              std::vector<uint8_t>* data,
-             std::string* error);
+             std::string* error,
+             int64_t* rate = nullptr);
   // Decrypts |data| in place with |key|; the IV defaults to |sequence|.
   bool Decrypt(const HlsKey& key,
                int64_t sequence,
@@ -167,6 +172,11 @@ class HlsDemuxer : public Demuxer {
                    const Segment& segment,
                    std::vector<uint8_t>* data,
                    std::string* error);
+  // Takes a segment's transfer rate (bit/s) into the estimate.
+  void Measure(int64_t rate, int64_t bytes);
+  // Before the first variant opens its next segment: moves it to the
+  // variant the estimate affords, if another.
+  void Adapt(Rendition* r);
   // Live: reloads r's playlist until a segment follows r->current.
   DemuxerReadResult WaitForSegments(Rendition* r);
   // The next packet of r's enabled streams.
@@ -190,6 +200,12 @@ class HlsDemuxer : public Demuxer {
 
   // The variant played first, then audio renditions, then other variants.
   std::vector<std::unique_ptr<Rendition>> renditions_;
+  // What the first variant moves between, by bandwidth from the lowest,
+  // and the one it reads; the bandwidth estimate (bit/s), 0 until a
+  // segment was measured.
+  std::vector<HlsVariant> ladder_;
+  size_t rung_ = 0;
+  int64_t estimate_ = 0;
   // AES-128 keys by URL.
   std::map<std::string, std::array<uint8_t, 16>> keys_;
   // Discontinuity sequence -> microseconds added to its timestamps.

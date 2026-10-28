@@ -47,6 +47,11 @@ class DataSource {
 
   // Why the last Read() failed.
   virtual std::string error() const = 0;
+
+  // Bits per second the bytes so far arrived at, while being sent (from
+  // a request to its last bytes), or -1 if unknown: what HLS adapts its
+  // variant to.
+  virtual int64_t transfer_rate() const { return -1; }
 };
 
 // Blocking. A path or file:// URL, or http(s):// where the platform has a

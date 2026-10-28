@@ -38,6 +38,7 @@ class HttpDataSource : public DataSource {
   void ClearInterrupt() override;
   bool interrupted() const override;
   std::string error() const override;
+  int64_t transfer_rate() const override;
 
  private:
   explicit HttpDataSource(std::shared_ptr<HttpState> state);

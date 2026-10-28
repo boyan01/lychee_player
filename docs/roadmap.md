@@ -140,9 +140,10 @@ and HEVC in hardware or software, AAC and MP3), and Android too (video
 H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
 `HttpURLConnection`).
 
-2. **Containers**: HLS switches variants only when a track is selected,
-   not by measured bandwidth; subtitle renditions (WebVTT) are not
-   read. AC-3 has
+2. **Containers**: HLS adapts the variant to the bandwidth only where
+   the http source measures it (`DataSource::transfer_rate`: Apple; not
+   WinHTTP or `HttpURLConnection` yet), and only between MPEG-TS
+   variants; subtitle renditions (WebVTT) are not read. AC-3 has
    no FFmpeg-free decoder; DVB and ID3 timed
    metadata in TS are ignored. Where TS timestamps start over, a jump
    ahead, or a run shorter than a sixteenth of the input, is found only
