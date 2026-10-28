@@ -26,6 +26,12 @@ constexpr int64_t kHiddenTimeout = 250 * kMicrosPerMilli;
 constexpr int64_t kHungDecoderTimeout = 4 * kMicrosPerSecond;
 // Frames without a duration are assumed to last this long (30 fps).
 constexpr int64_t kDefaultFrameDuration = kMicrosPerSecond / 30;
+// Frames ending this little after the start count as ending before it.
+// Durations are differences of timestamps rounded to microseconds (from
+// 90 kHz in MPEG-TS), so the same picture in two streams, such as the
+// frame on screen and its counterpart in an HLS variant switched to, can
+// end a microsecond apart.
+constexpr int64_t kFrameEndSlop = 100;
 int64_t FrameEnd(const VideoFrame& frame) {
   return frame.pts +
          (frame.duration > 0 ? frame.duration : kDefaultFrameDuration);
@@ -290,7 +296,7 @@ void VideoRenderer::OnFrame(std::shared_ptr<VideoFrame> frame,
     }
     // Accurate seek: skip frames that end before the seek target.
     if (start_time_ != kNoTimestamp && frame->pts != kNoTimestamp &&
-        FrameEnd(*frame) <= start_time_) {
+        FrameEnd(*frame) <= start_time_ + kFrameEndSlop) {
       return;
     }
   }
