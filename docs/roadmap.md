@@ -76,14 +76,7 @@ building on top of them.
    `tool/regression.sh`'s `own_ts` cases pass on Linux and Windows, and
    the Android example plays `ts_timestamp_reset.ts` with hardware
    decoding.
-2. **TS runs found while reading, audio first**: where timestamps start
-   over in a part of the input the open did not sample, and a run's
-   audio arrives before its video (video PES packets of unknown length
-   are handed out only when the next starts), that audio is placed on a
-   provisional shift until the video sets the run's shift, then steps
-   back by the difference (tens of ms). Seen with a synthetic stream in
-   `mp2t_test.cc`, not with a real file.
-3. **iOS foreground recovery needs device verification** (waiting on the
+2. **iOS foreground recovery needs device verification** (waiting on the
    user): an iPhone 17 (2026-10-27) rejected 32 video packets (`-12909`)
    after an apparent interruption or background transition; the actual
    lifecycle trigger is unconfirmed. The native and Flutter frame drivers

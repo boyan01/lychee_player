@@ -120,6 +120,13 @@ class TsReader : private TsParser::Client {
     int64_t offset = 0;
     bool valid = false;
   };
+  // A PES packet held back, with its timestamps before the run's shift.
+  struct Held {
+    PesPacket pes;
+    std::vector<uint8_t> data;
+    int64_t pts = kNoTimestamp;
+    int64_t dts = kNoTimestamp;
+  };
   struct StreamState {
     // A packet waiting for the next one, which gives its duration.
     Pending pending;
@@ -135,6 +142,14 @@ class TsReader : private TsParser::Client {
     // restart), and its last DTS there in ticks.
     int run = -1;
     int64_t last_ticks = kNoTimestamp;
+    // Anchor streams: the latest end of a frame read in that run since
+    // the restart, and in the run before when it moved on (where the
+    // run's first frame goes).
+    int64_t run_end = kNoTimestamp;
+    int64_t left_end = kNoTimestamp;
+    // Other streams, while the run they went on in waits for the
+    // anchor's first frame to place it.
+    std::vector<Held> held;
     // The latest end of a packet emitted since the restart; after a
     // non-anchor stream went on in the next run, where it ended in the
     // run before.
@@ -153,6 +168,10 @@ class TsReader : private TsParser::Client {
   // TsParser::Client
   void OnProgram(const std::vector<TsStreamEntry>& entries) override;
   void OnPes(const PesPacket& pes) override;
+  // The rest of OnPes(), once |pes|'s timestamps are known.
+  void Deliver(int stream, const PesPacket& pes, int64_t pts, int64_t dts);
+  // Delivers what |stream| held back, on its run's shift as it is now.
+  void Release(int stream);
 
   // Finds the packet size and first sync byte at |begin_|.
   bool Sync(std::string* error);
@@ -174,6 +193,8 @@ class TsReader : private TsParser::Client {
   void Join(int stream, const PesPacket& pes, int64_t* pts, int64_t* dts);
   // The run a stream goes on in after a jump at |offset| to |ticks|.
   int NextRun(int run, int64_t offset, int64_t ticks);
+  // Whether |stream|'s packets wait for the anchor to place their run.
+  bool Holds(int stream) const;
   // Whether |stream|'s frames decide where runs join.
   bool IsAnchor(int stream) const;
 
@@ -199,6 +220,8 @@ class TsReader : private TsParser::Client {
   int64_t reference_ = kNoTimestamp;
   int64_t last_ticks_ = kNoTimestamp;
   TsTimeline* timeline_ = nullptr;
+  // The run the last anchor frame placed, or -1.
+  int placed_run_ = -1;
   std::string error_;
 };
 

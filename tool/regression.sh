@@ -161,6 +161,17 @@ gen resolution_change.ts -i "concat:$media/rendition_1280x720.ts|$media/renditio
 [ -f "$media/ts_timestamp_reset.ts" ] || { cat "$media/rendition_1280x720.ts" \
   "$media/rendition_640x360.ts" >"$media/ts_timestamp_reset.tmp" &&
   mv "$media/ts_timestamp_reset.tmp" "$media/ts_timestamp_reset.ts"; } || exit 1
+# Joined the same way, with audio muxed ahead of its video (0.3 s), and
+# a run of 1 s between two of 20 s that the open's samples miss: reading
+# finds it by the audio, which waits for the video to place the run.
+for d in 20 1; do
+  gen "audio_first_$d.ts" -itsoffset 0.3 -f lavfi -i "testsrc2=size=640x360:rate=30:d=$d" \
+    -f lavfi -i "sine=frequency=440:sample_rate=48000:d=$d.3" -c:v libx264 -preset veryfast -g 30 -pix_fmt yuv420p \
+    -c:a aac -pes_payload_size 0 -f mpegts
+done
+[ -f "$media/ts_reset_audio_first.ts" ] || { cat "$media/audio_first_20.ts" "$media/audio_first_1.ts" \
+  "$media/audio_first_20.ts" >"$media/ts_reset_audio_first.tmp" &&
+  mv "$media/ts_reset_audio_first.tmp" "$media/ts_reset_audio_first.ts"; } || exit 1
 # Live input, as a screen mirroring sender encodes it: no B-frames, audio
 # muxed next to its video.
 gen live_h264.mp4 -f lavfi -i "$src" -f lavfi -i sine=frequency=440:sample_rate=44100 -t 12 \
@@ -855,6 +866,10 @@ if [ "$own_ts" = 1 ]; then
     "$media/ts_timestamp_reset.ts"
   par check seek-ts-reset 1 6.233 -- --seek 4.8 --seek-after 1 "$media/ts_timestamp_reset.ts"
   par check seek-ts-reset-backward 1 2.933 -- --seek 1.5 --seek-after 5 "$media/ts_timestamp_reset.ts"
+  # Past the run read finds (at 21.3 s), not to the end: the duration
+  # misses it (roadmap).
+  par expect ts-reset-audio-first "summary: state=ready .*dropped=0 .*max_drift=([0-9]|1[0-9])\.[0-9]ms " -- \
+    --seconds 30 "$media/ts_reset_audio_first.ts"
 fi
 # FFmpeg's decoders take AC-3 from the own demuxer, which hands what it
 # would skip (LATM here) to FFmpeg's demuxer. No AC-3 or LATM without
