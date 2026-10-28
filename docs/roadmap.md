@@ -68,15 +68,12 @@ building on top of them.
    wrong half), HLS audio renditions on another timeline
    (`hls_alt/master.m3u8`, 1 s out of sync) and slow seeks past an HLS
    discontinuity remain there; Apple's and Android's FFmpeg builds open
-   them with the own demuxers (`media/factory.cc`; Android's not yet
-   played on an emulator, 2026-10-28). TS needs only files there; HLS
-   reads through the http `DataSource`, which Windows and Android now
+   them with the own demuxers (`media/factory.cc`). TS needs only files
+   there; HLS reads through the http `DataSource`, which Windows and Android now
    have. TS video
    comes without extradata (Annex B, parameter sets in band), which
-   MediaCodec and Media Foundation have not been tried with. Done when
-   `tool/regression.sh`'s `own_ts` cases pass on Linux and Windows, and
-   the Android example plays `ts_timestamp_reset.ts` with hardware
-   decoding.
+   Media Foundation has not been tried with. Done when
+   `tool/regression.sh`'s `own_ts` cases pass on Linux and Windows.
 2. **iOS foreground recovery needs device verification** (waiting on the
    user): an iPhone 17 (2026-10-27) rejected 32 video packets (`-12909`)
    after an apparent interruption or background transition; the actual
@@ -158,13 +155,11 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    HEVC decoded in software shows one frame less than it should
    (`NO_FFMPEG=1 NO_HW=1 ONLY=live-hevc`: 299 of 300; the HEVC extension's
    decoder holds the last frame back, low latency mode set or not).
-4. **Android**: VP8, VP9 and AV1 through MediaCodec are mapped
-   (`MediaCodecVideoDecoder`) but not yet played on an emulator or a
-   phone (the Windows PC was unreachable, 2026-10-28); an FFmpeg-free AAR
-   in the release (`-Plychee.ffmpeg=false` builds it; a second artifact
-   is a publishing decision) if native Android users want one. The
-   Flutter example builds on it (`flutter build apk`, no FFmpeg in the
-   APK) but has not been run.
+4. **Android**: an FFmpeg-free AAR in the release
+   (`-Plychee.ffmpeg=false` builds it, and the Flutter plugin plays on
+   it; a second artifact is a publishing decision) if native Android
+   users want one. VP8, VP9 and AV1 through a phone's hardware MediaCodec
+   are unseen (the emulator has VP8 and VP9, and AV1 only in software).
 ## Distribution and infrastructure
 
 1. **1.0.0**, once the beta has been used. Before it, and only then, a
