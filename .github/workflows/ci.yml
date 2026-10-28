@@ -65,17 +65,60 @@ jobs:
           tool/format.sh --check "$BASE" "$GITHUB_SHA"
 
   tidy:
+    # tool/tidy.sh on the lines a push or pull request changed, on macOS
+    # (the Apple backends) and on Linux (the Linux backends and
+    # examples/glfw's main_linux.cc, which macOS does not compile).
     needs: changes
-    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.apple == 'true'
-    runs-on: macos-15
+    if: >-
+      needs.changes.outputs.core == 'true' || needs.changes.outputs.apple == 'true' ||
+      needs.changes.outputs.linux == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - name: Install tools
+        if: runner.os == 'macOS'
         run: |
           brew install llvm ffmpeg ninja pkg-config glfw
           echo "$(brew --prefix llvm)/bin" >>"$GITHUB_PATH"
+      - name: Install tools
+        if: runner.os == 'Linux'
+        # clang-tidy from PyPI at the major version of Homebrew's LLVM on
+        # macOS, so both report the same checks; its wheel names the runner
+        # run-clang-tidy.py. The headers of the Linux backends and of
+        # main_linux.cc's GLFW, EGL and GLES.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm \
+            libva-dev libdrm-dev libgnutls28-dev zlib1g-dev libpulse-dev \
+            libglfw3-dev libegl-dev libgles-dev
+          pipx install clang-tidy==23.1.4
+          ln -s "$HOME/.local/bin/run-clang-tidy.py" "$HOME/.local/bin/run-clang-tidy"
+          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+      # The core follows the current FFmpeg API, which apt's (6.1) predates:
+      # the headers of the LGPL build core-linux makes (same cache key).
+      - name: FFmpeg cache key
+        if: runner.os == 'Linux'
+        id: ffmpeg
+        run: |
+          inputs="$(cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; lsb_release -ds; gcc --version | head -1)"
+          echo "key=ffmpeg-linux-$(echo "$inputs" | sha256sum | cut -c1-16)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: runner.os == 'Linux'
+        with:
+          path: third_party/ffmpeg/linux-x86_64
+          key: ${{ steps.ffmpeg.outputs.key }}
+      - name: Build FFmpeg
+        if: runner.os == 'Linux'
+        run: |
+          tool/release.sh build linux build-sources
+          # A compile database from clang, which clang-tidy reads as its own.
+          printf '%s\n' FFMPEG_ROOT=third_party/ffmpeg/linux-x86_64 CC=clang CXX=clang++ >>"$GITHUB_ENV"
       - name: Check
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
