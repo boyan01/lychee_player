@@ -78,13 +78,18 @@ constexpr int kSamplesPerFragment = 10;
 // A video track of 100 ms samples of 10 bytes in fragments of one second,
 // each starting with a keyframe; with mehd if |mehd_ms| > 0, and tfdt
 // boxes if |tfdt|.
-Bytes FragmentedFile(int fragments, uint32_t mehd_ms, bool tfdt) {
+Bytes FragmentedFile(int fragments,
+                     uint32_t mehd_ms,
+                     bool tfdt,
+                     const char* codec = "avc1",
+                     const Bytes& codec_config = {}) {
   Bytes entry = Append(Zeros(24), Fields({{64, 2}, {48, 2}}));  // 64x48
   entry = Append(entry, Zeros(50));
-  Bytes stbl = Box(
-      "stbl", {Box("stsd", {Fields({{0, 4}, {1, 4}}), Box("avc1", {entry})}),
-               Box("stts", {Zeros(8)}), Box("stsc", {Zeros(8)}),
-               Box("stsz", {Zeros(12)}), Box("stco", {Zeros(8)})});
+  entry = Append(entry, codec_config);
+  Bytes stbl =
+      Box("stbl", {Box("stsd", {Fields({{0, 4}, {1, 4}}), Box(codec, {entry})}),
+                   Box("stts", {Zeros(8)}), Box("stsc", {Zeros(8)}),
+                   Box("stsz", {Zeros(12)}), Box("stco", {Zeros(8)})});
   Bytes trak =
       Box("trak",
           {Box("tkhd", {Fields({{3, 4}, {0, 8}, {1, 4}}), Zeros(68)}),
@@ -147,6 +152,40 @@ std::vector<int64_t> ReadAll(Mp4Demuxer* demuxer, DemuxerReadResult* last) {
     times.push_back(packet.pts / 1000);
   }
   return times;
+}
+
+TEST(Mp4Demuxer, Vp9SampleEntryCarriesHdrColors) {
+  // vpcC v1: profile 2, level 3.1, 10-bit full-range BT.2020 PQ.
+  const Bytes config = {1, 0, 0, 0, 2, 31, 0xa1, 9, 16, 9, 0, 0};
+  std::string error;
+  auto demuxer = OpenBytes(
+      FragmentedFile(1, 0, true, "vp09", Box("vpcC", {config})), &error);
+  EXPECT_TRUE(demuxer != nullptr);
+  if (!demuxer) {
+    return;
+  }
+  const auto& video = demuxer->media_info().streams[0].video;
+  EXPECT_TRUE(video.codec == VideoCodec::kVP9);
+  EXPECT_EQ(video.codec_name, "vp9");
+  EXPECT_EQ(video.color.primaries, 9);
+  EXPECT_EQ(video.color.transfer, 16);
+  EXPECT_EQ(video.color.matrix, 9);
+  EXPECT_TRUE(video.color.full_range);
+}
+
+TEST(Mp4Demuxer, Av1SampleEntryKeepsConfigurationRecord) {
+  const Bytes config = {0x81, 0, 0, 0};
+  std::string error;
+  auto demuxer = OpenBytes(
+      FragmentedFile(1, 0, true, "av01", Box("av1C", {config})), &error);
+  EXPECT_TRUE(demuxer != nullptr);
+  if (!demuxer) {
+    return;
+  }
+  const auto& video = demuxer->media_info().streams[0].video;
+  EXPECT_TRUE(video.codec == VideoCodec::kAV1);
+  EXPECT_EQ(video.codec_name, "av1");
+  EXPECT_TRUE(video.extradata == config);
 }
 
 TEST(Mp4Demuxer, FragmentDurationFromMehd) {

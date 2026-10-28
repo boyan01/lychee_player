@@ -133,8 +133,9 @@ building on top of them.
 The goal is FFmpeg-free builds on Apple platforms, Windows and Android;
 Linux keeps FFmpeg (no system audio decoder or demuxer). Apple plays MP4,
 Matroska/WebM, MPEG-TS and HLS without it, and ships
-`lychee_noffmpeg.xcframework`; Windows plays the same containers (H.264
-and HEVC in hardware or software, AAC, MP3, FLAC, ALAC and Opus), and Android too (video
+`lychee_noffmpeg.xcframework`; Windows plays the same containers (H.264,
+HEVC, VP9 and AV1 in hardware or software, the latter three with their
+Store extensions; AAC, MP3, FLAC, ALAC and Opus), and Android too (video
 H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP,
 `HttpURLConnection`).
 
@@ -145,9 +146,7 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    event and an acquire call for its bytes at the clock's time (like
    subtitles), in every binding; worth it once a caller needs it (HLS
    ad markers, live captions' ID3).
-2. **Windows**: VP9 and AV1 have no decoder (Media Foundation has them
-   only with Store extensions).
-3. **Android**: an FFmpeg-free AAR in the release
+2. **Android**: an FFmpeg-free AAR in the release
    (`-Plychee.ffmpeg=false` builds it, and the Flutter plugin plays on
    it; a second artifact is a publishing decision) if native Android
    users want one. VP8, VP9 and AV1 through a phone's hardware MediaCodec

@@ -269,15 +269,38 @@ void ParseVideoEntry(const Box& entry, VideoConfig* config) {
       config->codec = VideoCodec::kHEVC;
       config->codec_name = "hevc";
       break;
+    case FourCC("vp09"):
+      config->codec = VideoCodec::kVP9;
+      config->codec_name = "vp9";
+      break;
+    case FourCC("av01"):
+      config->codec = VideoCodec::kAV1;
+      config->codec_name = "av1";
+      break;
     default:
       config->codec = VideoCodec::kOther;
       config->codec_name = FourCCName(entry.type);
       break;
   }
   for (const Box& child : Children(reader.current(), reader.remaining())) {
-    if (child.type == FourCC("avcC") || child.type == FourCC("hvcC")) {
+    if (child.type == FourCC("avcC") || child.type == FourCC("hvcC") ||
+        child.type == FourCC("av1C")) {
       config->extradata.assign(child.payload,
                                child.payload + child.payload_size);
+    } else if (child.type == FourCC("vpcC")) {
+      // VP9's system decoders read profile/depth from keyframes. The
+      // configuration box also carries the colors, absent from those.
+      Reader vpcc(child.payload, child.payload_size);
+      if (vpcc.U32() == 0x01000000) {  // version 1, flags 0
+        vpcc.Skip(2);                  // profile, level
+        const uint8_t flags = vpcc.U8();
+        const uint8_t primaries = vpcc.U8();
+        const uint8_t transfer = vpcc.U8();
+        const uint8_t matrix = vpcc.U8();
+        if (vpcc.ok()) {
+          config->color = {primaries, transfer, matrix, (flags & 1) != 0};
+        }
+      }
     } else if (child.type == FourCC("colr")) {
       Reader colr(child.payload, child.payload_size);
       uint32_t kind = colr.U32();

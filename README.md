@@ -60,9 +60,13 @@ URLs, with
 H.264/HEVC (VideoToolbox), AAC, ALAC, MP3, Opus, FLAC and AC-3
 (AudioToolbox) and tx3g subtitles;
 `NO_FFMPEG=1 tool/regression.sh` tests it. On Windows it plays the same
-containers with H.264/HEVC (Media Foundation, on the GPU or the CPU), AAC,
+containers with H.264, HEVC, VP9 and AV1 (Media Foundation, on the GPU or
+the CPU), AAC,
 MP3, FLAC, ALAC, Opus and AC-3, and text subtitles; the Flutter plugin builds it so with
 `LYCHEE_WITH_FFMPEG=OFF` in the environment of `flutter build windows`.
+HEVC, VP9 and AV1 require the corresponding Microsoft Store Video
+Extensions. Missing extensions leave that video track unavailable in
+FFmpeg-free builds; builds with FFmpeg keep their decoder fallback.
 Android's plays them with H.264/HEVC and AAC, MP3, Opus, FLAC, ALAC and AC-3
 through MediaCodec. AC-3 requires an installed system decoder; when one
 is missing, the audio track is disabled and video continues. Both read http(s) through the system (WinHTTP,

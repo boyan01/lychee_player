@@ -136,6 +136,8 @@ gen vp9_opus.webm -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=fr
   -c:v libvpx-vp9 -deadline realtime -cpu-used 8 -b:v 2M -c:a libopus
 gen av1.mkv -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=330:sample_rate=48000 -t 10 \
   -c:v libsvtav1 -preset 12 -svtav1-params log-level=0 -c:a aac
+gen vp9.mp4 -i "$media/vp9_opus.webm" -c copy
+gen av1.mp4 -i "$media/av1.mkv" -c copy
 gen rotated.mp4 -display_rotation 90 -i "$media/h264_aac.mp4" -c copy
 # HD with a BT.601 matrix (in the stream and the container): the tag wins
 # over the convention for untagged HD (BT.709).
@@ -745,8 +747,8 @@ plays_without_ffmpeg() {
   case "$1" in
     # Bitmap subtitles have no decoder.
     subtitle-pgs | subtitle-dvb | subtitle-vobsub) return 1 ;;
-    # No software AV1 decoder: av1-videotoolbox instead.
-    av1-software) return 1 ;;
+    # Windows uses the Store AV1 extension; Apple needs newer hardware.
+    av1-software | av1-mp4-software) [ "$windows" = 1 ] || return 1 ;;
   esac
   local arg
   for arg in "$@"; do
@@ -756,9 +758,7 @@ plays_without_ffmpeg() {
       *) return 1 ;;
     esac
     # VideoToolbox decodes VP9 only in hardware.
-    [ "${NO_HW:-0}" = 1 ] && [[ "$arg" == *vp9* ]] && return 1
-    # Media Foundation has no VP9 (without the Store's extension).
-    [ "$windows" = 1 ] && [[ "$arg" == *vp9* ]] && return 1
+    [ "$windows" != 1 ] && [ "${NO_HW:-0}" = 1 ] && [[ "$arg" == *vp9* ]] && return 1
   done
   return 0
 }
@@ -796,15 +796,26 @@ par check hevc10        1 - -- "$media/hevc10.mp4"
 vp9_hw=1
 [ "$(uname -sm)" = "Darwin x86_64" ] && vp9_hw=0
 par check vp9           $vp9_hw - -- "$media/vp9_opus.webm"
+par check vp9-mp4       $vp9_hw - -- "$media/vp9.mp4"
 # The shipped FFmpeg decodes AV1 in software only with dav1d
 # (tool/build_ffmpeg.sh).
-if [ -z "${FFMPEG_ROOT:-}" ] || grep -q dav1d "$FFMPEG_ROOT/lib/pkgconfig/libavcodec.pc" 2>/dev/null; then
-  par check av1-software  0 - -- "$media/av1.mkv"
+if [ "${NO_FFMPEG:-0}:$windows" = 1:1 ] || [ -z "${FFMPEG_ROOT:-}" ] ||
+  grep -q dav1d "$FFMPEG_ROOT/lib/pkgconfig/libavcodec.pc" 2>/dev/null; then
+  par check av1-software  0 - -- --no-hw "$media/av1.mkv"
+  par check av1-mp4-software 0 - -- --no-hw "$media/av1.mp4"
 fi
-# Without FFmpeg AV1 needs a hardware decoder (M3, A17 Pro): elsewhere the
-# video track is off and the audio plays to the end.
-[ "${NO_FFMPEG:-0}" = 1 ] &&
+# Without FFmpeg on Apple, AV1 needs a hardware decoder (M3, A17 Pro):
+# elsewhere the video track is off and the audio plays to the end.
+[ "${NO_FFMPEG:-0}" = 1 ] && [ "$windows" != 1 ] &&
   par expect av1-videotoolbox "track 0: video av1 " "summary: state=ended position=10\.0" -- "$media/av1.mkv"
+[ "${NO_FFMPEG:-0}" = 1 ] && [ "$windows" != 1 ] &&
+  par expect av1-mp4-videotoolbox "track 0: video av1 " "summary: state=ended position=10\.0" -- "$media/av1.mp4"
+if [ "${NO_FFMPEG:-0}" = 1 ] && [ "$windows" = 1 ]; then
+  # Windows' Store extensions decode on the GPU or CPU, without FFmpeg.
+  par check vp9-software 0 - -- --no-hw "$media/vp9_opus.webm"
+  par check av1-mediafoundation 1 - -- "$media/av1.mkv"
+  par check av1-mp4 1 - -- "$media/av1.mp4"
+fi
 par expect flac-mkv "track 1: audio flac .*selected=1" \
   "summary: state=ended .*audio_onset=" -- --volume 1 "$media/flac.mkv"
 par expect flac-mp4 "track 1: audio flac .*selected=1" \
