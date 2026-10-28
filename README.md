@@ -359,6 +359,8 @@ DVB, VobSub) arrive as pictures in `player.value.subtitlePictures`, which
 
 The example app (`flutter/example`) turns off the macOS App Sandbox so it can
 open arbitrary paths. It plays `--dart-define=LYCHEE_URL=...` on start.
+On iOS and Android, which pass no arguments, `--dart-define=LYCHEE_SECONDS=5`
+does what `--seconds 5` does on the desktop.
 
 Outside this repository (from pub.dev, or a git dependency without local
 builds), the plugin takes the Apple frameworks and the Android AAR from the

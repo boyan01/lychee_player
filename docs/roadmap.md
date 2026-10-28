@@ -77,10 +77,11 @@ building on top of them.
    HLS demuxer that knows the segments, as the FFmpeg-free one does,
    would do better.
 3. **iOS foreground recovery needs device verification** (waiting on the
-   user): an iPhone 17 (2026-10-27) returned from the background with
-   VideoToolbox rejecting 32 packets (`-12909`) before recovery. The
-   native and Flutter frame drivers now request a fresh hardware decoder
-   on foreground entry. Verify that device scenario resumes promptly,
+   user): an iPhone 17 (2026-10-27) rejected 32 video packets (`-12909`)
+   after an apparent interruption or background transition; the actual
+   lifecycle trigger is unconfirmed. The native and Flutter frame drivers
+   now request a fresh hardware decoder after becoming active following
+   a background transition. Verify that device scenario resumes promptly,
    including a paused player. Also distinguish an audio interruption from
    an actual background transition: an alarm alone may not enter this hook.
    The simulator cannot reproduce this hardware

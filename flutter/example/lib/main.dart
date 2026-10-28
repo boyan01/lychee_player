@@ -10,10 +10,12 @@ import 'package:lychee_player/lychee_player.dart';
 /// Desktop command line: `[--seconds N] [file or URL]`. The file or URL
 /// opens at launch (else the LYCHEE_URL define). With --seconds the app
 /// prints a summary line in examples/glfw's format to stderr after N
-/// seconds and quits, for unattended runs.
+/// seconds and quits, for unattended runs. Mobile apps get no arguments,
+/// so the LYCHEE_SECONDS define does the same there.
 void main(List<String> args) {
   var url = const String.fromEnvironment('LYCHEE_URL');
-  double? seconds;
+  const defined = int.fromEnvironment('LYCHEE_SECONDS');
+  double? seconds = defined > 0 ? defined.toDouble() : null;
   for (var i = 0; i < args.length; i++) {
     if (args[i] == '--seconds' && i + 1 < args.length) {
       seconds = double.tryParse(args[++i]);
@@ -77,6 +79,8 @@ class _PlayerPageState extends State<PlayerPage> {
           'position=${position.toStringAsFixed(3)} '
           'state=${player.value.state.name}');
     }
+    // Mobile embedders do not implement exitApplication.
+    if (Platform.isIOS || Platform.isAndroid) exit(0);
     // As if the window were closed.
     ServicesBinding.instance.exitApplication(AppExitType.required);
   }
