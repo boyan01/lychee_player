@@ -55,7 +55,9 @@ iOS, `-DLYCHEE_WITH_FFMPEG=OFF` builds without FFmpeg: MP4 (fragmented
 too), Matroska/WebM, MPEG-TS and HLS (TS segments), from files and http(s)
 URLs, with
 H.264/HEVC (VideoToolbox), AAC/ALAC (AudioToolbox) and tx3g subtitles;
-`NO_FFMPEG=1 tool/regression.sh` tests it. On Windows it plays MP4 files
+`NO_FFMPEG=1 tool/regression.sh` tests it. Android's plays the same
+containers with H.264/HEVC and AAC, MP3, Opus, FLAC and ALAC through
+MediaCodec, http(s) through `HttpURLConnection`. On Windows it plays MP4 files
 with H.264/HEVC and AAC through Media Foundation, on a GPU only.
 
 ```sh
@@ -258,8 +260,14 @@ emulators), and Kotlin classes over it. The core is also a prefab module
 sdk/android/gradlew -p sdk/android :lychee:publish   # into sdk/android/build/repo
 ```
 
-`-Plychee.ffmpeg=false` builds the core without FFmpeg: MP4 files only
-(no http), decoded by MediaCodec (roadmap, FFmpeg-free builds).
+`-Plychee.ffmpeg=false` builds the core without FFmpeg: MP4, Matroska,
+MPEG-TS and HLS from files and http(s), decoded by MediaCodec (roadmap,
+FFmpeg-free builds).
+
+Either way http(s) goes through Java's `HttpURLConnection`, so the app's
+network security config applies: an app that plays plain http needs
+`android:usesCleartextTraffic` (or a config that allows the hosts). With
+FFmpeg, cleartext the config refuses falls back to FFmpeg's own http.
 
 ```kotlin
 val player = LycheePlayer()

@@ -384,7 +384,13 @@ jobs: those stay local.
   missing to the script's lists. Android's FFmpeg links mbedTLS for https
   (LGPL 3, third argument: an Mbed TLS 3.6 source tree); mbedTLS trusts
   only its `ca_file`, which `ffmpeg_demuxer.cc` writes from Android's CA
-  store and passes to every connection through `io_open`.
+  store and passes to every connection through `io_open`. FFmpeg's http
+  serves only programs without a Java VM (`lychee_cli` from `adb shell`)
+  and cleartext the app's network security config refuses: in apps,
+  `DataSource` reads http(s) through `HttpURLConnection`
+  (`backends/android/http_data_source.cc`), which needs Java to load
+  `liblychee` by name (`System.loadLibrary("lychee")`) so its
+  `JNI_OnLoad` keeps the VM.
 - The Flutter plugin never links the system FFmpeg. Build the LGPL one once
   per platform with `tool/build_ffmpeg.sh PLATFORM <ffmpeg source>` into
   `third_party/ffmpeg/` (`macos-arm64` and `macos-x86_64`; `ios-sim-arm64`

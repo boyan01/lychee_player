@@ -10,8 +10,8 @@
 namespace lychee {
 
 // Random access bytes of a file or URL: what Mp4Demuxer parses, and what
-// FFmpeg reads on Apple platforms (ffmpeg_demuxer.cc), so both builds
-// share one http client.
+// FFmpeg reads on Apple platforms and Android (ffmpeg_demuxer.cc), so both
+// builds share one http client.
 class DataSource {
  public:
   virtual ~DataSource() = default;
@@ -33,8 +33,9 @@ class DataSource {
   virtual std::string url() const { return ""; }
 
   // Whether the last Read() failed because the platform refuses the URL
-  // as it is: cleartext http under App Transport Security in an app
-  // without an exception. A client of its own (FFmpeg's) may still read it.
+  // as it is: cleartext http under App Transport Security, or Android's
+  // network security config, in an app without an exception. A client
+  // of its own (FFmpeg's) may still read it.
   virtual bool cleartext_refused() const { return false; }
 
   // Thread-safe. Makes the current and later Read() calls return -1 until
@@ -48,7 +49,8 @@ class DataSource {
 };
 
 // Blocking. A path or file:// URL, or http(s):// where the platform has a
-// client (Apple). Null with |error| set if it cannot be opened.
+// client (Apple; Android with a Java VM). Null with |error| set if it cannot be
+// opened.
 std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
                                            std::string* error);
 

@@ -131,13 +131,13 @@ building on top of them.
 The goal is FFmpeg-free builds on Apple platforms, Windows and Android;
 Linux keeps FFmpeg (no system audio decoder or demuxer). Apple plays MP4,
 Matroska/WebM, MPEG-TS and HLS without it, and ships
-`lychee_noffmpeg.xcframework`; Android and Windows play MP4 files.
+`lychee_noffmpeg.xcframework`; Android plays the same containers (video
+H.264 and HEVC only) from files and http(s), Windows MP4 files.
 
-1. **Shared IO on Android and Windows**: an http `DataSource` there
-   (`HttpURLConnection` or Cronet through JNI, WinHTTP), which their
-   FFmpeg-free builds need anyway; then FFmpeg reads through it as on
-   Apple. One `NSURLSession` per demuxer would let HLS segments reuse
-   connections.
+1. **Shared IO on Windows**: an http `DataSource` (WinHTTP), which its
+   FFmpeg-free build needs anyway; then FFmpeg reads through it as on
+   Apple and Android. One `NSURLSession` per demuxer would let HLS
+   segments reuse connections.
 2. **Containers**: HLS with `EXT-X-MAP` (fMP4 segments: a `DataSource`
    that joins the init segment to each media segment, opened by
    `Mp4Demuxer`), AES-128 (CommonCrypto, CBC per segment, the key fetched
@@ -149,8 +149,12 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    would cover it. AAC in ADTS and other audio codecs have no decoder,
    and http needs item 1. Packaging the FFmpeg-free core for the plugin
    is not started.
-4. **Android**: http (item 1), an FFmpeg-free AAR variant if native
-   Android users want one, and the Flutter plugin on it.
+4. **Android**: VP8, VP9 and AV1 through MediaCodec
+   (`MediaCodecVideoDecoder` maps only H.264 and HEVC, so WebM's video
+   has no decoder); an FFmpeg-free AAR in the release
+   (`-Plychee.ffmpeg=false` builds it; a second artifact is a publishing
+   decision) if native Android users want one, and the Flutter plugin on
+   it, which is untried.
 5. **Fuzzing the live HLS reloads**: they wait real time, so the `hls`
    target makes playlists VOD; it needs a clock the fuzzer can advance.
 

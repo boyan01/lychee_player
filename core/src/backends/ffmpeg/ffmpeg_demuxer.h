@@ -15,10 +15,11 @@ struct AVFormatContext;
 struct AVIOContext;
 struct AVPacket;
 
-// On Apple platforms FFmpeg reads files and http(s) through DataSource
-// (NSURLSession), as the FFmpeg-free build does. Elsewhere DataSource has
-// no http client, so FFmpeg uses its own protocols.
-#if defined(__APPLE__)
+// On Apple platforms and Android FFmpeg reads files and http(s) through
+// DataSource (NSURLSession, HttpURLConnection), as the FFmpeg-free build
+// does. Elsewhere DataSource has no http client, so FFmpeg uses its own
+// protocols.
+#if defined(__APPLE__) || defined(__ANDROID__)
 #define LYCHEE_FFMPEG_DATA_SOURCE 1
 #endif
 

@@ -3,7 +3,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <application android:label="lychee">
+    <!-- Media comes from tool/serve_media.py over plain http. -->
+    <application
+        android:label="lychee"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

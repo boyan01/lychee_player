@@ -18,6 +18,10 @@
 #endif
 
 #if defined(__ANDROID__)
+#include "backends/android/http_data_source.h"
+#endif
+
+#if defined(__ANDROID__)
 #include <dirent.h>
 #include <unistd.h>
 
@@ -157,7 +161,15 @@ bool ReadsThroughDataSource(const std::string& url) {
     return false;
   }
   std::string scheme = url.substr(0, colon);
-  return scheme == "file" || scheme == "http" || scheme == "https";
+  if (scheme == "http" || scheme == "https") {
+#if defined(__ANDROID__)
+    // Without a Java VM (lychee_cli from adb shell) FFmpeg's http reads it.
+    return HttpDataSourceAvailable();
+#else
+    return true;
+#endif
+  }
+  return scheme == "file";
 }
 
 // FFmpeg's default is 32 KB; files and the http buffer hand over more.
@@ -262,7 +274,7 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
   av_dict_set(&options, "http_persistent", "0", 0);
   av_dict_set(&options, "http_multiple", "0", 0);
 #endif
-  // For FFmpeg's http (on Apple, what IoOpen() hands to it).
+  // For FFmpeg's http (on Apple and Android, what IoOpen() hands to it).
   if (IsNetworkUrl(url)) {
     // Ride out short outages: reconnect on dropped connections and server
     // errors, give up after about 10 s. Reads block meanwhile, so playback
@@ -276,9 +288,10 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
     // A connection that stays silent this long counts as dropped.
     av_dict_set(&options, "rw_timeout", "10000000", 0);
 #if defined(__ANDROID__)
+    // For what IoOpen() hands to FFmpeg's own http.
     if (!AndroidCaFile().empty()) {
-      default_io_open = format_context_->io_open;
-      format_context_->io_open = &IoOpenWithCaFile;
+      default_io_open = default_io_open_;
+      default_io_open_ = &IoOpenWithCaFile;
     }
 #endif
   }
@@ -924,10 +937,11 @@ AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url,
   // file, which would mean reading it all.
   uint8_t first;
   if (io->source->Read(0, &first, 1) < 0) {
-    // FFmpeg's http has no such policy, and read these URLs before.
+    // FFmpeg's http has no such policy (App Transport Security, Android's
+    // network security config), and read these URLs before.
     *cleartext_refused = io->source->cleartext_refused();
     if (*cleartext_refused) {
-      LOGI("App Transport Security refuses cleartext http: FFmpeg reads it");
+      LOGI("the platform refuses cleartext http: FFmpeg reads it");
     }
     return fail(io->source->error());
   }

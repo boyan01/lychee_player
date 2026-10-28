@@ -7,6 +7,8 @@
 
 #if defined(__APPLE__)
 #include "backends/apple/http_data_source.h"
+#elif defined(__ANDROID__)
+#include "backends/android/http_data_source.h"
 #elif defined(_WIN32)
 #include <windows.h>
 #endif
@@ -129,6 +131,8 @@ std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
     if (scheme == "http" || scheme == "https") {
 #if defined(__APPLE__)
       return HttpDataSource::Open(url, error);
+#elif defined(__ANDROID__)
+      return OpenHttpDataSource(url, error);
 #else
       *error = "no HTTP client in this build";
       return nullptr;

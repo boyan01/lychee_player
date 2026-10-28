@@ -29,7 +29,8 @@
 #include "backends/android/media_codec_video_decoder.h"
 #if !defined(LYCHEE_WITH_FFMPEG)
 #include "backends/android/media_codec_audio_decoder.h"
-#include "backends/mp4/mp4_demuxer.h"
+#include "media/probing_demuxer.h"
+#include "media/text_subtitle_decoder.h"
 #endif
 #elif defined(_WIN32)
 #include <unknwn.h>
@@ -49,9 +50,9 @@ namespace lychee {
 std::unique_ptr<Demuxer> CreateDemuxer() {
 #if defined(LYCHEE_WITH_FFMPEG)
   return std::make_unique<FFmpegDemuxer>();
-#elif defined(__APPLE__)
+#elif defined(__APPLE__) || defined(__ANDROID__)
   return std::make_unique<ProbingDemuxer>();
-#elif defined(__ANDROID__) || defined(_WIN32)
+#elif defined(_WIN32)
   return std::make_unique<Mp4Demuxer>();
 #else
   return nullptr;
@@ -183,7 +184,7 @@ std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders() {
 std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder() {
 #if defined(LYCHEE_WITH_FFMPEG)
   return std::make_unique<FFmpegSubtitleDecoder>();
-#elif defined(__APPLE__)
+#elif defined(__APPLE__) || defined(__ANDROID__)
   return std::make_unique<TextSubtitleDecoder>();
 #else
   return nullptr;

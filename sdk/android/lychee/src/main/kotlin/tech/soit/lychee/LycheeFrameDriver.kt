@@ -134,6 +134,9 @@ class LycheeFrameDriver(
         const val FRAME_ANDROID_SURFACE = 1 shl 3
 
         init {
+            // By name first, so the core's JNI_OnLoad keeps the VM for its
+            // http client; lychee_jni's dependency alone would not run it.
+            System.loadLibrary("lychee")
             System.loadLibrary("lychee_jni")
         }
 
