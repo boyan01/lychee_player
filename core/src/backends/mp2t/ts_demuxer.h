@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "backends/mp2t/ts_reader.h"
@@ -18,7 +19,10 @@ namespace lychee {
 // the first program's H.264, HEVC and AAC (ADTS) streams; MP3 and AC-3
 // are listed but have no decoder there. Seeks by bisection on PES
 // timestamps when the source can seek; the duration comes from the
-// timestamps at the end of the input.
+// timestamps at the end of the input. Where timestamps start over
+// inside the input, each run of them goes on where the one before ended
+// (TsTimeline); the open samples timestamps across a seekable input to
+// find those runs without reading all of it.
 class TsDemuxer : public Demuxer {
  public:
   TsDemuxer();
@@ -46,15 +50,28 @@ class TsDemuxer : public Demuxer {
              int64_t* pts,
              bool* read_error);
   // A packet boundary at or before the data whose |pid| timestamps reach
-  // |time|; -1 if the source failed.
+  // |time|, within the run that plays at |time|; -1 if the source failed.
   int64_t Bisect(int pid, int64_t time);
   void EstimateDuration();
+  // Adds the runs that samples of |pid|'s timestamps across the input
+  // show. False if the source failed.
+  bool FindRuns(int pid);
+  // Finds and adds the run that starts between |before| and |after|
+  // (offset, PTS as read), where timestamps went back; then looks for
+  // another one up to |after|.
+  bool LocateRun(int pid,
+                 std::pair<int64_t, int64_t> before,
+                 std::pair<int64_t, int64_t> after);
+  // A run starting at |offset| with |start|, the run before it having
+  // ended at |end| (both as read).
+  void AddRun(int64_t offset, int64_t start, int64_t end);
   bool Failed();
 
   std::mutex source_mutex_;
   std::unique_ptr<DataSource> source_;
   std::unique_ptr<TsReader> reader_;
   MediaInfo media_info_;
+  TsTimeline timeline_;
   // PtsAt() results of the seek in progress: offset -> 33-bit PTS, or -1.
   std::map<int64_t, int64_t> pts_cache_;
   std::vector<bool> enabled_;

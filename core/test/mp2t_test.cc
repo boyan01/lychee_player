@@ -1,9 +1,11 @@
 #include <cstring>
 #include <map>
+#include <memory>
 #include <random>
 #include <vector>
 
 #include "backends/mp2t/elementary_stream.h"
+#include "backends/mp2t/ts_demuxer.h"
 #include "backends/mp2t/ts_parser.h"
 #include "backends/mp2t/ts_reader.h"
 #include "test.h"
@@ -522,6 +524,84 @@ TEST(TsReader, UnwrapsTimestampsAndSplitsAdts) {
   EXPECT_EQ(audio[2].duration, 21334);
   EXPECT_EQ(audio[2].size(), 7u + 52u);
 }
+
+// Video at 30 fps in runs of |frames| that each start over at 10 s, a
+// keyframe every second, the PAT and PMT before each.
+Bytes RestartingStream(int runs, int frames, size_t frame_size) {
+  TsWriter w;
+  for (int run = 0; run < runs; ++run) {
+    for (int i = 0; i < frames; ++i) {
+      const bool key = i % 30 == 0;
+      if (key) {
+        w.Pat(0x1000);
+        w.Pmt(0x1000, 0, {{0x1b, 0x100, {}}});
+      }
+      w.Pes(0x100, 0xe0, 900000 + int64_t{i} * 3000, -1,
+            AccessUnit(key ? kSps360 : Bytes(), key ? 0x65 : 0x41, frame_size),
+            key);
+    }
+  }
+  return w.out;
+}
+
+// NOLINTBEGIN(bugprone-throwing-static-initialization)
+TEST(TsReader, JoinsRunsWhereTimestampsStartOver) {
+  MemorySource source(RestartingStream(3, 45, 300));
+  TsTimeline timeline(1);
+  TsReader reader(&source);
+  reader.JoinRuns(&timeline);
+  reader.SetRange(0, -1);
+  std::string error;
+  EXPECT_TRUE(reader.Probe(1 << 20, &error));
+  EncodedPacket packet;
+  int64_t offset;
+  int64_t expected = 10 * kMicrosPerSecond;
+  int count = 0;
+  while (reader.Read(&packet, &offset) == DemuxerReadResult::kOk) {
+    EXPECT_NEAR(packet.pts, expected, 1);
+    EXPECT_NEAR(packet.duration, 33333, 1);
+    expected = packet.pts + 33333;
+    ++count;
+  }
+  EXPECT_EQ(count, 135);
+  EXPECT_EQ(timeline.size(), 3u);
+  // Read again from the second run: the timeline places it.
+  reader.Restart(timeline[1].offset, 11500000);
+  EXPECT_TRUE(reader.Read(&packet, &offset) == DemuxerReadResult::kOk);
+  EXPECT_NEAR(packet.pts, 11500000, 1);
+}
+
+TEST(TsDemuxer, FindsRunsWithoutReadingEverything) {
+  // 3.6 MB: the end the duration reads is in the last run only.
+  TsDemuxer demuxer;
+  std::string error;
+  EXPECT_TRUE(demuxer.Open(
+      std::make_unique<MemorySource>(RestartingStream(3, 150, 8000)), &error));
+  const int64_t start = 10 * kMicrosPerSecond;
+  EXPECT_EQ(demuxer.media_info().start_time, start);
+  EXPECT_NEAR(demuxer.media_info().duration, int64_t{450} * 33333, 2000);
+  // Lands on the keyframe at or before, in whichever run plays then.
+  for (int64_t target : {1500000, 7200000, 12500000, 14900000}) {
+    EXPECT_TRUE(demuxer.Seek(start + target));
+    EncodedPacket packet;
+    EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kOk);
+    EXPECT_TRUE(packet.keyframe);
+    // Each run's shift rounds to the microsecond.
+    EXPECT_NEAR(packet.pts,
+                start + target / kMicrosPerSecond * kMicrosPerSecond, 3);
+  }
+  // And plays on across the next reset.
+  EXPECT_TRUE(demuxer.Seek(start + 4500000));
+  EncodedPacket packet;
+  int64_t expected = start + 4000000;
+  for (int i = 0; i < 60; ++i) {
+    EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kOk);
+    EXPECT_NEAR(packet.pts, expected, 1);
+    expected = packet.pts + 33333;
+  }
+}
+
+// NOLINTEND(bugprone-throwing-static-initialization)
 
 TEST(TsReader, DetectsPacketSizes) {
   TsWriter w;

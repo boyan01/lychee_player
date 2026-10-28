@@ -3,6 +3,7 @@
 #include "backends/mp2t/ts_reader.h"
 
 #include <algorithm>
+#include <cstdlib>
 
 #include "backends/mp2t/elementary_stream.h"
 #include "base/log.h"
@@ -18,6 +19,8 @@ constexpr int64_t kSyncBytes = int64_t{64} * 1024;
 constexpr int64_t kWrapTicks = int64_t{1} << 33;
 // A larger distance to the next packet is a gap, not a duration.
 constexpr int64_t kMaxPacketDuration = 10 * kMicrosPerSecond;
+// A stream's DTS going back by more than this starts a new run.
+constexpr int64_t kMaxStepBack = kMicrosPerSecond / 2;
 // ADTS frames are at most 8191 bytes; more without one is not ADTS.
 constexpr size_t kMaxAdtsBuffer = size_t{64} * 1024;
 
@@ -281,6 +284,8 @@ void TsReader::Restart(int64_t offset, int64_t reference) {
     state.pending.valid = false;
     state.adts.clear();
     state.adts_anchor = kNoTimestamp;
+    state.run = -1;
+    state.last_ticks = kNoTimestamp;
   }
   buffer_.clear();
   if (data_start_ >= 0) {
@@ -303,6 +308,122 @@ int64_t TsReader::Unwrap(int64_t ticks) {
       last_ticks_ != kNoTimestamp ? last_ticks_ : reference_;
   last_ticks_ = reference == kNoTimestamp ? ticks : Nearest(ticks, reference);
   return last_ticks_;
+}
+
+void TsReader::AdoptProgram(const TsReader& other) {
+  parser_.AdoptProgram(other.parser_);
+  streams_ = other.streams_;
+  stream_by_pid_ = other.stream_by_pid_;
+  states_.assign(streams_.size(), StreamState());
+}
+
+// static
+size_t TsReader::RunAt(const TsTimeline& timeline, int64_t offset) {
+  size_t run = 0;
+  while (run + 1 < timeline.size() && timeline[run + 1].offset <= offset) {
+    ++run;
+  }
+  return run;
+}
+
+void TsReader::Join(int index,
+                    const PesPacket& pes,
+                    int64_t* pts,
+                    int64_t* dts) {
+  const int64_t raw = pes.dts >= 0 ? pes.dts : pes.pts;
+  if (raw < 0) {
+    *pts = *dts = kNoTimestamp;
+    return;
+  }
+  TsTimeline& timeline = *timeline_;
+  StreamState& state = states_[index];
+  int64_t ticks;
+  if (state.run < 0) {
+    state.run = static_cast<int>(RunAt(timeline, pes.offset));
+    TsRun& run = timeline[state.run];
+    if (run.start == kNoTimestamp) {
+      run.start = TicksToMicros(raw);
+    }
+    ticks = Nearest(raw, reference_ != kNoTimestamp
+                             ? reference_ - MicrosToTicks(run.shift)
+                             : MicrosToTicks(run.start));
+  } else {
+    ticks = Nearest(raw, state.last_ticks);
+    const int64_t step = TicksToMicros(ticks - state.last_ticks);
+    if (step < -kMaxStepBack || step > kMaxPacketDuration) {
+      state.run = NextRun(state.run, pes.offset, raw);
+      ticks = Nearest(raw, MicrosToTicks(timeline[state.run].start));
+    }
+  }
+  state.last_ticks = ticks;
+  TsRun& run = timeline[state.run];
+  *dts = TicksToMicros(ticks) + run.shift;
+  if (pes.pts < 0) {
+    *pts = kNoTimestamp;
+    return;
+  }
+  const int64_t pts_read = TicksToMicros(Nearest(pes.pts, ticks));
+  if (!IsAnchor(index)) {
+    *pts = pts_read + run.shift;
+    return;
+  }
+  if (!run.anchored && state.run > 0) {
+    // Found while reading, maybe by another stream: the anchor's first
+    // frame follows the anchor's last one in the run before.
+    const TsRun& previous = timeline[state.run - 1];
+    if (previous.end != kNoTimestamp) {
+      run.shift = previous.end - pts_read;
+      *dts = TicksToMicros(ticks) + run.shift;
+    }
+    run.anchored = true;
+  }
+  *pts = pts_read + run.shift;
+  const int64_t end = *pts + state.last_duration;
+  if (run.end == kNoTimestamp || end > run.end) {
+    run.end = end;
+  }
+}
+
+bool TsReader::IsAnchor(int index) const {
+  if (streams_[index].info.type == MediaType::kVideo) {
+    return true;
+  }
+  return std::none_of(streams_.begin(), streams_.end(), [](const TsStream& s) {
+    return s.info.type == MediaType::kVideo;
+  });
+}
+
+int TsReader::NextRun(int run, int64_t offset, int64_t ticks) {
+  TsTimeline& timeline = *timeline_;
+  const size_t next = static_cast<size_t>(run) + 1;
+  if (next < timeline.size()) {
+    const int64_t start = MicrosToTicks(timeline[next].start);
+    if (std::abs(TicksToMicros(Nearest(ticks, start) - start)) <=
+        kMaxPacketDuration) {
+      return static_cast<int>(next);
+    }
+  }
+  // A reset not found before: go on from where this run got to, until
+  // the anchor's first frame in it sets the shift. Runs after it keep
+  // theirs.
+  TsRun added;
+  added.offset = offset;
+  added.start = TicksToMicros(ticks);
+  added.anchored = false;
+  const TsRun& current = timeline[run];
+  added.shift = (current.end != kNoTimestamp ? current.end
+                                             : current.shift + current.start) -
+                added.start;
+  LOGI("timestamps start over at byte %lld: %lld us on from %lld us",
+       static_cast<long long>(offset), static_cast<long long>(added.shift),
+       static_cast<long long>(added.start));
+  timeline.insert(timeline.begin() + static_cast<ptrdiff_t>(next), added);
+  for (StreamState& state : states_) {
+    if (state.run >= static_cast<int>(next)) {
+      ++state.run;
+    }
+  }
+  return static_cast<int>(next);
 }
 
 void TsReader::OnProgram(const std::vector<TsStreamEntry>& entries) {
@@ -363,9 +484,14 @@ void TsReader::OnPes(const PesPacket& pes) {
   }
   const int index = it->second;
   TsStream& stream = streams_[index];
-  const int64_t pts =
-      pes.pts >= 0 ? TicksToMicros(Unwrap(pes.pts)) : kNoTimestamp;
-  const int64_t dts = pes.dts >= 0 ? TicksToMicros(Unwrap(pes.dts)) : pts;
+  int64_t pts;
+  int64_t dts;
+  if (timeline_) {
+    Join(index, pes, &pts, &dts);
+  } else {
+    pts = pes.pts >= 0 ? TicksToMicros(Unwrap(pes.pts)) : kNoTimestamp;
+    dts = pes.dts >= 0 ? TicksToMicros(Unwrap(pes.dts)) : pts;
+  }
 
   if (stream.info.type == MediaType::kAudio &&
       stream.info.audio.codec == AudioCodec::kAAC) {

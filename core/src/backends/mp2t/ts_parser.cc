@@ -397,4 +397,14 @@ void TsParser::Reset() {
   pmt_.continuity = -1;
 }
 
+void TsParser::AdoptProgram(const TsParser& other) {
+  Reset();
+  pmt_pid_ = other.pmt_pid_;
+  pmt_version_ = other.pmt_version_;
+  pes_.clear();
+  for (const auto& entry : other.pes_) {
+    pes_[entry.first];
+  }
+}
+
 }  // namespace lychee

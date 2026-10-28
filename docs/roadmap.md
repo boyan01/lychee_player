@@ -45,18 +45,15 @@ building on top of them.
 
 ## Known defects
 
-- **Timestamps restarting inside a single TS file without FFmpeg**:
-  `tool/regression.sh` generates `ts_timestamp_reset.ts` by joining two
-  three-second TS files without remuxing. Reproduce with
-  `build-noffmpeg/examples/cli/lychee_cli --virtual-time
-  /tmp/lychee-media/ts_timestamp_reset.ts`: only the first 90 video frames
-  play, the second 90 are dropped, and the reported duration is 3.029 s
-  instead of about 6 s. `TsReader` unwraps 33-bit timestamps but does not
-  join resets; `TsDemuxer` estimates duration and bisects seeks using the
-  raw timeline. Done when both segments play in sync and seeks work on
-  either side of the reset, without scanning an entire large TS at open.
-  Keep the failing playback out of the default regression matrix until
-  the timeline and seek handling are fixed.
+- **Timestamps restarting inside a single TS file with FFmpeg**:
+  `FFmpegDemuxer` passes FFmpeg's timestamps on as they are, so
+  `ts_timestamp_reset.ts` (two TS files joined without remuxing) reports
+  3.021 s instead of about 6 s, drifts by up to 3 s, and seeks into the
+  second half land in the first. The FFmpeg-free `TsDemuxer` joins such
+  runs (`TsTimeline`); do the same for FFmpeg's `mpegts` (formats with
+  `AVFMT_TS_DISCONT`). Done when `tool/regression.sh`'s
+  `ts-timestamp-reset` and `seek-ts-reset*` cases, now run only with
+  `NO_FFMPEG=1`, pass in both builds.
 
 1. **VideoToolbox gives up on damaged TS**: on TS that lost one packet in
    a thousand (`ts_lost_packets.ts`) `VTVideoDecoder` reaches its
@@ -139,7 +136,9 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    `Mp4Demuxer`), AES-128 (CommonCrypto, CBC per segment, the key fetched
    once), `EXT-X-MEDIA` audio renditions and variant switching. MP3 in TS
    is untested; AC-3 has no FFmpeg-free decoder; DVB and ID3 timed
-   metadata in TS are ignored.
+   metadata in TS are ignored. Where TS timestamps start over, a jump
+   ahead, or a run shorter than a sixteenth of the input, is found only
+   when played: until then the duration and seeks miss it.
 3. **Windows**: no software video decoder, so a machine without a GPU (or
    a codec its GPU lacks) plays no video; Media Foundation's software mode
    would cover it. AAC in ADTS and other audio codecs have no decoder,

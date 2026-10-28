@@ -3,6 +3,7 @@
 #include "backends/mp2t/ts_demuxer.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <utility>
 
 #include "base/log.h"
@@ -21,6 +22,23 @@ constexpr int64_t kBisectStop = 512 << 10;
 // Tail looked at for the duration, growing up to the maximum.
 constexpr int64_t kTailBytes = 1 << 20;
 constexpr int64_t kMaxTailBytes = 16 << 20;
+// PtsAt() reads its window in chunks, stopping at the first timestamp.
+constexpr int64_t kPtsChunk = 32 << 10;
+// Timestamps sampled across the input at open for where they start
+// over, at least this far apart. A run shorter than the spacing, or one
+// that starts ahead of the sample before it, is found when read.
+constexpr int64_t kRunSamples = 16;
+constexpr int64_t kRunSampleSpacing = 64 << 10;
+// A reset found within this many bytes is read across.
+constexpr int64_t kRunBisectStop = 64 << 10;
+// Packets read after a reset, at least, for the anchor's earliest PTS in
+// the new run (video starts with a frame whose PTS is not its earliest).
+constexpr int kRunStartPackets = 16;
+// Timestamps going back by more than this start a run (as in TsReader);
+// a stream's first packet must go back further, since streams are
+// interleaved up to about this much apart.
+constexpr int64_t kMaxStepBack = kMicrosPerSecond / 2;
+constexpr int64_t kMaxInterleave = kMicrosPerSecond;
 
 }  // namespace
 
@@ -43,7 +61,9 @@ bool TsDemuxer::Open(std::unique_ptr<DataSource> source, std::string* error) {
       source_->Interrupt();
     }
   }
+  timeline_.assign(1, TsRun());
   reader_ = std::make_unique<TsReader>(source_.get());
+  reader_->JoinRuns(&timeline_);
   reader_->SetRange(0, -1);
   if (!reader_->Probe(kProbeBytes, error)) {
     if (aborted_) {
@@ -77,7 +97,15 @@ bool TsDemuxer::Open(std::unique_ptr<DataSource> source, std::string* error) {
   media_info_.start_time = start == kNoTimestamp ? 0 : start;
   media_info_.seekable = source_->seekable() && source_->size() > 0;
   if (media_info_.seekable) {
-    EstimateDuration();
+    int reference = media_info_.default_video_stream;
+    if (reference < 0) {
+      reference = 0;
+    }
+    pts_cache_.clear();
+    if (FindRuns(reader_->streams()[reference].pid)) {
+      EstimateDuration();
+    }
+    pts_cache_.clear();
   }
   enabled_.assign(media_info_.streams.size(), true);
   need_keyframe_.assign(media_info_.streams.size(), true);
@@ -89,6 +117,8 @@ void TsDemuxer::EstimateDuration() {
   for (int64_t tail = kTailBytes; tail <= kMaxTailBytes; tail *= 4) {
     const int64_t begin = std::max(reader_->data_start(), size - tail);
     TsReader reader(source_.get());
+    reader.AdoptProgram(*reader_);
+    reader.JoinRuns(&timeline_);
     reader.SetRange(begin, size);
     int64_t end = kNoTimestamp;
     EncodedPacket packet;
@@ -102,10 +132,8 @@ void TsDemuxer::EstimateDuration() {
       }
     }
     if (end != kNoTimestamp) {
-      // Timestamps in the tail may have wrapped past 2^33 since the start.
-      const int64_t wrap = TsReader::TicksToMicros(int64_t{1} << 33);
-      const int64_t duration =
-          ((end - media_info_.start_time) % wrap + wrap) % wrap;
+      // On the timeline of the runs, unwrapped from each run's start.
+      const int64_t duration = end - media_info_.start_time;
       if (duration > 0) {
         media_info_.duration = duration;
       }
@@ -118,6 +146,168 @@ void TsDemuxer::EstimateDuration() {
       return;
     }
   }
+}
+
+bool TsDemuxer::FindRuns(int pid) {
+  const int64_t begin = reader_->data_start();
+  const int64_t size = source_->size();
+  const int64_t span = size - begin;
+  const int64_t count =
+      std::clamp<int64_t>(span / kRunSampleSpacing, 1, kRunSamples);
+  std::vector<std::pair<int64_t, int64_t>> samples;
+  int64_t near = media_info_.start_time;
+  for (int64_t i = 0; i <= count; ++i) {
+    const int64_t offset = i < count
+                               ? begin + span * i / count
+                               : std::max(begin, size - kRunSampleSpacing);
+    int64_t pts;
+    bool read_error;
+    if (PtsAt(offset, pid, near, &pts, &read_error)) {
+      samples.emplace_back(offset, pts);
+      near = pts;
+    } else if (read_error) {
+      return false;
+    }
+  }
+  for (size_t i = 0; i + 1 < samples.size(); ++i) {
+    if (samples[i + 1].second < samples[i].second - kMaxStepBack &&
+        !LocateRun(pid, samples[i], samples[i + 1])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool TsDemuxer::LocateRun(int pid,
+                          std::pair<int64_t, int64_t> before,
+                          std::pair<int64_t, int64_t> after) {
+  // Timestamps go up within a run, and a later run's stay below the
+  // earlier sample until |after|: bisect on which side a PTS falls.
+  const int64_t size = reader_->packet_size();
+  int64_t low = before.first;
+  int64_t high = after.first;
+  int64_t last = before.second;
+  while (high - low > kRunBisectStop) {
+    int64_t middle = low + (high - low) / 2;
+    middle = low + (middle - low) / size * size;
+    int64_t pts;
+    bool read_error;
+    if (!PtsAt(middle, pid, last, &pts, &read_error)) {
+      if (read_error) {
+        return false;
+      }
+      high = middle;
+    } else if (pts >= last - kMaxStepBack) {
+      low = middle;
+      last = pts;
+    } else {
+      high = middle;
+    }
+  }
+  // Read across the reset, from far enough before it for the frame that
+  // shows last, which with B-frames is not the last one decoded. Packets
+  // come out as their PES ends, so one stream's first packets of the new
+  // run may come before another's last of the old one: each stream
+  // moves on when its own DTS goes back.
+  TsReader reader(source_.get());
+  reader.AdoptProgram(*reader_);
+  // Runs are found in input order: the one known at |low| is its own.
+  const int64_t run_offset = timeline_[TsReader::RunAt(timeline_, low)].offset;
+  const int64_t from = std::max(run_offset, low - kRunBisectStop);
+  reader.SetRange(from, std::min(source_->size(), high + kPtsWindow));
+  // A stream's first packet is in the old run if near where reading
+  // starts.
+  int64_t first = last;
+  bool read_error;
+  if (from < low && !PtsAt(from, pid, last, &first, &read_error)) {
+    if (read_error) {
+      return false;
+    }
+    first = last;
+  }
+  // The anchor stream's frames decide the join (TsRun).
+  const int anchor = media_info_.default_video_stream >= 0
+                         ? media_info_.default_video_stream
+                         : media_info_.default_audio_stream;
+  // Per stream: its last DTS in the old run, or kNoTimestamp once moved.
+  std::map<int, int64_t> dts;
+  int64_t end = kNoTimestamp;
+  int64_t reset = -1;
+  int64_t start = kNoTimestamp;
+  int read_after = 0;
+  EncodedPacket packet;
+  int64_t offset;
+  DemuxerReadResult result;
+  while ((result = reader.Read(&packet, &offset)) == DemuxerReadResult::kOk) {
+    const int index = packet.stream_index;
+    auto it = dts.find(index);
+    const bool moved = it != dts.end()
+                           ? it->second == kNoTimestamp ||
+                                 packet.dts < it->second - kMaxStepBack
+                           : packet.dts < first - kMaxInterleave;
+    if (!moved) {
+      dts[index] = packet.dts;
+      if (index == anchor) {
+        end = std::max(end == kNoTimestamp ? packet.pts : end,
+                       packet.pts + std::max<int64_t>(packet.duration, 0));
+      }
+      continue;
+    }
+    dts[index] = kNoTimestamp;
+    if (reset < 0 || offset < reset) {
+      reset = offset;
+    }
+    if (index == anchor && (start == kNoTimestamp || packet.pts < start)) {
+      start = packet.pts;
+    }
+    if (++read_after >= kRunStartPackets && start != kNoTimestamp) {
+      break;
+    }
+  }
+  if (result == DemuxerReadResult::kError && Failed()) {
+    return false;
+  }
+  if (reset < 0 || end == kNoTimestamp || start == kNoTimestamp) {
+    return true;  // Left to reading.
+  }
+  AddRun(reset, start, end);
+  if (after.second < start - kMaxStepBack) {
+    return LocateRun(pid, {reset, start}, after);
+  }
+  return true;
+}
+
+void TsDemuxer::AddRun(int64_t offset, int64_t start, int64_t end) {
+  for (const TsRun& run : timeline_) {
+    if (run.start != kNoTimestamp &&
+        std::abs(run.offset - offset) < kPtsWindow &&
+        std::abs(TsReader::TicksToMicros(
+            TsReader::Nearest(TsReader::MicrosToTicks(start),
+                              TsReader::MicrosToTicks(run.start)) -
+            TsReader::MicrosToTicks(run.start))) <= kMaxStepBack * 2) {
+      return;  // Reading found it already.
+    }
+  }
+  const size_t before = TsReader::RunAt(timeline_, offset);
+  const TsRun& previous = timeline_[before];
+  // |end| unwrapped as the run before it unwraps (whole 2^33 wraps, so
+  // through ticks without rounding |end|).
+  const int64_t end_ticks = TsReader::MicrosToTicks(end);
+  const int64_t previous_end =
+      end +
+      TsReader::TicksToMicros(
+          TsReader::Nearest(end_ticks,
+                            TsReader::MicrosToTicks(previous.start)) -
+          end_ticks) +
+      previous.shift;
+  TsRun run;
+  run.offset = offset;
+  run.start = start;
+  run.shift = previous_end - start;
+  LOGI("timestamps start over at byte %lld: %lld us on from %lld us",
+       static_cast<long long>(offset), static_cast<long long>(run.shift),
+       static_cast<long long>(start));
+  timeline_.insert(timeline_.begin() + static_cast<ptrdiff_t>(before) + 1, run);
 }
 
 void TsDemuxer::SetEnabledStreams(const std::vector<int>& stream_indices) {
@@ -190,61 +380,85 @@ bool TsDemuxer::PtsAt(int64_t offset,
         TsReader::Nearest(cached->second, TsReader::MicrosToTicks(near)));
     return true;
   }
-  std::vector<uint8_t> window(static_cast<size_t>(kPtsWindow / size * size));
-  size_t filled = 0;
-  while (filled < window.size()) {
-    int64_t n = source_->Read(offset + static_cast<int64_t>(filled),
-                              window.data() + filled, window.size() - filled);
-    if (n < 0) {
-      *read_error = true;
-      return false;
-    }
-    if (n == 0) {
-      break;
-    }
-    filled += static_cast<size_t>(n);
-  }
+  // In chunks: the first timestamp is usually within one.
+  const size_t limit = static_cast<size_t>(kPtsWindow / size * size);
+  const size_t chunk = static_cast<size_t>(kPtsChunk / size * size);
+  std::vector<uint8_t> window;
   const size_t prefix = static_cast<size_t>(size) - kTsPacketSize;
-  for (size_t p = 0; p + static_cast<size_t>(size) <= filled;) {
-    const uint8_t* packet = window.data() + p + prefix;
-    if (packet[0] != 0x47) {
-      ++p;  // Out of sync: look for the next sync byte.
-      continue;
+  size_t p = 0;
+  bool eof = false;
+  while (!eof && window.size() < limit) {
+    const size_t filled = window.size();
+    window.resize(std::min(limit, filled + chunk));
+    size_t got = filled;
+    while (got < window.size()) {
+      int64_t n = source_->Read(offset + static_cast<int64_t>(got),
+                                window.data() + got, window.size() - got);
+      if (n < 0) {
+        *read_error = true;
+        return false;
+      }
+      if (n == 0) {
+        eof = true;
+        break;
+      }
+      got += static_cast<size_t>(n);
     }
-    p += static_cast<size_t>(size);
-    const bool unit_start = packet[1] & 0x40;
-    const int packet_pid = ((packet[1] & 0x1f) << 8) | packet[2];
-    const int adaptation = (packet[3] >> 4) & 3;
-    if (!unit_start || packet_pid != pid || !(adaptation & 1)) {
-      continue;
+    window.resize(got);
+    while (p + static_cast<size_t>(size) <= window.size()) {
+      const uint8_t* packet = window.data() + p + prefix;
+      if (packet[0] != 0x47) {
+        ++p;  // Out of sync: look for the next sync byte.
+        continue;
+      }
+      p += static_cast<size_t>(size);
+      const bool unit_start = packet[1] & 0x40;
+      const int packet_pid = ((packet[1] & 0x1f) << 8) | packet[2];
+      const int adaptation = (packet[3] >> 4) & 3;
+      if (!unit_start || packet_pid != pid || !(adaptation & 1)) {
+        continue;
+      }
+      size_t at = 4;
+      if (adaptation & 2) {
+        at += 1 + packet[4];
+      }
+      // PES start code, stream id, length, flags, header length, PTS.
+      if (at + 14 > kTsPacketSize || packet[at] != 0 || packet[at + 1] != 0 ||
+          packet[at + 2] != 1 || !(packet[at + 7] & 0x80)) {
+        continue;
+      }
+      const uint8_t* field = packet + at + 9;
+      const int64_t raw = (static_cast<int64_t>((field[0] >> 1) & 7) << 30) |
+                          (static_cast<int64_t>(field[1]) << 22) |
+                          (static_cast<int64_t>(field[2] >> 1) << 15) |
+                          (static_cast<int64_t>(field[3]) << 7) |
+                          (field[4] >> 1);
+      pts_cache_[offset] = raw;
+      *pts = TsReader::TicksToMicros(
+          TsReader::Nearest(raw, TsReader::MicrosToTicks(near)));
+      return true;
     }
-    size_t at = 4;
-    if (adaptation & 2) {
-      at += 1 + packet[4];
-    }
-    // PES start code, stream id, length, flags, header length, PTS.
-    if (at + 14 > kTsPacketSize || packet[at] != 0 || packet[at + 1] != 0 ||
-        packet[at + 2] != 1 || !(packet[at + 7] & 0x80)) {
-      continue;
-    }
-    const uint8_t* field = packet + at + 9;
-    const int64_t raw = (static_cast<int64_t>((field[0] >> 1) & 7) << 30) |
-                        (static_cast<int64_t>(field[1]) << 22) |
-                        (static_cast<int64_t>(field[2] >> 1) << 15) |
-                        (static_cast<int64_t>(field[3]) << 7) | (field[4] >> 1);
-    pts_cache_[offset] = raw;
-    *pts = TsReader::TicksToMicros(
-        TsReader::Nearest(raw, TsReader::MicrosToTicks(near)));
-    return true;
   }
   pts_cache_[offset] = -1;
   return false;
 }
 
 int64_t TsDemuxer::Bisect(int pid, int64_t time) {
+  // Timestamps go up only within a run: bisect in the one playing |time|,
+  // on its timestamps as read.
+  size_t index = 0;
+  for (size_t i = 1; i < timeline_.size(); ++i) {
+    const TsRun& run = timeline_[i];
+    if (run.start != kNoTimestamp && run.start + run.shift <= time) {
+      index = i;
+    }
+  }
+  const TsRun& run = timeline_[index];
+  time -= run.shift;
   const int64_t size = reader_->packet_size();
-  int64_t low = reader_->data_start();
-  int64_t high = source_->size();
+  int64_t low = std::max(reader_->data_start(), run.offset);
+  int64_t high = index + 1 < timeline_.size() ? timeline_[index + 1].offset
+                                              : source_->size();
   while (high - low > kBisectStop) {
     int64_t middle = low + (high - low) / 2;
     middle = low + (middle - low) / size * size;

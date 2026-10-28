@@ -687,6 +687,15 @@ par check seek-ts-backward  1 12.367 -- --seek 1 --seek-after 5 "$media/offset.t
 par check seek-ts-hevc10    1 7.442 -- --seek 6 --seek-after 2 "$media/hevc10.ts"
 # Into the second rendition.
 par check seek-ts-rendition 1 5.433 -- --seek 4 --seek-after 1 "$media/resolution_change.ts"
+# Timestamps that start over midway: the second run follows the first
+# (TsTimeline), and seeks land on either side. FFmpeg's demuxer does not
+# join them (roadmap).
+if [ "${NO_FFMPEG:-0}" = 1 ]; then
+  par expect ts-timestamp-reset "summary: state=ended position=6\.029s .*rendered=180 dropped=0 glitches=0 " -- \
+    "$media/ts_timestamp_reset.ts"
+  par check seek-ts-reset 1 6.233 -- --seek 4.8 --seek-after 1 "$media/ts_timestamp_reset.ts"
+  par check seek-ts-reset-backward 1 2.933 -- --seek 1.5 --seek-after 5 "$media/ts_timestamp_reset.ts"
+fi
 par expect loop-ts "video size 640x360" "loops=1" "summary:.*backward_jumps=0 " "<=0 event: state (ended|buffering)" -- \
   --loop --seconds 9 "$media/resolution_change.ts"
 par check seek-audio    - - -- --seek 3 --seek-after 1 "$media/audio_only.mp3"

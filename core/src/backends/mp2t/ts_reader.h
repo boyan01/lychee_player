@@ -24,6 +24,27 @@ struct TsStream {
   int64_t first_pts = kNoTimestamp;
 };
 
+// A run of timestamps in one input: where they start over (files joined
+// without remuxing, spliced recordings), each later run is shifted so
+// that its first frame follows the last one of the run before it. Frames
+// of the anchor stream (video if there is any, else audio) decide, since
+// video gaps show; other streams may overlap or leave a gap of a frame.
+struct TsRun {
+  // Where the run's first PES packet starts.
+  int64_t offset = 0;
+  // A timestamp in it as read (any 33-bit unwrapping), microseconds: where
+  // its timestamps unwrap from.
+  int64_t start = kNoTimestamp;
+  // Added to its timestamps.
+  int64_t shift = 0;
+  // Whether |shift| was set from the anchor stream's first frame.
+  bool anchored = true;
+  // The latest end of an anchor stream frame read in it, after the shift.
+  int64_t end = kNoTimestamp;
+};
+// Runs in input order; the first starts at offset 0 with no shift.
+using TsTimeline = std::vector<TsRun>;
+
 // Reads MPEG-TS from a DataSource into packets: one access unit per
 // video packet (Annex B, as the stream carries it), one ADTS frame per
 // AAC packet (header included). Timestamps are microseconds, unwrapped
@@ -61,6 +82,21 @@ class TsReader : private TsParser::Client {
   // kNoTimestamp.
   void Restart(int64_t offset, int64_t reference);
 
+  // Takes |other|'s program and streams, for reading from the middle of
+  // the input |other| probed (where the PAT and PMT may not repeat for a
+  // while).
+  void AdoptProgram(const TsReader& other);
+
+  // Puts the timestamps of every run of |timeline| (which outlives the
+  // reader) on one timeline: a stream whose timestamps jump back, or
+  // ahead by more than a packet can last, goes on in the next run, which
+  // is added where |timeline| does not know it yet. |reference| in
+  // Restart() is then on that timeline too. Without it (HLS, which joins
+  // segments itself), timestamps only unwrap.
+  void JoinRuns(TsTimeline* timeline) { timeline_ = timeline; }
+  // The run that |offset| is in.
+  static size_t RunAt(const TsTimeline& timeline, int64_t offset);
+
   const std::vector<TsStream>& streams() const { return streams_; }
   // Where the first packet starts, and the packet size (188 or 192).
   int64_t data_start() const { return data_start_; }
@@ -90,6 +126,10 @@ class TsReader : private TsParser::Client {
     // adts_anchor.
     int64_t adts_anchor = kNoTimestamp;
     int64_t adts_frames = 0;
+    // With a timeline: the run the stream is in (-1: not known since the
+    // restart), and its last DTS there in ticks.
+    int run = -1;
+    int64_t last_ticks = kNoTimestamp;
   };
   struct Queued {
     EncodedPacket packet;
@@ -110,6 +150,12 @@ class TsReader : private TsParser::Client {
   // Queues |packet| behind the previous one of its stream.
   void Emit(int stream, EncodedPacket packet, int64_t offset);
   int64_t Unwrap(int64_t ticks);
+  // |pes|'s timestamps on |timeline_|.
+  void Join(int stream, const PesPacket& pes, int64_t* pts, int64_t* dts);
+  // The run a stream goes on in after a jump at |offset| to |ticks|.
+  int NextRun(int run, int64_t offset, int64_t ticks);
+  // Whether |stream|'s frames decide where runs join.
+  bool IsAnchor(int stream) const;
 
   DataSource* const source_;
   TsParser parser_;
@@ -131,6 +177,7 @@ class TsReader : private TsParser::Client {
   std::deque<Queued> queue_;
   int64_t reference_ = kNoTimestamp;
   int64_t last_ticks_ = kNoTimestamp;
+  TsTimeline* timeline_ = nullptr;
   std::string error_;
 };
 

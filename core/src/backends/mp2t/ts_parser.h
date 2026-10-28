@@ -68,6 +68,10 @@ class TsParser {
   // from elsewhere in the input. The program stays known.
   void Reset();
 
+  // Takes |other|'s program, as if its PAT and PMT had been read: for
+  // reading from the middle of an input whose program is known.
+  void AdoptProgram(const TsParser& other);
+
   bool has_program() const { return pmt_version_ >= 0; }
 
  private:
