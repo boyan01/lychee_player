@@ -187,9 +187,9 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    Windows and Linux native users
    take the C ABI as it is.
 4. **Engineering practices**, in rough order of value:
-   - **clang-tidy**: the Android, Windows and Linux backends are not
-     checked. Add Linux to the changed-lines CI check, after validating
-     its compiler database and diagnostics on Linux.
+   - **clang-tidy**: the Android and Windows backends are not checked.
+     `tool/tidy.sh` on Linux checks the Linux backend (clang 23, `--all`
+     without findings); CI's changed-lines check should run it there too.
    - **CI jobs for Android and Windows**: the SDK build and its unit tests
      on an emulator; the core and `examples/glfw` on `windows-latest`.
    - **Performance benchmarks**: `tool/bench.sh` measures them on one

@@ -5,6 +5,7 @@
 #include <errno.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 
 #include "base/log.h"
@@ -338,7 +339,7 @@ void PulseAudioSink::OnWrite(pa_stream* stream, size_t bytes, void* user_data) {
     const int written =
         self->callback_(destination, frames, self->PlayoutTime(stream));
     if (written < frames) {
-      memset(destination + written * kChannels, 0,
+      memset(destination + static_cast<ptrdiff_t>(written) * kChannels, 0,
              static_cast<size_t>(frames - written) * kFrameBytes);
     }
     pa_stream_write(stream, data, size, nullptr, 0, PA_SEEK_RELATIVE);
