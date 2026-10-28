@@ -176,8 +176,8 @@ H.264 and HEVC only) from files and http(s), Windows MP4 files.
    image.
 3. **Native SDKs**: drop the pod and the plugin's copy of
    `LycheeFrameDriver` (`LycheeTexture`) once Flutter drops CocoaPods;
-   the Rust crates on crates.io, and built for Windows, Linux, Android
-   and iOS (`LYCHEE_LIB_DIR` is untried). Windows and Linux native users
+   the Rust crates on crates.io, and built for Windows, Linux and iOS
+   (`LYCHEE_LIB_DIR` has run on Android only). Windows and Linux native users
    take the C ABI as it is.
 4. **Engineering practices**, in rough order of value:
    - **clang-tidy**: the Android, Windows and Linux backends are not

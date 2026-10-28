@@ -331,6 +331,22 @@ install names: copy `liblychee.dylib` and the five FFmpeg libraries
 `-C link-arg=-Wl,-rpath,@executable_path` (`@executable_path/../Frameworks`
 in an app bundle).
 
+For Android, link the AAR's libraries (`jni/ABI` in
+`sdk/android/build/repo/.../lychee-VERSION.aar`) with the NDK's clang as
+the linker; an app loads `liblychee.so` with them (`System.loadLibrary`,
+which also gives the core the Java VM its http client needs; a program
+run from `adb shell` reads http through FFmpeg):
+
+```sh
+rustup target add x86_64-linux-android
+CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER=$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android26-clang \
+  LYCHEE_LIB_DIR=/tmp/aar/jni/x86_64 cargo test --target x86_64-linux-android --no-run
+```
+
+The tests read their media from `LYCHEE_MEDIA` (default
+`/tmp/lychee-media`): push the test binary, the libraries and the media
+to `/data/local/tmp`, and run it there with `LD_LIBRARY_PATH` set.
+
 ```rust
 let player = lychee::Player::new(&lychee::Config::default())?;  // CPU BGRA frames
 player.on_event(move |event| { let _ = sender.send(event); });  // control thread

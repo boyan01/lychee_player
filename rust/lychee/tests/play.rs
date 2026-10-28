@@ -1,5 +1,6 @@
 // Plays tool/regression.sh's media (run it once to create
-// /tmp/lychee-media) through the safe API.
+// /tmp/lychee-media, or set LYCHEE_MEDIA to where it is, as on Android)
+// through the safe API.
 
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
@@ -7,10 +8,13 @@ use std::time::{Duration, Instant};
 
 use lychee::{Config, Event, FrameType, Player, State, TrackType};
 
-const MEDIA: &str = "/tmp/lychee-media/h264_aac.mp4";
+fn media(name: &str) -> String {
+    let dir = std::env::var("LYCHEE_MEDIA").unwrap_or("/tmp/lychee-media".into());
+    format!("{dir}/{name}")
+}
 
 fn open() -> (Player, Receiver<Event>) {
-    open_file(MEDIA)
+    open_file(&media("h264_aac.mp4"))
 }
 
 fn open_file(path: &str) -> (Player, Receiver<Event>) {
@@ -213,7 +217,7 @@ fn last_reference_owned_by_replaced_callback() {
 #[test]
 fn subtitle_pictures() {
     // A PGS box at 660,900, 600x80 on a 1920x1080 canvas, from 1 s.
-    let (player, events) = open_file("/tmp/lychee-media/sub_pgs.mkv");
+    let (player, events) = open_file(&media("sub_pgs.mkv"));
     player.play();
     wait_for(&player, &events, |e| {
         *e == Event::SubtitleChanged { pictures: true }
