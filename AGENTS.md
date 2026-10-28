@@ -441,6 +441,10 @@ jobs: those stay local.
 - Threads the core starts inherit the creator's priority, which on Android is
   the platform thread's (nice -10). Plugin threads that pull frames must run
   at display priority or software decoding starves them.
+- On the Windows PC, `VSINSTALLDIR` is set without its trailing
+  backslash, which breaks `vcvars64.bat` (no `cl` on PATH): clear it
+  first (`set VSINSTALLDIR=`). `tool/regression.sh` runs there in Git
+  Bash from that environment (the script's header).
 - A window started over ssh on Windows is invisible: run GUI programs
   (`lychee_glfw`, the Flutter example) from a scheduled task in the
   logged-in session, keep them topmost without activating them, and take

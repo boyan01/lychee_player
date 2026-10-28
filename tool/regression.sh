@@ -25,10 +25,38 @@
 #                                 # WebM, MPEG-TS and HLS media, text subtitles
 #   MEDIA_ONLY=1 tool/regression.sh # Only generate the media (for the Swift
 #                                 # and Rust tests), no build
+#
+# Windows: Git Bash (or MSYS2) started from a Visual Studio x64 developer
+# environment, so CMake's Ninja build finds MSVC, with FFMPEG_ROOT set
+# (there is no system FFmpeg) and a GPL ffmpeg.exe on PATH for the media:
+#   cmd /c "vcvars64.bat && bash tool/regression.sh"
 set -u
 
-root="$(cd "$(dirname "$0")/.." && pwd)"
+# Windows' programs get paths as C:/..., which they and MSYS both read, so
+# MSYS must not rewrite arguments: it would turn the media server's URL
+# paths (/hls/index.m3u8) into file paths.
+windows=0
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    windows=1
+    export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
+    # MSVC, as Flutter's Windows builds use, even with MinGW's gcc on PATH.
+    export CC="${CC:-cl}" CXX="${CXX:-cl}"
+    ;;
+esac
+# abspath DIR: DIR as an absolute path that native programs read too.
+abspath() {
+  if [ "$windows" = 1 ]; then (cd "$1" && pwd -W); else (cd "$1" && pwd); fi
+}
+# The Microsoft Store's python3.exe only opens the Store.
+if [ "$windows" = 1 ] && ! python3 -c '' 2>/dev/null; then
+  python3() { python "$@"; }
+fi
+
+root="$(abspath "$(dirname "$0")/..")"
 media="${MEDIA_DIR:-/tmp/lychee-media}"
+mkdir -p "$media"
+media="$(abspath "$media")"
 if [ "${TSAN:-0}" = 1 ]; then
   build="$root/build-tsan"
   flags=(-DCMAKE_CXX_FLAGS=-fsanitize=thread -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread)
@@ -56,7 +84,12 @@ else
 fi
 if [ -n "${FFMPEG_ROOT:-}" ]; then
   build="$build-lgpl"
-  flags+=(-DLYCHEE_FFMPEG_ROOT="$(cd "$FFMPEG_ROOT" && pwd)")
+  flags+=(-DLYCHEE_FFMPEG_ROOT="$(abspath "$FFMPEG_ROOT")")
+  # Windows finds DLLs on PATH.
+  [ "$windows" = 1 ] && PATH="$(cd "$FFMPEG_ROOT" && pwd)/bin:$PATH"
+elif [ "$windows" = 1 ] && [ "${NO_FFMPEG:-0}" != 1 ] && [ "${MEDIA_ONLY:-0}" != 1 ]; then
+  echo "Windows has no system FFmpeg: set FFMPEG_ROOT (tool/build_ffmpeg.sh windows-x86_64)" >&2
+  exit 1
 fi
 if [ "${NO_FFMPEG:-0}" = 1 ]; then
   build="$build-noffmpeg"
@@ -64,7 +97,6 @@ if [ "${NO_FFMPEG:-0}" = 1 ]; then
 fi
 
 # Test media, generated once. Synthetic so the expected output is known.
-mkdir -p "$media"
 gen() {
   local out="$media/$1"; shift
   # A failed run must not leave a partial file for the next run to reuse.
@@ -330,9 +362,11 @@ open(sys.argv[2], "wb").write(data)' "$media/offset.ts" "$media/corrupt.ts" || e
 cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Debug ${flags[@]+"${flags[@]}"} >/dev/null || exit 1
 build_out="$(cmake --build "$build" 2>&1)"
 build_status=$?
-if [ "$build_status" -ne 0 ] || grep -q "warning:" <<<"$build_out"; then
+# MSVC's warnings read "warning C4244:", its linker's "warning LNK4098:".
+warning="warning( [A-Z]+[0-9]+)?:"
+if [ "$build_status" -ne 0 ] || grep -Eq "$warning" <<<"$build_out"; then
   echo "FAIL build (exit $build_status) has errors or warnings"
-  grep -E "error|warning:|FAILED|Undefined" <<<"$build_out" | head -40
+  grep -E "error|$warning|FAILED|Undefined" <<<"$build_out" | head -40
   exit 1
 fi
 cli="$build/examples/cli/lychee_cli"
@@ -360,7 +394,10 @@ failures=0
 
 # Unit tests first: they pinpoint a failure the playback cases only show.
 unit_out="$("$build/core/test/lychee_unittests" 2>&1)"
-if [ $? -eq 0 ] && ! grep -Eq "$sanitizer_reports" <<<"$unit_out"; then
+unit_status=$?
+# Windows' programs end lines with CRLF.
+unit_out="${unit_out//$'\r'/}"
+if [ $unit_status -eq 0 ] && ! grep -Eq "$sanitizer_reports" <<<"$unit_out"; then
   echo "PASS unittests ($(tail -1 <<<"$unit_out"))"
 else
   echo "FAIL unittests"
@@ -409,6 +446,7 @@ check() {
   local out status summary problems="" advisory="" start=$SECONDS
   out="$("$cli" "$@" 2>&1)"
   status=$?
+  out="${out//$'\r'/}"
   [ "$status" = "${exits:-0}" ] || problems+=" exit=$status"
   summary="$(grep '^summary:' <<<"$out")"
   grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
@@ -449,6 +487,7 @@ expect() {
   [ "${realtime:-0}" = 1 ] || set -- --virtual-time "$@"
   out="$("$cli" "$@" 2>&1)"
   status=$?
+  out="${out//$'\r'/}"
   [ "$status" = "${exits:-0}" ] || problems+=" exit=$status"
   grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
   for pattern in "${patterns[@]}"; do
@@ -485,6 +524,7 @@ frames() {
   [ "${realtime:-0}" = 1 ] || set -- --virtual-time "$@"
   out="$("$cli" "$@" "${snapshots[@]}" "$file" 2>&1)"
   status=$?
+  out="${out//$'\r'/}"
   [ "$status" = 0 ] || problems+=" exit=$status"
   grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
   checked="$(grep '^snapshot ' <<<"$out" |
@@ -919,6 +959,11 @@ realtime=1 seq_ expect realtime-loop "loops=2" "~$no_drift" "<=0 event: state (e
 server=""
 stop_server() {
   [ -n "$server" ] || return 0
+  # On Windows $server is the subshell that runs python3() (above); a
+  # signal stops it but not the Python it started.
+  if [ "$windows" = 1 ] && [ -r "/proc/$server/winpid" ]; then
+    taskkill /F /T /PID "$(cat "/proc/$server/winpid")" >/dev/null 2>&1
+  fi
   kill "$server" 2>/dev/null
   wait "$server" 2>/dev/null
   server=""
@@ -930,7 +975,7 @@ serve() {
   server=$!
   port=""
   for _ in $(seq 50); do
-    port="$(awk '/^port/ {print $2}' "$log")"
+    port="$(awk '/^port/ {sub(/\r$/, ""); print $2}' "$log")"
     [ -n "$port" ] && break
     sleep 0.1
   done
