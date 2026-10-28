@@ -1360,9 +1360,14 @@ if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
     "summary: state=ended position=12\.000s" -- "http://127.0.0.1:$port/hls/vp9_master.m3u8"
   seq_ expect http-hls-subtitles-fallback "hls: no HLS variant .*; the fallback opens it" \
     "track 0: subtitle webvtt lang=en .*selected=1" \
+    "subtitle at 0\.0[0-9]{2}s: Hello$" "subtitle at 1\.5[0-9]{2}s: \(none\)" \
     "summary: state=ended position=12\.000s" -- "http://127.0.0.1:$port/hls/subs_fallback.m3u8"
+  seq_ expect http-hls-subtitles-fallback-seek "subtitle at 0\.0[0-9]{2}s: Hello$" \
+    "subtitle at 1\.0[0-9]{2}s: Hello$" "subtitle at 1\.5[0-9]{2}s: \(none\)" \
+    "summary: state=ready .*backward_jumps=0 " -- --seek 1 --seek-after 4 --seconds 6 \
+    "http://127.0.0.1:$port/hls/subs_fallback.m3u8"
   seq_ expect http-hls-subtitles-fallback-close "hls: no HLS variant .*; the fallback opens it" \
-    "summary: state=ready" -- --seconds 1 "http://127.0.0.1:$port/hls/subs_fallback.m3u8"
+    "subtitle at 0\.0[0-9]{2}s: Hello$" "summary: state=ready" -- --seconds 1 "http://127.0.0.1:$port/hls/subs_fallback.m3u8"
 fi
 # WebVTT renditions are subtitle tracks, their cues on the media's
 # timeline (the video starts at 1.417 s).

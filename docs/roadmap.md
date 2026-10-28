@@ -70,14 +70,7 @@ building on top of them.
   If it comes back, compare the bare app on the same boot before
   touching the plugin.
 
-1. **FFmpeg's HLS fallback loses WebVTT cues**: on Linux,
-   `http-hls-subtitles-fallback` advertises the subtitle track as selected
-   but never reports its "Hello" cue, with FFmpeg 9.0.2 both before and
-   after the subtitle-buffer patch. The shared HLS parser's normal
-   `http-hls-subtitles` case reports it correctly. Check packet and cue
-   timestamps in the fallback; done when that case also asserts the cue
-   appears and clears at the right times.
-2. **iOS foreground recovery needs device verification** (waiting on the
+1. **iOS foreground recovery needs device verification** (waiting on the
    user): an iPhone 17 (2026-10-27) rejected 32 video packets (`-12909`)
    after an apparent interruption or background transition; the actual
    lifecycle trigger is unconfirmed. The native and Flutter frame drivers

@@ -320,6 +320,16 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
 #endif
     return false;
   }
+  // HLS disables subtitle renditions at open. Enable them before probing
+  // reads ahead: enabling later makes HLS catch up to the probe's last
+  // packet, discarding cues at the beginning. The player reads every
+  // subtitle track so switching subtitles never has to seek.
+  for (unsigned i = 0; i < format_context_->nb_streams; ++i) {
+    AVStream* stream = format_context_->streams[i];
+    if (stream->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) {
+      stream->discard = AVDISCARD_DEFAULT;
+    }
+  }
   ret = avformat_find_stream_info(format_context_, nullptr);
   if (ret < 0) {
     *error = "avformat_find_stream_info: " + AVErrorString(ret);
@@ -347,6 +357,23 @@ void FFmpegDemuxer::BuildMediaInfo() {
   media_info_.seekable =
       ic->pb ? (ic->pb->seekable & AVIO_SEEKABLE_NORMAL) != 0
              : media_info_.duration != kNoTimestamp;
+  // An HLS WebVTT cue can begin before the first audio/video packet.
+  // Keep the same playback origin whether subtitles are enabled or not.
+  if (strcmp(ic->iformat->name, "hls") == 0) {
+    int64_t av_start = kNoTimestamp;
+    for (unsigned i = 0; i < ic->nb_streams; ++i) {
+      const AVStream* stream = ic->streams[i];
+      const AVMediaType type = stream->codecpar->codec_type;
+      if ((type == AVMEDIA_TYPE_AUDIO || type == AVMEDIA_TYPE_VIDEO) &&
+          stream->start_time != AV_NOPTS_VALUE) {
+        const int64_t start = ToMicros(stream->start_time, stream->time_base);
+        av_start = av_start == kNoTimestamp ? start : std::min(av_start, start);
+      }
+    }
+    if (av_start != kNoTimestamp) {
+      media_info_.start_time = av_start;
+    }
+  }
   // Durations estimated from timestamps (MPEG-TS) or the bitrate (MP3) are
   // not promises the data has to keep.
   declared_duration_ = media_info_.duration != kNoTimestamp &&
