@@ -1,5 +1,6 @@
 // Links liblychee as a shared library: the one in LYCHEE_LIB_DIR if set
-// (e.g. taken from the Android AAR or the Apple xcframework), else built
+// (e.g. taken from the Android AAR, or an Apple xcframework's slice, which
+// holds lychee.framework, for iOS), else built
 // from this repository's core with CMake. The CMake build takes FFmpeg
 // from LYCHEE_FFMPEG_ROOT (tool/build_ffmpeg.sh output, LGPL) if set, else
 // from pkg-config, which on a development Mac is Homebrew's GPL build.
@@ -21,8 +22,14 @@ fn main() {
         Some(dir) => PathBuf::from(dir),
         None => build_core(),
     };
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
-    println!("cargo:rustc-link-lib=dylib=lychee");
+    // An xcframework's slice holds lychee.framework rather than a dylib.
+    if lib_dir.join("lychee.framework").is_dir() {
+        println!("cargo:rustc-link-search=framework={}", lib_dir.display());
+        println!("cargo:rustc-link-lib=framework=lychee");
+    } else {
+        println!("cargo:rustc-link-search=native={}", lib_dir.display());
+        println!("cargo:rustc-link-lib=dylib=lychee");
+    }
     println!("cargo:lib_dir={}", lib_dir.display());
 }
 

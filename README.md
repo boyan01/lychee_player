@@ -304,6 +304,23 @@ install names: copy `liblychee.dylib` and the five FFmpeg libraries
 `-C link-arg=-Wl,-rpath,@executable_path` (`@executable_path/../Frameworks`
 in an app bundle).
 
+For iOS, point `LYCHEE_LIB_DIR` at a slice of `lychee.xcframework` (or
+`lychee_noffmpeg.xcframework`, which needs no FFmpeg), from
+`tool/build_apple.sh` or a release, and build for `aarch64-apple-ios` or
+`aarch64-apple-ios-sim`; `lychee-sys` links the slice's `lychee.framework`.
+An app embeds the frameworks (lychee and, with FFmpeg, its five) under
+`Frameworks/`. The tests run on a booted simulator without an app:
+
+```sh
+F=$PWD/flutter/darwin/Frameworks S=ios-arm64_x86_64-simulator
+LYCHEE_LIB_DIR=$F/lychee_noffmpeg.xcframework/$S \
+  RUSTFLAGS="-C link-arg=-Wl,-rpath,$F/lychee_noffmpeg.xcframework/$S" \
+  cargo build --manifest-path rust/Cargo.toml --target aarch64-apple-ios-sim --tests
+xcrun simctl spawn booted rust/target/aarch64-apple-ios-sim/debug/deps/play-HASH
+```
+
+Without FFmpeg, `subtitle_pictures` fails: PGS needs FFmpeg's decoder.
+
 ```rust
 let player = lychee::Player::new(&lychee::Config::default())?;  // CPU BGRA frames
 player.on_event(move |event| { let _ = sender.send(event); });  // control thread

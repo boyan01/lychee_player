@@ -166,8 +166,8 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    image.
 3. **Native SDKs**: drop the pod and the plugin's copy of
    `LycheeFrameDriver` (`LycheeTexture`) once Flutter drops CocoaPods;
-   the Rust crates on crates.io, and built for Windows, Linux, Android
-   and iOS (`LYCHEE_LIB_DIR` is untried). Windows and Linux native users
+   the Rust crates on crates.io, and built for Windows, Linux and
+   Android (iOS links an xcframework slice through `LYCHEE_LIB_DIR`). Windows and Linux native users
    take the C ABI as it is.
 4. **Engineering practices**, in rough order of value:
    - **clang-tidy**: the Android, Windows and Linux backends are not
