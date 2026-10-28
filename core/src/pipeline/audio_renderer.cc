@@ -224,6 +224,14 @@ int AudioRenderer::Render(float* destination,
       const int64_t span = static_cast<int64_t>(
           written * rate * kMicrosPerSecond / format_.sample_rate);
       clock_->UpdateFromAudio(end_pts - span, playout_time, end_pts);
+      // The last of the audio: the clock runs on past its end now, not
+      // from the next pull, which finds nothing. That pull is a device
+      // period later (a vsync on the virtual clock), and the clock would
+      // stand still at the end meanwhile, holding the video frame on
+      // screen.
+      if (end_of_stream_ && algorithm_.BufferedFrames() == 0) {
+        clock_->ClearMaxTime();
+      }
     }
     // PullForStalledDevice() drops what it pulls.
     if (destination) {
