@@ -130,6 +130,24 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
   list(APPEND LYCHEE_SOURCES
     src/backends/linux/pulse_audio_sink.cc
   )
+  if(LYCHEE_WITH_FFMPEG)
+    # MPEG-TS and HLS through the own demuxers (media/factory.cc), which
+    # read http(s) through FFmpeg's protocols; FFmpeg the rest (MP4 and
+    # Matroska are only linked: ProbingDemuxer names them).
+    list(APPEND LYCHEE_SOURCES
+      src/backends/ffmpeg/ffmpeg_data_source.cc
+      src/backends/hls/hls_demuxer.cc
+      src/backends/hls/hls_playlist.cc
+      src/backends/matroska/matroska_demuxer.cc
+      src/backends/mp2t/elementary_stream.cc
+      src/backends/mp2t/ts_demuxer.cc
+      src/backends/mp2t/ts_parser.cc
+      src/backends/mp2t/ts_reader.cc
+      src/backends/mp4/mp4_demuxer.cc
+      src/media/data_source.cc
+      src/media/probing_demuxer.cc
+    )
+  endif()
 endif()
 
 if(APPLE)

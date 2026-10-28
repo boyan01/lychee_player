@@ -67,7 +67,7 @@ bool ProbingDemuxer::OpenFallback(std::unique_ptr<DataSource> probed,
 bool ProbingDemuxer::Open(const std::string& url, std::string* error) {
   std::unique_ptr<DataSource> source = OpenDataSource(url, error);
   if (!source) {
-    // Another scheme (data:, rtsp://), or http elsewhere than on Apple.
+    // Another scheme (data:, rtsp://), or http without a client.
     return fallback_ && OpenFallback(nullptr, url, "", error);
   }
   {

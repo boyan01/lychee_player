@@ -61,19 +61,19 @@ building on top of them.
   takes part (a bare `flutter create` app quitting the same way) and fix
   or report it upstream; done when the example exits with 0.
 
-1. **MPEG-TS and HLS through FFmpeg's demuxer off Apple**: on Linux,
-   Windows and Android the FFmpeg build still reads TS and HLS with
+1. **MPEG-TS and HLS through FFmpeg's demuxer on Windows and Android**:
+   there the FFmpeg build still reads TS and HLS with
    `FFmpegDemuxer`, so timestamps that start over inside a TS file
    (`ts_timestamp_reset.ts`: 3.021 s instead of 6 s, seeks into the
    wrong half), HLS audio renditions on another timeline
    (`hls_alt/master.m3u8`, 1 s out of sync) and slow seeks past an HLS
-   discontinuity remain there; Apple's FFmpeg build opens them with the
-   own demuxers (`media/factory.cc`). TS needs only files there; HLS
+   discontinuity remain there; Apple's and Linux's FFmpeg builds open
+   them with the own demuxers (`media/factory.cc`). TS needs only files there; HLS
    reads through the http `DataSource`, which Windows and Android now
    have. TS video
    comes without extradata (Annex B, parameter sets in band), which
    MediaCodec and Media Foundation have not been tried with. Done when
-   `tool/regression.sh`'s `own_ts` cases pass on Linux and Windows, and
+   `tool/regression.sh`'s `own_ts` cases pass on Windows, and
    the Android example plays `ts_timestamp_reset.ts` with hardware
    decoding.
 2. **TS runs found while reading, audio first**: where timestamps start
@@ -83,7 +83,15 @@ building on top of them.
    provisional shift until the video sets the run's shift, then steps
    back by the difference (tens of ms). Seen with a synthetic stream in
    `mp2t_test.cc`, not with a real file.
-3. **iOS foreground recovery needs device verification** (waiting on the
+3. **FFmpeg's HLS leaks with a subtitle rendition on Linux**: `ASAN=1
+   tool/regression.sh` on Linux fails `http-hls-subtitles` with 34 KB
+   leaked inside `avformat_open_input` (an AVIOContext buffer and a probe
+   buffer), with FFmpeg 9.0.2 reading through its own http; on Apple
+   FFmpeg reads through `DataSource` (`IoOpen`) and the case is clean.
+   Find whether FFmpeg's `hls` demuxer or how `FFmpegDemuxer` opens it
+   leaves them, and fix or report it upstream; done when that case
+   passes under ASan on Linux.
+4. **iOS foreground recovery needs device verification** (waiting on the
    user): an iPhone 17 (2026-10-27) rejected 32 video packets (`-12909`)
    after an apparent interruption or background transition; the actual
    lifecycle trigger is unconfirmed. The native and Flutter frame drivers

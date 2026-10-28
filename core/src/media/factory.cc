@@ -44,6 +44,9 @@
 #endif
 #elif defined(__linux__)
 #include "backends/linux/pulse_audio_sink.h"
+#if defined(LYCHEE_WITH_FFMPEG)
+#include "media/probing_demuxer.h"
+#endif
 #endif
 
 namespace lychee {
@@ -54,12 +57,18 @@ std::unique_ptr<Demuxer> CreateDemuxer() {
   // start over (in a file, at HLS discontinuities, across audio
   // renditions) on one timeline, and seek HLS by segment; FFmpeg's
   // passes them on as they are. FFmpeg takes the rest and what those
-  // cannot play. Elsewhere DataSource has no http client, and TS video
-  // without extradata is untested on MediaCodec and Media Foundation
-  // (roadmap).
+  // cannot play. On Windows and Android TS video without extradata is
+  // untested on Media Foundation and MediaCodec (roadmap).
   return std::make_unique<ProbingDemuxer>(
       [](std::unique_ptr<DataSource> probed) -> std::unique_ptr<Demuxer> {
         return std::make_unique<FFmpegDemuxer>(std::move(probed));
+      });
+#elif defined(LYCHEE_WITH_FFMPEG) && defined(__linux__) && !defined(__ANDROID__)
+  // The same as on Apple; FFmpegDemuxer opens the URL anew, since it
+  // reads through FFmpeg's own protocols here (ffmpeg_demuxer.h).
+  return std::make_unique<ProbingDemuxer>(
+      [](std::unique_ptr<DataSource>) -> std::unique_ptr<Demuxer> {
+        return std::make_unique<FFmpegDemuxer>();
       });
 #elif defined(LYCHEE_WITH_FFMPEG)
   return std::make_unique<FFmpegDemuxer>();

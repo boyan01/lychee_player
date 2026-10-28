@@ -483,7 +483,7 @@ bool HlsDemuxer::Fetch(const std::string& url,
 
 bool HlsDemuxer::Decrypt(const HlsKey& key,
                          int64_t sequence,
-                         std::vector<uint8_t>* data,
+                         [[maybe_unused]] std::vector<uint8_t>* data,
                          std::string* error) {
   auto known = keys_.find(key.url);
   if (known == keys_.end()) {

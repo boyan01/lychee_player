@@ -49,8 +49,8 @@ class DataSource {
 };
 
 // Blocking. A path or file:// URL, or http(s):// where the platform has a
-// client (Apple; Android with a Java VM). Null with |error| set if it cannot be
-// opened.
+// client (Apple, Windows; Android with a Java VM) or FFmpeg's (Linux). Null
+// with |error| set if it cannot be opened.
 std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
                                            std::string* error);
 

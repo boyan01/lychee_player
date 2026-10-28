@@ -66,7 +66,11 @@ elif [ "${ASAN:-0}" = 1 ]; then
   build="$root/build-asan"
   asan="-fsanitize=address,undefined -fno-omit-frame-pointer"
   flags=()
-  for lang in C CXX OBJCXX; do
+  langs=(C CXX)
+  # Only Apple's build has Objective-C++; elsewhere CMake warns of the
+  # unused variable.
+  [ "$(uname)" = Darwin ] && langs+=(OBJCXX)
+  for lang in "${langs[@]}"; do
     flags+=("-DCMAKE_${lang}_FLAGS=$asan")
   done
   flags+=("-DCMAKE_EXE_LINKER_FLAGS=$asan" "-DCMAKE_SHARED_LINKER_FLAGS=$asan")
@@ -95,10 +99,10 @@ if [ "${NO_FFMPEG:-0}" = 1 ]; then
   build="$build-noffmpeg"
   flags+=(-DLYCHEE_WITH_FFMPEG=OFF)
 fi
-# MPEG-TS and HLS go to the core's own demuxers on Apple in both builds
-# (media/factory.cc); elsewhere FFmpeg's demuxer reads them.
+# MPEG-TS and HLS go to the core's own demuxers on Apple in both builds,
+# and on Linux (media/factory.cc); elsewhere FFmpeg's demuxer reads them.
 own_ts=0
-[ "$(uname)" = Darwin ] && own_ts=1
+case "$(uname)" in Darwin | Linux) own_ts=1 ;; esac
 
 # Test media, generated once. Synthetic so the expected output is known.
 gen() {
@@ -849,7 +853,7 @@ par check seek-ts-hevc10    1 7.442 -- --seek 6 --seek-after 2 "$media/hevc10.ts
 par check seek-ts-rendition 1 5.433 -- --seek 4 --seek-after 1 "$media/resolution_change.ts"
 # Timestamps that start over midway: the second run follows the first
 # (TsTimeline), and seeks land on either side. FFmpeg's demuxer, which
-# reads TS elsewhere than on Apple, does not join them (roadmap).
+# reads TS on Windows and Android, does not join them (roadmap).
 if [ "$own_ts" = 1 ]; then
   par expect ts-timestamp-reset "summary: state=ended position=6\.029s .*rendered=180 dropped=0 glitches=0 " -- \
     "$media/ts_timestamp_reset.ts"
@@ -863,7 +867,7 @@ if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
   par expect ts-ac3 "<=0 the fallback opens it" "track 1: audio ac3 44100 Hz 1 ch " \
     "summary: state=ended position=4\.1[0-9]{2}s .*rendered=122 " -- "$media/ac3.ts"
   par expect ts-fallback "mpegts: stream type 0x11 not supported; the fallback opens it" \
-    "track 1: audio aac_latm " "summary: state=ended position=4\.1[0-9]{2}s .*rendered=122 .*glitches=0 " -- \
+    "track 1: audio aac_latm " "summary: state=ended position=4\.(09[0-9]|1[0-9]{2})s .*rendered=122 .*glitches=0 " -- \
     "$media/latm.ts"
 fi
 par expect loop-ts "video size 640x360" "loops=1" "summary:.*backward_jumps=0 " "<=0 event: state (ended|buffering)" -- \
@@ -1233,7 +1237,7 @@ seq_ check http-hls-aes-fmp4 1 7.033 -- --seek 7 --seek-after 2 "http://127.0.0.
 # selected; read alongside the variant, the French one's tone sounds where
 # its timestamps put it (its first packet 1.400 s, AAC priming 21.3 ms,
 # the tone at 1 s; the video from 1.467 s). Switching keeps the position.
-# FFmpeg's HLS, which plays HLS elsewhere than on Apple, puts the fMP4
+# FFmpeg's HLS, which plays HLS on Windows and Android, puts the fMP4
 # rendition 1 s off (roadmap).
 if [ "$own_ts" = 1 ]; then
   seq_ expect http-hls-renditions "track 1: audio .* lang=en title=English selected=0" \
@@ -1243,7 +1247,10 @@ if [ "$own_ts" = 1 ]; then
   seq_ expect http-hls-renditions-switch "select audio 1 at [0-9.]+s: accepted" "track 1: audio .* selected=1" \
     "track switch: resumed [+-]0\.0[0-9]{2}s" "summary: state=ended position=12\.000s .*backward_jumps=0 " -- \
     --select audio:1@3 "http://127.0.0.1:$port/hls_alt/master.m3u8"
-  seq_ check http-hls-renditions-seek 1 8.433 -- --seek 7 --seek-after 2 "http://127.0.0.1:$port/hls_alt/master.m3u8"
+  # 8.433 or 8.467, one frame apart, by the B-frame order x264 picked:
+  # Homebrew's FFmpeg and BtbN's (Linux) encode the segments differently.
+  seq_ check http-hls-renditions-seek 1 '8\.4[36][37]' -- --seek 7 --seek-after 2 \
+    "http://127.0.0.1:$port/hls_alt/master.m3u8"
 fi
 # A master playlist plays one variant: FFmpeg's HLS the first, the own
 # one the highest bandwidth it can decode (not the VP9 one).
