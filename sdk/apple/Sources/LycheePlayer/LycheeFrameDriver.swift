@@ -31,6 +31,7 @@ public final class LycheeFrameDriver: NSObject {
   private var handle: OpaquePointer?  // Guarded by lock.
   private var nextDisplayTime: Int64 = 0  // Guarded by lock.
   private var framePending = false  // Guarded by lock.
+  private var framePts: Int64?  // Guarded by lock.
   private let onNewFrame: () -> Void
   private var observers: [NSObjectProtocol] = []
   #if os(macOS)
@@ -147,7 +148,16 @@ public final class LycheeFrameDriver: NSObject {
     guard let frame = lychee_player_acquire_frame(handle, displayTime) else { return nil }
     defer { lychee_frame_release(frame) }
     guard let buffer = lychee_frame_get_native_handle(frame) else { return nil }
+    framePts = lychee_frame_get_pts(frame)
     return Unmanaged<CVPixelBuffer>.fromOpaque(buffer).takeUnretainedValue()
+  }
+
+  /// The presentation time of the frame `copyFrame()` last returned, in
+  /// microseconds on the media's timeline, or nil before the first.
+  public var lastFramePts: Int64? {
+    lock.lock()
+    defer { lock.unlock() }
+    return framePts
   }
 
   // The display link's thread on macOS, the main thread on iOS.

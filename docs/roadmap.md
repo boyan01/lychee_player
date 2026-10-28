@@ -177,8 +177,8 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
      plugins' and the Android SDK's own core builds.
    - **CI jobs for Android and Windows**: the SDK build and its unit tests
      on an emulator; the core and `examples/glfw` on `windows-latest`.
-   - **Frame checks** by pixels for the Swift and Android examples, as
-     `examples/glfw --snapshot` has.
+   - **Frame checks** by pixels for the Android example, as
+     `examples/glfw --snapshot` and the Swift example have.
    - **Performance benchmarks**: `tool/bench.sh` measures them on one
      machine, by hand; left are running it per commit on the idle
      self-hosted Mac and keeping the table somewhere CI can compare.

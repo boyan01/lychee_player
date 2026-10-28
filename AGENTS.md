@@ -179,8 +179,10 @@ The layers, lowest first:
    below), which every frame path has to follow. Where a platform has no `--snapshot` yet, look at a window screenshot:
    upright, sized right, frames advancing at the video's rate.
    - macOS: `build/examples/glfw/lychee_glfw FILE` (Metal,
-     `CVPixelBuffer`), and the Swift package's example.
-   - iOS: the Swift package's example on the "iPhone 16" simulator.
+     `CVPixelBuffer`), and the Swift package's example (Core
+     Animation; its `--snapshot` goes through ScreenCaptureKit).
+   - iOS: the Swift package's example on the "iPhone 16" simulator
+     (`simctl launch --console-pty ... --snapshot SEC:FILE`).
    - Android: the Android SDK's example on an emulator (`Pixel_10`,
      windowed).
    - Windows: `examples/glfw` (D3D11 textures), through the
@@ -241,8 +243,9 @@ What each area needs (run `tool/changes.sh`):
   (plays through the frame driver and checks the player's lifetime), and
   build its example (`sdk/apple/Example/Example.xcodeproj`, README has
   the commands) for macOS and the iOS simulator with zero warnings, run
-  both, and look at the screenshots, including `rotated.mp4` when the
-  view's layout changed. For what ends up on screen (frame selection,
+  both with `--snapshot` into `tool/frame_check.py`, including
+  `rotated.mp4` (`--size 405x720` on macOS) when the view's layout
+  changed. For what ends up on screen (frame selection,
   conversion, rotation) also `lychee_glfw`. The plugin's Swift package
   build uses `LycheeFrameDriver`; its pod keeps a port of it
   (`LycheeTexture` in `LycheePlayerPlugin.m`): fix both until CocoaPods

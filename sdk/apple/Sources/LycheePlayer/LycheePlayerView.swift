@@ -30,6 +30,10 @@ public final class LycheePlayerView: LycheePlatformView {
   // Kept while its IOSurface is the layer's contents, so the decoder's pool
   // does not reuse the surface on screen.
   private var shownFrame: CVPixelBuffer?
+  /// The presentation time of the frame on screen, in microseconds on the
+  /// media's timeline, or nil when none is: for checking what the view
+  /// shows against the media.
+  public private(set) var shownFramePts: Int64?
   private var rotation = 0
   private var shownHeadroom: CGFloat = 0
 
@@ -112,6 +116,7 @@ public final class LycheePlayerView: LycheePlatformView {
     CATransaction.setDisableActions(true)
     videoLayer.contents = nil
     shownFrame = nil
+    shownFramePts = nil
     setHDR(0)
     showSubtitle(nil)
     CATransaction.commit()
@@ -125,6 +130,7 @@ public final class LycheePlayerView: LycheePlatformView {
     // simulator shows nothing for the CVPixelBuffer itself.
     videoLayer.contents = CVPixelBufferGetIOSurface(frame)?.takeUnretainedValue()
     shownFrame = frame
+    shownFramePts = driver?.lastFramePts
     setHDR(hdrHeadroom(frame))
     if let rotation = player?.rotation, rotation != self.rotation {
       self.rotation = rotation

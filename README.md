@@ -146,6 +146,21 @@ python3 -I tool/frame_check.py video.mp4 /tmp/w.ppm --pts 1033333 \
   --video 0,150,1600,900 --self-test
 ```
 
+The Swift package's example takes the same `--seconds` and `--snapshot`
+(and on macOS `--size WxH` for the video view, in points). It snapshots
+what the window server composited: on macOS through ScreenCaptureKit,
+which needs the Screen Recording permission of the app that launches it
+(a terminal), and on iOS from the view hierarchy. Pausing for the
+capture keeps the frame on screen while it runs. In the iOS simulator
+pass the arguments to `simctl launch --console-pty`:
+
+```sh
+Example.app/Contents/MacOS/Example --seconds 3 --size 405x720 \
+  --snapshot 1.5:/tmp/s.ppm video.mp4 | python3 -I tool/frame_check.py video.mp4 --log -
+xcrun simctl launch --console-pty booted tech.soit.lychee.example --seconds 5 \
+  --snapshot 3:/tmp/s.ppm video.mp4 | python3 -I tool/frame_check.py video.mp4 --log -
+```
+
 The reference follows the library's conventions: a stream without a color
 matrix is BT.709 above 576 lines and BT.601 below, and HDR is tone-mapped
 to SDR BT.709 by swscale. A snapshot passes with PSNR at least 28 dB, a
