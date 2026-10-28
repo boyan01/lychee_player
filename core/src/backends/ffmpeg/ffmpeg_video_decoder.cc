@@ -395,7 +395,11 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
   std::shared_ptr<VideoFrame> result;
 #if defined(__APPLE__)
   if (frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
-    result = WrapPixelBuffer(frame->data[3]);
+    ColorInfo color;
+    color.primaries = static_cast<uint8_t>(frame->color_primaries);
+    color.transfer = static_cast<uint8_t>(frame->color_trc);
+    color.matrix = static_cast<uint8_t>(frame->colorspace);
+    result = WrapPixelBuffer(frame->data[3], &color);
   }
 #elif defined(_WIN32)
   if (frame->format == AV_PIX_FMT_D3D11 &&

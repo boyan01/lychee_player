@@ -2,6 +2,8 @@
 
 #include <CoreVideo/CoreVideo.h>
 
+#include "media/stream_info.h"
+
 namespace lychee {
 
 namespace {
@@ -32,22 +34,54 @@ void AttachIfMissing(CVPixelBufferRef buffer,
   }
 }
 
-// VideoToolbox's decoder attaches no color to a stream that has none. Its
-// pixel transfer reads a missing matrix as BT.601, also for HD, and Core
-// Animation shows a buffer without primaries and transfer function
-// unmatched, in the display's own space (oversaturated on a P3 display).
+// VideoToolbox can guess Composite NTSC for untagged SD. That CGColorSpace
+// takes precedence in Core Animation, so use source metadata when known,
+// including our defaults for its unspecified fields. Explicit source tags
+// still win, even when only some fields were specified.
 // The library's convention is the BT.709 matrix above 576 lines and BT.601
 // at or below (D3D11VideoProcessor, the dmabuf export, swscale in
-// FFmpegVideoDecoder), and BT.709 primaries and transfer, as AVPlayer
-// assumes too.
-void AttachDefaultColor(CVPixelBufferRef buffer) {
+// FFmpegVideoDecoder), and BT.709 primaries and transfer for untagged video.
+void AttachDefaultColor(CVPixelBufferRef buffer, const ColorInfo* color) {
   if (CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA) {
     return;
   }
-  AttachIfMissing(buffer, kCVImageBufferYCbCrMatrixKey,
-                  CVPixelBufferGetHeight(buffer) > 576
-                      ? kCVImageBufferYCbCrMatrix_ITU_R_709_2
-                      : kCVImageBufferYCbCrMatrix_ITU_R_601_4);
+  CFStringRef matrix = CVPixelBufferGetHeight(buffer) > 576
+                           ? kCVImageBufferYCbCrMatrix_ITU_R_709_2
+                           : kCVImageBufferYCbCrMatrix_ITU_R_601_4;
+  if (color) {
+    CFStringRef primaries = CVColorPrimariesGetStringForIntegerCodePoint(
+        color->primaries == 2 ? 1 : color->primaries);
+    CFStringRef transfer = CVTransferFunctionGetStringForIntegerCodePoint(
+        color->transfer == 2 ? 1 : color->transfer);
+    if (CFStringRef specified =
+            CVYCbCrMatrixGetStringForIntegerCodePoint(color->matrix)) {
+      matrix = specified;
+    }
+    const void* keys[] = {kCVImageBufferColorPrimariesKey,
+                          kCVImageBufferTransferFunctionKey,
+                          kCVImageBufferYCbCrMatrixKey};
+    const void* values[] = {
+        primaries ? primaries : kCVImageBufferColorPrimaries_ITU_R_709_2,
+        transfer ? transfer : kCVImageBufferTransferFunction_ITU_R_709_2,
+        matrix};
+    CFDictionaryRef attachments = CFDictionaryCreate(
+        nullptr, keys, values, 3, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    CVBufferSetAttachments(buffer, attachments,
+                           kCVAttachmentMode_ShouldPropagate);
+    CGColorSpaceRef space =
+        CVImageBufferCreateColorSpaceFromAttachments(attachments);
+    CFRelease(attachments);
+    if (space) {
+      CVBufferSetAttachment(buffer, kCVImageBufferCGColorSpaceKey, space,
+                            kCVAttachmentMode_ShouldPropagate);
+      CFRelease(space);
+    } else {
+      CVBufferRemoveAttachment(buffer, kCVImageBufferCGColorSpaceKey);
+    }
+    return;
+  }
+  AttachIfMissing(buffer, kCVImageBufferYCbCrMatrixKey, matrix);
   AttachIfMissing(buffer, kCVImageBufferColorPrimariesKey,
                   kCVImageBufferColorPrimaries_ITU_R_709_2);
   AttachIfMissing(buffer, kCVImageBufferTransferFunctionKey,
@@ -56,12 +90,13 @@ void AttachDefaultColor(CVPixelBufferRef buffer) {
 
 }  // namespace
 
-std::shared_ptr<VideoFrame> WrapPixelBuffer(void* pixel_buffer) {
+std::shared_ptr<VideoFrame> WrapPixelBuffer(void* pixel_buffer,
+                                            const ColorInfo* color) {
   if (!pixel_buffer) {
     return nullptr;
   }
   auto buffer = static_cast<CVPixelBufferRef>(pixel_buffer);
-  AttachDefaultColor(buffer);
+  AttachDefaultColor(buffer, color);
   CVPixelBufferRetain(buffer);
   auto frame = std::make_shared<VideoFrame>();
   frame->storage = VideoFrameStorage::kCVPixelBuffer;

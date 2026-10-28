@@ -8,6 +8,7 @@
 #include <mutex>
 
 #include "backends/apple/pixel_buffer.h"
+#include "backends/mp2t/elementary_stream.h"
 #include "base/log.h"
 
 namespace lychee {
@@ -275,6 +276,28 @@ bool VTVideoDecoder::CreateSession() {
   if (!format_) {
     return false;
   }
+  output_color_.reset();
+  if (codec_type_ == 0 && !converter_.hevc()) {
+    std::vector<uint8_t> headers;
+    for (const auto& set : parameter_sets_) {
+      AnnexBConverter::AppendNal(set.data(), set.size(), &headers);
+    }
+    AccessUnitInfo info;
+    if (ParseAccessUnit(headers.data(), headers.size(), false, &info) &&
+        info.has_sps) {
+      output_color_ = config_.color;
+      // Container color wins; the SPS supplies fields it left unspecified.
+      if (output_color_->primaries == 2) {
+        output_color_->primaries = info.color.primaries;
+      }
+      if (output_color_->transfer == 2) {
+        output_color_->transfer = info.color.transfer;
+      }
+      if (output_color_->matrix == 2) {
+        output_color_->matrix = info.color.matrix;
+      }
+    }
+  }
 
   CFMutableDictionaryRef specification = CreateDictionary();
 #if TARGET_OS_OSX
@@ -378,7 +401,8 @@ void VTVideoDecoder::Emit(int64_t up_to, const OutputCallback& output) {
   while (!reorder_.empty() &&
          (reorder_.begin()->first <= up_to || reorder_.size() > kMaxReorder)) {
     auto node = reorder_.extract(reorder_.begin());
-    std::shared_ptr<VideoFrame> frame = WrapPixelBuffer(node.mapped().image);
+    std::shared_ptr<VideoFrame> frame = WrapPixelBuffer(
+        node.mapped().image, output_color_ ? &*output_color_ : nullptr);
     CVPixelBufferRelease(node.mapped().image);
     frame->pts = node.key();
     frame->duration = std::max<int64_t>(node.mapped().duration, 0);

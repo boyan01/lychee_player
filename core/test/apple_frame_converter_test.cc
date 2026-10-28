@@ -1,11 +1,13 @@
 #if defined(__APPLE__)
 
 #include "backends/apple/apple_frame_converter.h"
+#include "backends/apple/pixel_buffer.h"
 
 #include <CoreVideo/CoreVideo.h>
 
 #include <vector>
 
+#include "media/stream_info.h"
 #include "test.h"
 
 namespace lychee {
@@ -40,6 +42,67 @@ TEST(AppleFrameConverter, RgbaToPixelBufferKeepsColors) {
   EXPECT_EQ(int{bgra[1]}, 0);
   EXPECT_EQ(int{bgra[2]}, 255);
   CVPixelBufferUnlockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly);
+}
+
+// Registration uses the test harness's process-lifetime vector.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(AppleFrameConverter, SourceColorReplacesGuessesAndKeepsExplicitFields) {
+  // Untagged SD, a partially tagged SMPTE-C source, and explicitly tagged HDR.
+  for (const ColorInfo& source :
+       {ColorInfo{}, ColorInfo{6, 2, 2, false}, ColorInfo{9, 16, 9, false}}) {
+    CVPixelBufferRef buffer = nullptr;
+    EXPECT_EQ(
+        CVPixelBufferCreate(nullptr, 16, 16,
+                            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                            nullptr, &buffer),
+        kCVReturnSuccess);
+    if (!buffer) {
+      continue;
+    }
+    const void* keys[] = {kCVImageBufferColorPrimariesKey,
+                          kCVImageBufferTransferFunctionKey,
+                          kCVImageBufferYCbCrMatrixKey};
+    const void* values[] = {kCVImageBufferColorPrimaries_SMPTE_C,
+                            kCVImageBufferTransferFunction_ITU_R_709_2,
+                            kCVImageBufferYCbCrMatrix_ITU_R_601_4};
+    CFDictionaryRef guessed_tags = CFDictionaryCreate(
+        nullptr, keys, values, 3, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    CGColorSpaceRef guessed =
+        CVImageBufferCreateColorSpaceFromAttachments(guessed_tags);
+    CFRelease(guessed_tags);
+    CVBufferSetAttachment(buffer, kCVImageBufferCGColorSpaceKey, guessed,
+                          kCVAttachmentMode_ShouldPropagate);
+    auto frame = WrapPixelBuffer(buffer, &source);
+    EXPECT_TRUE(frame != nullptr);
+    CFDictionaryRef attachments =
+        CVBufferCopyAttachments(buffer, kCVAttachmentMode_ShouldPropagate);
+    const auto primaries = static_cast<CFStringRef>(
+        CFDictionaryGetValue(attachments, kCVImageBufferColorPrimariesKey));
+    const auto transfer = static_cast<CFStringRef>(
+        CFDictionaryGetValue(attachments, kCVImageBufferTransferFunctionKey));
+    const auto matrix = static_cast<CFStringRef>(
+        CFDictionaryGetValue(attachments, kCVImageBufferYCbCrMatrixKey));
+    EXPECT_TRUE(
+        primaries &&
+        CFEqual(primaries, CVColorPrimariesGetStringForIntegerCodePoint(
+                               source.primaries == 2 ? 1 : source.primaries)));
+    EXPECT_TRUE(
+        transfer &&
+        CFEqual(transfer, CVTransferFunctionGetStringForIntegerCodePoint(
+                              source.transfer == 2 ? 1 : source.transfer)));
+    EXPECT_TRUE(matrix &&
+                CFEqual(matrix, CVYCbCrMatrixGetStringForIntegerCodePoint(
+                                    source.matrix == 2 ? 6 : source.matrix)));
+    if (source.primaries == 2) {
+      const void* space =
+          CFDictionaryGetValue(attachments, kCVImageBufferCGColorSpaceKey);
+      EXPECT_TRUE(space && !CFEqual(space, guessed));
+    }
+    CFRelease(guessed);
+    CFRelease(attachments);
+    CVPixelBufferRelease(buffer);
+  }
 }
 
 }  // namespace
