@@ -116,11 +116,6 @@ building on top of them.
    - Apple: VideoToolbox's tone mapping of bright HDR colors differs from
      swscale's reference (`hdr_pq_bars.mp4`: 27.9 dB), and HLG comes out
      darker (98 for a 0.5 signal against 142); that is Apple's mapping.
-3. **32-bit Android**: the AAR has `arm64-v8a` and `x86_64` only
-   (decided 2026-10-26). Some TV boxes run a 32-bit system on 64-bit
-   chips; supporting them needs `tool/build_ffmpeg.sh
-   android-armeabi-v7a`, the ABI in the AAR and the release, and a 32-bit
-   device or emulator to run on.
 
 ## FFmpeg-free builds
 

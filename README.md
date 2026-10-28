@@ -202,6 +202,9 @@ The Android SDK's example takes snapshots with its `snapshot` intent
 extra (`SEC:NAME,...`): it pauses, copies the `SurfaceView` with
 `PixelCopy` (`LycheePlayerView.snapshot`), writes the PPM into its
 external files directory and logs the line, then plays on.
+An absolute `NAME` writes to that path instead. This permits app-private
+files, readable with `adb exec-out run-as PACKAGE cat PATH`, when scoped
+storage blocks adb from its external files.
 
 ```sh
 adb shell am start -n tech.soit.lychee.example/.MainActivity \
@@ -327,8 +330,9 @@ the simulator reads `/tmp` of the Mac.
 `sdk/android` builds one AAR, `tech.soit.lychee:lychee` (minSdk 26): the
 core as `liblychee.so` with the LGPL FFmpeg next to it (build it first:
 `tool/build_ffmpeg.sh android-arm64-v8a SRC MBEDTLS_SRC`, with an Mbed TLS
-3.6 release for https, and `android-x86_64` for x86
-emulators), and Kotlin classes over it. The core is also a prefab module
+3.6 release for https, `android-armeabi-v7a` for 32-bit ARM systems,
+and `android-x86_64` for x86 emulators), and Kotlin classes over it.
+The release AAR has all three ABIs. The core is also a prefab module
 (`lychee`, header `lychee/lychee.h`) for native code that uses the C ABI.
 
 ```sh

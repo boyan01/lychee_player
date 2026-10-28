@@ -97,7 +97,13 @@ class MainActivity : Activity() {
                 // A few vsyncs for the display to show the last frame queued.
                 handler.postDelayed({
                     video.snapshot { bitmap, pts ->
-                        val file = File(getExternalFilesDir(null), name)
+                        // An absolute path can use private files on systems
+                        // whose scoped storage blocks adb from external files.
+                        val file = if (File(name).isAbsolute) {
+                            File(name)
+                        } else {
+                            File(getExternalFilesDir(null), name)
+                        }
                         if (bitmap == null) {
                             Log.i("lychee-example", "snapshot ${file.path} failed")
                         } else {

@@ -4,7 +4,7 @@
 #   tool/build_ffmpeg.sh PLATFORM FFMPEG_SOURCE_DIR [MBEDTLS_SOURCE_DIR]
 #
 # PLATFORM: macos-arm64, macos-x86_64, ios-arm64, ios-sim-arm64,
-# ios-sim-x86_64, android-arm64-v8a, android-x86_64, linux-x86_64,
+# ios-sim-x86_64, android-arm64-v8a, android-armeabi-v7a, android-x86_64, linux-x86_64,
 # linux-arm64 (each built on that architecture),
 # windows-x86_64 (cross-compiled on Linux).
 # Output: third_party/ffmpeg/PLATFORM/{include,lib}. For Apple platforms,
@@ -98,16 +98,16 @@ case "$platform" in
         } ;;
     esac
     ;;
-  android-arm64-v8a|android-x86_64)
+  android-arm64-v8a|android-armeabi-v7a|android-x86_64)
     mbedtls="$(cd "${3:?Android needs MBEDTLS_SOURCE_DIR}" && pwd)"
     ndk="${ANDROID_NDK_HOME:-$(ls -d "$HOME"/Library/Android/sdk/ndk/* | sort -V | tail -1)}"
     toolchain="$(ls -d "$ndk"/toolchains/llvm/prebuilt/*)"
     api=24
-    if [ "$platform" = android-arm64-v8a ]; then
-      triple=aarch64-linux-android; arch=aarch64; abi=arm64-v8a
-    else
-      triple=x86_64-linux-android; arch=x86_64; abi=x86_64
-    fi
+    case "$platform" in
+      android-arm64-v8a) triple=aarch64-linux-android; arch=aarch64; abi=arm64-v8a ;;
+      android-armeabi-v7a) triple=armv7a-linux-androideabi; arch=arm; abi=armeabi-v7a ;;
+      android-x86_64) triple=x86_64-linux-android; arch=x86_64; abi=x86_64 ;;
+    esac
     tls="$work/mbedtls"
     dav1d_cc="$toolchain/bin/$triple$api-clang"
     dav1d_ar="$toolchain/bin/llvm-ar"
@@ -130,6 +130,13 @@ case "$platform" in
       # Homebrew's pkg-config would find the Mac's libraries.
       --pkg-config=false
     )
+    if [ "$abi" = armeabi-v7a ]; then
+      # Android's 32-bit ARM ABI includes Thumb-2 and NEON, with softfp
+      # argument passing even when floating point uses hardware.
+      dav1d_flags="'-march=armv7-a', '-mfpu=neon', '-mfloat-abi=softfp', $dav1d_flags"
+      flags+=(--cpu=armv7-a --enable-neon
+        --extra-cflags="-march=armv7-a -mfpu=neon -mfloat-abi=softfp")
+    fi
     license="LGPL version 3 or later"
     # x86_64 assembly needs nasm; not worth it for the emulator.
     [ "$platform" = android-x86_64 ] && { flags+=(--disable-asm); dav1d_asm=false; }

@@ -67,7 +67,7 @@ frameworks=(lychee libavformat libavcodec libswresample libswscale libavutil)
 # What the release has besides: the core without FFmpeg, for SwiftPM only.
 release_frameworks=("${frameworks[@]}" lychee_noffmpeg)
 apple_platforms=(macos-arm64 macos-x86_64 ios-arm64 ios-sim-arm64 ios-sim-x86_64)
-android_platforms=(android-arm64-v8a android-x86_64)
+android_platforms=(android-arm64-v8a android-armeabi-v7a android-x86_64)
 
 ffmpeg_version=9.0.2
 ffmpeg_sha256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
@@ -360,8 +360,6 @@ cmd_check() {
   create_app macos,ios,android
   # The plugin's minimums (README).
   sed -i.bak -E 's/minSdk = .*/minSdk = 26/' android/app/build.gradle.kts
-  perl -0pi -e 's/(\n *)(minSdk = 26)/$1$2$1if (project.findProperty("split-per-abi") != "true") { ndk { abiFilters.clear(); abiFilters += listOf("arm64-v8a", "x86_64") } }/' \
-    android/app/build.gradle.kts
   sed -i.bak -E 's/MACOSX_DEPLOYMENT_TARGET = [0-9.]+;/MACOSX_DEPLOYMENT_TARGET = 11.0;/' \
     macos/Runner.xcodeproj/project.pbxproj
   sed -i.bak -E 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+;/IPHONEOS_DEPLOYMENT_TARGET = 16.0;/' \
@@ -391,9 +389,9 @@ cmd_check() {
   # installs on devices where it cannot play.
   check_apk_abis build/app/outputs/flutter-apk/app-debug.apk
   echo "== Android split APKs"
-  flutter build apk --debug --split-per-abi --target-platform=android-arm64,android-x64 \
+  flutter build apk --debug --split-per-abi --target-platform=android-arm,android-arm64,android-x64 \
     >"$tmp/android-split.log" 2>&1 || { tail -40 "$tmp/android-split.log"; die "Android split build failed"; }
-  for abi in arm64-v8a x86_64; do
+  for abi in armeabi-v7a arm64-v8a x86_64; do
     check_apk_abis "build/app/outputs/flutter-apk/app-$abi-debug.apk" "$abi"
   done
   grep -q "GET /$tag/lychee-$v.aar" "$tmp/server.log" && grep -q "GET /$tag/lychee.xcframework.zip" "$tmp/server.log" ||

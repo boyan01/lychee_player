@@ -39,6 +39,7 @@ done
 
 abi="$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
 case "$abi" in
+  armeabi-v7a) triple=arm-linux-androideabi ;;
   arm64-v8a) triple=aarch64-linux-android ;;
   x86_64) triple=x86_64-linux-android ;;
   *) die "unsupported ABI $abi" ;;
@@ -51,7 +52,7 @@ build="$root/build-android-$abi"
 cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI="$abi" -DANDROID_PLATFORM=26 -DANDROID_STL=c++_shared \
-  -DLYCHEE_FFMPEG_ROOT="$ffmpeg" >/dev/null
+  -DLYCHEE_WITH_FFMPEG=ON -DLYCHEE_FFMPEG_ROOT="$ffmpeg" >/dev/null
 cmake --build "$build" --target lychee_unittests >/dev/null
 adb shell "rm -rf $dir && mkdir -p $dir"
 adb push "$build/core/test/lychee_unittests" "$ffmpeg"/lib/*.so \
@@ -70,6 +71,8 @@ trap 'kill $server 2>/dev/null || true' EXIT
 adb reverse "tcp:$port" "tcp:$port" >/dev/null
 adb install -r -t "$apk" >/dev/null
 package=tech.soit.lychee.example
+files="/data/user/0/$package/files"
+adb shell "run-as $package mkdir -p files"
 snaps="$build/snapshots"
 failed=0
 for file in h264_aac.mp4 rotated.mp4; do
@@ -77,9 +80,9 @@ for file in h264_aac.mp4 rotated.mp4; do
     name="${file%.mp4}-hw-$hw"
     adb shell am force-stop "$package"
     adb logcat -c
-    adb shell "rm -rf /sdcard/Android/data/$package/files/*"
+    adb shell "run-as $package rm -f files/$name-a.ppm files/$name-b.ppm"
     adb shell am start -n "$package/.MainActivity" --es url "http://127.0.0.1:$port/$file" \
-      --ez hw "$hw" --es snapshot "2:$name-a.ppm,3.5:$name-b.ppm" >/dev/null
+      --ez hw "$hw" --es snapshot "2:$files/$name-a.ppm,3.5:$files/$name-b.ppm" >/dev/null
     log=""
     for _ in $(seq 60); do
       log="$(adb logcat -d -s lychee-example:I | grep -o 'snapshot .*' || true)"
@@ -88,7 +91,9 @@ for file in h264_aac.mp4 rotated.mp4; do
     done
     adb shell am force-stop "$package"
     rm -rf "$snaps" && mkdir -p "$snaps"
-    adb pull "/sdcard/Android/data/$package/files/." "$snaps" >/dev/null 2>&1
+    for suffix in a b; do
+      adb exec-out run-as "$package" cat "files/$name-$suffix.ppm" >"$snaps/$name-$suffix.ppm"
+    done
     matrix=()
     [ "$hw" = false ] || matrix=(--matrix bt601)
     echo "-- $file hw=$hw"
