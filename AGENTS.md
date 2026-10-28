@@ -231,7 +231,10 @@ What each area needs (run `tool/changes.sh`):
   For changes meant to be faster (decoding, conversion, seeking), compare
   `tool/bench.sh` before and after on an idle machine (fps, open and
   seek latency, peak memory per resolution; rows kept in
-  `build-release/bench.tsv`).
+  `build-release/bench.tsv`). For changes to object lifetimes, caches or
+  pools, `tool/soak.sh` (minutes of looping, random seeks and file
+  switches on the virtual clock) checks that memory and threads stay
+  flat.
 - **threads** (`pipeline/`, the C API, teardown): also `TSAN=1
   tool/regression.sh` (it fails on any ThreadSanitizer report).
 - **parsers** (the FFmpeg-free demuxers): also `NO_FFMPEG=1

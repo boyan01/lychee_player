@@ -185,8 +185,10 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
      VideoToolbox through FFmpeg decodes 1080p H.264 at ~210 fps on the
      virtual clock against software's ~970 (M-series, 2026-10-28): one
      frame at a time, which is enough to play but not to scrub fast.
-   - **Soak tests**: hours of looping, seeking and file switching on each
-     platform's harness, checking memory and thread counts stay flat.
+   - **Soak tests**: `tool/soak.sh` soaks the core through the CLI on
+     macOS and Linux. Left: a run on Linux and Windows, and soaking the
+     platform harnesses (`examples/glfw`, the Swift and Android
+     examples), whose frame hand-off and display link the CLI skips.
    - **Supply chain**: build provenance attestations and an SBOM for
      release assets; updates for the FFmpeg, GLFW and Mbed TLS sources
      pinned in `tool/` scripts, which Dependabot cannot read.

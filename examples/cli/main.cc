@@ -68,6 +68,10 @@ struct Options {
   // starts; 0: right after the first open, while it is still loading.
   std::string reopen_url;
   double reopen_after = -1;
+  // Soak: every |soak_every| seconds of playback, seek to a random
+  // position, twice, then open the other of |url| and |soak_url|.
+  double soak_every = -1;
+  std::string soak_url;
   std::vector<Selection> selections;
   double select_after = 2;
   bool hardware = true;
@@ -230,6 +234,14 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       if (!v || !url) return false;
       options->reopen_after = atof(v);
       options->reopen_url = url;
+    } else if (arg == "--soak") {
+      const char* v = value();
+      const char* url = value();
+      char* end = nullptr;
+      const double every = v ? strtod(v, &end) : 0;
+      if (!url || end == v || *end != '\0' || every <= 0) return false;
+      options->soak_every = every;
+      options->soak_url = url;
     } else if (arg == "--select") {
       // TYPE:INDEX[@SEC], TYPE one of video, audio, subtitle.
       const char* v = value();
@@ -943,7 +955,8 @@ int main(int argc, char** argv) {
             "[--cpu | --rgba | --native | --d3d11 | --dmabuf NODE] "
             "[--rate R [--rate-after "
             "SEC]] [--loop [--loop-off-after SEC]] "
-            "[--open-after SEC URL] [--select TYPE:INDEX[@SEC]]... "
+            "[--open-after SEC URL] [--soak SEC URL] [--select "
+            "TYPE:INDEX[@SEC]]... "
             "[--select-after SEC] [--lose-decoder-after SEC]... "
             "[--hang-decoder-after SEC]... [--rebuild-decoder-after SEC]... "
             "[--stall-audio-after SEC "
@@ -1046,6 +1059,10 @@ int main(int argc, char** argv) {
   int64_t frames_pulled = 0;
   bool seek_issued = false;
   int64_t seek_issued_at = 0;
+  // --soak: when the next action is due (0: once ready), and how many ran.
+  int64_t soak_next = 0;
+  int64_t soak_actions = 0;
+  bool soak_on_alternate = false;
   int64_t first_pts_after_seek = INT64_MIN;
   // Virtual time with the volume up: the position at which the silent
   // device first played sound (testing.h), for a clip's A/V sync.
@@ -1438,6 +1455,31 @@ int main(int argc, char** argv) {
       continue;
     }
 
+    if (options.soak_every > 0 && ready_wall != 0 && now >= soak_next) {
+      const bool due = soak_next != 0;
+      soak_next = now + static_cast<int64_t>(options.soak_every * 1e6);
+      if (due && soak_actions++ % 3 == 2) {
+        soak_on_alternate = !soak_on_alternate;
+        const std::string& url =
+            soak_on_alternate ? options.soak_url : options.url;
+        printf("soak: open -> %s\n", url.c_str());
+        lychee_player_open(player, url.c_str());
+        last_pts = INT64_MIN;
+        ready_wall = 0;
+        soak_next = 0;
+        steady = false;
+        last_state = -1;
+        continue;
+      }
+      const int64_t duration = lychee_player_get_duration(player);
+      if (due && duration > 0) {
+        const int64_t target =
+            std::uniform_int_distribution<int64_t>(0, duration - 1)(random);
+        printf("soak: seek -> %.3fs\n", target / 1e6);
+        lychee_player_seek(player, target);
+      }
+    }
+
     if (options.seek_to >= 0 && !seek_issued && ready_wall != 0 &&
         now - ready_wall >= static_cast<int64_t>(options.seek_after * 1e6)) {
       printf("seek -> %.3fs\n", options.seek_to);
@@ -1526,6 +1568,9 @@ int main(int argc, char** argv) {
     printf(" audio_onset=%.4fs", audio_onset / 1e6);
   }
   // Last: cases match the fields above in order.
+  if (options.soak_every > 0) {
+    printf(" soak_actions=%" PRId64, soak_actions);
+  }
   if (open_ms >= 0) {
     printf(" open_ms=%.1f", open_ms);
   }
