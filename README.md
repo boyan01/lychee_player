@@ -531,7 +531,7 @@ tool/release.sh build android /tmp/sources && tool/release.sh pack android /tmp/
 tool/release.sh build windows /tmp/sources && tool/release.sh pack windows /tmp/dist  # on Linux
 tool/release.sh build linux /tmp/sources && tool/release.sh pack linux /tmp/dist  # on Ubuntu 22.04
 tool/release.sh sources /tmp/dist && tool/release.sh pin /tmp/dist
-tool/release.sh check /tmp/dist   # then git checkout the pins; in Git Bash on Windows it builds a Windows app
+tool/release.sh check /tmp/dist   # then git checkout the pins; in Git Bash on Windows it builds a Windows app, on Linux a Linux app
 ```
 
 Once per repository: a deploy key with write access whose private key is

@@ -176,9 +176,9 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    and assets (the user, 2026-10-27).
 2. **Release leftovers**: the AAR on Maven Central too (what native
    Android users expect; needs a Sonatype account for `tech.soit`);
-   `tool/release.sh check` building Linux apps (it builds macOS, iOS and
-   Android apps on macOS and Windows apps in Git Bash on Windows, which
-   `release.yml` does not run yet); the Linux job in a `ubuntu:22.04` container once GitHub
+   `release.yml` running `tool/release.sh check` on Windows (Git Bash)
+   and Linux, where it builds Windows and Linux apps by hand only; the
+   Linux job in a `ubuntu:22.04` container once GitHub
    retires that
    image.
 3. **Native SDKs**: drop the pod and the plugin's copy of
