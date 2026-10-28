@@ -139,8 +139,7 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
 `HttpURLConnection`).
 
 1. **Containers**: IMSC image-profile subtitles and their auxiliary image resources
-   are not decoded (text-profile IMSC and WebVTT are read from fMP4). AC-3 has
-   no FFmpeg-free decoder; DVB and ID3 timed
+   are not decoded (text-profile IMSC and WebVTT are read from fMP4). DVB and ID3 timed
    metadata in TS are ignored (FFmpeg's build drops them too): the C ABI
    has no channel for timed data, which would take a track type, an
    event and an acquire call for its bytes at the clock's time (like
@@ -162,6 +161,10 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    it; a second artifact is a publishing decision) if native Android
    users want one. VP8, VP9 and AV1 through a phone's hardware MediaCodec
    are unseen (the emulator has VP8 and VP9, and AV1 only in software).
+   AC-3 decoding needs an AC-3-capable phone or TV (waiting on the user):
+   Pixel_10 API 37 has no `audio/ac3` decoder; disabling that audio track
+   while video continues is verified. Play `ac3.ts` or `ac3_audio.mp4`
+   on a device that advertises that decoder and confirm audible output.
 ## Distribution and infrastructure
 
 1. **1.0.0**, once the beta has been used. Before it, and only then, a

@@ -44,6 +44,8 @@ GUID Subtype(AudioCodec codec) {
       return MFAudioFormat_ALAC;
     case AudioCodec::kOpus:
       return MFAudioFormat_Opus;
+    case AudioCodec::kAC3:
+      return MFAudioFormat_Dolby_AC3;
     default:
       return GUID_NULL;
   }

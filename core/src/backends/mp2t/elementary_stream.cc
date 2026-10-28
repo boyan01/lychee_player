@@ -453,10 +453,10 @@ bool ParseAc3Header(const uint8_t* data, size_t size, AdtsHeader* header) {
     // E-AC-3: strmtyp, substreamid, frmsiz, fscod, fscod2 or numblkscod,
     // acmod, lfeon.
     const int fscod = data[4] >> 6;
-    rate = fscod == 3 ? kRates[(data[4] >> 4) & 3] / 2 : kRates[fscod];
     if (fscod == 3 && ((data[4] >> 4) & 3) == 3) {
       return false;
     }
+    rate = fscod == 3 ? kRates[(data[4] >> 4) & 3] / 2 : kRates[fscod];
     acmod = (data[4] >> 1) & 7;
     lfe = data[4] & 1;
   } else {

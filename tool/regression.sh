@@ -147,9 +147,13 @@ gen offset.ts -i "$media/h264_aac.mp4" -c copy -output_ts_offset 10 -f mpegts
 # A keyframe a second, as broadcasts have (h264_aac.mp4 has one).
 gen keyframes.ts -i "$media/h264_aac.mp4" -c:v libx264 -preset veryfast -g 30 -c:a copy -f mpegts
 gen hevc10.ts -i "$media/hevc10.mp4" -c copy -f mpegts
-# AC-3 (the own demuxer, FFmpeg's decoder) and LATM AAC (FFmpeg's demuxer)
-# in TS.
+# AC-3 (the own demuxer) and LATM AAC (FFmpeg's demuxer) in TS.
 gen ac3.ts -i "$media/h264_aac.mp4" -t 4 -c:v copy -c:a ac3 -f mpegts
+# Louder than the Dolby decoder's dialog-normalized downmix, so the
+# silent sink's first-sound check observes PCM rather than only video.
+gen ac3_audio.mp4 -f lavfi -i sine=frequency=440:sample_rate=44100 -t 4 \
+  -af volume=4 -c:a ac3
+gen ac3_audio.mkv -i "$media/ac3_audio.mp4" -c copy
 gen latm.ts -i "$media/h264_aac.mp4" -t 4 -c:v copy -c:a aac -mpegts_flags latm -f mpegts
 # The index at the front, so a cut file still opens; then cut in half.
 gen faststart.mp4 -i "$media/h264_aac.mp4" -c copy -movflags +faststart
@@ -799,6 +803,10 @@ fi
 [ "${NO_FFMPEG:-0}" = 1 ] &&
   par expect av1-videotoolbox "track 0: video av1 " "summary: state=ended position=10\.0" -- "$media/av1.mkv"
 par check flac-mkv      1 - -- "$media/flac.mkv"
+par expect ac3-mp4 "track 0: audio ac3 44100 Hz 1 ch " \
+  "summary: state=ended .*audio_onset=-?0\.0[0-9]+s" -- --volume 1 "$media/ac3_audio.mp4"
+par expect ac3-mkv "track 0: audio ac3 44100 Hz 1 ch " \
+  "summary: state=ended .*audio_onset=-?0\.0[0-9]+s" -- --volume 1 "$media/ac3_audio.mkv"
 # A/V sync: the tone plays at 1 s on the clock (audio_onset, from the
 # silent device with the volume up), so priming is trimmed, in both builds
 # (AudioToolbox decodes these without FFmpeg).
@@ -907,12 +915,13 @@ if [ "$own_ts" = 1 ]; then
   par check seek-ts-jump 1 6.233 -- --seek 4.8 --seek-after 1 "$media/ts_jump_ahead.ts"
   par check seek-ts-jump-backward 1 2.933 -- --seek 1.5 --seek-after 5 "$media/ts_jump_ahead.ts"
 fi
-# FFmpeg's decoders take AC-3 from the own demuxer, which hands what it
-# would skip (LATM here) to FFmpeg's demuxer. No AC-3 or LATM without
-# FFmpeg.
-if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
+# The own demuxer supplies AC-3 to FFmpeg or the system decoder. LATM
+# still needs FFmpeg's demuxer and decoder.
+if [ "$own_ts" = 1 ]; then
   par expect ts-ac3 "<=0 the fallback opens it" "track 1: audio ac3 44100 Hz 1 ch " \
     "summary: state=ended position=4\.1[0-9]{2}s .*rendered=122 " -- "$media/ac3.ts"
+fi
+if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
   par expect ts-fallback "mpegts: stream type 0x11 not supported; the fallback opens it" \
     "track 1: audio aac_latm " "summary: state=ended position=4\.(09[0-9]|1[0-9]{2})s .*rendered=122 .*glitches=0 " -- \
     "$media/latm.ts"

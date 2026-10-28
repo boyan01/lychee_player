@@ -9,7 +9,7 @@
 namespace lychee {
 
 // AAC (raw with an AudioSpecificConfig, as MP4 stores it, or in ADTS, as
-// MPEG-TS does), MP3, FLAC, ALAC and Opus through Media Foundation's
+// MPEG-TS does), MP3, FLAC, ALAC, Opus and AC-3 through Media Foundation's
 // decoders (FLAC, ALAC and Opus since Windows 10), for builds without
 // FFmpeg. Media Foundation's resampler converts to the sink's rate and
 // channels when they differ.

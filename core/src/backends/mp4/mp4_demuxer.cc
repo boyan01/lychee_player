@@ -348,6 +348,21 @@ void ParseAudioEntry(const Box& entry, AudioConfig* config) {
     if (esds) {
       ParseEsds(*esds, config);
     }
+  } else if (entry.type == FourCC("ac-3")) {
+    config->codec = AudioCodec::kAC3;
+    config->codec_name = "ac3";
+    // ETSI TS 102 366, Annex F: dac3 describes the coded channel layout;
+    // the sample entry's channel count can be the stereo output layout.
+    if (std::optional<Box> dac3 = Find(children, FourCC("dac3"));
+        dac3 && dac3->payload_size >= 3) {
+      static constexpr int kRates[] = {48000, 44100, 32000};
+      static constexpr int kChannels[] = {2, 1, 2, 3, 3, 4, 4, 5};
+      const uint8_t* d = dac3->payload;
+      if ((d[0] >> 6) < 3) {
+        config->sample_rate = kRates[d[0] >> 6];
+      }
+      config->channels = kChannels[(d[1] >> 3) & 7] + ((d[1] >> 2) & 1);
+    }
   } else if (entry.type == FourCC("alac")) {
     config->codec = AudioCodec::kALAC;
     config->codec_name = "alac";

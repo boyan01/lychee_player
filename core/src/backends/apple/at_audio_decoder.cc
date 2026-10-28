@@ -122,6 +122,7 @@ bool ATAudioDecoder::Initialize(const AudioConfig& config,
     case AudioCodec::kOpus:
     case AudioCodec::kFLAC:
     case AudioCodec::kMP3:
+    case AudioCodec::kAC3:
       break;
     default:
       *error = "audiotoolbox: no decoder for " + config.codec_name;
@@ -165,6 +166,10 @@ bool ATAudioDecoder::CreateConverter(const std::vector<uint8_t>& extradata) {
       // (below 32 kHz) are half as long.
       input.mFormatID = kAudioFormatMPEGLayer3;
       input.mFramesPerPacket = config_.sample_rate < 32000 ? 576 : 1152;
+      break;
+    case AudioCodec::kAC3:
+      input.mFormatID = kAudioFormatAC3;
+      input.mFramesPerPacket = 1536;
       break;
     default:
       input.mFormatID = kAudioFormatAppleLossless;

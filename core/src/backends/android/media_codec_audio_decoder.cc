@@ -38,6 +38,8 @@ const char* Mime(AudioCodec codec) {
       return "audio/flac";
     case AudioCodec::kALAC:
       return "audio/alac";
+    case AudioCodec::kAC3:
+      return "audio/ac3";
     default:
       return nullptr;
   }
