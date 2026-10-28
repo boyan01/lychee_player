@@ -48,14 +48,17 @@ building on top of them.
 
 ## Known defects
 
-- **The Flutter example crashes on quitting on Windows**: after
-  `--seconds N` it calls `exitApplication(AppExitType.required)`, and the
-  process ends with 0xC000041D (an access violation in
-  `flutter_windows.dll`, Event Log) instead of 0, even when no file was
-  opened (Flutter 3.47.7, Impeller OpenGL ES, 2026-10-28). The `summary:`
-  line comes first, so runs are still readable. Find whether the plugin
-  takes part (a bare `flutter create` app quitting the same way) and fix
-  or report it upstream; done when the example exits with 0.
+- **The Flutter example crashed on quitting on Windows**: after
+  `--seconds N` it calls `exitApplication(AppExitType.required)`, and
+  every run on 2026-10-28 between 11:07 and 12:22 ended with 0xC000041D
+  (an access violation at `flutter_windows.dll`+0x1e230, Event Log)
+  instead of 0, even when no file was opened (Flutter 3.47.7, Impeller
+  OpenGL ES). After the PC rebooted, the same build exits with 0 in six
+  runs, with a file and without, and so does a bare `flutter create` app
+  quitting the same way; with no file the plugin only registers and
+  unregisters. What the PC's state was before the reboot is unknown.
+  If it comes back, compare the bare app on the same boot before
+  touching the plugin.
 
 1. **MPEG-TS and HLS through FFmpeg's demuxer on Linux and Android**:
    there the FFmpeg build still reads TS and HLS with `FFmpegDemuxer`,
