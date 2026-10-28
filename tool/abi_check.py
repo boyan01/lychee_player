@@ -26,7 +26,10 @@ bumped, as the release's callers break.
 clang (CLANG, default clang) reads both headers (-ast-dump=json) and
 compiles a probe against each that prints the sizes and field offsets of
 the structs and the values of the enum constants and macros, on the host's
-ABI. Needs git, python3 and clang, nothing else.
+ABI. The sizes and offsets are also checked on TARGETS, other ABIs (32-bit,
+Windows' LLP64), by compiling them into a constant array for each target
+(-S -ffreestanding: no sysroot, nothing run) and reading it back from the
+assembly. Needs git, python3 and clang, nothing else.
 """
 
 import json
@@ -41,6 +44,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLANG = os.environ.get("CLANG", "clang")
 # Macros that are not part of the ABI.
 IGNORED_MACROS = {"LYCHEE_LYCHEE_H_", "LYCHEE_EXPORT"}
+# Layouts that may differ from the host's: 32-bit pointers, Windows' 4-byte
+# long and its alignment rules, and the 64-bit platforms the library ships on.
+TARGETS = ["i686-linux-gnu", "armv7-linux-androideabi", "aarch64-linux-android",
+           "x86_64-linux-gnu", "x86_64-pc-windows-msvc", "i686-pc-windows-msvc"]
 
 
 def run(args, **kwargs):
@@ -100,9 +107,50 @@ def api(include_dir):
         for line in run([binary]).splitlines():
             what, key, number = line.split(" ")
             layout[(what, key)] = int(number)
+    targets = {target: target_layout(include_dir, structs, target)
+               for target in TARGETS}
     return {"structs": structs, "typedefs": typedefs, "functions": functions,
             "constants": constants, "macros": macros, "layout": layout,
-            "text": open(header).read()}
+            "targets": targets, "text": open(header).read()}
+
+
+def target_layout(include_dir, structs, target):
+    """The struct sizes and field offsets on target, without running it."""
+    keys, values = [], []
+    for struct, fields in structs.items():
+        keys.append(("size", struct))
+        values.append(f"sizeof(struct {struct})")
+        for field, _ in fields:
+            keys.append(("offset", f"{struct}.{field}"))
+            values.append(f"offsetof(struct {struct}, {field})")
+    with tempfile.TemporaryDirectory() as tmp:
+        probe = os.path.join(tmp, "probe.c")
+        with open(probe, "w") as f:
+            f.write("#include <stddef.h>\n#include <lychee/lychee.h>\n"
+                    "const unsigned int lychee_layout[] = {\n  " +
+                    ",\n  ".join(values) + "\n};\n")
+        assembly = run([CLANG, "-target", target, "-ffreestanding",
+                        "-std=c99", "-S", "-o", "-", "-I", include_dir, probe])
+    numbers, inside = [], False
+    for line in assembly.splitlines():
+        if re.match(r"_?lychee_layout:", line):
+            inside = True
+            continue
+        if inside:
+            m = re.match(r"\s*\.(?:long|word|4byte|int)\s+(\d+)", line)
+            if not m:
+                break
+            numbers.append(int(m.group(1)))
+    if len(numbers) != len(keys):
+        raise RuntimeError(f"{target}: read {len(numbers)} layout values from "
+                           f"the assembly, expected {len(keys)}")
+    return dict(zip(keys, numbers))
+
+
+def layouts(api_):
+    """(label, layout) for the host and each target."""
+    return [("", api_["layout"])] + [
+        (f" on {target}", layout) for target, layout in api_["targets"].items()]
 
 
 def compare(old, new):
@@ -121,9 +169,11 @@ def compare(old, new):
                 breaks.append(f"{struct}.{field} is gone")
             elif new_fields[field] != type_:
                 breaks.append(f"{struct}.{field}: {type_} -> {new_fields[field]}")
-            elif lay_old[key] != lay_new[key]:
-                breaks.append(f"{struct}.{field} moved: offset "
-                              f"{lay_old[key]} -> {lay_new[key]}")
+            else:
+                for (label, a), (_, b) in zip(layouts(old), layouts(new)):
+                    if a[key] != b[key]:
+                        breaks.append(f"{struct}.{field} moved{label}: offset "
+                                      f"{a[key]} -> {b[key]}")
         old_names = {f for f, _ in fields}
         names = [f for f, _ in new["structs"][struct]]
         added = [f for f in names if f not in old_names]
@@ -138,8 +188,10 @@ def compare(old, new):
         size_old = lay_old[("size", struct)]
         size_new = lay_new[("size", struct)]
         grows = fields and fields[0][0] == "struct_size"
-        if size_new < size_old or (size_new > size_old and not grows):
-            breaks.append(f"sizeof({struct}): {size_old} -> {size_new}")
+        for (label, a), (_, b) in zip(layouts(old), layouts(new)):
+            was, now = a[("size", struct)], b[("size", struct)]
+            if now < was or (now > was and not grows):
+                breaks.append(f"sizeof({struct}){label}: {was} -> {now}")
         if added:
             additions.append(f"{struct}: {', '.join(added)} "
                              f"(size {size_old} -> {size_new})")

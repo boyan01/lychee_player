@@ -179,9 +179,6 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
      on an emulator; the core and `examples/glfw` on `windows-latest`.
    - **Frame checks** by pixels for the Swift and Android examples, as
      `examples/glfw --snapshot` has.
-   - **ABI check on other ABIs**: `tool/abi_check.py` probes the host's
-     layout only, so a layout that differs only on 32-bit or Windows goes
-     unseen.
    - **Performance benchmarks**: decode and frame-conversion throughput,
      seek latency and memory per resolution on the virtual clock, kept
      per commit.

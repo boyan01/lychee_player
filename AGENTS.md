@@ -263,7 +263,8 @@ What each area needs (run `tool/changes.sh`):
   the header with the last `v*` release's and with where the branch left
   `main`, uncommitted edits included: it lists breaks (a declaration
   gone, a field moved, retyped or inserted before the end, a type or
-  enum value changed) and additions, and fails when either has no bump
+  enum value changed; layouts on the host and, compiled but not run,
+  on 32-bit and Windows targets) and additions, and fails when either has no bump
   over that header's version. New fields go at the end of a struct
   that starts with `struct_size`.
 - **rust**: `cargo test`, `cargo clippy --all-targets` and `cargo doc
