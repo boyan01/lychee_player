@@ -140,8 +140,6 @@ and HEVC in hardware or software, AAC and MP3), and Android too (video
 H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
 `HttpURLConnection`).
 
-1. **Connection reuse**: one `NSURLSession` per demuxer would let HLS
-   segments reuse connections.
 2. **Containers**: HLS switches variants only when a track is selected,
    not by measured bandwidth; subtitle renditions (WebVTT) are not
    read. AC-3 has

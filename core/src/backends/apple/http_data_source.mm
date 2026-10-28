@@ -8,6 +8,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "base/log.h"
@@ -34,11 +35,58 @@ constexpr NSTimeInterval kIdleTimeout = 10;
 
 }  // namespace
 
-struct HttpState {
+struct HttpState;
+
+}  // namespace lychee
+
+// Hands each task's events to the HttpState that started it.
+@interface LycheeHttpDelegate : NSObject <NSURLSessionDataDelegate>
+- (void)addTask:(NSURLSessionTask*)task
+          state:(std::weak_ptr<lychee::HttpState>)state;
+@end
+
+namespace lychee {
+
+class HttpSession {
+ public:
+  HttpSession() {
+    NSOperationQueue* queue = [[NSOperationQueue alloc] init];
+    queue.maxConcurrentOperationCount = 1;
+    delegate_ = [[LycheeHttpDelegate alloc] init];
+    session_ = [NSURLSession
+        sessionWithConfiguration:[NSURLSessionConfiguration
+                                     ephemeralSessionConfiguration]
+                        delegate:delegate_
+                   delegateQueue:queue];
+  }
+  // The session holds its delegate until invalidated.
+  ~HttpSession() { [session_ invalidateAndCancel]; }
+  HttpSession(const HttpSession&) = delete;
+  HttpSession& operator=(const HttpSession&) = delete;
+
+  NSURLSessionDataTask* Start(NSURLRequest* request,
+                              std::weak_ptr<HttpState> state) {
+    NSURLSessionDataTask* task = [session_ dataTaskWithRequest:request];
+    [delegate_ addTask:task state:std::move(state)];
+    return task;
+  }
+
+ private:
+  NSURLSession* session_ = nil;
+  LycheeHttpDelegate* delegate_ = nil;
+};
+
+std::shared_ptr<HttpSession> CreateHttpSession() {
+  @autoreleasepool {
+    return std::make_shared<HttpSession>();
+  }
+}
+
+struct HttpState : std::enable_shared_from_this<HttpState> {
   std::mutex mutex;
   std::condition_variable condition;
   NSURL* url = nil;
-  NSURLSession* session = nil;
+  std::shared_ptr<HttpSession> session;
   NSURLSessionDataTask* task = nil;
   // Bytes [offset, offset + data.size() - head) of the resource, from
   // data[head].
@@ -81,33 +129,35 @@ struct HttpState {
     // From 0 too, as FFmpeg does: a 206 says the server takes ranges.
     [request setValue:[NSString stringWithFormat:@"bytes=%lld-", from]
         forHTTPHeaderField:@"Range"];
-    task = [session dataTaskWithRequest:request];
+    task = session->Start(request, weak_from_this());
     [task resume];
   }
 };
 
 }  // namespace lychee
 
-@interface LycheeHttpDelegate : NSObject <NSURLSessionDataDelegate>
-- (instancetype)initWithState:(std::weak_ptr<lychee::HttpState>)state;
-@end
-
 @implementation LycheeHttpDelegate {
-  std::weak_ptr<lychee::HttpState> _state;
+  std::mutex _mutex;
+  std::unordered_map<NSUInteger, std::weak_ptr<lychee::HttpState>> _states;
 }
 
-- (instancetype)initWithState:(std::weak_ptr<lychee::HttpState>)state {
-  if ((self = [super init])) {
-    _state = std::move(state);
-  }
-  return self;
+- (void)addTask:(NSURLSessionTask*)task
+          state:(std::weak_ptr<lychee::HttpState>)state {
+  std::lock_guard<std::mutex> lock(_mutex);
+  _states[task.taskIdentifier] = std::move(state);
+}
+
+- (std::shared_ptr<lychee::HttpState>)stateOf:(NSURLSessionTask*)task {
+  std::lock_guard<std::mutex> lock(_mutex);
+  auto it = _states.find(task.taskIdentifier);
+  return it != _states.end() ? it->second.lock() : nullptr;
 }
 
 - (void)URLSession:(NSURLSession*)session
               dataTask:(NSURLSessionDataTask*)task
     didReceiveResponse:(NSURLResponse*)response
      completionHandler:(void (^)(NSURLSessionResponseDisposition))handler {
-  std::shared_ptr<lychee::HttpState> state = _state.lock();
+  std::shared_ptr<lychee::HttpState> state = [self stateOf:task];
   if (!state) {
     handler(NSURLSessionResponseCancel);
     return;
@@ -161,7 +211,7 @@ struct HttpState {
 - (void)URLSession:(NSURLSession*)session
           dataTask:(NSURLSessionDataTask*)task
     didReceiveData:(NSData*)data {
-  std::shared_ptr<lychee::HttpState> state = _state.lock();
+  std::shared_ptr<lychee::HttpState> state = [self stateOf:task];
   if (!state) {
     return;
   }
@@ -188,7 +238,11 @@ struct HttpState {
 - (void)URLSession:(NSURLSession*)session
                     task:(NSURLSessionTask*)task
     didCompleteWithError:(NSError*)error {
-  std::shared_ptr<lychee::HttpState> state = _state.lock();
+  std::shared_ptr<lychee::HttpState> state = [self stateOf:task];
+  {
+    std::lock_guard<std::mutex> lock(_mutex);
+    _states.erase(task.taskIdentifier);
+  }
   if (!state) {
     return;
   }
@@ -211,8 +265,10 @@ struct HttpState {
 
 namespace lychee {
 
-std::unique_ptr<DataSource> HttpDataSource::Open(const std::string& url,
-                                                 std::string* error) {
+std::unique_ptr<DataSource> HttpDataSource::Open(
+    const std::string& url,
+    std::string* error,
+    std::shared_ptr<HttpSession> session) {
   @autoreleasepool {
     NSURL* nsurl = [NSURL URLWithString:@(url.c_str())];
     if (!nsurl) {
@@ -221,14 +277,7 @@ std::unique_ptr<DataSource> HttpDataSource::Open(const std::string& url,
     }
     auto state = std::make_shared<HttpState>();
     state->url = nsurl;
-    NSOperationQueue* queue = [[NSOperationQueue alloc] init];
-    queue.maxConcurrentOperationCount = 1;
-    NSURLSessionConfiguration* configuration =
-        [NSURLSessionConfiguration ephemeralSessionConfiguration];
-    state->session = [NSURLSession
-        sessionWithConfiguration:configuration
-                        delegate:[[LycheeHttpDelegate alloc] initWithState:state]
-                   delegateQueue:queue];
+    state->session = session ? std::move(session) : CreateHttpSession();
     std::lock_guard<std::mutex> lock(state->mutex);
     state->Restart(0);
     return std::unique_ptr<DataSource>(new HttpDataSource(state));
@@ -239,8 +288,8 @@ HttpDataSource::HttpDataSource(std::shared_ptr<HttpState> state)
     : state_(std::move(state)) {}
 
 HttpDataSource::~HttpDataSource() {
-  // The session holds its delegate until invalidated.
-  [state_->session invalidateAndCancel];
+  std::lock_guard<std::mutex> lock(state_->mutex);
+  [state_->task cancel];
 }
 
 int64_t HttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {

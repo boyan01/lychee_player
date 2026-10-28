@@ -58,6 +58,13 @@ def make_handler(root, args, state):
             if args.verbose:
                 sys.stderr.write("media_server: " + fmt % values + "\n")
 
+        def setup(self):
+            super().setup()
+            # One line per connection, so a client's reuse shows.
+            if args.verbose:
+                sys.stderr.write("media_server: connection from port %d\n"
+                                 % self.client_address[1])
+
         def do_HEAD(self):
             self.serve(head=True)
 

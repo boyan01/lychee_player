@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -53,6 +54,15 @@ class DataSource {
 // opened.
 std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
                                            std::string* error);
+
+using DataSourceOpener =
+    std::function<std::unique_ptr<DataSource>(const std::string& url,
+                                              std::string* error)>;
+// OpenDataSource, but the http(s) sources it opens share connections:
+// on Apple platforms one NSURLSession, so that the playlists and
+// segments of an HLS stream reuse kept-alive connections instead of a
+// new TCP and TLS handshake each. Elsewhere OpenDataSource itself.
+DataSourceOpener CreateSharedOpener();
 
 // Bytes in memory (tests, the fuzzer).
 std::unique_ptr<DataSource> CreateMemoryDataSource(std::vector<uint8_t> data);

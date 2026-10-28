@@ -55,11 +55,10 @@ class HlsDemuxer : public Demuxer {
   void Abort() override;
   std::string error() const override { return error_; }
 
-  // Opens the playlists and segments the input refers to; OpenDataSource
-  // unless set (the fuzzer serves them from memory). Set before Open().
-  using Opener =
-      std::function<std::unique_ptr<DataSource>(const std::string& url,
-                                                std::string* error)>;
+  // Opens the playlists and segments the input refers to; a shared
+  // opener (CreateSharedOpener) unless set (the fuzzer serves them from
+  // memory). Set before Open().
+  using Opener = DataSourceOpener;
   void set_opener(Opener opener) { opener_ = std::move(opener); }
   // The time between live reloads: MonotonicMicros() and a wait until
   // |until| unless set (the fuzzer advances a clock of its own). |wait|
@@ -182,7 +181,7 @@ class HlsDemuxer : public Demuxer {
 
   int64_t Now() const;
 
-  Opener opener_ = OpenDataSource;
+  Opener opener_ = CreateSharedOpener();
   bool refuse_subtitles_ = false;
   Clock clock_;
   std::mutex mutex_;
