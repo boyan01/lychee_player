@@ -191,8 +191,10 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    - **clang-tidy**: the Android, Windows and Linux backends are not
      checked. Add Linux to the changed-lines CI check, after validating
      its compiler database and diagnostics on Linux.
-   - **CI jobs for Android and Windows**: the SDK build and its unit tests
-     on an emulator; the core and `examples/glfw` on `windows-latest`.
+   - **CI jobs for Android and Windows** (`android`, `core-windows` in
+     `ci.yml`, 2026-10-28) have not run on GitHub yet: fix what their
+     first push shows (the emulator's MediaCodec snapshots, WASAPI on a
+     VM without an audio device), then delete this line.
    - **Performance benchmarks**: `tool/bench.sh` measures them on one
      machine, by hand; left are running it per commit on the idle
      self-hosted Mac and keeping the table somewhere CI can compare.

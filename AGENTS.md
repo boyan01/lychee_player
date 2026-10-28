@@ -271,7 +271,9 @@ What each area needs (run `tool/changes.sh`):
   `rotated.mp4` with `tool/frame_check.py`, each with hardware decoding
   and without (the `url`, `hw` and `snapshot` intent extras; README,
   "Checking frames by pixels", and its `--matrix bt601` for hardware
-  frames on the emulator). The Flutter plugin takes its frame driver from
+  frames on the emulator); `tool/android_check.sh` does that for both
+  files and also runs the core's unit tests on the device, as CI's
+  `android` job does. The Flutter plugin takes its frame driver from
   the SDK, so a change to `LycheeFrameDriver` also runs the Flutter
   example on Android.
 - **windows**, **linux**: `tool/regression.sh` on that platform (Linux:
@@ -345,10 +347,11 @@ there is none). When a new directory or file kind appears, give it an
 area in `tool/changes.sh`.
 
 CI (`.github/workflows/ci.yml`) checks the format of every push, runs
-the ABI check for `lychee.h` changes, the core on macOS (plain, TSan, and ASan with UBSan; for pushes plain and TSan on a self-hosted Intel Mac, which links the LGPL FFmpeg) and Linux, the Apple builds with `swift test` (Flutter's analyze and
-example build only for `flutter/` changes), and the Rust crates, each
-only for its areas. It has no Android, Windows or harness screenshot
-jobs: those stay local.
+the ABI check for `lychee.h` changes, the core on macOS (plain, TSan, and ASan with UBSan; for pushes plain and TSan on a self-hosted Intel Mac, which links the LGPL FFmpeg), Linux and Windows (with `examples/glfw`'s build), the Apple builds with `swift test` (Flutter's analyze and
+example build only for `flutter/` changes), the Android SDK with
+`tool/android_check.sh` on an x86_64 emulator, and the Rust crates,
+each only for its areas. Harness screenshots on the desktops, iOS and
+phones stay local.
 
 ## Gotchas
 
