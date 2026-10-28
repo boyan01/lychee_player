@@ -145,7 +145,11 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    WinHTTP or `HttpURLConnection` yet), and only between MPEG-TS
    variants; subtitle renditions in fMP4 (IMSC, WebVTT) are not read. AC-3 has
    no FFmpeg-free decoder; DVB and ID3 timed
-   metadata in TS are ignored. Where TS timestamps start over, a jump
+   metadata in TS are ignored (FFmpeg's build drops them too): the C ABI
+   has no channel for timed data, which would take a track type, an
+   event and an acquire call for its bytes at the clock's time (like
+   subtitles), in every binding; worth it once a caller needs it (HLS
+   ad markers, live captions' ID3). Where TS timestamps start over, a jump
    ahead, or a run shorter than a sixteenth of the input, is found only
    when played: until then the duration and seeks miss it.
 3. **Windows**: VP9, AV1, Opus, FLAC and ALAC have no decoder (Media
