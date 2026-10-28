@@ -40,6 +40,8 @@ if(ANDROID)
   list(APPEND LYCHEE_SOURCES
     src/backends/android/aaudio_sink.cc
     src/backends/android/media_codec_video_decoder.cc
+    # Its SPS parser finds size changes for MediaCodec.
+    src/backends/mp2t/elementary_stream.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
     # Without FFmpeg: MP4 from files, H.264 and HEVC through MediaCodec

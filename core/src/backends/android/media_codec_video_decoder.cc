@@ -13,6 +13,7 @@
 #include <string>
 
 #include "backends/android/media_codec_name.h"
+#include "backends/mp2t/elementary_stream.h"
 #include "base/log.h"
 
 namespace lychee {
@@ -27,13 +28,19 @@ constexpr int64_t kEndOfStreamTimeoutUs = 3 * kMicrosPerSecond;
 // packets without a frame means it drops them: Android's software HEVC
 // decoder does with Main 10 it cannot decode, without an error.
 constexpr int kMaxInputsWithoutOutput = 64;
+// Waiting at a size change for the frames of the old codec to be shown.
+constexpr int64_t kRestartTimeoutUs = kMicrosPerSecond;
 
 // One output buffer, owned by the frame that shows it.
 class OutputBuffer {
  public:
   OutputBuffer(std::shared_ptr<MediaCodecVideoDecoder::Codec> codec,
                size_t index)
-      : codec_(std::move(codec)), index_(index), epoch_(codec_->epoch) {}
+      : codec_(std::move(codec)), index_(index) {
+    std::lock_guard<std::mutex> lock(codec_->mutex);
+    epoch_ = codec_->epoch;
+    codec_->outstanding++;
+  }
   ~OutputBuffer() { Release(false, 0); }
 
   // |time_ns| in the System.nanoTime() timebase (CLOCK_MONOTONIC).
@@ -46,6 +53,7 @@ class OutputBuffer {
     if (!codec_->codec || epoch_ != codec_->epoch) {
       return;
     }
+    codec_->outstanding--;
     media_status_t status =
         render ? AMediaCodec_releaseOutputBufferAtTime(codec_->codec, index_,
                                                        time_ns)
@@ -58,7 +66,7 @@ class OutputBuffer {
  private:
   const std::shared_ptr<MediaCodecVideoDecoder::Codec> codec_;
   const size_t index_;
-  const uint64_t epoch_;
+  uint64_t epoch_ = 0;
   bool released_ = false;
 };
 
@@ -98,6 +106,41 @@ void VisibleSize(AMediaFormat* format, int* width, int* height) {
   }
   *width = w;
   *height = h;
+}
+
+// The parameter sets |annexb| carries, each without its start code.
+std::vector<std::vector<uint8_t>> InBandParameterSets(
+    const std::vector<uint8_t>& annexb,
+    const AnnexBConverter& converter) {
+  std::vector<std::vector<uint8_t>> sets;
+  // Each NAL unit runs from after a start code to the next one, without
+  // the zeros before it.
+  auto take = [&](size_t begin, size_t end) {
+    while (end > begin && annexb[end - 1] == 0) {
+      --end;
+    }
+    if (end == begin) {
+      return;
+    }
+    std::vector<uint8_t> nal(annexb.begin() + begin, annexb.begin() + end);
+    const int type = converter.NalType(nal);
+    if (converter.hevc() ? type >= 32 && type <= 34 : type == 7 || type == 8) {
+      sets.push_back(std::move(nal));
+    }
+  };
+  size_t begin = annexb.size();
+  for (size_t i = 2; i < annexb.size(); ++i) {
+    if (annexb[i] == 1 && annexb[i - 1] == 0 && annexb[i - 2] == 0) {
+      if (begin < i) {
+        take(begin, i);
+      }
+      begin = i + 1;
+    }
+  }
+  if (begin < annexb.size()) {
+    take(begin, annexb.size());
+  }
+  return sets;
 }
 
 void DiscardImages(void*, AImageReader* reader) {
@@ -160,6 +203,18 @@ bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
                  : "MediaCodec decodes only H.264 and HEVC here";
     return false;
   }
+  rotation_ = rotate_ ? config.rotation : 0;
+  // A live input may not know the size; the stream's SPS decides it then.
+  const int width = config.width > 0 ? config.width : 1920;
+  const int height = config.height > 0 ? config.height : 1080;
+  return CreateCodec(width, height, converter_.parameter_sets(), error);
+}
+
+bool MediaCodecVideoDecoder::CreateCodec(
+    int width,
+    int height,
+    const std::vector<std::vector<uint8_t>>& parameter_sets,
+    std::string* error) {
   const char* mime = converter_.hevc() ? "video/hevc" : "video/avc";
   AMediaCodec* codec = nullptr;
   if (codecs_ == Codecs::kSoftwareOnly) {
@@ -189,25 +244,22 @@ bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
     return false;
   }
 
-  // A live input may not know the size; the stream's SPS decides it then.
-  const int width = config.width > 0 ? config.width : 1920;
-  const int height = config.height > 0 ? config.height : 1080;
   AMediaFormat* format = AMediaFormat_new();
   AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, mime);
   AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, width);
   AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, height);
   AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_MAX_INPUT_SIZE,
                         std::max(width * height, 2 << 20));
-  if (rotate_ && config.rotation != 0) {
+  if (rotation_ != 0) {
     // MediaCodec applies it as the buffers' transform when rendering into
     // the window. Clockwise, like VideoConfig::rotation. The key's constant,
     // AMEDIAFORMAT_KEY_ROTATION, is API 28; the key itself works from 23.
-    AMediaFormat_setInt32(format, "rotation-degrees", config.rotation);
+    AMediaFormat_setInt32(format, "rotation-degrees", rotation_);
   }
   // Parameter sets also go in band before every keyframe; codec specific
   // data covers decoders that want them at configure time.
   std::vector<uint8_t> csd[2];
-  for (const auto& nal : converter_.parameter_sets()) {
+  for (const auto& nal : parameter_sets) {
     const int type = converter_.NalType(nal);
     // H.264: SPS in csd-0, PPS in csd-1. HEVC: all in csd-0.
     const int slot = !converter_.hevc() && type == 8 ? 1 : 0;
@@ -243,6 +295,59 @@ bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
   return true;
 }
 
+bool MediaCodecVideoDecoder::Restart(int width,
+                                     int height,
+                                     const OutputCallback& output) {
+  // Codecs should take a new size in band and report it as a new output
+  // format, but some draw the new size into the old buffers (the
+  // emulator's c2.goldfish.h264.decoder: a 640x360 picture in the corner of
+  // a 1280x720 one). A new codec decodes any size; this is what ExoPlayer
+  // does for codecs without adaptive playback, and VideoToolbox's path for
+  // a new resolution (vt_video_decoder.cc).
+  LOGI("coded size %dx%d -> %dx%d: restarting the codec", coded_width_,
+       coded_height_, width, height);
+  if (queued_) {
+    // Frames decoded so far go out. The window takes one producer at a time,
+    // so the new codec starts once they have been shown (or dropped).
+    if (!DrainToEnd(output)) {
+      return false;
+    }
+    const int64_t deadline = MonotonicMicros() + kRestartTimeoutUs;
+    for (;;) {
+      {
+        std::lock_guard<std::mutex> lock(codec_->mutex);
+        if (codec_->outstanding == 0) {
+          break;
+        }
+      }
+      if (MonotonicMicros() >= deadline) {
+        LOGW("frames of the old codec not shown in time; dropping them");
+        break;
+      }
+      usleep(5000);
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lock(codec_->mutex);
+    AMediaCodec_stop(codec_->codec);
+    AMediaCodec_delete(codec_->codec);
+    codec_->codec = nullptr;
+    codec_->epoch++;
+    codec_->outstanding = 0;
+  }
+  durations_.clear();
+  end_of_stream_ = false;
+  inputs_without_output_ = 0;
+  queued_ = false;
+  std::string error;
+  if (!CreateCodec(width, height, InBandParameterSets(annexb_, converter_),
+                   &error)) {
+    LOGE("%s", error.c_str());
+    return false;
+  }
+  return true;
+}
+
 void MediaCodecVideoDecoder::SetVideoSurface(std::shared_ptr<void> surface) {
   std::lock_guard<std::mutex> lock(codec_->mutex);
   surface_ = std::move(surface);
@@ -264,20 +369,7 @@ void MediaCodecVideoDecoder::SetVideoSurface(std::shared_ptr<void> surface) {
 bool MediaCodecVideoDecoder::Decode(const EncodedPacket& packet,
                                     const OutputCallback& output) {
   if (packet.end_of_stream) {
-    if (!QueueInput(nullptr, 0, last_pts_, AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM,
-                    output)) {
-      return false;
-    }
-    const int64_t deadline = MonotonicMicros() + kEndOfStreamTimeoutUs;
-    while (!end_of_stream_ && MonotonicMicros() < deadline) {
-      if (!DrainOutput(output)) {
-        return false;
-      }
-      if (!end_of_stream_) {
-        usleep(kDequeueTimeoutUs);
-      }
-    }
-    return true;
+    return DrainToEnd(output);
   }
 
   annexb_.clear();
@@ -286,6 +378,15 @@ bool MediaCodecVideoDecoder::Decode(const EncodedPacket& packet,
     LOGW("skipping a malformed packet at %lld",
          static_cast<long long>(packet.pts));
     return true;
+  }
+  AccessUnitInfo access_unit;
+  if (ParseAccessUnit(annexb_.data(), annexb_.size(), converter_.hevc(),
+                      &access_unit) &&
+      access_unit.has_sps &&
+      (access_unit.width != coded_width_ ||
+       access_unit.height != coded_height_) &&
+      !Restart(access_unit.width, access_unit.height, output)) {
+    return false;
   }
   int64_t pts = packet.pts != kNoTimestamp ? packet.pts : packet.dts;
   if (pts == kNoTimestamp) {
@@ -304,6 +405,23 @@ bool MediaCodecVideoDecoder::Decode(const EncodedPacket& packet,
   }
   return QueueInput(annexb_.data(), annexb_.size(), pts, 0, output) &&
          DrainOutput(output);
+}
+
+bool MediaCodecVideoDecoder::DrainToEnd(const OutputCallback& output) {
+  if (!QueueInput(nullptr, 0, last_pts_, AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM,
+                  output)) {
+    return false;
+  }
+  const int64_t deadline = MonotonicMicros() + kEndOfStreamTimeoutUs;
+  while (!end_of_stream_ && MonotonicMicros() < deadline) {
+    if (!DrainOutput(output)) {
+      return false;
+    }
+    if (!end_of_stream_) {
+      usleep(kDequeueTimeoutUs);
+    }
+  }
+  return true;
 }
 
 bool MediaCodecVideoDecoder::QueueInput(const uint8_t* data,
@@ -341,6 +459,7 @@ bool MediaCodecVideoDecoder::QueueInput(const uint8_t* data,
       LOGE("queueInputBuffer failed: %d", status);
       return false;
     }
+    queued_ = true;
     return true;
   }
 }
@@ -399,15 +518,18 @@ bool MediaCodecVideoDecoder::DrainOutput(const OutputCallback& output) {
 void MediaCodecVideoDecoder::Flush() {
   {
     std::lock_guard<std::mutex> lock(codec_->mutex);
-    media_status_t status = AMediaCodec_flush(codec_->codec);
+    media_status_t status =
+        codec_->codec ? AMediaCodec_flush(codec_->codec) : AMEDIA_OK;
     if (status != AMEDIA_OK) {
       LOGW("flush failed: %d", status);
     }
     codec_->epoch++;
+    codec_->outstanding = 0;
   }
   durations_.clear();
   end_of_stream_ = false;
   inputs_without_output_ = 0;
+  queued_ = false;
 }
 
 }  // namespace lychee

@@ -55,12 +55,24 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   struct Codec {
     std::mutex mutex;
     AMediaCodec* codec = nullptr;
-    // Bumped by every flush, which invalidates outstanding indices (and
-    // MediaCodec reuses them).
+    // Bumped by every flush and restart, which invalidates outstanding
+    // indices (and MediaCodec reuses them).
     uint64_t epoch = 0;
+    // Output buffers of this epoch not released yet.
+    int outstanding = 0;
   };
 
  private:
+  // Creates, configures and starts the codec.
+  bool CreateCodec(int width,
+                   int height,
+                   const std::vector<std::vector<uint8_t>>& parameter_sets,
+                   std::string* error);
+  // Replaces the codec with one for a new coded size, after the frames
+  // decoded so far.
+  bool Restart(int width, int height, const OutputCallback& output);
+  // Sends end of stream and hands out the frames before it.
+  bool DrainToEnd(const OutputCallback& output);
   // Waits for an input buffer, handing out decoded frames meanwhile.
   bool QueueInput(const uint8_t* data,
                   size_t size,
@@ -80,6 +92,7 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   // Guarded by codec_->mutex.
   std::shared_ptr<void> surface_;
   const bool rotate_;
+  int rotation_ = 0;
   ANativeWindow* window_ = nullptr;
   AImageReader* placeholder_ = nullptr;
   int coded_width_ = 0;
@@ -91,6 +104,8 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   std::deque<std::pair<int64_t, int64_t>> durations_;
   int64_t last_pts_ = 0;
   bool end_of_stream_ = false;
+  // Input queued since the codec started or was flushed.
+  bool queued_ = false;
   // Packets queued since the last frame (or flush).
   int inputs_without_output_ = 0;
 };
