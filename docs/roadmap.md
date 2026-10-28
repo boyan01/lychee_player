@@ -179,9 +179,12 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
      on an emulator; the core and `examples/glfw` on `windows-latest`.
    - **Frame checks** by pixels for the Swift and Android examples, as
      `examples/glfw --snapshot` has.
-   - **Performance benchmarks**: decode and frame-conversion throughput,
-     seek latency and memory per resolution on the virtual clock, kept
-     per commit.
+   - **Performance benchmarks**: `tool/bench.sh` measures them on one
+     machine, by hand; left are running it per commit on the idle
+     self-hosted Mac and keeping the table somewhere CI can compare.
+     VideoToolbox through FFmpeg decodes 1080p H.264 at ~210 fps on the
+     virtual clock against software's ~970 (M-series, 2026-10-28): one
+     frame at a time, which is enough to play but not to scrub fast.
    - **Soak tests**: hours of looping, seeking and file switching on each
      platform's harness, checking memory and thread counts stay flat.
    - **Supply chain**: build provenance attestations and an SBOM for

@@ -75,6 +75,8 @@ while IFS= read -r f; do
     .github/workflows/ci.yml | tool/changes.sh) mark ci ;;
     # CI's format job checks every push.
     .clang-format | .editorconfig | tool/format.sh) ;;
+    # Run by hand on an idle machine; Dependabot reads its config itself.
+    tool/bench.sh | .github/dependabot.yml) ;;
     # Changes to the checker also exercise its CI job.
     .clang-tidy | tool/tidy.sh) mark core ;;
     .github/workflows/*) mark packaging ;;

@@ -1007,6 +1007,13 @@ int main(int argc, char** argv) {
   if (options.rate_after < 0) {
     lychee_player_set_rate(player, options.rate);
   }
+  // Wall-clock latencies, which the virtual clock hides: from the open to
+  // the first frame pulled, and from the seek to the first frame after it.
+  const auto wall_now = [] { return std::chrono::steady_clock::now(); };
+  const auto wall_open = wall_now();
+  auto wall_seek = wall_open;
+  double open_ms = -1;
+  double seek_ms = -1;
   std::unique_ptr<LiveFeed> live;
   if (options.live) {
     live = std::make_unique<LiveFeed>(options, player);
@@ -1231,6 +1238,9 @@ int main(int argc, char** argv) {
         if (seek_issued && first_pts_after_seek == INT64_MIN &&
             discontinuity) {
           first_pts_after_seek = pts;
+          seek_ms =
+              std::chrono::duration<double, std::milli>(wall_now() - wall_seek)
+                  .count();
         } else if (looping && last_pts != INT64_MIN &&
                    pts < last_pts - 1000000) {
           // Looped back to the start.
@@ -1238,7 +1248,11 @@ int main(int argc, char** argv) {
           backward_jumps++;
         }
         last_pts = pts;
-        frames_pulled++;
+        if (frames_pulled++ == 0) {
+          open_ms =
+              std::chrono::duration<double, std::milli>(wall_now() - wall_open)
+                  .count();
+        }
         if (next_snapshot < options.snapshots.size()) {
           // On screen until the next one: a snapshot may be due before.
           if (shown) lychee_frame_release(shown);
@@ -1430,6 +1444,7 @@ int main(int argc, char** argv) {
       lychee_player_seek(player, static_cast<int64_t>(options.seek_to * 1e6));
       seek_issued = true;
       seek_issued_at = now;
+      wall_seek = wall_now();
     }
     if (seek_issued && g_seek_completed == 1) {
       g_seek_completed = 2;
@@ -1510,6 +1525,15 @@ int main(int argc, char** argv) {
   if (audio_onset != INT64_MIN) {
     printf(" audio_onset=%.4fs", audio_onset / 1e6);
   }
+  // Last: cases match the fields above in order.
+  if (open_ms >= 0) {
+    printf(" open_ms=%.1f", open_ms);
+  }
+  if (seek_ms >= 0) {
+    printf(" seek_ms=%.1f", seek_ms);
+  }
+  printf(" wall=%.3fs",
+         std::chrono::duration<double>(wall_now() - wall_open).count());
   printf("\n");
   if (center_pixel[0] >= 0) {
     printf("center pixel: %d,%d,%d\n", center_pixel[0], center_pixel[1],

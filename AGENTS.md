@@ -226,6 +226,10 @@ What each area needs (run `tool/changes.sh`):
   and UndefinedBehaviorSanitizer) yourself. `COVERAGE=1
   tool/regression.sh` shows which lines of `core/src` no test reaches
   (`build-coverage/coverage/index.html`); look at it when adding tests.
+  For changes meant to be faster (decoding, conversion, seeking), compare
+  `tool/bench.sh` before and after on an idle machine (fps, open and
+  seek latency, peak memory per resolution; rows kept in
+  `build-release/bench.tsv`).
 - **threads** (`pipeline/`, the C API, teardown): also `TSAN=1
   tool/regression.sh` (it fails on any ThreadSanitizer report).
 - **parsers** (the FFmpeg-free demuxers): also `NO_FFMPEG=1
