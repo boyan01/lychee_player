@@ -56,8 +56,10 @@ too), Matroska/WebM, MPEG-TS and HLS (TS and fMP4 segments, AES-128,
 audio renditions, variants as video tracks), from files and http(s)
 URLs, with
 H.264/HEVC (VideoToolbox), AAC/ALAC (AudioToolbox) and tx3g subtitles;
-`NO_FFMPEG=1 tool/regression.sh` tests it. On Windows it plays MP4 files
-with H.264/HEVC and AAC through Media Foundation, on a GPU only.
+`NO_FFMPEG=1 tool/regression.sh` tests it. On Windows it plays the same
+containers with H.264/HEVC (Media Foundation, on the GPU or the CPU), AAC
+and MP3, and text subtitles; the Flutter plugin builds it so with
+`LYCHEE_WITH_FFMPEG=OFF` in the environment of `flutter build windows`.
 
 ```sh
 cmake -S . -B build -G Ninja
@@ -102,7 +104,10 @@ frame was fitted into). On
 Windows the same program (`main_win.cc`) draws with Direct3D 11 the frames
 the Flutter plugin takes: shared D3D11 textures on the adapter it draws
 with, CPU BGRA frames otherwise (`--cpu` forces them, `--no-hw` decodes in
-software); its summary also counts the frames of each kind. CMake
+software); its summary also counts the frames of each kind and the
+device losses (it makes a new device after a GPU reset), and `--adapter
+SEC:N` moves it to the Nth DXGI adapter at SEC seconds, as a window moved
+to a display on another GPU. CMake
 downloads GLFW 3.4 there (hash-pinned; `-DLYCHEE_FETCH_GLFW=OFF` skips the
 example). On Linux (`main_linux.cc`; needs `libglfw3-dev`, `libegl-dev` and
 `libgles-dev`) it draws with OpenGL ES 3 on EGL, as the Flutter plugin
@@ -317,7 +322,13 @@ binary. On macOS `liblychee` and the FFmpeg libraries have `@rpath`
 install names: copy `liblychee.dylib` and the five FFmpeg libraries
 (`libavcodec.63.dylib`, ...) next to the binary and link it with
 `-C link-arg=-Wl,-rpath,@executable_path` (`@executable_path/../Frameworks`
-in an app bundle).
+in an app bundle). On Windows build in a Visual Studio developer prompt
+with `LYCHEE_FFMPEG_ROOT` set (`tool/build_ffmpeg.sh windows-x86_64`, or
+the release's `ffmpeg-windows-x86_64.zip`); `LYCHEE_LIB_DIR` there needs
+`lychee.lib` beside `lychee.dll`. Windows finds DLLs next to the binary or
+on `PATH`: put FFmpeg's `bin/` (and a `LYCHEE_LIB_DIR` outside `target/`)
+there for `cargo test`, and ship `lychee.dll` and the FFmpeg DLLs next to
+the binary. The test reads the media from `MEDIA_DIR` if set.
 
 For iOS, point `LYCHEE_LIB_DIR` at a slice of `lychee.xcframework` (or
 `lychee_noffmpeg.xcframework`, which needs no FFmpeg), from
@@ -470,7 +481,7 @@ tool/release.sh build android /tmp/sources && tool/release.sh pack android /tmp/
 tool/release.sh build windows /tmp/sources && tool/release.sh pack windows /tmp/dist  # on Linux
 tool/release.sh build linux /tmp/sources && tool/release.sh pack linux /tmp/dist  # on Ubuntu 22.04
 tool/release.sh sources /tmp/dist && tool/release.sh pin /tmp/dist
-tool/release.sh check /tmp/dist   # then git checkout the pins
+tool/release.sh check /tmp/dist   # then git checkout the pins; in Git Bash on Windows it builds a Windows app
 ```
 
 Once per repository: a deploy key with write access whose private key is

@@ -220,8 +220,10 @@ What each area needs (run `tool/changes.sh`):
 - **core**: build and run the unit tests plus the cases the change
   touches (`ONLY=...`, seconds) while iterating; the full
   `tool/regression.sh` once, when done, with zero build warnings
-  (`-Wall -Wextra` and more, top-level `CMakeLists.txt`; GCC and clang
-  differ, so a Linux run can find what macOS does not). CI runs
+  (`-Wall -Wextra` and more, MSVC `/W4`, `core/CMakeLists.txt`; GCC,
+  clang and MSVC differ, so a Linux or Windows run can find what macOS
+  does not; the plugins' and the Android SDK's builds of the core make
+  them errors). CI runs
   `NO_HW=1` plain, TSan and ASan on every core change, so leave those to
   it unless an area below asks for them. For changes to buffers, parsers
   or object lifetimes, run `ASAN=1 tool/regression.sh` (AddressSanitizer
@@ -455,6 +457,10 @@ jobs: those stay local.
 - Threads the core starts inherit the creator's priority, which on Android is
   the platform thread's (nice -10). Plugin threads that pull frames must run
   at display priority or software decoding starves them.
+- On the Windows PC, `VSINSTALLDIR` is set without its trailing
+  backslash, which breaks `vcvars64.bat` (no `cl` on PATH): clear it
+  first (`set VSINSTALLDIR=`). `tool/regression.sh` runs there in Git
+  Bash from that environment (the script's header).
 - A window started over ssh on Windows is invisible: run GUI programs
   (`lychee_glfw`, the Flutter example) from a scheduled task in the
   logged-in session, keep them topmost without activating them, and take

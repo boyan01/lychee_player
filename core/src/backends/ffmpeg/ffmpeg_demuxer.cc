@@ -153,6 +153,11 @@ bool ReadsThroughDataSource(const std::string& url) {
   if (colon == std::string::npos || url.find('/') < colon) {
     return true;  // A path.
   }
+#if defined(_WIN32)
+  if (colon == 1 && isalpha(static_cast<unsigned char>(url[0]))) {
+    return true;  // C:/dir/file or C:\dir\file.
+  }
+#endif
   if (url.compare(colon, 3, "://") != 0) {
     return false;
   }
@@ -330,8 +335,9 @@ void FFmpegDemuxer::BuildMediaInfo() {
   const AVDictionaryEntry* tag = nullptr;
   while ((tag = av_dict_iterate(ic->metadata, tag))) {
     std::string key = tag->key;
-    std::transform(key.begin(), key.end(), key.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+    std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) {
+      return static_cast<char>(std::tolower(c));
+    });
     media_info_.metadata.emplace_back(std::move(key), tag->value);
   }
 

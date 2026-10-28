@@ -65,7 +65,7 @@ TEST(AnnexBConverter, ParsesHvcC) {
   hvcc[0] = 1;
   hvcc[21] = 0xff;  // lengthSizeMinusOne = 3
   hvcc[22] = 2;     // arrays: VPS, SPS
-  for (uint8_t type : {32, 33}) {
+  for (const uint8_t type : {uint8_t{32}, uint8_t{33}}) {
     const uint8_t header = static_cast<uint8_t>(type << 1);
     hvcc.insert(hvcc.end(), {type, 0, 1, 0, 3, header, 1, 0xcc});
   }

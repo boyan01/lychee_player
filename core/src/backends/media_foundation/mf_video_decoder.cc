@@ -6,6 +6,8 @@
 #include <d3d10.h>
 #include <wmcodecdsp.h>
 
+#include <algorithm>
+
 #include "base/log.h"
 
 namespace lychee {
@@ -87,8 +89,11 @@ ColorInfo OutputColor(IMFMediaType* type, ColorInfo color) {
 
 }  // namespace
 
-MFVideoDecoder::MFVideoDecoder(uint32_t accepted_storage, VideoDevice device)
+MFVideoDecoder::MFVideoDecoder(uint32_t accepted_storage,
+                               VideoDevice device,
+                               bool hardware)
     : device_(std::move(device)),
+      hardware_(hardware),
       output_textures_(
           device_.type == VideoDevice::Type::kD3D11Adapter &&
           (accepted_storage &
@@ -122,7 +127,8 @@ bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
   }
   ComPtr<IMFAttributes> attributes;
   if (FAILED(decoder_->GetAttributes(&attributes)) ||
-      !MFGetAttributeUINT32(attributes.Get(), MF_SA_D3D11_AWARE, FALSE)) {
+      (hardware_ &&
+       !MFGetAttributeUINT32(attributes.Get(), MF_SA_D3D11_AWARE, FALSE))) {
     *error = "mediafoundation: the decoder cannot decode on D3D11";
     return false;
   }
@@ -132,10 +138,12 @@ bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
   if (!CreateDevice(error)) {
     return false;
   }
-  HRESULT hr = decoder_->ProcessMessage(
-      MFT_MESSAGE_SET_D3D_MANAGER,
-      reinterpret_cast<ULONG_PTR>(device_manager_.Get()));
-  if (FAILED(hr)) {
+  HRESULT hr = S_OK;
+  // Without a device manager the decoder decodes on the CPU.
+  if (hardware_ &&
+      FAILED(hr = decoder_->ProcessMessage(
+                 MFT_MESSAGE_SET_D3D_MANAGER,
+                 reinterpret_cast<ULONG_PTR>(device_manager_.Get())))) {
     *error =
         "mediafoundation: MFT_MESSAGE_SET_D3D_MANAGER: " + HResultString(hr);
     return false;
@@ -165,8 +173,8 @@ bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
   SetOutputType();
   decoder_->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
   decoder_->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
-  LOGI("%s decoder opened for %s %dx%d", name(), hevc ? "hevc" : "h264",
-       config.width, config.height);
+  LOGI("%s decoder opened for %s %dx%d%s", name(), hevc ? "hevc" : "h264",
+       config.width, config.height, hardware_ ? "" : " (software)");
   return true;
 }
 
@@ -178,6 +186,12 @@ bool MFVideoDecoder::CreateDevice(std::string* error) {
       adapter, adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
       nullptr, D3D11_CREATE_DEVICE_VIDEO_SUPPORT, nullptr, 0, D3D11_SDK_VERSION,
       &d3d11_device_, nullptr, nullptr);
+  if (FAILED(hr) && !hardware_ && !adapter) {
+    // No GPU: software decoding converts frames on WARP.
+    hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
+                           D3D11_CREATE_DEVICE_VIDEO_SUPPORT, nullptr, 0,
+                           D3D11_SDK_VERSION, &d3d11_device_, nullptr, nullptr);
+  }
   if (FAILED(hr)) {
     *error = "mediafoundation: D3D11CreateDevice: " + HResultString(hr);
     return false;
@@ -211,6 +225,10 @@ bool MFVideoDecoder::SetOutputType() {
     UINT32 width = 0;
     UINT32 height = 0;
     MFGetAttributeSize(type.Get(), MF_MT_FRAME_SIZE, &width, &height);
+    format_ =
+        subtype == MFVideoFormat_P010 ? DXGI_FORMAT_P010 : DXGI_FORMAT_NV12;
+    coded_width_ = static_cast<int>(width);
+    coded_height_ = static_cast<int>(height);
     // Coded sizes are whole macroblocks (1088 lines for 1080p); the
     // aperture is the picture.
     MFVideoArea area = {};
@@ -283,10 +301,22 @@ bool MFVideoDecoder::Decode(const EncodedPacket& packet,
 bool MFVideoDecoder::Drain(const OutputCallback& output) {
   for (;;) {
     MFT_OUTPUT_DATA_BUFFER buffer = {};
+    ComPtr<IMFSample> sample;
+    if (!hardware_ && !provides_samples_) {
+      // A software decoder writes into a sample of ours.
+      MFT_OUTPUT_STREAM_INFO info = {};
+      decoder_->GetOutputStreamInfo(0, &info);
+      sample = CreateMFOutputSample(std::max<DWORD>(info.cbSize, 1));
+      if (!sample) {
+        return false;
+      }
+      buffer.pSample = sample.Get();
+    }
     DWORD status = 0;
     HRESULT hr = decoder_->ProcessOutput(0, 1, &buffer, &status);
-    ComPtr<IMFSample> sample;
-    sample.Attach(buffer.pSample);
+    if (buffer.pSample != sample.Get()) {
+      sample.Attach(buffer.pSample);
+    }
     if (buffer.pEvents) {
       buffer.pEvents->Release();
     }
@@ -304,7 +334,7 @@ bool MFVideoDecoder::Drain(const OutputCallback& output) {
       LOGW("%s: ProcessOutput: %s", name(), HResultString(hr).c_str());
       return false;
     }
-    if (!provides_samples_) {
+    if (hardware_ && !provides_samples_) {
       // Decoding to system memory: the GPU is not decoding.
       LOGW("%s: the decoder does not decode on the GPU", name());
       return false;
@@ -324,17 +354,85 @@ bool MFVideoDecoder::Drain(const OutputCallback& output) {
   }
 }
 
-std::shared_ptr<VideoFrame> MFVideoDecoder::CreateFrame(IMFSample* sample) {
+bool MFVideoDecoder::Upload(IMFSample* sample) {
+  if (coded_width_ <= 0 || coded_height_ <= 0) {
+    return false;
+  }
+  D3D11_TEXTURE2D_DESC desc = {};
+  if (upload_) {
+    upload_->GetDesc(&desc);
+  }
+  if (!upload_ || desc.Format != format_ ||
+      desc.Width != static_cast<UINT>(coded_width_) ||
+      desc.Height != static_cast<UINT>(coded_height_)) {
+    upload_.Reset();
+    desc = {};
+    desc.Width = static_cast<UINT>(coded_width_);
+    desc.Height = static_cast<UINT>(coded_height_);
+    desc.MipLevels = desc.ArraySize = 1;
+    desc.Format = format_;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    if (FAILED(d3d11_device_->CreateTexture2D(&desc, nullptr, &upload_))) {
+      LOGW("%s: cannot make a %dx%d upload texture", name(), coded_width_,
+           coded_height_);
+      return false;
+    }
+  }
   ComPtr<IMFMediaBuffer> buffer;
-  ComPtr<IMFDXGIBuffer> dxgi;
+  if (FAILED(sample->ConvertToContiguousBuffer(&buffer))) {
+    return false;
+  }
+  // Both planes, the chroma right after the coded height of luma rows,
+  // which is how UpdateSubresource() takes planar formats.
+  const LONG row_bytes = coded_width_ * (format_ == DXGI_FORMAT_P010 ? 2 : 1);
+  ComPtr<IMF2DBuffer> buffer_2d;
+  BYTE* data = nullptr;
+  LONG pitch = 0;
+  DWORD length = 0;
+  bool ok = false;
+  if (SUCCEEDED(buffer.As(&buffer_2d)) &&
+      SUCCEEDED(buffer_2d->Lock2D(&data, &pitch))) {
+    ok = pitch >= row_bytes;
+    if (ok) {
+      ComPtr<ID3D11DeviceContext> context;
+      d3d11_device_->GetImmediateContext(&context);
+      context->UpdateSubresource(upload_.Get(), 0, nullptr, data,
+                                 static_cast<UINT>(pitch), 0);
+    }
+    buffer_2d->Unlock2D();
+  } else if (SUCCEEDED(buffer->Lock(&data, nullptr, &length))) {
+    ok = length >= static_cast<DWORD>(row_bytes) * coded_height_ * 3 / 2;
+    if (ok) {
+      ComPtr<ID3D11DeviceContext> context;
+      d3d11_device_->GetImmediateContext(&context);
+      context->UpdateSubresource(upload_.Get(), 0, nullptr, data,
+                                 static_cast<UINT>(row_bytes), 0);
+    }
+    buffer->Unlock();
+  }
+  return ok;
+}
+
+std::shared_ptr<VideoFrame> MFVideoDecoder::CreateFrame(IMFSample* sample) {
   ComPtr<ID3D11Texture2D> texture;
   UINT slice = 0;
-  if (FAILED(sample->GetBufferByIndex(0, &buffer)) ||
-      FAILED(buffer.As(&dxgi)) ||
-      FAILED(dxgi->GetResource(IID_PPV_ARGS(&texture))) ||
-      FAILED(dxgi->GetSubresourceIndex(&slice))) {
-    LOGW("%s: output is not a D3D11 texture", name());
-    return nullptr;
+  if (!hardware_) {
+    if (!Upload(sample)) {
+      LOGW("%s: cannot upload a frame", name());
+      return nullptr;
+    }
+    texture = upload_;
+  } else {
+    ComPtr<IMFMediaBuffer> buffer;
+    ComPtr<IMFDXGIBuffer> dxgi;
+    if (FAILED(sample->GetBufferByIndex(0, &buffer)) ||
+        FAILED(buffer.As(&dxgi)) ||
+        FAILED(dxgi->GetResource(IID_PPV_ARGS(&texture))) ||
+        FAILED(dxgi->GetSubresourceIndex(&slice))) {
+      LOGW("%s: output is not a D3D11 texture", name());
+      return nullptr;
+    }
   }
   std::shared_ptr<VideoFrame> frame =
       processor_.Convert(texture.Get(), slice, width_, height_, color_space_);

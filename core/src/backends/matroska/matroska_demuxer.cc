@@ -1062,8 +1062,9 @@ void MatroskaDemuxer::ParseTags(const std::vector<uint8_t>& body) {
       if (key.empty() || value.empty()) {
         continue;
       }
-      std::transform(key.begin(), key.end(), key.begin(),
-                     [](unsigned char c) { return std::tolower(c); });
+      std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+      });
       auto same =
           std::find_if(media_info_.metadata.begin(), media_info_.metadata.end(),
                        [&](const auto& entry) { return entry.first == key; });

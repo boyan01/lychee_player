@@ -70,6 +70,7 @@ endforeach()
 
 # --- Core -----------------------------------------------------------------
 set(BUILD_SHARED_LIBS ON)
+set(LYCHEE_WARNINGS_AS_ERRORS ON)
 add_subdirectory("${_lychee_core}" "${CMAKE_CURRENT_BINARY_DIR}/core")
 unset(BUILD_SHARED_LIBS)
 # Export the C ABI only: libstdc++'s inline templates would otherwise leak

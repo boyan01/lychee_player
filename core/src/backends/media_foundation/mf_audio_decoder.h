@@ -8,8 +8,9 @@
 
 namespace lychee {
 
-// AAC (as MP4 stores it: raw, with an AudioSpecificConfig) through Media
-// Foundation's AAC decoder, for builds without FFmpeg. Media Foundation's
+// AAC (raw with an AudioSpecificConfig, as MP4 stores it, or in ADTS, as
+// MPEG-TS does) and MP3 through Media Foundation's decoders, for builds
+// without FFmpeg. Media Foundation's
 // resampler converts to the sink's rate and channels when they differ.
 class MFAudioDecoder : public AudioDecoder {
  public:
@@ -25,6 +26,8 @@ class MFAudioDecoder : public AudioDecoder {
   void Flush() override;
 
  private:
+  // Creates |decoder_| for |config_|; |asc| is AAC's AudioSpecificConfig.
+  bool Open(const std::vector<uint8_t>& asc, std::string* error);
   // Picks the decoder's output type and, if it is not the sink's format,
   // sets up |resampler_|.
   bool SetUpOutput();
@@ -38,6 +41,7 @@ class MFAudioDecoder : public AudioDecoder {
                const OutputCallback& output);
   void Emit(IMFSample* sample, const OutputCallback& output);
 
+  AudioConfig config_;
   AudioOutputFormat output_format_;
   Microsoft::WRL::ComPtr<IMFTransform> decoder_;
   Microsoft::WRL::ComPtr<IMFTransform> resampler_;

@@ -146,22 +146,41 @@ class Renderer {
     if (frame_) lychee_frame_release(frame_);
   }
 
-  // Creates the device on the first adapter, which the player then decodes
-  // on and makes its textures for, as the plugin passes Flutter's adapter.
   bool Init(GLFWwindow* window, lychee_player* player, bool cpu) {
     window_ = window;
     player_ = player;
-    HWND hwnd = glfwGetWin32Window(window);
+    cpu_ = cpu;
+    return CreateDevice();
+  }
+
+  // Moves to adapter |index| (--adapter), as when the window goes to a
+  // display on another GPU and the plugin passes Flutter's new adapter.
+  bool SwitchAdapter(UINT index) {
+    adapter_index_ = index;
+    return CreateDevice();
+  }
+
+  // Creates the device on the adapter, the first unless --adapter moved it,
+  // which the player then decodes on and makes its textures for, as the
+  // plugin passes Flutter's adapter. Again after a GPU reset (TDR) removed
+  // the device.
+  bool CreateDevice() {
+    ReleaseDevice();
+    HWND hwnd = glfwGetWin32Window(window_);
     ComPtr<IDXGIFactory2> factory;
     ComPtr<IDXGIAdapter1> adapter;
     if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) ||
-        FAILED(factory->EnumAdapters1(0, &adapter)) ||
+        FAILED(factory->EnumAdapters1(adapter_index_, &adapter)) ||
         FAILED(D3D11CreateDevice(adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN,
                                  nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
                                  &device_, nullptr, &context_))) {
       fprintf(stderr, "no D3D11 device\n");
       return false;
     }
+    DXGI_ADAPTER_DESC1 adapter_desc = {};
+    adapter->GetDesc1(&adapter_desc);
+    printf("adapter %u: %ls\n", adapter_index_, adapter_desc.Description);
+    fflush(stdout);
 
     // Flip model with a frame latency of one: once the waitable object is
     // signalled, what we draw is shown at the next vblank.
@@ -207,20 +226,30 @@ class Renderer {
       return false;
     }
 
-    if (!cpu) {
+    if (!cpu_) {
+      // After a reset too: the player's textures must open on the new
+      // device.
       lychee_video_device video_device = {};
       video_device.struct_size = sizeof(video_device);
       video_device.type = LYCHEE_VIDEO_DEVICE_D3D11_ADAPTER;
       video_device.handle = adapter.Get();
-      lychee_player_set_video_device(player, &video_device);
+      lychee_player_set_video_device(player_, &video_device);
     }
     return true;
   }
 
   // Waits until the swap chain takes the next frame: about once a vsync.
-  void Wait() { WaitForSingleObjectEx(waitable_, 100, TRUE); }
+  void Wait() {
+    if (waitable_) {
+      WaitForSingleObjectEx(waitable_, 100, TRUE);
+    } else {
+      Sleep(16);
+    }
+  }
 
   void Draw() {
+    // Lost to a GPU reset: a new device once the GPU is back.
+    if (!device_ && !CreateDevice()) return;
     int width = 0, height = 0;
     glfwGetFramebufferSize(window_, &width, &height);
     if (width <= 0 || height <= 0) return;  // Minimized.
@@ -282,7 +311,39 @@ class Renderer {
         ReadBack(columns, rows);
       }
     }
-    swap_chain_->Present(1, 0);
+    const HRESULT hr = swap_chain_->Present(1, 0);
+    if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
+      printf("device lost: 0x%08lx, recreating\n",
+             static_cast<unsigned long>(device_->GetDeviceRemovedReason()));
+      fflush(stdout);
+      ++device_losses_;
+      ReleaseDevice();
+    }
+  }
+
+  // Drops the device and everything made on it.
+  void ReleaseDevice() {
+    if (frame_) lychee_frame_release(frame_);
+    frame_ = nullptr;
+    view_.Reset();
+    upload_.Reset();
+    target_.Reset();
+    width_ = height_ = 0;
+    vertex_shader_.Reset();
+    pixel_shader_.Reset();
+    params_.Reset();
+    sampler_.Reset();
+    if (waitable_) CloseHandle(waitable_);
+    waitable_ = nullptr;
+    // The window takes a new flip-model swap chain only once the old one
+    // is gone.
+    if (context_) {
+      context_->ClearState();
+      context_->Flush();
+    }
+    swap_chain_.Reset();
+    context_.Reset();
+    device_.Reset();
   }
 
   // Writes the next drawn frame to |path| once the player has shown one.
@@ -293,6 +354,7 @@ class Renderer {
 
   int64_t d3d11_frames() const { return d3d11_frames_; }
   int64_t cpu_frames() const { return cpu_frames_; }
+  int64_t device_losses() const { return device_losses_; }
 
  private:
   // Reads back what was drawn, through a staging copy of the back buffer.
@@ -417,6 +479,8 @@ class Renderer {
 
   GLFWwindow* window_ = nullptr;
   lychee_player* player_ = nullptr;
+  bool cpu_ = false;
+  UINT adapter_index_ = 0;
   ComPtr<ID3D11Device> device_;
   ComPtr<ID3D11DeviceContext> context_;
   ComPtr<IDXGISwapChain2> swap_chain_;
@@ -437,6 +501,7 @@ class Renderer {
   float uv_scale_[2] = {1, 1};
   int64_t d3d11_frames_ = 0;
   int64_t cpu_frames_ = 0;
+  int64_t device_losses_ = 0;
 };
 
 void OnKey(GLFWwindow* window, int key, int, int action, int) {
@@ -483,6 +548,20 @@ bool ParseSnapshot(const std::string& arg, std::vector<Snapshot>* snapshots) {
   return true;
 }
 
+// --adapter SEC:N moves to adapter N at SEC seconds.
+struct AdapterSwitch {
+  double at;
+  UINT index;
+};
+
+bool ParseAdapter(const std::string& arg, std::vector<AdapterSwitch>* list) {
+  double at = 0;
+  unsigned index = 0;
+  if (sscanf(arg.c_str(), "%lf:%u", &at, &index) != 2) return false;
+  list->push_back({at, index});
+  return true;
+}
+
 bool ParseKey(const std::string& arg, std::vector<ScriptedKey>* keys) {
   const size_t colon = arg.find(':');
   if (colon == std::string::npos) return false;
@@ -507,6 +586,7 @@ int main(int argc, char** argv) {
   int window_width = 960, window_height = 540;
   std::vector<ScriptedKey> keys;
   std::vector<Snapshot> snapshots;
+  std::vector<AdapterSwitch> adapters;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--seconds" && i + 1 < argc) {
@@ -515,6 +595,9 @@ int main(int argc, char** argv) {
       ++i;
     } else if (arg == "--snapshot" && i + 1 < argc &&
                ParseSnapshot(argv[i + 1], &snapshots)) {
+      ++i;
+    } else if (arg == "--adapter" && i + 1 < argc &&
+               ParseAdapter(argv[i + 1], &adapters)) {
       ++i;
     } else if (arg == "--size" && i + 1 < argc &&
                sscanf(argv[i + 1], "%dx%d", &window_width, &window_height) ==
@@ -533,11 +616,13 @@ int main(int argc, char** argv) {
     }
   }
   if (url.empty()) {
-    fprintf(stderr,
-            "usage: %s [--seconds N] [--key SEC:space|left|right|escape]... "
-            "[--snapshot SEC:FILE]... [--size WxH] [--cpu] [--no-hw] "
-            "<file or url>\n",
-            argv[0]);
+    fprintf(
+        stderr,
+        "usage: %s [--seconds N] [--key SEC:space|left|right|escape]... "
+        "[--snapshot SEC:FILE]... [--adapter SEC:N]... [--size WxH] [--cpu] "
+        "[--no-hw] "
+        "<file or url>\n",
+        argv[0]);
     return 2;
   }
   std::stable_sort(
@@ -546,6 +631,10 @@ int main(int argc, char** argv) {
   std::stable_sort(
       snapshots.begin(), snapshots.end(),
       [](const Snapshot& a, const Snapshot& b) { return a.at < b.at; });
+  std::stable_sort(adapters.begin(), adapters.end(),
+                   [](const AdapterSwitch& a, const AdapterSwitch& b) {
+                     return a.at < b.at;
+                   });
 
   if (!glfwInit()) {
     fprintf(stderr, "glfwInit failed\n");
@@ -585,6 +674,7 @@ int main(int argc, char** argv) {
       const int64_t start = lychee_now_us();
       size_t next_key = 0;
       size_t next_snapshot = 0;
+      size_t next_adapter = 0;
       while (!glfwWindowShouldClose(window)) {
         renderer.Wait();
         glfwPollEvents();
@@ -600,6 +690,12 @@ int main(int argc, char** argv) {
             static_cast<double>(lychee_now_us() - start) / 1e6;
         while (next_key < keys.size() && elapsed >= keys[next_key].at) {
           OnKey(window, keys[next_key++].key, 0, GLFW_PRESS, 0);
+        }
+        while (next_adapter < adapters.size() &&
+               elapsed >= adapters[next_adapter].at) {
+          if (!renderer.SwitchAdapter(adapters[next_adapter++].index)) {
+            exit_code = 1;
+          }
         }
         // After the keys due at the same time.
         while (next_snapshot < snapshots.size() &&
@@ -626,13 +722,14 @@ int main(int argc, char** argv) {
     lychee_player_get_stats(player, &stats);
     printf(
         "summary: decoder=%s hw=%d rendered=%lld dropped=%lld position=%.3f "
-        "d3d11=%lld cpu=%lld\n",
+        "d3d11=%lld cpu=%lld device_losses=%lld\n",
         stats.video_decoder, stats.hardware_decoding,
         static_cast<long long>(stats.frames_rendered),
         static_cast<long long>(stats.frames_dropped),
         static_cast<double>(lychee_player_get_position(player)) / 1e6,
         static_cast<long long>(renderer.d3d11_frames()),
-        static_cast<long long>(renderer.cpu_frames()));
+        static_cast<long long>(renderer.cpu_frames()),
+        static_cast<long long>(renderer.device_losses()));
     // The renderer releases the frame it holds before the player goes.
   }
   lychee_player_destroy(player);

@@ -23,9 +23,12 @@
 #                                      and Package.swift
 #   tool/release.sh check OUT          build a fresh app against the package
 #                                      pub would publish, with OUT served as
-#                                      the release (macOS and iOS simulator
-#                                      with CocoaPods and with Swift Package
-#                                      Manager, Android)
+#                                      the release: on macOS for macOS and
+#                                      the iOS simulator (with CocoaPods and
+#                                      with Swift Package Manager) and
+#                                      Android; in Git Bash on Windows for
+#                                      Windows (OUT needs only
+#                                      ffmpeg-windows-x86_64.zip there)
 #   tool/release.sh verify             download what prebuilt.json pins from
 #                                      the release and check it
 #   tool/release.sh publish            flutter pub publish --force
@@ -63,6 +66,15 @@ ffmpeg_url=https://ffmpeg.org/releases/ffmpeg-$ffmpeg_version.tar.xz
 mbedtls_version=3.6.7
 mbedtls_sha256=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6
 mbedtls_url=https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$mbedtls_version/mbedtls-$mbedtls_version.tar.bz2
+
+windows=0
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    windows=1
+    # The Microsoft Store's python3.exe only opens the Store.
+    python3 -c '' 2>/dev/null || python3() { python "$@"; }
+    ;;
+esac
 
 die() { echo "release.sh: $*" >&2; exit 1; }
 sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
@@ -273,6 +285,8 @@ cmd_check() {
   v="$(version)"
   tag="v$v"
   tmp="$(mktemp -d)"
+  # Flutter and CMake on Windows take C:/... paths, which Git Bash reads too.
+  [ "$windows" = 0 ] || tmp="$(cd "$tmp" && pwd -W)"
   [ "$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["tag"])' "$manifest")" = "$tag" ] ||
     die "flutter/prebuilt.json does not pin $tag; run tool/release.sh pin $1"
 
@@ -285,7 +299,8 @@ cmd_check() {
     { sed -n '/^Validating package/,$p' "$tmp/pack.log"; die "the package has warnings"; }
   pkg="$tmp/lychee_player"
   mkdir "$pkg"
-  tar xzf "$tmp/package.tar.gz" -C "$pkg"
+  # From stdin: GNU tar takes C:/... for a remote host.
+  tar xzf - -C "$pkg" <"$tmp/package.tar.gz"
   [ -f "$pkg/core/CMakeLists.txt" ] || die "the package has no core/"
   [ -f "$pkg/core/THIRD_PARTY_NOTICES" ] || die "the package has no core/THIRD_PARTY_NOTICES"
   [ ! -e "$pkg/darwin/Frameworks" ] || die "the package carries darwin/Frameworks"
@@ -294,6 +309,23 @@ cmd_check() {
     die "the package has no copy of sdk/apple's sources"
   echo "$(du -sh "$tmp/package.tar.gz" | cut -f1) archive"
 
+  # The release, served from OUT; a fresh cache, so everything downloads.
+  mkdir -p "$tmp/mirror"
+  ln -s "$out" "$tmp/mirror/$tag"
+  port=$((20000 + RANDOM % 20000))
+  python3 -I -m http.server "$port" --bind 127.0.0.1 --directory "$tmp/mirror" >"$tmp/server.log" 2>&1 &
+  server=$!
+  # On Windows $server may be the subshell that runs python3() (above); a
+  # signal stops it but not the Python it started.
+  trap "{ [ ! -r /proc/$server/winpid ] || taskkill //F //T //PID \$(cat /proc/$server/winpid); kill $server; } >/dev/null 2>&1 || true" EXIT
+  export LYCHEE_PREBUILT_URL="http://127.0.0.1:$port" XDG_CACHE_HOME="$tmp/cache"
+  app="$tmp/lychee_check"
+
+  if [ "$windows" = 1 ]; then
+    check_windows
+    return
+  fi
+
   for f in "${release_frameworks[@]}"; do
     pinned="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["files"][sys.argv[2]])' \
       "$manifest" "$f.xcframework.zip")"
@@ -301,32 +333,7 @@ cmd_check() {
       die "SwiftPM's checksum of $f.xcframework.zip is not the pinned one"
   done
 
-  # The release, served from OUT; a fresh cache, so everything downloads.
-  mkdir -p "$tmp/mirror"
-  ln -s "$out" "$tmp/mirror/$tag"
-  port=$((20000 + RANDOM % 20000))
-  python3 -I -m http.server "$port" --bind 127.0.0.1 --directory "$tmp/mirror" >"$tmp/server.log" 2>&1 &
-  server=$!
-  trap "kill $server 2>/dev/null" EXIT
-  export LYCHEE_PREBUILT_URL="http://127.0.0.1:$port" XDG_CACHE_HOME="$tmp/cache"
-
-  echo "== fresh app"
-  app="$tmp/lychee_check"
-  flutter create --org tech.soit --platforms=macos,ios,android "$app" >"$tmp/create.log"
-  cd "$app"
-  flutter pub add "lychee_player:{path: $pkg}" >"$tmp/add.log"
-  cat >lib/main.dart <<'EOF'
-import 'package:flutter/material.dart';
-import 'package:lychee_player/lychee_player.dart';
-
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final player = await LycheePlayer.create();
-  player.open(const String.fromEnvironment('LYCHEE_URL'));
-  player.play();
-  runApp(MaterialApp(home: Scaffold(body: LycheeVideo(player))));
-}
-EOF
+  create_app macos,ios,android
   # The plugin's minimums (README).
   sed -i.bak -E 's/minSdk = .*/minSdk = 26/' android/app/build.gradle.kts
   perl -0pi -e 's/(\n *)(minSdk = 26)/$1$2$1if (project.findProperty("split-per-abi") != "true") { ndk { abiFilters.clear(); abiFilters += listOf("arm64-v8a", "x86_64") } }/' \
@@ -368,6 +375,45 @@ EOF
   grep -q "GET /$tag/lychee-$v.aar" "$tmp/server.log" && grep -q "GET /$tag/lychee.xcframework.zip" "$tmp/server.log" ||
     die "the builds did not download from the release"
   echo "ok: a fresh app builds with the package and the release of $tag ($tmp)"
+}
+
+# create_app PLATFORMS: a fresh app at $app on the package at $pkg, which
+# plays LYCHEE_URL; the current directory becomes the app's.
+create_app() {
+  echo "== fresh app"
+  flutter create --org tech.soit --platforms="$1" "$app" >"$tmp/create.log"
+  cd "$app"
+  flutter pub add "lychee_player:{path: $pkg}" >"$tmp/add.log"
+  cat >lib/main.dart <<'EOF'
+import 'package:flutter/material.dart';
+import 'package:lychee_player/lychee_player.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final player = await LycheePlayer.create();
+  player.open(const String.fromEnvironment('LYCHEE_URL'));
+  player.play();
+  runApp(MaterialApp(home: Scaffold(body: LycheeVideo(player))));
+}
+EOF
+}
+
+# The Windows app: the plugin compiles the core from the package's copy
+# and downloads the release's FFmpeg, both of which ship next to the app.
+check_windows() {
+  local dir=build/windows/x64/runner/Debug lib
+  create_app windows
+  echo "== Windows"
+  # LYCHEE_FFMPEG_ROOT would skip the download this checks.
+  env -u LYCHEE_FFMPEG_ROOT flutter build windows --debug >"$tmp/windows.log" 2>&1 ||
+    { tail -40 "$tmp/windows.log"; die "Windows build failed"; }
+  [ -f "$dir/lychee_player.dll" ] || die "the Windows app has no lychee_player.dll"
+  for lib in avformat avcodec swresample swscale avutil; do
+    compgen -G "$dir/$lib-*.dll" >/dev/null || die "the Windows app has no $lib DLL"
+  done
+  grep -q "GET /$tag/ffmpeg-windows-x86_64.zip" "$tmp/server.log" ||
+    die "the build did not download from the release"
+  echo "ok: a fresh Windows app builds with the package and the release of $tag ($tmp)"
 }
 
 # swift_package_manager true|false: Flutter's Swift Package Manager

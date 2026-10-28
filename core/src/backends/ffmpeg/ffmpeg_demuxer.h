@@ -15,10 +15,11 @@ struct AVFormatContext;
 struct AVIOContext;
 struct AVPacket;
 
-// On Apple platforms FFmpeg reads files and http(s) through DataSource
-// (NSURLSession), as the FFmpeg-free build does. Elsewhere DataSource has
+// On Apple platforms and Windows FFmpeg reads files and http(s) through
+// DataSource (NSURLSession, WinHTTP), as the FFmpeg-free build does: the
+// system's TLS, certificates and proxy settings. Elsewhere DataSource has
 // no http client, so FFmpeg uses its own protocols.
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
 #define LYCHEE_FFMPEG_DATA_SOURCE 1
 #endif
 

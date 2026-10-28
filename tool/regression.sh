@@ -25,10 +25,38 @@
 #                                 # WebM, MPEG-TS and HLS media, text subtitles
 #   MEDIA_ONLY=1 tool/regression.sh # Only generate the media (for the Swift
 #                                 # and Rust tests), no build
+#
+# Windows: Git Bash (or MSYS2) started from a Visual Studio x64 developer
+# environment, so CMake's Ninja build finds MSVC, with FFMPEG_ROOT set
+# (there is no system FFmpeg) and a GPL ffmpeg.exe on PATH for the media:
+#   cmd /c "vcvars64.bat && bash tool/regression.sh"
 set -u
 
-root="$(cd "$(dirname "$0")/.." && pwd)"
+# Windows' programs get paths as C:/..., which they and MSYS both read, so
+# MSYS must not rewrite arguments: it would turn the media server's URL
+# paths (/hls/index.m3u8) into file paths.
+windows=0
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    windows=1
+    export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
+    # MSVC, as Flutter's Windows builds use, even with MinGW's gcc on PATH.
+    export CC="${CC:-cl}" CXX="${CXX:-cl}"
+    ;;
+esac
+# abspath DIR: DIR as an absolute path that native programs read too.
+abspath() {
+  if [ "$windows" = 1 ]; then (cd "$1" && pwd -W); else (cd "$1" && pwd); fi
+}
+# The Microsoft Store's python3.exe only opens the Store.
+if [ "$windows" = 1 ] && ! python3 -c '' 2>/dev/null; then
+  python3() { python "$@"; }
+fi
+
+root="$(abspath "$(dirname "$0")/..")"
 media="${MEDIA_DIR:-/tmp/lychee-media}"
+mkdir -p "$media"
+media="$(abspath "$media")"
 if [ "${TSAN:-0}" = 1 ]; then
   build="$root/build-tsan"
   flags=(-DCMAKE_CXX_FLAGS=-fsanitize=thread -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread)
@@ -56,7 +84,12 @@ else
 fi
 if [ -n "${FFMPEG_ROOT:-}" ]; then
   build="$build-lgpl"
-  flags+=(-DLYCHEE_FFMPEG_ROOT="$(cd "$FFMPEG_ROOT" && pwd)")
+  flags+=(-DLYCHEE_FFMPEG_ROOT="$(abspath "$FFMPEG_ROOT")")
+  # Windows finds DLLs on PATH.
+  [ "$windows" = 1 ] && PATH="$(cd "$FFMPEG_ROOT" && pwd)/bin:$PATH"
+elif [ "$windows" = 1 ] && [ "${NO_FFMPEG:-0}" != 1 ] && [ "${MEDIA_ONLY:-0}" != 1 ]; then
+  echo "Windows has no system FFmpeg: set FFMPEG_ROOT (tool/build_ffmpeg.sh windows-x86_64)" >&2
+  exit 1
 fi
 if [ "${NO_FFMPEG:-0}" = 1 ]; then
   build="$build-noffmpeg"
@@ -64,7 +97,6 @@ if [ "${NO_FFMPEG:-0}" = 1 ]; then
 fi
 
 # Test media, generated once. Synthetic so the expected output is known.
-mkdir -p "$media"
 gen() {
   local out="$media/$1"; shift
   # A failed run must not leave a partial file for the next run to reuse.
@@ -80,6 +112,11 @@ gen hevc10.mp4 -f lavfi -i testsrc2=size=1920x1080:rate=24 -f lavfi -i sine=freq
 gen hdr_pq.mp4 -f lavfi -i color=c=gray:size=1280x720:rate=30 -t 3 -c:v libx265 -preset ultrafast \
   -pix_fmt yuv420p10le -tag:v hvc1 -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
   -x265-params log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:hdr10=1:max-cll=1000,400
+# HLG: a 0.5 gray, ~51 nits on a 1000-nit display; swscale tone-maps it
+# to 142.
+gen hdr_hlg.mp4 -f lavfi -i color=c=gray:size=1280x720:rate=30 -t 3 -c:v libx265 -preset ultrafast \
+  -pix_fmt yuv420p10le -tag:v hvc1 -color_primaries bt2020 -color_trc arib-std-b67 -colorspace bt2020nc \
+  -x265-params log-level=error:colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc
 # PQ bars of 100, 203 (SDR white), 400, 1000 and 4000 nits, for looking at
 # EDR on a display; no case reads it.
 gen hdr_pq_bars.mp4 -f lavfi \
@@ -407,9 +444,11 @@ open(sys.argv[2], "wb").write(data)' "$media/offset.ts" "$media/corrupt.ts" || e
 cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Debug ${flags[@]+"${flags[@]}"} >/dev/null || exit 1
 build_out="$(cmake --build "$build" 2>&1)"
 build_status=$?
-if [ "$build_status" -ne 0 ] || grep -q "warning:" <<<"$build_out"; then
+# MSVC's warnings read "warning C4244:", its linker's "warning LNK4098:".
+warning="warning( [A-Z]+[0-9]+)?:"
+if [ "$build_status" -ne 0 ] || grep -Eq "$warning" <<<"$build_out"; then
   echo "FAIL build (exit $build_status) has errors or warnings"
-  grep -E "error|warning:|FAILED|Undefined" <<<"$build_out" | head -40
+  grep -E "error|$warning|FAILED|Undefined" <<<"$build_out" | head -40
   exit 1
 fi
 cli="$build/examples/cli/lychee_cli"
@@ -437,7 +476,10 @@ failures=0
 
 # Unit tests first: they pinpoint a failure the playback cases only show.
 unit_out="$("$build/core/test/lychee_unittests" 2>&1)"
-if [ $? -eq 0 ] && ! grep -Eq "$sanitizer_reports" <<<"$unit_out"; then
+unit_status=$?
+# Windows' programs end lines with CRLF.
+unit_out="${unit_out//$'\r'/}"
+if [ $unit_status -eq 0 ] && ! grep -Eq "$sanitizer_reports" <<<"$unit_out"; then
   echo "PASS unittests ($(tail -1 <<<"$unit_out"))"
 else
   echo "FAIL unittests"
@@ -486,6 +528,7 @@ check() {
   local out status summary problems="" advisory="" start=$SECONDS
   out="$("$cli" "$@" 2>&1)"
   status=$?
+  out="${out//$'\r'/}"
   [ "$status" = "${exits:-0}" ] || problems+=" exit=$status"
   summary="$(grep '^summary:' <<<"$out")"
   grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
@@ -526,6 +569,7 @@ expect() {
   [ "${realtime:-0}" = 1 ] || set -- --virtual-time "$@"
   out="$("$cli" "$@" 2>&1)"
   status=$?
+  out="${out//$'\r'/}"
   [ "$status" = "${exits:-0}" ] || problems+=" exit=$status"
   grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
   for pattern in "${patterns[@]}"; do
@@ -562,6 +606,7 @@ frames() {
   [ "${realtime:-0}" = 1 ] || set -- --virtual-time "$@"
   out="$("$cli" "$@" "${snapshots[@]}" "$file" 2>&1)"
   status=$?
+  out="${out//$'\r'/}"
   [ "$status" = 0 ] || problems+=" exit=$status"
   grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
   checked="$(grep '^snapshot ' <<<"$out" |
@@ -643,6 +688,8 @@ plays_without_ffmpeg() {
     esac
     # VideoToolbox decodes VP9 only in hardware.
     [ "${NO_HW:-0}" = 1 ] && [[ "$arg" == *vp9* ]] && return 1
+    # Media Foundation has no VP9 (without the Store's extension) or ALAC.
+    [ "$windows" = 1 ] && [[ "$arg" == *vp9* || "$arg" == *alac* ]] && return 1
   done
   return 0
 }
@@ -732,6 +779,9 @@ par frames frame-h264-sw "$media/h264_aac.mp4" 1 -- --no-hw --cpu --seconds 1.1
 par frames frame-hevc10 "$media/hevc10.mp4" 1 -- --seconds 1.1
 par frames frame-rotated "$media/rotated.mp4" 1 -- --seconds 1.1
 par frames frame-hdr "$media/hdr_pq.mp4" 1 -- --seconds 1.1
+# VideoToolbox maps HLG darker than swscale (roadmap): elsewhere it
+# matches.
+[ "$(uname)" = Darwin ] || par frames frame-hlg "$media/hdr_hlg.mp4" 1 -- --seconds 1.1
 par frames frame-sd "$media/rendition_640x360.ts" 1 -- --seconds 1.1
 par frames frame-sd-sw "$media/rendition_640x360.ts" 1 -- --no-hw --cpu --seconds 1.1
 par frames frame-bt601 "$media/h264_bt601.mp4" 1 -- --seconds 1.1
@@ -853,7 +903,7 @@ par expect decoder-lost "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" "<=0 even
   "summary: state=ended .* hw=$hw_first .*dropped=[0-3] glitches=[0-3] backward_jumps=0 " -- \
   --lose-decoder-after 2 "$media/h264_aac.mp4"
 par expect decoder-lost-twice "<=0 event: state error" \
-  "summary: state=ended .*decoder=(ffmpeg|videotoolbox-sw) hw=0 .*backward_jumps=0 " -- \
+  "summary: state=ended .*decoder=(ffmpeg|videotoolbox-sw|mediafoundation) hw=0 .*backward_jumps=0 " -- \
   --lose-decoder-after 2 --lose-decoder-after 5 "$media/h264_aac.mp4"
 # Foreground recovery uses the public API, before any packet fails. Each
 # transition gets a fresh hardware attempt rather than forcing software.
@@ -1015,6 +1065,11 @@ realtime=1 seq_ expect realtime-loop "loops=2" "~$no_drift" "<=0 event: state (e
 server=""
 stop_server() {
   [ -n "$server" ] || return 0
+  # On Windows $server is the subshell that runs python3() (above); a
+  # signal stops it but not the Python it started.
+  if [ "$windows" = 1 ] && [ -r "/proc/$server/winpid" ]; then
+    taskkill /F /T /PID "$(cat "/proc/$server/winpid")" >/dev/null 2>&1
+  fi
   kill "$server" 2>/dev/null
   wait "$server" 2>/dev/null
   server=""
@@ -1026,7 +1081,7 @@ serve() {
   server=$!
   port=""
   for _ in $(seq 50); do
-    port="$(awk '/^port/ {print $2}' "$log")"
+    port="$(awk '/^port/ {sub(/\r$/, ""); print $2}' "$log")"
     [ -n "$port" ] && break
     sleep 0.1
   done

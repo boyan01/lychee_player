@@ -40,8 +40,9 @@ const char* StateName(PlayerState state) {
 }
 
 std::string ToLower(std::string text) {
-  std::transform(text.begin(), text.end(), text.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
+  std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
   return text;
 }
 

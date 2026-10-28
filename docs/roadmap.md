@@ -25,16 +25,24 @@ building on top of them.
    `background` case exercises the expiry of
    frames nobody pulled: Choreographer kept pulling in the background on
    the Xiaomi 14.
-2. **Windows**: a real GPU reset (`dxcap -forcetdr`, which also loses the
-   plugin's own device; only the simulated `decoder-lost` has run), an
-   adapter change during playback (the plugin sets it once), HEVC on a
-   machine without the Store's HEVC Video Extensions (should fall back to
-   D3D11VA at open), the pixel buffer path for a Flutter without a D3D11
-   adapter, multiple monitors, audible output, swscale's BT.709 for
-   untagged HD (seen on macOS only), AV1 in the release's FFmpeg (WSL's
-   mingw-w64 8.0 headers have no AV1 DXVA structures; the runner's
-   may), `lychee_cli` with that FFmpeg, and `tool/regression.sh` (needs
-   bash).
+2. **Windows**: after a real GPU reset (`dxcap -forcetdr`, 2026-10-28)
+   the CLI and `lychee_glfw` recover: ~3-4 s without video, the NVIDIA
+   HDMI audio endpoint goes away so WASAPI reopens, then ~5 s of audio
+   glitches. The Flutter example does not: the engine's ANGLE context is
+   lost (`EGL Error: Context Lost (12302)`) and it draws nothing until it
+   exits; that is Flutter's engine, not the plugin. An adapter change
+   works in the core (`lychee_glfw --adapter 3:1`, Intel to NVIDIA, frames
+   pass `frame_check`), but the plugin sets the adapter once, and a window
+   moved to another GPU's display needs a monitor on the NVIDIA card
+   (hands). HEVC without the Store's HEVC Video Extensions (should fall
+   back to D3D11VA at open) waits on the user: the PC has the free "from
+   Device Manufacturer" package, which neither winget nor the HK Store
+   offers again (only the paid 9NMZLZ57R3T7), so it was not uninstalled.
+   Also multiple monitors, and audible output.
+   `tool/regression.sh`'s realtime cases on Windows: `realtime-rate`
+   once showed 400 ms of drift and `realtime-seek` 6 glitches while an
+   Android emulator loaded the PC (2026-10-28); alone they pass. Rerun
+   them on an idle PC.
 3. **Linux**: VAAPI on AMD, Wayland, hardware decoding on arm64, and audio
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays
@@ -64,6 +72,22 @@ building on top of them.
   discontinuity's offset between renditions. Done when
   `http-hls-renditions*`, now run only with `NO_FFMPEG=1`, pass in both
   builds.
+- **The Flutter example crashes on quitting on Windows**: after
+  `--seconds N` it calls `exitApplication(AppExitType.required)`, and the
+  process ends with 0xC000041D (an access violation in
+  `flutter_windows.dll`, Event Log) instead of 0, even when no file was
+  opened (Flutter 3.47.7, Impeller OpenGL ES, 2026-10-28). The `summary:`
+  line comes first, so runs are still readable. Find whether the plugin
+  takes part (a bare `flutter create` app quitting the same way) and fix
+  or report it upstream; done when the example exits with 0.
+
+- **Apple framework deployment warning**: `pixel_buffer.cc` calls
+  `CVBufferCopyAttachment`, available on macOS 12+, while the framework
+  targets macOS 11. Both macOS slices warn during `tool/build_apple.sh`.
+  `NO_FFMPEG=1` also warns that `allow_hardware` in `factory.cc` is
+  unused on iOS. Add an availability-safe attachment read while retaining
+  the supported minimum, and account for the iOS argument; done when all
+  Apple slices build without these warnings.
 
 1. **Slow HLS seeks past a discontinuity with FFmpeg**: FFmpeg's HLS seek
    drops every packet past a discontinuity where timestamps start over,
@@ -99,11 +123,10 @@ building on top of them.
 2. **HDR beyond Apple's SDK**:
    - Flutter: textures are 8-bit SDR on every platform, so the plugin
      stays on tone-mapped BGRA.
-   - Windows: PQ is tone-mapped by our shader like swscale (saturated
-     colors at or above white approximate it: swscale clips in IPT, the
-     shader in ICtCp). Left: HLG through the shader too (the D3D11 video
-     processor gives 124 for a 0.5 signal, swscale 142), and HDR output,
-     which needs an R10G10B10A2 or FP16 texture type.
+   - Windows: PQ and HLG are tone-mapped by our shader like swscale
+     (saturated colors at or above white approximate it: swscale clips in
+     IPT, the shader in ICtCp). Left: HDR output, which needs an
+     R10G10B10A2 or FP16 texture type.
    - Linux: `lychee_dmabuf` carries P010 and the matrix, but not the
      primaries and transfer function a caller needs for HDR; the
      dual-boot PC's Intel iGPU can check it.
@@ -130,12 +153,13 @@ building on top of them.
 The goal is FFmpeg-free builds on Apple platforms, Windows and Android;
 Linux keeps FFmpeg (no system audio decoder or demuxer). Apple plays MP4,
 Matroska/WebM, MPEG-TS and HLS without it, and ships
-`lychee_noffmpeg.xcframework`; Android and Windows play MP4 files.
+`lychee_noffmpeg.xcframework`; Windows plays the same containers (H.264
+and HEVC in hardware or software, AAC and MP3); Android plays MP4 files.
 
-1. **Shared IO on Android and Windows**: an http `DataSource` there
-   (`HttpURLConnection` or Cronet through JNI, WinHTTP), which their
-   FFmpeg-free builds need anyway; then FFmpeg reads through it as on
-   Apple. One `NSURLSession` per demuxer would let HLS segments reuse
+1. **Shared IO on Android**: an http `DataSource` there
+   (`HttpURLConnection` or Cronet through JNI), which its FFmpeg-free
+   build needs anyway; then FFmpeg reads through it as on Apple and
+   Windows (WinHTTP). One `NSURLSession` per demuxer would let HLS segments reuse
    connections.
 2. **Containers**: HLS switches variants only when a track is selected,
    not by measured bandwidth; subtitle renditions (WebVTT) are not
@@ -144,11 +168,11 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    metadata in TS are ignored. Where TS timestamps start over, a jump
    ahead, or a run shorter than a sixteenth of the input, is found only
    when played: until then the duration and seeks miss it.
-3. **Windows**: no software video decoder, so a machine without a GPU (or
-   a codec its GPU lacks) plays no video; Media Foundation's software mode
-   would cover it. AAC in ADTS and other audio codecs have no decoder,
-   and http needs item 1. Packaging the FFmpeg-free core for the plugin
-   is not started.
+3. **Windows**: VP9, AV1, Opus, FLAC and ALAC have no decoder (Media
+   Foundation has them only with Store extensions, or not at all). Live
+   HEVC decoded in software shows one frame less than it should
+   (`NO_FFMPEG=1 NO_HW=1 ONLY=live-hevc`: 299 of 300; the HEVC extension's
+   decoder holds the last frame back, low latency mode set or not).
 4. **Android**: http (item 1), an FFmpeg-free AAR variant if native
    Android users want one, and the Flutter plugin on it.
 ## Distribution and infrastructure
@@ -160,21 +184,21 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    and assets (the user, 2026-10-27).
 2. **Release leftovers**: the AAR on Maven Central too (what native
    Android users expect; needs a Sonatype account for `tech.soit`);
-   `tool/release.sh check` building Windows and Linux apps (it runs on
-   macOS only); the Linux job in a `ubuntu:22.04` container once GitHub
+   `tool/release.sh check` building Linux apps (it builds macOS, iOS and
+   Android apps on macOS and Windows apps in Git Bash on Windows, which
+   `release.yml` does not run yet); the Linux job in a `ubuntu:22.04` container once GitHub
    retires that
    image.
 3. **Native SDKs**: drop the pod and the plugin's copy of
    `LycheeFrameDriver` (`LycheeTexture`) once Flutter drops CocoaPods;
-   the Rust crates on crates.io, and built for Windows, Linux and
-   Android (iOS links an xcframework slice through `LYCHEE_LIB_DIR`). Windows and Linux native users
+   the Rust crates on crates.io, and built for Linux and Android
+   (`LYCHEE_LIB_DIR` has run on Windows, and on iOS with an xcframework
+   slice). Windows and Linux native users
    take the C ABI as it is.
 4. **Engineering practices**, in rough order of value:
    - **clang-tidy**: the Android, Windows and Linux backends are not
      checked. Add Linux to the changed-lines CI check, after validating
      its compiler database and diagnostics on Linux.
-   - **MSVC `/W4`** for the Windows build, and warnings as errors in the
-     plugins' and the Android SDK's own core builds.
    - **CI jobs for Android and Windows**: the SDK build and its unit tests
      on an emulator; the core and `examples/glfw` on `windows-latest`.
    - **Frame checks** by pixels for the Android example, as

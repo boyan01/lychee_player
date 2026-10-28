@@ -74,7 +74,10 @@ slow or blocked, point `LYCHEE_PREBUILT_URL` at a mirror of
 `https://github.com/boyan01/lychee_player/releases/download` (the files
 are checked the same way). Windows and Linux compile the core with the app
 and download an LGPL FFmpeg from the same release, through the same mirror;
-`LYCHEE_FFMPEG_ROOT` names a local one instead.
+`LYCHEE_FFMPEG_ROOT` names a local one instead. On Windows,
+`LYCHEE_WITH_FFMPEG=OFF` builds the core without FFmpeg (Media Foundation:
+H.264, HEVC, AAC, MP3; MP4, Matroska, MPEG-TS and HLS), and the app ships
+no FFmpeg DLLs.
 
 ## License
 

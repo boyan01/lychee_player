@@ -19,17 +19,20 @@ namespace lychee {
 // decoder of the Store's HEVC Video Extensions where installed. Frames
 // leave like FFmpeg's D3D11VA ones, as shared BGRA textures
 // (D3D11VideoProcessor), or downloaded when the caller takes no textures
-// or gave no adapter. Hardware only: a stream the GPU cannot decode fails
-// at its first frame, and the next decoder takes over.
+// or gave no adapter. With |hardware| a stream the GPU cannot decode fails
+// at its first frame, and the next decoder takes over. Without it the MFT
+// decodes on the CPU into memory, for builds without FFmpeg where the GPU
+// lacks the codec; the frames are uploaded and converted as decoded ones
+// are, on the adapter's GPU or WARP, so colors and HDR come out the same.
 //
 // Ported from flutter-airplay's native/backends/windows/windows_video.cpp.
 class MFVideoDecoder : public VideoDecoder {
  public:
-  MFVideoDecoder(uint32_t accepted_storage, VideoDevice device);
+  MFVideoDecoder(uint32_t accepted_storage, VideoDevice device, bool hardware);
   ~MFVideoDecoder() override;
 
   const char* name() const override { return "mediafoundation"; }
-  bool is_hardware() const override { return true; }
+  bool is_hardware() const override { return hardware_; }
   bool Initialize(const VideoConfig& config, std::string* error) override;
   bool Decode(const EncodedPacket& packet,
               const OutputCallback& output) override;
@@ -43,9 +46,12 @@ class MFVideoDecoder : public VideoDecoder {
   // errors.
   bool Drain(const OutputCallback& output);
   std::shared_ptr<VideoFrame> CreateFrame(IMFSample* sample);
+  // Copies a software decoder's output into |upload_|.
+  bool Upload(IMFSample* sample);
   bool DeviceLost();
 
   const VideoDevice device_;
+  const bool hardware_;
   // Frames go out as textures only if someone can open them.
   const bool output_textures_;
   VideoConfig config_;
@@ -54,8 +60,14 @@ class MFVideoDecoder : public VideoDecoder {
   Microsoft::WRL::ComPtr<IMFDXGIDeviceManager> device_manager_;
   Microsoft::WRL::ComPtr<IMFTransform> decoder_;
   D3D11VideoProcessor processor_;
-  // The output type's picture (its display aperture), color space, and
-  // whether the decoder allocates its output samples, as it does on D3D11.
+  // Software decoding: what the decoder's output is copied into.
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> upload_;
+  // The output type's format, coded size and picture (its display
+  // aperture), color space, and whether the decoder allocates its output
+  // samples, as it does on D3D11.
+  DXGI_FORMAT format_ = DXGI_FORMAT_NV12;
+  int coded_width_ = 0;
+  int coded_height_ = 0;
   int width_ = 0;
   int height_ = 0;
   DXGI_COLOR_SPACE_TYPE color_space_ =

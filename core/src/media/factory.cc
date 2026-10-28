@@ -38,7 +38,8 @@
 #include "backends/windows/wasapi_sink.h"
 #if !defined(LYCHEE_WITH_FFMPEG)
 #include "backends/media_foundation/mf_audio_decoder.h"
-#include "backends/mp4/mp4_demuxer.h"
+#include "media/probing_demuxer.h"
+#include "media/text_subtitle_decoder.h"
 #endif
 #elif defined(__linux__)
 #include "backends/linux/pulse_audio_sink.h"
@@ -49,9 +50,9 @@ namespace lychee {
 std::unique_ptr<Demuxer> CreateDemuxer() {
 #if defined(LYCHEE_WITH_FFMPEG)
   return std::make_unique<FFmpegDemuxer>();
-#elif defined(__APPLE__)
+#elif defined(__APPLE__) || defined(_WIN32)
   return std::make_unique<ProbingDemuxer>();
-#elif defined(__ANDROID__) || defined(_WIN32)
+#elif defined(__ANDROID__)
   return std::make_unique<Mp4Demuxer>();
 #else
   return nullptr;
@@ -104,8 +105,14 @@ std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
   // extension, VP9, a GPU without the profile).
   if (allow_hardware) {
     decoders.push_back(
-        std::make_unique<MFVideoDecoder>(accepted_storage, device));
+        std::make_unique<MFVideoDecoder>(accepted_storage, device, true));
   }
+#if !defined(LYCHEE_WITH_FFMPEG)
+  // Without FFmpeg, the same decoders on the CPU: no GPU, or one that lacks
+  // the codec or the profile.
+  decoders.push_back(
+      std::make_unique<MFVideoDecoder>(accepted_storage, device, false));
+#endif
 #endif
 #if defined(LYCHEE_WITH_FFMPEG)
   if (allow_hardware) {
@@ -183,7 +190,7 @@ std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders() {
 std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder() {
 #if defined(LYCHEE_WITH_FFMPEG)
   return std::make_unique<FFmpegSubtitleDecoder>();
-#elif defined(__APPLE__)
+#elif defined(__APPLE__) || defined(_WIN32)
   return std::make_unique<TextSubtitleDecoder>();
 #else
   return nullptr;
