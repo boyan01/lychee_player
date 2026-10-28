@@ -177,8 +177,9 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
 2. **Release leftovers**: the AAR on Maven Central too (what native
    Android users expect; needs a Sonatype account for `tech.soit`);
    `tool/release.sh check` building Linux apps (it builds macOS, iOS and
-   Android apps on macOS and Windows apps in Git Bash on Windows, which
-   `release.yml` does not run yet); the Linux job in a `ubuntu:22.04` container once GitHub
+   Android apps on macOS and Windows apps in Git Bash on Windows;
+   `release.yml` runs both, the Windows one and the attestations and
+   SBOM since 2026-10-28 and not yet in a release); the Linux job in a `ubuntu:22.04` container once GitHub
    retires that
    image.
 3. **Native SDKs**: drop the pod and the plugin's copy of
@@ -206,8 +207,7 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
      macOS and Linux. Left: a run on Linux and Windows, and soaking the
      platform harnesses (`examples/glfw`, the Swift and Android
      examples), whose frame hand-off and display link the CLI skips.
-   - **Supply chain**: build provenance attestations and an SBOM for
-     release assets; updates for the FFmpeg, GLFW and Mbed TLS sources
+   - **Supply chain**: updates for the FFmpeg, GLFW and Mbed TLS sources
      pinned in `tool/` scripts, which Dependabot cannot read.
    - **Fuzzing corpus**: merge it with libFuzzer's `-merge=1` if it grows
      past a few hundred MB; OSS-Fuzz once the project is public.
