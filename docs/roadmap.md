@@ -182,9 +182,7 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
      Allocate only the buffer installed in AVIO, and free its current
      buffer before initializing a new subtitle segment. The proposed
      patch is `tool/patches/ffmpeg-hls-subtitle-buffers.patch`."
-   - **clang-tidy**: the Android and Windows backends are not checked.
-     `tool/tidy.sh` on Linux checks the Linux backend (clang 23, `--all`
-     without findings, 2026-10-28). `ci.yml`'s `tidy` job runs on Linux
+   - **clang-tidy CI**: `ci.yml`'s `tidy` job runs on Linux
      too since 2026-10-28 (PyPI's clang-tidy 23, a clang compile
      database against the LGPL FFmpeg), unverified: it has not run on
      GitHub, and `tool/tidy.sh` has not run with that wheel on Linux;

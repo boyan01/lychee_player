@@ -3,9 +3,9 @@
 #include "backends/android/http_data_source.h"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <condition_variable>
-#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -401,8 +401,10 @@ class HttpDataSource : public DataSource {
           HeaderField(env, jni_, connection, "Content-Range");
       size_t slash = content_range.find('/');
       if (slash != std::string::npos) {
-        total = std::atoll(content_range.c_str() + slash + 1);
-        if (total <= 0) {
+        const char* end = content_range.data() + content_range.size();
+        const auto parsed =
+            std::from_chars(content_range.data() + slash + 1, end, total);
+        if (parsed.ec != std::errc() || parsed.ptr != end || total <= 0) {
           total = -1;
         }
       }

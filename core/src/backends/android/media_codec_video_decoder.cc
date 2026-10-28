@@ -11,7 +11,7 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cstdlib>
+#include <charconv>
 #include <cstring>
 #include <string>
 
@@ -43,8 +43,13 @@ std::atomic<int> hardware_codecs{0};
 // limit.
 int MaxHardwareCodecs() {
   char value[PROP_VALUE_MAX] = {};
-  __system_property_get("debug.lychee.max_hw_video_codecs", value);
-  return atoi(value);
+  const int length =
+      __system_property_get("debug.lychee.max_hw_video_codecs", value);
+  int limit = 0;
+  const auto parsed = std::from_chars(value, value + length, limit);
+  return parsed.ec == std::errc() && parsed.ptr == value + length && limit > 0
+             ? limit
+             : 0;
 }
 
 // One output buffer, owned by the frame that shows it.
