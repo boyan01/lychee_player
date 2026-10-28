@@ -51,6 +51,11 @@ bool ParseAdtsHeader(const uint8_t* data, size_t size, AdtsHeader* header);
 // other layers, a free bitrate or reserved values.
 bool ParseMp3Header(const uint8_t* data, size_t size, AdtsHeader* header);
 
+// The sample rate and channels (LFE included) of an AC-3 or E-AC-3
+// syncframe (ATSC A/52) that |data| starts with, into |header|; the
+// other fields are left alone. False if it does not start with one.
+bool ParseAc3Header(const uint8_t* data, size_t size, AdtsHeader* header);
+
 }  // namespace lychee
 
 #endif  // LYCHEE_BACKENDS_MP2T_ELEMENTARY_STREAM_H_

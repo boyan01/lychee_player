@@ -54,8 +54,8 @@ target_link_libraries(lychee_unittests PRIVATE lychee)
 target_compile_features(lychee_unittests PRIVATE cxx_std_20)
 add_test(NAME lychee_unittests COMMAND lychee_unittests)
 
-# The FFmpeg-free backends, built only without FFmpeg.
-if(APPLE AND NOT LYCHEE_WITH_FFMPEG)
+# The FFmpeg-free MP4, MPEG-TS and HLS demuxers, built on Apple only.
+if(APPLE)
   target_sources(lychee_unittests PRIVATE
     fuzz_regressions_test.cc hls_playlist_test.cc mp2t_test.cc mp4_demuxer_test.cc)
   # Inputs the fuzzers crashed on, replayed by a test.

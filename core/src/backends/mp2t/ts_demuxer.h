@@ -40,6 +40,12 @@ class TsDemuxer : public Demuxer {
   void Abort() override;
   std::string error() const override { return error_; }
 
+  // Makes Open() fail early, before it reads on, where the program has
+  // audio, video or subtitles it would skip: MPEG-2 video, DVB subtitles,
+  // MPEG audio Layer II, ... (TsReader::skipped_stream_types()). For
+  // builds with a demuxer that plays them (FFmpeg's). Set before Open().
+  void set_refuse_skipped_streams(bool refuse) { refuse_skipped_ = refuse; }
+
  private:
   // The first PES packet of |pid| with a PTS at or after |offset| (within
   // a window), its PTS unwrapped next to |near|. False with *read_error
@@ -80,6 +86,7 @@ class TsDemuxer : public Demuxer {
   std::vector<bool> need_keyframe_;
   int64_t video_from_offset_ = -1;
   int64_t audio_from_ = kNoTimestamp;
+  bool refuse_skipped_ = false;
   std::atomic<bool> aborted_{false};
   std::atomic<bool> interrupted_{false};
   std::string error_;

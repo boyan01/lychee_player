@@ -266,6 +266,10 @@ void TsParser::HandlePmt(const uint8_t* data, size_t size) {
         entry.ac3 = true;
       } else if (tag == 0x7a) {  // Enhanced AC-3
         entry.eac3 = true;
+      } else if (tag == 0x56 || tag == 0x59 || tag == 0x7b || tag == 0x7c ||
+                 tag == 0x7f) {
+        // Teletext, subtitling, DTS, AAC, extension (ETSI EN 300 468).
+        entry.other_media = true;
       }
       d += 2 + length;
     }

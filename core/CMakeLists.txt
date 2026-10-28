@@ -86,27 +86,26 @@ if(APPLE)
     src/backends/apple/pixel_buffer.cc
     # Files and http(s) for both demuxers.
     src/media/data_source.cc
+    # MP4 (also fragmented), MPEG-TS and HLS from files and http(s), and
+    # Matroska and WebM. With FFmpeg only MPEG-TS and HLS (with fMP4
+    # segments) go to these (media/factory.cc), FFmpeg the rest.
+    src/backends/hls/hls_demuxer.cc
+    src/backends/hls/hls_playlist.cc
+    src/backends/matroska/matroska_demuxer.cc
+    src/backends/mp2t/elementary_stream.cc
+    src/backends/mp2t/ts_demuxer.cc
+    src/backends/mp2t/ts_parser.cc
+    src/backends/mp2t/ts_reader.cc
+    src/backends/mp4/mp4_demuxer.cc
+    src/media/probing_demuxer.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
-    # Without FFmpeg: MP4 (also fragmented), MPEG-TS and HLS from files and
-    # http(s), H.264 and HEVC through VideoToolbox, AAC and ALAC through
-    # AudioToolbox, tx3g subtitles.
+    # Without FFmpeg: H.264 and HEVC, VP9 and AV1 through VideoToolbox;
+    # AAC, ALAC, Opus, FLAC and MP3 through AudioToolbox; tx3g and text
+    # subtitles.
     list(APPEND LYCHEE_SOURCES
       src/backends/apple/at_audio_decoder.cc
       src/backends/apple/vt_video_decoder.cc
-      src/backends/mp4/mp4_demuxer.cc
-      src/backends/hls/hls_demuxer.cc
-      src/backends/hls/hls_playlist.cc
-      src/backends/mp2t/elementary_stream.cc
-      src/backends/mp2t/ts_demuxer.cc
-      src/backends/mp2t/ts_parser.cc
-      src/backends/mp2t/ts_reader.cc
-      src/media/probing_demuxer.cc
-    )
-    # Matroska and WebM; VP9 and AV1 through VideoToolbox, Opus, FLAC and
-    # MP3 through AudioToolbox; text subtitles.
-    list(APPEND LYCHEE_SOURCES
-      src/backends/matroska/matroska_demuxer.cc
       src/media/text_subtitle_decoder.cc
     )
   endif()

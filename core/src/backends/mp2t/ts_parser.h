@@ -20,6 +20,9 @@ struct TsStreamEntry {
   // stream_type 0x06 (private data) with an AC-3 or E-AC-3 descriptor.
   bool ac3 = false;
   bool eac3 = false;
+  // stream_type 0x06 with a descriptor of other media: DVB subtitles,
+  // teletext, DTS, AAC or an extension (AC-4, ...).
+  bool other_media = false;
 };
 
 // One PES packet's payload: an access unit, or several (audio).

@@ -550,6 +550,20 @@ TEST(Mp2t, ParsesMp3Header) {
   }
 }
 
+TEST(Mp2t, ParsesAc3Header) {
+  // FFmpeg's: AC-3 5.1 at 48 kHz (acmod 7, LFE), E-AC-3 stereo at 32 kHz.
+  const Bytes ac3 = {0x0b, 0x77, 0x2b, 0x9a, 0x1e, 0x40, 0xeb, 0xf8};
+  const Bytes eac3 = {0x0b, 0x77, 0x02, 0x3f, 0xb4, 0x87, 0xc0, 0x00};
+  AdtsHeader header;
+  EXPECT_TRUE(ParseAc3Header(ac3.data(), ac3.size(), &header));
+  EXPECT_EQ(header.sample_rate, 48000);
+  EXPECT_EQ(header.channels, 6);
+  EXPECT_TRUE(ParseAc3Header(eac3.data(), eac3.size(), &header));
+  EXPECT_EQ(header.sample_rate, 32000);
+  EXPECT_EQ(header.channels, 2);
+  EXPECT_TRUE(!ParseAc3Header(ac3.data() + 1, ac3.size() - 1, &header));
+}
+
 // Video at 30 fps in runs of |frames| that each start over at 10 s, a
 // keyframe every second, the PAT and PMT before each.
 Bytes RestartingStream(int runs, int frames, size_t frame_size) {
@@ -622,6 +636,115 @@ TEST(TsDemuxer, FindsRunsWithoutReadingEverything) {
     EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kOk);
     EXPECT_NEAR(packet.pts, expected, 1);
     expected = packet.pts + 33333;
+  }
+}
+
+TEST(TsReader, DropsAudioOverlappingTheRunBefore) {
+  // Two files joined: in each, 30 video frames from 10 s, and AAC at
+  // 48 kHz from two frames before the video to two frames after it. (PES
+  // packets of a known length, so the reader sees the second run's video
+  // first, which places the run.)
+  TsWriter w;
+  for (int run = 0; run < 2; ++run) {
+    w.Pat(0x1000);
+    w.Pmt(0x1000, 0, {{0x1b, 0x100, {}}, {0x0f, 0x101, {}}});
+    int64_t audio = 900000 - 3840;
+    for (int i = 0; i < 30; ++i) {
+      const int64_t pts = 900000 + int64_t{i} * 3000;
+      w.Pes(0x100, 0xe0, pts, -1,
+            AccessUnit(i == 0 ? kSps360 : Bytes(), i == 0 ? 0x65 : 0x41, 300),
+            i == 0, true);
+      for (; audio < pts + 3000; audio += 1920) {
+        w.Pes(0x101, 0xc0, audio, -1, Adts(3, 50), false, true);
+      }
+    }
+    for (; audio < 990000 + 3840; audio += 1920) {
+      w.Pes(0x101, 0xc0, audio, -1, Adts(3, 50), false, true);
+    }
+  }
+  MemorySource source(w.out);
+  TsTimeline timeline(1);
+  TsReader reader(&source);
+  reader.JoinRuns(&timeline);
+  reader.SetRange(0, -1);
+  std::string error;
+  EXPECT_TRUE(reader.Probe(1 << 20, &error));
+  std::vector<EncodedPacket> video;
+  std::vector<EncodedPacket> audio;
+  EncodedPacket packet;
+  int64_t offset;
+  while (reader.Read(&packet, &offset) == DemuxerReadResult::kOk) {
+    (packet.stream_index == 0 ? video : audio).push_back(packet);
+  }
+  EXPECT_EQ(video.size(), 60u);
+  EXPECT_NEAR(video[30].pts, video[29].pts + 33333, 1);
+  // The second run's first four frames start more than half a frame
+  // before the first run's audio ends; its later ones keep their time.
+  EXPECT_EQ(audio.size(), 51u + 47u);
+  for (size_t i = 1; i < audio.size(); ++i) {
+    EXPECT_TRUE(audio[i].pts + audio[i].duration / 2 >=
+                audio[i - 1].pts + audio[i - 1].duration);
+  }
+  EXPECT_NEAR(audio[51].pts, TsReader::TicksToMicros(986160 + 4 * 1920), 1);
+}
+
+TEST(TsDemuxer, RefusesStreamsItWouldSkip) {
+  // H.264, and next to it what TsReader does not take.
+  auto stream = [](const TsWriter::Entry& other) {
+    TsWriter w;
+    w.Pat(0x1000);
+    w.Pmt(0x1000, 0, {{0x1b, 0x100, {}}, other});
+    for (int i = 0; i < 3; ++i) {
+      w.Pes(0x100, 0xe0, 900000 + int64_t{i} * 3000, -1,
+            AccessUnit(i == 0 ? kSps360 : Bytes(), i == 0 ? 0x65 : 0x41, 300),
+            i == 0);
+    }
+    return w.out;
+  };
+  // MPEG-2 video, DVB subtitles (a subtitling descriptor), and MPEG
+  // audio that is not Layer III.
+  const Bytes subtitling = {0x59, 8, 'e', 'n', 'g', 0x10, 0, 1, 0, 1};
+  const Bytes layer2 = Bytes{0xff, 0xfd, 0x90, 0x64};
+  for (const TsWriter::Entry& other :
+       {TsWriter::Entry{0x02, 0x101, {}},
+        TsWriter::Entry{0x06, 0x101, subtitling}}) {
+    TsDemuxer refusing;
+    refusing.set_refuse_skipped_streams(true);
+    std::string error;
+    EXPECT_TRUE(
+        !refusing.Open(std::make_unique<MemorySource>(stream(other)), &error));
+    EXPECT_TRUE(error.find("stream type 0x0") == 0);
+    // Without another demuxer to go to, the H.264 plays.
+    TsDemuxer playing;
+    EXPECT_TRUE(
+        playing.Open(std::make_unique<MemorySource>(stream(other)), &error));
+    EXPECT_EQ(playing.media_info().streams.size(), 1u);
+  }
+  {
+    TsWriter w;
+    w.Pat(0x1000);
+    w.Pmt(0x1000, 0, {{0x1b, 0x100, {}}, {0x03, 0x101, {}}});
+    for (int i = 0; i < 3; ++i) {
+      w.Pes(0x100, 0xe0, 900000 + int64_t{i} * 3000, -1,
+            AccessUnit(i == 0 ? kSps360 : Bytes(), i == 0 ? 0x65 : 0x41, 300),
+            i == 0);
+      Bytes frame = layer2;
+      frame.resize(400, 0x42);
+      w.Pes(0x101, 0xc0, 900000 + int64_t{i} * 3000, -1, frame, false, true);
+    }
+    TsDemuxer refusing;
+    refusing.set_refuse_skipped_streams(true);
+    std::string error;
+    EXPECT_TRUE(!refusing.Open(std::make_unique<MemorySource>(w.out), &error));
+    EXPECT_EQ(error, "stream type 0x03 not supported");
+  }
+  // Data (ID3 metadata, SCTE-35 cues) is no reason to refuse.
+  for (int data : {0x15, 0x86}) {
+    TsDemuxer demuxer;
+    demuxer.set_refuse_skipped_streams(true);
+    std::string error;
+    EXPECT_TRUE(demuxer.Open(
+        std::make_unique<MemorySource>(stream({data, 0x101, {}})), &error));
   }
 }
 
