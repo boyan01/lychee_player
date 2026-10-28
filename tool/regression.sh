@@ -112,6 +112,11 @@ gen hevc10.mp4 -f lavfi -i testsrc2=size=1920x1080:rate=24 -f lavfi -i sine=freq
 gen hdr_pq.mp4 -f lavfi -i color=c=gray:size=1280x720:rate=30 -t 3 -c:v libx265 -preset ultrafast \
   -pix_fmt yuv420p10le -tag:v hvc1 -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
   -x265-params log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:hdr10=1:max-cll=1000,400
+# HLG: a 0.5 gray, ~51 nits on a 1000-nit display; swscale tone-maps it
+# to 142.
+gen hdr_hlg.mp4 -f lavfi -i color=c=gray:size=1280x720:rate=30 -t 3 -c:v libx265 -preset ultrafast \
+  -pix_fmt yuv420p10le -tag:v hvc1 -color_primaries bt2020 -color_trc arib-std-b67 -colorspace bt2020nc \
+  -x265-params log-level=error:colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc
 # PQ bars of 100, 203 (SDR white), 400, 1000 and 4000 nits, for looking at
 # EDR on a display; no case reads it.
 gen hdr_pq_bars.mp4 -f lavfi \
@@ -685,6 +690,9 @@ par frames frame-h264-sw "$media/h264_aac.mp4" 1 -- --no-hw --cpu --seconds 1.1
 par frames frame-hevc10 "$media/hevc10.mp4" 1 -- --seconds 1.1
 par frames frame-rotated "$media/rotated.mp4" 1 -- --seconds 1.1
 par frames frame-hdr "$media/hdr_pq.mp4" 1 -- --seconds 1.1
+# VideoToolbox maps HLG darker than swscale (roadmap): elsewhere it
+# matches.
+[ "$(uname)" = Darwin ] || par frames frame-hlg "$media/hdr_hlg.mp4" 1 -- --seconds 1.1
 par frames frame-sd "$media/rendition_640x360.ts" 1 -- --seconds 1.1
 par frames frame-sd-sw "$media/rendition_640x360.ts" 1 -- --no-hw --cpu --seconds 1.1
 par frames frame-bt601 "$media/h264_bt601.mp4" 1 -- --seconds 1.1

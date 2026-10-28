@@ -103,11 +103,10 @@ building on top of them.
 2. **HDR beyond Apple's SDK**:
    - Flutter: textures are 8-bit SDR on every platform, so the plugin
      stays on tone-mapped BGRA.
-   - Windows: PQ is tone-mapped by our shader like swscale (saturated
-     colors at or above white approximate it: swscale clips in IPT, the
-     shader in ICtCp). Left: HLG through the shader too (the D3D11 video
-     processor gives 124 for a 0.5 signal, swscale 142), and HDR output,
-     which needs an R10G10B10A2 or FP16 texture type.
+   - Windows: PQ and HLG are tone-mapped by our shader like swscale
+     (saturated colors at or above white approximate it: swscale clips in
+     IPT, the shader in ICtCp). Left: HDR output, which needs an
+     R10G10B10A2 or FP16 texture type.
    - Linux: `lychee_dmabuf` carries P010 and the matrix, but not the
      primaries and transfer function a caller needs for HDR; the
      dual-boot PC's Intel iGPU can check it.

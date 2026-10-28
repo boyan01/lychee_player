@@ -43,8 +43,13 @@ constexpr int64_t kCompletionTimeout = 100 * kMicrosPerMilli;
 //    BT.2020-to-BT.709 matrix, multiplied out.
 //  - 1/2.4: the inverse of BT.1886 with a zero black level, how swscale
 //    encodes BT.709 output.
+// HLG becomes light the same way swscale's does, then follows PQ's path:
+//  - a, b, c: the HLG inverse OETF (ITU-R BT.2100).
+//  - The OOTF for a 1000-nit display: system gamma 1.2 on BT.2020
+//    luminance, no black lift. HLG's 75% (BT.2408's reference white) is
+//    then 203 nits, and a 0.5 gray reads 142 as with swscale.
 constexpr char kToneMapShader[] = R"(
-Texture2D<float4> pq : register(t0);
+Texture2D<float4> hdr : register(t0);
 
 float4 vs(uint id : SV_VertexID) : SV_Position {
   float2 uv = float2((id << 1) & 2, id & 2);
@@ -97,8 +102,21 @@ bool Inside(float3 rgb) {
   return all(rgb >= -1e-4) && all(rgb <= 1.0 + 1e-4);
 }
 
-float4 ps(float4 position : SV_Position) : SV_Target {
-  float3 nits = PqToNits(pq.Load(int3(position.xy, 0)).rgb);
+static const float a = 0.17883277;
+static const float b = 0.28466892;
+static const float c = 0.55991073;
+static const float kHlgPeakNits = 1000.0;
+static const float kHlgGamma = 1.2;
+
+float3 HlgToNits(float3 e) {
+  e = saturate(e);
+  float3 scene = e <= 0.5 ? e * e / 3.0 : (exp((e - c) / a) + b) / 12.0;
+  float y = dot(scene, float3(0.2627, 0.6780, 0.0593));
+  return kHlgPeakNits * pow(max(y, 1e-6), kHlgGamma - 1.0) * scene;
+}
+
+// Light in nits, BT.2020, into SDR BT.709.
+float4 NitsToSdr(float3 nits) {
   float3 ictcp = mul(kLmsToIctcp, NitsToPq(mul(kBt2020ToLms, nits)));
   float3 rgb = IctcpToSdr(ictcp);
   [branch] if (!Inside(rgb)) {
@@ -117,11 +135,24 @@ float4 ps(float4 position : SV_Position) : SV_Target {
   }
   return float4(pow(saturate(rgb), 1.0 / 2.4), 1.0);
 }
+
+float4 ps_pq(float4 position : SV_Position) : SV_Target {
+  return NitsToSdr(PqToNits(hdr.Load(int3(position.xy, 0)).rgb));
+}
+
+float4 ps_hlg(float4 position : SV_Position) : SV_Target {
+  return NitsToSdr(HlgToNits(hdr.Load(int3(position.xy, 0)).rgb));
+}
 )";
 
 bool IsPq(DXGI_COLOR_SPACE_TYPE color_space) {
   return color_space == DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020 ||
          color_space == DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_TOPLEFT_P2020;
+}
+
+bool IsHlg(DXGI_COLOR_SPACE_TYPE color_space) {
+  return color_space == DXGI_COLOR_SPACE_YCBCR_STUDIO_GHLG_TOPLEFT_P2020 ||
+         color_space == DXGI_COLOR_SPACE_YCBCR_FULL_GHLG_TOPLEFT_P2020;
 }
 
 ComPtr<ID3DBlob> CompileShader(const char* entry, const char* target) {
@@ -198,9 +229,13 @@ std::shared_ptr<VideoFrame> D3D11VideoProcessor::Convert(
        source.Format != DXGI_FORMAT_P010)) {
     return nullptr;
   }
-  // PQ needs DXGI color spaces to come out of the video processor as PQ.
+  // HDR needs DXGI color spaces to come out of the video processor still
+  // in its transfer function. DXGI has no RGB HLG, so HLG is passed off
+  // as gamma 2.2 in and out: the processor then only converts YCbCr to
+  // RGB and leaves the HLG signal to the shader.
   const bool pq = IsPq(color_space);
-  if (pq && (!video_context1_ || shader_failed_)) {
+  const bool hlg = IsHlg(color_space);
+  if ((pq || hlg) && (!video_context1_ || shader_failed_)) {
     return nullptr;
   }
 
@@ -218,29 +253,34 @@ std::shared_ptr<VideoFrame> D3D11VideoProcessor::Convert(
     return nullptr;
   }
 
-  if (pq) {
+  if (pq || hlg) {
     D3D11_TEXTURE2D_DESC desc = {};
-    if (pq_) {
-      pq_->GetDesc(&desc);
+    if (hdr_) {
+      hdr_->GetDesc(&desc);
     }
-    if (!pq_ || desc.Width != output_width || desc.Height != output_height) {
-      pq_.Reset();
-      pq_view_.Reset();
+    if (!hdr_ || desc.Width != output_width || desc.Height != output_height) {
+      hdr_.Reset();
+      hdr_view_.Reset();
       desc = target;
-      // 10 bits of PQ, as P010 carries them.
+      // 10 bits of signal, as P010 carries them.
       desc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
       desc.MiscFlags = 0;
-      if (FAILED(device_->CreateTexture2D(&desc, nullptr, &pq_)) ||
-          FAILED(device_->CreateShaderResourceView(pq_.Get(), nullptr,
-                                                   &pq_view_))) {
-        pq_.Reset();
+      if (FAILED(device_->CreateTexture2D(&desc, nullptr, &hdr_)) ||
+          FAILED(device_->CreateShaderResourceView(hdr_.Get(), nullptr,
+                                                   &hdr_view_))) {
+        hdr_.Reset();
         return nullptr;
       }
     }
+    const DXGI_COLOR_SPACE_TYPE input_space =
+        hlg ? DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_TOPLEFT_P2020 : color_space;
+    const DXGI_COLOR_SPACE_TYPE output_space =
+        hlg ? DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P2020
+            : DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
     if (!Blt(texture, slice, source.Format, source.Width, source.Height,
-             pq_.Get(), output_width, output_height, color_space,
-             DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020) ||
-        !ToneMapPq(output.Get(), output_width, output_height)) {
+             hdr_.Get(), output_width, output_height, input_space,
+             output_space) ||
+        !ToneMap(output.Get(), output_width, output_height, hlg)) {
       return nullptr;
     }
   } else if (!Blt(texture, slice, source.Format, source.Width, source.Height,
@@ -366,22 +406,28 @@ bool D3D11VideoProcessor::Blt(ID3D11Texture2D* texture,
       processor, output_view.Get(), 0, 1, &stream));
 }
 
-bool D3D11VideoProcessor::ToneMapPq(ID3D11Texture2D* output,
-                                    UINT width,
-                                    UINT height) {
-  if (!tone_map_shader_) {
+bool D3D11VideoProcessor::ToneMap(ID3D11Texture2D* output,
+                                  UINT width,
+                                  UINT height,
+                                  bool hlg) {
+  if (!pq_shader_) {
     ComPtr<ID3DBlob> vertex = CompileShader("vs", "vs_4_0");
-    ComPtr<ID3DBlob> pixel = CompileShader("ps", "ps_4_0");
-    if (!vertex || !pixel ||
+    ComPtr<ID3DBlob> pq = CompileShader("ps_pq", "ps_4_0");
+    ComPtr<ID3DBlob> hlg_pixel = CompileShader("ps_hlg", "ps_4_0");
+    if (!vertex || !pq || !hlg_pixel ||
         FAILED(device_->CreateVertexShader(vertex->GetBufferPointer(),
                                            vertex->GetBufferSize(), nullptr,
                                            &vertex_shader_)) ||
-        FAILED(device_->CreatePixelShader(pixel->GetBufferPointer(),
-                                          pixel->GetBufferSize(), nullptr,
-                                          &tone_map_shader_))) {
+        FAILED(device_->CreatePixelShader(pq->GetBufferPointer(),
+                                          pq->GetBufferSize(), nullptr,
+                                          &pq_shader_)) ||
+        FAILED(device_->CreatePixelShader(hlg_pixel->GetBufferPointer(),
+                                          hlg_pixel->GetBufferSize(), nullptr,
+                                          &hlg_shader_))) {
       shader_failed_ = true;
       vertex_shader_.Reset();
-      tone_map_shader_.Reset();
+      pq_shader_.Reset();
+      hlg_shader_.Reset();
       return false;
     }
   }
@@ -394,13 +440,13 @@ bool D3D11VideoProcessor::ToneMapPq(ID3D11Texture2D* output,
   const D3D11_VIEWPORT viewport = {
       0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1};
   ID3D11RenderTargetView* targets[] = {target.Get()};
-  ID3D11ShaderResourceView* views[] = {pq_view_.Get()};
+  ID3D11ShaderResourceView* views[] = {hdr_view_.Get()};
   context_->OMSetRenderTargets(1, targets, nullptr);
   context_->RSSetViewports(1, &viewport);
   context_->IASetInputLayout(nullptr);
   context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
   context_->VSSetShader(vertex_shader_.Get(), nullptr, 0);
-  context_->PSSetShader(tone_map_shader_.Get(), nullptr, 0);
+  context_->PSSetShader(hlg ? hlg_shader_.Get() : pq_shader_.Get(), nullptr, 0);
   context_->PSSetShaderResources(0, 1, views);
   // One triangle over the whole target (vs above).
   context_->Draw(3, 0);
