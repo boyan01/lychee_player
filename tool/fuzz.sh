@@ -234,6 +234,39 @@ seeds_hls() {
   printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:1' '#EXT-X-MEDIA-SEQUENCE:5' '#EXTINF:0.5,' seg0.ts \
     '#EXT-X-DISCONTINUITY' '#EXTINF:0.5,' later.ts '#EXTINF:0.5,' seg1.ts >"$media/discontinuity.m3u8"
   hls_seed discontinuity "$media/discontinuity.m3u8" "$segs/seg0.ts" "$segs/later.ts" "$segs/seg1.ts"
+  # Live: the playlist, its segment, the reload with one more and the end.
+  printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:1' '#EXT-X-MEDIA-SEQUENCE:0' '#EXTINF:0.5,' seg0.ts \
+    >"$media/live0.m3u8"
+  { cat "$media/live0.m3u8"; printf '%s\n' '#EXTINF:0.5,' seg1.ts '#EXT-X-ENDLIST'; } >"$media/live1.m3u8"
+  hls_seed live "$media/live0.m3u8" "$segs/seg0.ts" "$media/live1.m3u8" "$segs/seg1.ts"
+  # Fragmented MP4: the map before the first segment.
+  [ -f "$segs/frag1.m4s" ] || ffmpeg -hide_banner -loglevel error -y "${tiny[@]}" "${h264[@]}" -c:a aac \
+    -f hls -hls_time 0.5 -hls_playlist_type vod -hls_segment_type fmp4 -hls_fmp4_init_filename init.mp4 \
+    -hls_segment_filename "$segs/frag%d.m4s" "$segs/fmp4.m3u8" 2>/dev/null
+  hls_seed fmp4 "$segs/fmp4.m3u8" "$segs/init.mp4" "$segs/frag0.m4s" "$segs/frag1.m4s"
+  # AES-128 with the sequence number as the IV: a segment, then its key.
+  if [ -f "$segs/seg1.ts" ] && command -v openssl >/dev/null; then
+    printf '0123456789abcdef' >"$media/key.bin"
+    local i
+    for i in 0 1; do
+      openssl aes-128-cbc -K 30313233343536373839616263646566 -iv "$(printf '%032x' "$i")" \
+        -in "$segs/seg$i.ts" -out "$media/aes$i.ts"
+    done
+    printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:1' '#EXT-X-KEY:METHOD=AES-128,URI="key.bin"' \
+      '#EXTINF:0.5,' aes0.ts '#EXTINF:0.5,' aes1.ts '#EXT-X-ENDLIST' >"$media/aes.m3u8"
+    hls_seed aes "$media/aes.m3u8" "$media/aes0.ts" "$media/key.bin" "$media/aes1.ts"
+  fi
+  # An audio rendition: the variant's playlist and segment, the
+  # rendition's playlist and segment.
+  [ -f "$segs/audio.ts" ] || ffmpeg -hide_banner -loglevel error -y "${tiny[@]}" -vn -c:a aac -t 0.5 \
+    -f mpegts "$segs/audio.ts" 2>/dev/null
+  printf '%s\n' '#EXTM3U' '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="en",DEFAULT=YES,URI="audio.m3u8"' \
+    '#EXT-X-STREAM-INF:BANDWIDTH=800000,CODECS="avc1.64001e,mp4a.40.2",AUDIO="a"' video.m3u8 \
+    '#EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=64x48' low.m3u8 >"$media/renditions.m3u8"
+  printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:1' '#EXTINF:0.5,' a.ts '#EXT-X-ENDLIST' \
+    >"$media/one.m3u8"
+  hls_seed renditions "$media/renditions.m3u8" "$media/one.m3u8" "$segs/seg0.ts" "$media/one.m3u8" \
+    "$segs/audio.ts"
 }
 
 if command -v ffmpeg >/dev/null; then

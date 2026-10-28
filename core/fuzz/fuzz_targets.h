@@ -5,6 +5,7 @@
 #ifndef LYCHEE_FUZZ_FUZZ_TARGETS_H_
 #define LYCHEE_FUZZ_FUZZ_TARGETS_H_
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -113,9 +114,11 @@ inline void FuzzHlsPlaylist(const uint8_t* data, size_t size) {
 
 // The HLS demuxer over an input of resources separated by
 // fuzz::kHlsPartSeparator: the playlist, then what its URLs name, in the
-// order the demuxer first opens them (the variant playlist, segments; a
-// URL opened again gets the same resource). Playlists are made VOD, by
-// appending EXT-X-ENDLIST: live input waits real time for reloads.
+// order the demuxer first opens them (the variant playlist, segments,
+// renditions, keys). A URL opened again gets the same resource, except
+// that a playlist reloaded (live) gets the next unused part if that is a
+// playlist: its next version. Live reloads wait on a clock that jumps
+// ahead, at most 32 times.
 inline void FuzzHlsDemuxer(const uint8_t* data, size_t size) {
   std::vector<std::vector<uint8_t>> parts;
   const size_t separator = std::strlen(fuzz::kHlsPartSeparator);
@@ -124,30 +127,42 @@ inline void FuzzHlsDemuxer(const uint8_t* data, size_t size) {
     const void* found =
         memmem(data + begin, size - begin, fuzz::kHlsPartSeparator, separator);
     const size_t end = found ? static_cast<const uint8_t*>(found) - data : size;
-    std::vector<uint8_t> part(data + begin, data + end);
-    if (HlsDemuxer::Detect(part.data(), part.size())) {
-      static constexpr char kEndList[] = "\n#EXT-X-ENDLIST\n";
-      part.insert(part.end(), kEndList, kEndList + sizeof(kEndList) - 1);
-    }
-    parts.push_back(std::move(part));
+    parts.emplace_back(data + begin, data + end);
     if (!found) {
       break;
     }
     begin = end + separator;
   }
-  std::map<std::string, size_t> opened;
+  auto playlist = [&](size_t part) {
+    return part < parts.size() &&
+           HlsDemuxer::Detect(parts[part].data(), parts[part].size());
+  };
+  static constexpr char kUrl[] = "http://fuzz/index.m3u8";
+  std::map<std::string, size_t> opened = {{kUrl, 0}};
+  size_t next = 1;
   HlsDemuxer demuxer;
   demuxer.set_opener([&](const std::string& url, std::string* error) {
-    auto it = opened.emplace(url, opened.size() + 1).first;
+    auto it = opened.find(url);
+    if (it == opened.end()) {
+      it = opened.emplace(url, next++).first;
+    } else if (playlist(it->second) && playlist(next)) {
+      it->second = next++;
+    }
     if (it->second >= parts.size()) {
       *error = "not found";
       return std::unique_ptr<DataSource>();
     }
     return CreateMemoryDataSource(parts[it->second]);
   });
+  int64_t now = 0;
+  int waits = 0;
+  demuxer.set_clock({[&] { return now; },
+                     [&](int64_t until) {
+                       now = std::max(now, until);
+                       return ++waits <= 32;
+                     }});
   std::string error;
-  if (demuxer.Open(CreateMemoryDataSource(parts[0]), "http://fuzz/index.m3u8",
-                   &error)) {
+  if (demuxer.Open(CreateMemoryDataSource(parts[0]), kUrl, &error)) {
     fuzz::Play(&demuxer);
   }
 }

@@ -61,6 +61,14 @@ class HlsDemuxer : public Demuxer {
       std::function<std::unique_ptr<DataSource>(const std::string& url,
                                                 std::string* error)>;
   void set_opener(Opener opener) { opener_ = std::move(opener); }
+  // The time between live reloads: MonotonicMicros() and a wait until
+  // |until| unless set (the fuzzer advances a clock of its own). |wait|
+  // returns false to give up, as an abort does. Set before Open().
+  struct Clock {
+    std::function<int64_t()> now;
+    std::function<bool(int64_t until)> wait;
+  };
+  void set_clock(Clock clock) { clock_ = std::move(clock); }
 
  private:
   struct Segment : HlsSegment {
@@ -168,7 +176,10 @@ class HlsDemuxer : public Demuxer {
   void Track(DataSource* source);
   bool Failed();
 
+  int64_t Now() const;
+
   Opener opener_ = OpenDataSource;
+  Clock clock_;
   std::mutex mutex_;
   std::condition_variable wake_;
   DataSource* active_ = nullptr;

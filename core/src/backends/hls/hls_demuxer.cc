@@ -59,6 +59,10 @@ bool HlsDemuxer::Detect(const uint8_t* data, size_t size) {
   return size >= 7 && memcmp(data, "#EXTM3U", 7) == 0;
 }
 
+int64_t HlsDemuxer::Now() const {
+  return clock_.now ? clock_.now() : MonotonicMicros();
+}
+
 void HlsDemuxer::Track(DataSource* source) {
   std::lock_guard<std::mutex> lock(mutex_);
   active_ = source;
@@ -227,7 +231,7 @@ bool HlsDemuxer::Start(Rendition* r,
   r->ended = playlist.ended;
   r->target_duration = std::max(playlist.target_duration, kMicrosPerSecond);
   Merge(r, playlist);
-  r->last_reload = MonotonicMicros();
+  r->last_reload = Now();
   if (r->segments.empty() && !r->live) {
     *error = "HLS playlist without segments";
     return false;
@@ -272,7 +276,7 @@ void HlsDemuxer::Load(Rendition* r, const HlsPlaylist& playlist) {
   r->ended = playlist.ended;
   r->target_duration = std::max(playlist.target_duration, kMicrosPerSecond);
   Merge(r, playlist);
-  r->last_reload = MonotonicMicros();
+  r->last_reload = Now();
   r->loaded = true;
   if (r->live) {
     // Variants of a live stream number their segments alike: on from the
@@ -705,12 +709,15 @@ DemuxerReadResult HlsDemuxer::WaitForSegments(Rendition* r) {
     const int64_t due =
         r->last_reload +
         (r->last_reload_changed ? r->target_duration : r->target_duration / 2);
-    {
+    if (clock_.wait) {
+      if (!clock_.wait(due)) {
+        return DemuxerReadResult::kAborted;
+      }
+    } else {
       std::unique_lock<std::mutex> lock(mutex_);
-      wake_.wait_for(lock,
-                     std::chrono::microseconds(
-                         std::max<int64_t>(due - MonotonicMicros(), 0)),
-                     [this] { return aborted_ || interrupted_; });
+      wake_.wait_for(
+          lock, std::chrono::microseconds(std::max<int64_t>(due - Now(), 0)),
+          [this] { return aborted_ || interrupted_; });
     }
     if (aborted_ || interrupted_) {
       return DemuxerReadResult::kAborted;
@@ -718,7 +725,7 @@ DemuxerReadResult HlsDemuxer::WaitForSegments(Rendition* r) {
     HlsPlaylist playlist;
     std::string final_url;
     std::string error;
-    r->last_reload = MonotonicMicros();
+    r->last_reload = Now();
     if (!LoadPlaylist(nullptr, r->url, &playlist, &final_url, &error) ||
         playlist.master) {
       if (Failed()) {

@@ -151,9 +151,6 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    is not started.
 4. **Android**: http (item 1), an FFmpeg-free AAR variant if native
    Android users want one, and the Flutter plugin on it.
-5. **Fuzzing the live HLS reloads**: they wait real time, so the `hls`
-   target makes playlists VOD; it needs a clock the fuzzer can advance.
-
 ## Distribution and infrastructure
 
 1. **1.0.0**, once the beta has been used. Before it, and only then, a
