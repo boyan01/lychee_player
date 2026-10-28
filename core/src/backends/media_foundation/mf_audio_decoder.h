@@ -9,9 +9,10 @@
 namespace lychee {
 
 // AAC (raw with an AudioSpecificConfig, as MP4 stores it, or in ADTS, as
-// MPEG-TS does), MP3, FLAC and ALAC through Media Foundation's decoders (FLAC
-// and ALAC since Windows 10), for builds without FFmpeg. Media Foundation's
-// resampler converts to the sink's rate and channels when they differ.
+// MPEG-TS does), MP3, FLAC, ALAC and Opus through Media Foundation's
+// decoders (FLAC, ALAC and Opus since Windows 10), for builds without
+// FFmpeg. Media Foundation's resampler converts to the sink's rate and
+// channels when they differ.
 class MFAudioDecoder : public AudioDecoder {
  public:
   MFAudioDecoder() = default;
@@ -51,7 +52,13 @@ class MFAudioDecoder : public AudioDecoder {
   // For packets without a duration: ALAC's packet length, since its
   // decoder fails samples without one (live input has none).
   int64_t default_duration_ = 0;
+  // The decoder's output rate and bytes per frame.
+  int decoder_rate_ = 0;
+  int decoder_frame_bytes_ = 0;
   int64_t next_pts_ = kNoTimestamp;
+  // Microseconds of MP3 or Opus fed since the start or a flush, until the
+  // first output; -1 after it.
+  int64_t expected_us_ = 0;
   int consecutive_errors_ = 0;
 };
 

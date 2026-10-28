@@ -42,6 +42,8 @@ GUID Subtype(AudioCodec codec) {
       return MFAudioFormat_FLAC;
     case AudioCodec::kALAC:
       return MFAudioFormat_ALAC;
+    case AudioCodec::kOpus:
+      return MFAudioFormat_Opus;
     default:
       return GUID_NULL;
   }
@@ -65,7 +67,7 @@ std::vector<uint8_t> FlacStreamInfo(const std::vector<uint8_t>& config) {
 // What the decoder takes as MF_MT_USER_DATA, as Windows' own MP4 source
 // hands it over: for FLAC the STREAMINFO block with its header, marked
 // last; for ALAC the 24-byte ALACSpecificConfig (MP4's alac box comes with
-// its header, version and flags).
+// its header, version and flags); for Opus the OpusHead packet.
 std::vector<uint8_t> UserData(AudioCodec codec,
                               const std::vector<uint8_t>& config) {
   switch (codec) {
@@ -86,6 +88,29 @@ std::vector<uint8_t> UserData(AudioCodec codec,
       return config;
     default:
       return config;
+  }
+}
+
+// Samples at 48 kHz in an Opus packet, from its TOC byte (RFC 6716, 3.1).
+// Multistream packets start with the first stream's, of the same length.
+int OpusPacketFrames(const uint8_t* data, size_t size) {
+  if (size < 1) {
+    return 0;
+  }
+  static const int kSilk[] = {480, 960, 1920, 2880};
+  static const int kCelt[] = {120, 240, 480, 960};
+  const int config = data[0] >> 3;
+  const int frame = config < 12   ? kSilk[config & 3]
+                    : config < 16 ? ((config & 1) ? 960 : 480)
+                                  : kCelt[config & 3];
+  switch (data[0] & 3) {
+    case 0:
+      return frame;
+    case 1:
+    case 2:
+      return 2 * frame;
+    default:
+      return size > 1 ? frame * (data[1] & 0x3f) : 0;
   }
 }
 
@@ -144,7 +169,7 @@ bool MFAudioDecoder::Open(const std::vector<uint8_t>& extradata,
     CoCreateInstance(CLSID_CMSAACDecMFT, nullptr, CLSCTX_INPROC_SERVER,
                      IID_PPV_ARGS(&decoder_));
   } else {
-    // MP3, and Windows' own FLAC and ALAC decoders (Windows 10).
+    // MP3, and Windows' own FLAC, ALAC and Opus decoders (Windows 10).
     decoder_ = CreateDecoder(subtype);
   }
   if (!decoder_) {
@@ -241,6 +266,8 @@ bool MFAudioDecoder::SetUpOutput() {
       MFGetAttributeUINT32(chosen.Get(), MF_MT_AUDIO_NUM_CHANNELS, 0));
   resampler_.Reset();
   float_output_ = subtype == MFAudioFormat_Float;
+  decoder_rate_ = rate;
+  decoder_frame_bytes_ = (float_output_ ? 4 : 2) * channels;
   const char* codec = config_.codec_name.c_str();
   if (rate == output_format_.sample_rate &&
       channels == output_format_.channels && float_output_) {
@@ -302,6 +329,7 @@ bool MFAudioDecoder::Decode(const EncodedPacket& packet,
     bool ok = Pull(decoder_.Get(), &decoded) && Deliver(&decoded, true, output);
     decoder_->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
     next_pts_ = kNoTimestamp;
+    expected_us_ = 0;
     return ok;
   }
   if (!packet.buffer || packet.size() == 0) {
@@ -354,10 +382,42 @@ bool MFAudioDecoder::Decode(const EncodedPacket& packet,
     LOGW("ProcessInput: %s", HResultString(hr).c_str());
     return ++consecutive_errors_ < kMaxConsecutiveErrors;
   }
+  // Microseconds of audio in the packet, for the codecs whose decoders
+  // drop their delay.
+  int64_t packet_us = 0;
+  if (config_.codec == AudioCodec::kMP3 && config_.sample_rate > 0) {
+    packet_us = (config_.sample_rate < 32000 ? 576 : 1152) * kMicrosPerSecond /
+                config_.sample_rate;
+  } else if (config_.codec == AudioCodec::kOpus) {
+    packet_us = OpusPacketFrames(data, size) * kMicrosPerSecond / 48000;
+  }
   if (!Pull(decoder_.Get(), &decoded)) {
     return ++consecutive_errors_ < kMaxConsecutiveErrors;
   }
   consecutive_errors_ = 0;
+  if (expected_us_ >= 0 && packet_us > 0) {
+    expected_us_ += packet_us;
+    int64_t decoded_bytes = 0;
+    for (ComPtr<IMFSample>& out : decoded) {
+      DWORD length = 0;
+      if (SUCCEEDED(out->GetTotalLength(&length))) {
+        decoded_bytes += length;
+      }
+    }
+    if (decoded_bytes > 0 && decoder_frame_bytes_ > 0 && decoder_rate_ > 0) {
+      // Media Foundation's decoders drop the decoder's delay (529 samples
+      // for MP3, the pre-skip for Opus) from the start, which the
+      // container's timestamps count: the first output is later than the
+      // packets by what it lacks, if less than a packet.
+      const int64_t decoded_us = decoded_bytes / decoder_frame_bytes_ *
+                                 kMicrosPerSecond / decoder_rate_;
+      const int64_t missing = expected_us_ - decoded_us;
+      if (missing > 0 && missing < packet_us && next_pts_ != kNoTimestamp) {
+        next_pts_ += missing;
+      }
+      expected_us_ = -1;
+    }
+  }
   return Deliver(&decoded, false, output);
 }
 
@@ -487,6 +547,7 @@ void MFAudioDecoder::Flush() {
     resampler_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
   }
   next_pts_ = kNoTimestamp;
+  expected_us_ = 0;
   consecutive_errors_ = 0;
 }
 

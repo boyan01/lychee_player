@@ -120,7 +120,7 @@ if(WIN32)
   )
   if(NOT LYCHEE_WITH_FFMPEG)
     # Without FFmpeg: H.264 and HEVC in hardware or software, AAC, MP3,
-    # FLAC and ALAC through Media Foundation, text subtitles.
+    # FLAC, ALAC and Opus through Media Foundation, text subtitles.
     list(APPEND LYCHEE_SOURCES
       src/backends/media_foundation/mf_audio_decoder.cc
       src/media/text_subtitle_decoder.cc
