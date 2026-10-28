@@ -558,6 +558,16 @@ else
   failures=$((failures + 1))
 fi
 
+# Exercise the soak checker without a timed playback run, also on CI.
+soak_out="$(python3 -I "$root/tool/soak_test.py" 2>&1)"
+if [ $? -eq 0 ]; then
+  echo "PASS soak checker"
+else
+  echo "FAIL soak checker"
+  echo "$soak_out"
+  failures=$((failures + 1))
+fi
+
 # Cases run on the library's virtual clock (lychee_cli --virtual-time): as
 # fast as decoding allows, and unaffected by load, so timing checks are
 # exact. realtime=1 before a case plays it on the real clock and audio

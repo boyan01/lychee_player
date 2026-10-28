@@ -5,7 +5,10 @@
 # process's resident memory and thread count. Fails if either keeps
 # growing: after a warm-up of a fifth of the run, the last fifth's median
 # memory may exceed the first's by at most 10% plus 16 MB, and the thread
-# count may not exceed the first fifth's highest.
+# count may not exceed the first fifth's highest. On macOS, report and
+# exclude the kernel's system workqueue pool from that comparison: it can
+# add an idle GCD worker after warm-up. All other threads, including
+# decoder libraries and unknown pthreads, remain checked.
 #
 #   tool/soak.sh                      # 10 minutes, Debug build in build/
 #   MINUTES=60 tool/soak.sh
@@ -41,7 +44,8 @@ else
 fi
 pid=$!
 
-# Resident memory in MB and the thread count of $pid; nothing once it is gone.
+# RSS in MB, total threads, and system workqueue threads (macOS only).
+# A missing third column is zero. Nothing once the process is gone.
 sample() {
   if [ -r "/proc/$pid/winpid" ]; then
     # A native Windows process: MSYS's /proc knows only its own.
@@ -53,10 +57,51 @@ sample() {
     awk '/^VmRSS:/ { rss = int($2 / 1024) } /^Threads:/ { n = $2 }
          END { if (rss) print rss, n }' "/proc/$pid/status"
   else
-    local rss threads
-    rss="$(ps -o rss= -p "$pid" 2>/dev/null)" || return
-    threads="$(ps -M -p "$pid" 2>/dev/null | tail -n +2 | wc -l)"
-    echo "$((rss / 1024)) $((threads))"
+    python3 - "$pid" <<'PY'
+import ctypes
+import sys
+
+# Public libproc structs/flavors from <sys/proc_info.h>.
+class Task(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_uint64) for n in (
+        "virtual", "resident", "user", "system", "threads_user", "threads_system"
+    )] + [(n, ctypes.c_int32) for n in (
+        "policy", "faults", "pageins", "cow_faults", "sent", "received",
+        "mach_calls", "unix_calls", "switches", "threads", "running", "priority"
+    )]
+
+class Workqueue(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_uint32) for n in (
+        "threads", "running", "blocked", "state"
+    )]
+
+lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+lib.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64,
+                            ctypes.c_void_p, ctypes.c_int]
+lib.proc_pidinfo.restype = ctypes.c_int
+pid = int(sys.argv[1])
+
+def query(flavor, result):
+    return lib.proc_pidinfo(pid, flavor, 0, ctypes.byref(result),
+                            ctypes.sizeof(result)) == ctypes.sizeof(result)
+
+# Read the task between matching workqueue counts to avoid subtracting
+# a newly created worker from an older total.
+for _ in range(3):
+    before, task, after = Workqueue(), Task(), Workqueue()
+    # A task need not have a system workqueue. If its query is unavailable,
+    # keep zero and conservatively check every thread.
+    query(12, before)
+    if not query(4, task):
+        sys.exit(1)
+    query(12, after)
+    if before.threads == after.threads:
+        assert task.threads >= after.threads
+        print(task.resident // (1024 * 1024), task.threads, after.threads)
+        break
+else:
+    sys.exit("soak: system workqueue changed while sampling")
+PY
   fi
 }
 
@@ -76,7 +121,13 @@ actions="$(grep -c '^soak: ' "$log")"
 opens="$(grep -c '^soak: open' "$log")"
 errors="$(grep -c 'state=error\|event: error' "$log")"
 awk -v actions="$actions" -v opens="$opens" -v errors="$errors" '
-  { rss[NR] = $1; threads[NR] = $2 }
+  {
+    rss[NR] = $1
+    total[NR] = $2
+    workqueue[NR] = $3 + 0
+    threads[NR] = total[NR] - workqueue[NR]
+    if (workqueue[NR]) has_workqueue = 1
+  }
   function median(from, to,   n, i, j, t, v) {
     n = 0
     for (i = from; i <= to; i++) v[++n] = rss[i]
@@ -92,8 +143,21 @@ awk -v actions="$actions" -v opens="$opens" -v errors="$errors" '
     max_first = 0; max_last = 0
     for (i = fifth + 1; i <= 2 * fifth; i++) if (threads[i] > max_first) max_first = threads[i]
     for (i = NR - fifth + 1; i <= NR; i++) if (threads[i] > max_last) max_last = threads[i]
-    printf "soak: %d samples, %d actions (%d opens), memory %d -> %d MB, threads %d -> %d, %d errors\n",
-           NR, actions, opens, first, last, max_first, max_last, errors
+    printf "soak: %d samples, %d actions (%d opens), memory %d -> %d MB, threads %d -> %d",
+           NR, actions, opens, first, last, max_first, max_last
+    if (has_workqueue) {
+      for (i = fifth + 1; i <= 2 * fifth; i++) {
+        if (total[i] > raw_first) raw_first = total[i]
+        if (workqueue[i] > work_first) work_first = workqueue[i]
+      }
+      for (i = NR - fifth + 1; i <= NR; i++) {
+        if (total[i] > raw_last) raw_last = total[i]
+        if (workqueue[i] > work_last) work_last = workqueue[i]
+      }
+      printf " (total %d -> %d, system workqueue %d -> %d)",
+             raw_first, raw_last, work_first, work_last
+    }
+    printf ", %d errors\n", errors
     bad = ""
     if (last > first * 1.1 + 16) bad = bad " memory grew"
     if (max_last > max_first) bad = bad " threads grew"

@@ -46,17 +46,6 @@ building on top of them.
    simulator has no VP9 decoder (`VTDecompressionSessionCreate` -12906,
    2026-10-28).
 
-5. **macOS FFmpeg-free core soak thread counts**: repeatedly opening the
-   static 640x360 low HLS variant remuxed into MP4 and `h264_aac.mp4` with
-   `MINUTES=3 tool/soak.sh SD_MP4 HD_MP4` made 657 actions and 219 opens,
-   with RSS 31 to 33 MB and zero errors, but the sampled thread maximum
-   rose from 12 to 13 (2026-10-28). A one-minute ASan run likewise rose
-   from 10 to 11. Compare the unchanged core and identify the extra
-   thread before deciding whether this is a bounded system worker pool,
-   sampling during decoder replacement, or a player lifetime defect;
-   done when that distinction is established and the applicable soak
-   check passes without weakening it to hide growth.
-
 ## Known defects
 
 - **The Flutter example crashed on quitting on Windows**: after
