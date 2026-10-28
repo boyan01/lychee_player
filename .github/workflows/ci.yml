@@ -185,6 +185,41 @@ jobs:
           NO_HW=1 TSAN=${{ matrix.sanitizer == 'thread' && 1 || 0 }} \
             ASAN=${{ matrix.sanitizer == 'address' && 1 || 0 }} tool/regression.sh
 
+  bench:
+    # tool/bench.sh per push on the idle self-hosted Mac, once the core
+    # passed there, with the LGPL FFmpeg core-macos built and the pinned
+    # FFmpeg 9 for the media. The table stays on that machine
+    # (~/ci-tools/bench.tsv: one row per case and commit; only one
+    # machine's rows compare, so no hosted VM adds to it) and goes up as
+    # an artifact with each run. tool/bench_compare.py puts this commit's
+    # numbers against the last benchmarked commit's into the job summary
+    # and warns on regressions; it does not fail the run.
+    needs: [changes, core-macos]
+    if: github.event_name == 'push' && needs.changes.outputs.core == 'true'
+    runs-on: [self-hosted, macOS, X64, quiet]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          clean: false
+      - name: FFmpeg
+        run: |
+          tools="$HOME/ci-tools"
+          echo "$tools/ffmpeg-9.0.2" >>"$GITHUB_PATH"
+          key="$({ cat tool/build_ffmpeg.sh; grep -E '^ffmpeg_' tool/release.sh; } | shasum -a 256 | cut -c1-16)"
+          echo "FFMPEG_ROOT=$tools/ffmpeg-lgpl-$key" >>"$GITHUB_ENV"
+          # The media is made once per version of the script.
+          echo "MEDIA_DIR=$tools/bench-media-$(shasum -a 256 tool/bench.sh | cut -c1-12)" >>"$GITHUB_ENV"
+      - name: Benchmark
+        run: BENCH_TSV="$HOME/ci-tools/bench.tsv" tool/bench.sh
+      - name: Compare
+        run: |
+          python3 -I tool/bench_compare.py "$HOME/ci-tools/bench.tsv" --github | tee -a "$GITHUB_STEP_SUMMARY"
+          cp "$HOME/ci-tools/bench.tsv" "$RUNNER_TEMP/bench.tsv"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bench
+          path: ${{ runner.temp }}/bench.tsv
+
   core-linux:
     # Catches Linux build breaks without a WSL run. Software decoding: no
     # VAAPI on hosted runners. TSan stays on macOS (Linux needs clang and

@@ -195,9 +195,10 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
      `ci.yml`, 2026-10-28) have not run on GitHub yet: fix what their
      first push shows (the emulator's MediaCodec snapshots, WASAPI on a
      VM without an audio device), then delete this line.
-   - **Performance benchmarks**: `tool/bench.sh` measures them on one
-     machine, by hand; left are running it per commit on the idle
-     self-hosted Mac and keeping the table somewhere CI can compare.
+   - **Performance benchmarks**: `ci.yml`'s `bench` job (2026-10-28)
+     runs `tool/bench.sh` per push on the idle self-hosted Mac, keeps the
+     table there and compares with `tool/bench_compare.py`; it has not
+     run on GitHub yet: check its first summary, then delete this part.
      VideoToolbox through FFmpeg decodes 1080p H.264 at ~210 fps on the
      virtual clock against software's ~970 (M-series, 2026-10-28): one
      frame at a time, which is enough to play but not to scrub fast.
