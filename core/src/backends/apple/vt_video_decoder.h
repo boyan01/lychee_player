@@ -89,6 +89,12 @@ class VTVideoDecoder : public VideoDecoder {
   std::multimap<int64_t, Decoded> reorder_;
   int consecutive_errors_ = 0;
   bool session_lost_ = false;
+  // The status OnOutput() got for the frame being decoded.
+  OSStatus output_status_ = noErr;
+  // Whether a frame came out since the session was made.
+  bool decoded_ = false;
+  // After bad data: packets are dropped up to the next keyframe.
+  bool await_keyframe_ = false;
   std::vector<uint8_t> annexb_;
   std::vector<uint8_t> sample_;
 };

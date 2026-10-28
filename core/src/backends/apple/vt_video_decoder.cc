@@ -15,6 +15,8 @@ namespace lychee {
 namespace {
 
 constexpr int kMaxConsecutiveErrors = 10;
+// codecBadDataErr, what the software decoder returns for damaged data.
+constexpr OSStatus kCodecBadDataErr = -8969;
 // Frames held for reordering when packets carry no dts.
 constexpr size_t kMaxReorder = 16;
 
@@ -268,6 +270,7 @@ CMVideoFormatDescriptionRef VTVideoDecoder::CreateFormat() const {
 
 bool VTVideoDecoder::CreateSession() {
   DestroySession();
+  decoded_ = false;
   format_ = CreateFormat();
   if (!format_) {
     return false;
@@ -359,19 +362,14 @@ void VTVideoDecoder::OnOutput(void* decoder,
                               CMTime pts,
                               CMTime duration) {
   auto* self = static_cast<VTVideoDecoder*>(decoder);
+  self->output_status_ = status;
   if (status != noErr) {
-    LOGW("%s: decode failed: %d", self->name(), static_cast<int>(status));
-    if (status == kVTInvalidSessionErr ||
-        status == kVTVideoDecoderMalfunctionErr) {
-      self->session_lost_ = true;
-    }
-    self->consecutive_errors_++;
     return;
   }
-  self->consecutive_errors_ = 0;
   if (!image || (flags & kVTDecodeInfo_FrameDropped)) {
     return;
   }
+  self->decoded_ = true;
   CVPixelBufferRetain(image);
   self->reorder_.emplace(ToMicros(pts), Decoded{image, ToMicros(duration)});
 }
@@ -399,6 +397,12 @@ bool VTVideoDecoder::Decode(const EncodedPacket& packet,
   }
   if (!packet.buffer) {
     return true;
+  }
+  if (await_keyframe_) {
+    if (!packet.keyframe) {
+      return true;
+    }
+    await_keyframe_ = false;
   }
   if (codec_type_ != 0) {
     // VP9 says its profile, depth and size in each keyframe's header; a
@@ -600,17 +604,33 @@ bool VTVideoDecoder::DecodeSample(const EncodedPacket& packet,
     return false;
   }
   // Synchronous: the output callback runs before this returns.
+  output_status_ = noErr;
   status = VTDecompressionSessionDecodeFrame(session_, sample, 0, nullptr,
                                              nullptr);
   CFRelease(sample);
-  if (status != noErr) {
-    LOGW("%s: VTDecompressionSessionDecodeFrame: %d", name(),
-         static_cast<int>(status));
+  if (status == noErr) {
+    status = output_status_;
+  }
+  if (status == noErr) {
+    consecutive_errors_ = 0;
+  } else {
+    LOGW("%s: decode failed: %d", name(), static_cast<int>(status));
     if (status == kVTInvalidSessionErr ||
         status == kVTVideoDecoderMalfunctionErr) {
       session_lost_ = true;
     }
-    consecutive_errors_++;
+    // After damaged data (lost TS packets) VideoToolbox fails every
+    // frame that refers to it, where FFmpeg conceals: decode on from the
+    // next keyframe, unless no frame came out yet (a stream it cannot
+    // decode) or keyframes keep failing.
+    const bool damaged = decoded_ && (status == kVTVideoDecoderBadDataErr ||
+                                      status == kCodecBadDataErr);
+    if (damaged) {
+      await_keyframe_ = true;
+    }
+    if (!damaged || packet.keyframe) {
+      consecutive_errors_++;
+    }
   }
   if (session_lost_ || consecutive_errors_ >= kMaxConsecutiveErrors) {
     return false;
@@ -636,6 +656,7 @@ void VTVideoDecoder::Flush() {
   }
   reorder_.clear();
   consecutive_errors_ = 0;
+  await_keyframe_ = false;
 }
 
 }  // namespace lychee

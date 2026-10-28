@@ -55,17 +55,13 @@ building on top of them.
   `ts-timestamp-reset` and `seek-ts-reset*` cases, now run only with
   `NO_FFMPEG=1`, pass in both builds.
 
-1. **VideoToolbox gives up on damaged TS**: on TS that lost one packet in
-   a thousand (`ts_lost_packets.ts`) `VTVideoDecoder` reaches its
-   consecutive-error limit, where FFmpeg's software decoder conceals and
-   plays on, so the FFmpeg-free build plays `ts-lost-packets` audio only.
-2. **Slow HLS seeks past a discontinuity with FFmpeg**: FFmpeg's HLS seek
+1. **Slow HLS seeks past a discontinuity with FFmpeg**: FFmpeg's HLS seek
    drops every packet past a discontinuity where timestamps start over,
    so `FFmpegDemuxer` reads from before the first discontinuity (from the
    start if none has been read yet). Long streams make that slow; only an
    HLS demuxer that knows the segments, as the FFmpeg-free one does,
    would do better.
-3. **iOS foreground recovery needs device verification** (waiting on the
+2. **iOS foreground recovery needs device verification** (waiting on the
    user): an iPhone 17 (2026-10-27) rejected 32 video packets (`-12909`)
    after an apparent interruption or background transition; the actual
    lifecycle trigger is unconfirmed. The native and Flutter frame drivers

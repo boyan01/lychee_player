@@ -98,6 +98,8 @@ gen h264_bt601.mp4 -i "$media/h264_aac.mp4" -t 3 -c copy -colorspace smpte170m \
 gen audio_only.mp3 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a libmp3lame
 gen video_only.mp4 -f lavfi -i testsrc2=size=1280x720:rate=60 -t 8 -c:v libx264 -preset veryfast -pix_fmt yuv420p
 gen offset.ts -i "$media/h264_aac.mp4" -c copy -output_ts_offset 10 -f mpegts
+# A keyframe a second, as broadcasts have (h264_aac.mp4 has one).
+gen keyframes.ts -i "$media/h264_aac.mp4" -c:v libx264 -preset veryfast -g 30 -c:a copy -f mpegts
 gen hevc10.ts -i "$media/hevc10.mp4" -c copy -f mpegts
 # The index at the front, so a cut file still opens; then cut in half.
 gen faststart.mp4 -i "$media/h264_aac.mp4" -c copy -movflags +faststart
@@ -310,14 +312,16 @@ fi
   '#EXTINF:3.0,' ../rendition_640x360.ts '#EXT-X-ENDLIST' >"$media/hls/discontinuity_late.m3u8"
 # MPEG-TS that lost one packet in a thousand (continuity errors), and one
 # that turns into noise after 600 KB.
-[ -f "$media/ts_lost_packets.ts" ] || python3 -I -c '
+for lost in offset:ts_lost_packets keyframes:ts_lost_packets_keyframes; do
+  [ -f "$media/${lost#*:}.ts" ] || python3 -I -c '
 import sys
 data = open(sys.argv[1], "rb").read()
 out = bytearray()
 for i in range(0, len(data) - 187, 188):
     if i // 188 % 1000 != 999:
         out += data[i:i + 188]
-open(sys.argv[2], "wb").write(out)' "$media/offset.ts" "$media/ts_lost_packets.ts" || exit 1
+open(sys.argv[2], "wb").write(out)' "$media/${lost%%:*}.ts" "$media/${lost#*:}.ts" || exit 1
+done
 [ -f "$media/corrupt.ts" ] || python3 -I -c '
 import random, sys
 data = bytearray(open(sys.argv[1], "rb").read())
@@ -960,6 +964,11 @@ par expect resolution-change "video size 1280x720" "video size 640x360" "state=e
 # resyncs on its ADTS headers), and noise ends the input where it starts
 # (600 KB in: ~0.9 s, a frame or two either way with another x264 build).
 par expect ts-lost-packets "summary: state=ended position=12\.0" -- --audio-only "$media/ts_lost_packets.ts"
+# Video too, with a keyframe a second: where the decoder cannot conceal
+# the damage (VideoToolbox in hardware), it decodes on from the next
+# keyframe rather than failing.
+par expect ts-lost-packets-video "summary: state=ended position=12\.0.* rendered=([3-9][0-9]|[1-9][0-9]{2,}) " -- \
+  "$media/ts_lost_packets_keyframes.ts"
 par expect ts-corrupt "summary: state=ended position=0\.[89]" -- "$media/corrupt.ts"
 exits=1 par expect corrupt-file "state=error" "error: (audio|video) decoding failed" -- "$media/corrupt.mp4"
 serve
