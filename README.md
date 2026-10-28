@@ -147,6 +147,26 @@ python3 -I tool/frame_check.py video.mp4 /tmp/w.ppm --pts 1033333 \
   --video 0,150,1600,900 --self-test
 ```
 
+The Android SDK's example takes snapshots with its `snapshot` intent
+extra (`SEC:NAME,...`): it pauses, copies the `SurfaceView` with
+`PixelCopy` (`LycheePlayerView.snapshot`), writes the PPM into its
+external files directory and logs the line, then plays on.
+
+```sh
+adb shell am start -n tech.soit.lychee.example/.MainActivity \
+  --es url http://127.0.0.1:8765/rotated.mp4 --ez hw false \
+  --es snapshot 2:a.ppm,3.5:b.ppm
+adb pull /sdcard/Android/data/tech.soit.lychee.example/files/. /tmp/snaps
+adb logcat -d -s lychee-example:I | grep -o 'snapshot .*' |
+  sed 's|/[^ ]*/files/|/tmp/snaps/|' |
+  python3 -I tool/frame_check.py rotated.mp4 --log -
+```
+
+The emulator's compositor converts MediaCodec's YUV surfaces with BT.601
+whatever their dataspace, so hardware-decoded HD fails there by its
+matrix alone; `--matrix bt601` checks the rest (frame, pts, rotation,
+scale). A phone shows whether the hardware path keeps BT.709.
+
 The reference follows the library's conventions: a stream without a color
 matrix is BT.709 above 576 lines and BT.601 below, and HDR is tone-mapped
 to SDR BT.709 by swscale. A snapshot passes with PSNR at least 28 dB, a

@@ -13,7 +13,10 @@ Built, but never observed working. Cheap to close; do these before
 building on top of them.
 
 1. **Android hardware decoding beyond the happy path**: not yet seen are
-   AAudio route changes to a USB-C headset, and switching AirPods back to
+   the BT.709 matrix for untagged HD on a phone's compositor (the
+   emulator's converts with BT.601 whatever the dataspace: check
+   `h264_aac.mp4` with the example's `snapshot` extra and
+   `tool/frame_check.py` without `--matrix`), AAudio route changes to a USB-C headset, and switching AirPods back to
    the speaker after clock correction (waiting on the user and the Xiaomi
    14: the prior run jumped ~0.2 s and dropped 8 frames; verify the step is
    smaller than a frame). Only the CLI's
@@ -184,8 +187,9 @@ H.264 and HEVC only) from files and http(s), Windows MP4 files.
      plugins' and the Android SDK's own core builds.
    - **CI jobs for Android and Windows**: the SDK build and its unit tests
      on an emulator; the core and `examples/glfw` on `windows-latest`.
-   - **Frame checks** by pixels for the Swift and Android examples, as
-     `examples/glfw --snapshot` has.
+   - **Frame checks** by pixels for the Swift example, as
+     `examples/glfw --snapshot` and the Android example's `snapshot`
+     extra have.
    - **ABI check on other ABIs**: `tool/abi_check.py` probes the host's
      layout only, so a layout that differs only on 32-bit or Windows goes
      unseen.

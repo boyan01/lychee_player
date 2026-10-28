@@ -6,8 +6,11 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
 import android.util.AttributeSet
 import android.util.Size
+import android.view.PixelCopy
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
@@ -79,6 +82,26 @@ class LycheePlayerView @JvmOverloads constructor(
         driver = null
         surfaceView?.let(::removeView)
         surfaceView = null
+    }
+
+    /**
+     * Copies the video on screen at the view's size, as the compositor
+     * shows it, with the presentation time of its frame (-1 if unknown).
+     * The time is exact only while the player is paused and the display
+     * has caught up; for checking frames by pixels (tool/frame_check.py).
+     * [onResult] gets null if there is nothing to copy.
+     */
+    fun snapshot(onResult: (bitmap: Bitmap?, ptsUs: Long) -> Unit) {
+        val view = surfaceView
+        val pts = driver?.framePtsUs ?: -1
+        if (view == null || view.width == 0 || view.height == 0 || !view.holder.surface.isValid) {
+            onResult(null, pts)
+            return
+        }
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        PixelCopy.request(view, bitmap, { result ->
+            onResult(if (result == PixelCopy.SUCCESS) bitmap else null, pts)
+        }, Handler(Looper.getMainLooper()))
     }
 
     private fun onSurfaceNeeded(cpu: Boolean, width: Int, height: Int) {

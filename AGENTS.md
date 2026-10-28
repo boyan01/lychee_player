@@ -252,9 +252,11 @@ What each area needs (run `tool/changes.sh`):
   `FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh`.
 - **android**: `sdk/android/gradlew -p sdk/android :lychee:publish
   :example:assembleDebug` (zero warnings), install the example on an
-  emulator or a phone and look at screenshots of `h264_aac.mp4` and
-  `rotated.mp4`, each with hardware decoding and without (the `url` and
-  `hw` intent extras). The Flutter plugin takes its frame driver from
+  emulator or a phone and check snapshots of `h264_aac.mp4` and
+  `rotated.mp4` with `tool/frame_check.py`, each with hardware decoding
+  and without (the `url`, `hw` and `snapshot` intent extras; README,
+  "Checking frames by pixels", and its `--matrix bt601` for hardware
+  frames on the emulator). The Flutter plugin takes its frame driver from
   the SDK, so a change to `LycheeFrameDriver` also runs the Flutter
   example on Android.
 - **windows**, **linux**: `tool/regression.sh` on that platform (Linux:
