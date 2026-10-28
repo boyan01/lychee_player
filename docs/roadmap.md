@@ -155,12 +155,13 @@ H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
    HEVC decoded in software shows one frame less than it should
    (`NO_FFMPEG=1 NO_HW=1 ONLY=live-hevc`: 299 of 300; the HEVC extension's
    decoder holds the last frame back, low latency mode set or not).
-4. **Android**: VP8, VP9 and AV1 through MediaCodec
-   (`MediaCodecVideoDecoder` maps only H.264 and HEVC, so WebM's video
-   has no decoder); an FFmpeg-free AAR in the release
-   (`-Plychee.ffmpeg=false` builds it; a second artifact is a publishing
-   decision) if native Android users want one, and the Flutter plugin on
-   it, which is untried.
+4. **Android**: VP8, VP9 and AV1 through MediaCodec are mapped
+   (`MediaCodecVideoDecoder`) but not yet played on an emulator or a
+   phone (the Windows PC was unreachable, 2026-10-28); an FFmpeg-free AAR
+   in the release (`-Plychee.ffmpeg=false` builds it; a second artifact
+   is a publishing decision) if native Android users want one. The
+   Flutter example builds on it (`flutter build apk`, no FFmpeg in the
+   APK) but has not been run.
 ## Distribution and infrastructure
 
 1. **1.0.0**, once the beta has been used. Before it, and only then, a

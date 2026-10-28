@@ -17,8 +17,8 @@ struct ANativeWindow;
 
 namespace lychee {
 
-// H.264 and HEVC through NDK MediaCodec, decoding straight into the
-// ANativeWindow from lychee_player_set_video_surface(). Frames are
+// H.264, HEVC, VP8, VP9 and AV1 through NDK MediaCodec, decoding straight into
+// the ANativeWindow from lychee_player_set_video_surface(). Frames are
 // kAndroidSurface: each holds a MediaCodec output buffer, released to the
 // window when the frame is first acquired (with the display time), or
 // released unseen when the frame is dropped. Without a window, frames go to
@@ -88,6 +88,9 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   ANativeWindow* TargetWindowLocked();
 
   const Codecs codecs_;
+  VideoCodec codec_type_ = VideoCodec::kUnknown;
+  // AV1's av1C for csd-0, or empty.
+  std::vector<uint8_t> av1c_;
   bool hardware_ = true;
   std::shared_ptr<Codec> codec_ = std::make_shared<Codec>();
   AnnexBConverter converter_;
