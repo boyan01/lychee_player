@@ -9,6 +9,8 @@
 #include "backends/apple/http_data_source.h"
 #elif defined(_WIN32)
 #include <windows.h>
+
+#include "backends/windows/http_data_source.h"
 #endif
 
 namespace lychee {
@@ -129,6 +131,8 @@ std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
     if (scheme == "http" || scheme == "https") {
 #if defined(__APPLE__)
       return HttpDataSource::Open(url, error);
+#elif defined(_WIN32)
+      return WinHttpDataSource::Open(url, error);
 #else
       *error = "no HTTP client in this build";
       return nullptr;

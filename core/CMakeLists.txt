@@ -88,14 +88,16 @@ if(WIN32)
     src/backends/media_foundation/mf_common.cc
     src/backends/media_foundation/mf_video_decoder.cc
     src/backends/windows/d3d11_video_processor.cc
+    src/backends/windows/http_data_source.cc
     src/backends/windows/wasapi_sink.cc
+    # Files and http(s) (WinHTTP) for both demuxers.
+    src/media/data_source.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
     # Without FFmpeg: MP4 files, AAC through Media Foundation.
     list(APPEND LYCHEE_SOURCES
       src/backends/media_foundation/mf_audio_decoder.cc
       src/backends/mp4/mp4_demuxer.cc
-      src/media/data_source.cc
     )
   endif()
 endif()
@@ -232,7 +234,7 @@ endif()
 
 if(WIN32)
   target_link_libraries(lychee PRIVATE
-    ole32 avrt d3d11 d3dcompiler mfplat mfuuid wmcodecdspuuid)
+    ole32 avrt d3d11 d3dcompiler mfplat mfuuid winhttp wmcodecdspuuid)
   # base/thread_name.h includes <windows.h>, whose min/max macros break
   # std::min and numeric_limits::max in the files that include it.
   target_compile_definitions(lychee PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

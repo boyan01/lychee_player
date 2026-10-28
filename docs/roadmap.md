@@ -144,10 +144,10 @@ Linux keeps FFmpeg (no system audio decoder or demuxer). Apple plays MP4,
 Matroska/WebM, MPEG-TS and HLS without it, and ships
 `lychee_noffmpeg.xcframework`; Android and Windows play MP4 files.
 
-1. **Shared IO on Android and Windows**: an http `DataSource` there
-   (`HttpURLConnection` or Cronet through JNI, WinHTTP), which their
-   FFmpeg-free builds need anyway; then FFmpeg reads through it as on
-   Apple. One `NSURLSession` per demuxer would let HLS segments reuse
+1. **Shared IO on Android**: an http `DataSource` there
+   (`HttpURLConnection` or Cronet through JNI), which its FFmpeg-free
+   build needs anyway; then FFmpeg reads through it as on Apple and
+   Windows (WinHTTP). One `NSURLSession` per demuxer would let HLS segments reuse
    connections.
 2. **Containers**: HLS with `EXT-X-MAP` (fMP4 segments: a `DataSource`
    that joins the init segment to each media segment, opened by
@@ -157,8 +157,8 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    metadata in TS are ignored.
 3. **Windows**: no software video decoder, so a machine without a GPU (or
    a codec its GPU lacks) plays no video; Media Foundation's software mode
-   would cover it. AAC in ADTS and other audio codecs have no decoder,
-   and http needs item 1. Packaging the FFmpeg-free core for the plugin
+   would cover it. AAC in ADTS and other audio codecs have no decoder.
+   Packaging the FFmpeg-free core for the plugin
    is not started.
 4. **Android**: http (item 1), an FFmpeg-free AAR variant if native
    Android users want one, and the Flutter plugin on it.

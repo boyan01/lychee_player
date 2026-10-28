@@ -153,6 +153,11 @@ bool ReadsThroughDataSource(const std::string& url) {
   if (colon == std::string::npos || url.find('/') < colon) {
     return true;  // A path.
   }
+#if defined(_WIN32)
+  if (colon == 1 && isalpha(static_cast<unsigned char>(url[0]))) {
+    return true;  // C:/dir/file or C:\dir\file.
+  }
+#endif
   if (url.compare(colon, 3, "://") != 0) {
     return false;
   }
