@@ -41,7 +41,11 @@ elseif(WIN32)
   set(GLFW_BUILD_DOCS OFF)
   set(GLFW_INSTALL OFF)
   set(GLFW_LIBRARY_TYPE STATIC)
+  # GLFW is not held to the project's warnings.
+  get_directory_property(_lychee_options COMPILE_OPTIONS)
+  set_directory_properties(PROPERTIES COMPILE_OPTIONS "")
   FetchContent_MakeAvailable(glfw)
+  set_directory_properties(PROPERTIES COMPILE_OPTIONS "${_lychee_options}")
 
   add_executable(lychee_glfw main_win.cc)
   target_link_libraries(lychee_glfw PRIVATE lychee glfw d3d11 dxgi d3dcompiler)

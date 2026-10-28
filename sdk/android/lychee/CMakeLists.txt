@@ -7,6 +7,7 @@ set(LYCHEE_FFMPEG_ROOT
   "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/ffmpeg/android-${ANDROID_ABI}"
   CACHE PATH "")
 set(BUILD_SHARED_LIBS ON)
+set(LYCHEE_WARNINGS_AS_ERRORS ON)
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
 add_subdirectory(../../../core core)
 # Debug apps build native code at -O0, too slow for per-pixel frame work.

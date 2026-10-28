@@ -178,8 +178,6 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    - **clang-tidy**: the Android, Windows and Linux backends are not
      checked. Add Linux to the changed-lines CI check, after validating
      its compiler database and diagnostics on Linux.
-   - **MSVC `/W4`** for the Windows build, and warnings as errors in the
-     plugins' and the Android SDK's own core builds.
    - **CI jobs for Android and Windows**: the SDK build and its unit tests
      on an emulator; the core and `examples/glfw` on `windows-latest`.
    - **Frame checks** by pixels for the Swift and Android examples, as

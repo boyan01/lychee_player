@@ -5,18 +5,6 @@ if(APPLE)
   enable_language(OBJCXX)
 endif()
 
-# The warnings tool/regression.sh's zero-warning check holds this
-# project's own code to (FFmpeg and GLFW build elsewhere). As in
-# Chromium, aggregates may leave fields to their defaults, which C structs
-# that start with struct_size rely on. MSVC keeps its default level for
-# now (roadmap: /W4).
-if(NOT MSVC)
-  add_compile_options(
-    "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-Wall;-Wextra;-Wimplicit-fallthrough;-Wno-missing-field-initializers>"
-    "$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:-Wnon-virtual-dtor>"
-  )
-endif()
-
 option(LYCHEE_BUILD_EXAMPLES "Build the example programs" ON)
 # The tests reach into the library's internals, which a shared library
 # does not export.
@@ -30,6 +18,9 @@ else()
 endif()
 
 add_subdirectory(core)
+# The core's warnings for the examples and tests too, which
+# tool/regression.sh's zero-warning check holds to them.
+add_compile_options(${LYCHEE_WARNING_OPTIONS})
 
 if(LYCHEE_BUILD_TESTS)
   enable_testing()

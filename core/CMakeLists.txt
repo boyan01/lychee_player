@@ -1,6 +1,34 @@
 cmake_minimum_required(VERSION 3.20)
 
 option(LYCHEE_WITH_FFMPEG "Build the FFmpeg demuxer and decoders" ON)
+# On in the builds of the core that ship (the Flutter plugins' and the
+# Android SDK's), as Flutter's plugin template does for plugin code.
+option(LYCHEE_WARNINGS_AS_ERRORS "Fail the core's build on a warning" OFF)
+
+# The warnings the project holds its own code to. As in Chromium,
+# aggregates may leave fields to their defaults, which C structs that
+# start with struct_size rely on.
+if(MSVC)
+  # The C runtime's advice to use its _s functions is not portable.
+  set(_lychee_warnings /W4 /D_CRT_SECURE_NO_WARNINGS)
+else()
+  set(_lychee_warnings -Wall -Wextra -Wimplicit-fallthrough
+    -Wno-missing-field-initializers)
+endif()
+# One generator expression per flag: the list goes through unquoted
+# expansions, which would split a genex at its ';'.
+set(LYCHEE_WARNING_OPTIONS)
+foreach(_flag ${_lychee_warnings})
+  list(APPEND LYCHEE_WARNING_OPTIONS
+    "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:${_flag}>")
+endforeach()
+if(NOT MSVC)
+  list(APPEND LYCHEE_WARNING_OPTIONS
+    "$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:-Wnon-virtual-dtor>")
+endif()
+if(NOT CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+  set(LYCHEE_WARNING_OPTIONS "${LYCHEE_WARNING_OPTIONS}" PARENT_SCOPE)
+endif()
 
 set(LYCHEE_SOURCES
   src/api/c_api.cc
@@ -127,6 +155,16 @@ set_target_properties(lychee PROPERTIES
   VISIBILITY_INLINES_HIDDEN ON
 )
 target_compile_definitions(lychee PRIVATE LYCHEE_IMPLEMENTATION=1)
+target_compile_options(lychee PRIVATE ${LYCHEE_WARNING_OPTIONS})
+if(LYCHEE_WARNINGS_AS_ERRORS)
+  # Not COMPILE_WARNING_AS_ERROR: Android's and Ubuntu 22.04's CMake
+  # predate it.
+  if(MSVC)
+    target_compile_options(lychee PRIVATE /WX)
+  else()
+    target_compile_options(lychee PRIVATE -Werror)
+  endif()
+endif()
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(lychee PUBLIC LYCHEE_SHARED=1)
 endif()
@@ -138,7 +176,9 @@ set(LYCHEE_FFMPEG_ROOT "" CACHE PATH "Prebuilt FFmpeg to use instead of pkg-conf
 if(LYCHEE_WITH_FFMPEG)
   if(LYCHEE_FFMPEG_ROOT)
     add_library(lychee_ffmpeg INTERFACE)
-    target_include_directories(lychee_ffmpeg INTERFACE "${LYCHEE_FFMPEG_ROOT}/include")
+    # SYSTEM: FFmpeg's headers are not held to the project's warnings.
+    target_include_directories(lychee_ffmpeg SYSTEM INTERFACE
+      "${LYCHEE_FFMPEG_ROOT}/include")
     # find_library() keeps what it found in the cache: after a change of
     # root it would link the old root's libraries with the new headers.
     if(NOT LYCHEE_FFMPEG_ROOT STREQUAL "${LYCHEE_FFMPEG_FOUND_ROOT}")
