@@ -49,7 +49,13 @@ TEST(HlsPlaylist, ParsesMediaPlaylists) {
       "next.ts\n"
       "#EXT-X-KEY:METHOD=NONE\n"
       "#EXTINF:6.,\n"
-      "last.ts\n";
+      "last.ts\n"
+      "#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"skd://k\"\n"
+      "#EXT-X-MAP:URI=\"init.mp4\",BYTERANGE=\"720@16\"\n"
+      "#EXT-X-KEY:METHOD=AES-128,URI=\"/"
+      "k2\",IV=0X00112233445566778899AABBCCDDEEFF\n"
+      "#EXTINF:2,\n"
+      "frag.m4s\n";
   HlsPlaylist playlist;
   std::string error;
   EXPECT_TRUE(
@@ -57,7 +63,7 @@ TEST(HlsPlaylist, ParsesMediaPlaylists) {
   EXPECT_TRUE(!playlist.master);
   EXPECT_TRUE(!playlist.ended);
   EXPECT_EQ(playlist.target_duration, 6000000);
-  EXPECT_EQ(playlist.segments.size(), 4u);
+  EXPECT_EQ(playlist.segments.size(), 5u);
   const HlsSegment& first = playlist.segments[0];
   EXPECT_EQ(first.url, std::string("http://h/p/media.ts"));
   EXPECT_EQ(first.duration, 5005000);
@@ -70,9 +76,34 @@ TEST(HlsPlaylist, ParsesMediaPlaylists) {
   EXPECT_EQ(playlist.segments[1].length, 500);
   EXPECT_EQ(playlist.segments[1].duration, 4500000);
   EXPECT_EQ(playlist.segments[2].discontinuity, 8);
-  EXPECT_TRUE(playlist.segments[2].encrypted);
+  const HlsKey& key = playlist.segments[2].key;
+  EXPECT_TRUE(key.method == HlsKey::Method::kAes128);
+  EXPECT_EQ(key.url, std::string("http://h/p/key.bin"));
+  EXPECT_TRUE(key.has_iv);
+  EXPECT_EQ(key.iv[15], 1);
+  EXPECT_EQ(key.iv[14], 0);
   EXPECT_EQ(playlist.segments[2].offset, -1);
-  EXPECT_TRUE(!playlist.segments[3].encrypted);
+  EXPECT_TRUE(!playlist.segments[2].initialization);
+  EXPECT_TRUE(playlist.segments[3].key.method == HlsKey::Method::kNone);
+  // The map takes the key before it, the segment the one after.
+  const HlsSegment& fragment = playlist.segments[4];
+  EXPECT_TRUE(fragment.initialization);
+  EXPECT_EQ(fragment.map.url, std::string("http://h/p/init.mp4"));
+  EXPECT_EQ(fragment.map.offset, 16);
+  EXPECT_EQ(fragment.map.length, 720);
+  EXPECT_TRUE(fragment.map.key.method == HlsKey::Method::kOther);
+  EXPECT_TRUE(fragment.key.method == HlsKey::Method::kAes128);
+  EXPECT_EQ(fragment.key.url, std::string("http://h/k2"));
+  EXPECT_EQ(fragment.key.iv[0], 0x00);
+  EXPECT_EQ(fragment.key.iv[1], 0x11);
+  EXPECT_EQ(fragment.key.iv[15], 0xff);
+  uint8_t iv[16];
+  HlsIv(fragment.key, 7, iv);
+  EXPECT_EQ(iv[1], 0x11);
+  HlsIv(playlist.segments[3].key, 0x0102030405060708, iv);
+  EXPECT_EQ(iv[7], 0);
+  EXPECT_EQ(iv[8], 1);
+  EXPECT_EQ(iv[15], 8);
   EXPECT_EQ(playlist.segments[3].sequence, 103);
   EXPECT_EQ(playlist.segments[3].duration, 6000000);
 

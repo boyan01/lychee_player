@@ -1,6 +1,7 @@
 #ifndef LYCHEE_BACKENDS_HLS_HLS_DEMUXER_H_
 #define LYCHEE_BACKENDS_HLS_HLS_DEMUXER_H_
 
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <functional>
@@ -13,19 +14,20 @@
 
 #include "backends/hls/hls_playlist.h"
 #include "backends/mp2t/ts_reader.h"
+#include "backends/mp4/mp4_demuxer.h"
 #include "media/data_source.h"
 #include "media/demuxer.h"
 
 namespace lychee {
 
-// HTTP Live Streaming (RFC 8216) with MPEG-TS segments, for builds
-// without FFmpeg. A master playlist plays one variant (PickHlsVariant),
-// without switching. VOD seeks by segment; live input starts three
-// target durations from the end and reloads the playlist as segments
-// are used up. Each discontinuity sequence gets its own offset onto one
-// continuous timeline. AES-128 segments and fragmented MP4 segments
-// (EXT-X-MAP) are refused; alternative audio renditions (EXT-X-MEDIA)
-// are not played.
+// HTTP Live Streaming (RFC 8216) with MPEG-TS or fragmented MP4
+// (EXT-X-MAP) segments, for builds without FFmpeg. A master playlist
+// plays one variant (PickHlsVariant), without switching. VOD seeks by
+// segment; live input starts three target durations from the end and
+// reloads the playlist as segments are used up. Each discontinuity
+// sequence gets its own offset onto one continuous timeline. AES-128
+// segments are decrypted (each key fetched once); SAMPLE-AES is refused.
+// Alternative audio renditions (EXT-X-MEDIA) are not played.
 class HlsDemuxer : public Demuxer {
  public:
   HlsDemuxer();
@@ -72,6 +74,21 @@ class HlsDemuxer : public Demuxer {
   bool Merge(const HlsPlaylist& playlist);
   // Opens segments_[current_]; the first one also fills media_info_.
   bool OpenSegment(std::string* error);
+  // Reads |length| bytes (-1: all) of |url| from |offset| (-1: 0).
+  bool Fetch(const std::string& url,
+             int64_t offset,
+             int64_t length,
+             std::vector<uint8_t>* data,
+             std::string* error);
+  // Decrypts |data| in place with |key|; the IV defaults to |sequence|.
+  bool Decrypt(const HlsKey& key,
+               int64_t sequence,
+               std::vector<uint8_t>* data,
+               std::string* error);
+  // The segment's bytes in memory, after its map: encrypted or fMP4.
+  bool LoadSegment(const Segment& segment,
+                   std::vector<uint8_t>* data,
+                   std::string* error);
   void CloseSegment();
   // Live: reloads the playlist until a segment follows current_.
   DemuxerReadResult WaitForSegments();
@@ -94,8 +111,16 @@ class HlsDemuxer : public Demuxer {
   bool last_reload_changed_ = true;
   int reload_failures_ = 0;
 
+  // AES-128 keys by URL, and the last map read.
+  std::map<std::string, std::array<uint8_t, 16>> keys_;
+  std::string map_id_;
+  std::vector<uint8_t> map_data_;
+
+  // The open segment: MPEG-TS through segment_reader_ (from
+  // segment_source_), or fMP4 through segment_mp4_ (from memory).
   std::unique_ptr<DataSource> segment_source_;
   std::unique_ptr<TsReader> segment_reader_;
+  std::unique_ptr<Mp4Demuxer> segment_mp4_;
   // The segment's stream index -> media_info_ stream, or -1.
   std::vector<int> stream_map_;
   // Discontinuity sequence -> microseconds added to its timestamps.

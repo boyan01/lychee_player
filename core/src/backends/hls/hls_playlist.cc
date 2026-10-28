@@ -159,6 +159,57 @@ std::string RemoveDotSegments(const std::string& path) {
   return result;
 }
 
+int HexDigit(char c) {
+  if (c >= '0' && c <= '9') {
+    return c - '0';
+  }
+  if (c >= 'a' && c <= 'f') {
+    return c - 'a' + 10;
+  }
+  if (c >= 'A' && c <= 'F') {
+    return c - 'A' + 10;
+  }
+  return -1;
+}
+
+// A hexadecimal-sequence (0x...) of up to 128 bits, right-aligned in |iv|.
+bool ParseIv(const std::string& text, uint8_t iv[16]) {
+  if (text.size() < 3 || text[0] != '0' || (text[1] != 'x' && text[1] != 'X') ||
+      text.size() - 2 > 32) {
+    return false;
+  }
+  std::fill(iv, iv + 16, 0);
+  int nibble = 0;
+  for (size_t i = text.size(); i-- > 2; ++nibble) {
+    const int digit = HexDigit(text[i]);
+    if (digit < 0) {
+      return false;
+    }
+    iv[15 - nibble / 2] |= static_cast<uint8_t>(digit << (nibble % 2 * 4));
+  }
+  return true;
+}
+
+HlsKey ParseKey(const std::string& text, const std::string& base_url) {
+  auto attributes = ParseAttributes(text);
+  HlsKey key;
+  const std::string& method = attributes["METHOD"];
+  if (method == "NONE") {
+    return key;
+  }
+  key.method =
+      method == "AES-128" ? HlsKey::Method::kAes128 : HlsKey::Method::kOther;
+  key.url = ResolveUrl(base_url, attributes["URI"]);
+  auto iv = attributes.find("IV");
+  if (iv != attributes.end()) {
+    key.has_iv = ParseIv(iv->second, key.iv);
+    if (!key.has_iv) {
+      key.method = HlsKey::Method::kOther;  // Not one that can be used.
+    }
+  }
+  return key;
+}
+
 bool Decodable(const std::string& codecs) {
   size_t i = 0;
   while (i <= codecs.size()) {
@@ -178,6 +229,18 @@ bool Decodable(const std::string& codecs) {
 }
 
 }  // namespace
+
+void HlsIv(const HlsKey& key, int64_t sequence, uint8_t iv[16]) {
+  if (key.has_iv) {
+    std::copy(key.iv, key.iv + 16, iv);
+    return;
+  }
+  std::fill(iv, iv + 8, 0);
+  for (int i = 0; i < 8; ++i) {
+    iv[15 - i] =
+        static_cast<uint8_t>(static_cast<uint64_t>(sequence) >> (8 * i));
+  }
+}
 
 std::string ResolveUrl(const std::string& base, const std::string& reference) {
   if (reference.empty()) {
@@ -241,8 +304,9 @@ bool ParseHlsPlaylist(const std::string& text,
   int64_t range_offset = -1;
   int64_t discontinuity_base = 0;
   int64_t discontinuities = 0;
-  bool encrypted = false;
+  HlsKey key;
   bool initialization = false;
+  HlsMap map;
   size_t i = 0;
   while (i < text.size()) {
     size_t newline = text.find('\n', i);
@@ -301,10 +365,21 @@ bool ParseHlsPlaylist(const std::string& text,
       range_offset =
           at == std::string::npos ? -1 : ParseInteger(range.substr(at + 1));
     } else if (StartsWith(line, "#EXT-X-KEY:")) {
-      auto attributes = ParseAttributes(line.substr(11));
-      encrypted = attributes["METHOD"] != "NONE";
+      key = ParseKey(line.substr(11), base_url);
     } else if (StartsWith(line, "#EXT-X-MAP:")) {
+      auto attributes = ParseAttributes(line.substr(11));
       initialization = true;
+      map = HlsMap();
+      map.url = ResolveUrl(base_url, attributes["URI"]);
+      map.key = key;
+      auto range = attributes.find("BYTERANGE");
+      if (range != attributes.end()) {
+        const size_t at = range->second.find('@');
+        map.length = ParseInteger(range->second);
+        map.offset = at == std::string::npos
+                         ? 0
+                         : ParseInteger(range->second.substr(at + 1));
+      }
     } else if (line[0] == '#') {
       continue;  // Comments and tags this player does not use.
     } else if (pending_variant) {
@@ -322,8 +397,9 @@ bool ParseHlsPlaylist(const std::string& text,
       segment.sequence = playlist->media_sequence +
                          static_cast<int64_t>(playlist->segments.size());
       segment.discontinuity = discontinuity_base + discontinuities;
-      segment.encrypted = encrypted;
+      segment.key = key;
       segment.initialization = initialization;
+      segment.map = map;
       if (range_length >= 0) {
         segment.length = range_length;
         segment.offset = range_offset;

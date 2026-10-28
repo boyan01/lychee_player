@@ -10,6 +10,10 @@
 #include "base/log.h"
 #include "base/time.h"
 
+#if defined(__APPLE__)
+#include <CommonCrypto/CommonCryptor.h>
+#endif
+
 namespace lychee {
 
 namespace {
@@ -25,6 +29,8 @@ constexpr int kLiveStartTargetDurations = 3;
 constexpr int kMaxReloadFailures = 3;
 // Segments kept behind the one playing (live).
 constexpr size_t kKeptSegments = 64;
+// Segments read whole (encrypted, fMP4) are at most this large.
+constexpr int64_t kMaxSegmentBytes = int64_t{256} << 20;
 
 }  // namespace
 
@@ -193,7 +199,7 @@ bool HlsDemuxer::Merge(const HlsPlaylist& playlist) {
   // Fallen behind a live playlist: what is gone from it cannot be read.
   if (!playlist.segments.empty() && current_ < segments_.size() &&
       segments_[current_].sequence < playlist.segments.front().sequence &&
-      !segment_reader_) {
+      !segment_reader_ && !segment_mp4_) {
     while (current_ + 1 < segments_.size() &&
            segments_[current_].sequence < playlist.segments.front().sequence) {
       ++current_;
@@ -211,49 +217,193 @@ bool HlsDemuxer::Merge(const HlsPlaylist& playlist) {
   return added;
 }
 
-bool HlsDemuxer::OpenSegment(std::string* error) {
-  const Segment& segment = segments_[current_];
-  if (segment.encrypted) {
-    *error = "encrypted HLS (EXT-X-KEY) needs FFmpeg";
-    return false;
-  }
-  if (segment.initialization) {
-    *error = "HLS with fragmented MP4 segments (EXT-X-MAP) needs FFmpeg";
-    return false;
-  }
-  std::unique_ptr<DataSource> source = opener_(segment.url, error);
+bool HlsDemuxer::Fetch(const std::string& url,
+                       int64_t offset,
+                       int64_t length,
+                       std::vector<uint8_t>* data,
+                       std::string* error) {
+  std::unique_ptr<DataSource> source = opener_(url, error);
   if (!source) {
     return false;
   }
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    segment_source_ = std::move(source);
+  Track(source.get());
+  const int64_t begin = std::max<int64_t>(offset, 0);
+  const int64_t limit =
+      length >= 0 ? std::min(length, kMaxSegmentBytes) : kMaxSegmentBytes;
+  data->clear();
+  bool ok = true;
+  while (static_cast<int64_t>(data->size()) < limit) {
+    const size_t old = data->size();
+    const size_t want = static_cast<size_t>(
+        std::min<int64_t>(limit - static_cast<int64_t>(old), 256 << 10));
+    data->resize(old + want);
+    const int64_t n = source->Read(begin + static_cast<int64_t>(old),
+                                   data->data() + old, want);
+    data->resize(old + static_cast<size_t>(std::max<int64_t>(n, 0)));
+    if (n < 0) {
+      *error = url + ": " + source->error();
+      ok = false;
+      break;
+    }
+    if (n == 0) {
+      break;
+    }
   }
-  Track(segment_source_.get());
-  auto reader = std::make_unique<TsReader>(segment_source_.get());
-  const int64_t begin = segment.offset >= 0 ? segment.offset : 0;
-  reader->SetRange(begin, segment.length >= 0 ? begin + segment.length : -1);
+  if (ok && length < 0 && static_cast<int64_t>(data->size()) >= limit) {
+    *error = url + ": segment too large";
+    ok = false;
+  }
+  if (ok && length >= 0 && static_cast<int64_t>(data->size()) < length) {
+    *error = url + ": byte range past the end";
+    ok = false;
+  }
+  Track(nullptr);
+  return ok;
+}
+
+bool HlsDemuxer::Decrypt(const HlsKey& key,
+                         int64_t sequence,
+                         std::vector<uint8_t>* data,
+                         std::string* error) {
+  auto known = keys_.find(key.url);
+  if (known == keys_.end()) {
+    std::vector<uint8_t> bytes;
+    if (!Fetch(key.url, -1, -1, &bytes, error)) {
+      return false;
+    }
+    if (bytes.size() != 16) {
+      *error = key.url + ": an AES-128 key is 16 bytes, not " +
+               std::to_string(bytes.size());
+      return false;
+    }
+    std::array<uint8_t, 16> value{};
+    std::copy(bytes.begin(), bytes.end(), value.begin());
+    known = keys_.emplace(key.url, value).first;
+  }
+  uint8_t iv[16];
+  HlsIv(key, sequence, iv);
+#if defined(__APPLE__)
+  std::vector<uint8_t> plain(data->size());
+  size_t moved = 0;
+  const CCCryptorStatus status =
+      CCCrypt(kCCDecrypt, kCCAlgorithmAES, kCCOptionPKCS7Padding,
+              known->second.data(), known->second.size(), iv, data->data(),
+              data->size(), plain.data(), plain.size(), &moved);
+  if (status != kCCSuccess) {
+    *error = "AES-128 decryption failed (" + std::to_string(status) + ")";
+    return false;
+  }
+  plain.resize(moved);
+  *data = std::move(plain);
+  return true;
+#else
+  *error = "AES-128 HLS needs FFmpeg here";
+  return false;
+#endif
+}
+
+bool HlsDemuxer::LoadSegment(const Segment& segment,
+                             std::vector<uint8_t>* data,
+                             std::string* error) {
+  data->clear();
+  if (segment.initialization) {
+    const HlsMap& map = segment.map;
+    const std::string id = map.url + "@" + std::to_string(map.offset) + "+" +
+                           std::to_string(map.length);
+    if (id != map_id_) {
+      map_id_.clear();
+      if (!Fetch(map.url, map.offset, map.length, &map_data_, error) ||
+          (map.key.method == HlsKey::Method::kAes128 &&
+           !Decrypt(map.key, segment.sequence, &map_data_, error))) {
+        return false;
+      }
+      map_id_ = id;
+    }
+    *data = map_data_;
+  }
+  std::vector<uint8_t> media;
+  if (!Fetch(segment.url, segment.offset, segment.length, &media, error) ||
+      (segment.key.method == HlsKey::Method::kAes128 &&
+       !Decrypt(segment.key, segment.sequence, &media, error))) {
+    return false;
+  }
+  data->insert(data->end(), media.begin(), media.end());
+  return true;
+}
+
+bool HlsDemuxer::OpenSegment(std::string* error) {
+  const Segment& segment = segments_[current_];
+  if (segment.key.method == HlsKey::Method::kOther ||
+      (segment.initialization &&
+       segment.map.key.method == HlsKey::Method::kOther)) {
+    *error = "HLS encryption other than AES-128 (EXT-X-KEY) needs FFmpeg";
+    return false;
+  }
   // Timestamps unwrap next to where the segment should start.
   auto anchor = offsets_.find(segment.discontinuity);
-  reader->Restart(begin, anchor == offsets_.end()
-                             ? kNoTimestamp
-                             : media_info_.start_time + segment.start -
-                                   origin_ - anchor->second);
-  if (!reader->Probe(kSegmentProbeBytes, error)) {
-    *error = segment.url + ": " + *error;
-    return false;
+  // The segment's streams and the first timestamp of each.
+  std::vector<std::pair<StreamInfo, int64_t>> streams;
+  std::unique_ptr<TsReader> reader;
+  std::unique_ptr<Mp4Demuxer> mp4;
+  const bool whole =
+      segment.initialization || segment.key.method == HlsKey::Method::kAes128;
+  std::unique_ptr<DataSource> source;
+  if (whole) {
+    std::vector<uint8_t> data;
+    if (!LoadSegment(segment, &data, error)) {
+      return false;
+    }
+    source = CreateMemoryDataSource(std::move(data));
+  } else {
+    source = opener_(segment.url, error);
+    if (!source) {
+      return false;
+    }
+  }
+  if (segment.initialization) {
+    mp4 = std::make_unique<Mp4Demuxer>();
+    if (!mp4->Open(std::move(source), error)) {
+      *error = segment.url + ": " + *error;
+      return false;
+    }
+    for (const StreamInfo& info : mp4->media_info().streams) {
+      streams.emplace_back(info, mp4->media_info().start_time);
+    }
+  } else {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      segment_source_ = std::move(source);
+    }
+    Track(segment_source_.get());
+    reader = std::make_unique<TsReader>(segment_source_.get());
+    const int64_t begin = !whole && segment.offset >= 0 ? segment.offset : 0;
+    reader->SetRange(
+        begin, !whole && segment.length >= 0 ? begin + segment.length : -1);
+    reader->Restart(begin, anchor == offsets_.end()
+                               ? kNoTimestamp
+                               : media_info_.start_time + segment.start -
+                                     origin_ - anchor->second);
+    if (!reader->Probe(kSegmentProbeBytes, error)) {
+      *error = segment.url + ": " + *error;
+      return false;
+    }
+    for (const TsStream& stream : reader->streams()) {
+      streams.emplace_back(stream.info, stream.first_pts);
+    }
   }
 
   const bool first = media_info_.streams.empty();
   if (first) {
-    for (const TsStream& stream : reader->streams()) {
-      media_info_.streams.push_back(stream.info);
-      const int index = stream.info.index;
-      if (stream.info.type == MediaType::kVideo &&
+    for (const auto& [info, first_pts] : streams) {
+      media_info_.streams.push_back(info);
+      media_info_.streams.back().index =
+          static_cast<int>(media_info_.streams.size()) - 1;
+      const int index = media_info_.streams.back().index;
+      if (info.type == MediaType::kVideo &&
           media_info_.default_video_stream < 0) {
         media_info_.default_video_stream = index;
       }
-      if (stream.info.type == MediaType::kAudio &&
+      if (info.type == MediaType::kAudio &&
           media_info_.default_audio_stream < 0) {
         media_info_.default_audio_stream = index;
       }
@@ -266,25 +416,26 @@ bool HlsDemuxer::OpenSegment(std::string* error) {
   // A segment's n-th video (audio) stream is the media's n-th.
   stream_map_.clear();
   int64_t start = kNoTimestamp;
-  for (const TsStream& stream : reader->streams()) {
+  for (size_t i = 0; i < streams.size(); ++i) {
+    const StreamInfo& stream = streams[i].first;
     int ordinal = 0;
-    for (const TsStream& other : reader->streams()) {
-      if (other.info.index < stream.info.index &&
-          other.info.type == stream.info.type) {
+    for (size_t k = 0; k < i; ++k) {
+      if (streams[k].first.type == stream.type) {
         ++ordinal;
       }
     }
     int index = -1;
     for (const StreamInfo& info : media_info_.streams) {
-      if (info.type == stream.info.type && ordinal-- == 0) {
+      if (info.type == stream.type && ordinal-- == 0) {
         index = info.index;
         break;
       }
     }
     stream_map_.push_back(index);
-    if (index >= 0 && stream.first_pts != kNoTimestamp &&
-        (start == kNoTimestamp || stream.first_pts < start)) {
-      start = stream.first_pts;
+    const int64_t first_pts = streams[i].second;
+    if (index >= 0 && first_pts != kNoTimestamp &&
+        (start == kNoTimestamp || first_pts < start)) {
+      start = first_pts;
     }
   }
   if (anchor == offsets_.end()) {
@@ -301,11 +452,13 @@ bool HlsDemuxer::OpenSegment(std::string* error) {
     offset_ = anchor->second;
   }
   segment_reader_ = std::move(reader);
+  segment_mp4_ = std::move(mp4);
   return true;
 }
 
 void HlsDemuxer::CloseSegment() {
   segment_reader_.reset();
+  segment_mp4_.reset();
   std::lock_guard<std::mutex> lock(mutex_);
   active_ = nullptr;
   segment_source_.reset();
@@ -372,7 +525,7 @@ DemuxerReadResult HlsDemuxer::Read(EncodedPacket* packet) {
     if (aborted_ || interrupted_) {
       return DemuxerReadResult::kAborted;
     }
-    if (!segment_reader_) {
+    if (!segment_reader_ && !segment_mp4_) {
       if (current_ >= segments_.size()) {
         if (!live_) {
           return DemuxerReadResult::kEndOfStream;
@@ -396,12 +549,16 @@ DemuxerReadResult HlsDemuxer::Read(EncodedPacket* packet) {
       }
     }
     int64_t offset;
-    DemuxerReadResult result = segment_reader_->Read(packet, &offset);
+    DemuxerReadResult result = segment_mp4_
+                                   ? segment_mp4_->Read(packet)
+                                   : segment_reader_->Read(packet, &offset);
     if (result == DemuxerReadResult::kError) {
       if (Failed()) {
         return DemuxerReadResult::kAborted;
       }
-      error_ = segments_[current_].url + ": " + segment_reader_->error();
+      error_ =
+          segments_[current_].url + ": " +
+          (segment_mp4_ ? segment_mp4_->error() : segment_reader_->error());
       LOGE("%s", error_.c_str());
       return result;
     }

@@ -128,10 +128,8 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    FFmpeg-free builds need anyway; then FFmpeg reads through it as on
    Apple. One `NSURLSession` per demuxer would let HLS segments reuse
    connections.
-2. **Containers**: HLS with `EXT-X-MAP` (fMP4 segments: a `DataSource`
-   that joins the init segment to each media segment, opened by
-   `Mp4Demuxer`), AES-128 (CommonCrypto, CBC per segment, the key fetched
-   once), `EXT-X-MEDIA` audio renditions and variant switching. AC-3 has
+2. **Containers**: HLS `EXT-X-MEDIA` audio renditions and variant
+   switching. AC-3 has
    no FFmpeg-free decoder; DVB and ID3 timed
    metadata in TS are ignored. Where TS timestamps start over, a jump
    ahead, or a run shorter than a sixteenth of the input, is found only

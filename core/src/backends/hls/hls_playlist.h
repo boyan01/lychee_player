@@ -16,6 +16,31 @@ struct HlsVariant {
   std::string codecs;
 };
 
+// EXT-X-KEY (RFC 8216 4.3.2.4) as it applies to a segment or a map.
+struct HlsKey {
+  enum class Method { kNone, kAes128, kOther };
+  Method method = Method::kNone;
+  std::string url;
+  // The IV attribute; without one, AES-128 uses the media sequence number.
+  bool has_iv = false;
+  uint8_t iv[16] = {};
+};
+
+// EXT-X-MAP (4.3.2.5): the Media Initialization Section of fragmented MP4
+// segments.
+struct HlsMap {
+  std::string url;
+  // EXT-X-MAP's BYTERANGE, or -1 for the whole resource.
+  int64_t offset = -1;
+  int64_t length = -1;
+  // The EXT-X-KEY before the map.
+  HlsKey key;
+};
+
+// The IV to decrypt with: |key|'s, or else (RFC 8216 5.2) |sequence|, the
+// segment's media sequence number, big-endian.
+void HlsIv(const HlsKey& key, int64_t sequence, uint8_t iv[16]);
+
 // A media segment (RFC 8216 3), its URL resolved.
 struct HlsSegment {
   std::string url;
@@ -28,10 +53,10 @@ struct HlsSegment {
   // EXT-X-BYTERANGE, or -1 for the whole resource.
   int64_t offset = -1;
   int64_t length = -1;
-  // EXT-X-KEY with a METHOD other than NONE applies.
-  bool encrypted = false;
-  // EXT-X-MAP applies: fragmented MP4 segments.
+  HlsKey key;
+  // EXT-X-MAP applies: fragmented MP4 segments, |map| before each.
   bool initialization = false;
+  HlsMap map;
 };
 
 struct HlsPlaylist {

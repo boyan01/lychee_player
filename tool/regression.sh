@@ -270,6 +270,33 @@ if [ ! -f "$media/hls/index.m3u8" ]; then
     -hls_segment_filename "$media/hls/seg%d.ts" "$media/hls/index.m3u8.tmp" &&
     mv "$media/hls/index.m3u8.tmp" "$media/hls/index.m3u8" || exit 1
 fi
+# The same as fragmented MP4 segments (EXT-X-MAP), from 0 s.
+if [ ! -f "$media/hls_fmp4/index.m3u8" ]; then
+  mkdir -p "$media/hls_fmp4"
+  ffmpeg -hide_banner -loglevel error -y -i "$media/h264_aac.mp4" -c:v libx264 -preset veryfast -g 60 \
+    -sc_threshold 0 -c:a copy -f hls -hls_time 2 -hls_playlist_type vod -hls_segment_type fmp4 \
+    -hls_fmp4_init_filename init.mp4 -hls_segment_filename "$media/hls_fmp4/seg%d.m4s" \
+    "$media/hls_fmp4/index.m3u8.tmp" &&
+    mv "$media/hls_fmp4/index.m3u8.tmp" "$media/hls_fmp4/index.m3u8" || exit 1
+fi
+# AES-128 (FFmpeg encrypts no fMP4): the TS segments with the media
+# sequence number as the IV, the fMP4 ones with an IV attribute and the
+# map in the clear.
+if [ ! -f "$media/hls_aes/fmp4.m3u8" ]; then
+  mkdir -p "$media/hls_aes"
+  key=000102030405060708090a0b0c0d0e0f iv=0123456789abcdef0123456789abcdef
+  printf "$(printf '%s' "$key" | sed 's/../\\x&/g')" >"$media/hls_aes/key.bin"
+  for i in 0 1 2 3 4 5; do
+    openssl aes-128-cbc -K "$key" -iv "$(printf '%032x' "$i")" -in "$media/hls/seg$i.ts" \
+      -out "$media/hls_aes/seg$i.ts" &&
+      openssl aes-128-cbc -K "$key" -iv "$iv" -in "$media/hls_fmp4/seg$i.m4s" \
+        -out "$media/hls_aes/seg$i.m4s" || exit 1
+  done
+  sed -e '/^#EXT-X-KEY/d' -e 's|^#EXT-X-PLAYLIST-TYPE.*|&\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"|' \
+    -e 's|^seg|../hls_aes/seg|' "$media/hls/index.m3u8" >"$media/hls_aes/ts.m3u8"
+  sed -e 's|^#EXT-X-MAP.*|#EXT-X-MAP:URI="../hls_fmp4/init.mp4"\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin",IV=0x'"$iv"'|' \
+    "$media/hls_fmp4/index.m3u8" >"$media/hls_aes/fmp4.m3u8"
+fi
 # Matroska: the MP4 remuxed, with and without Cues, with clusters of
 # unknown size, damaged (tool/mkv_cases.py); FLAC in it, and MP3 in MP4.
 gen h264_aac.mkv -i "$media/h264_aac.mp4" -c copy
@@ -1069,6 +1096,12 @@ seq_ check http-hls 1 - -- "http://127.0.0.1:$port/hls/index.m3u8"
 seq_ check http-hls-redirect 1 - -- "http://127.0.0.1:$port/moved.m3u8"
 # Into the fourth segment (6-8 s): its first frame is 1.443 s + 7 s.
 seq_ check http-hls-seek 1 8.433 -- --seek 7 --seek-after 2 "http://127.0.0.1:$port/hls/index.m3u8"
+# Fragmented MP4 segments start at 0 s: the fourth's first frame is at
+# 7.033 s. AES-128 with the sequence number as the IV (TS) and with an
+# IV attribute (fMP4).
+seq_ check http-hls-fmp4 1 7.033 -- --seek 7 --seek-after 2 "http://127.0.0.1:$port/hls_fmp4/index.m3u8"
+seq_ check http-hls-aes 1 8.433 -- --seek 7 --seek-after 2 "http://127.0.0.1:$port/hls_aes/ts.m3u8"
+seq_ check http-hls-aes-fmp4 1 7.033 -- --seek 7 --seek-after 2 "http://127.0.0.1:$port/hls_aes/fmp4.m3u8"
 # A master playlist plays one variant: FFmpeg's build the first, the
 # FFmpeg-free one the highest bandwidth it can decode (not the VP9 one).
 hls_variant="video size (640x360|1920x1080)"
