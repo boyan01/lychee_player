@@ -175,14 +175,15 @@ and HEVC in hardware or software, AAC and MP3); Android plays MP4 files.
    and assets (the user, 2026-10-27).
 2. **Release leftovers**: the AAR on Maven Central too (what native
    Android users expect; needs a Sonatype account for `tech.soit`);
-   `tool/release.sh check` building Windows and Linux apps (it runs on
-   macOS only); the Linux job in a `ubuntu:22.04` container once GitHub
+   `tool/release.sh check` building Linux apps (it builds macOS, iOS and
+   Android apps on macOS and Windows apps in Git Bash on Windows, which
+   `release.yml` does not run yet); the Linux job in a `ubuntu:22.04` container once GitHub
    retires that
    image.
 3. **Native SDKs**: drop the pod and the plugin's copy of
    `LycheeFrameDriver` (`LycheeTexture`) once Flutter drops CocoaPods;
-   the Rust crates on crates.io, and built for Windows, Linux, Android
-   and iOS (`LYCHEE_LIB_DIR` is untried). Windows and Linux native users
+   the Rust crates on crates.io, and built for Linux, Android and iOS
+   (`LYCHEE_LIB_DIR` has run on Windows only). Windows and Linux native users
    take the C ABI as it is.
 4. **Engineering practices**, in rough order of value:
    - **clang-tidy**: the Android, Windows and Linux backends are not

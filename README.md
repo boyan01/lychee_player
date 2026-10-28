@@ -303,7 +303,13 @@ binary. On macOS `liblychee` and the FFmpeg libraries have `@rpath`
 install names: copy `liblychee.dylib` and the five FFmpeg libraries
 (`libavcodec.63.dylib`, ...) next to the binary and link it with
 `-C link-arg=-Wl,-rpath,@executable_path` (`@executable_path/../Frameworks`
-in an app bundle).
+in an app bundle). On Windows build in a Visual Studio developer prompt
+with `LYCHEE_FFMPEG_ROOT` set (`tool/build_ffmpeg.sh windows-x86_64`, or
+the release's `ffmpeg-windows-x86_64.zip`); `LYCHEE_LIB_DIR` there needs
+`lychee.lib` beside `lychee.dll`. Windows finds DLLs next to the binary or
+on `PATH`: put FFmpeg's `bin/` (and a `LYCHEE_LIB_DIR` outside `target/`)
+there for `cargo test`, and ship `lychee.dll` and the FFmpeg DLLs next to
+the binary. The test reads the media from `MEDIA_DIR` if set.
 
 ```rust
 let player = lychee::Player::new(&lychee::Config::default())?;  // CPU BGRA frames
@@ -439,7 +445,7 @@ tool/release.sh build android /tmp/sources && tool/release.sh pack android /tmp/
 tool/release.sh build windows /tmp/sources && tool/release.sh pack windows /tmp/dist  # on Linux
 tool/release.sh build linux /tmp/sources && tool/release.sh pack linux /tmp/dist  # on Ubuntu 22.04
 tool/release.sh sources /tmp/dist && tool/release.sh pin /tmp/dist
-tool/release.sh check /tmp/dist   # then git checkout the pins
+tool/release.sh check /tmp/dist   # then git checkout the pins; in Git Bash on Windows it builds a Windows app
 ```
 
 Once per repository: a deploy key with write access whose private key is
