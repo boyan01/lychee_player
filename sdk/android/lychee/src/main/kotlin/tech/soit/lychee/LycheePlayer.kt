@@ -320,6 +320,9 @@ class LycheePlayer @JvmOverloads constructor(
         private val mainHandler = Handler(Looper.getMainLooper())
 
         init {
+            // By name first, so the core's JNI_OnLoad keeps the VM for its
+            // http client; lychee_jni's dependency alone would not run it.
+            System.loadLibrary("lychee")
             System.loadLibrary("lychee_jni")
         }
 

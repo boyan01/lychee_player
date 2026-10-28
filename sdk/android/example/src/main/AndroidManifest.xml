@@ -3,10 +3,14 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <application android:label="lychee">
+    <!-- Media comes from tool/serve_media.py over plain http. -->
+    <application
+        android:label="lychee"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

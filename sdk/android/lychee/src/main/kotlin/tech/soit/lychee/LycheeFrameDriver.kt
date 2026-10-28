@@ -116,6 +116,15 @@ class LycheeFrameDriver(
         }
     }
 
+    /**
+     * The presentation time of the last frame put into the Surface, in
+     * microseconds on the media's timeline, or -1 before the first. Paused,
+     * it is the frame on screen once the display has caught up (a few
+     * vsyncs).
+     */
+    val framePtsUs: Long
+        get() = if (closed) -1 else nativeFramePts(handle)
+
     /** Stops pulling frames; after it returns, the player is not touched again. */
     override fun close() {
         if (closed) return
@@ -134,6 +143,9 @@ class LycheeFrameDriver(
         const val FRAME_ANDROID_SURFACE = 1 shl 3
 
         init {
+            // By name first, so the core's JNI_OnLoad keeps the VM for its
+            // http client; lychee_jni's dependency alone would not run it.
+            System.loadLibrary("lychee")
             System.loadLibrary("lychee_jni")
         }
 
@@ -141,6 +153,7 @@ class LycheeFrameDriver(
         @JvmStatic external fun nativeSetOutput(handle: Long, surface: Surface?)
         @JvmStatic external fun nativeSetCpuSurface(handle: Long, surface: Surface?)
         @JvmStatic external fun nativeRender(handle: Long, displayTimeUs: Long): Long
+        @JvmStatic external fun nativeFramePts(handle: Long): Long
         @JvmStatic external fun nativeDetach(handle: Long)
         @JvmStatic external fun nativeDestroy(handle: Long)
     }

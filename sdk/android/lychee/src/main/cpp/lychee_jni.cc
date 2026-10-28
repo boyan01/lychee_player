@@ -114,6 +114,8 @@ struct Driver {
   int32_t frame_type = 0;
   int32_t frame_width = 0;
   int32_t frame_height = 0;
+  // Of the last frame acquired, for snapshots.
+  int64_t frame_pts = -1;
 };
 
 Driver* FromHandle(jlong handle) {
@@ -619,6 +621,7 @@ JNIEXPORT jlong JNICALL Java_tech_soit_lychee_LycheeFrameDriver_nativeRender(
         lychee_player_acquire_frame(driver->player, display_time_us);
     if (frame) {
       driver->frame_type = lychee_frame_get_type(frame);
+      driver->frame_pts = lychee_frame_get_pts(frame);
       WindowSizeLocked(driver, lychee_frame_get_width(frame),
                        lychee_frame_get_height(frame), &driver->frame_width,
                        &driver->frame_height);
@@ -630,6 +633,15 @@ JNIEXPORT jlong JNICALL Java_tech_soit_lychee_LycheeFrameDriver_nativeRender(
   return (static_cast<jlong>(driver->frame_type) << 48) |
          (static_cast<jlong>(driver->frame_width & 0xffffff) << 24) |
          (driver->frame_height & 0xffffff);
+}
+
+JNIEXPORT jlong JNICALL
+Java_tech_soit_lychee_LycheeFrameDriver_nativeFramePts(JNIEnv*,
+                                                       jclass,
+                                                       jlong handle) {
+  Driver* driver = FromHandle(handle);
+  std::lock_guard<std::mutex> lock(driver->mutex);
+  return driver->frame_pts;
 }
 
 // After this returns, the player is not touched again.

@@ -14,6 +14,8 @@ writes FILE.diff.ppm (the absolute difference, four times brighter).
   frame_check.py MEDIA --log OUTPUT         every snapshot line in OUTPUT
                                             (- reads standard input)
   frame_check.py MEDIA FILE --pts US [--video X,Y,W,H]
+  frame_check.py MEDIA ... --matrix bt601    the reference in another
+                                            YCbCr matrix
   frame_check.py MEDIA FILE --pts US [--video X,Y,W,H] --self-test
                                             also checks that wrong frames
                                             made from FILE fail (written
@@ -241,12 +243,12 @@ def evaluate(media, path, pts, video, matrix=None):
     return problems, numbers, Image(w, h, diff)
 
 
-def check(media, path, pts, video):
+def check(media, path, pts, video, matrix=None):
     """Prints PASS or FAIL for the snapshot at |path|, writing the
     difference next to it on FAIL. Returns whether it passed."""
     name = os.path.basename(path)
     try:
-        problems, numbers, diff = evaluate(media, path, pts, video)
+        problems, numbers, diff = evaluate(media, path, pts, video, matrix)
     except (OSError, RuntimeError, ValueError) as error:
         print(f"FAIL {name}: {error}")
         return False
@@ -335,6 +337,11 @@ def main():
     parser.add_argument("--video", help="X,Y,W,H in the snapshot")
     parser.add_argument("--log", help="CLI or harness output, - for stdin")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--matrix",
+        help="YCbCr matrix of the reference instead of the library's (an\n"
+             "ffmpeg name, e.g. bt601): for a compositor that ignores the\n"
+             "frame's, as the Android emulator's does")
     args = parser.parse_args()
 
     jobs = []
@@ -366,7 +373,7 @@ def main():
         if args.self_test:
             ok = self_test(args.media, path, pts, video) and ok
         else:
-            ok = check(args.media, path, pts, video) and ok
+            ok = check(args.media, path, pts, video, args.matrix) and ok
     return 0 if ok else 1
 
 

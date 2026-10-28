@@ -60,6 +60,9 @@ H.264/HEVC (VideoToolbox), AAC/ALAC (AudioToolbox) and tx3g subtitles;
 containers with H.264/HEVC (Media Foundation, on the GPU or the CPU), AAC
 and MP3, and text subtitles; the Flutter plugin builds it so with
 `LYCHEE_WITH_FFMPEG=OFF` in the environment of `flutter build windows`.
+Android's plays them with H.264/HEVC and AAC, MP3, Opus, FLAC and ALAC
+through MediaCodec. Both read http(s) through the system (WinHTTP,
+`HttpURLConnection`).
 
 ```sh
 cmake -S . -B build -G Ninja
@@ -165,6 +168,26 @@ Example.app/Contents/MacOS/Example --seconds 3 --size 405x720 \
 xcrun simctl launch --console-pty booted tech.soit.lychee.example --seconds 5 \
   --snapshot 3:/tmp/s.ppm video.mp4 | python3 -I tool/frame_check.py video.mp4 --log -
 ```
+
+The Android SDK's example takes snapshots with its `snapshot` intent
+extra (`SEC:NAME,...`): it pauses, copies the `SurfaceView` with
+`PixelCopy` (`LycheePlayerView.snapshot`), writes the PPM into its
+external files directory and logs the line, then plays on.
+
+```sh
+adb shell am start -n tech.soit.lychee.example/.MainActivity \
+  --es url http://127.0.0.1:8765/rotated.mp4 --ez hw false \
+  --es snapshot 2:a.ppm,3.5:b.ppm
+adb pull /sdcard/Android/data/tech.soit.lychee.example/files/. /tmp/snaps
+adb logcat -d -s lychee-example:I | grep -o 'snapshot .*' |
+  sed 's|/[^ ]*/files/|/tmp/snaps/|' |
+  python3 -I tool/frame_check.py rotated.mp4 --log -
+```
+
+The emulator's compositor converts MediaCodec's YUV surfaces with BT.601
+whatever their dataspace, so hardware-decoded HD fails there by its
+matrix alone; `--matrix bt601` checks the rest (frame, pts, rotation,
+scale). A phone shows whether the hardware path keeps BT.709.
 
 The reference follows the library's conventions: a stream without a color
 matrix is BT.709 above 576 lines and BT.601 below, and HDR is tone-mapped
@@ -279,8 +302,14 @@ emulators), and Kotlin classes over it. The core is also a prefab module
 sdk/android/gradlew -p sdk/android :lychee:publish   # into sdk/android/build/repo
 ```
 
-`-Plychee.ffmpeg=false` builds the core without FFmpeg: MP4 files only
-(no http), decoded by MediaCodec (roadmap, FFmpeg-free builds).
+`-Plychee.ffmpeg=false` builds the core without FFmpeg: MP4, Matroska,
+MPEG-TS and HLS from files and http(s), decoded by MediaCodec (roadmap,
+FFmpeg-free builds).
+
+Either way http(s) goes through Java's `HttpURLConnection`, so the app's
+network security config applies: an app that plays plain http needs
+`android:usesCleartextTraffic` (or a config that allows the hosts). With
+FFmpeg, cleartext the config refuses falls back to FFmpeg's own http.
 
 ```kotlin
 val player = LycheePlayer()
@@ -346,6 +375,22 @@ xcrun simctl spawn booted rust/target/aarch64-apple-ios-sim/debug/deps/play-HASH
 ```
 
 Without FFmpeg, `subtitle_pictures` fails: PGS needs FFmpeg's decoder.
+
+For Android, link the AAR's libraries (`jni/ABI` in
+`sdk/android/build/repo/.../lychee-VERSION.aar`) with the NDK's clang as
+the linker; an app loads `liblychee.so` with them (`System.loadLibrary`,
+which also gives the core the Java VM its http client needs; a program
+run from `adb shell` reads http through FFmpeg):
+
+```sh
+rustup target add x86_64-linux-android
+CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER=$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android26-clang \
+  LYCHEE_LIB_DIR=/tmp/aar/jni/x86_64 cargo test --target x86_64-linux-android --no-run
+```
+
+The tests read their media from `MEDIA_DIR` (default
+`/tmp/lychee-media`): push the test binary, the libraries and the media
+to `/data/local/tmp`, and run it there with `LD_LIBRARY_PATH` set.
 
 ```rust
 let player = lychee::Player::new(&lychee::Config::default())?;  // CPU BGRA frames

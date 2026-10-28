@@ -184,7 +184,14 @@ The layers, lowest first:
    - iOS: the Swift package's example on the "iPhone 16" simulator
      (`simctl launch --console-pty ... --snapshot SEC:FILE`).
    - Android: the Android SDK's example on an emulator (`Pixel_10`,
-     windowed).
+     windowed). For what needs no window, `lychee_cli` cross-builds
+     with the NDK (`cmake -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/
+     android.toolchain.cmake -DANDROID_ABI=x86_64 -DANDROID_PLATFORM=26
+     -DANDROID_STL=c++_shared -DBUILD_SHARED_LIBS=ON
+     -DLYCHEE_FFMPEG_ROOT=third_party/ffmpeg/android-x86_64`) and runs
+     from `adb shell` in `/data/local/tmp` beside its libraries
+     (`LD_LIBRARY_PATH=.`); `--android-surface` decodes through
+     MediaCodec, in real time only.
    - Windows: `examples/glfw` (D3D11 textures), through the
      `flutter-remote-test` skill. `--seconds N` and `--key SEC:NAME`
      (README) run it unattended on every desktop platform.
@@ -260,9 +267,11 @@ What each area needs (run `tool/changes.sh`):
   `FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh`.
 - **android**: `sdk/android/gradlew -p sdk/android :lychee:publish
   :example:assembleDebug` (zero warnings), install the example on an
-  emulator or a phone and look at screenshots of `h264_aac.mp4` and
-  `rotated.mp4`, each with hardware decoding and without (the `url` and
-  `hw` intent extras). The Flutter plugin takes its frame driver from
+  emulator or a phone and check snapshots of `h264_aac.mp4` and
+  `rotated.mp4` with `tool/frame_check.py`, each with hardware decoding
+  and without (the `url`, `hw` and `snapshot` intent extras; README,
+  "Checking frames by pixels", and its `--matrix bt601` for hardware
+  frames on the emulator). The Flutter plugin takes its frame driver from
   the SDK, so a change to `LycheeFrameDriver` also runs the Flutter
   example on Android.
 - **windows**, **linux**: `tool/regression.sh` on that platform (Linux:
@@ -393,7 +402,13 @@ jobs: those stay local.
   missing to the script's lists. Android's FFmpeg links mbedTLS for https
   (LGPL 3, third argument: an Mbed TLS 3.6 source tree); mbedTLS trusts
   only its `ca_file`, which `ffmpeg_demuxer.cc` writes from Android's CA
-  store and passes to every connection through `io_open`.
+  store and passes to every connection through `io_open`. FFmpeg's http
+  serves only programs without a Java VM (`lychee_cli` from `adb shell`)
+  and cleartext the app's network security config refuses: in apps,
+  `DataSource` reads http(s) through `HttpURLConnection`
+  (`backends/android/http_data_source.cc`), which needs Java to load
+  `liblychee` by name (`System.loadLibrary("lychee")`) so its
+  `JNI_OnLoad` keeps the VM.
 - The Flutter plugin never links the system FFmpeg. Build the LGPL one once
   per platform with `tool/build_ffmpeg.sh PLATFORM <ffmpeg source>` into
   `third_party/ffmpeg/` (`macos-arm64` and `macos-x86_64`; `ios-sim-arm64`
@@ -415,6 +430,14 @@ jobs: those stay local.
 - Apple minimums are macOS 11 and iOS 16 (`tool/apple_framework.sh` and the
   podspec): the Xcode 27 SDK's libc++ warns below macOS 11 / iOS 15, and
   `AppleFrameConverter` uses `VTPixelTransferSession` (iOS 16).
+- An emulator on the Windows PC (its SDK has `lychee_api34`, `lychee_api30`
+  and `lychee_api29`, WHPX) gets media from `tool/serve_media.py` run on
+  the PC through `adb reverse tcp:8765 tcp:8765` (again after each boot).
+  Its own network (10.0.2.2, or the LAN) silently drops single bytes from
+  TCP streams (emulator 37.2, 2026-10-28: every 8.7 MB download lost 10
+  to 16), which shows up as corrupt packets near the end of a file and
+  opens that fail with "Invalid data found". Start the emulator, like any
+  window there, from a scheduled task in the logged-in session.
 - Real devices get media from `tool/serve_media.py`. Android: `adb reverse
   tcp:8765 tcp:8765`, then `http://127.0.0.1:8765/...`; Xiaomi phones
   refuse `adb install` (`INSTALL_FAILED_USER_RESTRICTED`) until someone

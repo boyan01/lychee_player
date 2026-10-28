@@ -15,8 +15,9 @@ val repoRoot = rootDir.resolve("../..")
 val lycheeVersion = Regex("""(?m)^version: (\S+)""")
     .find(repoRoot.resolve("flutter/pubspec.yaml").readText())!!.groupValues[1]
 
-// -Plychee.ffmpeg=false builds the core without FFmpeg: MP4 files only,
-// decoded by MediaCodec (roadmap, FFmpeg-free builds). Releases keep it.
+// -Plychee.ffmpeg=false builds the core without FFmpeg: MP4, Matroska,
+// MPEG-TS and HLS, decoded by MediaCodec (roadmap, FFmpeg-free builds).
+// Releases keep it.
 val withFfmpeg = (findProperty("lychee.ffmpeg") as String?)?.toBoolean() ?: true
 
 // FFmpeg comes from tool/build_ffmpeg.sh android-ABI; only the ABIs it was

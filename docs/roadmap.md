@@ -13,15 +13,13 @@ Built, but never observed working. Cheap to close; do these before
 building on top of them.
 
 1. **Android hardware decoding beyond the happy path**: not yet seen are
-   AAudio route changes to a USB-C headset, and switching AirPods back to
+   the BT.709 matrix for untagged HD on a phone's compositor (the
+   emulator's converts with BT.601 whatever the dataspace: check
+   `h264_aac.mp4` with the example's `snapshot` extra and
+   `tool/frame_check.py` without `--matrix`), AAudio route changes to a USB-C headset, and switching AirPods back to
    the speaker after clock correction (waiting on the user and the Xiaomi
    14: the prior run jumped ~0.2 s and dropped 8 frames; verify the step is
-   smaller than a frame). Also missing are a stream
-   changing resolution midway, and a
-   device with only one hardware decoder instance (the emulator's H.264
-   decoder once failed to start right after a file switch, and FFmpeg
-   took over), and Android before 11, where the core finds its cache
-   directory from the package name (no `TMPDIR`). Only the CLI's
+   smaller than a frame). Only the CLI's
    `background` case exercises the expiry of
    frames nobody pulled: Choreographer kept pulling in the background on
    the Xiaomi 14.
@@ -114,8 +112,9 @@ building on top of them.
    (`lychee_player_open_live`). Left: AAC-ELD, which AirPlay mirroring
    sends, has never been decoded (FFmpeg cannot encode it without
    libfdk-aac; capture a file from a session); low-latency setup for
-   MediaCodec (`KEY_LOW_LATENCY`) and other hardware decoders, which get
-   only FFmpeg's `low_delay`. After a stall, audio moves up to 500 ms
+   FFmpeg's hardware decoders (VAAPI, D3D11VA), which get only its
+   `low_delay`; what MediaCodec's `KEY_LOW_LATENCY` saves on a phone (the
+   emulator's codecs ignore it). After a stall, audio moves up to 500 ms
    behind video and returns over a few seconds, as in flutter-airplay.
    Done when flutter-airplay plays a mirroring session through lychee
    behind a flag on macOS and Android, with A/V in sync on Bluetooth
@@ -154,13 +153,12 @@ The goal is FFmpeg-free builds on Apple platforms, Windows and Android;
 Linux keeps FFmpeg (no system audio decoder or demuxer). Apple plays MP4,
 Matroska/WebM, MPEG-TS and HLS without it, and ships
 `lychee_noffmpeg.xcframework`; Windows plays the same containers (H.264
-and HEVC in hardware or software, AAC and MP3); Android plays MP4 files.
+and HEVC in hardware or software, AAC and MP3), and Android too (video
+H.264 and HEVC only), each reading http(s) through the system (WinHTTP,
+`HttpURLConnection`).
 
-1. **Shared IO on Android**: an http `DataSource` there
-   (`HttpURLConnection` or Cronet through JNI), which its FFmpeg-free
-   build needs anyway; then FFmpeg reads through it as on Apple and
-   Windows (WinHTTP). One `NSURLSession` per demuxer would let HLS segments reuse
-   connections.
+1. **Connection reuse**: one `NSURLSession` per demuxer would let HLS
+   segments reuse connections.
 2. **Containers**: HLS switches variants only when a track is selected,
    not by measured bandwidth; subtitle renditions (WebVTT) are not
    read. AC-3 has
@@ -173,8 +171,12 @@ and HEVC in hardware or software, AAC and MP3); Android plays MP4 files.
    HEVC decoded in software shows one frame less than it should
    (`NO_FFMPEG=1 NO_HW=1 ONLY=live-hevc`: 299 of 300; the HEVC extension's
    decoder holds the last frame back, low latency mode set or not).
-4. **Android**: http (item 1), an FFmpeg-free AAR variant if native
-   Android users want one, and the Flutter plugin on it.
+4. **Android**: VP8, VP9 and AV1 through MediaCodec
+   (`MediaCodecVideoDecoder` maps only H.264 and HEVC, so WebM's video
+   has no decoder); an FFmpeg-free AAR in the release
+   (`-Plychee.ffmpeg=false` builds it; a second artifact is a publishing
+   decision) if native Android users want one, and the Flutter plugin on
+   it, which is untried.
 ## Distribution and infrastructure
 
 1. **1.0.0**, once the beta has been used. Before it, and only then, a
@@ -191,9 +193,9 @@ and HEVC in hardware or software, AAC and MP3); Android plays MP4 files.
    image.
 3. **Native SDKs**: drop the pod and the plugin's copy of
    `LycheeFrameDriver` (`LycheeTexture`) once Flutter drops CocoaPods;
-   the Rust crates on crates.io, and built for Linux and Android
-   (`LYCHEE_LIB_DIR` has run on Windows, and on iOS with an xcframework
-   slice). Windows and Linux native users
+   the Rust crates on crates.io, and built for Linux (`LYCHEE_LIB_DIR`
+   has run on Windows, Android, and iOS with an xcframework slice).
+   Windows and Linux native users
    take the C ABI as it is.
 4. **Engineering practices**, in rough order of value:
    - **clang-tidy**: the Android, Windows and Linux backends are not
@@ -201,8 +203,6 @@ and HEVC in hardware or software, AAC and MP3); Android plays MP4 files.
      its compiler database and diagnostics on Linux.
    - **CI jobs for Android and Windows**: the SDK build and its unit tests
      on an emulator; the core and `examples/glfw` on `windows-latest`.
-   - **Frame checks** by pixels for the Android example, as
-     `examples/glfw --snapshot` and the Swift example have.
    - **Performance benchmarks**: `tool/bench.sh` measures them on one
      machine, by hand; left are running it per commit on the idle
      self-hosted Mac and keeping the table somewhere CI can compare.
