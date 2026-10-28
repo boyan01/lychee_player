@@ -383,4 +383,38 @@ bool ParseAdtsHeader(const uint8_t* data, size_t size, AdtsHeader* header) {
   return header->frame_length > header->header_size;
 }
 
+bool ParseMp3Header(const uint8_t* data, size_t size, AdtsHeader* header) {
+  // Frame sync (11 bits), version (2), layer (2: 1 is Layer III).
+  if (size < 4 || data[0] != 0xff || (data[1] & 0xe0) != 0xe0 ||
+      ((data[1] >> 1) & 3) != 1) {
+    return false;
+  }
+  const int version = (data[1] >> 3) & 3;  // 0: 2.5, 2: MPEG-2, 3: MPEG-1
+  const int bitrate_index = data[2] >> 4;
+  const int rate_index = (data[2] >> 2) & 3;
+  if (version == 1 || bitrate_index == 0 || bitrate_index == 15 ||
+      rate_index == 3) {
+    return false;
+  }
+  // kbit/s.
+  static const int kMpeg1Rates[15] = {0,   32,  40,  48,  56,  64,  80, 96,
+                                      112, 128, 160, 192, 224, 256, 320};
+  static const int kMpeg2Rates[15] = {0,  8,  16, 24,  32,  40,  48, 56,
+                                      64, 80, 96, 112, 128, 144, 160};
+  static const int kSampleRates[3] = {44100, 48000, 32000};
+  const bool mpeg1 = version == 3;
+  const int bitrate = (mpeg1 ? kMpeg1Rates : kMpeg2Rates)[bitrate_index] * 1000;
+  // MPEG-2 halves the rates, MPEG 2.5 quarters them.
+  const int rate_shift = mpeg1 ? 0 : version == 2 ? 1 : 2;
+  header->sample_rate = kSampleRates[rate_index] >> rate_shift;
+  header->channels = (data[3] >> 6) == 3 ? 1 : 2;
+  header->samples = mpeg1 ? 1152 : 576;
+  const int length = header->samples / 8 * bitrate / header->sample_rate +
+                     ((data[2] >> 1) & 1);  // padding
+  header->frame_length = static_cast<size_t>(length);
+  header->header_size = 4;
+  header->object_type = 0;
+  return header->frame_length > header->header_size;
+}
+
 }  // namespace lychee

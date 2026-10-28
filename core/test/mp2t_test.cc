@@ -525,6 +525,31 @@ TEST(TsReader, UnwrapsTimestampsAndSplitsAdts) {
   EXPECT_EQ(audio[2].size(), 7u + 52u);
 }
 
+// NOLINTBEGIN(bugprone-throwing-static-initialization)
+TEST(Mp2t, ParsesMp3Header) {
+  AdtsHeader header;
+  // MPEG-1 Layer III, 128 kbit/s, 44.1 kHz, joint stereo.
+  const Bytes mpeg1 = {0xff, 0xfb, 0x90, 0x64};
+  EXPECT_TRUE(ParseMp3Header(mpeg1.data(), mpeg1.size(), &header));
+  EXPECT_EQ(header.sample_rate, 44100);
+  EXPECT_EQ(header.channels, 2);
+  EXPECT_EQ(header.samples, 1152);
+  EXPECT_EQ(header.frame_length, 417u);
+  // MPEG-2, 32 kbit/s, 16 kHz, padded, mono: half the samples.
+  const Bytes mpeg2 = {0xff, 0xf3, 0x4a, 0xc4};
+  EXPECT_TRUE(ParseMp3Header(mpeg2.data(), mpeg2.size(), &header));
+  EXPECT_EQ(header.sample_rate, 16000);
+  EXPECT_EQ(header.channels, 1);
+  EXPECT_EQ(header.samples, 576);
+  EXPECT_EQ(header.frame_length, 145u);
+  // Layer II, a free bitrate, a reserved rate: not taken.
+  for (const Bytes& bad :
+       {Bytes{0xff, 0xfd, 0x90, 0x64}, Bytes{0xff, 0xfb, 0x00, 0x64},
+        Bytes{0xff, 0xfb, 0x9c, 0x64}}) {
+    EXPECT_TRUE(!ParseMp3Header(bad.data(), bad.size(), &header));
+  }
+}
+
 // Video at 30 fps in runs of |frames| that each start over at 10 s, a
 // keyframe every second, the PAT and PMT before each.
 Bytes RestartingStream(int runs, int frames, size_t frame_size) {
@@ -544,7 +569,6 @@ Bytes RestartingStream(int runs, int frames, size_t frame_size) {
   return w.out;
 }
 
-// NOLINTBEGIN(bugprone-throwing-static-initialization)
 TEST(TsReader, JoinsRunsWhereTimestampsStartOver) {
   MemorySource source(RestartingStream(3, 45, 300));
   TsTimeline timeline(1);

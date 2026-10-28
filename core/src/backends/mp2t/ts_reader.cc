@@ -21,7 +21,8 @@ constexpr int64_t kWrapTicks = int64_t{1} << 33;
 constexpr int64_t kMaxPacketDuration = 10 * kMicrosPerSecond;
 // A stream's DTS going back by more than this starts a new run.
 constexpr int64_t kMaxStepBack = kMicrosPerSecond / 2;
-// ADTS frames are at most 8191 bytes; more without one is not ADTS.
+// ADTS frames are at most 8191 bytes, MP3 frames less; more without one
+// is not either.
 constexpr size_t kMaxAdtsBuffer = size_t{64} * 1024;
 
 // Where 2-3 sync bytes |stride| apart start in |data|, or -1.
@@ -494,8 +495,9 @@ void TsReader::OnPes(const PesPacket& pes) {
   }
 
   if (stream.info.type == MediaType::kAudio &&
-      stream.info.audio.codec == AudioCodec::kAAC) {
-    SplitAdts(index, pes, pts);
+      (stream.info.audio.codec == AudioCodec::kAAC ||
+       stream.info.audio.codec == AudioCodec::kMP3)) {
+    SplitFrames(index, pes, pts);
     return;
   }
   EncodedPacket packet;
@@ -529,9 +531,11 @@ void TsReader::OnPes(const PesPacket& pes) {
   Emit(index, std::move(packet), pes.offset);
 }
 
-void TsReader::SplitAdts(int index, const PesPacket& pes, int64_t pts) {
+void TsReader::SplitFrames(int index, const PesPacket& pes, int64_t pts) {
   TsStream& stream = streams_[index];
   StreamState& state = states_[index];
+  auto* parse = stream.info.audio.codec == AudioCodec::kMP3 ? ParseMp3Header
+                                                            : ParseAdtsHeader;
   const size_t boundary = state.adts.size();
   if (boundary == 0) {
     state.adts_offset = pes.offset;
@@ -542,7 +546,7 @@ void TsReader::SplitAdts(int index, const PesPacket& pes, int64_t pts) {
   size_t position = 0;
   while (position + 7 <= data.size()) {
     AdtsHeader header;
-    if (!ParseAdtsHeader(&data[position], data.size() - position, &header)) {
+    if (!parse(&data[position], data.size() - position, &header)) {
       ++position;
       continue;
     }

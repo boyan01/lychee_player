@@ -47,9 +47,9 @@ using TsTimeline = std::vector<TsRun>;
 
 // Reads MPEG-TS from a DataSource into packets: one access unit per
 // video packet (Annex B, as the stream carries it), one ADTS frame per
-// AAC packet (header included). Timestamps are microseconds, unwrapped
-// across the 33-bit wraparound; each packet's duration is the distance
-// to the next one of its stream.
+// AAC packet and one frame per MP3 packet (headers included). Timestamps are
+// microseconds, unwrapped across the 33-bit wraparound; each packet's duration
+// is the distance to the next one of its stream.
 //
 // Streams are the program's playable ones (H.264, HEVC, AAC, MP3,
 // AC-3, E-AC-3) in PMT order. A new PMT version keeps a stream's index
@@ -119,7 +119,7 @@ class TsReader : private TsParser::Client {
     // A packet waiting for the next one, which gives its duration.
     Pending pending;
     int64_t last_duration = 0;
-    // AAC: bytes of an ADTS frame split across PES packets.
+    // AAC, MP3: bytes of a frame split across PES packets.
     std::vector<uint8_t> adts;
     int64_t adts_offset = 0;
     // The timestamp of the frame that starts adts_frames frames after
@@ -146,7 +146,8 @@ class TsReader : private TsParser::Client {
   // range sets eof_ and flushes.
   bool ReadMore();
   void Flush();
-  void SplitAdts(int stream, const PesPacket& pes, int64_t pts);
+  // AAC in ADTS and MP3: one packet per frame, timed from the PES's PTS.
+  void SplitFrames(int stream, const PesPacket& pes, int64_t pts);
   // Queues |packet| behind the previous one of its stream.
   void Emit(int stream, EncodedPacket packet, int64_t offset);
   int64_t Unwrap(int64_t ticks);

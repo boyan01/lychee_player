@@ -39,9 +39,10 @@ building on top of them.
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays
    slower still).
-4. **Apple without FFmpeg**: AV1 on an M3 or A17 Pro, VP9 on iOS 26.2 or
-   later (no runtime here), A/V sync of Opus and MP3 against a reference
-   clip.
+4. **Apple without FFmpeg**: AV1 on an M3 or A17 Pro, and VP9 on a
+   device with iOS 26.2 or later (waiting on the user): the iOS 26.5
+   simulator has no VP9 decoder (`VTDecompressionSessionCreate` -12906,
+   2026-10-28).
 
 ## Known defects
 
@@ -130,8 +131,8 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
 2. **Containers**: HLS with `EXT-X-MAP` (fMP4 segments: a `DataSource`
    that joins the init segment to each media segment, opened by
    `Mp4Demuxer`), AES-128 (CommonCrypto, CBC per segment, the key fetched
-   once), `EXT-X-MEDIA` audio renditions and variant switching. MP3 in TS
-   is untested; AC-3 has no FFmpeg-free decoder; DVB and ID3 timed
+   once), `EXT-X-MEDIA` audio renditions and variant switching. AC-3 has
+   no FFmpeg-free decoder; DVB and ID3 timed
    metadata in TS are ignored. Where TS timestamps start over, a jump
    ahead, or a run shorter than a sixteenth of the input, is found only
    when played: until then the duration and seeks miss it.

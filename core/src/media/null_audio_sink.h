@@ -18,6 +18,10 @@ class NullAudioSink : public AudioSink {
 
   // Pulls each started sink until |now| plus its latency is covered.
   static void RenderAll(int64_t now);
+  // When any sink first played a sample above a quiet level, in the
+  // NowMicros() timebase, or kNoTimestamp: where a test clip's sound
+  // starts, for its A/V sync.
+  static int64_t FirstSound();
 
   bool Open(RenderCallback callback, std::string* error) override;
   AudioOutputFormat format() const override;

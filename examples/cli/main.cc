@@ -1040,6 +1040,9 @@ int main(int argc, char** argv) {
   bool seek_issued = false;
   int64_t seek_issued_at = 0;
   int64_t first_pts_after_seek = INT64_MIN;
+  // Virtual time with the volume up: the position at which the silent
+  // device first played sound (testing.h), for a clip's A/V sync.
+  int64_t audio_onset = INT64_MIN;
   int64_t ready_wall = 0;
   bool stalled_audio = false;
   // Wall clock vs. media clock since playback last (re)started, to spot
@@ -1266,6 +1269,15 @@ int main(int argc, char** argv) {
 
     int32_t state = lychee_player_get_state(player);
     int64_t position = lychee_player_get_position(player);
+    if (options.virtual_time && audio_onset == INT64_MIN) {
+      // Rendered up to the device's latency ahead of now.
+      const int64_t sound = lychee_testing_first_sound_us();
+      if (sound != INT64_MIN) {
+        audio_onset =
+            position + static_cast<int64_t>((sound - now) *
+                                            lychee_player_get_rate(player));
+      }
+    }
     if (state == LYCHEE_STATE_READY && ready_wall == 0) {
       ready_wall = now;
     }
@@ -1494,6 +1506,9 @@ int main(int argc, char** argv) {
   if (live) {
     printf(" live_vbuf=%.3fs live_abuf=%.3fs", live_vbuf / 1e6,
            live_abuf / 1e6);
+  }
+  if (audio_onset != INT64_MIN) {
+    printf(" audio_onset=%.4fs", audio_onset / 1e6);
   }
   printf("\n");
   if (center_pixel[0] >= 0) {

@@ -283,6 +283,13 @@ for mode in no-cues unknown-sizes huge-tracks huge-block corrupt truncated; do
 done
 gen flac.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=440:sample_rate=44100 -map 0:v -map 1:a -t 5 \
   -c:v copy -c:a flac
+# Silence, then a tone from 1 s exactly: where the sound starts shows
+# whether the decoder trims the encoder's priming as the container says.
+onset='aevalsrc=if(gte(t\,1)\,0.5*sin(2*PI*440*t)\,0):s=48000:d=3'
+gen onset_opus.webm -f lavfi -i "$onset" -c:a libopus
+gen onset_mp3.mp4 -f lavfi -i "$onset" -c:a libmp3lame
+gen onset_aac.m4a -f lavfi -i "$onset" -c:a aac
+gen onset_mp3.ts -f lavfi -i "$onset" -c:a libmp3lame -f mpegts
 gen mp3.mp4 -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=440:sample_rate=44100 -map 0:v -map 1:a -t 5 \
   -c:v copy -c:a libmp3lame
 # A second rendition at 640x360, and a master playlist over both plus a
@@ -615,6 +622,16 @@ par check vp9           $vp9_hw - -- "$media/vp9_opus.webm"
 [ "${NO_FFMPEG:-0}" = 1 ] &&
   par expect av1-videotoolbox "track 0: video av1 " "summary: state=ended position=10\.0" -- "$media/av1.mkv"
 par check flac-mkv      1 - -- "$media/flac.mkv"
+# A/V sync: the tone plays at 1 s on the clock (audio_onset, from the
+# silent device with the volume up), so priming is trimmed, in both builds
+# (AudioToolbox decodes these without FFmpeg).
+for onset in opus.webm mp3.mp4 aac.m4a; do
+  par expect "av-sync-${onset%%.*}" "summary: state=ended .*audio_onset=(0\.99[89]|1\.00[0-2])" -- \
+    --volume 1 "$media/onset_$onset"
+done
+# MP3 in MPEG-TS, which has nowhere to say the encoder's delay (MP3 files
+# say it in their LAME header, MP4 in an edit list): 1105 samples late.
+par expect mp3-ts "summary: state=ended .*audio_onset=1\.02[2-4]" -- --volume 1 "$media/onset_mp3.ts"
 par check mp3-mp4       1 - -- "$media/mp3.mp4"
 par check rotated       1 - -- "$media/rotated.mp4"
 # -display_rotation is counter-clockwise; the library reports clockwise.

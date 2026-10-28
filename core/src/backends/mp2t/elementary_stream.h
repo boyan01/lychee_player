@@ -46,6 +46,11 @@ struct AdtsHeader {
 // bytes of header (the frame may extend past |size|).
 bool ParseAdtsHeader(const uint8_t* data, size_t size, AdtsHeader* header);
 
+// One MPEG audio Layer III frame header (ISO/IEC 11172-3, 13818-3, and
+// MPEG 2.5), as an AdtsHeader: header_size 4, object_type 0. False for
+// other layers, a free bitrate or reserved values.
+bool ParseMp3Header(const uint8_t* data, size_t size, AdtsHeader* header);
+
 }  // namespace lychee
 
 #endif  // LYCHEE_BACKENDS_MP2T_ELEMENTARY_STREAM_H_

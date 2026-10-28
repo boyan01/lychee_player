@@ -34,6 +34,10 @@ LYCHEE_EXPORT void lychee_testing_hang_video_decoder(lychee_player* player);
 // Non-zero: every player's audio device stops pulling audio, as one that
 // fails to start or stops; zero: it pulls again.
 LYCHEE_EXPORT void lychee_testing_stall_audio_devices(int32_t stalled);
+// In virtual time: when the silent device first played a sample above a
+// quiet level (lychee_now_us() timebase), or INT64_MIN. With the volume
+// up, where a clip's sound starts, for its A/V sync.
+LYCHEE_EXPORT int64_t lychee_testing_first_sound_us(void);
 
 // A file replayed as a live input: its default video and audio streams,
 // in file order, as lychee_player_push_live_packet() takes them (Annex B
