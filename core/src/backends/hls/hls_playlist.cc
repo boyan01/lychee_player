@@ -210,24 +210,6 @@ HlsKey ParseKey(const std::string& text, const std::string& base_url) {
   return key;
 }
 
-bool Decodable(const std::string& codecs) {
-  size_t i = 0;
-  while (i <= codecs.size()) {
-    size_t comma = codecs.find(',', i);
-    if (comma == std::string::npos) {
-      comma = codecs.size();
-    }
-    std::string codec = Trim(codecs.substr(i, comma - i));
-    if (!codec.empty() && !StartsWith(codec, "avc1") &&
-        !StartsWith(codec, "avc3") && !StartsWith(codec, "hvc1") &&
-        !StartsWith(codec, "hev1") && !StartsWith(codec, "mp4a")) {
-      return false;
-    }
-    i = comma + 1;
-  }
-  return true;
-}
-
 }  // namespace
 
 void HlsIv(const HlsKey& key, int64_t sequence, uint8_t iv[16]) {
@@ -334,6 +316,7 @@ bool ParseHlsPlaylist(const std::string& text,
       variant = HlsVariant();
       variant.bandwidth = ParseInteger(attributes["BANDWIDTH"]);
       variant.codecs = attributes["CODECS"];
+      variant.audio = attributes["AUDIO"];
       const std::string& resolution = attributes["RESOLUTION"];
       size_t x = resolution.find('x');
       if (x != std::string::npos) {
@@ -342,6 +325,24 @@ bool ParseHlsPlaylist(const std::string& text,
             static_cast<int>(ParseInteger(resolution.substr(x + 1)));
       }
       pending_variant = true;
+      playlist->master = true;
+    } else if (StartsWith(line, "#EXT-X-MEDIA:")) {
+      auto attributes = ParseAttributes(line.substr(13));
+      HlsRendition rendition;
+      const std::string& type = attributes["TYPE"];
+      rendition.type = type == "AUDIO"       ? HlsRendition::Type::kAudio
+                       : type == "VIDEO"     ? HlsRendition::Type::kVideo
+                       : type == "SUBTITLES" ? HlsRendition::Type::kSubtitles
+                                             : HlsRendition::Type::kOther;
+      rendition.group = attributes["GROUP-ID"];
+      rendition.name = attributes["NAME"];
+      rendition.language = attributes["LANGUAGE"];
+      rendition.is_default = attributes["DEFAULT"] == "YES";
+      auto uri = attributes.find("URI");
+      if (uri != attributes.end()) {
+        rendition.url = ResolveUrl(base_url, uri->second);
+      }
+      playlist->renditions.push_back(std::move(rendition));
       playlist->master = true;
     } else if (StartsWith(line, "#EXTINF:")) {
       duration = ParseSeconds(line.substr(8));
@@ -425,11 +426,29 @@ bool ParseHlsPlaylist(const std::string& text,
   return true;
 }
 
+bool HlsCodecsDecodable(const std::string& codecs) {
+  size_t i = 0;
+  while (i <= codecs.size()) {
+    size_t comma = codecs.find(',', i);
+    if (comma == std::string::npos) {
+      comma = codecs.size();
+    }
+    std::string codec = Trim(codecs.substr(i, comma - i));
+    if (!codec.empty() && !StartsWith(codec, "avc1") &&
+        !StartsWith(codec, "avc3") && !StartsWith(codec, "hvc1") &&
+        !StartsWith(codec, "hev1") && !StartsWith(codec, "mp4a")) {
+      return false;
+    }
+    i = comma + 1;
+  }
+  return true;
+}
+
 int PickHlsVariant(const std::vector<HlsVariant>& variants) {
   int best = -1;
   for (size_t i = 0; i < variants.size(); ++i) {
     const HlsVariant& v = variants[i];
-    if (!Decodable(v.codecs)) {
+    if (!HlsCodecsDecodable(v.codecs)) {
       continue;
     }
     if (best < 0) {

@@ -52,8 +52,9 @@ after they arrive and adapts to jitter and the audio device's latency.
 Requires CMake, Ninja, pkg-config and FFmpeg development files
 (`brew install cmake ninja pkg-config ffmpeg`). On macOS and
 iOS, `-DLYCHEE_WITH_FFMPEG=OFF` builds without FFmpeg: MP4 (fragmented
-too), Matroska/WebM, MPEG-TS and HLS (TS and fMP4 segments, AES-128),
-from files and http(s) URLs, with
+too), Matroska/WebM, MPEG-TS and HLS (TS and fMP4 segments, AES-128,
+audio renditions, variants as video tracks), from files and http(s)
+URLs, with
 H.264/HEVC (VideoToolbox), AAC/ALAC (AudioToolbox) and tx3g subtitles;
 `NO_FFMPEG=1 tool/regression.sh` tests it. On Windows it plays MP4 files
 with H.264/HEVC and AAC through Media Foundation, on a GPU only.

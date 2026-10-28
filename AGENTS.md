@@ -85,7 +85,10 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
   (`PacketHistory`, shared with the queues), and the resync pushes them
   into the flushed queues under the new generation before the read goes
   on. So such input reads every stream that keeps a history, selected or
-  not; HLS reads other video streams (variants) only once selected.
+  not; HLS reads other video streams (variants) only once selected (with
+  FFmpeg and without; the FFmpeg-free `HlsDemuxer` then starts the
+  variant a little before the read position and drops what the others
+  already delivered on the audio they share).
 - An audio device that pulls nothing for `AudioRenderer::kDeviceTimeout`
   (never started, or stalled) is stood in for by the control thread
   (`PullForStalledDevice`), which renders and drops audio just ahead of the clock, so

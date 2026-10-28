@@ -18,7 +18,8 @@ Used by tool/regression.sh to test network behaviour:
                        the same directory): its first three segments at the
                        first request, one more each time the previous one
                        has played in real time, a window of four, and
-                       EXT-X-ENDLIST once all are out
+                       EXT-X-ENDLIST once all are out. Repeatable (the
+                       renditions of a master playlist), on one clock
 
 Prints "port N" once listening (pass --port 0 for a free port).
 """
@@ -73,9 +74,10 @@ def make_handler(root, args, state):
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
-            if args.live and self.path.split("?")[0] == args.live[0]:
-                self.serve_live(head)
-                return
+            for live, vod in args.live or []:
+                if self.path.split("?")[0] == live:
+                    self.serve_live(vod, head)
+                    return
             path = os.path.join(root, self.path.lstrip("/").split("?")[0])
             if not os.path.isfile(path):
                 self.send_error(404)
@@ -155,16 +157,19 @@ def make_handler(root, args, state):
                         if delay > 0:
                             time.sleep(delay)
 
-        def serve_live(self, head):
-            vod = os.path.join(root, args.live[1].lstrip("/"))
+        def serve_live(self, vod, head):
+            vod = os.path.join(root, vod.lstrip("/"))
             target = 0
             segments = []  # (EXTINF line, URI)
             extinf = None
+            header = []  # EXT-X-MAP
             with open(vod) as f:
                 for line in f:
                     line = line.strip()
                     if line.startswith("#EXT-X-TARGETDURATION:"):
                         target = line.split(":", 1)[1]
+                    elif line.startswith("#EXT-X-MAP:"):
+                        header.append(line)
                     elif line.startswith("#EXTINF:"):
                         extinf = line
                     elif line and not line.startswith("#"):
@@ -182,8 +187,8 @@ def make_handler(root, args, state):
                     break
                 out += 1
             first = max(out - 4, 0)
-            lines = ["#EXTM3U", "#EXT-X-VERSION:3", f"#EXT-X-TARGETDURATION:{target}",
-                     f"#EXT-X-MEDIA-SEQUENCE:{first}"]
+            lines = ["#EXTM3U", "#EXT-X-VERSION:7", f"#EXT-X-TARGETDURATION:{target}",
+                     f"#EXT-X-MEDIA-SEQUENCE:{first}"] + header
             for extinf, uri in segments[first:out]:
                 lines += [extinf, uri]
             if out == len(segments):
@@ -221,7 +226,7 @@ def main():
     parser.add_argument("--refuse-after-requests", type=int)
     parser.add_argument("--no-ranges", action="store_true")
     parser.add_argument("--redirect", nargs=2, metavar=("FROM", "TO"))
-    parser.add_argument("--live", nargs=2, metavar=("PATH", "VOD"))
+    parser.add_argument("--live", nargs=2, action="append", metavar=("PATH", "VOD"))
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 

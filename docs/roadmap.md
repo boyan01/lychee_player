@@ -55,6 +55,15 @@ building on top of them.
   `AVFMT_TS_DISCONT`). Done when `tool/regression.sh`'s
   `ts-timestamp-reset` and `seek-ts-reset*` cases, now run only with
   `NO_FFMPEG=1`, pass in both builds.
+- **HLS audio renditions with FFmpeg**: FFmpeg's HLS demuxer does not
+  put an audio rendition's timestamps on the variant's timeline when
+  they start elsewhere: `hls_alt/master.m3u8` (TS video from 1.4 s,
+  audio renditions in TS and in fMP4 from 0) plays 1 s out of sync
+  (`max_drift=1016ms`), with the tone at 0.02 s instead of 0.95 s, and
+  its tracks have no titles. The FFmpeg-free `HlsDemuxer` shares each
+  discontinuity's offset between renditions. Done when
+  `http-hls-renditions*`, now run only with `NO_FFMPEG=1`, pass in both
+  builds.
 
 1. **Slow HLS seeks past a discontinuity with FFmpeg**: FFmpeg's HLS seek
    drops every packet past a discontinuity where timestamps start over,
@@ -128,8 +137,9 @@ Matroska/WebM, MPEG-TS and HLS without it, and ships
    FFmpeg-free builds need anyway; then FFmpeg reads through it as on
    Apple. One `NSURLSession` per demuxer would let HLS segments reuse
    connections.
-2. **Containers**: HLS `EXT-X-MEDIA` audio renditions and variant
-   switching. AC-3 has
+2. **Containers**: HLS switches variants only when a track is selected,
+   not by measured bandwidth; subtitle renditions (WebVTT) are not
+   read. AC-3 has
    no FFmpeg-free decoder; DVB and ID3 timed
    metadata in TS are ignored. Where TS timestamps start over, a jump
    ahead, or a run shorter than a sixteenth of the input, is found only

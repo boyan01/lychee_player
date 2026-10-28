@@ -14,6 +14,20 @@ struct HlsVariant {
   int width = 0;
   int height = 0;
   std::string codecs;
+  // The GROUP-ID of its audio renditions, or empty.
+  std::string audio;
+};
+
+// An alternative rendition (EXT-X-MEDIA, 4.3.4.1).
+struct HlsRendition {
+  enum class Type { kAudio, kVideo, kSubtitles, kOther };
+  Type type = Type::kOther;
+  std::string group;
+  std::string name;
+  std::string language;
+  bool is_default = false;
+  // Its media playlist; empty if the variant's own segments carry it.
+  std::string url;
 };
 
 // EXT-X-KEY (RFC 8216 4.3.2.4) as it applies to a segment or a map.
@@ -63,6 +77,7 @@ struct HlsPlaylist {
   // A master playlist has variants and no segments.
   bool master = false;
   std::vector<HlsVariant> variants;
+  std::vector<HlsRendition> renditions;
 
   int64_t target_duration = 0;  // Microseconds.
   int64_t media_sequence = 0;
@@ -80,6 +95,10 @@ bool ParseHlsPlaylist(const std::string& text,
 // |reference| resolved against |base| (RFC 3986 5.2), for URLs and for
 // plain file paths.
 std::string ResolveUrl(const std::string& base, const std::string& reference);
+
+// Whether this build decodes every codec of a CODECS attribute (H.264,
+// HEVC, AAC); true without one.
+bool HlsCodecsDecodable(const std::string& codecs);
 
 // The variant to play: the highest bandwidth among those whose CODECS
 // this build decodes (H.264, HEVC, AAC; any without CODECS), the larger

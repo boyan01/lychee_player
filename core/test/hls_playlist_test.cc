@@ -119,12 +119,14 @@ TEST(HlsPlaylist, PicksVariants) {
   const std::string text =
       "#EXTM3U\n"
       "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"en\",URI=\"audio.m3u8\"\n"
+      "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"Main\",LANGUAGE=\"fr\","
+      "DEFAULT=YES\n"
       "#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS=\"avc1."
       "64001e,mp4a.40.2\"\n"
       "low.m3u8\n"
       "#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=90000,URI=\"iframes.m3u8\"\n"
       "#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS=\"hvc1."
-      "2.4.L123.B0,mp4a.40.2\"\n"
+      "2.4.L123.B0,mp4a.40.2\",AUDIO=\"a\"\n"
       "high/index.m3u8\n"
       "#EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=3840x2160,CODECS=\"vp09."
       "00.50.08\"\n"
@@ -139,6 +141,19 @@ TEST(HlsPlaylist, PicksVariants) {
   EXPECT_EQ(playlist.variants[1].height, 1080);
   EXPECT_EQ(playlist.variants[1].url, std::string("http://h/high/index.m3u8"));
   EXPECT_EQ(PickHlsVariant(playlist.variants), 1);
+  EXPECT_EQ(playlist.variants[1].audio, std::string("a"));
+  EXPECT_TRUE(playlist.variants[0].audio.empty());
+  EXPECT_EQ(playlist.renditions.size(), 2u);
+  EXPECT_TRUE(playlist.renditions[0].type == HlsRendition::Type::kAudio);
+  EXPECT_EQ(playlist.renditions[0].group, std::string("a"));
+  EXPECT_EQ(playlist.renditions[0].url, std::string("http://h/audio.m3u8"));
+  EXPECT_TRUE(!playlist.renditions[0].is_default);
+  // Without URI the variant's own segments carry it.
+  EXPECT_TRUE(playlist.renditions[1].url.empty());
+  EXPECT_EQ(playlist.renditions[1].language, std::string("fr"));
+  EXPECT_TRUE(playlist.renditions[1].is_default);
+  EXPECT_TRUE(HlsCodecsDecodable("avc1.64001e,mp4a.40.2"));
+  EXPECT_TRUE(!HlsCodecsDecodable("avc1.64001e,ec-3"));
   // Without CODECS a variant is assumed playable; equal bandwidth goes
   // to the larger picture.
   std::vector<HlsVariant> plain(2);
