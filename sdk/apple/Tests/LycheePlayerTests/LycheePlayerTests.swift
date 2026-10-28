@@ -257,4 +257,50 @@ final class LycheePlayerTests: XCTestCase {
     }
     XCTAssertEqual(transfer as? String, kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String)
   }
+
+  // The native decoder must distinguish absent source fields from its own
+  // guesses. Partial source tags must survive while only absent fields default.
+  func testNativeSourceColorDefaultsAndPartialTags() throws {
+    #if NoFFmpeg
+    let cases: [(String, CFString, CFString, CFString)] = [
+      ("h264_aac.mp4", kCVImageBufferColorPrimaries_ITU_R_709_2,
+       kCVImageBufferTransferFunction_ITU_R_709_2, kCVImageBufferYCbCrMatrix_ITU_R_709_2),
+      ("sd_hevc.mp4", kCVImageBufferColorPrimaries_ITU_R_709_2,
+       kCVImageBufferTransferFunction_ITU_R_709_2, kCVImageBufferYCbCrMatrix_ITU_R_601_4),
+      ("sd_hevc_primaries.mp4", kCVImageBufferColorPrimaries_SMPTE_C,
+       kCVImageBufferTransferFunction_ITU_R_709_2, kCVImageBufferYCbCrMatrix_ITU_R_601_4),
+      ("sd_hevc_pq.mp4", kCVImageBufferColorPrimaries_ITU_R_709_2,
+       kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ, kCVImageBufferYCbCrMatrix_ITU_R_601_4),
+    ]
+    for (file, primaries, transfer, matrix) in cases {
+      let path = "/tmp/lychee-media/\(file)"
+      try XCTSkipUnless(FileManager.default.fileExists(atPath: path), "run tool/regression.sh first")
+      let player = LycheePlayer(hardwareDecoding: false)
+      player.volume = 0
+      player.open(path)
+      player.play()
+      var frame: CVPixelBuffer?
+      let pulled = expectation(description: file)
+      var driver: LycheeFrameDriver?
+      driver = LycheeFrameDriver(player: player) {
+        guard frame == nil, let copied = driver?.copyFrame() else { return }
+        frame = copied
+        pulled.fulfill()
+      }
+      driver?.start()
+      wait(for: [pulled], timeout: 10)
+      driver?.stop()
+      driver = nil
+      let buffer = try XCTUnwrap(frame, file)
+      XCTAssertEqual(CVBufferCopyAttachment(buffer, kCVImageBufferColorPrimariesKey, nil) as? String,
+                     primaries as String, file)
+      XCTAssertEqual(CVBufferCopyAttachment(buffer, kCVImageBufferTransferFunctionKey, nil) as? String,
+                     transfer as String, file)
+      XCTAssertEqual(CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nil) as? String,
+                     matrix as String, file)
+    }
+    #else
+    throw XCTSkip("tests the FFmpeg-free native decoder's source metadata")
+    #endif
+  }
 }

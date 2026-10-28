@@ -116,6 +116,13 @@ gen h264_aac.mp4 -f lavfi -i "$src" -f lavfi -i sine=frequency=440:sample_rate=4
   -c:v libx264 -preset veryfast -bf 3 -pix_fmt yuv420p -c:a aac -b:a 128k
 gen hevc10.mp4 -f lavfi -i testsrc2=size=1920x1080:rate=24 -f lavfi -i sine=frequency=660:sample_rate=48000 -t 10 \
   -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -tag:v hvc1 -x265-params log-level=error -c:a aac
+# Native color metadata: untagged SD HEVC, and only one specified VUI field.
+gen sd_hevc.mp4 -i "$media/h264_aac.mp4" -map 0:v -t 8 -vf scale=640:360 \
+  -c:v libx265 -preset ultrafast -pix_fmt yuv420p -tag:v hvc1 -x265-params log-level=error
+gen sd_hevc_primaries.mp4 -i "$media/sd_hevc.mp4" -map 0:v -c copy \
+  -bsf:v hevc_metadata=colour_primaries=6:transfer_characteristics=2:matrix_coefficients=2
+gen sd_hevc_pq.mp4 -i "$media/sd_hevc.mp4" -map 0:v -c copy \
+  -bsf:v hevc_metadata=colour_primaries=2:transfer_characteristics=16:matrix_coefficients=2
 # HDR10: mid gray in PQ, about 92 nits. Tone-mapped to SDR it is light
 # gray (~182), not the 50% gray its code values would give as SDR.
 gen hdr_pq.mp4 -f lavfi -i color=c=gray:size=1280x720:rate=30 -t 3 -c:v libx265 -preset ultrafast \

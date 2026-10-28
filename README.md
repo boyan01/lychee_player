@@ -223,7 +223,11 @@ scale). A phone shows whether the hardware path keeps BT.709.
 
 The reference follows the library's conventions: a stream without a color
 matrix is BT.709 above 576 lines and BT.601 below, and HDR is tone-mapped
-to SDR BT.709 by swscale. A snapshot passes with PSNR at least 28 dB, a
+to SDR BT.709 by swscale. Unspecified source primaries and transfer use
+BT.709 too. The FFmpeg-free Apple H.264/HEVC decoder gives container tags
+priority over the parameter-set format's source tags; absent fields use those
+defaults, rather than VideoToolbox's guessed SD profile.
+A snapshot passes with PSNR at least 28 dB, a
 mean absolute error at most 4 (of 255), the worst 32x32 tile's at most 40,
 and, in a window, black outside the video rectangle. On the regression
 media (2026-10-26) the right frame gives 30.4 dB or more, an error of 0.6

@@ -8,7 +8,6 @@
 #include <mutex>
 
 #include "backends/apple/pixel_buffer.h"
-#include "backends/mp2t/elementary_stream.h"
 #include "base/log.h"
 
 namespace lychee {
@@ -277,26 +276,31 @@ bool VTVideoDecoder::CreateSession() {
     return false;
   }
   output_color_.reset();
-  if (codec_type_ == 0 && !converter_.hevc()) {
-    std::vector<uint8_t> headers;
-    for (const auto& set : parameter_sets_) {
-      AnnexBConverter::AppendNal(set.data(), set.size(), &headers);
-    }
-    AccessUnitInfo info;
-    if (ParseAccessUnit(headers.data(), headers.size(), false, &info) &&
-        info.has_sps) {
-      output_color_ = config_.color;
-      // Container color wins; the SPS supplies fields it left unspecified.
-      if (output_color_->primaries == 2) {
-        output_color_->primaries = info.color.primaries;
+  if (codec_type_ == 0) {
+    // The parameter-set constructors expose only source VUI fields;
+    // decoded buffers may already carry VideoToolbox's platform guesses.
+    // Container color wins. VP9/AV1's hand-built format does not establish
+    // all bitstream color, so it must not override their decoder output.
+    output_color_ = config_.color;
+    auto fill = [this](uint8_t& field, CFStringRef key,
+                       int (*code_point)(CFStringRef)) {
+      if (field == 2) {
+        if (auto value = static_cast<CFStringRef>(
+                CMFormatDescriptionGetExtension(format_, key))) {
+          const int code = code_point(value);
+          if (code >= 0 && code <= UINT8_MAX) {
+            field = static_cast<uint8_t>(code);
+          }
+        }
       }
-      if (output_color_->transfer == 2) {
-        output_color_->transfer = info.color.transfer;
-      }
-      if (output_color_->matrix == 2) {
-        output_color_->matrix = info.color.matrix;
-      }
-    }
+    };
+    fill(output_color_->primaries, kCMFormatDescriptionExtension_ColorPrimaries,
+         CVColorPrimariesGetIntegerCodePointForString);
+    fill(output_color_->transfer,
+         kCMFormatDescriptionExtension_TransferFunction,
+         CVTransferFunctionGetIntegerCodePointForString);
+    fill(output_color_->matrix, kCMFormatDescriptionExtension_YCbCrMatrix,
+         CVYCbCrMatrixGetIntegerCodePointForString);
   }
 
   CFMutableDictionaryRef specification = CreateDictionary();

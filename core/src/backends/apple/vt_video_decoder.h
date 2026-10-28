@@ -76,7 +76,8 @@ class VTVideoDecoder : public VideoDecoder {
 
   const bool hardware_;
   VideoConfig config_;
-  // Authoritative H.264 container/SPS color, including unspecified fields.
+  // Authoritative H.264/HEVC container/format color, including unspecified
+  // fields.
   std::optional<ColorInfo> output_color_;
   // kCMVideoCodecType_VP9 or _AV1, or 0 for H.264 and HEVC.
   CMVideoCodecType codec_type_ = 0;
