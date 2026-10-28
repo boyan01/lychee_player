@@ -712,8 +712,8 @@ plays_without_ffmpeg() {
     esac
     # VideoToolbox decodes VP9 only in hardware.
     [ "${NO_HW:-0}" = 1 ] && [[ "$arg" == *vp9* ]] && return 1
-    # Media Foundation has no VP9 (without the Store's extension) or ALAC.
-    [ "$windows" = 1 ] && [[ "$arg" == *vp9* || "$arg" == *alac* ]] && return 1
+    # Media Foundation has no VP9 (without the Store's extension).
+    [ "$windows" = 1 ] && [[ "$arg" == *vp9* ]] && return 1
   done
   return 0
 }

@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "base/log.h"
+#include "base/time.h"
 
 namespace lychee {
 
@@ -39,6 +40,8 @@ GUID Subtype(AudioCodec codec) {
       return MFAudioFormat_MP3;
     case AudioCodec::kFLAC:
       return MFAudioFormat_FLAC;
+    case AudioCodec::kALAC:
+      return MFAudioFormat_ALAC;
     default:
       return GUID_NULL;
   }
@@ -61,7 +64,8 @@ std::vector<uint8_t> FlacStreamInfo(const std::vector<uint8_t>& config) {
 
 // What the decoder takes as MF_MT_USER_DATA, as Windows' own MP4 source
 // hands it over: for FLAC the STREAMINFO block with its header, marked
-// last.
+// last; for ALAC the 24-byte ALACSpecificConfig (MP4's alac box comes with
+// its header, version and flags).
 std::vector<uint8_t> UserData(AudioCodec codec,
                               const std::vector<uint8_t>& config) {
   switch (codec) {
@@ -75,6 +79,11 @@ std::vector<uint8_t> UserData(AudioCodec codec,
       block.insert(block.end(), info.begin(), info.end());
       return block;
     }
+    case AudioCodec::kALAC:
+      if (config.size() >= 12 + 24 && std::memcmp(&config[4], "alac", 4) == 0) {
+        return {config.begin() + 12, config.end()};
+      }
+      return config;
     default:
       return config;
   }
@@ -135,7 +144,7 @@ bool MFAudioDecoder::Open(const std::vector<uint8_t>& extradata,
     CoCreateInstance(CLSID_CMSAACDecMFT, nullptr, CLSCTX_INPROC_SERVER,
                      IID_PPV_ARGS(&decoder_));
   } else {
-    // MP3, and Windows' own FLAC decoder (Windows 10).
+    // MP3, and Windows' own FLAC and ALAC decoders (Windows 10).
     decoder_ = CreateDecoder(subtype);
   }
   if (!decoder_) {
@@ -174,6 +183,14 @@ bool MFAudioDecoder::Open(const std::vector<uint8_t>& extradata,
     if (!user_data.empty()) {
       input->SetBlob(MF_MT_USER_DATA, user_data.data(),
                      static_cast<UINT32>(user_data.size()));
+    }
+    if (config_.codec == AudioCodec::kALAC && user_data.size() >= 4 &&
+        config_.sample_rate > 0) {
+      // The ALACSpecificConfig starts with the samples per packet.
+      const int64_t frames = (int64_t{user_data[0]} << 24) |
+                             (user_data[1] << 16) | (user_data[2] << 8) |
+                             user_data[3];
+      default_duration_ = frames * kMicrosPerSecond / config_.sample_rate;
     }
   }
   HRESULT hr = decoder_->SetInputType(0, input.Get(), 0);
@@ -321,7 +338,8 @@ bool MFAudioDecoder::Decode(const EncodedPacket& packet,
     next_pts_ = packet.pts;
   }
   ComPtr<IMFSample> sample =
-      CreateMFSample(data, size, packet.pts, packet.duration);
+      CreateMFSample(data, size, packet.pts,
+                     packet.duration > 0 ? packet.duration : default_duration_);
   if (!sample) {
     return false;
   }
