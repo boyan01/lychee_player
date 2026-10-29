@@ -370,11 +370,13 @@ core as `liblychee.so` with the LGPL FFmpeg next to it (build it first:
 `tool/build_ffmpeg.sh android-arm64-v8a SRC`, `android-armeabi-v7a` for
 32-bit ARM systems, and `android-x86_64` for x86 emulators), and Kotlin classes over it.
 HTTPS uses HttpURLConnection and AES-128 HLS uses javax.crypto, in both
-builds. FFmpeg handles cleartext HTTP refused by the app's network security
-config. That fallback probes redirects with HEAD (GET with a one-byte
-Range if HEAD is unsupported), follows at most five redirects, and opens
-an HTTPS destination through HttpURLConnection. A changing redirect after
-the probe can still fail; FFmpeg has no TLS on Android. An AES HLS stream
+builds; redirects from http to https are followed (five at most), never
+back to http. FFmpeg handles cleartext HTTP refused by the app's network
+security config. That fallback probes redirects with HEAD (GET with a
+one-byte Range if HEAD is unsupported), follows at most five redirects,
+and opens an HTTPS destination through HttpURLConnection. A host whose URL
+did not redirect is not probed again until FFmpeg fails on one of its
+URLs; FFmpeg has no TLS on Android. An AES HLS stream
 that requires FFmpeg's HLS fallback (for example, an unsupported subtitle
 rendition) cannot fetch encrypted HTTPS segments. The native CLI run from
 `adb shell` has no Java VM and cannot open HTTPS.

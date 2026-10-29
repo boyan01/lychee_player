@@ -8,10 +8,27 @@
 
 extern "C" {
 #include <libavformat/avformat.h>
+#include <libavutil/macros.h>
 }
 
 namespace lychee {
 namespace {
+
+// FFmpeg's http sends this too, so the probe and the request after it look
+// the same to the server; some refuse requests without one.
+constexpr char kUserAgent[] = "Lavf/" AV_STRINGIFY(LIBAVFORMAT_VERSION);
+
+// host:port, or empty for a URL without a host.
+std::string Origin(const std::string& url) {
+  char host[4096];
+  int port = -1;
+  av_url_split(nullptr, 0, nullptr, 0, host, sizeof(host), &port, nullptr, 0,
+               url.c_str());
+  if (!host[0]) {
+    return "";
+  }
+  return std::string(host) + ":" + std::to_string(port < 0 ? 80 : port);
+}
 
 // This only discovers redirects; FFmpeg's HTTP still handles nonredirects,
 // authentication and streaming. Bound both headers and network waits.
@@ -52,7 +69,7 @@ int Redirect(const std::string& url,
   target = target.substr(0, target.find('#'));
   std::string request =
       std::string(head ? "HEAD " : "GET ") + target +
-      " HTTP/1.1\r\nHost: " + endpoint +
+      " HTTP/1.1\r\nHost: " + endpoint + "\r\nUser-Agent: " + kUserAgent +
       "\r\nConnection: close\r\nAccept-Encoding: identity\r\n" +
       (head ? "" : "Range: bytes=0-0\r\n") + "\r\n";
   avio_write(io, reinterpret_cast<const unsigned char*>(request.data()),
@@ -110,9 +127,9 @@ int Redirect(const std::string& url,
 
 }  // namespace
 
-std::string FindHttpsRedirect(const std::string& url,
-                              const AVIOInterruptCB& interrupt,
-                              std::string* error) {
+std::string CleartextRedirects::Find(const std::string& url,
+                                     const AVIOInterruptCB& interrupt,
+                                     std::string* error) {
   std::string current = url;
   for (int hops = 0; hops <= 5; ++hops) {
     if (current.rfind("https://", 0) == 0) {
@@ -130,6 +147,9 @@ std::string FindHttpsRedirect(const std::string& url,
     if ((status != 301 && status != 302 && status != 303 && status != 307 &&
          status != 308) ||
         location.empty()) {
+      // FFmpeg reads it, following any HTTP redirects on the way.
+      std::lock_guard<std::mutex> lock(mutex_);
+      plain_.insert(Origin(url));
       return "";
     }
     if (hops == 5) {
@@ -139,6 +159,16 @@ std::string FindHttpsRedirect(const std::string& url,
     current = std::move(location);
   }
   return "";
+}
+
+bool CleartextRedirects::Known(const std::string& url) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return plain_.count(Origin(url)) != 0;
+}
+
+void CleartextRedirects::Forget(const std::string& url) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  plain_.erase(Origin(url));
 }
 
 }  // namespace lychee

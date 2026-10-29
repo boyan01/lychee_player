@@ -124,9 +124,7 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    example, an unsupported subtitle rendition) cannot open encrypted HTTPS
    segments: FFmpeg's crypto protocol bypasses DataSource and Android's
    FFmpeg has no TLS. A cleartext redirect that changes after its HEAD/GET
-   probe can fail for the same reason. HTTP permitted by the app's policy
-   still cannot redirect across schemes in HttpURLConnection; this is
-   separate from the refused-cleartext fallback.
+   probe can fail for the same reason.
    An FFmpeg-free AAR in the release
    (`-Plychee.ffmpeg=false` builds it, and the Flutter plugin plays on
    it; a second artifact is a publishing decision) if native Android

@@ -11,6 +11,10 @@
 #include "media/data_source.h"
 #include "media/demuxer.h"
 
+#if defined(__ANDROID__)
+#include "backends/ffmpeg/cleartext_redirect.h"
+#endif
+
 struct AVDictionary;
 struct AVFormatContext;
 struct AVIOContext;
@@ -132,6 +136,9 @@ class FFmpegDemuxer : public Demuxer {
   std::vector<std::unique_ptr<Io>> ios_;
   // Why the last open or read failed, from the source.
   std::string io_error_;
+#if defined(__ANDROID__)
+  CleartextRedirects redirects_;
+#endif
 #endif
 };
 

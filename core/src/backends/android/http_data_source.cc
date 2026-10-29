@@ -33,12 +33,16 @@ constexpr int kMaxRetries = 3;
 constexpr jint kTimeoutMs = 10000;
 // Bytes asked of the stream per read.
 constexpr jint kChunk = 64 << 10;
+// Redirects from http to https followed per request, beyond those
+// HttpURLConnection follows itself (FFmpeg's http follows five in all).
+constexpr int kMaxRedirects = 5;
 
 // Classes and methods, looked up once. All are the boot class path's, which
 // FindClass finds from native threads too.
 struct Jni {
   jclass url;
   jmethodID url_init;
+  jmethodID url_init_relative;
   jmethodID url_open_connection;
   jmethodID url_to_string;
   jmethodID set_connect_timeout;
@@ -82,6 +86,8 @@ const Jni* GetJni(JNIEnv* env) {
     jni.cleartext_permitted = env->GetMethodID(
         policy, "isCleartextTrafficPermitted", "(Ljava/lang/String;)Z");
     jni.url_init = env->GetMethodID(url, "<init>", "(Ljava/lang/String;)V");
+    jni.url_init_relative =
+        env->GetMethodID(url, "<init>", "(Ljava/net/URL;Ljava/lang/String;)V");
     jni.url_open_connection =
         env->GetMethodID(url, "openConnection", "()Ljava/net/URLConnection;");
     jni.url_to_string =
@@ -333,44 +339,73 @@ class HttpDataSource : public DataSource {
       chunk_ =
           static_cast<jbyteArray>(env->NewGlobalRef(env->NewByteArray(kChunk)));
     }
-    jobject url = env->NewObject(jni_.url, jni_.url_init,
-                                 env->NewStringUTF(url_.c_str()));
-    if (!url) {
-      return Fail(env, true);
-    }
-    if (CleartextRefused(env, url)) {
-      std::lock_guard<std::mutex> lock(mutex_);
-      error_ = "cleartext http refused by the network security config";
-      cleartext_refused_ = true;
-      refused_ = true;
-      return false;
-    }
-    jobject connection = env->CallObjectMethod(url, jni_.url_open_connection);
-    if (!connection) {
-      return Fail(env, true);
-    }
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (interrupted_) {
+    // HttpURLConnection follows redirects within a scheme only. Those from
+    // http to https are followed here, as NSURLSession and FFmpeg follow
+    // them; never back to http.
+    std::string target = url_;
+    jobject connection = nullptr;
+    jint status = 0;
+    int64_t began = 0;
+    for (int redirects = 0;; ++redirects) {
+      jobject url = env->NewObject(jni_.url, jni_.url_init,
+                                   env->NewStringUTF(target.c_str()));
+      if (!url) {
+        return Fail(env, true);
+      }
+      if (CleartextRefused(env, url)) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        error_ = "cleartext http refused by the network security config";
+        cleartext_refused_ = true;
+        refused_ = true;
         return false;
       }
-      connection_ = env->NewGlobalRef(connection);
-    }
-    env->CallVoidMethod(connection, jni_.set_connect_timeout, kTimeoutMs);
-    env->CallVoidMethod(connection, jni_.set_read_timeout, kTimeoutMs);
-    // From 0 too, as FFmpeg does: a 206 says the server takes ranges.
-    std::string range = "bytes=" + std::to_string(from) + "-";
-    env->CallVoidMethod(connection, jni_.set_request_property,
-                        env->NewStringUTF("Range"),
-                        env->NewStringUTF(range.c_str()));
-    // Offsets are into the resource as stored: no transparent gzip.
-    env->CallVoidMethod(connection, jni_.set_request_property,
-                        env->NewStringUTF("Accept-Encoding"),
-                        env->NewStringUTF("identity"));
-    const int64_t began = MonotonicMicros();
-    jint status = env->CallIntMethod(connection, jni_.get_response_code);
-    if (env->ExceptionCheck()) {
-      return Fail(env, false);
+      connection = env->CallObjectMethod(url, jni_.url_open_connection);
+      if (!connection) {
+        return Fail(env, true);
+      }
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (interrupted_) {
+          return false;
+        }
+        connection_ = env->NewGlobalRef(connection);
+      }
+      env->CallVoidMethod(connection, jni_.set_connect_timeout, kTimeoutMs);
+      env->CallVoidMethod(connection, jni_.set_read_timeout, kTimeoutMs);
+      // From 0 too, as FFmpeg does: a 206 says the server takes ranges.
+      std::string range = "bytes=" + std::to_string(from) + "-";
+      env->CallVoidMethod(connection, jni_.set_request_property,
+                          env->NewStringUTF("Range"),
+                          env->NewStringUTF(range.c_str()));
+      // Offsets are into the resource as stored: no transparent gzip.
+      env->CallVoidMethod(connection, jni_.set_request_property,
+                          env->NewStringUTF("Accept-Encoding"),
+                          env->NewStringUTF("identity"));
+      began = MonotonicMicros();
+      status = env->CallIntMethod(connection, jni_.get_response_code);
+      if (env->ExceptionCheck()) {
+        return Fail(env, false);
+      }
+      if (status < 300 || status >= 400 || redirects == kMaxRedirects) {
+        break;
+      }
+      std::string location = HeaderField(env, jni_, connection, "Location");
+      jobject next = location.empty()
+                         ? nullptr
+                         : env->NewObject(jni_.url, jni_.url_init_relative, url,
+                                          env->NewStringUTF(location.c_str()));
+      std::string next_url;
+      if (next) {
+        next_url = ToString(env, static_cast<jstring>(env->CallObjectMethod(
+                                     next, jni_.url_to_string)));
+      }
+      env->ExceptionClear();
+      if (next_url.rfind("https://", 0) != 0) {
+        break;
+      }
+      LOGI("following a redirect from http to https");
+      Disconnect(env);
+      target = std::move(next_url);
     }
     if (status >= 300) {
       std::string message =
@@ -380,7 +415,7 @@ class HttpDataSource : public DataSource {
       std::lock_guard<std::mutex> lock(mutex_);
       error_ = "HTTP " + std::to_string(status) + " " + message;
       if (status < 400) {
-        // HttpURLConnection follows no redirect across schemes.
+        // A redirect to http, or one too many.
         error_ += " to " + HeaderField(env, jni_, connection, "Location");
       }
       // Server errors may pass; FFmpeg's reconnect_on_http_error=5xx.

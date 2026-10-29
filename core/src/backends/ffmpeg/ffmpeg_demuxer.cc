@@ -21,7 +21,6 @@
 
 #if defined(__ANDROID__)
 #include "backends/android/http_data_source.h"
-#include "backends/ffmpeg/cleartext_redirect.h"
 #endif
 
 extern "C" {
@@ -779,9 +778,21 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
 #if defined(__ANDROID__)
     // Probe failures also arrive here, so both cleartext fallback entrances
     // hand HTTPS to the system before FFmpeg can follow a redirect itself.
+    // An origin that did not redirect goes to FFmpeg directly, and is
+    // probed again only if FFmpeg fails on it (a segment redirected to an
+    // HTTPS CDN, say).
+    int ret = 0;
+    const bool known = self->redirects_.Known(url);
+    if (known) {
+      ret = self->default_io_open_(s, pb, url, flags, options);
+      if (ret >= 0 || self->aborted_ || self->interrupted_) {
+        return ret;
+      }
+      self->redirects_.Forget(url);
+    }
     error.clear();
     const std::string secure =
-        FindHttpsRedirect(url, s->interrupt_callback, &error);
+        self->redirects_.Find(url, s->interrupt_callback, &error);
     if (!secure.empty()) {
       LOGI("HTTP redirected to HTTPS: using the platform client");
       *pb = self->OpenIo(secure, &error, &cleartext_refused,
@@ -790,7 +801,7 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
         return 0;
       }
     } else if (error.empty()) {
-      return self->default_io_open_(s, pb, url, flags, options);
+      return known ? ret : self->default_io_open_(s, pb, url, flags, options);
     }
 #else
     return self->default_io_open_(s, pb, url, flags, options);
