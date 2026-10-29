@@ -376,10 +376,12 @@ security config. That fallback probes redirects with HEAD (GET with a
 one-byte Range if HEAD is unsupported), follows at most five redirects,
 and opens an HTTPS destination through HttpURLConnection. A host whose URL
 did not redirect is not probed again until FFmpeg fails on one of its
-URLs; FFmpeg has no TLS on Android. An AES HLS stream
-that requires FFmpeg's HLS fallback (for example, an unsupported subtitle
-rendition) cannot fetch encrypted HTTPS segments. The native CLI run from
-`adb shell` has no Java VM and cannot open HTTPS.
+URLs, which then probes that URL again; FFmpeg has no TLS on Android.
+HLS that needs FFmpeg's demuxer (for example, an unsupported subtitle
+rendition) reads its playlists and segments the same way, and its AES-128
+segments are read whole and decrypted in the core (`av_aes`), as on Apple
+platforms and Windows, rather than by FFmpeg's crypto protocol. The
+native CLI run from `adb shell` has no Java VM and cannot open HTTPS.
 
 The release AAR has all three ABIs. The core is also a prefab module
 (`lychee`, header `lychee/lychee.h`) for native code that uses the C ABI.
@@ -646,7 +648,8 @@ is for development only. The macOS and iOS builds from
 line), and so are the Windows build (Schannel for https) and the Linux
 build (GnuTLS, LGPL 2.1+, the system's). Android is LGPL 2.1+ too:
 FFmpeg provides cleartext HTTP, while HttpURLConnection handles HTTPS
-and javax.crypto decrypts AES-128 HLS. Distributed apps
+and javax.crypto decrypts AES-128 HLS (FFmpeg's AES in its HLS
+fallback). Distributed apps
 must ship an LGPL-only FFmpeg (no `--enable-gpl` / `--enable-nonfree`),
 linked dynamically.
 

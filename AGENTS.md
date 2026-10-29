@@ -413,7 +413,12 @@ phones stay local.
   missing to the script's lists. Android's FFmpeg provides cleartext HTTP
   only (LGPL 2.1+); all TLS goes through `HttpURLConnection`, and AES-128
   HLS through `javax.crypto`. The cleartext fallback resolves up to five
-  redirects before handing HTTPS back to DataSource. `lychee_cli` from
+  redirects before handing HTTPS back to DataSource. FFmpeg's HLS refuses
+  a URL whose protocol FFmpeg lacks before it calls `io_open`, so without
+  `tool/patches/ffmpeg-hls-https-io-open.patch` its fallback opens no
+  https playlist or segment on Android ("Invalid data found"); keep the
+  patch applying on a new FFmpeg. Its AES-128 segments (`crypto+https://`)
+  are decrypted in `FFmpegDemuxer::IoOpen`, not by FFmpeg. `lychee_cli` from
   `adb shell` has no Java VM and cannot open HTTPS. Apps need Java to load
   `liblychee` by name (`System.loadLibrary("lychee")`) so `JNI_OnLoad`
   keeps the VM for both HTTP and AES.

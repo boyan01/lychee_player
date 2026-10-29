@@ -27,6 +27,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/display.h>
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
+#include <libavutil/aes.h>
 #include <libavutil/opt.h>
 #endif
 }
@@ -58,7 +59,7 @@ bool IsNetworkUrl(const std::string& url) {
 
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
 // What OpenDataSource reads: paths, file:// and http(s)://. FFmpeg opens
-// the rest itself (data:, and crypto+http:// for AES-128 HLS segments).
+// the rest itself (data:, and AES-128 HLS segments without a key option).
 bool ReadsThroughDataSource(const std::string& url) {
   size_t colon = url.find(':');
   if (colon == std::string::npos || url.find('/') < colon) {
@@ -82,6 +83,77 @@ bool ReadsThroughDataSource(const std::string& url) {
 #endif
   }
   return scheme == "file";
+}
+
+// FFmpeg's HLS opens an AES-128 segment as crypto+URL (crypto:PATH for a
+// path), with the key and IV in hex as the "key" and "iv" options. The
+// URL inside, or empty.
+std::string CryptoInner(const std::string& url) {
+  if (url.size() > 7 && url.compare(0, 6, "crypto") == 0 &&
+      (url[6] == '+' || url[6] == ':')) {
+    return url.substr(7);
+  }
+  return "";
+}
+
+// As the own HLS demuxer bounds a segment it reads whole.
+constexpr int64_t kMaxCryptoSegmentBytes = int64_t{256} << 20;
+
+bool HexOption(AVDictionary* options, const char* name, uint8_t out[16]) {
+  const AVDictionaryEntry* entry = av_dict_get(options, name, nullptr, 0);
+  if (!entry || strlen(entry->value) != 32) {
+    return false;
+  }
+  for (int i = 0; i < 32; ++i) {
+    const int c = tolower(static_cast<unsigned char>(entry->value[i]));
+    int digit;
+    if (c >= '0' && c <= '9') {
+      digit = c - '0';
+    } else if (c >= 'a' && c <= 'f') {
+      digit = c - 'a' + 10;
+    } else {
+      return false;
+    }
+    out[i / 2] =
+        static_cast<uint8_t>(i % 2 ? (out[i / 2] << 4) | digit : digit);
+  }
+  return true;
+}
+
+// AES-128-CBC with PKCS#7 padding over a whole segment, as HLS encrypts
+// them and FFmpeg's crypto protocol decrypts them.
+bool DecryptAes128(AVDictionary* options,
+                   std::vector<uint8_t>* data,
+                   std::string* error) {
+  uint8_t key[16], iv[16];
+  if (!HexOption(options, "key", key) || !HexOption(options, "iv", iv)) {
+    *error = "invalid AES-128 key or IV";
+    return false;
+  }
+  if (data->empty() || data->size() % 16 != 0) {
+    *error = "AES-128 segment is not a whole number of blocks";
+    return false;
+  }
+  std::vector<uint8_t> plain(data->size());
+  AVAES* aes = av_aes_alloc();
+  if (!aes || av_aes_init(aes, key, 128, 1) < 0) {
+    av_free(aes);
+    *error = "out of memory";
+    return false;
+  }
+  av_aes_crypt(aes, plain.data(), data->data(),
+               static_cast<int>(data->size() / 16), iv, 1);
+  av_free(aes);
+  const uint8_t padding = plain.back();
+  if (padding == 0 || padding > 16 ||
+      std::any_of(plain.end() - padding, plain.end(),
+                  [padding](uint8_t b) { return b != padding; })) {
+    *error = "AES-128 segment has invalid padding";
+    return false;
+  }
+  plain.resize(plain.size() - padding);
+  *data = std::move(plain);
+  return true;
 }
 
 // FFmpeg's default is 32 KB; files and the http buffer hand over more.
@@ -764,13 +836,22 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
                           int flags,
                           AVDictionary** options) {
   auto* self = static_cast<FFmpegDemuxer*>(s->opaque);
-  if ((flags & AVIO_FLAG_WRITE) || !ReadsThroughDataSource(url)) {
+  AVDictionary* opts = options ? *options : nullptr;
+  // AES-128 HLS segments: their URL inside goes through DataSource too, and
+  // the segment is decrypted here; FFmpeg's crypto protocol would open it
+  // with FFmpeg's own http, which on Android has no TLS.
+  std::string target = CryptoInner(url);
+  const bool decrypt =
+      !target.empty() && av_dict_get(opts, "key", nullptr, 0) != nullptr;
+  if (!decrypt) {
+    target = url;
+  }
+  if ((flags & AVIO_FLAG_WRITE) || !ReadsThroughDataSource(target)) {
     return self->default_io_open_(s, pb, url, flags, options);
   }
   std::string error;
   bool cleartext_refused = false;
-  *pb = self->OpenIo(url, &error, &cleartext_refused,
-                     options ? *options : nullptr);
+  *pb = self->OpenIo(target, &error, &cleartext_refused, opts, decrypt);
   if (*pb) {
     return 0;
   }
@@ -778,30 +859,44 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
 #if defined(__ANDROID__)
     // Probe failures also arrive here, so both cleartext fallback entrances
     // hand HTTPS to the system before FFmpeg can follow a redirect itself.
-    // An origin that did not redirect goes to FFmpeg directly, and is
-    // probed again only if FFmpeg fails on it (a segment redirected to an
-    // HTTPS CDN, say).
+    // An origin that did not redirect goes to FFmpeg directly. If FFmpeg
+    // fails, it may redirect to HTTPS now (a segment moved to an HTTPS
+    // CDN, or a redirect that changed after the probe): it is probed once
+    // more.
     int ret = 0;
-    const bool known = self->redirects_.Known(url);
-    if (known) {
+    bool failed = false;
+    if (self->redirects_.Known(target)) {
       ret = self->default_io_open_(s, pb, url, flags, options);
       if (ret >= 0 || self->aborted_ || self->interrupted_) {
         return ret;
       }
-      self->redirects_.Forget(url);
+      self->redirects_.Forget(target);
+      failed = true;
     }
-    error.clear();
-    const std::string secure =
-        self->redirects_.Find(url, s->interrupt_callback, &error);
-    if (!secure.empty()) {
-      LOGI("HTTP redirected to HTTPS: using the platform client");
-      *pb = self->OpenIo(secure, &error, &cleartext_refused,
-                         options ? *options : nullptr);
-      if (*pb) {
-        return 0;
+    for (;;) {
+      error.clear();
+      const std::string secure =
+          self->redirects_.Find(target, s->interrupt_callback, &error);
+      if (!secure.empty()) {
+        LOGI("HTTP redirected to HTTPS: using the platform client");
+        *pb = self->OpenIo(secure, &error, &cleartext_refused, opts, decrypt);
+        if (*pb) {
+          return 0;
+        }
+        break;
       }
-    } else if (error.empty()) {
-      return known ? ret : self->default_io_open_(s, pb, url, flags, options);
+      if (!error.empty()) {
+        break;
+      }
+      if (failed) {
+        return ret;  // Still no redirect: FFmpeg's error stands.
+      }
+      ret = self->default_io_open_(s, pb, url, flags, options);
+      if (ret >= 0 || self->aborted_ || self->interrupted_) {
+        return ret;
+      }
+      self->redirects_.Forget(target);
+      failed = true;
     }
 #else
     return self->default_io_open_(s, pb, url, flags, options);
@@ -888,7 +983,8 @@ int64_t FFmpegDemuxer::SeekPacket(void* opaque, int64_t offset, int whence) {
 AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url,
                                    std::string* error,
                                    bool* cleartext_refused,
-                                   AVDictionary* options) {
+                                   AVDictionary* options,
+                                   bool decrypt) {
   // The first open is the input's.
   std::unique_ptr<DataSource> source = std::move(input_);
   if (!source) {
@@ -941,6 +1037,51 @@ AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url,
     }
     return fail(io->source->error());
   }
+  // HLS takes whatever "location" says, so it is never empty.
+  std::string location = io->source->url();
+  if (location.empty()) {
+    location = url;
+  }
+  if (decrypt) {
+    // CBC and the padding at the end want the segment whole.
+    const int64_t end = io->end >= 0 ? io->end : io->source->size();
+    std::vector<uint8_t> data;
+    while (end < 0 || io->position < end) {
+      if (static_cast<int64_t>(data.size()) >= kMaxCryptoSegmentBytes) {
+        return fail("AES-128 segment larger than 256 MB");
+      }
+      int64_t want = kIoBufferSize;
+      if (end >= 0) {
+        want = std::min(want, end - io->position);
+      }
+      const size_t old = data.size();
+      data.resize(old + static_cast<size_t>(want));
+      const int64_t n = io->source->Read(io->position, data.data() + old,
+                                         static_cast<size_t>(want));
+      if (n < 0) {
+        return fail(io->source->error());
+      }
+      data.resize(old + static_cast<size_t>(n));
+      if (n == 0) {
+        break;
+      }
+      io->position += n;
+    }
+    std::string reason;
+    if (!DecryptAes128(options, &data, &reason)) {
+      return fail(reason);
+    }
+    LOGI("decrypted an AES-128 segment: %zu bytes", data.size());
+    std::unique_ptr<DataSource> encrypted;
+    {
+      // Interrupt() reaches the source from other threads.
+      std::lock_guard<std::mutex> lock(ios_mutex_);
+      encrypted =
+          std::exchange(io->source, CreateMemoryDataSource(std::move(data)));
+    }
+    io->position = 0;
+    io->end = -1;
+  }
   auto* buffer = static_cast<uint8_t*>(av_malloc(kIoBufferSize));
   AVIOContext* pb = buffer
                         ? avio_alloc_context(buffer, kIoBufferSize, 0, io,
@@ -953,10 +1094,7 @@ AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url,
   pb->pos = io->position;
   pb->seekable = io->source->seekable() ? AVIO_SEEKABLE_NORMAL : 0;
   pb->av_class = &kAvioClass;
-  // HLS takes whatever "location" says, so it is never empty.
-  std::string location = io->source->url();
-  io->options.location =
-      av_strdup(location.empty() ? url.c_str() : location.c_str());
+  io->options.location = av_strdup(location.c_str());
   return pb;
 }
 

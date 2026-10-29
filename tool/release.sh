@@ -127,7 +127,8 @@ cmd_sources() {
   mkdir -p "$dir"
   download "$ffmpeg_url" "$dir/ffmpeg-$ffmpeg_version.tar.xz" "$ffmpeg_sha256"
   download "$dav1d_url" "$dir/dav1d-$dav1d_version.tar.xz" "$dav1d_sha256"
-  cp "$root/tool/patches/ffmpeg-hls-subtitle-buffers.patch" "$dir/"
+  cp "$root/tool/patches/ffmpeg-hls-subtitle-buffers.patch" \
+    "$root/tool/patches/ffmpeg-hls-https-io-open.patch" "$dir/"
 }
 
 # Linux FFmpeg is built natively, for this machine's architecture.

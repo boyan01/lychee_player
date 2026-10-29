@@ -1,0 +1,20 @@
+--- a/libavformat/hls.c
++++ b/libavformat/hls.c
+@@ -696,6 +696,17 @@
+             proto_name = avio_find_protocol_name(url + 5);
+     }
+ 
++    /* A build without TLS may still read https through a custom io_open
++     * (the platform's client): name the protocol by the URL, before the
++     * whole crypto+https:// URL is taken for the crypto protocol. */
++    if (!proto_name) {
++        const char *inner = url;
++        if (av_strstart(url, "crypto", NULL) && (url[6] == '+' || url[6] == ':'))
++            inner = url + 7;
++        if (av_strstart(inner, "https://", NULL))
++            proto_name = "https";
++    }
++
+     if (!proto_name)
+         proto_name = avio_find_protocol_name(url);
+ 

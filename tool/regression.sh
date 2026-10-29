@@ -106,6 +106,10 @@ fi
 own_ts=0
 case "$(uname)" in Darwin | Linux) own_ts=1 ;; esac
 [ "$windows" = 1 ] && own_ts=1
+# FFmpeg reads files and http(s) through DataSource on Apple and Windows
+# (ffmpeg_demuxer.h); on Linux through its own protocols.
+data_source=0
+{ [ "$(uname)" = Darwin ] || [ "$windows" = 1 ]; } && data_source=1
 
 # Test media, generated once. Synthetic so the expected output is known.
 gen() {
@@ -427,6 +431,13 @@ if [ ! -f "$media/hls_aes/fmp4.m3u8" ]; then
   sed -e 's|^#EXT-X-MAP.*|#EXT-X-MAP:URI="../hls_fmp4/init.mp4"\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin",IV=0x'"$iv"'|' \
     "$media/hls_fmp4/index.m3u8" >"$media/hls_aes/fmp4.m3u8"
 fi
+# The same forced through FFmpeg's HLS (the own one finds no variant it
+# decodes), which opens each segment as crypto+http://.
+for v in ts fmp4; do
+  [ -f "$media/hls_aes/${v}_fallback.m3u8" ] || printf '%s\n' '#EXTM3U' \
+    '#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="vp09.00.40.08,mp4a.40.2"' \
+    "$v.m3u8" >"$media/hls_aes/${v}_fallback.m3u8"
+done
 # Audio in renditions of their own (EXT-X-MEDIA), the variant without:
 # French (the default, TS) is silent until a tone at 1 s, English the
 # MP4's audio as fMP4 segments.
@@ -1510,6 +1521,17 @@ if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
     1 3 -- --seconds 4 --seek 7 --seek-after 2
   seq_ expect http-hls-subtitles-fallback-close "hls: no HLS variant .*; the fallback opens it" \
     "subtitle at 0\.0[0-9]{2}s: Hello$" "summary: state=ready" -- --seconds 1 "http://127.0.0.1:$port/hls/subs_fallback.m3u8"
+  # Where FFmpeg reads through DataSource, its AES-128 segments do too and
+  # are decrypted there, not by FFmpeg's crypto protocol.
+  decrypted=()
+  [ "$data_source" = 1 ] && decrypted=("decrypted an AES-128 segment")
+  for v in ts fmp4; do
+    seq_ expect "http-hls-aes-fallback-$v" "hls: no HLS variant .*; the fallback opens it" \
+      ${decrypted[@]+"${decrypted[@]}"} "summary: state=ended position=12\.000s" -- \
+      "http://127.0.0.1:$port/hls_aes/${v}_fallback.m3u8"
+  done
+  seq_ frames http-hls-aes-fallback-frames "http://127.0.0.1:$port/hls_aes/ts_fallback.m3u8" \
+    1 3 -- --seconds 4 --seek 7 --seek-after 2
 fi
 # WebVTT renditions are subtitle tracks, their cues on the media's
 # timeline (the video starts at 1.417 s).

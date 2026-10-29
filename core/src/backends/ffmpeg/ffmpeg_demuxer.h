@@ -66,10 +66,13 @@ class FFmpegDemuxer : public Demuxer {
   // Null with |error| set if the source cannot be opened or its first
   // bytes cannot be read; |cleartext_refused| then says whether FFmpeg's
   // http should read it instead (DataSource::cleartext_refused()).
+  // |decrypt| reads the source whole and decrypts it with the AES-128 key
+  // and IV in |options|, as FFmpeg's crypto protocol would.
   AVIOContext* OpenIo(const std::string& url,
                       std::string* error,
                       bool* cleartext_refused,
-                      AVDictionary* options);
+                      AVDictionary* options,
+                      bool decrypt);
   void CloseIo(AVIOContext* pb);
   void RemoveIo(Io* io);
 #endif

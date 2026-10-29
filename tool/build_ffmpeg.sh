@@ -207,12 +207,15 @@ rm -rf "$work" "$out"
 mkdir -p "$work"
 cd "$work"
 # FFmpeg 9.0.2's libavformat/hls.c loses a subtitle playlist's unused
-# 32 KB read buffer and overwrites the AVIO probe/previous segment buffer.
+# 32 KB read buffer and overwrites the AVIO probe/previous segment buffer,
+# and refuses https URLs when FFmpeg has no https protocol (Android's
+# build, whose https goes through the core's io_open to the platform).
 # Compile a patched out-of-tree copy; never change the caller's source
 # tree, which may be shared by other platform builds.
 mkdir -p libavformat
 cp "$src/libavformat/hls.c" libavformat/hls.c
 patch -f -s -p1 <"$root/tool/patches/ffmpeg-hls-subtitle-buffers.patch"
+patch -f -s -p1 <"$root/tool/patches/ffmpeg-hls-https-io-open.patch"
 flags+=(--extra-cflags="-iquote$src/libavformat")
 if [ -n "${dav1d_cc:-}" ] && [ -z "${DAV1D_SOURCE_DIR:-}" ]; then
   echo "no DAV1D_SOURCE_DIR: AV1 only in hardware" >&2
