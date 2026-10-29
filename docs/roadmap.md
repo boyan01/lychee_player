@@ -13,7 +13,8 @@ Built, but never observed working. Cheap to close; do these before
 building on top of them.
 
 1. **Android hardware decoding beyond the happy path**: not yet seen are
-   AAudio route changes to a USB-C headset, and a sub-frame timing check
+   AAudio route changes to a USB-C headset (deferred at the user's
+   request), and a sub-frame timing check
    when switching AirPods back to the speaker after clock correction.
    On the Xiaomi 14 (2026-10-29), turning Bluetooth off restored speaker
    output and the user noticed no stutter, but two captured switches
@@ -124,8 +125,10 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
 2. **Android**: an FFmpeg-free AAR in the release
    (`-Plychee.ffmpeg=false` builds it, and the Flutter plugin plays on
    it; a second artifact is a publishing decision) if native Android
-   users want one. VP8, VP9 and AV1 through a phone's hardware MediaCodec
-   are unseen (the emulator has VP8 and VP9, and AV1 only in software).
+   users want one. VP9 and AV1 through a phone's hardware MediaCodec
+   are unseen (the emulator has VP9, and AV1 only in software).
+   VP8 hardware decoding needs another phone: the Xiaomi 14 exposes only
+   the software VP8 path, so it cannot close that hardware check.
    AC-3 decoding needs an AC-3-capable phone or TV (waiting on the user):
    Pixel_10 API 37 has no `audio/ac3` decoder; disabling that audio track
    while video continues is verified. Play `ac3.ts` or `ac3_audio.mp4`
