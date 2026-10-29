@@ -14,6 +14,7 @@
 
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
 #include <cstddef>
+#include <cstdlib>
 
 #include "media/data_source.h"
 #endif
@@ -247,6 +248,7 @@ struct FFmpegDemuxer::Io {
   FFmpegDemuxer* owner = nullptr;
   std::unique_ptr<DataSource> source;
   int64_t position = 0;
+  int64_t end = -1;
 };
 #endif
 
@@ -869,7 +871,8 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
   }
   std::string error;
   bool cleartext_refused = false;
-  *pb = self->OpenIo(url, &error, &cleartext_refused);
+  *pb = self->OpenIo(url, &error, &cleartext_refused,
+                     options ? *options : nullptr);
   if (*pb) {
     return 0;
   }
@@ -895,6 +898,12 @@ int FFmpegDemuxer::IoClose(AVFormatContext* s, AVIOContext* pb) {
 
 int FFmpegDemuxer::ReadPacket(void* opaque, uint8_t* data, int size) {
   auto* io = static_cast<Io*>(opaque);
+  if (io->end >= 0) {
+    if (io->position >= io->end) {
+      return AVERROR_EOF;
+    }
+    size = static_cast<int>(std::min<int64_t>(size, io->end - io->position));
+  }
   int64_t n = io->source->Read(io->position, data, static_cast<size_t>(size));
   if (n > 0) {
     io->position += n;
@@ -950,7 +959,8 @@ int64_t FFmpegDemuxer::SeekPacket(void* opaque, int64_t offset, int whence) {
 
 AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url,
                                    std::string* error,
-                                   bool* cleartext_refused) {
+                                   bool* cleartext_refused,
+                                   AVDictionary* options) {
   // The first open is the input's.
   std::unique_ptr<DataSource> source = std::move(input_);
   if (!source) {
@@ -963,6 +973,18 @@ AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url,
   Io* io = owned.get();
   io->owner = this;
   io->source = std::move(source);
+  // FFmpeg's HLS skips avio_seek for HTTP segments: it passes their byte
+  // range through these protocol options instead (end_offset is exclusive).
+  if (const auto* offset = av_dict_get(options, "offset", nullptr, 0)) {
+    io->position = std::strtoll(offset->value, nullptr, 10);
+  }
+  if (const auto* end = av_dict_get(options, "end_offset", nullptr, 0)) {
+    io->end = std::strtoll(end->value, nullptr, 10);
+  }
+  if (io->position < 0 || (io->end >= 0 && io->end < io->position)) {
+    *error = "invalid byte range";
+    return nullptr;
+  }
   {
     std::lock_guard<std::mutex> lock(ios_mutex_);
     if (aborted_ || interrupted_) {
@@ -981,7 +1003,7 @@ AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url,
   // unseekable, and demuxers then neither seek nor look at the end of the
   // file, which would mean reading it all.
   uint8_t first;
-  if (io->source->Read(0, &first, 1) < 0) {
+  if (io->source->Read(io->position, &first, 1) < 0) {
     // FFmpeg's http has no such policy (App Transport Security, Android's
     // network security config), and read these URLs before.
     *cleartext_refused = io->source->cleartext_refused();
@@ -999,6 +1021,7 @@ AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url,
     av_free(buffer);
     return fail("out of memory");
   }
+  pb->pos = io->position;
   pb->seekable = io->source->seekable() ? AVIO_SEEKABLE_NORMAL : 0;
   pb->av_class = &kAvioClass;
   // HLS takes whatever "location" says, so it is never empty.

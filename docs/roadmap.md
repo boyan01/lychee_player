@@ -122,7 +122,7 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    ad markers, live captions' ID3).
 2. **Android**: removing FFmpeg TLS (in progress): cleartext HTTP redirects
    to HTTPS must reach HttpURLConnection before mbedTLS is removed.
-   FFmpeg HLS fallback byte ranges still need a reproducer. An FFmpeg-free AAR in the release
+   An FFmpeg-free AAR in the release
    (`-Plychee.ffmpeg=false` builds it, and the Flutter plugin plays on
    it; a second artifact is a publishing decision) if native Android
    users want one. VP8, VP9 and AV1 through a phone's hardware MediaCodec

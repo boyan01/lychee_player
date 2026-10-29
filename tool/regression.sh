@@ -509,6 +509,29 @@ fi
 # Its subtitle probe and each new segment must release their AVIO buffers.
 [ -f "$media/hls/subs_fallback.m3u8" ] || sed 's/avc1.640028/vp09.00.40.08/' \
   "$media/hls/subs_master.m3u8" >"$media/hls/subs_fallback.m3u8"
+# Byte-range HLS forced through FFmpeg: a large prefix makes ignoring
+# offset fail before MPEG-TS probing can find any sync bytes. Later ranges
+# omit @offset, exercising the playlist's implicit offsets and AVIO reuse.
+if [ ! -f "$media/hls_range/fallback.m3u8" ]; then
+  python3 -I - "$media" <<'PYRANGE'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+out = root / "hls_range"
+out.mkdir(exist_ok=True)
+parts = [bytes(4 << 20)]
+offset = len(parts[0])
+lines = ["#EXTM3U", "#EXT-X-VERSION:4", "#EXT-X-TARGETDURATION:2", "#EXT-X-PLAYLIST-TYPE:VOD"]
+for i in range(6):
+    data = (root / f"hls/seg{i}.ts").read_bytes()
+    lines += ["#EXTINF:2.0,", f"#EXT-X-BYTERANGE:{len(data)}" + (f"@{offset}" if i == 0 else ""), "all.ts"]
+    parts.append(data)
+    offset += len(data)
+(out / "all.ts").write_bytes(b"".join(parts))
+(out / "index.m3u8").write_text("\n".join(lines + ["#EXT-X-ENDLIST"]) + "\n")
+master = (root / "hls/subs_fallback.m3u8").read_text().replace('URI="subs.m3u8"', 'URI="../hls/subs.m3u8"')
+(out / "fallback.m3u8").write_text(master)
+PYRANGE
+fi
 # And one in two segments, the first without cues, the second placed by
 # X-TIMESTAMP-MAP: its cue at 10 s on the MPEG-TS timestamps.
 if [ ! -f "$media/hls/vtt_map_master.m3u8" ]; then
@@ -1483,6 +1506,8 @@ if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
     "subtitle at 1\.0[0-9]{2}s: Hello$" "subtitle at 1\.5[0-9]{2}s: \(none\)" \
     "summary: state=ready .*backward_jumps=0 " -- --seek 1 --seek-after 4 --seconds 6 \
     "http://127.0.0.1:$port/hls/subs_fallback.m3u8"
+  seq_ frames http-hls-range-fallback "http://127.0.0.1:$port/hls_range/fallback.m3u8" \
+    1 3 -- --seconds 4 --seek 7 --seek-after 2
   seq_ expect http-hls-subtitles-fallback-close "hls: no HLS variant .*; the fallback opens it" \
     "subtitle at 0\.0[0-9]{2}s: Hello$" "summary: state=ready" -- --seconds 1 "http://127.0.0.1:$port/hls/subs_fallback.m3u8"
 fi

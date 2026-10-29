@@ -64,7 +64,8 @@ class FFmpegDemuxer : public Demuxer {
   // http should read it instead (DataSource::cleartext_refused()).
   AVIOContext* OpenIo(const std::string& url,
                       std::string* error,
-                      bool* cleartext_refused);
+                      bool* cleartext_refused,
+                      AVDictionary* options);
   void CloseIo(AVIOContext* pb);
   void RemoveIo(Io* io);
 #endif
