@@ -95,12 +95,13 @@ building on top of them.
 2. **HDR beyond Apple's SDK**:
    - Flutter: textures are 8-bit SDR on every platform, so the plugin
      stays on tone-mapped BGRA.
-   - Android: the Flutter plugin's path (MediaCodec into a
-     `SurfaceProducer`) is unchecked, waiting on the user's HDR phone; the
-     emulator has no HEVC Main 10 decoder. If the plugin shows PQ washed
-     out, ask the decoder for SDR (`color-transfer-request`, API 31) for
-     the plugin's surface only, behind a `lychee_config` flag (the SDK's
-     SurfaceView must keep HDR).
+   - Android: the user confirmed incorrect HDR colors on the Xiaomi 14
+     with `hdr_pq_colors.mp4` through Flutter's MediaCodec into a
+     `SurfaceProducer` (2026-10-29). The decoder still reports BT.2020/PQ
+     output. Investigate requesting SDR (`color-transfer-request`, API 31)
+     for the plugin's surface only, behind a `lychee_config` flag; the
+     SDK's SurfaceView must keep HDR. Done when Flutter's SDR output has
+     correct colors on the HDR phone and the user confirms the display.
    - Apple: VideoToolbox's tone mapping of bright HDR colors differs from
      swscale's reference (`hdr_pq_bars.mp4`: 27.9 dB), and HLG comes out
      darker (98 for a 0.5 signal against 142); that is Apple's mapping.
