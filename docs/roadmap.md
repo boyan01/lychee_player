@@ -171,14 +171,6 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
      `tool/bench_compare.py` run by hand on an idle machine. Per commit
      needs an idle runner: hosted VMs are too loaded to compare, and the
      self-hosted Mac was dropped (the user, 2026-10-28).
-     VideoToolbox through FFmpeg decodes 1080p H.264 at ~210 fps on the
-     virtual clock against software's ~970 (M-series, 2026-10-28): one
-     frame at a time, which is enough to play but not to scrub fast.
-     A candidate uses the native VideoToolbox decoder ahead of FFmpeg
-     with at most four asynchronous file frames, keeping live input
-     synchronous. Compare its parent and candidate on this Mac while idle,
-     in both FFmpeg and NoFFmpeg builds; retain it only with a clear gain
-     and unchanged correctness checks.
    - **Supply chain**: `updates.yml` (weekly, 2026-10-28) lists newer
      FFmpeg, Mbed TLS and GLFW releases than the pins
      (`tool/check_updates.py`); it has not run on GitHub yet: look at
