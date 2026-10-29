@@ -125,8 +125,7 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
 2. **Android**: an FFmpeg-free AAR in the release
    (`-Plychee.ffmpeg=false` builds it, and the Flutter plugin plays on
    it; a second artifact is a publishing decision) if native Android
-   users want one. VP9 and AV1 through a phone's hardware MediaCodec
-   are unseen (the emulator has VP9, and AV1 only in software).
+   users want one.
    VP8 hardware decoding needs another phone: the Xiaomi 14 exposes only
    the software VP8 path, so it cannot close that hardware check.
    AC-3 decoding needs an AC-3-capable phone or TV (waiting on the user):
