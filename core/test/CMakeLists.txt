@@ -61,6 +61,10 @@ endif()
 if(APPLE)
   target_sources(lychee_unittests PRIVATE
     fuzz_regressions_test.cc mp2t_test.cc)
+  # Only macOS can force software VideoToolbox decoding.
+  if(NOT IOS)
+    target_sources(lychee_unittests PRIVATE vt_video_decoder_test.cc)
+  endif()
   # Inputs the fuzzers crashed on, replayed by a test.
   target_compile_definitions(lychee_unittests PRIVATE
     LYCHEE_FUZZ_REGRESSIONS="${CMAKE_CURRENT_SOURCE_DIR}/../fuzz/regressions")
