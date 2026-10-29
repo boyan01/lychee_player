@@ -13,10 +13,14 @@ Built, but never observed working. Cheap to close; do these before
 building on top of them.
 
 1. **Android hardware decoding beyond the happy path**: not yet seen are
-   AAudio route changes to a USB-C headset, and switching AirPods back to
-   the speaker after clock correction (waiting on the user and the Xiaomi
-   14: the prior run jumped ~0.2 s and dropped 8 frames; verify the step is
-   smaller than a frame). Only the CLI's
+   AAudio route changes to a USB-C headset, and a sub-frame timing check
+   when switching AirPods back to the speaker after clock correction.
+   On the Xiaomi 14 (2026-10-29), turning Bluetooth off restored speaker
+   output and the user noticed no stutter, but two captured switches
+   added 8 and 3 dropped frames; the count then stayed flat. The example's
+   500 ms position samples cannot establish that the clock step is
+   smaller than a frame; that check needs finer timing instrumentation
+   before another device run. Only the CLI's
    `background` case exercises the expiry of
    frames nobody pulled: Choreographer kept pulling in the background on
    the Xiaomi 14.
