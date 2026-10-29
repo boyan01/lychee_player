@@ -6,8 +6,8 @@
 # growing: after a warm-up of a fifth of the run, the last fifth's median
 # memory may exceed the first's by at most 10% plus 16 MB, and the thread
 # count may not exceed the first fifth's highest. On macOS, report and
-# exclude the kernel's system workqueue pool from that comparison: it can
-# add an idle GCD worker after warm-up. All other threads, including
+# exclude the kernel's workqueue and CoreMedia's shared dispatch pool:
+# both can add idle workers after warm-up. All other threads, including
 # decoder libraries and unknown pthreads, remain checked.
 #
 #   tool/soak.sh                      # 10 minutes, Debug build in build/
@@ -44,8 +44,9 @@ else
 fi
 pid=$!
 
-# RSS in MB, total threads, and system workqueue threads (macOS only).
-# A missing third column is zero. Nothing once the process is gone.
+# RSS in MB, total threads, system workqueue threads and CoreMedia shared
+# workers (the last two on macOS only). Missing columns are zero.
+# Nothing once the process is gone.
 sample() {
   if [ -r "/proc/$pid/winpid" ]; then
     # A native Windows process: MSYS's /proc knows only its own.
@@ -75,32 +76,68 @@ class Workqueue(ctypes.Structure):
         "threads", "running", "blocked", "state"
     )]
 
+class Thread(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_uint64) for n in ("user", "system")] + [
+        (n, ctypes.c_int32) for n in (
+            "cpu", "policy", "state", "flags", "sleep", "curpri", "priority", "maxpri"
+        )] + [("name", ctypes.c_char * 64)]
+
 lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
 lib.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64,
                             ctypes.c_void_p, ctypes.c_int]
 lib.proc_pidinfo.restype = ctypes.c_int
 pid = int(sys.argv[1])
 
-def query(flavor, result):
-    return lib.proc_pidinfo(pid, flavor, 0, ctypes.byref(result),
+def query(flavor, result, arg=0):
+    return lib.proc_pidinfo(pid, flavor, arg, ctypes.byref(result),
                             ctypes.sizeof(result)) == ctypes.sizeof(result)
 
-# Read the task between matching workqueue counts to avoid subtracting
-# a newly created worker from an older total.
+def is_coremedia_worker(name):
+    # sample(1) identifies these as _dispatch_worker_thread pthreads,
+    # distinct from the kernel's _pthread_wqthread pool reported above.
+    # Never exempt arbitrary decoder or unnamed pthreads.
+    prefix = b"com.apple.coremedia.sharedRootQueue."
+    return name.startswith(prefix) and name[len(prefix):].isdigit()
+
+def coremedia_workers():
+    task = Task()
+    if not query(4, task):
+        return set()  # Unavailable: conservatively check every thread.
+    ids = (ctypes.c_uint64 * (task.threads + 32))()
+    # Unlike the fd-list flavor, PROC_PIDLISTTHREADS needs a buffer even
+    # when asking how many entries are present.
+    size = lib.proc_pidinfo(pid, 6, 0, ctypes.byref(ids), ctypes.sizeof(ids))
+    if size <= 0 or size >= ctypes.sizeof(ids):
+        return None  # The process changed while reading its thread list.
+    workers = set()
+    for thread_id in ids[:size // 8]:
+        thread = Thread()
+        if not query(5, thread, thread_id):  # PROC_PIDTHREADINFO
+            return None
+        if is_coremedia_worker(thread.name):
+            workers.add(thread_id)
+    return workers
+
+# Read the task between matching system-pool snapshots to avoid
+# subtracting a newly created worker from an older total.
 for _ in range(3):
     before, task, after = Workqueue(), Task(), Workqueue()
     # A task need not have a system workqueue. If its query is unavailable,
     # keep zero and conservatively check every thread.
     query(12, before)
+    media_before = coremedia_workers()
     if not query(4, task):
         sys.exit(1)
+    media_after = coremedia_workers()
     query(12, after)
-    if before.threads == after.threads:
-        assert task.threads >= after.threads
-        print(task.resident // (1024 * 1024), task.threads, after.threads)
+    if (before.threads == after.threads and media_before is not None
+            and media_before == media_after):
+        media_count = len(media_after)
+        assert task.threads >= after.threads + media_count
+        print(task.resident // (1024 * 1024), task.threads, after.threads, media_count)
         break
 else:
-    sys.exit("soak: system workqueue changed while sampling")
+    sys.exit("soak: system worker pools changed while sampling")
 PY
   fi
 }
@@ -125,8 +162,9 @@ awk -v actions="$actions" -v opens="$opens" -v errors="$errors" '
     rss[NR] = $1
     total[NR] = $2
     workqueue[NR] = $3 + 0
-    threads[NR] = total[NR] - workqueue[NR]
-    if (workqueue[NR]) has_workqueue = 1
+    coremedia[NR] = $4 + 0
+    threads[NR] = total[NR] - workqueue[NR] - coremedia[NR]
+    if (workqueue[NR] || coremedia[NR]) has_system = 1
   }
   function median(from, to,   n, i, j, t, v) {
     n = 0
@@ -145,17 +183,19 @@ awk -v actions="$actions" -v opens="$opens" -v errors="$errors" '
     for (i = NR - fifth + 1; i <= NR; i++) if (threads[i] > max_last) max_last = threads[i]
     printf "soak: %d samples, %d actions (%d opens), memory %d -> %d MB, threads %d -> %d",
            NR, actions, opens, first, last, max_first, max_last
-    if (has_workqueue) {
+    if (has_system) {
       for (i = fifth + 1; i <= 2 * fifth; i++) {
         if (total[i] > raw_first) raw_first = total[i]
         if (workqueue[i] > work_first) work_first = workqueue[i]
+        if (coremedia[i] > media_first) media_first = coremedia[i]
       }
       for (i = NR - fifth + 1; i <= NR; i++) {
         if (total[i] > raw_last) raw_last = total[i]
         if (workqueue[i] > work_last) work_last = workqueue[i]
+        if (coremedia[i] > media_last) media_last = coremedia[i]
       }
-      printf " (total %d -> %d, system workqueue %d -> %d)",
-             raw_first, raw_last, work_first, work_last
+      printf " (total %d -> %d, system workqueue %d -> %d, CoreMedia shared %d -> %d)",
+             raw_first, raw_last, work_first, work_last, media_first, media_last
     }
     printf ", %d errors\n", errors
     bad = ""
