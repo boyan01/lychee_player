@@ -13,6 +13,8 @@
 
 #if defined(__APPLE__)
 #include <CommonCrypto/CommonCryptor.h>
+#elif defined(__ANDROID__)
+#include "backends/android/aes.h"
 #elif defined(_WIN32)
 #include <windows.h>
 
@@ -553,7 +555,7 @@ bool HlsDemuxer::Fetch(const std::string& url,
 
 bool HlsDemuxer::Decrypt(const HlsKey& key,
                          int64_t sequence,
-                         [[maybe_unused]] std::vector<uint8_t>* data,
+                         std::vector<uint8_t>* data,
                          std::string* error) {
   auto known = keys_.find(key.url);
   if (known == keys_.end()) {
@@ -625,7 +627,10 @@ bool HlsDemuxer::Decrypt(const HlsKey& key,
   plain.resize(moved);
   *data = std::move(plain);
   return true;
+#elif defined(__ANDROID__)
+  return DecryptAes128(known->second.data(), iv, data, error);
 #else
+  (void)data;
   *error = "AES-128 HLS needs FFmpeg here";
   return false;
 #endif

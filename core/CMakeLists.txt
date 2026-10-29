@@ -68,6 +68,7 @@ endif()
 
 if(ANDROID)
   list(APPEND LYCHEE_SOURCES
+    src/backends/android/aes.cc
     src/backends/android/subtitle_image.cc
     src/backends/android/aaudio_sink.cc
     src/backends/android/http_data_source.cc

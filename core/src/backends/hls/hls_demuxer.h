@@ -37,7 +37,8 @@ namespace lychee {
 // the end and reloads each playlist read as its segments are used up.
 // Each discontinuity sequence gets its own offset onto one continuous
 // timeline, shared by the renditions, whose timestamps match. AES-128
-// segments are decrypted (each key fetched once); SAMPLE-AES is refused.
+// segments are decrypted through the platform (CommonCrypto, BCrypt or
+// javax.crypto, each key fetched once); SAMPLE-AES is refused.
 class HlsDemuxer : public Demuxer {
  public:
   HlsDemuxer();

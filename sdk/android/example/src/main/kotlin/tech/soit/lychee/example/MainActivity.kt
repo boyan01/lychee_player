@@ -10,6 +10,7 @@
 // directory) and plays on, logging a line tool/frame_check.py reads:
 //   snapshot PATH pts=US size=WxH video=0,0,W,H
 // "soak" (seconds) and "soak_url" repeat two seeks and a file switch.
+// "seek" ("SEC:TARGET,...") seeks at SEC seconds after the start.
 // "seconds" stops the activity after that many seconds and logs summary:.
 
 package tech.soit.lychee.example
@@ -82,6 +83,14 @@ class MainActivity : Activity() {
             addView(video, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(status)
         })
+        for (item in intent.getStringExtra("seek")?.split(',').orEmpty()) {
+            val at = item.substringBefore(':').toDoubleOrNull() ?: continue
+            val target = item.substringAfter(':').toDoubleOrNull() ?: continue
+            handler.postDelayed({
+                Log.i("lychee-example", "seek -> ${target}s")
+                player.seekTo((target * 1000).toLong())
+            }, (at * 1000).toLong())
+        }
         scheduleSnapshots(intent.getStringExtra("snapshot"))
         intent.getStringExtra("seconds")?.toDoubleOrNull()?.takeIf { it > 0 }?.let { seconds ->
             handler.postDelayed(quitTask, (seconds * 1000).toLong())
