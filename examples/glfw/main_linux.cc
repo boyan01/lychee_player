@@ -13,6 +13,8 @@
 
 #include <lychee/lychee.h>
 
+#include "../../flutter/linux/hdr_to_sdr.h"
+
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
@@ -72,7 +74,7 @@ void main() {
 )";
 
 // RGBA from plane0, or YUV from plane0 (luma) and plane1 (chroma).
-const char* kFragmentShader = R"(#version 300 es
+constexpr char kFragmentShader[] = R"(#version 300 es
 precision highp float;
 in vec2 uv;
 uniform sampler2D plane0;
@@ -83,86 +85,9 @@ uniform mat3 matrix;
 uniform int color_transfer;
 uniform int color_primaries;
 out vec4 color;
-// Same tone mapping as core/src/backends/windows/d3d11_video_processor.cc:
-// ST 2084 / BT.2100, 203-nit white, and ICtCp gamut compression to BT.709.
-// Matrices here are column-major, unlike the HLSL source. HLG uses the
-// same 1000-nit reference display and system gamma 1.2.
-const float m1 = 2610.0 / 16384.0;
-const float m2 = 2523.0 / 4096.0 * 128.0;
-const float c1 = 3424.0 / 4096.0;
-const float c2 = 2413.0 / 4096.0 * 32.0;
-const float c3 = 2392.0 / 4096.0 * 32.0;
-const mat3 bt2020ToLms = mat3(
-  1688.0, 683.0, 99.0,
-  2146.0, 2951.0, 309.0,
-  262.0, 462.0, 3688.0) / 4096.0;
-const mat3 lmsToIctcp = mat3(
-  2048.0, 6610.0, 17933.0,
-  2048.0, -13613.0, -17390.0,
-  0.0, 7003.0, -543.0) / 4096.0;
-const mat3 ictcpToLms = mat3(
-  1.0, 1.0, 1.0,
-  0.008609, -0.008609, 0.560031,
-  0.111030, -0.111030, -0.320627);
-const mat3 lmsToBt709 = mat3(
-  6.17336, -1.32448, -0.01197,
-  -5.32033, 2.56035, -0.26459,
-  0.14707, -0.23586, 1.27646);
-const mat3 bt709ToBt2020 = mat3(
-  0.627404, 0.069097, 0.016391,
-  0.329283, 0.919540, 0.088013,
-  0.043313, 0.011362, 0.895595);
+)";
 
-vec3 pqToNits(vec3 e) {
-  vec3 p = pow(clamp(e, 0.0, 1.0), vec3(1.0 / m2));
-  return 10000.0 * pow(max(p - c1, 0.0) / (c2 - c3 * p), vec3(1.0 / m1));
-}
-vec3 nitsToPq(vec3 nits) {
-  vec3 y = pow(max(nits, 0.0) / 10000.0, vec3(m1));
-  return pow((c1 + c2 * y) / (1.0 + c3 * y), vec3(m2));
-}
-vec3 ictcpToSdr(vec3 ictcp) {
-  return lmsToBt709 * pqToNits(ictcpToLms * ictcp) / 203.0;
-}
-bool inside(vec3 rgb) {
-  return all(greaterThanEqual(rgb, vec3(-1e-4))) &&
-         all(lessThanEqual(rgb, vec3(1.0 + 1e-4)));
-}
-float hlgScene(float e) {
-  return e <= 0.5 ? e * e / 3.0 :
-      (exp((e - 0.55991073) / 0.17883277) + 0.28466892) / 12.0;
-}
-vec3 hlgToNits(vec3 e) {
-  e = clamp(e, 0.0, 1.0);
-  vec3 scene = vec3(hlgScene(e.r), hlgScene(e.g), hlgScene(e.b));
-  vec3 weights = color_primaries == 9 ? vec3(0.2627, 0.6780, 0.0593) :
-                                      vec3(0.2126, 0.7152, 0.0722);
-  float y = dot(scene, weights);
-  return 1000.0 * pow(max(y, 1e-6), 0.2) * scene;
-}
-vec3 hdrToSdr(vec3 encoded) {
-  // H.273: 16 is PQ, 18 is HLG. SDR stays on the existing fast path.
-  if (color_transfer != 16 && color_transfer != 18) return encoded;
-  vec3 nits = color_transfer == 16 ? pqToNits(encoded) : hlgToNits(encoded);
-  if (color_primaries != 9) nits = bt709ToBt2020 * nits;
-  vec3 ictcp = lmsToIctcp * nitsToPq(bt2020ToLms * nits);
-  vec3 rgb = ictcpToSdr(ictcp);
-  if (!inside(rgb)) {
-    float anchor = 0.5 * min(ictcp.x, 0.580689);
-    float lo = 0.0;
-    float hi = 1.0;
-    for (int i = 0; i < 12; ++i) {
-      float t = 0.5 * (lo + hi);
-      if (inside(ictcpToSdr(vec3(mix(anchor, ictcp.x, t), t * ictcp.yz)))) {
-        lo = t;
-      } else {
-        hi = t;
-      }
-    }
-    rgb = ictcpToSdr(vec3(mix(anchor, ictcp.x, lo), lo * ictcp.yz));
-  }
-  return pow(clamp(rgb, 0.0, 1.0), vec3(1.0 / 2.4));
-}
+constexpr char kFragmentMain[] = R"(
 
 void main() {
   if (yuv) {
@@ -262,9 +187,13 @@ void YuvToRgb(const lychee_dmabuf* dmabuf,
   }
 }
 
-GLuint CompileShader(GLenum type, const char* source) {
+GLuint CompileShader(GLenum type,
+                     const char* source,
+                     const char* middle = nullptr,
+                     const char* suffix = nullptr) {
   GLuint shader = glCreateShader(type);
-  glShaderSource(shader, 1, &source, nullptr);
+  const char* parts[] = {source, middle, suffix};
+  glShaderSource(shader, middle ? 3 : 1, parts, nullptr);
   glCompileShader(shader);
   GLint ok = GL_FALSE;
   glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
@@ -291,7 +220,8 @@ class Renderer {
   // With the window's context current.
   bool Init() {
     GLuint vertex = CompileShader(GL_VERTEX_SHADER, kVertexShader);
-    GLuint fragment = CompileShader(GL_FRAGMENT_SHADER, kFragmentShader);
+    GLuint fragment = CompileShader(GL_FRAGMENT_SHADER, kFragmentShader,
+                                    lychee_linux::kHdrShader, kFragmentMain);
     if (vertex && fragment) {
       program_ = glCreateProgram();
       glAttachShader(program_, vertex);
@@ -318,6 +248,14 @@ class Renderer {
     matrix_location_ = glGetUniformLocation(program_, "matrix");
     transfer_location_ = glGetUniformLocation(program_, "color_transfer");
     primaries_location_ = glGetUniformLocation(program_, "color_primaries");
+    glUniform1i(glGetUniformLocation(program_, "gamut_cusps"), 2);
+    glGenTextures(1, &gamut_cusps_);
+    glActiveTexture(GL_TEXTURE2);
+    SetSampling(gamut_cusps_);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, lychee_linux::kGamutCuspCount, 1, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, lychee_linux::GamutCusps().data());
+    glActiveTexture(GL_TEXTURE0);
     glGenTextures(1, &rgba_);
     glGenTextures(2, planes_);
     for (GLuint texture : {rgba_, planes_[0], planes_[1]}) {
@@ -389,6 +327,8 @@ class Renderer {
     glBindTexture(GL_TEXTURE_2D, yuv_ ? planes_[0] : rgba_);
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, planes_[1]);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, gamut_cusps_);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     return true;
   }
@@ -400,6 +340,7 @@ class Renderer {
     if (frame_) lychee_frame_release(frame_);
     frame_ = nullptr;
     glDeleteTextures(1, &rgba_);
+    glDeleteTextures(1, &gamut_cusps_);
     glDeleteTextures(2, planes_);
     glDeleteProgram(program_);
   }
@@ -505,6 +446,7 @@ class Renderer {
 
   GLuint program_ = 0;
   GLuint rgba_ = 0;        // CPU frames.
+  GLuint gamut_cusps_ = 0;
   GLuint planes_[2] = {};  // Luma and chroma of dmabuf frames.
   GLint scale_location_ = -1;
   GLint turns_location_ = -1;

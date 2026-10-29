@@ -139,6 +139,23 @@ gen hdr_pq_bars.mp4 -f lavfi \
   -i "nullsrc=s=1280x720:r=30,format=yuv420p10le,geq=lum='if(lt(X,256),509,if(lt(X,512),573,if(lt(X,768),636,if(lt(X,1024),723,855))))':cb=512:cr=512" \
   -t 3 -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -tag:v hvc1 -color_primaries bt2020 -color_trc smpte2084 \
   -colorspace bt2020nc -x265-params log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:hdr10=1:max-cll=4000,400
+# Saturated BT.2020 colors expose chromatic tone/gamut mapping errors that
+# gray PQ/HLG cannot. Keep the RGB source at 16 bits until HEVC encoding.
+gen hdr_pq_colors.mp4 -f lavfi \
+  -i "nullsrc=s=640x360:r=30,format=gbrp16le,geq=r='if(bitand(floor(X/80),1),23397,0)':g='if(bitand(floor(X/80),2),23397,0)':b='if(bitand(floor(X/80),4),23397,0)'" \
+  -vf scale=out_color_matrix=bt2020 -t 3 -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -tag:v hvc1 \
+  -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+  -x265-params log-level=error:lossless=1:pools=2:frame-threads=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc
+gen hdr_pq_highlights.mp4 -f lavfi \
+  -i "nullsrc=s=640x360:r=30,format=gbrp16le,geq=r='if(bitand(floor(X/80),1),if(lt(Y,90),38055,if(lt(Y,180),42767,if(lt(Y,270),49271,59150))),0)':g='if(bitand(floor(X/80),2),if(lt(Y,90),38055,if(lt(Y,180),42767,if(lt(Y,270),49271,59150))),0)':b='if(bitand(floor(X/80),4),if(lt(Y,90),38055,if(lt(Y,180),42767,if(lt(Y,270),49271,59150))),0)'" \
+  -vf scale=out_color_matrix=bt2020 -t 3 -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -tag:v hvc1 \
+  -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+  -x265-params log-level=error:lossless=1:pools=2:frame-threads=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc
+gen hdr_hlg_colors.mp4 -f lavfi \
+  -i "nullsrc=s=640x360:r=30,format=gbrp16le,geq=r='if(bitand(floor(X/80),1),32768,0)':g='if(bitand(floor(X/80),2),32768,0)':b='if(bitand(floor(X/80),4),32768,0)'" \
+  -vf scale=out_color_matrix=bt2020 -t 3 -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -tag:v hvc1 \
+  -color_primaries bt2020 -color_trc arib-std-b67 -colorspace bt2020nc \
+  -x265-params log-level=error:lossless=1:pools=2:frame-threads=1:colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc
 gen vp9_opus.webm -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=550:sample_rate=48000 -t 10 \
   -c:v libvpx-vp9 -deadline realtime -cpu-used 8 -b:v 2M -c:a libopus
 gen av1.mkv -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=330:sample_rate=48000 -t 10 \
@@ -553,6 +570,12 @@ fi
 
 failures=0
 
+# The HDR reference is checked against independently generated light,
+# before comparing the player's colored HDR frames with that reference.
+if [ "${NO_FFMPEG:-0}" != 1 ]; then
+  python3 -I "$root/tool/frame_check_test.py" || exit 1
+fi
+
 # Unit tests first: they pinpoint a failure the playback cases only show.
 unit_out="$("$build/core/test/lychee_unittests" 2>&1)"
 unit_status=$?
@@ -926,6 +949,13 @@ par frames frame-h264-sw "$media/h264_aac.mp4" 1 -- --no-hw --cpu --seconds 1.1
 par frames frame-hevc10 "$media/hevc10.mp4" 1 -- --seconds 1.1
 par frames frame-rotated "$media/rotated.mp4" 1 -- --seconds 1.1
 par frames frame-hdr "$media/hdr_pq.mp4" 1 -- --seconds 1.1
+# Software HDR conversion must agree on colored pixels, too. These fail
+# when swscale converts directly into an 8-bit destination before mapping.
+if [ "${NO_FFMPEG:-0}" != 1 ]; then
+  par frames frame-hdr-colors-sw "$media/hdr_pq_colors.mp4" 1 -- --no-hw --cpu --seconds 1.1
+  par frames frame-hdr-highlights-sw "$media/hdr_pq_highlights.mp4" 1 -- --no-hw --cpu --seconds 1.1
+  par frames frame-hlg-colors-sw "$media/hdr_hlg_colors.mp4" 1 -- --no-hw --cpu --seconds 1.1
+fi
 # VideoToolbox maps HLG darker than swscale (roadmap): elsewhere it
 # matches.
 [ "$(uname)" = Darwin ] || par frames frame-hlg "$media/hdr_hlg.mp4" 1 -- --seconds 1.1
