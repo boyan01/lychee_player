@@ -152,6 +152,10 @@ gen h264_bt601.mp4 -i "$media/h264_aac.mp4" -t 3 -c copy -colorspace smpte170m \
   -bsf:v h264_metadata=matrix_coefficients=6
 gen audio_only.mp3 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a libmp3lame
 gen video_only.mp4 -f lavfi -i testsrc2=size=1280x720:rate=60 -t 8 -c:v libx264 -preset veryfast -pix_fmt yuv420p
+# Fewer pictures than VideoToolbox's asynchronous batch: end-of-stream
+# must complete and deliver the partial batch, including a reordered B-frame.
+gen short_video.mp4 -f lavfi -i testsrc2=size=320x180:rate=30 -frames:v 3 \
+  -c:v libx264 -preset veryfast -bf 1 -pix_fmt yuv420p
 gen offset.ts -i "$media/h264_aac.mp4" -c copy -output_ts_offset 10 -f mpegts
 # A keyframe a second, as broadcasts have (h264_aac.mp4 has one).
 gen keyframes.ts -i "$media/h264_aac.mp4" -c:v libx264 -preset veryfast -g 30 -c:a copy -f mpegts
@@ -866,6 +870,8 @@ par check rotated       1 - -- "$media/rotated.mp4"
 par expect rotation "track 0: video h264 1920x1080 rotation=270 " -- --seconds 1 "$media/rotated.mp4"
 par check audio-only    - - -- "$media/audio_only.mp3"
 par check video-only    1 - -- "$media/video_only.mp4"
+par expect video-short "summary: state=ended position=0\.100s .*rendered=3 dropped=0 .*backward_jumps=0 " -- \
+  "$media/short_video.mp4"
 par check ts-offset     1 - -- "$media/offset.ts"
 par check ts-hevc10     1 - -- "$media/hevc10.ts"
 par check no-hw-cpu     0 - -- --no-hw --cpu "$media/h264_aac.mp4"

@@ -167,6 +167,7 @@ if(APPLE)
     src/backends/apple/core_audio_sink.cc
     src/backends/apple/http_data_source.mm
     src/backends/apple/pixel_buffer.cc
+    src/backends/apple/vt_video_decoder.cc
     # Files and http(s) for both demuxers.
     src/media/data_source.cc
     # MP4 (also fragmented), MPEG-TS and HLS from files and http(s), and
@@ -184,12 +185,10 @@ if(APPLE)
     src/media/probing_demuxer.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
-    # Without FFmpeg: H.264 and HEVC, VP9 and AV1 through VideoToolbox;
-    # AAC, ALAC, Opus, FLAC and MP3 through AudioToolbox; tx3g and text
-    # subtitles.
+    # Without FFmpeg: AAC, ALAC, Opus, FLAC and MP3 through AudioToolbox;
+    # tx3g and text subtitles.
     list(APPEND LYCHEE_SOURCES
       src/backends/apple/at_audio_decoder.cc
-      src/backends/apple/vt_video_decoder.cc
     )
   endif()
   if(IOS)
