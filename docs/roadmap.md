@@ -158,10 +158,14 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
      GitHub yet (waiting on an authorized push). Fix what that first
      run shows; the pinned PyPI clang-tidy 23.1.4 wheel and LGPL compile
      database are checked locally.
-   - **CI jobs for Android and Windows** (`android`, `core-windows` in
-     `ci.yml`, 2026-10-28) have not run on GitHub yet: fix what their
-     first push shows (the emulator's MediaCodec snapshots, WASAPI on a
-     VM without an audio device), then delete this line.
+   - **First Android and Windows CI runs** (`android`, `core-windows` in
+     `ci.yml`) failed on 2026-10-29. Android's 320x180 MediaCodec snapshots
+     need a texture-sampling reference: PixelCopy's four-tap bilinear
+     sampling differs from swscale's downscaling low-pass filter. With
+     `--bilinear`, the same API 34 x86_64 scenario passes all eight
+     snapshots locally without changing thresholds. The Android fix and
+     Windows' WASAPI checks on a VM without an audio device still need
+     a green GitHub rerun; delete this line then.
    - **Performance benchmarks**: `tool/bench.sh` and
      `tool/bench_compare.py` run by hand on an idle machine. Per commit
      needs an idle runner: hosted VMs are too loaded to compare, and the

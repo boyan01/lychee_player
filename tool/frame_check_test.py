@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""An independent colorimetric check of frame_check's HDR reference.
+"""Independent colorimetric and sampling checks of frame_check's reference.
 
 The fixture starts as known, in-gamut linear BT.709 light, changes basis to
 BT.2020, applies ST 2084, and quantizes to limited-range 10-bit YUV. No
 FFmpeg color conversion generates it. Since every color is inside BT.709,
 relative-colorimetric mapping must preserve that light. This catches the
 swscale RGB8 / full_chroma_int paths changing colored pixels.
+The bilinear fixtures check pixel-center sampling and edge clamping
+without using FFmpeg to generate the expected resized pixels.
 """
 
 import importlib.util
@@ -95,6 +97,35 @@ class HdrReferenceTest(unittest.TestCase):
                     self.assertLessEqual(max(abs(a - b) for a, b in
                                              zip(actual, expected)), 3,
                                          f"{actual} versus {expected}")
+
+
+class BilinearReferenceTest(unittest.TestCase):
+    def test_downscale_does_not_average_the_whole_source_footprint(self):
+        # Each output pixel covers six source pixels, but a texture's
+        # bilinear sampler reads only the two around the pixel center.
+        row = bytes(value for value in (0, 0, 240, 240, 0, 0,
+                                       255, 255, 0, 0, 255, 255)
+                    for _ in range(3))
+        with tempfile.TemporaryDirectory(prefix="lychee-bilinear-reference-") as tmp:
+            source = Path(tmp) / "pattern.ppm"
+            frame_check.write_ppm(source, frame_check.Image(12, 4, row * 4))
+            image, pts = frame_check.decode(str(source), 0, 2, 1, "bt709",
+                                            bilinear=True)
+        self.assertEqual(pts, 0)
+        self.assertEqual(image.pixels, bytes((240, 240, 240, 0, 0, 0)))
+
+    def test_upscale_clamps_to_the_source_edges(self):
+        for width, height in ((2, 1), (1, 2)):
+            with self.subTest(size=(width, height)):
+                image = frame_check.Image(width, height,
+                                           bytes((0, 0, 0, 255, 255, 255)))
+                scaled = frame_check.resize_bilinear(image, width * 2,
+                                                     height * 2)
+                values = (0, 64, 191, 255)
+                expected = (bytes(value for value in values for _ in range(3)) * 2
+                            if width == 2 else
+                            bytes(value for value in values for _ in range(6)))
+                self.assertEqual(scaled.pixels, expected)
 
 
 if __name__ == "__main__":
