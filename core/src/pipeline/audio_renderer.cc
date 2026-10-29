@@ -114,7 +114,7 @@ void AudioRenderer::DecodeLoop() {
       // A loop: play this pass up to the boundary and the next from there,
       // as if seeking to it.
       decoder_->Decode(*EncodedPacket::CreateEndOfStream(-1), output);
-      decoder_->Flush();
+      decoder_->Restart();
       std::lock_guard<std::mutex> lock(mutex_);
       if (generation == generation_) {
         algorithm_.EndInputAt(entry.packet->pts);

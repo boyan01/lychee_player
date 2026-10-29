@@ -30,6 +30,7 @@ class MediaCodecAudioDecoder : public AudioDecoder {
   bool Decode(const EncodedPacket& packet,
               const OutputCallback& output) override;
   void Flush() override;
+  void Restart() override;
 
  private:
   bool CreateCodec(std::string* error);
@@ -74,6 +75,10 @@ class MediaCodecAudioDecoder : public AudioDecoder {
   int64_t frames_out_ = 0;
   int64_t last_pts_ = 0;
   bool end_of_stream_ = false;
+  // Opus distinguishes a source restart from a midstream seek by a zero
+  // input timestamp. Loop packets have offsets on the player's timeline.
+  bool opus_at_start_ = true;
+  int64_t opus_input_offset_ = 0;
 };
 
 }  // namespace lychee
