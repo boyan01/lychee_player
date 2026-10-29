@@ -170,10 +170,6 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
      `tool/bench_compare.py` run by hand on an idle machine. Per commit
      needs an idle runner: hosted VMs are too loaded to compare, and the
      self-hosted Mac was dropped (the user, 2026-10-28).
-     Recheck 4K H.264 software open latency after restoring synchronous
-     VideoToolbox software H.264 submission, plus representative hardware
-     throughput. Done when software opens at the pre-batch baseline and
-     hardware keeps its measured gains on the idle Mac.
    - **Supply chain**: `updates.yml` (weekly, 2026-10-28) lists newer
      FFmpeg, Mbed TLS and GLFW releases than the pins
      (`tool/check_updates.py`); it has not run on GitHub yet: look at
