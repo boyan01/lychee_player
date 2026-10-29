@@ -164,8 +164,10 @@ pts=US size=WxH video=X,Y,W,H` (the frame's pts on the file's timeline,
 and where the picture is in the PPM).
 
 The Linux GLFW and Flutter shaders use dmabuf color metadata to map PQ
-and HLG to SDR BT.709, with the same 203-nit white and ICtCp gamut
-compression as Windows. HLG uses a 1000-nit reference display. The core
+and HLG to SDR BT.709 using PQ-encoded IPT, the color model used by
+swscale. A small hue table locates BT.709's most saturated color, then
+colors outside that gamut converge towards it. SDR white is 203 nits; HLG
+uses a 1000-nit reference display. The core
 keeps the original P010 planes and color metadata for native HDR callers.
 
 `tool/regression.sh` generates a synthetic media set and runs the CLI over it
@@ -240,7 +242,14 @@ scale). A phone shows whether the hardware path keeps BT.709.
 
 The reference follows the library's conventions: a stream without a color
 matrix is BT.709 above 576 lines and BT.601 below, and HDR is tone-mapped
-to SDR BT.709 by swscale. Unspecified source primaries and transfer use
+to SDR BT.709 by swscale. HDR conversion stays at 16 bits until its final
+SDR result is quantized: the core uses planar GBR(A), retaining alpha, and
+the pixel reference converts at native size to RGB48 without
+`full_chroma_int`, then resizes the SDR RGB. Direct RGB8
+output and that flag can change flat HDR colors in FFmpeg 9.0.2. The
+reference's SDR flags and all pixel thresholds stay the same.
+`python3 -I tool/frame_check_test.py` checks the HDR reference against
+independently generated in-gamut light. Unspecified source primaries and transfer use
 BT.709 too. The FFmpeg-free Apple H.264/HEVC decoder gives container tags
 priority over the parameter-set format's source tags; absent fields use those
 defaults, rather than VideoToolbox's guessed SD profile.
