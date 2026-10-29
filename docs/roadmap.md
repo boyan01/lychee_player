@@ -154,10 +154,8 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
      Allocate only the buffer installed in AVIO, and free its current
      buffer before initializing a new subtitle segment. The proposed
      patch is `tool/patches/ffmpeg-hls-subtitle-buffers.patch`."
-   - **clang-tidy CI**: `ci.yml`'s Linux `tidy` job has not run on
-     GitHub yet (waiting on an authorized push). Fix what that first
-     run shows; the pinned PyPI clang-tidy 23.1.4 wheel and LGPL compile
-     database are checked locally.
+   - **clang-tidy CI**: verify `ci.yml`'s Linux `tidy` job on GitHub
+     after the large-diff input fix, then delete this item.
    - **CI jobs for Android and Windows** (`android`, `core-windows` in
      `ci.yml`, 2026-10-28) have not run on GitHub yet: fix what their
      first push shows (the emulator's MediaCodec snapshots, WASAPI on a

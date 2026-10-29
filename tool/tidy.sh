@@ -57,18 +57,20 @@ configure "$root/build-tidy" -DLYCHEE_FFMPEG_ROOT="${FFMPEG_ROOT:-}"
 configure "$root/build-tidy-noffmpeg" -DLYCHEE_WITH_FFMPEG=OFF
 mkdir -p "$root/build-tidy/merged"
 
-if [ "$all" = 1 ]; then
-  diff=""
-  untracked=""
-else
+# Keep Git's output in files: a large diff can exceed Linux's per-argument
+# limit even when the total command line is smaller than ARG_MAX.
+diff="$root/build-tidy/merged/changed.diff"
+untracked="$root/build-tidy/merged/untracked.txt"
+: >"$diff"
+: >"$untracked"
+if [ "$all" != 1 ]; then
   exts=('*.c' '*.h' '*.cc' '*.cpp' '*.m' '*.mm')
   if [ -n "$head" ]; then
-    diff="$(git -C "$root" diff -U0 --no-color --diff-filter=d "$base" "$head" -- "${exts[@]}")"
-    untracked=""
+    git -C "$root" diff -U0 --no-color --diff-filter=d "$base" "$head" -- "${exts[@]}" >"$diff"
   else
     base="$(git -C "$root" merge-base main HEAD)"
-    diff="$(git -C "$root" diff -U0 --no-color --diff-filter=d "$base" -- "${exts[@]}")"
-    untracked="$(git -C "$root" ls-files --others --exclude-standard -- "${exts[@]}")"
+    git -C "$root" diff -U0 --no-color --diff-filter=d "$base" -- "${exts[@]}" >"$diff"
+    git -C "$root" ls-files --others --exclude-standard -- "${exts[@]}" >"$untracked"
   fi
 fi
 
@@ -78,7 +80,8 @@ fi
 plan="$(python3 -I - "$root" "$all" "$diff" "$untracked" <<'EOF'
 import json, os, re, sys
 
-root, all_, diff, untracked = sys.argv[1], sys.argv[2] == "1", sys.argv[3], sys.argv[4]
+root, all_ = sys.argv[1], sys.argv[2] == "1"
+diff, untracked = (open(path).read() for path in sys.argv[3:5])
 db, seen = [], set()
 for build in ("build-tidy", "build-tidy-noffmpeg"):
     for entry in json.load(open(os.path.join(root, build, "compile_commands.json"))):

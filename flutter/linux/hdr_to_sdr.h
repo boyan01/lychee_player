@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 
 namespace lychee_linux {
@@ -116,9 +117,10 @@ inline constexpr int kGamutCuspCount = 256;
 // RGBA8 stores two 16-bit values, intensity and chroma. Decoding is linear,
 // so ordinary GL_LINEAR sampling also interpolates the unpacked values.
 // A power-of-two width permits GL_REPEAT even in an OpenGL ES 2 context.
-inline const std::array<uint8_t, kGamutCuspCount * 4>& GamutCusps() {
+inline const std::array<uint8_t, static_cast<std::size_t>(kGamutCuspCount) * 4>&
+GamutCusps() {
   static const auto table = [] {
-    std::array<uint8_t, kGamutCuspCount * 4> result{};
+    std::array<uint8_t, static_cast<std::size_t>(kGamutCuspCount) * 4> result{};
     const auto pq_to_nits = [](double encoded) {
       const double p = std::pow(std::clamp(encoded, 0.0, 1.0), 32.0 / 2523.0);
       return 10000.0 * std::pow(std::max(p - 3424.0 / 4096.0, 0.0) /
