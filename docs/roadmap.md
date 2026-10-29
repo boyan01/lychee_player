@@ -129,10 +129,6 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    users want one.
    VP8 hardware decoding needs another phone: the Xiaomi 14 exposes only
    the software VP8 path, so it cannot close that hardware check.
-   AC-3 decoding needs an AC-3-capable phone or TV (waiting on the user):
-   Pixel_10 API 37 has no `audio/ac3` decoder; disabling that audio track
-   while video continues is verified. Play `ac3.ts` or `ac3_audio.mp4`
-   on a device that advertises that decoder and confirm audible output.
 ## Distribution and infrastructure
 
 1. **1.0.0**, once the beta has been used. Before it, and only then, a
