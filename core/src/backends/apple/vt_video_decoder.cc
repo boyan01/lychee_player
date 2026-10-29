@@ -114,14 +114,15 @@ void SetColor(CFMutableDictionaryRef extensions, const ColorInfo& color) {
 
 }  // namespace
 
-VTVideoDecoder::VTVideoDecoder(bool hardware) : hardware_(hardware) {}
+VTVideoDecoder::VTVideoDecoder(bool hardware)
+    : hardware_(hardware), hardware_output_(hardware) {}
 
 VTVideoDecoder::~VTVideoDecoder() {
   DestroySession();
 }
 
 const char* VTVideoDecoder::name() const {
-  return hardware_ ? "videotoolbox" : "videotoolbox-sw";
+  return hardware_output_ ? "videotoolbox" : "videotoolbox-sw";
 }
 
 bool VTVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
@@ -358,6 +359,22 @@ bool VTVideoDecoder::CreateSession() {
     session_ = nullptr;
     return false;
   }
+  // iOS chooses the implementation, including a software decoder in the
+  // simulator. Report the session's output rather than our preference.
+  if (__builtin_available(macOS 10.9, iOS 17, tvOS 17, *)) {
+    CFTypeRef using_hardware = nullptr;
+    if (VTSessionCopyProperty(
+            session_,
+            kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder,
+            nullptr, &using_hardware) == noErr &&
+        using_hardware) {
+      if (CFGetTypeID(using_hardware) == CFBooleanGetTypeID()) {
+        hardware_output_ =
+            CFBooleanGetValue(static_cast<CFBooleanRef>(using_hardware));
+      }
+      CFRelease(using_hardware);
+    }
+  }
   CMVideoDimensions size = CMVideoFormatDescriptionGetDimensions(format_);
   LOGI("%s decoder opened for %s %dx%d", name(), config_.codec_name.c_str(),
        size.width, size.height);
@@ -367,6 +384,7 @@ bool VTVideoDecoder::CreateSession() {
 
 void VTVideoDecoder::DestroySession() {
   if (session_) {
+    VTDecompressionSessionWaitForAsynchronousFrames(session_);
     VTDecompressionSessionInvalidate(session_);
     CFRelease(session_);
     session_ = nullptr;
@@ -375,21 +393,24 @@ void VTVideoDecoder::DestroySession() {
     CFRelease(format_);
     format_ = nullptr;
   }
+  std::lock_guard<std::mutex> lock(output_mutex_);
   for (auto& [pts, decoded] : reorder_) {
     CVPixelBufferRelease(decoded.image);
   }
   reorder_.clear();
+  pending_count_ = 0;
 }
 
 void VTVideoDecoder::OnOutput(void* decoder,
-                              void*,
+                              void* source_frame,
                               OSStatus status,
                               VTDecodeInfoFlags flags,
                               CVImageBufferRef image,
                               CMTime pts,
                               CMTime duration) {
   auto* self = static_cast<VTVideoDecoder*>(decoder);
-  self->output_status_ = status;
+  std::lock_guard<std::mutex> lock(self->output_mutex_);
+  static_cast<Pending*>(source_frame)->status = status;
   if (status != noErr) {
     return;
   }
@@ -417,8 +438,8 @@ void VTVideoDecoder::Emit(int64_t up_to, const OutputCallback& output) {
 bool VTVideoDecoder::Decode(const EncodedPacket& packet,
                             const OutputCallback& output) {
   if (packet.end_of_stream) {
-    if (session_) {
-      VTDecompressionSessionWaitForAsynchronousFrames(session_);
+    if (!CompleteFrames()) {
+      return false;
     }
     Emit(kInfiniteTime, output);
     return !session_lost_;
@@ -441,7 +462,9 @@ bool VTVideoDecoder::Decode(const EncodedPacket& packet,
                          &format) &&
         !(format == vp9_)) {
       if (session_) {
-        VTDecompressionSessionWaitForAsynchronousFrames(session_);
+        if (!CompleteFrames()) {
+          return false;
+        }
         Emit(kInfiniteTime, output);
       }
       vp9_ = format;
@@ -529,7 +552,9 @@ bool VTVideoDecoder::Decode(const EncodedPacket& packet,
         // session decodes the rest.
         CFRelease(format);
         if (session_) {
-          VTDecompressionSessionWaitForAsynchronousFrames(session_);
+          if (!CompleteFrames()) {
+            return false;
+          }
           Emit(kInfiniteTime, output);
         }
         if (!CreateSession()) {
@@ -631,36 +656,22 @@ bool VTVideoDecoder::DecodeSample(const EncodedPacket& packet,
          static_cast<int>(status));
     return false;
   }
-  // Synchronous: the output callback runs before this returns.
-  output_status_ = noErr;
-  status = VTDecompressionSessionDecodeFrame(session_, sample, 0, nullptr,
-                                             nullptr);
+  Pending& pending = pending_[pending_count_++];
+  pending = {noErr, packet.keyframe};
+  status = VTDecompressionSessionDecodeFrame(
+      session_, sample,
+      config_.low_delay ? 0 : kVTDecodeFrame_EnableAsynchronousDecompression,
+      &pending, nullptr);
   CFRelease(sample);
-  if (status == noErr) {
-    status = output_status_;
+  if (status != noErr) {
+    std::lock_guard<std::mutex> lock(output_mutex_);
+    pending.status = status;
   }
-  if (status == noErr) {
-    consecutive_errors_ = 0;
-  } else {
-    LOGW("%s: decode failed: %d", name(), static_cast<int>(status));
-    if (status == kVTInvalidSessionErr ||
-        status == kVTVideoDecoderMalfunctionErr) {
-      session_lost_ = true;
-    }
-    // After damaged data (lost TS packets) VideoToolbox fails every
-    // frame that refers to it, where FFmpeg conceals: decode on from the
-    // next keyframe, unless no frame came out yet (a stream it cannot
-    // decode) or keyframes keep failing.
-    const bool damaged = decoded_ && (status == kVTVideoDecoderBadDataErr ||
-                                      status == kCodecBadDataErr);
-    if (damaged) {
-      await_keyframe_ = true;
-    }
-    if (!damaged || packet.keyframe) {
-      consecutive_errors_++;
-    }
+  if (!config_.low_delay && pending_count_ < kMaxPendingFrames &&
+      status == noErr) {
+    return true;
   }
-  if (session_lost_ || consecutive_errors_ >= kMaxConsecutiveErrors) {
+  if (!CompleteFrames()) {
     return false;
   }
 
@@ -675,14 +686,50 @@ bool VTVideoDecoder::DecodeSample(const EncodedPacket& packet,
   return true;
 }
 
+bool VTVideoDecoder::CompleteFrames() {
+  if (session_ && !config_.low_delay) {
+    VTDecompressionSessionWaitForAsynchronousFrames(session_);
+  }
+  std::lock_guard<std::mutex> lock(output_mutex_);
+  for (size_t i = 0; i < pending_count_; ++i) {
+    const Pending& pending = pending_[i];
+    const OSStatus status = pending.status;
+    if (status == noErr) {
+      consecutive_errors_ = 0;
+      if (pending.keyframe) {
+        await_keyframe_ = false;
+      }
+      continue;
+    }
+    LOGW("%s: decode failed: %d", name(), static_cast<int>(status));
+    if (status == kVTInvalidSessionErr ||
+        status == kVTVideoDecoderMalfunctionErr) {
+      session_lost_ = true;
+    }
+    // After damaged data, drop dependent pictures up to a keyframe.
+    const bool damaged = decoded_ && (status == kVTVideoDecoderBadDataErr ||
+                                      status == kCodecBadDataErr);
+    if (damaged) {
+      await_keyframe_ = true;
+    }
+    if (!damaged || pending.keyframe) {
+      consecutive_errors_++;
+    }
+  }
+  pending_count_ = 0;
+  return !session_lost_ && consecutive_errors_ < kMaxConsecutiveErrors;
+}
+
 void VTVideoDecoder::Flush() {
   if (session_) {
     VTDecompressionSessionWaitForAsynchronousFrames(session_);
   }
+  std::lock_guard<std::mutex> lock(output_mutex_);
   for (auto& [pts, decoded] : reorder_) {
     CVPixelBufferRelease(decoded.image);
   }
   reorder_.clear();
+  pending_count_ = 0;
   consecutive_errors_ = 0;
   await_keyframe_ = false;
 }
