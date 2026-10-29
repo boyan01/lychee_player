@@ -158,12 +158,6 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
      Allocate only the buffer installed in AVIO, and free its current
      buffer before initializing a new subtitle segment. The proposed
      patch is `tool/patches/ffmpeg-hls-subtitle-buffers.patch`."
-   - **clang-tidy CI**: verify `ci.yml`'s Linux `tidy` job on GitHub
-     after the large-diff input fix, then delete this item.
-   - **Android and Windows CI**: verify the next GitHub run after the
-     first-run fixes: Android's texture-sampling snapshot reference and
-     Windows' explicit threaded silent audio device for the two cases
-     that require audio output. Delete this item when both jobs pass.
    - **Performance benchmarks**: `tool/bench.sh` and
      `tool/bench_compare.py` run by hand on an idle machine. Per commit
      needs an idle runner: hosted VMs are too loaded to compare, and the
