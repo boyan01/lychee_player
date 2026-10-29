@@ -39,6 +39,12 @@ building on top of them.
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays
    slower still).
+4. **iOS audio after the background**: on the iPhone 17 (2026-10-29)
+   sound and hardware video came back after the Home Screen, but that
+   run's audio device never failed to start, so the renderer's retry of
+   a refused start (`'what'`, `audio device started on retry`) is seen
+   only in `audio-device-start-retry`. Also unseen: an alarm or call
+   alone (an audio interruption) recovering without the foreground hook.
 
 ## Known defects
 
@@ -65,27 +71,6 @@ building on top of them.
   the device. Done when a `tool/regression.sh` case that reproduces it
   (a connection dropped mid-read, or a seek over HTTP right after a
   rebuild) shows no corrupt packet, or the cause is found elsewhere.
-
-1. **iOS foreground recovery on a real device** (waiting on the user):
-   the iPhone 17's log (2026-10-29) showed VideoToolbox sessions failing
-   with `-12903` in the background, the rebuilds there failing twice
-   into software, and the drivers' foreground hook then skipping the
-   rebuild because the stats said software. The drivers now always ask
-   for a rebuild, and the core replaces a software decoder only when it
-   replaced failed hardware ones (`decoder-foreground` and
-   `decoder-foreground-paused` cover it, playing and paused). The
-   iPhone confirmed video returns to hardware (2026-10-29), but audio
-   stayed silent: `AudioOutputUnitStart` failed in the background
-   (`'what'`) and nothing retried it. The renderer now retries a failed
-   start every second (`audio-device-start-retry`). Needs the user: play `h264_aac.mp4` over HTTP in the Swift example on the
-   iPhone, go to the Home Screen for ~10 s, come back, and check that
-   the console shows `video rebuilt -> stream 0 (videotoolbox)` and the
-   stats `hw` after it, and that sound returns within about a second
-   (`audio device started on retry`). Also an alarm or call alone (an audio
-   interruption) should not need this hook. Direct C ABI consumers
-   must call `lychee_player_rebuild_video_decoder()` on their
-   platform's recovery event; released plugin binaries pinned to API
-   11 do not have it.
 
 ## Features
 
