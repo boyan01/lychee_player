@@ -65,13 +65,29 @@ building on top of them.
   unregisters. What the PC's state was before the reboot is unknown.
   If it comes back, compare the bare app on the same boot before
   touching the plugin.
+- **Looping Opus WebM muxed by FFmpeg leaves a gap**: FFmpeg's Matroska
+  muxer writes the segment Duration on the block timeline before
+  CodecDelay, rounded to milliseconds (`vp8_opus.webm`: 4.008 s for
+  4.000 s of audio and video), and each pass lasts the container's
+  duration, so every pass ends with ~8 ms of padding (heard on the
+  Xiaomi 14, 2026-10-29; with Duration set to 4000 it is gone). Same
+  file, every backend. A fix would take the pass length from where the
+  tracks end (last block plus its BlockDuration, less CodecDelay and
+  DiscardPadding) when that is shorter. The FFmpeg-free Matroska
+  demuxer also ignores DiscardPadding and, with a DefaultDuration, the
+  last block's BlockDuration.
 
 1. **iOS foreground recovery needs device verification** (waiting on the
    user): an iPhone 17 (2026-10-27) rejected 32 video packets (`-12909`)
    after an apparent interruption or background transition; the actual
    lifecycle trigger is unconfirmed. The native and Flutter frame drivers
    now request a fresh hardware decoder after becoming active following
-   a background transition. Verify that device scenario resumes promptly,
+   a background transition. On the iPhone 17 (2026-10-29), the user saw
+   normal picture and sound after five seconds on the Home Screen, but
+   the native harness logged repeated VideoToolbox `-12903` failures and
+   ultimately fell back to software; HTTP reconnects also produced corrupt
+   packet warnings. Repeat with local media before claiming hardware
+   recovery works. Verify that device scenario resumes promptly,
    including a paused player. Also distinguish an audio interruption from
    an actual background transition: an alarm alone may not enter this hook.
    The simulator cannot reproduce this hardware
@@ -129,6 +145,11 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    users want one.
    VP8 hardware decoding needs another phone: the Xiaomi 14 exposes only
    the software VP8 path, so it cannot close that hardware check.
+   Opus seeks lose 80 ms: Android's decoder discards SeekPreRoll after
+   a flush, and the demuxer seeks to the target rather than that much
+   before it (Chromium seeks back by it). Media Foundation's Opus MFT
+   after a flush is unchecked: `MFAudioDecoder` corrects the first
+   output's time only when less than one packet is missing.
 ## Distribution and infrastructure
 
 1. **1.0.0**, once the beta has been used. Before it, and only then, a
