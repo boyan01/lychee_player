@@ -40,7 +40,11 @@ building on top of them.
 3. **Linux**: VAAPI on AMD, hardware decoding on arm64, and audio
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays
-   slower still).
+   slower still). HDR dmabuf imports through both GLFW and Flutter wait
+   on the user to boot the PC into Ubuntu 24.04 and log in to X11.
+   Play `hdr_pq_colors.mp4` and `hdr_pq_highlights.mp4` through Intel VAAPI
+   and check two advancing snapshots from each consumer with the existing
+   `tool/frame_check.py` thresholds.
 4. **Apple without FFmpeg**: AV1 on an M3 or A17 Pro, and VP9 on a
    device with iOS 26.2 or later (waiting on the user): the iOS 26.5
    simulator has no VP9 decoder (`VTDecompressionSessionCreate` -12906,
@@ -164,10 +168,6 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
      `tool/bench_compare.py` run by hand on an idle machine. Per commit
      needs an idle runner: hosted VMs are too loaded to compare, and the
      self-hosted Mac was dropped (the user, 2026-10-28).
-   - **Supply chain**: `updates.yml` (weekly, 2026-10-28) lists newer
-     FFmpeg, Mbed TLS and GLFW releases than the pins
-     (`tool/check_updates.py`); it has not run on GitHub yet: look at
-     its first run, then delete this line.
    - **Fuzzing corpus**: merge it with libFuzzer's `-merge=1` if it grows
      past a few hundred MB; OSS-Fuzz once the project is public.
    - **Coverage** as a CI artifact once someone watches it.
