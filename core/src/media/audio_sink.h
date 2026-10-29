@@ -24,7 +24,10 @@ class AudioSink {
   virtual bool Open(RenderCallback callback, std::string* error) = 0;
   // Valid after Open().
   virtual AudioOutputFormat format() const = 0;
-  virtual void Start() = 0;
+  // False if the device did not start (iOS refuses a session in the
+  // background); the caller retries. Sinks that recover by themselves
+  // (reopening a lost device) return true.
+  virtual bool Start() = 0;
   virtual void Stop() = 0;
 };
 

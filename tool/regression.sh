@@ -1241,6 +1241,13 @@ realtime=1 par expect decoder-hung-destroy "hang video decoder at" "destroyed in
 par expect audio-device-dead "audio device pulled nothing for 20[0-9]{2} ms" \
   "summary: state=ended position=12\.000s .*backward_jumps=0 .*stalls=0" -- \
   --stall-audio-after 0 --seconds 20 "$media/h264_aac.mp4"
+# A device that fails to start (iOS refuses audio in the background) is
+# started again every second while the stalled device's audio is pulled
+# for; the fourth start takes over.
+par expect audio-device-start-retry "audio device pulled nothing for 20[0-9]{2} ms" \
+  "audio device started on retry" "audio device pulls again" \
+  "summary: state=ended position=12\.000s .*backward_jumps=0 .*stalls=0" -- \
+  --fail-audio-start 3 --seconds 20 "$media/h264_aac.mp4"
 # Video holds one frame for the 2 s, including under TSan.
 stalled_glitches='[0-3]'
 par expect audio-device-stalled "stall audio device at 2\." "audio device pulled nothing for 20[0-9]{2} ms" \

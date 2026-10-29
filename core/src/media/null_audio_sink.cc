@@ -120,11 +120,11 @@ AudioOutputFormat NullAudioSink::format() const {
   return format_;
 }
 
-void NullAudioSink::Start() {
+bool NullAudioSink::Start() {
   std::lock_guard<std::mutex> lock(g_mutex);
   auto& sinks = Sinks();
   if (std::find(sinks.begin(), sinks.end(), this) != sinks.end()) {
-    return;
+    return true;
   }
   start_time_ = NowMicros();
   frames_rendered_ = 0;
@@ -133,6 +133,7 @@ void NullAudioSink::Start() {
                       kMicrosPerSecond;
   }
   sinks.push_back(this);
+  return true;
 }
 
 void NullAudioSink::Stop() {

@@ -587,6 +587,10 @@ void lychee_testing_stall_audio_devices(int32_t stalled) {
   lychee::AudioRenderer::StallDevicesForTesting(stalled != 0);
 }
 
+void lychee_testing_fail_audio_starts(int32_t count) {
+  lychee::AudioRenderer::FailSinkStartsForTesting(count);
+}
+
 int64_t lychee_testing_first_sound_us(void) {
   const int64_t time = lychee::NullAudioSink::FirstSound();
   return time == lychee::kNoTimestamp ? INT64_MIN : time;

@@ -23,7 +23,7 @@ class AAudioSink : public AudioSink {
 
   bool Open(RenderCallback callback, std::string* error) override;
   AudioOutputFormat format() const override { return format_; }
-  void Start() override;
+  bool Start() override;
   void Stop() override;
 
  private:

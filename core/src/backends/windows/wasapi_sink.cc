@@ -314,8 +314,10 @@ bool WasapiSink::Open(RenderCallback callback, std::string* error) {
   return true;
 }
 
-void WasapiSink::Start() {
+bool WasapiSink::Start() {
+  // The render thread reopens a lost device and starts it again.
   SetStarted(true);
+  return true;
 }
 
 void WasapiSink::Stop() {

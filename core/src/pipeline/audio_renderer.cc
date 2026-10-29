@@ -48,7 +48,12 @@ constexpr int64_t kFadeOutTimeout = 500 * kMicrosPerMilli;
 // and the device's latency up to a point.
 constexpr auto kStopFadeTimeout = std::chrono::milliseconds(100);
 
+// A sink that failed to start is started again this often while
+// playing; the stalled device's audio is pulled for meanwhile.
+constexpr int64_t kSinkStartRetry = 1 * kMicrosPerSecond;
+
 std::atomic<bool> g_devices_stalled{false};
+std::atomic<int> g_failed_sink_starts{0};
 
 }  // namespace
 
@@ -439,17 +444,20 @@ void AudioRenderer::SetPlaying(bool playing) {
       sink_running_ = true;
     } else {
       FadeOutLocked();
-      if (fade_out_offset_ < fade_out_frames_) {
+      if (fade_out_offset_ < fade_out_frames_ && !sink_start_failed_) {
         // StopSinkAfterFadeOut() stops it.
         stop_sink_at_ = now + kFadeOutTimeout;
       } else {
         stop = sink_running_;
         sink_running_ = false;
+        sink_start_failed_ = false;
       }
     }
   }
-  if (start) {
-    sink_->Start();
+  if (start && !StartSink()) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sink_start_failed_ = sink_running_;
+    sink_start_retry_at_ = NowMicros() + kSinkStartRetry;
   }
   if (stop) {
     sink_->Stop();
@@ -464,6 +472,7 @@ void AudioRenderer::StopSinkAfterFadeOut(int64_t now) {
       return;
     }
     sink_running_ = false;
+    sink_start_failed_ = false;
     stop_sink_at_ = kNoTimestamp;
     fade_out_offset_ = fade_out_frames_;
   }
@@ -503,7 +512,38 @@ void AudioRenderer::FadeOutLocked() {
   }
 }
 
+bool AudioRenderer::StartSink() {
+  int failures = g_failed_sink_starts.load();
+  while (failures > 0) {
+    if (g_failed_sink_starts.compare_exchange_weak(failures, failures - 1)) {
+      LOGW("audio device failed to start (testing)");
+      return false;
+    }
+  }
+  return sink_->Start();
+}
+
+void AudioRenderer::RetrySinkStart(int64_t now) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!sink_start_failed_ || now < sink_start_retry_at_) {
+      return;
+    }
+  }
+  // The control thread alone starts and stops the sink, so nothing
+  // changed meanwhile.
+  const bool started = StartSink();
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (started) {
+    LOGI("audio device started on retry");
+    sink_start_failed_ = false;
+  } else {
+    sink_start_retry_at_ = now + kSinkStartRetry;
+  }
+}
+
 void AudioRenderer::PullForStalledDevice(int64_t now) {
+  RetrySinkStart(now);
   int64_t playout_time;
   int frames;
   {
@@ -608,6 +648,11 @@ int64_t AudioRenderer::buffered_duration() const {
 // static
 void AudioRenderer::StallDevicesForTesting(bool stalled) {
   g_devices_stalled = stalled;
+}
+
+// static
+void AudioRenderer::FailSinkStartsForTesting(int count) {
+  g_failed_sink_starts = count;
 }
 
 int64_t AudioRenderer::BufferedDurationLocked() const {

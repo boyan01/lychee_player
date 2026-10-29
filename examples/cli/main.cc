@@ -107,6 +107,8 @@ struct Options {
   double stall_audio_after = -1;
   double stall_audio_for = -1;
   bool stall_audio = false;
+  // The first |fail_audio_starts| audio device starts fail.
+  int fail_audio_starts = 0;
   // Stop pulling frames this many seconds after playback starts, as an app
   // in the background does, for |hide_for| seconds.
   double hide_after = -1;
@@ -289,6 +291,15 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       if (!v) return false;
       options->stall_audio = true;
       options->stall_audio_after = atof(v);
+    } else if (arg == "--fail-audio-start") {
+      const char* v = value();
+      if (!v) return false;
+      char* end = nullptr;
+      const long count = std::strtol(v, &end, 10);
+      if (end == v || *end != '\0' || count < 0 || count > 1000) {
+        return false;
+      }
+      options->fail_audio_starts = static_cast<int>(count);
     } else if (arg == "--stall-audio-for") {
       const char* v = value();
       if (!v) return false;
@@ -1033,7 +1044,7 @@ int main(int argc, char** argv) {
         "[--select-after SEC] [--lose-decoder-after SEC]... "
         "[--hang-decoder-after SEC]... [--rebuild-decoder-after SEC]... "
         "[--stall-audio-after SEC "
-        "[--stall-audio-for SEC]] "
+        "[--stall-audio-for SEC]] [--fail-audio-start N] "
         "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
         "[--live [--latency MS] [--live-jitter MS] "
         "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
@@ -1052,6 +1063,9 @@ int main(int argc, char** argv) {
   }
   if (!options.audio_dump.empty()) {
     lychee_testing_capture_audio();
+  }
+  if (options.fail_audio_starts > 0) {
+    lychee_testing_fail_audio_starts(options.fail_audio_starts);
   }
   if (options.stall_audio && options.stall_audio_after <= 0) {
     options.stall_audio_after = 0;

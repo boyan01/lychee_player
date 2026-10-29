@@ -77,13 +77,15 @@ void AAudioSink::CloseStreamLocked() {
   }
 }
 
-void AAudioSink::Start() {
+bool AAudioSink::Start() {
   std::lock_guard<std::mutex> lock(mutex_);
   started_ = true;
   if (stream_) {
     start_time_ = NowMicros();
     AAudioStream_requestStart(stream_);
   }
+  // A lost stream is reopened, and started, by Reopen().
+  return true;
 }
 
 void AAudioSink::Stop() {

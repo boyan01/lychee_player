@@ -70,7 +70,7 @@ class AudioRenderer {
   void SetRate(double rate);
   // Call every few milliseconds of |now|: once the device has pulled
   // nothing for kDeviceTimeout while playing, pulls the audio due by |now|
-  // in its place.
+  // in its place. Also retries a sink that failed to start.
   void PullForStalledDevice(int64_t now);
   // Call every few milliseconds of |now|, as PullForStalledDevice(): stops
   // the sink once the device has played the fade-out after a pause.
@@ -96,8 +96,16 @@ class AudioRenderer {
   // Every renderer's device pulls nothing while |stalled|, as one that
   // fails to start or stops.
   static void StallDevicesForTesting(bool stalled);
+  // The next |count| sink starts, in any renderer, fail.
+  static void FailSinkStartsForTesting(int count);
 
  private:
+  // sink_->Start(), unless a test makes it fail. Without the lock: a sink
+  // may wait for its own thread, which renders under it.
+  bool StartSink();
+  // While a start failed (iOS refuses audio in the background), tries
+  // again every kSinkStartRetry, so the device plays once it can.
+  void RetrySinkStart(int64_t now);
   void DecodeLoop();
   void OnBuffer(std::shared_ptr<AudioBuffer> buffer, uint64_t generation);
   // |from_device|: the sink pulled, not PullForStalledDevice(), which
@@ -161,6 +169,10 @@ class AudioRenderer {
   int fade_in_frames_ = 0;
   // Started, and not stopped yet: while paused it plays the fade-out.
   bool sink_running_ = false;
+  // sink_running_, but the sink's start failed: retried at
+  // sink_start_retry_at_.
+  bool sink_start_failed_ = false;
+  int64_t sink_start_retry_at_ = kNoTimestamp;
   // Paused: when the sink stops. When the device will have played the
   // fade-out, or a timeout for a device that does not take it.
   int64_t stop_sink_at_ = kNoTimestamp;

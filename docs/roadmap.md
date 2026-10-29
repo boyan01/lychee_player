@@ -58,10 +58,13 @@ building on top of them.
   0 s after: The network connection was lost", FFmpeg's MP4 demuxer
   reported "Packet corrupt" and H.264 "Invalid NAL unit size (18686 >
   3659)", which suggests the reconnected range did not resume at the
-  byte asked for. Not reproduced off the device. Done when a
-  `tool/regression.sh` case that drops the connection mid-read (the
-  media server can cut it) shows no corrupt packet, or the cause is
-  found elsewhere.
+  byte asked for. But a later run (2026-10-29, foreground test) showed
+  the same "Packet corrupt" and "Invalid NAL unit size (32474 > 4001)"
+  right after a decoder rebuild's seek with no reconnect logged, so the
+  cause may be the seek's new range request instead. Not reproduced off
+  the device. Done when a `tool/regression.sh` case that reproduces it
+  (a connection dropped mid-read, or a seek over HTTP right after a
+  rebuild) shows no corrupt packet, or the cause is found elsewhere.
 
 1. **iOS foreground recovery on a real device** (waiting on the user):
    the iPhone 17's log (2026-10-29) showed VideoToolbox sessions failing
@@ -70,11 +73,15 @@ building on top of them.
    rebuild because the stats said software. The drivers now always ask
    for a rebuild, and the core replaces a software decoder only when it
    replaced failed hardware ones (`decoder-foreground` and
-   `decoder-foreground-paused` cover it, playing and paused). Needs the
-   user: play `h264_aac.mp4` over HTTP in the Swift example on the
+   `decoder-foreground-paused` cover it, playing and paused). The
+   iPhone confirmed video returns to hardware (2026-10-29), but audio
+   stayed silent: `AudioOutputUnitStart` failed in the background
+   (`'what'`) and nothing retried it. The renderer now retries a failed
+   start every second (`audio-device-start-retry`). Needs the user: play `h264_aac.mp4` over HTTP in the Swift example on the
    iPhone, go to the Home Screen for ~10 s, come back, and check that
    the console shows `video rebuilt -> stream 0 (videotoolbox)` and the
-   stats `hw` after it. Also an alarm or call alone (an audio
+   stats `hw` after it, and that sound returns within about a second
+   (`audio device started on retry`). Also an alarm or call alone (an audio
    interruption) should not need this hook. Direct C ABI consumers
    must call `lychee_player_rebuild_video_decoder()` on their
    platform's recovery event; released plugin binaries pinned to API

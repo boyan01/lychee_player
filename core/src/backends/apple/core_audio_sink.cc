@@ -233,15 +233,16 @@ int64_t CoreAudioSink::QueryOutputLatency() const {
   return latency;
 }
 
-void CoreAudioSink::Start() {
+bool CoreAudioSink::Start() {
   if (unit_ && !started_) {
     OSStatus status = AudioOutputUnitStart(unit_);
     started_ = status == noErr;
     if (!started_) {
-      // The audio renderer plays on without it after a while.
+      // The audio renderer plays on without it, and retries.
       LOGW("AudioOutputUnitStart failed: %d", static_cast<int>(status));
     }
   }
+  return started_;
 }
 
 void CoreAudioSink::Stop() {
