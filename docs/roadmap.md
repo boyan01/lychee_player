@@ -156,14 +156,10 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
      patch is `tool/patches/ffmpeg-hls-subtitle-buffers.patch`."
    - **clang-tidy CI**: verify `ci.yml`'s Linux `tidy` job on GitHub
      after the large-diff input fix, then delete this item.
-   - **First Android and Windows CI runs** (`android`, `core-windows` in
-     `ci.yml`) failed on 2026-10-29. Android's 320x180 MediaCodec snapshots
-     need a texture-sampling reference: PixelCopy's four-tap bilinear
-     sampling differs from swscale's downscaling low-pass filter. With
-     `--bilinear`, the same API 34 x86_64 scenario passes all eight
-     snapshots locally without changing thresholds. The Android fix and
-     Windows' WASAPI checks on a VM without an audio device still need
-     a green GitHub rerun; delete this line then.
+   - **Android and Windows CI**: verify the next GitHub run after the
+     first-run fixes: Android's texture-sampling snapshot reference and
+     Windows' explicit threaded silent audio device for the two cases
+     that require audio output. Delete this item when both jobs pass.
    - **Performance benchmarks**: `tool/bench.sh` and
      `tool/bench_compare.py` run by hand on an idle machine. Per commit
      needs an idle runner: hosted VMs are too loaded to compare, and the
