@@ -75,16 +75,17 @@ building on top of them.
 
 ## Features
 
-1. **Live input in flutter-airplay**: the core plays pushed packets
-   (`lychee_player_open_live`). Left: AAC-ELD, which AirPlay mirroring
-   sends, has never been decoded (FFmpeg cannot encode it without
-   libfdk-aac; capture a file from a session); what MediaCodec's
-   `KEY_LOW_LATENCY` saves on a phone (the
-   emulator's codecs ignore it). After a stall, audio moves up to 500 ms
-   behind video and returns over a few seconds, as in flutter-airplay.
-   Done when flutter-airplay plays a mirroring session through lychee
-   behind a flag on macOS and Android, with A/V in sync on Bluetooth
-   headphones.
+1. **Live input in flutter-airplay** (waiting on the user): enable the
+   experimental local SDK build (`AIRPLAY_LYCHEE_ROOT`, flutter-airplay's
+   DEVELOPMENT.md) on macOS and Android. Mirror an iPhone with moving
+   video and speech while Bluetooth headphones are connected; confirm A/V
+   remains in sync, including after a short network stall and after
+   disconnect/reconnect. On a phone that advertises MediaCodec low latency,
+   compare the same stream with `KEY_LOW_LATENCY` enabled and disabled;
+   the emulator's codecs ignore it. After a stall, the current timeline
+   allows audio up to 500 ms behind video and returns over a few seconds.
+   Done when the real mirroring and Bluetooth checks pass on both hosts,
+   and the phone's low-latency result is recorded.
 2. **HDR beyond Apple's SDK**:
    - Flutter: textures are 8-bit SDR on every platform, so the plugin
      stays on tone-mapped BGRA.
