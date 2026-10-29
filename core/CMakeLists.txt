@@ -66,6 +66,10 @@ if(LYCHEE_WITH_FFMPEG)
   )
 endif()
 
+if(ANDROID AND LYCHEE_WITH_FFMPEG)
+  list(APPEND LYCHEE_SOURCES src/backends/ffmpeg/cleartext_redirect.cc)
+endif()
+
 if(ANDROID)
   list(APPEND LYCHEE_SOURCES
     src/backends/android/aes.cc

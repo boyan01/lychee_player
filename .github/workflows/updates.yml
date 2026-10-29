@@ -1,4 +1,4 @@
-# Lists newer releases of the FFmpeg, Mbed TLS and GLFW sources pinned in
+# Lists newer releases of the FFmpeg and GLFW sources pinned in
 # tool/release.sh and examples/glfw (tool/check_updates.py), which
 # Dependabot cannot read: in the run's summary and as notices. It opens
 # no issue or pull request; updating a pin stays a change someone makes

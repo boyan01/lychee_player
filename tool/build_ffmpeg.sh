@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds an LGPL-only FFmpeg as shared libraries for one platform.
 #
-#   tool/build_ffmpeg.sh PLATFORM FFMPEG_SOURCE_DIR [MBEDTLS_SOURCE_DIR]
+#   tool/build_ffmpeg.sh PLATFORM FFMPEG_SOURCE_DIR
 #
 # PLATFORM: macos-arm64, macos-x86_64, ios-arm64, ios-sim-arm64,
 # ios-sim-x86_64, android-arm64-v8a, android-armeabi-v7a, android-x86_64, linux-x86_64,
@@ -10,9 +10,9 @@
 # Output: third_party/ffmpeg/PLATFORM/{include,lib}. For Apple platforms,
 # tool/package_ffmpeg_apple.sh then wraps the libraries into xcframeworks.
 #
-# Android needs MBEDTLS_SOURCE_DIR (an Mbed TLS 3.6 release) for https:
-# Apple platforms use the system's TLS, Android's has no C API. mbedTLS is
-# Apache-2.0, which LGPL 2.1 cannot take, so Android builds are LGPL 3.
+# Android's FFmpeg provides cleartext HTTP only. The core's DataSource
+# opens HTTPS through HttpURLConnection; AES HLS uses javax.crypto.
+# Apple uses SecureTransport and Windows uses Schannel.
 #
 # DAV1D_SOURCE_DIR (a dav1d release; BSD-2, built with meson and ninja),
 # in the environment, adds dav1d on every platform, linked statically
@@ -99,7 +99,6 @@ case "$platform" in
     esac
     ;;
   android-arm64-v8a|android-armeabi-v7a|android-x86_64)
-    mbedtls="$(cd "${3:?Android needs MBEDTLS_SOURCE_DIR}" && pwd)"
     ndk="${ANDROID_NDK_HOME:-$(ls -d "$HOME"/Library/Android/sdk/ndk/* | sort -V | tail -1)}"
     toolchain="$(ls -d "$ndk"/toolchains/llvm/prebuilt/*)"
     api=24
@@ -108,7 +107,6 @@ case "$platform" in
       android-armeabi-v7a) triple=armv7a-linux-androideabi; arch=arm; abi=armeabi-v7a ;;
       android-x86_64) triple=x86_64-linux-android; arch=x86_64; abi=x86_64 ;;
     esac
-    tls="$work/mbedtls"
     dav1d_cc="$toolchain/bin/$triple$api-clang"
     dav1d_ar="$toolchain/bin/llvm-ar"
     dav1d_flags="'-Wl,-z,max-page-size=16384'"
@@ -121,12 +119,10 @@ case "$platform" in
       --ar="$toolchain/bin/llvm-ar" --nm="$toolchain/bin/llvm-nm"
       --ranlib="$toolchain/bin/llvm-ranlib" --strip="$toolchain/bin/llvm-strip"
       --sysroot="$toolchain/sysroot"
-      --extra-cflags="-I$tls/include"
       # Android 15+ devices may use 16 KB pages.
-      --extra-ldflags="-Wl,-z,max-page-size=16384 -L$tls/lib"
-      # Linked statically into libavformat. The core hands it the system's
-      # CA certificates (ffmpeg_demuxer.cc).
-      --enable-mbedtls --enable-version3
+      --extra-ldflags="-Wl,-z,max-page-size=16384"
+      # The system handles all TLS, keeping FFmpeg LGPL 2.1+.
+      --disable-protocol=https,tls
       # Homebrew's pkg-config would find the Mac's libraries.
       --pkg-config=false
     )
@@ -137,7 +133,6 @@ case "$platform" in
       flags+=(--cpu=armv7-a --enable-neon
         --extra-cflags="-march=armv7-a -mfpu=neon -mfloat-abi=softfp")
     fi
-    license="LGPL version 3 or later"
     # x86_64 assembly needs nasm; not worth it for the emulator.
     [ "$platform" = android-x86_64 ] && { flags+=(--disable-asm); dav1d_asm=false; }
     ;;
@@ -219,16 +214,6 @@ mkdir -p libavformat
 cp "$src/libavformat/hls.c" libavformat/hls.c
 patch -f -s -p1 <"$root/tool/patches/ffmpeg-hls-subtitle-buffers.patch"
 flags+=(--extra-cflags="-iquote$src/libavformat")
-if [ -n "${tls:-}" ]; then
-  cmake -S "$mbedtls" -B "$work/mbedtls-build" -G Ninja \
-    -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
-    -DANDROID_ABI=$abi -DANDROID_PLATFORM=$api \
-    -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_INSTALL_PREFIX="$tls" \
-    -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF >mbedtls.log 2>&1 &&
-    cmake --build "$work/mbedtls-build" --target install >>mbedtls.log 2>&1 ||
-    { tail -20 mbedtls.log; exit 1; }
-fi
 if [ -n "${dav1d_cc:-}" ] && [ -z "${DAV1D_SOURCE_DIR:-}" ]; then
   echo "no DAV1D_SOURCE_DIR: AV1 only in hardware" >&2
 elif [ -n "${dav1d_cc:-}" ]; then

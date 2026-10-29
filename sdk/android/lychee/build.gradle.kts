@@ -75,7 +75,7 @@ android {
     }
 }
 
-// The notices for what the AAR carries (FFmpeg, Mbed TLS, code from
+// The notices for what the AAR carries (FFmpeg, dav1d, code from
 // Chromium), as a Java resource, so that they end up in every APK as
 // META-INF/lychee/THIRD_PARTY_NOTICES.
 abstract class CopyNotices : DefaultTask() {

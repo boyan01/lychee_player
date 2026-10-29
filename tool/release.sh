@@ -6,7 +6,7 @@
 #   tool/release.sh version VERSION    set flutter/pubspec.yaml's version;
 #                                      flutter/CHANGELOG.md must have
 #                                      a "## VERSION" section
-#   tool/release.sh sources DIR        download the pinned FFmpeg, Mbed TLS
+#   tool/release.sh sources DIR        download the pinned FFmpeg
 #                                      and dav1d sources into DIR (release
 #                                      assets too: the LGPL asks for the
 #                                      source)
@@ -34,7 +34,7 @@
 #                                      architecture's ffmpeg-linux-*.tar.xz)
 #   tool/release.sh sbom OUT           write OUT/lychee_player-VERSION.spdx.json,
 #                                      an SPDX 2.3 SBOM of OUT's assets: what
-#                                      each holds (the core, FFmpeg, Mbed TLS,
+#                                      each holds (the core, FFmpeg, dav1d,
 #                                      zlib and mingw-w64's runtime, as
 #                                      THIRD_PARTY_NOTICES lists) and the pins
 #                                      of their sources
@@ -72,9 +72,6 @@ android_platforms=(android-arm64-v8a android-armeabi-v7a android-x86_64)
 ffmpeg_version=9.0.2
 ffmpeg_sha256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
 ffmpeg_url=https://ffmpeg.org/releases/ffmpeg-$ffmpeg_version.tar.xz
-mbedtls_version=3.6.7
-mbedtls_sha256=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6
-mbedtls_url=https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$mbedtls_version/mbedtls-$mbedtls_version.tar.bz2
 # Software AV1 on every platform (tool/build_ffmpeg.sh).
 dav1d_version=1.5.4
 dav1d_sha256=686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5
@@ -129,7 +126,6 @@ cmd_sources() {
   local dir="${1:?dir}"
   mkdir -p "$dir"
   download "$ffmpeg_url" "$dir/ffmpeg-$ffmpeg_version.tar.xz" "$ffmpeg_sha256"
-  download "$mbedtls_url" "$dir/mbedtls-$mbedtls_version.tar.bz2" "$mbedtls_sha256"
   download "$dav1d_url" "$dir/dav1d-$dav1d_version.tar.xz" "$dav1d_sha256"
   cp "$root/tool/patches/ffmpeg-hls-subtitle-buffers.patch" "$dir/"
 }
@@ -152,7 +148,6 @@ build_ffmpeg() {
   stamp="$root/third_party/ffmpeg/$platform/.release-fingerprint"
   fingerprint="$({
     printf '%s\n' "$platform" "$ffmpeg_sha256"
-    [ "${platform#android-}" = "$platform" ] || printf '%s\n' "$mbedtls_sha256"
     printf '%s\n' "${DAV1D_SOURCE_DIR:+$dav1d_sha256}"
     cat "$root/tool/build_ffmpeg.sh" "$root/tool/apple_framework.sh" "$root"/tool/patches/*.patch
     # configure also accepts these environment overrides.
@@ -177,7 +172,7 @@ cmd_build() {
   sources="$(cd "$2" && pwd)"
   # Keep extraction tied to the archive too: a changed pin with the same
   # version must not rebuild from the previous extracted source.
-  src="$root/build-ffmpeg/src/$ffmpeg_sha256-$mbedtls_sha256"
+  src="$root/build-ffmpeg/src/$ffmpeg_sha256"
   mkdir -p "$src"
   [ -d "$src/ffmpeg-$ffmpeg_version" ] || tar xJf "$sources/ffmpeg-$ffmpeg_version.tar.xz" -C "$src"
   local dav1d="$root/build-ffmpeg/src/dav1d-$dav1d_sha256"
@@ -193,10 +188,9 @@ cmd_build() {
       NO_FFMPEG=1 "$root/tool/build_apple.sh"
       ;;
     android)
-      [ -d "$src/mbedtls-$mbedtls_version" ] || tar xjf "$sources/mbedtls-$mbedtls_version.tar.bz2" -C "$src"
       for p in "${android_platforms[@]}"; do
         DAV1D_SOURCE_DIR="$dav1d/dav1d-$dav1d_version" \
-          build_ffmpeg "$p" "$src/ffmpeg-$ffmpeg_version" "$src/mbedtls-$mbedtls_version"
+          build_ffmpeg "$p" "$src/ffmpeg-$ffmpeg_version"
       done
       "$root/sdk/android/gradlew" -p "$root/sdk/android" :lychee:publish
       ;;
@@ -517,15 +511,13 @@ cmd_sbom() {
   v="$(version)"
   rm -f "$out/lychee_player-$v.spdx.json"
   python3 -I - "$out" "$v" "$manifest" "$ffmpeg_version" "$ffmpeg_url" "$ffmpeg_sha256" \
-    "$mbedtls_version" "$mbedtls_url" "$mbedtls_sha256" \
     "$dav1d_version" "$dav1d_url" "$dav1d_sha256" <<'EOF'
 import datetime, hashlib, json, pathlib, sys, uuid
 
 out = pathlib.Path(sys.argv[1])
 version, manifest = sys.argv[2], json.load(open(sys.argv[3]))
 ffmpeg_version, ffmpeg_url, ffmpeg_sha256 = sys.argv[4:7]
-mbedtls_version, mbedtls_url, mbedtls_sha256 = sys.argv[7:10]
-dav1d_version, dav1d_url, dav1d_sha256 = sys.argv[10:13]
+dav1d_version, dav1d_url, dav1d_sha256 = sys.argv[7:10]
 repo = manifest["url"].removesuffix("/releases/download")
 
 def package(id_, name, version, url, license_, sha256=None):
@@ -537,13 +529,11 @@ def package(id_, name, version, url, license_, sha256=None):
         p["checksums"] = [{"algorithm": "SHA256", "checksumValue": sha256}]
     return p
 
-# THIRD_PARTY_NOTICES: the core carries code ported from Chromium (BSD-3);
-# the AAR's FFmpeg is LGPL 3 because it links Mbed TLS (Apache 2.0); the
-# Windows FFmpeg DLLs carry zlib and parts of mingw-w64's runtime.
+# THIRD_PARTY_NOTICES: the core carries code ported from Chromium (BSD-3),
+# FFmpeg contains dav1d, and Windows DLLs contain zlib and mingw-w64 code.
 packages = [
     package("lychee", "lychee_player", version, f"git+{repo}@v{version}", "MIT AND BSD-3-Clause"),
     package("FFmpeg", "FFmpeg", ffmpeg_version, ffmpeg_url, "LGPL-2.1-or-later", ffmpeg_sha256),
-    package("MbedTLS", "Mbed TLS", mbedtls_version, mbedtls_url, "Apache-2.0", mbedtls_sha256),
     package("dav1d", "dav1d", dav1d_version, dav1d_url, "BSD-2-Clause", dav1d_sha256),
     package("zlib", "zlib", "NOASSERTION", "NOASSERTION", "Zlib"),
     package("mingw-w64", "mingw-w64 runtime", "NOASSERTION", "NOASSERTION", "ZPL-2.1"),
@@ -551,7 +541,7 @@ packages = [
 
 def sources(name):
     if name.startswith("lychee-") and name.endswith(".aar"):
-        return ["lychee", "FFmpeg", "MbedTLS", "dav1d"]
+        return ["lychee", "FFmpeg", "dav1d"]
     if name.startswith("lychee-") and name.endswith(".pom"):
         return []
     if name.startswith(("lychee.", "lychee_noffmpeg.")):

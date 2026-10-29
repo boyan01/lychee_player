@@ -367,9 +367,18 @@ the simulator reads `/tmp` of the Mac.
 
 `sdk/android` builds one AAR, `tech.soit.lychee:lychee` (minSdk 26): the
 core as `liblychee.so` with the LGPL FFmpeg next to it (build it first:
-`tool/build_ffmpeg.sh android-arm64-v8a SRC MBEDTLS_SRC`, with an Mbed TLS
-3.6 release for https, `android-armeabi-v7a` for 32-bit ARM systems,
-and `android-x86_64` for x86 emulators), and Kotlin classes over it.
+`tool/build_ffmpeg.sh android-arm64-v8a SRC`, `android-armeabi-v7a` for
+32-bit ARM systems, and `android-x86_64` for x86 emulators), and Kotlin classes over it.
+HTTPS uses HttpURLConnection and AES-128 HLS uses javax.crypto, in both
+builds. FFmpeg handles cleartext HTTP refused by the app's network security
+config. That fallback probes redirects with HEAD (GET with a one-byte
+Range if HEAD is unsupported), follows at most five redirects, and opens
+an HTTPS destination through HttpURLConnection. A changing redirect after
+the probe can still fail; FFmpeg has no TLS on Android. An AES HLS stream
+that requires FFmpeg's HLS fallback (for example, an unsupported subtitle
+rendition) cannot fetch encrypted HTTPS segments. The native CLI run from
+`adb shell` has no Java VM and cannot open HTTPS.
+
 The release AAR has all three ABIs. The core is also a prefab module
 (`lychee`, header `lychee/lychee.h`) for native code that uses the C ABI.
 
@@ -596,7 +605,7 @@ Linux FFmpeg (on Ubuntu; Windows cross-compiled), pins them in
 `sdk/apple` by URL), builds a fresh app against the package pub would
 publish (macOS, iOS and Android on macOS, Windows on Windows), attests
 the assets' build provenance and an SPDX SBOM of them, drafts the GitHub
-release with the assets, the SBOM and the sources of FFmpeg and Mbed TLS,
+release with the assets, the SBOM and the sources of FFmpeg and dav1d,
 and pushes the commit `Release VERSION` and the tag
 `vVERSION`. The tag starts `publish.yml`, which publishes the release and
 the package on pub.dev. Each step is a `tool/release.sh` command and runs
@@ -633,13 +642,14 @@ FFmpeg found by pkg-config, which may be a GPL build (Homebrew's is); that
 is for development only. The macOS and iOS builds from
 `tool/build_ffmpeg.sh` are LGPL 2.1+ (the script checks configure's license
 line), and so are the Windows build (Schannel for https) and the Linux
-build (GnuTLS, LGPL 2.1+, the system's); the Android build is LGPL 3+,
-because it links mbedTLS (Apache-2.0) for https. Distributed apps
+build (GnuTLS, LGPL 2.1+, the system's). Android is LGPL 2.1+ too:
+FFmpeg provides cleartext HTTP, while HttpURLConnection handles HTTPS
+and javax.crypto decrypts AES-128 HLS. Distributed apps
 must ship an LGPL-only FFmpeg (no `--enable-gpl` / `--enable-nonfree`),
 linked dynamically.
 
 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) has the notices an app must
-ship with lychee_player (Chromium, FFmpeg, Mbed TLS, and their license
+ship with lychee_player (Chromium, FFmpeg, dav1d, and their license
 texts). The prebuilt artifacts carry it: `lychee.framework` and, on
 Android, `META-INF/lychee/THIRD_PARTY_NOTICES` in the APK.
 

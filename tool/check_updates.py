@@ -7,19 +7,12 @@
 Dependabot reads none of these pins:
   FFmpeg    ffmpeg_version in tool/release.sh (what every platform's
             FFmpeg builds from, and the source the releases carry)
-  Mbed TLS  mbedtls_version in tool/release.sh (Android's https)
   GLFW      the URL in examples/glfw/CMakeLists.txt (the Windows harness;
             macOS and Linux take the system's GLFW)
 
 For each it prints the pinned version, the newest release with the same
 major and minor version (a patch to take as it is) and the newest release
-overall (a new FFmpeg major changes the API the core follows). Mbed TLS
-is intentionally kept on 3.6 LTS: FFmpeg 9.0.2's tls_mbedtls.c includes
-mbedtls/ctr_drbg.h and entropy.h, removed in Mbed TLS 4. Android builds
-with Mbed TLS 4.2.0 fail at that include; upgrading needs upstream TLS
-backend changes, not just a new pin. Keep reporting 4.x so this decision
-is visible when compatibility changes. See the upstream migration guide:
-https://github.com/Mbed-TLS/mbedtls/blob/mbedtls-4.2.0/docs/4.0-migration-guide.md
+overall (a new FFmpeg major changes the API the core follows).
 
 Updating a pin means its version and SHA-256
 together. Only reads: it opens nothing and
@@ -76,8 +69,6 @@ def pins():
     return {
         "FFmpeg": (re.search(r"^ffmpeg_version=(\S+)", release, re.M).group(1), "tool/release.sh",
                    ffmpeg_releases),
-        "Mbed TLS": (re.search(r"^mbedtls_version=(\S+)", release, re.M).group(1), "tool/release.sh",
-                     lambda: github_releases("Mbed-TLS/mbedtls", r"mbedtls-(\d+\.\d+\.\d+)")),
         "GLFW": (re.search(r"glfw/releases/download/([\d.]+)/", glfw).group(1), "examples/glfw/CMakeLists.txt",
                  lambda: github_releases("glfw/glfw", r"(\d+\.\d+(?:\.\d+)?)")),
     }

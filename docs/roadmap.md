@@ -120,8 +120,13 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    event and an acquire call for its bytes at the clock's time (like
    subtitles), in every binding; worth it once a caller needs it (HLS
    ad markers, live captions' ID3).
-2. **Android**: removing FFmpeg TLS (in progress): cleartext HTTP redirects
-   to HTTPS must reach HttpURLConnection before mbedTLS is removed.
+2. **Android**: AES-128 HLS that requires FFmpeg's HLS fallback (for
+   example, an unsupported subtitle rendition) cannot open encrypted HTTPS
+   segments: FFmpeg's crypto protocol bypasses DataSource and Android's
+   FFmpeg has no TLS. A cleartext redirect that changes after its HEAD/GET
+   probe can fail for the same reason. HTTP permitted by the app's policy
+   still cannot redirect across schemes in HttpURLConnection; this is
+   separate from the refused-cleartext fallback.
    An FFmpeg-free AAR in the release
    (`-Plychee.ffmpeg=false` builds it, and the Flutter plugin plays on
    it; a second artifact is a publishing decision) if native Android

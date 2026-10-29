@@ -21,16 +21,7 @@
 
 #if defined(__ANDROID__)
 #include "backends/android/http_data_source.h"
-#endif
-
-#if defined(__ANDROID__)
-#include <dirent.h>
-#include <unistd.h>
-
-#include <atomic>
-#include <cstdlib>
-#include <fstream>
-#include <sstream>
+#include "backends/ffmpeg/cleartext_redirect.h"
 #endif
 
 extern "C" {
@@ -44,91 +35,6 @@ extern "C" {
 namespace lychee {
 
 namespace {
-
-#if defined(__ANDROID__)
-// FFmpeg's TLS on Android is mbedTLS (tool/build_ffmpeg.sh), which trusts
-// only the certificates in its ca_file option, while Android keeps its CAs
-// one per file. Collect them once per process into the app's cache
-// directory. Returns "" if that fails; https then fails verification.
-std::string WriteAndroidCaFile() {
-  // Android 14+ updates its CAs through the Conscrypt module.
-  const char* source = "/apex/com.android.conscrypt/cacerts";
-  DIR* dir = opendir(source);
-  if (!dir) {
-    source = "/system/etc/security/cacerts";
-    dir = opendir(source);
-  }
-  if (!dir) {
-    LOGW("no CA certificates found");
-    return "";
-  }
-  // Each file holds one PEM certificate followed by a text dump of it.
-  std::string bundle;
-  const std::string kEnd = "-----END CERTIFICATE-----";
-  while (dirent* entry = readdir(dir)) {
-    if (entry->d_name[0] == '.') {
-      continue;
-    }
-    std::ifstream file(std::string(source) + "/" + entry->d_name);
-    std::stringstream text;
-    text << file.rdbuf();
-    std::string pem = text.str();
-    size_t begin = pem.find("-----BEGIN CERTIFICATE-----");
-    size_t end = pem.find(kEnd, begin);
-    if (begin != std::string::npos && end != std::string::npos) {
-      bundle += pem.substr(begin, end + kEnd.size() - begin) + "\n";
-    }
-  }
-  closedir(dir);
-
-  // Android 11+ points TMPDIR at the app's cache directory. Before that,
-  // derive it from the package name, which is the process name up to ':'.
-  std::string cache;
-  if (const char* tmpdir = getenv("TMPDIR"); tmpdir && *tmpdir) {
-    cache = tmpdir;
-  } else {
-    std::ifstream cmdline("/proc/self/cmdline");
-    std::string package;
-    std::getline(cmdline, package, '\0');
-    package = package.substr(0, package.find(':'));
-    cache = "/data/user/" + std::to_string(getuid() / 100000) + "/" +
-            package + "/cache";
-  }
-  std::string path = cache + "/lychee-cacerts.pem";
-  std::string temporary = path + "." + std::to_string(getpid());
-  std::ofstream(temporary, std::ios::binary) << bundle;
-  if (bundle.empty() || rename(temporary.c_str(), path.c_str()) != 0) {
-    LOGW("cannot write CA certificates to %s", path.c_str());
-    unlink(temporary.c_str());
-    return "";
-  }
-  return path;
-}
-
-const std::string& AndroidCaFile() {
-  static const std::string path = WriteAndroidCaFile();
-  return path;
-}
-
-using IoOpen = int (*)(AVFormatContext*, AVIOContext**, const char*, int,
-                       AVDictionary**);
-// FFmpeg's own io_open, the same for every context.
-std::atomic<IoOpen> default_io_open{nullptr};
-
-// Passes the CA file to every connection the demuxer opens: the input and
-// what it opens itself (HLS playlists, segments and keys), which do not
-// inherit the input's options.
-int IoOpenWithCaFile(AVFormatContext* s, AVIOContext** pb, const char* url,
-                     int flags, AVDictionary** options) {
-  AVDictionary* local = nullptr;
-  AVDictionary** used = options ? options : &local;
-  av_dict_set(used, "ca_file", AndroidCaFile().c_str(),
-              AV_DICT_DONT_OVERWRITE);
-  int ret = default_io_open.load()(s, pb, url, flags, used);
-  av_dict_free(&local);
-  return ret;
-}
-#endif
 
 int64_t ToMicros(int64_t value, AVRational time_base) {
   if (value == AV_NOPTS_VALUE) {
@@ -302,13 +208,6 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
     av_dict_set(&options, "reconnect_delay_total_max", "10", 0);
     // A connection that stays silent this long counts as dropped.
     av_dict_set(&options, "rw_timeout", "10000000", 0);
-#if defined(__ANDROID__)
-    // For what IoOpen() hands to FFmpeg's own http.
-    if (!AndroidCaFile().empty()) {
-      default_io_open = default_io_open_;
-      default_io_open_ = &IoOpenWithCaFile;
-    }
-#endif
   }
   int ret = avformat_open_input(&format_context_, url.c_str(), nullptr,
                                 &options);
@@ -877,7 +776,25 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
     return 0;
   }
   if (cleartext_refused) {
+#if defined(__ANDROID__)
+    // Probe failures also arrive here, so both cleartext fallback entrances
+    // hand HTTPS to the system before FFmpeg can follow a redirect itself.
+    error.clear();
+    const std::string secure =
+        FindHttpsRedirect(url, s->interrupt_callback, &error);
+    if (!secure.empty()) {
+      LOGI("HTTP redirected to HTTPS: using the platform client");
+      *pb = self->OpenIo(secure, &error, &cleartext_refused,
+                         options ? *options : nullptr);
+      if (*pb) {
+        return 0;
+      }
+    } else if (error.empty()) {
+      return self->default_io_open_(s, pb, url, flags, options);
+    }
+#else
     return self->default_io_open_(s, pb, url, flags, options);
+#endif
   }
   if (self->aborted_ || self->interrupted_) {
     return AVERROR_EXIT;
@@ -1008,7 +925,8 @@ AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url,
     // network security config), and read these URLs before.
     *cleartext_refused = io->source->cleartext_refused();
     if (*cleartext_refused) {
-      LOGI("the platform refuses cleartext http: FFmpeg reads it");
+      LOGI(
+          "the platform refuses cleartext http: trying the cleartext fallback");
     }
     return fail(io->source->error());
   }
