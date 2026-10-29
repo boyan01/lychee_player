@@ -78,6 +78,13 @@ struct Options {
   // --dmabuf: the DRM render node to decode on.
   std::string dmabuf_node;
   bool virtual_time = false;
+  // Where to write what the silent audio device played (testing.h), as a
+  // WAV for tool/audio_check.py; needs --virtual-time or --null-audio, and
+  // a volume above 0.
+  std::string audio_dump;
+  // Pause this many seconds after playback starts, for |pause_for|.
+  double pause_at = -1;
+  double pause_for = 0;
   // A silent audio device pulled on its own thread, even without a sound card.
   bool null_audio = false;
   // Where to write each subtitle with pictures, drawn on a grey canvas of
@@ -335,6 +342,16 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       if (colon == std::string::npos || colon + 1 == spec.size()) return false;
       options->snapshots.push_back(
           {atof(spec.substr(0, colon).c_str()), spec.substr(colon + 1)});
+    } else if (arg == "--audio-dump") {
+      const char* v = value();
+      if (!v) return false;
+      options->audio_dump = v;
+    } else if (arg == "--pause") {
+      const char* at = value();
+      const char* duration = value();
+      if (!at || !duration) return false;
+      options->pause_at = strtod(at, nullptr);
+      options->pause_for = strtod(duration, nullptr);
     } else if (arg == "--virtual-time") {
       options->virtual_time = true;
     } else if (arg == "--null-audio") {
@@ -1021,7 +1038,7 @@ int main(int argc, char** argv) {
         "[--live [--latency MS] [--live-jitter MS] "
         "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
         "[--subtitle-ppm FILE] [--frame-ppm SEC:FILE]... [--virtual-time] "
-        "[--null-audio] "
+        "[--null-audio] [--audio-dump FILE] [--pause SEC FOR] "
         "<file or url>\n",
         argv[0]);
     return 2;
@@ -1032,6 +1049,9 @@ int main(int argc, char** argv) {
   }
   if (options.null_audio) {
     lychee_testing_enable_null_audio();
+  }
+  if (!options.audio_dump.empty()) {
+    lychee_testing_capture_audio();
   }
   if (options.stall_audio && options.stall_audio_after <= 0) {
     options.stall_audio_after = 0;
@@ -1144,6 +1164,7 @@ int main(int argc, char** argv) {
   int64_t audio_onset = INT64_MIN;
   int64_t ready_wall = 0;
   bool stalled_audio = false;
+  bool paused = false;
   // Wall clock vs. media clock since playback last (re)started, to spot
   // drift.
   int64_t drift_wall = 0;
@@ -1502,6 +1523,20 @@ int main(int argc, char** argv) {
         lychee_testing_lose_video_decoder(player);
       }
     }
+    if (options.pause_at >= 0 && ready_wall != 0) {
+      const int64_t since = now - ready_wall;
+      if (!paused && since >= static_cast<int64_t>(options.pause_at * 1e6)) {
+        paused = true;
+        printf("pause at %.3fs\n", position / 1e6);
+        lychee_player_pause(player);
+      } else if (paused &&
+                 since >= static_cast<int64_t>(
+                              (options.pause_at + options.pause_for) * 1e6)) {
+        options.pause_at = -1;
+        printf("play at %.3fs\n", position / 1e6);
+        lychee_player_play(player);
+      }
+    }
     if (options.stall_audio && ready_wall != 0) {
       const int64_t since = now - ready_wall;
       if (!stalled_audio &&
@@ -1679,14 +1714,43 @@ int main(int argc, char** argv) {
     lychee_frame_release(shown);
   }
   const auto destroy_start = std::chrono::steady_clock::now();
+  // The device plays on while the player is destroyed: a stop fades out.
+  // Virtual time then runs at about the real rate.
+  std::atomic<bool> destroyed{false};
+  std::thread destroy_clock;
+  if (options.virtual_time) {
+    destroy_clock = std::thread([&destroyed, destroy_start] {
+      // By the real time passed: a sleep lasts ~15 ms on Windows.
+      const int64_t from = lychee_now_us();
+      while (!destroyed.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        lychee_testing_set_time(
+            from + std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::steady_clock::now() - destroy_start)
+                       .count());
+      }
+    });
+  }
+  lychee_player_destroy(player);
+  const double destroy_seconds =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                    destroy_start)
+          .count();
+  destroyed = true;
+  if (destroy_clock.joinable()) {
+    destroy_clock.join();
+    // So the recording ends in the silence after the stop.
+    lychee_testing_set_time(lychee_now_us() + 100000);
+  }
   if (null_audio_thread.joinable()) {
     stop_null_audio = true;
     null_audio_thread.join();
   }
-  lychee_player_destroy(player);
-  printf("destroyed in %.3fs\n",
-         std::chrono::duration<double>(std::chrono::steady_clock::now() -
-                                       destroy_start)
-             .count());
+  printf("destroyed in %.3fs\n", destroy_seconds);
+  if (!options.audio_dump.empty() &&
+      lychee_testing_write_captured_audio(options.audio_dump.c_str()) != 0) {
+    printf("error: cannot write %s\n", options.audio_dump.c_str());
+    exit_code = 1;
+  }
   return exit_code;
 }

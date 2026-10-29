@@ -391,6 +391,7 @@ bool MFAudioDecoder::Decode(const EncodedPacket& packet,
   }
   if (next_pts_ == kNoTimestamp) {
     next_pts_ = packet.pts;
+    output_frames_ = 0;
   }
   ComPtr<IMFSample> sample =
       CreateMFSample(data, size, packet.pts,
@@ -560,10 +561,11 @@ void MFAudioDecoder::Emit(IMFSample* sample, const OutputCallback& output) {
   if (audio->samples.empty()) {
     return;
   }
-  audio->pts = next_pts_;
   if (next_pts_ != kNoTimestamp) {
-    next_pts_ += audio->duration();
+    audio->pts = next_pts_ +
+                 output_frames_ * kMicrosPerSecond / output_format_.sample_rate;
   }
+  output_frames_ += audio->frames();
   output(std::move(audio));
 }
 

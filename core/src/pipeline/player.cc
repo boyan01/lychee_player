@@ -83,6 +83,16 @@ void Player::StopPipeline() {
   // A track change in flight may have reset the queues for a new renderer.
   video_queue_.Abort();
   audio_queue_.Abort();
+  // A stop fades out like a pause. The control thread is gone, so nothing
+  // else calls into the renderers.
+  for (auto& retired : retired_audio_) {
+    retired->FadeOutForStop();
+    retired->Stop();
+  }
+  retired_audio_.clear();
+  if (audio_renderer_) {
+    audio_renderer_->FadeOutForStop();
+  }
   if (video_renderer_) {
     video_renderer_->Stop();
   }
@@ -991,7 +1001,7 @@ bool Player::Prepare(const std::string& url, std::string* error) {
   if (audio_renderer_) {
     audio_renderer_->SetVolume(volume_);
     audio_renderer_->SetRate(rate_);
-    audio_renderer_->Start();
+    audio_renderer_->Start(live_ ? kNoTimestamp : info.start_time);
   }
   if (video_renderer_) {
     video_renderer_->Start();
@@ -1075,7 +1085,15 @@ void Player::ChangeTracks(const TrackRequest& request) {
     }
     audio_queue_.Abort();
     if (old) {
-      old->Stop();
+      // It fades out while the next renderer starts; UpdateState() stops
+      // its sink once the device has played that.
+      old->Retire();
+      if (old->SinkStopped()) {
+        old->Stop();
+      } else {
+        std::lock_guard<std::mutex> lock(mutex_);
+        retired_audio_.push_back(std::move(old));
+      }
       old.reset();
     }
     audio_queue_.Reset(generation_);
@@ -1090,7 +1108,8 @@ void Player::ChangeTracks(const TrackRequest& request) {
       audio_stream_ = request.audio;
       audio_renderer_->SetVolume(volume_);
       audio_renderer_->SetRate(rate_);
-      audio_renderer_->Start();
+      // The resync seek that follows sets where it starts.
+      audio_renderer_->Start(kNoTimestamp);
     }
   }
   std::lock_guard<std::mutex> lock(mutex_);
@@ -1396,6 +1415,16 @@ void Player::UpdateState() {
   }
   if (audio_renderer_) {
     audio_renderer_->PullForStalledDevice(NowMicros());
+    audio_renderer_->StopSinkAfterFadeOut(NowMicros());
+  }
+  for (auto it = retired_audio_.begin(); it != retired_audio_.end();) {
+    (*it)->StopSinkAfterFadeOut(NowMicros());
+    if ((*it)->SinkStopped()) {
+      (*it)->Stop();
+      it = retired_audio_.erase(it);
+    } else {
+      ++it;
+    }
   }
   if (state_ != PlayerState::kError) {
     if (video_renderer_ && video_renderer_->HasError()) {

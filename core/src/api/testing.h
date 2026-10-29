@@ -44,6 +44,13 @@ LYCHEE_EXPORT void lychee_testing_stall_audio_devices(int32_t stalled);
 // quiet level (lychee_now_us() timebase), or INT64_MIN. With the volume
 // up, where a clip's sound starts, for its A/V sync.
 LYCHEE_EXPORT int64_t lychee_testing_first_sound_us(void);
+// From now on, records what the silent devices play, mixed on the
+// lychee_now_us() timeline, with silence where none plays: what a sound
+// card would output, for tool/audio_check.py.
+LYCHEE_EXPORT void lychee_testing_capture_audio(void);
+// Writes that recording to |wav_path| (48 kHz stereo, 32-bit float WAV).
+// Returns 0 on success.
+LYCHEE_EXPORT int32_t lychee_testing_write_captured_audio(const char* wav_path);
 
 // A file replayed as a live input: its default video and audio streams,
 // in file order, as lychee_player_push_live_packet() takes them (Annex B

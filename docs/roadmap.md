@@ -67,7 +67,26 @@ building on top of them.
   tracks end (last block plus its BlockDuration, less CodecDelay and
   DiscardPadding) when that is shorter. The FFmpeg-free Matroska
   demuxer also ignores DiscardPadding and, with a DefaultDuration, the
-  last block's BlockDuration.
+  last block's BlockDuration. `lychee_cli --loop --volume 1
+  --audio-dump` of `vp9_opus.webm` shows it: `tool/audio_check.py
+  --max-gap 1` finds 8.4 ms of silence at 10.000 s (macOS, 2026-10-29).
+  Done when that passes as an `audio` case in `tool/regression.sh`.
+  `audio_only.mp3` (44.1 kHz) also joins its passes with a small step
+  (0.006 at a zero crossing, above `audio_check.py`'s 0.005), where 48
+  kHz AAC joins without one.
+- **Looping AAC without an edit list leaves a gap**: MPEG-TS and
+  Matroska carry no edit list, so AAC's 1024 priming samples play as
+  ~21 ms of silence at the start of every pass, with FFmpeg and without
+  (`tool/audio_check.py --max-gap 1` after `lychee_cli --loop
+  --audio-dump`, 2026-10-29: `h264_aac.mkv` 23 ms, `keyframes.ts` 28
+  ms). A fix would drop the codec's delay at a loop's start (FFmpeg's
+  `initial_padding`, or 1024 for AAC-LC with no edit list) while the
+  first pass keeps the file's timing. `frag.mp4` shows a longer gap
+  (14.5 ms with FFmpeg, 54 ms without) for another reason: FFmpeg's
+  fragmenting muxer stretched its first audio sample to 66.7 ms, so
+  the container's duration is ~45 ms longer than its audio; a test
+  file artifact, not worth a case. Done when `h264_aac.mkv` and
+  `keyframes.ts` pass as `audio-loop` cases.
 
 1. **iOS foreground recovery can fall back to software**: an iPhone 17
    (2026-10-27) rejected 32 video packets (`-12909`)
@@ -91,8 +110,8 @@ building on top of them.
 
 ## Features
 
-1. **Live input in flutter-airplay** (waiting on the user): enable the
-   experimental local SDK build (`AIRPLAY_LYCHEE_ROOT`, flutter-airplay's
+1. **Live input in flutter-airplay** (waiting on the user): build it
+   against a local checkout (`AIRPLAY_LYCHEE_ROOT`, flutter-airplay's
    DEVELOPMENT.md) on macOS and Android. Mirror an iPhone with moving
    video and speech while Bluetooth headphones are connected; confirm A/V
    remains in sync, including after a short network stall and after
@@ -102,6 +121,26 @@ building on top of them.
    allows audio up to 500 ms behind video and returns over a few seconds.
    Done when the real mirroring and Bluetooth checks pass on both hosts,
    and the phone's low-latency result is recorded.
+   - Crackle, then silence, on macOS (2026-10-29, iPhone mirroring,
+     AAC-ELD): 10 s into a session the RTP stream mixed in no-data
+     packets (12 bytes, or the `00 68 34 00` marker), which UxPlay's
+     `raop_buffer_dequeue` drops, so lychee got audio with gaps and the
+     user heard crackle; then every packet was no-data and nothing reached
+     lychee. Suspect how the live audio path cuts or pads those gaps (no
+     fade). Not reproduced offline yet.
+   - Capture and replay, so a mirroring problem needs no manual A/B run:
+     an environment switch in flutter-airplay writes each packet
+     `lychee_player_push_live_packet` gets (track, pts, bytes) to a file;
+     its `lychee_live_tests` replays such a file on the virtual clock and
+     dumps the audio for `tool/audio_check.py`; the live player's periodic
+     log adds audio buffered, padded and late-dropped counts. Done when
+     the capture of a session like the one above replays to the same
+     clicks and is kept as a regression case.
+   - flutter-airplay's `lychee-only` branch plays through lychee on all
+     five platforms and has no player of its own; it needs a local
+     checkout (`AIRPLAY_LYCHEE_ROOT`) on every platform, so its CI and
+     release jobs cannot build yet. Done when they take lychee from a
+     release (the Apple frameworks, the AAR, the core's source) instead.
 2. **HDR beyond Apple's SDK**:
    - Flutter: textures are 8-bit SDR on every platform, so the plugin
      stays on tone-mapped BGRA.

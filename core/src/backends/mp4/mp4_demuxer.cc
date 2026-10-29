@@ -2098,9 +2098,17 @@ bool Mp4Demuxer::Seek(int64_t time) {
     auto after = std::upper_bound(
         samples.begin(), samples.end(), target,
         [](int64_t t, const Sample& s) { return t < s.dts; });
-    tracks_[i].next = after == samples.begin()
-                          ? 0
-                          : static_cast<size_t>(after - samples.begin()) - 1;
+    size_t next = after == samples.begin()
+                      ? 0
+                      : static_cast<size_t>(after - samples.begin()) - 1;
+    // One audio sample earlier: AAC's first frame after a decoder reset
+    // only overlaps the one before it, which would play as a ~10 ms fade
+    // from silence (at a loop's start too, when the edit list skipped the
+    // priming sample). The renderer drops what comes before the target.
+    if (media_info_.streams[i].type == MediaType::kAudio && next > 0) {
+      next--;
+    }
+    tracks_[i].next = next;
   }
   return true;
 }

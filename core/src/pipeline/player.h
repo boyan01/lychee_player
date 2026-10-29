@@ -302,6 +302,8 @@ class Player {
   std::atomic<int64_t> audio_output_lead_{0};
   VideoRenderer::Ptr video_renderer_;
   std::unique_ptr<AudioRenderer> audio_renderer_;
+  // Renderers a track switch replaced, playing their fade-out.
+  std::vector<std::unique_ptr<AudioRenderer>> retired_audio_;
   // One per subtitle stream that has a decoder, from Prepare() until
   // StopPipeline(): every subtitle stream is read, so a track switched on
   // midway already has the cues read so far. The map itself does not

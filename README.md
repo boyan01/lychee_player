@@ -556,6 +556,24 @@ builds win: the xcframeworks in `flutter/darwin/Frameworks` and the AAR in
 `core/`, or in the published package the copy `tool/release.sh` puts into
 `flutter/core` while pub packs it.
 
+
+### Checking audio for clicks
+
+`lychee_cli --audio-dump FILE` (with `--virtual-time` or `--null-audio`,
+and `--volume 1`) records what the silent audio device output, mixed on
+the clock's timeline with silence where it played nothing, as a 48 kHz
+float WAV, until after the player is destroyed (a stop fades out too).
+`tool/audio_check.py` finds clicks in it: steps in the
+waveform, which a sine (the test media's audio) never has. A seek, a
+pause (`--pause SEC FOR`) and a rate change fade the audio out and in
+over 10 ms, so they make none; `--max-gap MS` also fails on silence
+inside the recording, for a loop, whose passes must join without a gap.
+
+```sh
+lychee_cli --virtual-time --volume 1 --seconds 4 --seek 5.2 --seek-after 1 \
+  --audio-dump /tmp/a.wav video.mp4
+python3 -I tool/audio_check.py /tmp/a.wav
+```
 ### Per platform
 
 - **macOS and iOS**: the xcframeworks above; macOS 11 and iOS 16 or newer.

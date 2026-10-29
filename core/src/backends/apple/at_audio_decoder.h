@@ -43,7 +43,11 @@ class ATAudioDecoder : public AudioDecoder {
   const EncodedPacket* pending_ = nullptr;
   bool draining_ = false;
   AudioStreamPacketDescription description_ = {};
+  // The first output's time, and the frames output since: each output's
+  // time counts from it, as adding each one's whole-microsecond duration
+  // would fall behind (1024 frames at 48 kHz, 2 frames in 3 s).
   int64_t next_pts_ = kNoTimestamp;
+  int64_t output_frames_ = 0;
   // The next output is the first since the converter started: Opus and MP3
   // lose the decoder's delay from it.
   bool first_output_ = true;

@@ -790,6 +790,34 @@ frames() {
   fi
 }
 
+# audio NAME MEDIA [CHECK_ARGS]... -- CLI_ARGS: plays MEDIA with the volume
+# up, records what the silent device output (--audio-dump, into
+# $build/audio/NAME.wav) and passes if tool/audio_check.py finds no click
+# in it (CHECK_ARGS: e.g. --max-gap MS where no silence belongs).
+audio() {
+  local name="$1" file="$2"; shift 2
+  local wav="$build/audio/$name.wav" check=() out status checked problems="" start=$SECONDS
+  mkdir -p "$build/audio"
+  while [ "$1" != -- ]; do check+=("$1"); shift; done
+  shift
+  [ "${NO_HW:-0}" = 1 ] && set -- --no-hw "$@"
+  out="$("$cli" --virtual-time --volume 1 --audio-dump "$wav" "$@" "$file" 2>&1)"
+  status=$?
+  out="${out//$'\r'/}"
+  [ "$status" = 0 ] || problems+=" exit=$status"
+  grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
+  checked="$(python3 -I "$root/tool/audio_check.py" "$wav" ${check[@]+"${check[@]}"} 2>&1)" ||
+    problems+=" clicks"
+  if [ -z "$problems" ]; then
+    echo "PASS $name ($((SECONDS - start))s)"
+  else
+    echo "FAIL $name ($((SECONDS - start))s):$problems"
+    grep -E '^(summary|error)' <<<"$out" | sed 's/^/     /'
+    sed 's/^/     /' <<<"$checked"
+    print_reports "$out"
+  fi
+}
+
 # Most cases spend their time waiting for media to play in real time, using a
 # few percent of a core, so they run JOBS at a time. Results print in order.
 # `par` cases may overlap; `seq` cases wait for the running ones and run
@@ -1111,6 +1139,20 @@ par expect rate-change "rate -> 1.50" "summary: state=ended" "summary:.*glitches
 par expect rate-audio-only "summary: state=ended" "$small_drift" -- --rate 2 "$media/audio_only.mp3"
 par expect rate-video-only "summary: state=ended" "$few_glitches" "$small_drift" -- \
   --rate 2 "$media/video_only.mp4"
+# What the device outputs around a seek, a pause, a rate change, a track
+# switch, a stop and a loop: a waveform cut or started mid-cycle clicks
+# (tool/audio_check.py). All but the loop fade out and in; a loop joins
+# the passes without a gap. Every case ends with a stop: the CLI records
+# until after the player is destroyed.
+par audio audio-seek "$media/h264_aac.mp4" -- --seconds 4 --seek 5.237 --seek-after 1
+par audio audio-pause "$media/h264_aac.mp4" -- --seconds 3 --pause 1 0.5
+par audio audio-loop "$media/loop.mp4" --max-gap 1 -- --loop --seconds 8
+par audio audio-rate "$media/h264_aac.mp4" -- --seconds 4 --rate 1.5 --rate-after 1
+par audio audio-seek-mkv "$media/h264_aac.mkv" -- --seconds 4 --seek 5.237 --seek-after 1
+par audio audio-seek-ts "$media/keyframes.ts" -- --seconds 4 --seek 5.237 --seek-after 1
+par audio audio-seek-fmp4 "$media/frag.mp4" -- --seconds 4 --seek 5.237 --seek-after 1
+par audio audio-track "$media/tracks.mkv" -- --seconds 3 --select audio:2 --select-after 1
+par audio audio-stop "$media/h264_aac.mp4" -- --seconds 1.5
 # Looping: back to the start without ENDED or BUFFERING, and without
 # stopping: a frame held too long at the jump is a glitch.
 par expect loop "summary: state=ready" "loops=2" "summary:.*backward_jumps=0 " "summary:.*glitches=0 " \

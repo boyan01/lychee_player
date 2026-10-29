@@ -281,6 +281,7 @@ bool ATAudioDecoder::Decode(const EncodedPacket& packet,
     pending_ = &packet;
     if (next_pts_ == kNoTimestamp) {
       next_pts_ = packet.pts;
+      output_frames_ = 0;
     }
   } else {
     return true;
@@ -323,10 +324,11 @@ bool ATAudioDecoder::Decode(const EncodedPacket& packet,
       consecutive_errors_ = 0;
       buffer->samples.resize(static_cast<size_t>(frames) *
                              output_format_.channels);
-      buffer->pts = next_pts_;
       if (next_pts_ != kNoTimestamp) {
-        next_pts_ += buffer->duration();
+        buffer->pts = next_pts_ + output_frames_ * kMicrosPerSecond /
+                                      output_format_.sample_rate;
       }
+      output_frames_ += frames;
       output(std::move(buffer));
     }
     if (status == kNoMoreInput || (status == noErr && frames == 0)) {

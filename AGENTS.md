@@ -172,6 +172,9 @@ The layers, lowest first:
    on an idle machine.
    `frames` cases check the frame on screen by pixels (`--frame-ppm`
    and `tool/frame_check.py`): conversion, rotation, tone mapping.
+   `audio` cases check what the audio device output for clicks
+   (`--audio-dump` and `tool/audio_check.py`): seeks, pauses, rate
+   changes and loops.
 3. **The platform's native harness**: the smallest native app that takes
    the platform's frames to the screen (frame hand-off, conversion,
    rotation, HDR, the display link), with no Flutter in between, so it

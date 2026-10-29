@@ -3,7 +3,9 @@
 #include "pipeline/audio_renderer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
+#include <thread>
 
 #include "base/log.h"
 #include "base/time.h"
@@ -27,6 +29,16 @@ constexpr int64_t kDeviceTimeout = 2 * kMicrosPerSecond;
 // Audio pulled for a stalled device reaches this far past now, as a
 // device's buffer does, so the clock does not stop between pulls.
 constexpr int64_t kStalledDeviceLead = 50 * kMicrosPerMilli;
+// A seek or pause fades out the audio playing, and the audio after it in,
+// over this long: short enough not to be heard as a fade, long enough not
+// to click.
+constexpr int64_t kFadeDuration = 10 * kMicrosPerMilli;
+// A paused device that has not taken the fade-out by then is stopped
+// without it.
+constexpr int64_t kFadeOutTimeout = 500 * kMicrosPerMilli;
+// How long a stop waits for the device to play its fade-out: the fade,
+// and the device's latency up to a point.
+constexpr auto kStopFadeTimeout = std::chrono::milliseconds(100);
 
 std::atomic<bool> g_devices_stalled{false};
 
@@ -79,11 +91,12 @@ bool AudioRenderer::Initialize(const AudioConfig& config,
   return false;
 }
 
-void AudioRenderer::Start() {
+void AudioRenderer::Start(int64_t start_time) {
+  start_time_ = start_time;
   thread_ = std::thread(&AudioRenderer::DecodeLoop, this);
 }
 
-void AudioRenderer::Stop() {
+void AudioRenderer::StopDecoding() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     stopped_ = true;
@@ -92,6 +105,29 @@ void AudioRenderer::Stop() {
   if (thread_.joinable()) {
     thread_.join();
   }
+}
+
+void AudioRenderer::Retire() {
+  SetPlaying(false);
+  StopDecoding();
+}
+
+bool AudioRenderer::SinkStopped() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return !sink_running_;
+}
+
+void AudioRenderer::FadeOutForStop() {
+  SetPlaying(false);
+  const auto give_up = std::chrono::steady_clock::now() + kStopFadeTimeout;
+  while (!SinkStopped() && std::chrono::steady_clock::now() < give_up) {
+    StopSinkAfterFadeOut(NowMicros());
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+}
+
+void AudioRenderer::Stop() {
+  StopDecoding();
   if (sink_) {
     sink_->Stop();
   }
@@ -181,10 +217,11 @@ int AudioRenderer::Render(float* destination,
                           int64_t playout_time,
                           bool from_device) {
   const float volume = volume_.load();
-  const double rate = rate_.load();
   int written = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    // Under the lock: SetRate() fades out at the rate before it.
+    const double rate = rate_.load();
     if (from_device) {
       device_pull_time_ = NowMicros();
       if (stalled_playout_time_ != kNoTimestamp) {
@@ -195,34 +232,59 @@ int AudioRenderer::Render(float* destination,
       // The device took over meanwhile.
       return 0;
     }
-    if (!playing_) {
-      return 0;
-    }
     if (render_bus_.frames() < frames) {
       render_bus_.Resize(frames);
     }
-    if (live_output_lead_) {
+    // First what is left of the fade-out of the audio a seek or pause cut.
+    const int faded = std::min(frames, fade_out_frames_ - fade_out_offset_);
+    if (faded > 0) {
+      fade_out_.CopyPartialFramesTo(fade_out_offset_, faded, 0, &render_bus_);
+      fade_out_offset_ += faded;
+      playout_time +=
+          static_cast<int64_t>(faded) * kMicrosPerSecond / format_.sample_rate;
+      if (fade_out_offset_ == fade_out_frames_ && !playing_) {
+        stop_sink_at_ = playout_time;
+      }
+    }
+    // Then the audio playing, if any.
+    const int requested = playing_ ? frames - faded : 0;
+    int filled = 0;
+    if (requested > 0 && live_output_lead_) {
       live_output_lead_->store(playout_time - NowMicros(),
                                std::memory_order_relaxed);
-      written = RenderLiveLocked(frames, playout_time);
-    } else {
-      written = algorithm_.FillBuffer(
-          &render_bus_, 0, std::min(frames, FramesBeforeEndLocked(rate)), rate);
+      filled = RenderLiveLocked(requested, playout_time);
+    } else if (requested > 0) {
+      filled = algorithm_.FillBuffer(
+          &render_bus_, faded, std::min(requested, FramesBeforeEndLocked(rate)),
+          rate);
+      const int fade_frames = FadeFrames();
+      for (int k = 0; k < format_.channels && fade_in_frames_ < fade_frames;
+           ++k) {
+        float* samples = render_bus_.channel(k) + faded;
+        for (int i = 0; i < filled && fade_in_frames_ + i < fade_frames; ++i) {
+          samples[i] *= static_cast<float>(fade_in_frames_ + i + 1) /
+                        static_cast<float>(fade_frames);
+        }
+      }
+      fade_in_frames_ = std::min(fade_frames, fade_in_frames_ + filled);
     }
-    const int64_t end_pts = algorithm_.NextOutputTimestamp();
-    if (written == 0 && end_of_stream_) {
+    written = faded + filled;
+    if (requested == 0) {
+      // Paused, or the fade-out filled the buffer: nothing for the clock.
+    } else if (filled == 0 && end_of_stream_) {
       // WSOLA keeps less than a window it cannot use: drop it so the stream
       // can end. Then let video (if any) run on the system clock.
       algorithm_.FlushBuffers();
       clock_->ClearMaxTime();
-    } else if (written == 0 && FramesBeforeEndLocked(rate) == 0) {
+    } else if (filled == 0 && FramesBeforeEndLocked(rate) == 0) {
       clock_->ClearMaxTime();
-    } else if (written > 0 && end_pts != kNoTimestamp && !live_output_lead_) {
+    } else if (const int64_t end_pts = algorithm_.NextOutputTimestamp();
+               filled > 0 && end_pts != kNoTimestamp && !live_output_lead_) {
       // Under the lock: a device taking over from PullForStalledDevice()
       // must not have its update overwritten by an older one.
-      // |written| frames at |rate| cover this much media time.
+      // |filled| frames at |rate| cover this much media time.
       const int64_t span = static_cast<int64_t>(
-          written * rate * kMicrosPerSecond / format_.sample_rate);
+          filled * rate * kMicrosPerSecond / format_.sample_rate);
       clock_->UpdateFromAudio(end_pts - span, playout_time, end_pts);
       // The last of the audio: the clock runs on past its end now, not
       // from the next pull, which finds nothing. That pull is a device
@@ -303,6 +365,10 @@ int AudioRenderer::RenderLiveLocked(int frames, int64_t playout_time) {
 void AudioRenderer::Flush(uint64_t generation, int64_t start_time) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (playing_) {
+      FadeOutLocked();
+    }
+    fade_in_frames_ = 0;
     generation_ = generation;
     start_time_ = start_time;
     algorithm_.FlushBuffers();
@@ -316,26 +382,89 @@ void AudioRenderer::Flush(uint64_t generation, int64_t start_time) {
 }
 
 void AudioRenderer::SetPlaying(bool playing) {
+  bool start = false;
+  bool stop = false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (playing_ == playing) {
       return;
     }
     playing_ = playing;
+    const int64_t now = NowMicros();
     if (playing) {
       // The device gets kDeviceTimeout from here, or a stalled one is
       // pulled for from here on.
-      const int64_t now = NowMicros();
       device_pull_time_ = now;
       if (stalled_playout_time_ != kNoTimestamp) {
         stalled_playout_time_ = now;
       }
+      fade_in_frames_ = 0;
+      stop_sink_at_ = kNoTimestamp;
+      start = !sink_running_;
+      sink_running_ = true;
+    } else {
+      FadeOutLocked();
+      if (fade_out_offset_ < fade_out_frames_) {
+        // StopSinkAfterFadeOut() stops it.
+        stop_sink_at_ = now + kFadeOutTimeout;
+      } else {
+        stop = sink_running_;
+        sink_running_ = false;
+      }
     }
   }
-  if (playing) {
+  if (start) {
     sink_->Start();
-  } else {
+  }
+  if (stop) {
     sink_->Stop();
+  }
+}
+
+void AudioRenderer::StopSinkAfterFadeOut(int64_t now) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (playing_ || !sink_running_ || stop_sink_at_ == kNoTimestamp ||
+        now < stop_sink_at_) {
+      return;
+    }
+    sink_running_ = false;
+    stop_sink_at_ = kNoTimestamp;
+    fade_out_offset_ = fade_out_frames_;
+  }
+  sink_->Stop();
+}
+
+int AudioRenderer::FadeFrames() const {
+  return static_cast<int>(kFadeDuration * format_.sample_rate /
+                          kMicrosPerSecond);
+}
+
+void AudioRenderer::FadeOutLocked() {
+  // Live input plays each sample when it is due; one already fading out
+  // goes on.
+  if (live_output_lead_ || fade_out_offset_ < fade_out_frames_) {
+    return;
+  }
+  const int frames = FadeFrames();
+  if (fade_out_.frames() < frames) {
+    fade_out_ = AudioBus(format_.channels, frames);
+  }
+  const double rate = rate_.load();
+  fade_out_frames_ = algorithm_.FillBuffer(
+      &fade_out_, 0, std::min(frames, FramesBeforeEndLocked(rate)), rate);
+  fade_out_offset_ = 0;
+  // From where a fade-in still under way has got to, down to silence.
+  for (int k = 0; k < format_.channels; ++k) {
+    float* samples = fade_out_.channel(k);
+    for (int i = 0; i < fade_out_frames_; ++i) {
+      const float in =
+          std::min(1.0f, static_cast<float>(fade_in_frames_ + i + 1) /
+                             static_cast<float>(frames));
+      const float out = 1.0f - static_cast<float>(i + 1) /
+                                   static_cast<float>(fade_out_frames_);
+      samples[i] *= in * out;
+    }
   }
 }
 
@@ -372,6 +501,16 @@ void AudioRenderer::SetVolume(float volume) {
 }
 
 void AudioRenderer::SetRate(double rate) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (rate == rate_.load()) {
+    return;
+  }
+  // The algorithm starts its output over when it switches between copying
+  // the input and WSOLA: fade the old rate's out and the new one's in.
+  if (playing_) {
+    FadeOutLocked();
+    fade_in_frames_ = 0;
+  }
   rate_ = rate;
 }
 

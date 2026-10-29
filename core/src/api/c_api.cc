@@ -592,6 +592,14 @@ int64_t lychee_testing_first_sound_us(void) {
   return time == lychee::kNoTimestamp ? INT64_MIN : time;
 }
 
+void lychee_testing_capture_audio(void) {
+  lychee::NullAudioSink::StartCapture();
+}
+
+int32_t lychee_testing_write_captured_audio(const char* wav_path) {
+  return wav_path && lychee::NullAudioSink::WriteCapture(wav_path) ? 0 : -1;
+}
+
 }  // extern "C"
 
 struct lychee_testing_live_source {

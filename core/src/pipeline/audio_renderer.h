@@ -27,6 +27,11 @@ namespace lychee {
 // dropped (PullForStalledDevice()), so playback goes on silently instead of
 // waiting for it; the device takes over again when it pulls.
 //
+// A seek, a pause, a rate change, a track switch or a stop does not cut
+// the waveform, which clicks: the device plays on for kFadeDuration,
+// fading the audio out, before the sink stops, and the audio after it
+// fades in. A loop's passes join without a fade.
+//
 // For a live input (|live_output_lead| set) the clock runs on its own and
 // audio timestamps are deadlines: each sample is played when it is due,
 // late ones are dropped and gaps are filled with silence. The renderer
@@ -41,19 +46,35 @@ class AudioRenderer {
   bool Initialize(const AudioConfig& config,
                   PacketQueue* queue,
                   std::string* error);
-  void Start();
+  // Drops audio before |start_time| (encoder priming that an edit list
+  // gives negative timestamps), as after a seek; kNoTimestamp drops none.
+  void Start(int64_t start_time);
   // The packet queue must be aborted first so the decode thread can exit.
   void Stop();
+  // For a renderer being replaced (a track switch): fades out, as a pause
+  // does, and stops the decode thread, so the queue can be reset for the
+  // next renderer. The sink plays the fade-out on; StopSinkAfterFadeOut()
+  // stops it, then SinkStopped() is true and Stop() frees the rest. The
+  // queue must be aborted first.
+  void Retire();
+  bool SinkStopped() const;
+  // For a stop: fades out and returns once the device has played it, or
+  // after kStopFadeTimeout of real time. Nothing else may call into the
+  // renderer meanwhile but the device. Then Stop().
+  void FadeOutForStop();
 
   void Flush(uint64_t generation, int64_t start_time);
   void SetPlaying(bool playing);
   void SetVolume(float volume);
-  // Takes effect from the next buffer the sink pulls.
+  // Takes effect from the next buffer the sink pulls, after a fade.
   void SetRate(double rate);
   // Call every few milliseconds of |now|: once the device has pulled
   // nothing for kDeviceTimeout while playing, pulls the audio due by |now|
   // in its place.
   void PullForStalledDevice(int64_t now);
+  // Call every few milliseconds of |now|, as PullForStalledDevice(): stops
+  // the sink once the device has played the fade-out after a pause.
+  void StopSinkAfterFadeOut(int64_t now);
 
   bool HasEnoughData() const;
   bool IsStarved() const;
@@ -87,6 +108,12 @@ class AudioRenderer {
              bool from_device);
   // Writes the samples due from |playout_time| into |render_bus_|.
   int RenderLiveLocked(int frames, int64_t playout_time);
+  // Takes the next kFadeDuration of audio, faded out, for the device to
+  // play before the audio playing is cut. Not for live input.
+  void FadeOutLocked();
+  // Stops the decode thread; the sink plays on.
+  void StopDecoding();
+  int FadeFrames() const;
   int64_t BufferedDurationLocked() const;
   // Output frames at |rate| left before |end_time_|; INT_MAX without one.
   int FramesBeforeEndLocked(double rate) const;
@@ -126,6 +153,17 @@ class AudioRenderer {
   // While the device is stalled: when the audio pulled in its place next
   // plays.
   int64_t stalled_playout_time_ = kNoTimestamp;
+  // FadeOutLocked()'s audio, and how much of it the device has taken.
+  AudioBus fade_out_;
+  int fade_out_frames_ = 0;
+  int fade_out_offset_ = 0;
+  // Frames of the fade-in after a seek or pause played so far.
+  int fade_in_frames_ = 0;
+  // Started, and not stopped yet: while paused it plays the fade-out.
+  bool sink_running_ = false;
+  // Paused: when the sink stops. When the device will have played the
+  // fade-out, or a timeout for a device that does not take it.
+  int64_t stop_sink_at_ = kNoTimestamp;
 };
 
 }  // namespace lychee
