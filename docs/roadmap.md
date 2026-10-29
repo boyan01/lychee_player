@@ -77,8 +77,8 @@ building on top of them.
   demuxer also ignores DiscardPadding and, with a DefaultDuration, the
   last block's BlockDuration.
 
-1. **iOS foreground recovery needs device verification** (waiting on the
-   user): an iPhone 17 (2026-10-27) rejected 32 video packets (`-12909`)
+1. **iOS foreground recovery can fall back to software**: an iPhone 17
+   (2026-10-27) rejected 32 video packets (`-12909`)
    after an apparent interruption or background transition; the actual
    lifecycle trigger is unconfirmed. The native and Flutter frame drivers
    now request a fresh hardware decoder after becoming active following
@@ -86,9 +86,11 @@ building on top of them.
    normal picture and sound after five seconds on the Home Screen, but
    the native harness logged repeated VideoToolbox `-12903` failures and
    ultimately fell back to software; HTTP reconnects also produced corrupt
-   packet warnings. Repeat with local media before claiming hardware
-   recovery works. Verify that device scenario resumes promptly,
-   including a paused player. Also distinguish an audio interruption from
+   packet warnings; their causal role is unconfirmed. Investigate the
+   hardware fallback from the saved logs. Cover paused-state retention
+   and resume with an automated harness, not another manual pause test.
+   Done when foreground recovery promptly restores hardware playback.
+   Also distinguish an audio interruption from
    an actual background transition: an alarm alone may not enter this hook.
    The simulator cannot reproduce this hardware
    failure; direct C ABI consumers must call
