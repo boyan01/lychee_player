@@ -89,10 +89,6 @@ building on top of them.
 2. **HDR beyond Apple's SDK**:
    - Flutter: textures are 8-bit SDR on every platform, so the plugin
      stays on tone-mapped BGRA.
-   - FFmpeg CPU HDR conversion on Windows and Android: run
-     `NO_HW=1 ONLY='frame-hdr-colors-sw frame-hdr-highlights-sw frame-hlg-colors-sw' tool/regression.sh`
-     against the shipped FFmpeg to verify the planar 16-bit intermediate
-     and RGBA/BGRA packing in the final integration pass.
    - Android: the Flutter plugin's path (MediaCodec into a
      `SurfaceProducer`) is unchecked, waiting on the user's HDR phone; the
      emulator has no HEVC Main 10 decoder. If the plugin shows PQ washed
