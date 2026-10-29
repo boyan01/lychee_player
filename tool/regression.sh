@@ -915,11 +915,13 @@ par expect hdr-tonemap "center pixel: 1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9]),1(7[5-9]
   "$media/hdr_pq.mp4"
 par expect hdr-tonemap-sw "hw=0 " "center pixel: 1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9])$" -- --cpu \
   --no-hw --seconds 1 "$media/hdr_pq.mp4"
-# Apple: the decoder's own buffers, 10-bit and tagged PQ for HDR10; BGRA
-# from software decoding.
+# Apple: VideoToolbox keeps HDR10 in 10-bit PQ buffers, even in software.
+# With FFmpeg and hardware disabled, CPU frames are tone-mapped into BGRA.
 if [ "$(uname)" = Darwin ]; then
   native_hdr="native frame: x420 transfer=SMPTE_ST_2084_PQ$"
-  [ "${NO_HW:-0}" = 1 ] && native_hdr="native frame: BGRA "
+  if [ "${NO_HW:-0}" = 1 ] && [ "${NO_FFMPEG:-0}" != 1 ]; then
+    native_hdr="native frame: BGRA transfer=none$"
+  fi
   par expect native-hdr "$native_hdr" "frame_type=64 " -- --native --seconds 1 "$media/hdr_pq.mp4"
 fi
 # Windows native HDR has a fixed, independently readable encoding even on
