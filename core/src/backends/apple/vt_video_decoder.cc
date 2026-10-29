@@ -658,17 +658,21 @@ bool VTVideoDecoder::DecodeSample(const EncodedPacket& packet,
   }
   Pending& pending = pending_[pending_count_++];
   pending = {noErr, packet.keyframe};
+  // Software batching delayed 4K H.264's first frame without improving
+  // throughput. Keep other codecs' batching gains, but never batch live input.
+  const bool asynchronous =
+      !config_.low_delay &&
+      (hardware_output_ || config_.codec != VideoCodec::kH264);
   status = VTDecompressionSessionDecodeFrame(
       session_, sample,
-      config_.low_delay ? 0 : kVTDecodeFrame_EnableAsynchronousDecompression,
+      asynchronous ? kVTDecodeFrame_EnableAsynchronousDecompression : 0,
       &pending, nullptr);
   CFRelease(sample);
   if (status != noErr) {
     std::lock_guard<std::mutex> lock(output_mutex_);
     pending.status = status;
   }
-  if (!config_.low_delay && pending_count_ < kMaxPendingFrames &&
-      status == noErr) {
+  if (asynchronous && pending_count_ < kMaxPendingFrames && status == noErr) {
     return true;
   }
   if (!CompleteFrames()) {
@@ -687,7 +691,8 @@ bool VTVideoDecoder::DecodeSample(const EncodedPacket& packet,
 }
 
 bool VTVideoDecoder::CompleteFrames() {
-  if (session_ && !config_.low_delay) {
+  if (session_ && !config_.low_delay &&
+      (hardware_output_ || config_.codec != VideoCodec::kH264)) {
     VTDecompressionSessionWaitForAsynchronousFrames(session_);
   }
   std::lock_guard<std::mutex> lock(output_mutex_);

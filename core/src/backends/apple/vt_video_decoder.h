@@ -43,8 +43,9 @@ class VTVideoDecoder : public VideoDecoder {
     OSStatus status = noErr;
     bool keyframe = false;
   };
-  // Bound both decoder work and the added file-playback latency. Live
-  // input keeps synchronous submission (config_.low_delay).
+  // Bound queued work and its added file-playback latency. Software H.264
+  // stays synchronous to deliver the first frame immediately; live input
+  // also stays synchronous.
   static constexpr size_t kMaxPendingFrames = 4;
   // What a VP9 stream's vpcC says, from the container until a keyframe's
   // header says otherwise.
