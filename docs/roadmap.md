@@ -42,11 +42,7 @@ building on top of them.
 3. **Linux**: VAAPI on AMD, hardware decoding on arm64, and audio
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays
-   slower still). HDR dmabuf imports through both GLFW and Flutter wait
-   on the user to boot the PC into Ubuntu 24.04 and log in to X11.
-   Play `hdr_pq_colors.mp4` and `hdr_pq_highlights.mp4` through Intel VAAPI
-   and check two advancing snapshots from each consumer with the existing
-   `tool/frame_check.py` thresholds.
+   slower still).
 
 ## Known defects
 
