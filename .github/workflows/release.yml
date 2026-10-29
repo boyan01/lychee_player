@@ -33,7 +33,7 @@ jobs:
   apple:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install tools
         run: brew install meson nasm ninja pkg-config
       - run: tool/release.sh version "$VERSION"
@@ -42,7 +42,7 @@ jobs:
         run: |
           inputs="$(cat tool/build_ffmpeg.sh tool/apple_framework.sh tool/patches/*.patch; grep -E '^(ffmpeg|dav1d)_' tool/release.sh; xcodebuild -version)"
           echo "key=ffmpeg-apple-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: third_party/ffmpeg
           key: ${{ steps.ffmpeg.outputs.key }}
@@ -57,7 +57,7 @@ jobs:
           brew install ffmpeg pkg-config
           REALTIME_ADVISORY=1 NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh
       - run: tool/release.sh pack apple dist
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: apple
           path: dist
@@ -66,8 +66,8 @@ jobs:
   android:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: 21
@@ -79,13 +79,13 @@ jobs:
         run: |
           inputs="$(cat tool/build_ffmpeg.sh tool/patches/*.patch; grep -E '^(ffmpeg|dav1d)_' tool/release.sh; echo "$ANDROID_NDK_HOME")"
           echo "key=ffmpeg-android-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: third_party/ffmpeg
           key: ${{ steps.ffmpeg.outputs.key }}
       - run: tool/release.sh build android build-sources
       - run: tool/release.sh pack android dist
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android
           path: dist
@@ -97,7 +97,7 @@ jobs:
   windows:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install tools
         run: sudo apt-get install -y mingw-w64 libz-mingw-w64-dev nasm meson ninja-build pkg-config zip
       - run: tool/release.sh version "$VERSION"
@@ -106,13 +106,13 @@ jobs:
         run: |
           inputs="$(cat tool/build_ffmpeg.sh tool/patches/*.patch; grep -E '^(ffmpeg|dav1d)_' tool/release.sh; x86_64-w64-mingw32-gcc --version | head -1; dpkg -s mingw-w64-x86-64-dev | grep ^Version)"
           echo "key=ffmpeg-windows-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: third_party/ffmpeg
           key: ${{ steps.ffmpeg.outputs.key }}
       - run: tool/release.sh build windows build-sources
       - run: tool/release.sh pack windows dist
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows
           path: dist
@@ -128,7 +128,7 @@ jobs:
         runner: [ubuntu-22.04, ubuntu-22.04-arm]
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install tools
         run: |
           sudo apt-get update
@@ -140,13 +140,13 @@ jobs:
         run: |
           inputs="$(cat tool/build_ffmpeg.sh tool/patches/*.patch; grep -E '^(ffmpeg|dav1d)_' tool/release.sh; lsb_release -ds; gcc --version | head -1)"
           echo "key=ffmpeg-linux-release-$(uname -m)-$(echo "$inputs" | shasum -a 256 | cut -c1-16)" >>"$GITHUB_OUTPUT"
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: third_party/ffmpeg
           key: ${{ steps.ffmpeg.outputs.key }}
       - run: tool/release.sh build linux build-sources
       - run: tool/release.sh pack linux dist
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-${{ matrix.runner }}
           path: dist
@@ -163,11 +163,11 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true
@@ -187,7 +187,7 @@ jobs:
     env:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Linux build tools
         run: |
           sudo apt-get update
@@ -200,7 +200,7 @@ jobs:
         run: |
           git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
           echo "$RUNNER_TEMP/flutter/bin" >>"$GITHUB_PATH"
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true
@@ -218,17 +218,17 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: 21
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true
