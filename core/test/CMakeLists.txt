@@ -47,8 +47,8 @@ target_sources(lychee_unittests PRIVATE ${_lychee_test_sources})
 if(ANDROID AND NOT LYCHEE_WITH_FFMPEG)
   target_sources(lychee_unittests PRIVATE media_codec_audio_decoder_test.cc)
 endif()
-# Built into the library only without FFmpeg on Android.
-if(LYCHEE_WITH_FFMPEG OR NOT ANDROID)
+# Built into the library only without FFmpeg on Android and Windows.
+if(LYCHEE_WITH_FFMPEG OR NOT (ANDROID OR WIN32))
   target_sources(lychee_unittests PRIVATE ../src/media/resampler.cc)
 endif()
 # The tests reach into the library's internals.

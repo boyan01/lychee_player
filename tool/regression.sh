@@ -1147,6 +1147,16 @@ par expect rate-video-only "summary: state=ended" "$few_glitches" "$small_drift"
 par audio audio-seek "$media/h264_aac.mp4" -- --seconds 4 --seek 5.237 --seek-after 1
 par audio audio-pause "$media/h264_aac.mp4" -- --seconds 3 --pause 1 0.5
 par audio audio-loop "$media/loop.mp4" --max-gap 1 -- --loop --seconds 8
+# Containers without an edit list, where AAC's priming starts every pass
+# (MPEG-TS, Matroska); Opus whose Duration counts its padding and whose
+# block times are rounded to milliseconds (WebM); 44.1 kHz resampled to
+# 48 kHz, which must give the resampler's tail back at the end (MP3,
+# FLAC).
+par audio audio-loop-mkv "$media/h264_aac.mkv" --max-gap 1 -- --loop --seconds 14
+par audio audio-loop-ts "$media/keyframes.ts" --max-gap 1 -- --loop --seconds 14
+par audio audio-loop-webm "$media/vp9_opus.webm" --max-gap 1 -- --loop --seconds 12
+par audio audio-loop-mp3 "$media/audio_only.mp3" --max-gap 1 -- --loop --seconds 10
+par audio audio-loop-flac "$media/flac.mkv" --max-gap 1 -- --loop --seconds 7
 par audio audio-rate "$media/h264_aac.mp4" -- --seconds 4 --rate 1.5 --rate-after 1
 par audio audio-seek-mkv "$media/h264_aac.mkv" -- --seconds 4 --seek 5.237 --seek-after 1
 par audio audio-seek-ts "$media/keyframes.ts" -- --seconds 4 --seek 5.237 --seek-after 1
@@ -1201,9 +1211,21 @@ par expect decoder-lost-twice "<=0 event: state error" \
   --lose-decoder-after 2 --lose-decoder-after 5 "$media/h264_aac.mp4"
 # Foreground recovery uses the public API, before any packet fails. Each
 # transition gets a fresh hardware attempt rather than forcing software.
-par expect decoder-rebuild "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" "<=0 event: state error" \
+# Software by choice has nothing to recover, so no rebuild (and no resync).
+rebuilt="video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s"
+[ "${NO_HW:-0}" = 1 ] && rebuilt="<=0 video rebuilt"
+par expect decoder-rebuild "$rebuilt" "<=0 event: state error" \
   "summary: state=ended .* hw=$hw_first .*backward_jumps=0 " -- \
   --rebuild-decoder-after 2 --rebuild-decoder-after 5 "$media/h264_aac.mp4"
+# iOS in the background: rebuilds fail too, into software. The
+# foreground's rebuild then goes back to hardware, playing and paused.
+par expect decoder-foreground "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" "<=0 event: state error" \
+  "summary: state=ended .* hw=$hw_first .*backward_jumps=0 " -- \
+  --lose-decoder-after 2 --lose-decoder-after 4 --rebuild-decoder-after 6 "$media/h264_aac.mp4"
+par expect decoder-foreground-paused "<=0 event: state error" "play at" \
+  "summary: state=ended .* hw=$hw_first .*backward_jumps=0 " -- \
+  --pause 3 5 --lose-decoder-after 2 --lose-decoder-after 4 --rebuild-decoder-after 6 \
+  "$media/h264_aac.mp4"
 # A hardware decoder that never returns (a driver hang) is given up after
 # 4 s without frames and rebuilt in software at the position. Destroying
 # the player meanwhile waits for it no longer than that.
@@ -1471,7 +1493,9 @@ if [ "${NO_FFMPEG:-0}" != 1 ]; then
   seq_ expect http-no-ranges-decoder-lost "video rebuilt" "<=0 event: state error" \
     "summary: state=ended position=12\.000s .*pulled=3(5[5-9]|6[0-9]) .*backward_jumps=0 " -- \
     --lose-decoder-after 2 "$url"
-  seq_ expect http-no-ranges-decoder-rebuild "video rebuilt" "<=0 event: state error" \
+  rebuilt="video rebuilt"
+  [ "${NO_HW:-0}" = 1 ] && rebuilt="<=0 video rebuilt"
+  seq_ expect http-no-ranges-decoder-rebuild "$rebuilt" "<=0 event: state error" \
     "summary: state=ended position=12\.000s .*pulled=3(5[5-9]|6[0-9]) .*backward_jumps=0 " -- \
     --rebuild-decoder-after 2 "$url"
 fi

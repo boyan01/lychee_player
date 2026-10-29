@@ -87,6 +87,21 @@ std::vector<uint8_t> UserData(AudioCodec codec,
         return {config.begin() + 12, config.end()};
       }
       return config;
+    case AudioCodec::kOpus:
+      // Windows' Opus decoder mishandles the pre-skip: it drops a quarter
+      // of it from the first packet's start and the rest from its end
+      // (78 and 234 of 312 frames), so 4.9 ms of the content is the
+      // encoder's lookahead instead, a step at the end of the first
+      // output (checked on Windows 11 26100, 2026-10-29). Without it the
+      // decoder outputs the whole packet, and the renderer drops what
+      // precedes the start by the packet's (negative) timestamp.
+      if (config.size() >= 12 &&
+          std::memcmp(config.data(), "OpusHead", 8) == 0) {
+        std::vector<uint8_t> head = config;
+        head[10] = head[11] = 0;
+        return head;
+      }
+      return config;
     default:
       return config;
   }
@@ -275,6 +290,7 @@ bool MFAudioDecoder::SetUpOutput() {
   const int channels = static_cast<int>(
       MFGetAttributeUINT32(chosen.Get(), MF_MT_AUDIO_NUM_CHANNELS, 0));
   resampler_.Reset();
+  rate_resampler_.reset();
   float_output_ = subtype == MFAudioFormat_Float;
   decoder_rate_ = rate;
   const int sample_bytes =
@@ -285,9 +301,13 @@ bool MFAudioDecoder::SetUpOutput() {
                              8);
   decoder_frame_bytes_ = sample_bytes * channels;
   const char* codec = config_.codec_name.c_str();
-  if (rate == output_format_.sample_rate &&
-      channels == output_format_.channels && float_output_) {
-    LOGI("decoder opened for %s %d Hz %d ch", codec, rate, channels);
+  if (rate != output_format_.sample_rate) {
+    rate_resampler_ = std::make_unique<Resampler>(output_format_.channels, rate,
+                                                  output_format_.sample_rate);
+  }
+  if (channels == output_format_.channels && float_output_) {
+    LOGI("decoder opened for %s %d Hz %d ch -> %d Hz", codec, rate, channels,
+         output_format_.sample_rate);
     return true;
   }
 
@@ -296,7 +316,8 @@ bool MFAudioDecoder::SetUpOutput() {
     return false;
   }
   const UINT32 out_channels = static_cast<UINT32>(output_format_.channels);
-  const UINT32 out_rate = static_cast<UINT32>(output_format_.sample_rate);
+  // At the decoder's rate: |rate_resampler_| converts it.
+  const UINT32 out_rate = static_cast<UINT32>(rate);
   output->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
   output->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_Float);
   output->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, out_channels);
@@ -505,6 +526,11 @@ bool MFAudioDecoder::Deliver(std::vector<ComPtr<IMFSample>>* decoded,
     for (ComPtr<IMFSample>& sample : *decoded) {
       Emit(sample.Get(), output);
     }
+    if (drain && rate_resampler_) {
+      std::vector<float> tail;
+      rate_resampler_->Drain(&tail);
+      EmitFrames(std::move(tail), output);
+    }
     return true;
   }
   std::vector<ComPtr<IMFSample>> resampled;
@@ -530,6 +556,11 @@ bool MFAudioDecoder::Deliver(std::vector<ComPtr<IMFSample>>* decoded,
   for (ComPtr<IMFSample>& sample : resampled) {
     Emit(sample.Get(), output);
   }
+  if (drain && rate_resampler_) {
+    std::vector<float> tail;
+    rate_resampler_->Drain(&tail);
+    EmitFrames(std::move(tail), output);
+  }
   return true;
 }
 
@@ -541,26 +572,39 @@ void MFAudioDecoder::Emit(IMFSample* sample, const OutputCallback& output) {
       FAILED(buffer->Lock(&data, nullptr, &length))) {
     return;
   }
-  auto audio = std::make_shared<AudioBuffer>();
-  audio->sample_rate = output_format_.sample_rate;
-  audio->channels = output_format_.channels;
   const size_t bytes = float_output_ ? sizeof(float) : sizeof(int16_t);
   const size_t frame_bytes = bytes * output_format_.channels;
   const size_t count = length / frame_bytes * output_format_.channels;
-  audio->samples.resize(count);
+  std::vector<float> samples(count);
   if (float_output_) {
-    std::memcpy(audio->samples.data(), data, count * sizeof(float));
+    std::memcpy(samples.data(), data, count * sizeof(float));
   } else {
     for (size_t i = 0; i < count; ++i) {
       int16_t value;
       std::memcpy(&value, data + i * sizeof(int16_t), sizeof(value));
-      audio->samples[i] = value / 32768.0f;
+      samples[i] = value / 32768.0f;
     }
   }
   buffer->Unlock();
-  if (audio->samples.empty()) {
+  if (rate_resampler_) {
+    std::vector<float> resampled;
+    rate_resampler_->Push(samples.data(),
+                          static_cast<int>(count / output_format_.channels),
+                          &resampled);
+    samples = std::move(resampled);
+  }
+  EmitFrames(std::move(samples), output);
+}
+
+void MFAudioDecoder::EmitFrames(std::vector<float> samples,
+                                const OutputCallback& output) {
+  if (samples.empty()) {
     return;
   }
+  auto audio = std::make_shared<AudioBuffer>();
+  audio->sample_rate = output_format_.sample_rate;
+  audio->channels = output_format_.channels;
+  audio->samples = std::move(samples);
   if (next_pts_ != kNoTimestamp) {
     audio->pts = next_pts_ +
                  output_frames_ * kMicrosPerSecond / output_format_.sample_rate;
@@ -575,6 +619,9 @@ void MFAudioDecoder::Flush() {
   }
   if (resampler_) {
     resampler_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
+  }
+  if (rate_resampler_) {
+    rate_resampler_->Reset();
   }
   next_pts_ = kNoTimestamp;
   expected_us_ = 0;

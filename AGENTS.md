@@ -103,7 +103,9 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
   playback goes on silently; the device takes over on its next pull.
 - Looping does not seek: at the end of the input the read thread seeks
   the demuxer back to the start and pushes a boundary packet, and reads
-  each later pass with timestamps a duration later (`Player::loops_`), so
+  each later pass with timestamps a pass length later (`Player::loops_`;
+  passes after the first span what the tracks cover, without codec
+  priming or padding past them: `Player::SetLoopSpan`), so
   the clock, the audio device and the renderers run on without a stop. At
   a boundary a renderer drains and flushes its decoder and cuts or pads
   audio to the boundary, without a new generation. The position, frame

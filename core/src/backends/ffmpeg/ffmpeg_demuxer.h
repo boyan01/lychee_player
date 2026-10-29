@@ -85,8 +85,16 @@ class FFmpegDemuxer : public Demuxer {
   // Timestamps that start over (or jump back) go on from where the
   // stream's previous packet ended.
   void ApplyDiscontinuity(int stream, EncodedPacket* packet);
+  // Matroska keeps milliseconds, and FFmpeg moves a stream back by its
+  // CodecDelay rounded to them: Opus's 312 samples (6.5 ms) as 7 ms. The
+  // first block, at the delay's negative, gets the exact time, so that the
+  // audio after the decoder drops the delay starts at 0, not 0.5 ms early.
+  void ExactCodecDelay(int stream, EncodedPacket* packet) const;
   bool SeekFFmpeg(int64_t time);
   bool SeekToStart();
+  // Matroska only: to the earliest block any stream's index knows, which
+  // can be before the start. False if it did not seek.
+  bool SeekMatroskaToFirstBlock();
   // Formats without an index: seeks to before |time| and reads up to it,
   // keeping the packets from the keyframe at or before it for Read().
   bool SeekByScanning(int64_t time);

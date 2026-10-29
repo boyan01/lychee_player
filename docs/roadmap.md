@@ -53,56 +53,32 @@ building on top of them.
   unregisters. What the PC's state was before the reboot is unknown.
   If it comes back, compare the bare app on the same boot before
   touching the plugin.
-- **Looping Opus WebM muxed by FFmpeg leaves a gap**: FFmpeg's Matroska
-  muxer writes the segment Duration on the block timeline before
-  CodecDelay, rounded to milliseconds (`vp8_opus.webm`: 4.008 s for
-  4.000 s of audio and video), and each pass lasts the container's
-  duration, so every pass ends with ~8 ms of padding (heard on the
-  Xiaomi 14, 2026-10-29; with Duration set to 4000 it is gone). Same
-  file, every backend. A fix would take the pass length from where the
-  tracks end (last block plus its BlockDuration, less CodecDelay and
-  DiscardPadding) when that is shorter. The FFmpeg-free Matroska
-  demuxer also ignores DiscardPadding and, with a DefaultDuration, the
-  last block's BlockDuration. `lychee_cli --loop --volume 1
-  --audio-dump` of `vp9_opus.webm` shows it: `tool/audio_check.py
-  --max-gap 1` finds 8.4 ms of silence at 10.000 s (macOS, 2026-10-29).
-  Done when that passes as an `audio` case in `tool/regression.sh`.
-  `audio_only.mp3` (44.1 kHz) also joins its passes with a small step
-  (0.006 at a zero crossing, above `audio_check.py`'s 0.005), where 48
-  kHz AAC joins without one.
-- **Looping AAC without an edit list leaves a gap**: MPEG-TS and
-  Matroska carry no edit list, so AAC's 1024 priming samples play as
-  ~21 ms of silence at the start of every pass, with FFmpeg and without
-  (`tool/audio_check.py --max-gap 1` after `lychee_cli --loop
-  --audio-dump`, 2026-10-29: `h264_aac.mkv` 23 ms, `keyframes.ts` 28
-  ms). A fix would drop the codec's delay at a loop's start (FFmpeg's
-  `initial_padding`, or 1024 for AAC-LC with no edit list) while the
-  first pass keeps the file's timing. `frag.mp4` shows a longer gap
-  (14.5 ms with FFmpeg, 54 ms without) for another reason: FFmpeg's
-  fragmenting muxer stretched its first audio sample to 66.7 ms, so
-  the container's duration is ~45 ms longer than its audio; a test
-  file artifact, not worth a case. Done when `h264_aac.mkv` and
-  `keyframes.ts` pass as `audio-loop` cases.
+- **HTTP reconnects can deliver corrupt packets** (iPhone 17,
+  2026-10-29, `ios-recovery-console.log`): after "reconnecting at N in
+  0 s after: The network connection was lost", FFmpeg's MP4 demuxer
+  reported "Packet corrupt" and H.264 "Invalid NAL unit size (18686 >
+  3659)", which suggests the reconnected range did not resume at the
+  byte asked for. Not reproduced off the device. Done when a
+  `tool/regression.sh` case that drops the connection mid-read (the
+  media server can cut it) shows no corrupt packet, or the cause is
+  found elsewhere.
 
-1. **iOS foreground recovery can fall back to software**: an iPhone 17
-   (2026-10-27) rejected 32 video packets (`-12909`)
-   after an apparent interruption or background transition; the actual
-   lifecycle trigger is unconfirmed. The native and Flutter frame drivers
-   now request a fresh hardware decoder after becoming active following
-   a background transition. On the iPhone 17 (2026-10-29), the user saw
-   normal picture and sound after five seconds on the Home Screen, but
-   the native harness logged repeated VideoToolbox `-12903` failures and
-   ultimately fell back to software; HTTP reconnects also produced corrupt
-   packet warnings; their causal role is unconfirmed. Investigate the
-   hardware fallback from the saved logs. Cover paused-state retention
-   and resume with an automated harness, not another manual pause test.
-   Done when foreground recovery promptly restores hardware playback.
-   Also distinguish an audio interruption from
-   an actual background transition: an alarm alone may not enter this hook.
-   The simulator cannot reproduce this hardware
-   failure; direct C ABI consumers must call
-   `lychee_player_rebuild_video_decoder()` on their platform's recovery
-   event. Released plugin binaries pinned to API 11 do not have this hook.
+1. **iOS foreground recovery on a real device** (waiting on the user):
+   the iPhone 17's log (2026-10-29) showed VideoToolbox sessions failing
+   with `-12903` in the background, the rebuilds there failing twice
+   into software, and the drivers' foreground hook then skipping the
+   rebuild because the stats said software. The drivers now always ask
+   for a rebuild, and the core replaces a software decoder only when it
+   replaced failed hardware ones (`decoder-foreground` and
+   `decoder-foreground-paused` cover it, playing and paused). Needs the
+   user: play `h264_aac.mp4` over HTTP in the Swift example on the
+   iPhone, go to the Home Screen for ~10 s, come back, and check that
+   the console shows `video rebuilt -> stream 0 (videotoolbox)` and the
+   stats `hw` after it. Also an alarm or call alone (an audio
+   interruption) should not need this hook. Direct C ABI consumers
+   must call `lychee_player_rebuild_video_decoder()` on their
+   platform's recovery event; released plugin binaries pinned to API
+   11 do not have it.
 
 ## Features
 

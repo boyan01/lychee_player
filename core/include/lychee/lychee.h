@@ -396,7 +396,9 @@ LYCHEE_EXPORT int32_t lychee_player_set_video_device(
 // Keeps the playback/pause state. Also works with unseekable and live input;
 // live video waits for a fresh keyframe. Does nothing without a video decoder
 // or after an error. Explicit recovery retries hardware if configured, as a
-// device change does, rather than counting as another decoder failure.
+// device change does, rather than counting as another decoder failure; a
+// software decoder that replaced failed hardware ones is replaced too (call
+// it whatever the stats say), one chosen as such is left alone.
 LYCHEE_EXPORT void lychee_player_rebuild_video_decoder(lychee_player* player);
 
 // Android: the ANativeWindow* LYCHEE_FRAME_ANDROID_SURFACE frames are

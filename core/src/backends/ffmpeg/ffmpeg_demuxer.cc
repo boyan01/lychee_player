@@ -542,6 +542,7 @@ int FFmpegDemuxer::ReadNext(EncodedPacket* packet) {
     packet->duration = av_packet_->duration > 0
                            ? ToMicros(av_packet_->duration, time_base)
                            : 0;
+    ExactCodecDelay(index, packet);
     if (discontinuous_) {
       ApplyDiscontinuity(index, packet);
     }
@@ -557,6 +558,28 @@ int FFmpegDemuxer::ReadNext(EncodedPacket* packet) {
     }
     return 0;
   }
+}
+
+void FFmpegDemuxer::ExactCodecDelay(int stream, EncodedPacket* packet) const {
+  const AVStream* av_stream = format_context_->streams[stream];
+  const AVCodecParameters* parameters = av_stream->codecpar;
+  if (parameters->codec_type != AVMEDIA_TYPE_AUDIO ||
+      parameters->initial_padding <= 0 || parameters->sample_rate <= 0 ||
+      !strstr(format_context_->iformat->name, "matroska") ||
+      av_packet_->pts == AV_NOPTS_VALUE) {
+    return;
+  }
+  const AVRational sample = {1, parameters->sample_rate};
+  if (av_packet_->pts != -av_rescale_q(parameters->initial_padding, sample,
+                                       av_stream->time_base)) {
+    return;
+  }
+  const int64_t exact = -av_rescale_q(parameters->initial_padding, sample,
+                                      AVRational{1, kMicrosPerSecond});
+  if (packet->dts == packet->pts) {
+    packet->dts = exact;
+  }
+  packet->pts = exact;
 }
 
 void FFmpegDemuxer::ApplyDiscontinuity(int stream, EncodedPacket* packet) {
@@ -659,7 +682,47 @@ bool FFmpegDemuxer::SeekToStart() {
   return true;
 }
 
+bool FFmpegDemuxer::SeekMatroskaToFirstBlock() {
+  // Matroska drops the blocks before the index entry it seeks to
+  // (skip_to_timecode in libavformat/matroskadec.c), and a seek by time
+  // lands on the video's first cue, at the start. Opus's first block is
+  // before it, its timestamp negative by CodecDelay (AAC's by its
+  // priming): decoded from the second block, Opus starts cold and plays
+  // ~150 ms of quiet audio at every loop. So seek the stream whose index
+  // starts earliest (blocks read so far are indexed, and the open read
+  // the first) to its first entry, and every block is read again, as the
+  // open did.
+  if (!strstr(format_context_->iformat->name, "matroska")) {
+    return false;
+  }
+  int best = -1;
+  int64_t best_time = 0;
+  int64_t best_timestamp = 0;
+  for (unsigned i = 0; i < format_context_->nb_streams; ++i) {
+    AVStream* stream = format_context_->streams[i];
+    const AVIndexEntry* entry = avformat_index_get_entry(stream, 0);
+    if (!entry || entry->timestamp == AV_NOPTS_VALUE) {
+      continue;
+    }
+    const int64_t time = ToMicros(entry->timestamp, stream->time_base);
+    if (best < 0 || time < best_time) {
+      best = static_cast<int>(i);
+      best_time = time;
+      best_timestamp = entry->timestamp;
+    }
+  }
+  if (best < 0 || best_time >= media_info_.start_time) {
+    return false;
+  }
+  return av_seek_frame(format_context_, best, best_timestamp,
+                       AVSEEK_FLAG_BACKWARD) >= 0;
+}
+
 bool FFmpegDemuxer::SeekFFmpeg(int64_t time) {
+  if (time <= media_info_.start_time && SeekMatroskaToFirstBlock()) {
+    std::fill(timelines_.begin(), timelines_.end(), Timeline());
+    return true;
+  }
   int ret = avformat_seek_file(format_context_, -1, INT64_MIN, time, time, 0);
   if (ret < 0) {
     LOGW("seek to %lld backward failed: %s, retrying any direction",

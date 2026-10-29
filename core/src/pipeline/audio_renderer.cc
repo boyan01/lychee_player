@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <chrono>
 #include <climits>
+#include <cmath>
+#include <cstdlib>
 #include <thread>
 
 #include "base/log.h"
@@ -33,6 +35,12 @@ constexpr int64_t kStalledDeviceLead = 50 * kMicrosPerMilli;
 // over this long: short enough not to be heard as a fade, long enough not
 // to click.
 constexpr int64_t kFadeDuration = 10 * kMicrosPerMilli;
+// Decoded audio whose timestamp is off by at most this much from where the
+// audio before it ended continues it: the container rounded the timestamp
+// (Matroska keeps milliseconds, and Opus's first block starts 0.5 ms off
+// one). Cut by its own timestamp at a loop's end, each pass would lose
+// that much and the next start that far off in phase.
+constexpr int64_t kTimestampJitter = 2 * kMicrosPerMilli;
 // A paused device that has not taken the fade-out by then is stopped
 // without it.
 constexpr int64_t kFadeOutTimeout = 500 * kMicrosPerMilli;
@@ -136,14 +144,37 @@ void AudioRenderer::Stop() {
 void AudioRenderer::DecodeLoop() {
   SetCurrentThreadName("lychee-adecode");
   uint64_t decoder_generation = 0;
+  // Where the decoded audio so far ends: |anchor_pts| plus
+  // |anchor_frames| (Chromium's AudioDiscardHelper likewise counts frames
+  // from the first timestamp on). Counted in frames, since a buffer's
+  // duration in microseconds is rounded.
+  int64_t anchor_pts = kNoTimestamp;
+  int64_t anchor_frames = 0;
   PacketQueue::Entry entry;
   while (queue_->Pop(&entry)) {
     if (entry.generation != decoder_generation) {
       decoder_->Flush();
       decoder_generation = entry.generation;
+      anchor_pts = kNoTimestamp;
     }
     uint64_t generation = entry.generation;
-    auto output = [this, generation](std::shared_ptr<AudioBuffer> buffer) {
+    auto output = [this, generation, &anchor_pts,
+                   &anchor_frames](std::shared_ptr<AudioBuffer> buffer) {
+      if (buffer->pts != kNoTimestamp) {
+        const int64_t next_pts = anchor_pts == kNoTimestamp
+                                     ? kNoTimestamp
+                                     : anchor_pts + anchor_frames *
+                                                        kMicrosPerSecond /
+                                                        buffer->sample_rate;
+        if (next_pts != kNoTimestamp &&
+            std::abs(buffer->pts - next_pts) <= kTimestampJitter) {
+          buffer->pts = next_pts;
+        } else {
+          anchor_pts = buffer->pts;
+          anchor_frames = 0;
+        }
+        anchor_frames += buffer->frames();
+      }
       OnBuffer(std::move(buffer), generation);
     };
     if (entry.packet->boundary) {
@@ -151,6 +182,7 @@ void AudioRenderer::DecodeLoop() {
       // as if seeking to it.
       decoder_->Decode(*EncodedPacket::CreateEndOfStream(-1), output);
       decoder_->Restart();
+      anchor_pts = kNoTimestamp;
       std::lock_guard<std::mutex> lock(mutex_);
       if (generation == generation_) {
         algorithm_.EndInputAt(entry.packet->pts);
@@ -198,8 +230,11 @@ void AudioRenderer::OnBuffer(std::shared_ptr<AudioBuffer> buffer,
       return;
     }
     if (buffer->pts < start_time_) {
-      int skip = static_cast<int>((start_time_ - buffer->pts) *
-                                  buffer->sample_rate / kMicrosPerSecond);
+      // Rounded as EndInputAt() rounds the end of a pass, or a loop's
+      // passes would differ by a frame.
+      int skip = static_cast<int>(
+          std::llround(static_cast<double>(start_time_ - buffer->pts) *
+                       buffer->sample_rate / kMicrosPerSecond));
       skip = std::min(skip, buffer->frames());
       buffer->samples.erase(
           buffer->samples.begin(),
