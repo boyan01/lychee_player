@@ -47,10 +47,6 @@ building on top of them.
    Play `hdr_pq_colors.mp4` and `hdr_pq_highlights.mp4` through Intel VAAPI
    and check two advancing snapshots from each consumer with the existing
    `tool/frame_check.py` thresholds.
-4. **Apple without FFmpeg**: VP9 on a device with iOS 26.2 or later
-   (waiting on the user): the iOS 26.5
-   simulator has no VP9 decoder (`VTDecompressionSessionCreate` -12906,
-   2026-10-28).
 
 ## Known defects
 
