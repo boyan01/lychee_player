@@ -13,10 +13,7 @@ Built, but never observed working. Cheap to close; do these before
 building on top of them.
 
 1. **Android hardware decoding beyond the happy path**: not yet seen are
-   the BT.709 matrix for untagged HD on a phone's compositor (the
-   emulator's converts with BT.601 whatever the dataspace: check
-   `h264_aac.mp4` with the example's `snapshot` extra and
-   `tool/frame_check.py` without `--matrix`), AAudio route changes to a USB-C headset, and switching AirPods back to
+   AAudio route changes to a USB-C headset, and switching AirPods back to
    the speaker after clock correction (waiting on the user and the Xiaomi
    14: the prior run jumped ~0.2 s and dropped 8 frames; verify the step is
    smaller than a frame). Only the CLI's
