@@ -207,6 +207,16 @@ for size in 1280x720 640x360; do
 done
 gen live_alac.mp4 -f lavfi -i "testsrc2=size=1280x720:rate=30" -f lavfi -i sine=frequency=440:sample_rate=44100 -t 5 \
   -c:v libx264 -preset veryfast -bf 0 -g 30 -pix_fmt yuv420p -c:a alac
+# Apple's encoder produces the AAC-ELD AirPlay sends: 44.1 kHz stereo,
+# 512 samples per packet, AudioSpecificConfig f8 e8 40 00. The live source
+# strips the container and pushes that ASC plus raw access units.
+if command -v afconvert >/dev/null && [ ! -f "$media/aac_eld.m4a" ]; then
+  gen aac_eld.wav -f lavfi -i sine=frequency=997:sample_rate=44100 -t 2 -ac 2
+  afconvert -f m4af -d aace "$media/aac_eld.wav" "$media/aac_eld.tmp.m4a" &&
+    ffprobe -v error -select_streams a:0 -show_entries stream=extradata -show_data \
+      "$media/aac_eld.tmp.m4a" | grep -q 'f8e8 4000' &&
+    mv "$media/aac_eld.tmp.m4a" "$media/aac_eld.m4a" || exit 1
+fi
 printf "file 'live_1280x720.ts'\nfile 'live_640x360.ts'\n" >"$media/live_list.txt"
 gen live_resolution.ts -f concat -i "$media/live_list.txt" -c copy -muxdelay 0 -muxpreload 0
 # Valid headers, then noise where the media data should be.
@@ -1179,6 +1189,13 @@ par expect live-audio-only "$live_ok" "summary: state=ready position=1[23]\.[0-9
 # ALAC, as AirPlay sends: the track's config is its magic cookie.
 par expect live-alac "$live_ok" "track 1: audio alac 44100 Hz" "summary: .*dropped=0 .*live_abuf=0\.(0[1-9]|1[0-9])[0-9]s" -- \
   --live "$media/live_alac.mp4"
+# This needs Apple's encoder when generating media, but the saved fixture
+# can also be replayed on Android or another host.
+if [ -f "$media/aac_eld.m4a" ]; then
+  par expect live-aac-eld "$live_ok" "track 0: audio aac 44100 Hz" \
+    "summary: state=ready .*audio_onset=0\\.[01][0-9]+s" -- \
+    --live --volume 1 "$media/aac_eld.m4a"
+fi
 # Arrival jitter within the latency costs nothing.
 par expect live-jitter "$live_ok" "summary: .*rendered=360 dropped=0 ${tsan_glitches:-glitches=[0-3] }backward_jumps=0 " -- \
   --live --live-jitter 30 "$media/live_h264.mp4"
