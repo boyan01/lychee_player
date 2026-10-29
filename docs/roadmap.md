@@ -30,15 +30,11 @@ building on top of them.
    HDMI audio endpoint goes away so WASAPI reopens, then ~5 s of audio
    glitches. The Flutter example does not: the engine's ANGLE context is
    lost (`EGL Error: Context Lost (12302)`) and it draws nothing until it
-   exits; that is Flutter's engine, not the plugin. An adapter change
-   works in the core (`lychee_glfw --adapter 3:1`, Intel to NVIDIA, frames
-   pass `frame_check`), but the plugin sets the adapter once, and a window
-   moved to another GPU's display needs a monitor on the NVIDIA card
-   (hands). HEVC without the Store's HEVC Video Extensions (should fall
+   exits; that is Flutter's engine, not the plugin. HEVC without the Store's HEVC Video Extensions (should fall
    back to D3D11VA at open) waits on the user: the PC has the free "from
    Device Manufacturer" package, which neither winget nor the HK Store
    offers again (only the paid 9NMZLZ57R3T7), so it was not uninstalled.
-   Also multiple monitors, and audible output.
+   Also audible output.
 3. **Linux**: VAAPI on AMD, hardware decoding on arm64, and audio
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays

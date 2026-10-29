@@ -151,7 +151,8 @@ with, CPU BGRA frames otherwise (`--cpu` forces them, `--no-hw` decodes in
 software); its summary also counts the frames of each kind and the
 device losses (it makes a new device after a GPU reset), and `--adapter
 SEC:N` moves it to the Nth DXGI adapter at SEC seconds, as a window moved
-to a display on another GPU. CMake
+to a display on another GPU. Without `--adapter` it draws on the adapter
+of the display the window is on, and follows the window to another one. CMake
 downloads GLFW 3.5.1 there (hash-pinned; `-DLYCHEE_FETCH_GLFW=OFF` skips the
 example). On Linux (`main_linux.cc`; needs `libglfw3-dev`, `libegl-dev` and
 `libgles-dev`) it draws with OpenGL ES 3 on EGL, as the Flutter plugin
