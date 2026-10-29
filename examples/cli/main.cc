@@ -78,6 +78,8 @@ struct Options {
   // --dmabuf: the DRM render node to decode on.
   std::string dmabuf_node;
   bool virtual_time = false;
+  // A silent audio device pulled on its own thread, even without a sound card.
+  bool null_audio = false;
   // Where to write each subtitle with pictures, drawn on a grey canvas of
   // the video's size (binary PPM), to look at bitmap subtitles.
   std::string subtitle_ppm;
@@ -335,6 +337,8 @@ bool ParseOptions(int argc, char** argv, Options* options) {
           {atof(spec.substr(0, colon).c_str()), spec.substr(colon + 1)});
     } else if (arg == "--virtual-time") {
       options->virtual_time = true;
+    } else if (arg == "--null-audio") {
+      options->null_audio = true;
     } else if (arg == "--no-hw") {
       options->hardware = false;
     } else if (arg == "--cpu") {
@@ -1017,6 +1021,7 @@ int main(int argc, char** argv) {
         "[--live [--latency MS] [--live-jitter MS] "
         "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
         "[--subtitle-ppm FILE] [--frame-ppm SEC:FILE]... [--virtual-time] "
+        "[--null-audio] "
         "<file or url>\n",
         argv[0]);
     return 2;
@@ -1024,6 +1029,9 @@ int main(int argc, char** argv) {
 
   if (options.virtual_time) {
     lychee_testing_enable_virtual_time();
+  }
+  if (options.null_audio) {
+    lychee_testing_enable_null_audio();
   }
   if (options.stall_audio && options.stall_audio_after <= 0) {
     options.stall_audio_after = 0;
@@ -1089,6 +1097,21 @@ int main(int argc, char** argv) {
   } else if (lychee_player_open(player, options.url.c_str()) != 0) {
     fprintf(stderr, "open rejected\n");
     return 1;
+  }
+  // Start after the early returns above; the only exit below stops and joins
+  // the thread before destroying the player. std::jthread is still experimental
+  // in the Android NDK's libc++.
+  std::atomic<bool> stop_null_audio{false};
+  std::thread null_audio_thread;
+  if (options.null_audio && !options.virtual_time) {
+    // The renderer sees real concurrent device pulls, including a stall and
+    // recovery, without requiring the host to have an audio output device.
+    null_audio_thread = std::thread([&stop_null_audio] {
+      while (!stop_null_audio.load()) {
+        lychee_testing_render_audio();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+    });
   }
   lychee_player_play(player);
   bool reopened = false;
@@ -1656,6 +1679,10 @@ int main(int argc, char** argv) {
     lychee_frame_release(shown);
   }
   const auto destroy_start = std::chrono::steady_clock::now();
+  if (null_audio_thread.joinable()) {
+    stop_null_audio = true;
+    null_audio_thread.join();
+  }
   lychee_player_destroy(player);
   printf("destroyed in %.3fs\n",
          std::chrono::duration<double>(std::chrono::steady_clock::now() -

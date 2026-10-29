@@ -1,5 +1,7 @@
 #include "media/factory.h"
 
+#include <atomic>
+
 #include "base/time.h"
 #include "media/cpu_frame_converter.h"
 #include "media/null_audio_sink.h"
@@ -50,6 +52,12 @@
 #endif
 
 namespace lychee {
+
+namespace {
+
+std::atomic<bool> g_null_audio_for_testing{false};
+
+}  // namespace
 
 std::unique_ptr<Demuxer> CreateDemuxer() {
 #if defined(LYCHEE_WITH_FFMPEG) && \
@@ -224,7 +232,7 @@ std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder() {
 }
 
 std::unique_ptr<AudioSink> CreateAudioSink() {
-  if (IsVirtualTime()) {
+  if (IsVirtualTime() || g_null_audio_for_testing.load()) {
     return std::make_unique<NullAudioSink>();
   }
 #if defined(__APPLE__)
@@ -238,6 +246,10 @@ std::unique_ptr<AudioSink> CreateAudioSink() {
 #else
   return nullptr;
 #endif
+}
+
+void UseNullAudioSinkForTesting() {
+  g_null_audio_for_testing = true;
 }
 
 std::unique_ptr<FrameConverter> CreateFrameConverter() {

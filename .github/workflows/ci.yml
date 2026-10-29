@@ -292,7 +292,7 @@ jobs:
           unzip -q "$RUNNER_TEMP/$name.zip" -d "$RUNNER_TEMP"
           cygpath -w "$RUNNER_TEMP/$name/bin" >>"$GITHUB_PATH"
       - name: Regression
-        run: NO_HW=1 FFMPEG_ROOT=third_party/ffmpeg/windows-x86_64 tool/regression.sh
+        run: NO_HW=1 NULL_AUDIO=1 FFMPEG_ROOT=third_party/ffmpeg/windows-x86_64 tool/regression.sh
 
   android:
     # The SDK (the AAR with its FFmpeg, as release.yml builds it) and its

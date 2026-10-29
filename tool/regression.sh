@@ -12,6 +12,8 @@
 #                                 # (clang; LLVM_COV, LLVM_PROFDATA)
 #   MEDIA_DIR=... tool/regression.sh
 #   NO_HW=1 tool/regression.sh    # Software decoding only (CI runners)
+#   NULL_AUDIO=1 tool/regression.sh # The two realtime cases requiring audio
+#                                 # use a threaded silent device (no sound card)
 #   REALTIME_ADVISORY=1 tool/regression.sh  # The realtime cases' drift,
 #                                 # glitches and drops only warn (CI's VMs)
 #   ONLY='seek-* rate-2x' tool/regression.sh   # Only cases matching a glob
@@ -1145,9 +1147,13 @@ par expect audio-device-stalled "stall audio device at 2\." "audio device pulled
   "audio device pulls again" "summary: state=ended position=12\.000s .*glitches=$stalled_glitches backward_jumps=0 .*stalls=0" -- \
   --stall-audio-after 2 --stall-audio-for 4 --seconds 20 "$media/h264_aac.mp4"
 # The same with the platform's audio device pulling on its own thread.
+# A Windows hosted runner has no audio output device. Opt in to a silent
+# device on a real audio thread, keeping the stall and recovery checks strict.
+null_audio=()
+[ "${NULL_AUDIO:-0}" = 1 ] && null_audio=(--null-audio)
 realtime=1 par expect audio-device-stalled-realtime "audio device pulled nothing for 20[0-9]{2} ms" \
   "audio device pulls again" "summary: state=ready position=[34]\.[0-9]{3}s .*backward_jumps=0 " -- \
-  --stall-audio-after 1 --stall-audio-for 3 --seconds 6 "$media/h264_aac.mp4"
+  ${null_audio[@]+"${null_audio[@]}"} --stall-audio-after 1 --stall-audio-for 3 --seconds 6 "$media/h264_aac.mp4"
 # Nobody pulls frames for 3 s, as in the background: frames that went by
 # meanwhile are not counted as dropped, and playback resumes at the clock.
 par expect background "show at " "summary: state=ended .*dropped=0 glitches=[0-3] backward_jumps=0 " -- \
@@ -1579,8 +1585,10 @@ if [ "$own_ts" = 1 ]; then
   serve --live /hls_alt/video/live.m3u8 /hls_alt/video/index.m3u8 \
     --live /hls_alt/fre/live.m3u8 /hls_alt/fre/index.m3u8 --live /hls_alt/eng/live.m3u8 /hls_alt/eng/index.m3u8
   realtime=1 seq_ expect http-hls-live-renditions "^seekable=0$" "track 2: audio .* lang=fr .*selected=1" \
-    "select audio 1 at [0-9.]+s: accepted" "track switch: resumed" "<=0 event: state error" \
-    "summary: state=ended .*backward_jumps=0 " -- --select audio:1@4 "http://127.0.0.1:$port/hls_alt/live.m3u8"
+    "select audio 1 at [0-9.]+s: accepted" "track 1: audio .* lang=en .*selected=1" \
+    "track switch: resumed" "<=0 event: state error" \
+    "summary: state=ended .*backward_jumps=0 " -- ${null_audio[@]+"${null_audio[@]}"} \
+    --select audio:1@4 "http://127.0.0.1:$port/hls_alt/live.m3u8"
 fi
 # Slower than the 1080p variant (5 Mbit/s against 2.5): after its first
 # segment the own HLS goes on with the 800 kbit/s one. The system http

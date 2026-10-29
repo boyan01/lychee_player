@@ -557,9 +557,17 @@ void lychee_testing_enable_virtual_time(void) {
   lychee::EnableVirtualTime();
 }
 
+void lychee_testing_enable_null_audio(void) {
+  lychee::UseNullAudioSinkForTesting();
+}
+
+void lychee_testing_render_audio(void) {
+  lychee::NullAudioSink::RenderAll(lychee::NowMicros());
+}
+
 void lychee_testing_set_time(int64_t now_us) {
   lychee::SetVirtualTime(now_us);
-  lychee::NullAudioSink::RenderAll(lychee::NowMicros());
+  lychee_testing_render_audio();
 }
 
 int32_t lychee_testing_player_settled(lychee_player* player,

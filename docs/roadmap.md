@@ -158,10 +158,13 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
      GitHub yet (waiting on an authorized push). Fix what that first
      run shows; the pinned PyPI clang-tidy 23.1.4 wheel and LGPL compile
      database are checked locally.
-   - **CI jobs for Android and Windows** (`android`, `core-windows` in
-     `ci.yml`, 2026-10-28) have not run on GitHub yet: fix what their
-     first push shows (the emulator's MediaCodec snapshots, WASAPI on a
-     VM without an audio device), then delete this line.
+   - **Android CI** (`android` in `ci.yml`, 2026-10-28): fix the first
+     GitHub run's emulator MediaCodec snapshots, then delete this line.
+   - **Windows hosted CI**: the first run's two realtime failures also
+     reproduce when audio device initialization fails. The job opts in to
+     a threaded silent device for those cases, keeping their stall,
+     recovery and live HLS audio-selection checks strict. Verify the next
+     GitHub run, then delete this line.
    - **Performance benchmarks**: `tool/bench.sh` and
      `tool/bench_compare.py` run by hand on an idle machine. Per commit
      needs an idle runner: hosted VMs are too loaded to compare, and the

@@ -16,6 +16,12 @@ extern "C" {
 // Switches lychee_now_us() to virtual time, starting at the current time.
 // Call before creating a player.
 LYCHEE_EXPORT void lychee_testing_enable_virtual_time(void);
+// Uses the silent audio device on either clock. Call before creating players,
+// then pull it with lychee_testing_render_audio() on an audio thread in real
+// time (virtual time already pulls it in lychee_testing_set_time()).
+LYCHEE_EXPORT void lychee_testing_enable_null_audio(void);
+// Renders silent devices up to lychee_now_us(). Safe alongside player teardown.
+LYCHEE_EXPORT void lychee_testing_render_audio(void);
 // Moves virtual time forward to |now_us|, rendering the audio due by then.
 LYCHEE_EXPORT void lychee_testing_set_time(int64_t now_us);
 // Non-zero if |player| can play on to |until_us| without waiting for its
