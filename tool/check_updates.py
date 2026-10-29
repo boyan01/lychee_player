@@ -13,8 +13,15 @@ Dependabot reads none of these pins:
 
 For each it prints the pinned version, the newest release with the same
 major and minor version (a patch to take as it is) and the newest release
-overall (a new FFmpeg major changes the API the core follows, and Mbed TLS
-4 drops what 3.6 LTS has). Updating a pin means its version and SHA-256
+overall (a new FFmpeg major changes the API the core follows). Mbed TLS
+is intentionally kept on 3.6 LTS: FFmpeg 9.0.2's tls_mbedtls.c includes
+mbedtls/ctr_drbg.h and entropy.h, removed in Mbed TLS 4. Android builds
+with Mbed TLS 4.2.0 fail at that include; upgrading needs upstream TLS
+backend changes, not just a new pin. Keep reporting 4.x so this decision
+is visible when compatibility changes. See the upstream migration guide:
+https://github.com/Mbed-TLS/mbedtls/blob/mbedtls-4.2.0/docs/4.0-migration-guide.md
+
+Updating a pin means its version and SHA-256
 together. Only reads: it opens nothing and
 always exits 0 unless a source cannot be read. GITHUB_TOKEN, if set, lifts
 GitHub's rate limit for unauthenticated requests.
