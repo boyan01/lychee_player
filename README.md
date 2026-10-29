@@ -232,13 +232,21 @@ adb shell am start -n tech.soit.lychee.example/.MainActivity \
 adb pull /sdcard/Android/data/tech.soit.lychee.example/files/. /tmp/snaps
 adb logcat -d -s lychee-example:I | grep -o 'snapshot .*' |
   sed 's|/[^ ]*/files/|/tmp/snaps/|' |
-  python3 -I tool/frame_check.py rotated.mp4 --log -
+  python3 -I tool/frame_check.py rotated.mp4 --log - --bilinear
 ```
 
 The emulator's compositor converts MediaCodec's YUV surfaces with BT.601
 whatever their dataspace, so hardware-decoded HD fails there by its
 matrix alone; `--matrix bt601` checks the rest (frame, pts, rotation,
 scale). A phone shows whether the hardware path keeps BT.709.
+`--bilinear` converts to RGB at native size, then samples the four source
+pixels around each destination pixel center, as `PixelCopy` does when
+resizing the surface into the bitmap. Without it, the reference keeps
+swscale's downscaling low-pass filter. These differ on fine patterns at
+large reductions: the API 34 emulator's 320x180 H.264 snapshots give
+27.2-27.5 dB against the low-pass reference and over 35 dB against the
+texture sampler (2026-10-29). Both modes keep the same thresholds and
+reject the wrong PTS, matrix, rotation and scale.
 
 The reference follows the library's conventions: a stream without a color
 matrix is BT.709 above 576 lines and BT.601 below, and HDR is tone-mapped
@@ -276,9 +284,9 @@ fails; there they gave:
 The frame before or after differs only where the test pattern moves, which
 the worst tile catches. Not covered: VideoToolbox maps bright HDR colors
 differently from swscale (`hdr_pq_bars.mp4` gives 27.9 dB), and fitting a
-frame into a window far smaller than it (GPU bilinear sampling without
-mipmaps aliases) costs PSNR. The reference is decoded from the start of
-the file, so late snapshots of long files take longer.
+frame into a window far smaller than it costs PSNR unless `--bilinear`
+matches its texture sampling without mipmaps. The reference is decoded
+from the start of the file, so late snapshots of long files take longer.
 
 ## Apple frameworks
 

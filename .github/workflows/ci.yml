@@ -353,6 +353,13 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -no-snapshot -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: tool/android_check.sh
+      - name: Android snapshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-snapshots
+          path: build-android-*/snapshots
+          if-no-files-found: ignore
 
   fuzz:
     # The FFmpeg-free parsers under libFuzzer with ASan and UBSan

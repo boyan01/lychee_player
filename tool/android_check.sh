@@ -14,7 +14,9 @@
 #    /tmp/lychee-media, from MEDIA_ONLY=1 tool/regression.sh) through
 #    tool/serve_media.py and `adb reverse`, decoding in software and with
 #    MediaCodec, and two snapshots of each pass tool/frame_check.py
-#    (hardware frames with --matrix bt601: the emulator's compositor
+#    (--bilinear matches PixelCopy's texture sampling when it scales;
+#    swscale's downscaling filter instead averages a wider area;
+#    hardware frames also use --matrix bt601: the emulator's compositor
 #    converts them so; README, "Checking frames by pixels").
 #
 # NDK: ANDROID_NDK_HOME, else the newest under ANDROID_HOME (or the
@@ -74,6 +76,7 @@ package=tech.soit.lychee.example
 files="/data/user/0/$package/files"
 adb shell "run-as $package mkdir -p files"
 snaps="$build/snapshots"
+rm -rf "$snaps" && mkdir -p "$snaps"
 failed=0
 for file in h264_aac.mp4 rotated.mp4; do
   for hw in false true; do
@@ -89,19 +92,20 @@ for file in h264_aac.mp4 rotated.mp4; do
       [ "$(grep -c . <<<"$log")" -lt 2 ] || break
       sleep 0.5
     done
+    adb logcat -d -s lychee-example:I lychee:I >"$snaps/$name.logcat.txt"
     adb shell am force-stop "$package"
-    rm -rf "$snaps" && mkdir -p "$snaps"
     for suffix in a b; do
       adb exec-out run-as "$package" cat "files/$name-$suffix.ppm" >"$snaps/$name-$suffix.ppm"
     done
     matrix=()
     [ "$hw" = false ] || matrix=(--matrix bt601)
+    sed "s|/[^ ]*/files/|$snaps/|" <<<"$log" >"$snaps/$name.txt"
     echo "-- $file hw=$hw"
     if [ "$(grep -c ' pts=' <<<"$log")" != 2 ]; then
       echo "${log:-no snapshot}"
       failed=1
-    elif ! sed "s|/[^ ]*/files/|$snaps/|" <<<"$log" |
-      python3 -I "$root/tool/frame_check.py" "$media/$file" --log - ${matrix[@]+"${matrix[@]}"}; then
+    elif ! python3 -I "$root/tool/frame_check.py" "$media/$file" \
+      --log "$snaps/$name.txt" --bilinear ${matrix[@]+"${matrix[@]}"}; then
       failed=1
     fi
   done
