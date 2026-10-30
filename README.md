@@ -683,7 +683,8 @@ the assets' build provenance and an SPDX SBOM of them, drafts the GitHub
 release with the assets, the SBOM and the sources of FFmpeg and dav1d,
 and pushes the commit `Release VERSION` and the tag
 `vVERSION`. The tag starts `publish.yml`, which publishes the release and
-the package on pub.dev. Each step is a `tool/release.sh` command and runs
+the package on pub.dev, then both Android AARs on Maven Central.
+Each step is a `tool/release.sh` command and runs
 locally too:
 
 ```sh
@@ -707,8 +708,8 @@ the secret `RELEASE_DEPLOY_KEY` (the workflow's own token cannot start
 on the package's pub.dev Admin page (repository `boyan01/lychee_player`,
 tag pattern `v{{version}}`, environment `pub.dev`).
 
-The Android publications can also be sent to Maven Central after the
-corresponding GitHub release exists. Both use the
+The Android publications are automatically sent to Maven Central after
+GitHub and pub.dev publication succeeds. Both use the
 `io.github.boyan01.lychee` group under the GitHub-verified
 `io.github.boyan01` namespace. No custom domain or DNS verification is
 needed. Maven coordinates do not change Kotlin package names: imports
@@ -717,9 +718,12 @@ remain `tech.soit.lychee.*`.
 The Gradle `publish` tasks write only to the local repository. Each
 publication includes its AAR, POM, Kotlin/native sources and generated
 Dokka API documentation. `tool/release.sh pack android` includes all
-eight files, and `pin` records their SHA-256 hashes. The separate
-`Maven Central` workflow downloads those exact release assets, checks
+eight files, and `pin` records their SHA-256 hashes. `Publish` calls the
+reusable `Maven Central` workflow, which downloads those release assets, checks
 their hashes, signs them and submits both AARs in one deployment.
+It waits for all platform checks and GitHub/pub.dev publication, so a
+failed platform check cannot publish an incomplete release to Central.
+Normal releases need no second dispatch.
 Create a new release containing these publications first; older tags
 whose assets use the previous coordinates or omit sources/documentation
 cannot be used by this workflow.
@@ -754,9 +758,11 @@ unsigned bundles cannot be uploaded. The helper checks both artifacts,
 matching versions, all three Android ABIs, POM metadata, sources,
 documentation, checksums and signatures.
 
-The workflow's `publish` input defaults to `false`: Central validates
-and stages the deployment for inspection. Select `true` only when
-public publication has been authorized. For a separately authorized
+Manual dispatch of `Maven Central` remains available to stage a deployment
+or recover a failed Central publication independently. Its `publish` input
+defaults to `false`: Central validates and stages it for inspection.
+The normal release workflow explicitly sets it to `true` for automatic
+publication. For a separately authorized
 local upload, `tool/maven_central.py upload /tmp/central-bundle.zip
 --version VERSION` has the same staging default; `--publish` opts into
 automatic publication. A released version is immutable on Central.

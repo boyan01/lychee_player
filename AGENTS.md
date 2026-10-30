@@ -32,7 +32,7 @@ Stop and ask only for:
 - Pushing, publishing or hosting anything: `git push`, pub.dev,
   crates.io, release assets, where prebuilt artifacts live. Running
   `.github/workflows/release.yml` is a release: it pushes a tag that
-  publishes to pub.dev.
+  publishes to pub.dev and Maven Central.
 - Anything that needs the user's hands: a real device, a machine this Mac
   cannot reach (e.g. one with VAAPI), confirming on a phone, accounts,
   certificates. Mark the roadmap item as waiting on the user and move on

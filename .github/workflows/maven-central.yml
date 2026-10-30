@@ -1,8 +1,26 @@
-# Explicitly dispatch after the corresponding GitHub release exists. This
-# consumes the exact checked release assets; it never rebuilds either AAR.
+# Called by publish.yml after GitHub/pub.dev publication. Manual dispatch
+# also supports staging or retrying Central independently. Both paths consume
+# the exact checked release assets; neither rebuilds either AAR.
 name: Maven Central
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      publish:
+        type: boolean
+        default: false
+    secrets:
+      CENTRAL_USERNAME:
+        required: true
+      CENTRAL_PASSWORD:
+        required: true
+      MAVEN_SIGNING_KEY:
+        required: true
+      MAVEN_SIGNING_PASSWORD:
+        required: true
   workflow_dispatch:
     inputs:
       tag:

@@ -6,7 +6,8 @@
 # the assets' build provenance and an SPDX SBOM of them (also an asset),
 # drafts the GitHub release with the assets, and pushes the
 # "Release VERSION" commit and the tag vVERSION. The tag starts publish.yml,
-# which publishes the release and the package.
+# which publishes the release, the pub.dev package and both Android AARs
+# on Maven Central.
 #
 #   gh workflow run release.yml -f version=1.0.0
 #

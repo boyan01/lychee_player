@@ -1,5 +1,6 @@
 # Publishes the tag vVERSION that release.yml pushed: the drafted GitHub
-# release, then the package on pub.dev. pub.dev accepts its OIDC token only
+# release, the package on pub.dev, then both Android AARs on Maven Central.
+# pub.dev accepts its OIDC token only
 # from a workflow a tag push started, from the environment pub.dev (the
 # package's Admin page names both).
 
@@ -33,3 +34,17 @@ jobs:
         with:
           channel: stable
       - run: tool/release.sh publish
+
+  maven-central:
+    needs: publish
+    permissions:
+      contents: read
+    uses: ./.github/workflows/maven-central.yml
+    with:
+      tag: ${{ github.ref_name }}
+      publish: true
+    secrets:
+      CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+      CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+      MAVEN_SIGNING_KEY: ${{ secrets.MAVEN_SIGNING_KEY }}
+      MAVEN_SIGNING_PASSWORD: ${{ secrets.MAVEN_SIGNING_PASSWORD }}
