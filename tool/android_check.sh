@@ -89,14 +89,22 @@ for file in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8; do
   esac
   for hw in $modes; do
     name="${file//\//-}-hw-$hw"
+    recreate=()
+    if [ "$file" = rotated.mp4 ] && [ "$hw" = false ]; then
+      # Recreate after the first capture, with another capture still queued.
+      recreate=(--es recreate 2.7)
+    fi
     adb shell am force-stop "$package"
     adb logcat -c
     adb shell "run-as $package rm -f files/$name-a.ppm files/$name-b.ppm"
     adb shell am start -n "$package/.MainActivity" --es url "http://127.0.0.1:$port/$file" \
-      --ez hw "$hw" ${seek[@]+"${seek[@]}"} --es snapshot "2:$files/$name-a.ppm,3.5:$files/$name-b.ppm" >/dev/null
+      --ez hw "$hw" ${seek[@]+"${seek[@]}"} ${recreate[@]+"${recreate[@]}"} --es snapshot "2:$files/$name-a.ppm,3.5:$files/$name-b.ppm" >/dev/null
     log=""
     for _ in $(seq 60); do
-      log="$(adb logcat -d -s lychee-example:I | grep -o 'snapshot .*' || true)"
+      # A recreation can log the same path twice; the last line describes
+      # the file now on disk. Wait for both distinct capture paths.
+      log="$(adb logcat -d -s lychee-example:I | grep -o 'snapshot .*' |
+        awk '{ snapshots[$2] = $0 } END { for (path in snapshots) print snapshots[path] }' | sort || true)"
       [ "$(grep -c . <<<"$log")" -lt 2 ] || break
       sleep 0.5
     done
@@ -104,6 +112,11 @@ for file in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8; do
     # lifecycle and crash diagnostics alongside the player's output.
     adb logcat -d -s lychee-example:I lychee:I ActivityTaskManager:I \
       ActivityManager:I WindowManager:I AndroidRuntime:E >"$snaps/$name.logcat.txt"
+    if [ "$file" = rotated.mp4 ] && [ "$hw" = false ] &&
+      ! grep -q 'recreate activity' "$snaps/$name.logcat.txt"; then
+      echo "activity recreation did not run"
+      failed=1
+    fi
     adb shell am force-stop "$package"
     for suffix in a b; do
       adb exec-out run-as "$package" cat "files/$name-$suffix.ppm" >"$snaps/$name-$suffix.ppm"

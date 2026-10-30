@@ -12,6 +12,7 @@
 // "soak" (seconds) and "soak_url" repeat two seeks and a file switch.
 // "seek" ("SEC:TARGET,...") seeks at SEC seconds after the start.
 // "seconds" stops the activity after that many seconds and logs summary:.
+// "recreate" (seconds) recreates the activity once to check pending captures.
 
 package tech.soit.lychee.example
 
@@ -92,6 +93,14 @@ class MainActivity : Activity() {
             }, (at * 1000).toLong())
         }
         scheduleSnapshots(intent.getStringExtra("snapshot"))
+        if (savedInstanceState == null) {
+            intent.getStringExtra("recreate")?.toDoubleOrNull()?.let { seconds ->
+                handler.postDelayed({
+                    Log.i("lychee-example", "recreate activity")
+                    recreate()
+                }, (seconds * 1000).toLong())
+            }
+        }
         intent.getStringExtra("seconds")?.toDoubleOrNull()?.takeIf { it > 0 }?.let { seconds ->
             handler.postDelayed(quitTask, (seconds * 1000).toLong())
         }
@@ -106,6 +115,7 @@ class MainActivity : Activity() {
                 // A few vsyncs for the display to show the last frame queued.
                 handler.postDelayed({
                     video.snapshot { bitmap, pts ->
+                        if (isDestroyed) return@snapshot
                         // An absolute path can use private files on systems
                         // whose scoped storage blocks adb from external files.
                         val file = if (File(name).isAbsolute) {
@@ -169,7 +179,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(quitTask)
+        handler.removeCallbacksAndMessages(null)
         video.player = null
         player.close()
         super.onDestroy()
