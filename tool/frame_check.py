@@ -49,7 +49,7 @@ import subprocess
 import sys
 
 # Calibrated on tool/regression.sh's media through lychee_cli (--cpu,
-# --native, --no-hw) and examples/glfw; README has the numbers.
+# --native, --no-hw) and examples/glfw; docs/development.md has the numbers.
 MIN_PSNR = 28.0
 MAX_MAE = 4.0
 MAX_TILE_MAE = 40.0

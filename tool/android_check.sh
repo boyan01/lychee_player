@@ -18,7 +18,7 @@
 #    (--bilinear matches PixelCopy's texture sampling when it scales;
 #    swscale's downscaling filter instead averages a wider area;
 #    MediaCodec frames (including system software decoding) use --matrix
-#    bt601: the emulator's compositor converts them so; README,
+#    bt601: the emulator's compositor converts them so; docs/development.md,
 #    "Checking frames by pixels").
 #    LYCHEE_FFMPEG_EXTENSION=1 loads the optional backend and also checks
 #    encrypted HLS through FFmpeg's fallback and its memory data source.

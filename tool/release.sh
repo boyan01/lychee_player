@@ -361,7 +361,7 @@ cmd_check() {
   done
 
   create_app macos,ios,android
-  # The plugin's minimums (README).
+  # The plugin's minimums (flutter/README.md).
   sed -i.bak -E 's/minSdk = .*/minSdk = 26/' android/app/build.gradle.kts
   sed -i.bak -E 's/MACOSX_DEPLOYMENT_TARGET = [0-9.]+;/MACOSX_DEPLOYMENT_TARGET = 11.0;/' \
     macos/Runner.xcodeproj/project.pbxproj
@@ -576,7 +576,7 @@ check_apk_abis() {
   grep -qx "lib/$required/liblychee.so" <<<"$libs" || die "$1 has no $required liblychee.so"
   for abi in $(sed -nE 's|^lib/([^/]+)/libflutter\.so$|\1|p' <<<"$libs"); do
     grep -qx "lib/$abi/liblychee.so" <<<"$libs" ||
-      die "$1 has libflutter.so but no liblychee.so for $abi: set abiFilters (README)"
+      die "$1 has libflutter.so but no liblychee.so for $abi: set abiFilters"
   done
 }
 

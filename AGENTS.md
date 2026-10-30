@@ -2,7 +2,7 @@
 
 lychee_player is a media player built as a reusable C++ library with a C ABI
 (`core/`), plus a Flutter plugin that is one thin consumer of it. README.md
-has the layout and build commands.
+introduces it; `docs/development.md` has the layout and build commands.
 
 Before starting a feature or a new platform, read `docs/roadmap.md`: it lists
 what is unfinished, known defects, and the done criteria for each item, and
@@ -220,7 +220,7 @@ The layers, lowest first:
    `--snapshot SEC:FILE` (twice, so the pts advance) piped into
    `python3 -I tool/frame_check.py MEDIA --log -`, which compares each
    with FFmpeg's frame at its pts, scaled into the video rectangle
-   (README, "Checking frames by pixels"). The media `tool/regression.sh`
+   (`docs/development.md`, "Checking frames by pixels"). The media `tool/regression.sh`
    generates has no color tags, so it also checks the library's
    convention for untagged video (BT.709 above 576 lines, BT.601 at or
    below), which every frame path has to follow. Where a platform has no `--snapshot` yet, look at a window screenshot:
@@ -241,7 +241,7 @@ The layers, lowest first:
      MediaCodec, in real time only.
    - Windows: `examples/glfw` (D3D11 textures), through the
      `flutter-remote-test` skill. `--seconds N` and `--key SEC:NAME`
-     (README) run it unattended on every desktop platform.
+     (`docs/development.md`) run it unattended on every desktop platform.
    - Linux: `examples/glfw` (OpenGL; CPU frames, dmabufs with VAAPI), on
      WSL or the Ubuntu VM through the same skill. Those have no real
      GPU; the Windows machine's dual-boot Ubuntu 24.04 (`ssh
@@ -304,8 +304,8 @@ decides how much of it a change needs):
   `core/fuzz/regressions/TARGET` with the fix.
 - **apple**: `tool/build_apple.sh`, then `swift test` in `sdk/apple`
   (plays through the frame driver and checks the player's lifetime), and
-  build its example (`sdk/apple/Example/Example.xcodeproj`, README has
-  the commands) for macOS and the iOS simulator with zero warnings, run
+  build its example (`sdk/apple/Example/Example.xcodeproj`,
+  `docs/development.md` has the commands) for macOS and the iOS simulator with zero warnings, run
   both with `--snapshot` into `tool/frame_check.py`, including
   `rotated.mp4` (`--size 405x720` on macOS) when the view's layout
   changed. For what ends up on screen (frame selection,
@@ -320,7 +320,7 @@ decides how much of it a change needs):
   :ffmpeg:publish :example:assembleDebug` (zero warnings), install the example on an
   emulator or a phone and check snapshots of `h264_aac.mp4` and
   `rotated.mp4` with `tool/frame_check.py`, each with hardware decoding
-  and without (the `url`, `hw` and `snapshot` intent extras; README,
+  and without (the `url`, `hw` and `snapshot` intent extras; `docs/development.md`,
   "Checking frames by pixels", and its `--matrix bt601` for hardware
   frames on the emulator); `tool/android_check.sh` does that for both
   files and also runs the core's unit tests on the device.
@@ -374,7 +374,7 @@ decides how much of it a change needs):
 - **packaging** (`tool/release.sh`, `flutter/prebuilt.json`, the
   podspec's or the plugin Gradle's download, `Package.swift`): when the
   change alters what is packed or how consumers fetch it, run the release
-  steps into a scratch directory (README, "Releases"), ending with
+  steps into a scratch directory (`docs/releasing.md`), ending with
   `tool/release.sh check`, which builds a fresh macOS, iOS-simulator and
   Android app against the packed package with the assets served locally
   (Apple with CocoaPods and with Swift Package Manager); then `git
