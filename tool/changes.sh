@@ -102,6 +102,7 @@ while IFS= read -r f; do
     core/* | CMakeLists.txt | examples/cli/* | tool/regression.sh | tool/*.py) mark core ;;
     examples/glfw/main_win*) mark windows ;;
     examples/glfw/main_linux*) mark linux ;;
+    examples/glfw/CMakeLists.txt) mark apple windows linux ;;
     examples/glfw/*) mark apple ;;
     # A Swift package builds the Apple side and is what a release ships.
     Package.swift | sdk/apple/Package.swift) mark packaging apple ;;
@@ -114,6 +115,7 @@ while IFS= read -r f; do
       mark packaging ;;
     tool/build_apple.sh | tool/apple_framework.sh | tool/package_ffmpeg_apple.sh) mark apple ;;
     tool/build_ffmpeg.sh) mark apple android windows linux ;;
+    tool/patches/*.patch) mark apple android windows linux packaging ;;
     tool/rust_bindings.sh) mark rust ;;
     flutter/darwin/*) mark flutter apple ;;
     flutter/android/*) mark flutter android ;;

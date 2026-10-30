@@ -54,16 +54,38 @@ Requires CMake, Ninja, pkg-config and FFmpeg development files
 (`brew install cmake ninja pkg-config ffmpeg`). On macOS and
 iOS, `-DLYCHEE_WITH_FFMPEG=OFF` builds without FFmpeg: MP4 (fragmented
 too), Matroska/WebM, MPEG-TS and HLS (TS and fMP4 segments, AES-128,
-audio renditions, variants as video tracks), from files and http(s)
+audio renditions, WebVTT and fMP4 WebVTT/IMSC subtitle renditions,
+variants as video tracks), from files and http(s)
 URLs, with
-H.264/HEVC (VideoToolbox), AAC/ALAC (AudioToolbox) and tx3g subtitles;
+H.264/HEVC (VideoToolbox), AAC, ALAC, MP3, Opus, FLAC and AC-3
+(AudioToolbox) and tx3g subtitles;
 `NO_FFMPEG=1 tool/regression.sh` tests it. On Windows it plays the same
-containers with H.264/HEVC (Media Foundation, on the GPU or the CPU), AAC
-and MP3, and text subtitles; the Flutter plugin builds it so with
+containers with H.264, HEVC, VP9 and AV1 (Media Foundation, on the GPU or
+the CPU), AAC,
+MP3, FLAC, ALAC, Opus and AC-3, and text subtitles; the Flutter plugin builds it so with
 `LYCHEE_WITH_FFMPEG=OFF` in the environment of `flutter build windows`.
-Android's plays them with H.264/HEVC and AAC, MP3, Opus, FLAC and ALAC
-through MediaCodec. Both read http(s) through the system (WinHTTP,
-`HttpURLConnection`).
+HEVC, VP9 and AV1 require the corresponding Microsoft Store Video
+Extensions. Missing extensions leave that video track unavailable in
+FFmpeg-free builds; builds with FFmpeg keep their decoder fallback.
+Android's plays them with H.264/HEVC and AAC, MP3, Opus, FLAC, ALAC and AC-3
+through MediaCodec. AC-3 requires an installed system decoder; when one
+is missing, the audio track is disabled and video continues. Both read http(s) through the system (WinHTTP,
+`HttpURLConnection`). IMSC text keeps paragraph/span timing and line breaks;
+styles are dropped. IMSC image subtitles use timed PNG pictures in their
+explicit regions, through the existing bitmap-subtitle API. Region extents
+use pixels and match the PNG dimensions; origins use pixels, or percentages
+when the root canvas has a pixel extent, as defined in
+[IMSC 1.2 section 10](https://www.w3.org/TR/ttml-imsc1.2/#image-profile-constraints).
+Both ISO 14496-30
+`subs` auxiliary resources and relative/absolute file or HTTP(S) image
+URIs are read; PNG dimensions, input and decoded pixels are bounded.
+PNG decoding uses ImageIO, Windows Imaging Component, Android's system
+decoders, and the system libpng on Linux. Android apps on API 26–29 need
+the Java VM retained by `System.loadLibrary("lychee")`; API 30 and later
+also have a native PNG decoder for programs without a VM.
+This is basic image placement,
+with no text styling or layout engine. HLS measures active network transfers on all three system
+HTTP clients and adapts between compatible TS or fMP4 variants.
 
 ```sh
 cmake -S . -B build -G Ninja
@@ -76,6 +98,8 @@ dropped frames and clock drift. Options: `--seek SEC [--seek-after SEC]`,
 `--no-hw`, `--cpu` (CPU BGRA frames), `--rgba` (CPU RGBA frames),
 `--native` (the decoder's own `CVPixelBuffer`s, 10-bit for HDR),
 `--d3d11` (Windows: shared D3D11 textures, as the Flutter plugin takes them),
+`--d3d11-hdr` (Windows: PQ / BT.2020 R10G10B10A2 textures for HDR,
+BGRA for SDR and CPU fallback),
 `--refresh HZ`, `--vsync-jitter US`, `--volume 0..1` (muted by default),
 `--rate R [--rate-after SEC]`, `--loop`, `--open-after SEC URL` (reopen on
 the same player), `--select TYPE:INDEX[@SEC] [--select-after SEC]` (TYPE
@@ -92,6 +116,18 @@ subtitles) onto a grey canvas of the video's size.
 into the run, upright, as a binary PPM (CPU frames as they are,
 `CVPixelBuffer`s through VideoToolbox to SDR BT.709, D3D11 textures through
 a staging copy) and prints `snapshot FILE pts=US size=WxH`.
+With `--d3d11-hdr`, the dump retains PQ samples normalized to bytes;
+it is a data check, not an SDR preview. The CLI also prints the texture
+format and the center pixel's raw 10-bit RGB values.
+
+Native Windows callers can accept `LYCHEE_FRAME_D3D11_TEXTURE_HDR` to
+keep HDR in a shared `DXGI_FORMAT_R10G10B10A2_UNORM` texture. It carries
+full-range BT.2020 RGB with the PQ transfer function (ST 2084, 1.0 =
+10000 nits); HLG is converted for a 1000-nit reference display. Present
+it using `DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020`. Also accept the
+existing `LYCHEE_FRAME_D3D11_TEXTURE` for SDR and a CPU frame type for
+decoder fallback. Consumers that accept only the old BGRA type continue
+to get HDR tone-mapped to SDR.
 
 With GLFW installed (`brew install glfw`) the build also produces
 `build/examples/glfw/lychee_glfw path/to/video.mp4`: a window that draws the
@@ -99,6 +135,10 @@ frames with Metal. Space pauses, left/right seek 5 s, escape quits.
 `--seconds N` quits after N seconds and `--key SEC:NAME` (`space`, `left`,
 `right`, `escape`) presses a key at SEC seconds, for unattended runs; it
 then prints a summary (decoder, frames rendered and dropped, position).
+`--soak SEC URL` loops and, every SEC seconds, seeks twice to random
+positions and then switches to the other file. `MINUTES=10 tool/soak.sh
+-- build/examples/glfw/lychee_glfw --soak 3 OTHER_FILE FILE` checks the
+harness's memory and thread counts while it does so.
 `--size WxH` sets the window's client size (in points on macOS, where the
 drawable is that times the display's scale), and `--snapshot SEC:FILE`
 (repeatable; after any `--key` due at the same time) reads back what the
@@ -111,10 +151,9 @@ with, CPU BGRA frames otherwise (`--cpu` forces them, `--no-hw` decodes in
 software); its summary also counts the frames of each kind and the
 device losses (it makes a new device after a GPU reset), and `--adapter
 SEC:N` moves it to the Nth DXGI adapter at SEC seconds, as a window moved
-to a display on another GPU; `--soak SEC URL` loops and, every SEC
-seconds, seeks to a random position, twice, then opens the other of the
-two files, as the CLI's `--soak` (`tool/soak.sh`). CMake
-downloads GLFW 3.4 there (hash-pinned; `-DLYCHEE_FETCH_GLFW=OFF` skips the
+to a display on another GPU. Without `--adapter` it draws on the adapter
+of the display the window is on, and follows the window to another one. CMake
+downloads GLFW 3.5.1 there (hash-pinned; `-DLYCHEE_FETCH_GLFW=OFF` skips the
 example). On Linux (`main_linux.cc`; needs `libglfw3-dev`, `libegl-dev` and
 `libgles-dev`) it draws with OpenGL ES 3 on EGL, as the Flutter plugin
 does: CPU RGBA frames uploaded into a texture, and VAAPI dmabufs imported
@@ -124,6 +163,13 @@ back what the window drew for the first frame at or after SEC seconds,
 writes it as a binary PPM (P6, top row first) and prints `snapshot FILE
 pts=US size=WxH video=X,Y,W,H` (the frame's pts on the file's timeline,
 and where the picture is in the PPM).
+
+The Linux GLFW and Flutter shaders use dmabuf color metadata to map PQ
+and HLG to SDR BT.709 using PQ-encoded IPT, the color model used by
+swscale. A small hue table locates BT.709's most saturated color, then
+colors outside that gamut converge towards it. SDR white is 203 nits; HLG
+uses a 1000-nit reference display. The core
+keeps the original P010 planes and color metadata for native HDR callers.
 
 `tool/regression.sh` generates a synthetic media set and runs the CLI over it
 (`TSAN=1` for a ThreadSanitizer build, `ASAN=1` for AddressSanitizer and
@@ -176,6 +222,9 @@ The Android SDK's example takes snapshots with its `snapshot` intent
 extra (`SEC:NAME,...`): it pauses, copies the `SurfaceView` with
 `PixelCopy` (`LycheePlayerView.snapshot`), writes the PPM into its
 external files directory and logs the line, then plays on.
+An absolute `NAME` writes to that path instead. This permits app-private
+files, readable with `adb exec-out run-as PACKAGE cat PATH`, when scoped
+storage blocks adb from its external files.
 
 ```sh
 adb shell am start -n tech.soit.lychee.example/.MainActivity \
@@ -184,17 +233,36 @@ adb shell am start -n tech.soit.lychee.example/.MainActivity \
 adb pull /sdcard/Android/data/tech.soit.lychee.example/files/. /tmp/snaps
 adb logcat -d -s lychee-example:I | grep -o 'snapshot .*' |
   sed 's|/[^ ]*/files/|/tmp/snaps/|' |
-  python3 -I tool/frame_check.py rotated.mp4 --log -
+  python3 -I tool/frame_check.py rotated.mp4 --log - --bilinear
 ```
 
 The emulator's compositor converts MediaCodec's YUV surfaces with BT.601
 whatever their dataspace, so hardware-decoded HD fails there by its
 matrix alone; `--matrix bt601` checks the rest (frame, pts, rotation,
 scale). A phone shows whether the hardware path keeps BT.709.
+`--bilinear` converts to RGB at native size, then samples the four source
+pixels around each destination pixel center, as `PixelCopy` does when
+resizing the surface into the bitmap. Without it, the reference keeps
+swscale's downscaling low-pass filter. These differ on fine patterns at
+large reductions: the API 34 emulator's 320x180 H.264 snapshots give
+27.2-27.5 dB against the low-pass reference and over 35 dB against the
+texture sampler (2026-10-29). Both modes keep the same thresholds and
+reject the wrong PTS, matrix, rotation and scale.
 
 The reference follows the library's conventions: a stream without a color
 matrix is BT.709 above 576 lines and BT.601 below, and HDR is tone-mapped
-to SDR BT.709 by swscale. A snapshot passes with PSNR at least 28 dB, a
+to SDR BT.709 by swscale. HDR conversion stays at 16 bits until its final
+SDR result is quantized: the core uses planar GBR(A), retaining alpha, and
+the pixel reference converts at native size to RGB48 without
+`full_chroma_int`, then resizes the SDR RGB. Direct RGB8
+output and that flag can change flat HDR colors in FFmpeg 9.0.2. The
+reference's SDR flags and all pixel thresholds stay the same.
+`python3 -I tool/frame_check_test.py` checks the HDR reference against
+independently generated in-gamut light. Unspecified source primaries and transfer use
+BT.709 too. The FFmpeg-free Apple H.264/HEVC decoder gives container tags
+priority over the parameter-set format's source tags; absent fields use those
+defaults, rather than VideoToolbox's guessed SD profile.
+A snapshot passes with PSNR at least 28 dB, a
 mean absolute error at most 4 (of 255), the worst 32x32 tile's at most 40,
 and, in a window, black outside the video rectangle. On the regression
 media (2026-10-26) the right frame gives 30.4 dB or more, an error of 0.6
@@ -217,9 +285,9 @@ fails; there they gave:
 The frame before or after differs only where the test pattern moves, which
 the worst tile catches. Not covered: VideoToolbox maps bright HDR colors
 differently from swscale (`hdr_pq_bars.mp4` gives 27.9 dB), and fitting a
-frame into a window far smaller than it (GPU bilinear sampling without
-mipmaps aliases) costs PSNR. The reference is decoded from the start of
-the file, so late snapshots of long files take longer.
+frame into a window far smaller than it costs PSNR unless `--bilinear`
+matches its texture sampling without mipmaps. The reference is decoded
+from the start of the file, so late snapshots of long files take longer.
 
 ## Apple frameworks
 
@@ -287,6 +355,10 @@ xcodebuild -project sdk/apple/Example/Example.xcodeproj -scheme Example \
 build/sdk-apple/Build/Products/Debug/Example.app/Contents/MacOS/Example
 ```
 
+The Swift example accepts the same `--soak SEC URL` and `--seconds N`
+arguments as the GLFW harness. Both its macOS app and iOS simulator app
+repeat seeks and file switches through their display-link frame driver.
+
 For the iOS simulator use `-destination 'generic/platform=iOS Simulator'`,
 `xcrun simctl install booted .../Debug-iphonesimulator/Example.app` and
 `SIMCTL_CHILD_LYCHEE_URL=... xcrun simctl launch booted tech.soit.lychee.example`;
@@ -296,9 +368,23 @@ the simulator reads `/tmp` of the Mac.
 
 `sdk/android` builds one AAR, `tech.soit.lychee:lychee` (minSdk 26): the
 core as `liblychee.so` with the LGPL FFmpeg next to it (build it first:
-`tool/build_ffmpeg.sh android-arm64-v8a SRC MBEDTLS_SRC`, with an Mbed TLS
-3.6 release for https, and `android-x86_64` for x86
-emulators), and Kotlin classes over it. The core is also a prefab module
+`tool/build_ffmpeg.sh android-arm64-v8a SRC`, `android-armeabi-v7a` for
+32-bit ARM systems, and `android-x86_64` for x86 emulators), and Kotlin classes over it.
+HTTPS uses HttpURLConnection and AES-128 HLS uses javax.crypto, in both
+builds; redirects from http to https are followed (five at most), never
+back to http. FFmpeg handles cleartext HTTP refused by the app's network
+security config. That fallback probes redirects with HEAD (GET with a
+one-byte Range if HEAD is unsupported), follows at most five redirects,
+and opens an HTTPS destination through HttpURLConnection. A host whose URL
+did not redirect is not probed again until FFmpeg fails on one of its
+URLs, which then probes that URL again; FFmpeg has no TLS on Android.
+HLS that needs FFmpeg's demuxer (for example, an unsupported subtitle
+rendition) reads its playlists and segments the same way, and its AES-128
+segments are read whole and decrypted in the core (`av_aes`), as on Apple
+platforms and Windows, rather than by FFmpeg's crypto protocol. The
+native CLI run from `adb shell` has no Java VM and cannot open HTTPS.
+
+The release AAR has all three ABIs. The core is also a prefab module
 (`lychee`, header `lychee/lychee.h`) for native code that uses the C ABI.
 
 ```sh
@@ -334,7 +420,9 @@ new Surface when frames switch between MediaCodec and software decoding.
 The example app (`sdk/android/example`, `:example:assembleDebug`) plays the
 `url` intent extra, by default `h264_aac.mp4` from `tool/serve_media.py`
 through `adb reverse tcp:8765 tcp:8765`; `--ez hw false` decodes in
-software:
+software. `--es soak 3 --es soak_url OTHER_URL` repeats seeks and file
+switches every three seconds, and `--es seconds 600` closes the activity
+after ten minutes with a `summary:` line in logcat:
 
 ```sh
 adb shell am start -n tech.soit.lychee.example/.MainActivity --es url http://127.0.0.1:8765/rotated.mp4
@@ -469,6 +557,24 @@ builds win: the xcframeworks in `flutter/darwin/Frameworks` and the AAR in
 `core/`, or in the published package the copy `tool/release.sh` puts into
 `flutter/core` while pub packs it.
 
+
+### Checking audio for clicks
+
+`lychee_cli --audio-dump FILE` (with `--virtual-time` or `--null-audio`,
+and `--volume 1`) records what the silent audio device output, mixed on
+the clock's timeline with silence where it played nothing, as a 48 kHz
+float WAV, until after the player is destroyed (a stop fades out too).
+`tool/audio_check.py` finds clicks in it: steps in the
+waveform, which a sine (the test media's audio) never has. A seek, a
+pause (`--pause SEC FOR`) and a rate change fade the audio out and in
+over 10 ms, so they make none; `--max-gap MS` also fails on silence
+inside the recording, for a loop, whose passes must join without a gap.
+
+```sh
+lychee_cli --virtual-time --volume 1 --seconds 4 --seek 5.2 --seek-after 1 \
+  --audio-dump /tmp/a.wav video.mp4
+python3 -I tool/audio_check.py /tmp/a.wav
+```
 ### Per platform
 
 - **macOS and iOS**: the xcframeworks above; macOS 11 and iOS 16 or newer.
@@ -502,10 +608,10 @@ builds win: the xcframeworks in `flutter/darwin/Frameworks` and the AAR in
   its glibc, on GitHub's x86_64 and arm64 runners). Its libraries load the
   system's libva, libva-drm, libdrm, GnuTLS and zlib (`libva2`,
   `libva-drm2`, `libdrm2`, `libgnutls30`, `zlib1g`). Apps need
-  `libgtk-3` and `libpulse0` at runtime. The core alone needs FFmpeg 8 or newer, which Ubuntu 22.04
+  `libgtk-3`, `libpulse0` and `libpng16-16` at runtime. The core alone needs FFmpeg 8 or newer, which Ubuntu 22.04
   does not ship: point pkg-config at a prebuilt one
   (`PKG_CONFIG_PATH=<ffmpeg>/lib/pkgconfig`, `LD_LIBRARY_PATH=<ffmpeg>/lib`
-  to run the CLI) and install `libpulse-dev`.
+  to run the CLI) and install `libpulse-dev` and `libpng-dev`.
 
 ## Releases
 
@@ -522,7 +628,7 @@ Linux FFmpeg (on Ubuntu; Windows cross-compiled), pins them in
 `sdk/apple` by URL), builds a fresh app against the package pub would
 publish (macOS, iOS and Android on macOS, Windows on Windows), attests
 the assets' build provenance and an SPDX SBOM of them, drafts the GitHub
-release with the assets, the SBOM and the sources of FFmpeg and Mbed TLS,
+release with the assets, the SBOM and the sources of FFmpeg and dav1d,
 and pushes the commit `Release VERSION` and the tag
 `vVERSION`. The tag starts `publish.yml`, which publishes the release and
 the package on pub.dev. Each step is a `tool/release.sh` command and runs
@@ -559,13 +665,15 @@ FFmpeg found by pkg-config, which may be a GPL build (Homebrew's is); that
 is for development only. The macOS and iOS builds from
 `tool/build_ffmpeg.sh` are LGPL 2.1+ (the script checks configure's license
 line), and so are the Windows build (Schannel for https) and the Linux
-build (GnuTLS, LGPL 2.1+, the system's); the Android build is LGPL 3+,
-because it links mbedTLS (Apache-2.0) for https. Distributed apps
+build (GnuTLS, LGPL 2.1+, the system's). Android is LGPL 2.1+ too:
+FFmpeg provides cleartext HTTP, while HttpURLConnection handles HTTPS
+and javax.crypto decrypts AES-128 HLS (FFmpeg's AES in its HLS
+fallback). Distributed apps
 must ship an LGPL-only FFmpeg (no `--enable-gpl` / `--enable-nonfree`),
 linked dynamically.
 
 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) has the notices an app must
-ship with lychee_player (Chromium, FFmpeg, Mbed TLS, and their license
+ship with lychee_player (Chromium, FFmpeg, dav1d, and their license
 texts). The prebuilt artifacts carry it: `lychee.framework` and, on
 Android, `META-INF/lychee/THIRD_PARTY_NOTICES` in the APK.
 

@@ -3,15 +3,17 @@ import 'dart:io';
 import 'dart:ui' show AppExitType;
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lychee_player/lychee_player.dart';
 
 /// Desktop command line: `[--seconds N] [file or URL]`. The file or URL
 /// opens at launch (else the LYCHEE_URL define). With --seconds the app
-/// prints a summary line in examples/glfw's format to stderr after N
-/// seconds and quits, for unattended runs. Mobile apps get no arguments,
-/// so the LYCHEE_SECONDS define does the same there.
+/// prints a summary line in examples/glfw's format after N seconds and
+/// quits, for unattended runs. It writes to logcat on Android, stderr
+/// elsewhere. Mobile apps get no arguments, so the LYCHEE_SECONDS define
+/// does the same there.
 void main(List<String> args) {
   var url = const String.fromEnvironment('LYCHEE_URL');
   const defined = int.fromEnvironment('LYCHEE_SECONDS');
@@ -68,19 +70,29 @@ class _PlayerPageState extends State<PlayerPage> {
     }
   }
 
-  void _quit() {
+  Future<void> _quit() async {
     final player = _player;
     if (player != null) {
       final stats = player.getStats();
       final position = player.value.position.inMicroseconds / 1e6;
-      stderr.writeln('summary: decoder=${stats.videoDecoder} '
+      final summary = 'summary: decoder=${stats.videoDecoder} '
           'hw=${stats.hardwareDecoding ? 1 : 0} '
           'rendered=${stats.framesRendered} dropped=${stats.framesDropped} '
           'position=${position.toStringAsFixed(3)} '
-          'state=${player.value.state.name}');
+          'state=${player.value.state.name}';
+      if (Platform.isAndroid) {
+        // Android's process stderr does not reach logcat.
+        debugPrintSynchronously(summary);
+      } else {
+        stderr.writeln(summary);
+      }
     }
     // Mobile embedders do not implement exitApplication.
-    if (Platform.isIOS || Platform.isAndroid) exit(0);
+    if (Platform.isIOS || Platform.isAndroid) {
+      // IOSink writes are queued: exit must not discard the summary.
+      await stderr.flush();
+      exit(0);
+    }
     // As if the window were closed.
     ServicesBinding.instance.exitApplication(AppExitType.required);
   }

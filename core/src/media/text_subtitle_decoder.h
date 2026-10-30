@@ -13,7 +13,8 @@ namespace lychee {
 
 // Text subtitles without FFmpeg: SubRip, ASS/SSA, WebVTT and mov_text
 // (tx3g) packets as plain text cues, with their markup dropped as FFmpeg's
-// decoders and AssToPlainText() drop it. Bitmap subtitles are not decoded.
+// decoders and AssToPlainText() drop it. The shared MP4 reader supplies
+// normalized TTML text/PNG cues; encoded PGS/DVB/VobSub are not decoded.
 class TextSubtitleDecoder : public SubtitleDecoder {
  public:
   const char* name() const override { return "text"; }
@@ -30,6 +31,7 @@ class TextSubtitleDecoder : public SubtitleDecoder {
   static std::string MovTextToPlainText(const uint8_t* data, size_t size);
 
  private:
+  bool normalized_ = false;
   std::string codec_name_;
 };
 

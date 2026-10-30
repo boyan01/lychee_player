@@ -1,7 +1,7 @@
 # The FFmpeg-free parsers' fuzz targets (tool/fuzz.sh): a project of its
 # own, which compiles the parsers and what they use, not the library, so
 # it builds on any Unix without the library's dependencies (FFmpeg,
-# PulseAudio):
+# PulseAudio; PNG uses ImageIO on Apple or libpng on Linux):
 #
 #   cmake -S core/fuzz -B build-fuzz -DLYCHEE_FUZZ_LIBFUZZER=ON
 #
@@ -29,11 +29,13 @@ add_library(lychee_parsers STATIC
   ${_src}/backends/mp2t/ts_parser.cc
   ${_src}/backends/mp2t/ts_reader.cc
   ${_src}/backends/mp4/mp4_demuxer.cc
+  ${_src}/backends/mp4/mp4_subtitle.cc
   ${_src}/base/log.cc
   ${_src}/base/time.cc
   ${_src}/media/annexb.cc
   ${_src}/media/codec.cc
   ${_src}/media/data_source.cc
+  ${_src}/media/subtitle_decoder.cc
   ${_src}/media/text_subtitle_decoder.cc
 )
 target_include_directories(lychee_parsers PUBLIC ${_src} ../include)
@@ -47,7 +49,12 @@ if(APPLE)
   target_sources(lychee_parsers PRIVATE ${_src}/backends/apple/http_data_source.mm)
   set_source_files_properties(${_src}/backends/apple/http_data_source.mm
     PROPERTIES COMPILE_OPTIONS -fobjc-arc)
-  target_link_libraries(lychee_parsers PUBLIC "-framework Foundation")
+  target_sources(lychee_parsers PRIVATE ${_src}/backends/apple/subtitle_image.cc)
+  target_link_libraries(lychee_parsers PUBLIC "-framework Foundation" "-framework ImageIO" "-framework CoreGraphics" "-framework Accelerate")
+else()
+  find_package(PNG REQUIRED)
+  target_sources(lychee_parsers PRIVATE ${_src}/backends/linux/subtitle_image.cc)
+  target_link_libraries(lychee_parsers PUBLIC PNG::PNG)
 endif()
 
 # lychee_TARGET_fuzzer: the directory regressions/TARGET holds its inputs.

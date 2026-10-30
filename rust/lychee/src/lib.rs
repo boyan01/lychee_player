@@ -133,10 +133,13 @@ pub enum FrameType {
     /// YCbCr, 8- or 10-bit, with color attachments (HDR included); BGRA
     /// from software decoding.
     CvPixelBufferNative,
+    /// A shared R10G10B10A2 texture (Windows), full-range PQ / BT.2020.
+    /// Accept [`FrameType::D3d11Texture`] too for SDR, and a CPU fallback.
+    D3d11TextureHdr,
 }
 
 impl FrameType {
-    const ALL: [FrameType; 7] = [
+    const ALL: [FrameType; 8] = [
         FrameType::CpuBgra,
         FrameType::CpuRgba,
         FrameType::CvPixelBuffer,
@@ -144,6 +147,7 @@ impl FrameType {
         FrameType::D3d11Texture,
         FrameType::Dmabuf,
         FrameType::CvPixelBufferNative,
+        FrameType::D3d11TextureHdr,
     ];
 
     fn bit(self) -> u32 {
@@ -155,6 +159,7 @@ impl FrameType {
             FrameType::D3d11Texture => sys::LYCHEE_FRAME_D3D11_TEXTURE,
             FrameType::Dmabuf => sys::LYCHEE_FRAME_DMABUF,
             FrameType::CvPixelBufferNative => sys::LYCHEE_FRAME_CVPIXELBUFFER_NATIVE,
+            FrameType::D3d11TextureHdr => sys::LYCHEE_FRAME_D3D11_TEXTURE_HDR,
         }
     }
 
@@ -893,6 +898,23 @@ impl Frame {
     /// retain it yourself if it must outlive the frame.
     pub fn native_handle(&self) -> *mut c_void {
         unsafe { sys::lychee_frame_get_native_handle(self.raw()) }
+    }
+
+    /// Linux: the borrowed DMA-BUF descriptor, including H.273 primaries
+    /// and transfer characteristics. File descriptors stay valid while
+    /// this frame is alive. Returns `None` for other frame types and for
+    /// libraries whose descriptor predates API 13.
+    pub fn dmabuf(&self) -> Option<&sys::lychee_dmabuf> {
+        if self.kind() != Some(FrameType::Dmabuf) {
+            return None;
+        }
+        let descriptor = self.native_handle().cast::<sys::lychee_dmabuf>();
+        if descriptor.is_null()
+            || unsafe { descriptor.cast::<u32>().read() } < size_of::<sys::lychee_dmabuf>() as u32
+        {
+            return None;
+        }
+        Some(unsafe { &*descriptor })
     }
 }
 

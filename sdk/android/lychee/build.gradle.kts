@@ -22,7 +22,7 @@ val withFfmpeg = (findProperty("lychee.ffmpeg") as String?)?.toBoolean() ?: true
 
 // FFmpeg comes from tool/build_ffmpeg.sh android-ABI; only the ABIs it was
 // built for are built.
-val ffmpegAbis = listOf("arm64-v8a", "x86_64")
+val ffmpegAbis = listOf("armeabi-v7a", "arm64-v8a", "x86_64")
     .filter { !withFfmpeg || repoRoot.resolve("third_party/ffmpeg/android-$it").isDirectory }
 if (ffmpegAbis.isEmpty()) {
     logger.warn("lychee: no Android FFmpeg in third_party/ffmpeg; run tool/build_ffmpeg.sh android-arm64-v8a")
@@ -75,7 +75,7 @@ android {
     }
 }
 
-// The notices for what the AAR carries (FFmpeg, Mbed TLS, code from
+// The notices for what the AAR carries (FFmpeg, dav1d, code from
 // Chromium), as a Java resource, so that they end up in every APK as
 // META-INF/lychee/THIRD_PARTY_NOTICES.
 abstract class CopyNotices : DefaultTask() {

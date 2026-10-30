@@ -9,10 +9,12 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <vector>
 
 #include "base/log.h"
+#include "base/time.h"
 
 namespace lychee {
 
@@ -126,6 +128,10 @@ struct WinHttpState {
   int retries = 0;
   bool interrupted = false;
   std::string error;
+  // Active network I/O only: a full read-ahead buffer can wait on the
+  // caller for seconds without reducing the measured link bandwidth.
+  int64_t received = 0;
+  int64_t receive_micros = 0;
 
   int64_t end() const {
     return offset + static_cast<int64_t>(data.size() - head);
@@ -163,6 +169,7 @@ struct WinHttpState {
       // From 0 too, as FFmpeg does: a 206 says the server takes ranges.
       const std::wstring range =
           L"Range: bytes=" + std::to_wstring(offset) + L"-";
+      const int64_t began = MonotonicMicros();
       lock.unlock();
       HINTERNET opened = WinHttpOpenRequest(
           connection, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
@@ -189,6 +196,7 @@ struct WinHttpState {
         condition.notify_all();
         continue;
       }
+      receive_micros += MonotonicMicros() - began;
       request = opened;
       Respond(opened);
       if (!complete) {
@@ -260,6 +268,7 @@ struct WinHttpState {
       if (shutdown || generation != served) {
         return;
       }
+      const int64_t began = MonotonicMicros();
       lock->unlock();
       DWORD read = 0;
       const BOOL ok = WinHttpReadData(response, chunk->data(),
@@ -277,6 +286,8 @@ struct WinHttpState {
         condition.notify_all();
         return;
       }
+      received += read;
+      receive_micros += MonotonicMicros() - began;
       const size_t skip = static_cast<size_t>(
           std::min<int64_t>(discard, static_cast<int64_t>(read)));
       discard -= static_cast<int64_t>(skip);
@@ -458,6 +469,19 @@ void WinHttpDataSource::ClearInterrupt() {
 bool WinHttpDataSource::interrupted() const {
   std::lock_guard<std::mutex> lock(state_->mutex);
   return state_->interrupted;
+}
+
+int64_t WinHttpDataSource::transfer_rate() const {
+  std::lock_guard<std::mutex> lock(state_->mutex);
+  if (state_->receive_micros <= 0 || state_->received <= 0) {
+    return -1;
+  }
+  const long double rate = static_cast<long double>(state_->received) * 8 *
+                           kMicrosPerSecond /
+                           static_cast<long double>(state_->receive_micros);
+  return rate >= static_cast<long double>(std::numeric_limits<int64_t>::max())
+             ? std::numeric_limits<int64_t>::max()
+             : static_cast<int64_t>(rate);
 }
 
 std::string WinHttpDataSource::error() const {

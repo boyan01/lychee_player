@@ -33,8 +33,8 @@ elseif(WIN32)
   endif()
   include(FetchContent)
   FetchContent_Declare(glfw
-    URL https://github.com/glfw/glfw/releases/download/3.4/glfw-3.4.zip
-    URL_HASH SHA256=b5ec004b2712fd08e8861dc271428f048775200a2df719ccf575143ba749a3e9
+    URL https://github.com/glfw/glfw/releases/download/3.5.1/glfw-3.5.1.zip
+    URL_HASH SHA256=ea79bc5feffc254c87291980c2d0bce9acebb68c4983b79f961dcd2cb8a611a0
   )
   set(GLFW_BUILD_EXAMPLES OFF)
   set(GLFW_BUILD_TESTS OFF)

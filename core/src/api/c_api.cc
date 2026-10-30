@@ -557,9 +557,17 @@ void lychee_testing_enable_virtual_time(void) {
   lychee::EnableVirtualTime();
 }
 
+void lychee_testing_enable_null_audio(void) {
+  lychee::UseNullAudioSinkForTesting();
+}
+
+void lychee_testing_render_audio(void) {
+  lychee::NullAudioSink::RenderAll(lychee::NowMicros());
+}
+
 void lychee_testing_set_time(int64_t now_us) {
   lychee::SetVirtualTime(now_us);
-  lychee::NullAudioSink::RenderAll(lychee::NowMicros());
+  lychee_testing_render_audio();
 }
 
 int32_t lychee_testing_player_settled(lychee_player* player,
@@ -579,9 +587,21 @@ void lychee_testing_stall_audio_devices(int32_t stalled) {
   lychee::AudioRenderer::StallDevicesForTesting(stalled != 0);
 }
 
+void lychee_testing_fail_audio_starts(int32_t count) {
+  lychee::AudioRenderer::FailSinkStartsForTesting(count);
+}
+
 int64_t lychee_testing_first_sound_us(void) {
   const int64_t time = lychee::NullAudioSink::FirstSound();
   return time == lychee::kNoTimestamp ? INT64_MIN : time;
+}
+
+void lychee_testing_capture_audio(void) {
+  lychee::NullAudioSink::StartCapture();
+}
+
+int32_t lychee_testing_write_captured_audio(const char* wav_path) {
+  return wav_path && lychee::NullAudioSink::WriteCapture(wav_path) ? 0 : -1;
 }
 
 }  // extern "C"

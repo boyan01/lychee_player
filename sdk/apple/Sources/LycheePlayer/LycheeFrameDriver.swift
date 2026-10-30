@@ -201,12 +201,9 @@ public final class LycheeFrameDriver: NSObject {
     lock.lock()
     defer { lock.unlock() }
     guard let handle else { return }
-    var stats = lychee_stats()
-    stats.struct_size = UInt32(MemoryLayout<lychee_stats>.size)
-    lychee_player_get_stats(handle, &stats)
-    if stats.hardware_decoding != 0 {
-      lychee_player_rebuild_video_decoder(handle)
-    }
+    // Also when the stats say software: rebuilds in the background fail
+    // into software, and the core tells that fallback from a choice.
+    lychee_player_rebuild_video_decoder(handle)
   }
 
   // CADisplayLink retains its target; this breaks the cycle.

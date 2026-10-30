@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <mutex>
 
 #include "base/time.h"
@@ -28,6 +30,15 @@ std::vector<NullAudioSink*>& Sinks() {
 }
 // Guarded by g_mutex.
 int64_t g_first_sound = kNoTimestamp;
+// StartCapture(): when the recording starts, kNoTimestamp if not
+// capturing, and the interleaved samples (every sink has the same format).
+int64_t g_capture_start = kNoTimestamp;
+std::vector<float>& Capture() {
+  static std::vector<float> capture;
+  return capture;
+}
+// Ten minutes of 48 kHz stereo, 230 MB.
+constexpr int64_t kMaxCaptureFrames = int64_t{10} * 60 * 48000;
 
 }  // namespace
 
@@ -52,6 +63,54 @@ int64_t NullAudioSink::FirstSound() {
   return g_first_sound;
 }
 
+void NullAudioSink::StartCapture() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  g_capture_start = NowMicros();
+  Capture().clear();
+}
+
+bool NullAudioSink::WriteCapture(const std::string& path) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  std::vector<float>& samples = Capture();
+  // Up to now: silence after the last sink stopped.
+  if (g_capture_start != kNoTimestamp) {
+    const int64_t frames =
+        std::min((NowMicros() - g_capture_start) * 48000 / kMicrosPerSecond,
+                 kMaxCaptureFrames);
+    if (frames * 2 > static_cast<int64_t>(samples.size())) {
+      samples.resize(static_cast<size_t>(frames) * 2);
+    }
+  }
+  FILE* file = fopen(path.c_str(), "wb");
+  if (!file) {
+    return false;
+  }
+  // RIFF WAVE with an IEEE float fmt chunk; every platform here is little
+  // endian.
+  const uint32_t sample_size = sizeof(float);
+  const uint32_t data_size =
+      static_cast<uint32_t>(samples.size()) * sample_size;
+  const uint16_t format = 3;
+  const uint16_t channels = 2;
+  const uint32_t rate = 48000;
+  const uint32_t byte_rate = rate * channels * sample_size;
+  const uint16_t block_align = channels * sample_size;
+  const uint16_t bits = 32;
+  const uint32_t fmt_size = 16;
+  const uint32_t riff_size = 4 + 8 + fmt_size + 8 + data_size;
+  bool ok =
+      fwrite("RIFF", 4, 1, file) == 1 && fwrite(&riff_size, 4, 1, file) == 1 &&
+      fwrite("WAVEfmt ", 8, 1, file) == 1 &&
+      fwrite(&fmt_size, 4, 1, file) == 1 && fwrite(&format, 2, 1, file) == 1 &&
+      fwrite(&channels, 2, 1, file) == 1 && fwrite(&rate, 4, 1, file) == 1 &&
+      fwrite(&byte_rate, 4, 1, file) == 1 &&
+      fwrite(&block_align, 2, 1, file) == 1 && fwrite(&bits, 2, 1, file) == 1 &&
+      fwrite("data", 4, 1, file) == 1 && fwrite(&data_size, 4, 1, file) == 1 &&
+      fwrite(samples.data(), sizeof(float), samples.size(), file) ==
+          samples.size();
+  return fclose(file) == 0 && ok;
+}
+
 bool NullAudioSink::Open(RenderCallback callback, std::string*) {
   callback_ = std::move(callback);
   return true;
@@ -61,15 +120,20 @@ AudioOutputFormat NullAudioSink::format() const {
   return format_;
 }
 
-void NullAudioSink::Start() {
+bool NullAudioSink::Start() {
   std::lock_guard<std::mutex> lock(g_mutex);
   auto& sinks = Sinks();
   if (std::find(sinks.begin(), sinks.end(), this) != sinks.end()) {
-    return;
+    return true;
   }
   start_time_ = NowMicros();
   frames_rendered_ = 0;
+  if (g_capture_start != kNoTimestamp) {
+    capture_offset_ = (start_time_ - g_capture_start) * format_.sample_rate /
+                      kMicrosPerSecond;
+  }
   sinks.push_back(this);
+  return true;
 }
 
 void NullAudioSink::Stop() {
@@ -87,7 +151,26 @@ void NullAudioSink::RenderUntil(int64_t now) {
     const int64_t playout_time =
         start_time_ +
         frames_rendered_ * kMicrosPerSecond / format_.sample_rate;
-    callback_(buffer_.data(), kPeriodFrames, playout_time);
+    const int written =
+        std::clamp(callback_(buffer_.data(), kPeriodFrames, playout_time), 0,
+                   kPeriodFrames);
+    // As a device does, silence after what the callback wrote.
+    std::fill(
+        buffer_.begin() + static_cast<ptrdiff_t>(written) * format_.channels,
+        buffer_.end(), 0.0f);
+    if (g_capture_start != kNoTimestamp) {
+      const int64_t at = capture_offset_ + frames_rendered_;
+      if (at >= 0 && at + kPeriodFrames <= kMaxCaptureFrames) {
+        std::vector<float>& capture = Capture();
+        const size_t begin = static_cast<size_t>(at) * format_.channels;
+        if (capture.size() < begin + buffer_.size()) {
+          capture.resize(begin + buffer_.size(), 0.0f);
+        }
+        for (size_t i = 0; i < buffer_.size(); ++i) {
+          capture[begin + i] += buffer_[i];
+        }
+      }
+    }
     if (g_first_sound == kNoTimestamp) {
       for (size_t i = 0; i < buffer_.size(); ++i) {
         if (std::abs(buffer_[i]) > kQuiet) {

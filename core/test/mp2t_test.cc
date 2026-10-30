@@ -582,6 +582,10 @@ TEST(Mp2t, ParsesAc3Header) {
   EXPECT_EQ(header.sample_rate, 32000);
   EXPECT_EQ(header.channels, 2);
   EXPECT_TRUE(!ParseAc3Header(ac3.data() + 1, ac3.size() - 1, &header));
+  // Reserved fscod2 must be rejected before indexing the sample-rate table.
+  const Bytes reserved_rate = {0x0b, 0x77, 0, 0, 0xf0, 0x80, 0};
+  EXPECT_TRUE(
+      !ParseAc3Header(reserved_rate.data(), reserved_rate.size(), &header));
 }
 
 // Video at 30 fps in runs of |frames| that each start over at 10 s, a

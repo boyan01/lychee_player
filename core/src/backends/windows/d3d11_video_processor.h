@@ -16,8 +16,8 @@ namespace lychee {
 // unspecified matrix is BT.709 above 576 lines, BT.601 otherwise.
 DXGI_COLOR_SPACE_TYPE DxgiColorSpace(const ColorInfo& color, int height);
 
-// Turns decoded NV12 / P010 textures into kD3D11Texture frames: a new
-// shared BGRA texture per frame, so a texture another device has opened is
+// Turns decoded NV12 / P010 textures into shared BGRA or PQ/BT.2020 R10
+// frames: a new texture per frame, so a texture another device has opened is
 // never written again. Runs on the decoder's device, on the decode thread.
 //
 // Ported from flutter-airplay's native/backends/windows/windows_gpu.h.
@@ -25,14 +25,17 @@ class D3D11VideoProcessor {
  public:
   // |texture| is a decoder output, |slice| its array index; the picture is
   // its top-left |width| x |height| in |color_space|. Null if the GPU
-  // cannot convert it. Output is SDR BT.709. HDR (PQ, which NVIDIA's video
-  // processor clips to white, and HLG, which it maps darker than swscale)
-  // goes through a shader of our own (ToneMap).
+  // cannot convert it. By default output is SDR BT.709. HDR (PQ, which NVIDIA's
+  // video processor clips to white, and HLG, which it maps darker than swscale)
+  // goes through a shader of our own. With |hdr_output|, HDR leaves as
+  // full-range PQ / BT.2020 in R10G10B10A2; HLG uses a 1000-nit reference
+  // display. SDR keeps the ordinary BGRA type.
   std::shared_ptr<VideoFrame> Convert(ID3D11Texture2D* texture,
                                       UINT slice,
                                       int width,
                                       int height,
-                                      DXGI_COLOR_SPACE_TYPE color_space);
+                                      DXGI_COLOR_SPACE_TYPE color_space,
+                                      bool hdr_output = false);
 
   // A kCpuBgra copy of |frame|, a frame from Convert(), for callers that
   // cannot open textures. Null on failure.
@@ -52,9 +55,12 @@ class D3D11VideoProcessor {
            UINT output_height,
            DXGI_COLOR_SPACE_TYPE input_space,
            DXGI_COLOR_SPACE_TYPE output_space);
-  // Tone-maps |hdr_|, RGB in PQ (or HLG if |hlg|) with BT.2020 primaries,
-  // into |output|.
-  bool ToneMap(ID3D11Texture2D* output, UINT width, UINT height, bool hlg);
+  // Converts |hdr_|, PQ or HLG / BT.2020, to SDR or native PQ output.
+  bool ConvertHdr(ID3D11Texture2D* output,
+                  UINT width,
+                  UINT height,
+                  bool hlg,
+                  bool hdr_output);
   // Waits for the GPU to finish what was submitted.
   bool Finish();
 
@@ -69,6 +75,7 @@ class D3D11VideoProcessor {
   Microsoft::WRL::ComPtr<ID3D11VideoProcessor> processor_;
   // What |processor_| was created for.
   DXGI_FORMAT input_format_ = DXGI_FORMAT_UNKNOWN;
+  DXGI_FORMAT output_format_ = DXGI_FORMAT_UNKNOWN;
   UINT input_width_ = 0;
   UINT input_height_ = 0;
   UINT output_width_ = 0;
@@ -80,6 +87,7 @@ class D3D11VideoProcessor {
   Microsoft::WRL::ComPtr<ID3D11VertexShader> vertex_shader_;
   Microsoft::WRL::ComPtr<ID3D11PixelShader> pq_shader_;
   Microsoft::WRL::ComPtr<ID3D11PixelShader> hlg_shader_;
+  Microsoft::WRL::ComPtr<ID3D11PixelShader> hlg_pq_shader_;
   bool shader_failed_ = false;
   // Download(): reused while the size stays.
   Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_;

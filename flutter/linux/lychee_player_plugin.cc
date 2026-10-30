@@ -12,6 +12,8 @@
 #endif
 #include <lychee/lychee.h>
 
+#include "hdr_to_sdr.h"
+
 #include <cstring>
 #include <string>
 #include <vector>
@@ -68,9 +70,15 @@ uniform sampler2D luma;
 uniform sampler2D chroma;
 uniform vec3 offset;
 uniform mat3 matrix;
+uniform int color_transfer;
+uniform int color_primaries;
+)";
+
+constexpr char kFragmentMain[] = R"(
+
 void main() {
   vec3 yuv = vec3(texture2D(luma, uv).r, texture2D(chroma, uv).rg) - offset;
-  gl_FragColor = vec4(matrix * yuv, 1.0);
+  gl_FragColor = vec4(hdrToSdr(matrix * yuv), 1.0);
 }
 )";
 
@@ -80,6 +88,7 @@ constexpr GLfloat kQuad[] = {-1, -1, 1, -1, -1, 1, 1, 1};
 struct GlObjects {
   GLuint output = 0;  // What Flutter draws.
   GLuint planes[2] = {};
+  GLuint gamut_cusps = 0;
   GLuint framebuffer = 0;
   GLuint buffer = 0;
   GLuint program = 0;
@@ -96,6 +105,7 @@ void DeleteOrphans() {
   for (GlObjects& gl : orphans) {
     glDeleteTextures(1, &gl.output);
     glDeleteTextures(2, gl.planes);
+    glDeleteTextures(1, &gl.gamut_cusps);
     glDeleteFramebuffers(1, &gl.framebuffer);
     glDeleteBuffers(1, &gl.buffer);
     glDeleteProgram(gl.program);
@@ -113,7 +123,7 @@ class ScopedGlState {
       : es3_(epoxy_gl_version() >= 30),
         oes_vao_(!es3_ && epoxy_has_gl_extension("GL_OES_vertex_array_object")) {
     glGetIntegerv(GL_ACTIVE_TEXTURE, &active_texture_);
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < 3; ++i) {
       glActiveTexture(GL_TEXTURE0 + i);
       glGetIntegerv(GL_TEXTURE_BINDING_2D, &textures_[i]);
     }
@@ -184,7 +194,7 @@ class ScopedGlState {
       glBindBuffer(GL_PIXEL_UNPACK_BUFFER, unpack_buffer_);
     }
     glPixelStorei(GL_UNPACK_ALIGNMENT, unpack_alignment_);
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < 3; ++i) {
       glActiveTexture(GL_TEXTURE0 + i);
       glBindTexture(GL_TEXTURE_2D, textures_[i]);
     }
@@ -210,7 +220,7 @@ class ScopedGlState {
   const bool es3_;
   const bool oes_vao_;
   GLint active_texture_ = GL_TEXTURE0;
-  GLint textures_[2] = {};
+  GLint textures_[3] = {};
   GLint unpack_alignment_ = 4;
   GLint unpack_buffer_ = 0;
   GLint unpack_row_length_ = 0;
@@ -243,9 +253,13 @@ void SetSampling(GLuint texture) {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 }
 
-GLuint CompileShader(GLenum type, const char* source) {
+GLuint CompileShader(GLenum type,
+                     const char* source,
+                     const char* middle = nullptr,
+                     const char* suffix = nullptr) {
   const GLuint shader = glCreateShader(type);
-  glShaderSource(shader, 1, &source, nullptr);
+  const char* parts[] = {source, middle, suffix};
+  glShaderSource(shader, middle ? 3 : 1, parts, nullptr);
   glCompileShader(shader);
   GLint ok = GL_FALSE;
   glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
@@ -391,6 +405,8 @@ struct _LycheeTexture {
   int32_t height;
   GLint offset_location;
   GLint matrix_location;
+  GLint transfer_location;
+  GLint primaries_location;
   // Tightly packed copy, for padded rows where GL cannot skip the padding.
   uint8_t* packed;
   size_t packed_size;
@@ -409,7 +425,9 @@ static gboolean lychee_texture_initialize_program(LycheeTexture* self) {
     return TRUE;
   }
   const GLuint vertex = CompileShader(GL_VERTEX_SHADER, kVertexShader);
-  const GLuint fragment = CompileShader(GL_FRAGMENT_SHADER, kFragmentShader);
+  const GLuint fragment =
+      CompileShader(GL_FRAGMENT_SHADER, kFragmentShader,
+                    lychee_linux::kHdrShader, kFragmentMain);
   GLuint program = 0;
   if (vertex && fragment) {
     program = glCreateProgram();
@@ -436,10 +454,27 @@ static gboolean lychee_texture_initialize_program(LycheeTexture* self) {
   glUniform1i(glGetUniformLocation(program, "chroma"), 1);
   self->offset_location = glGetUniformLocation(program, "offset");
   self->matrix_location = glGetUniformLocation(program, "matrix");
+  self->transfer_location = glGetUniformLocation(program, "color_transfer");
+  self->primaries_location = glGetUniformLocation(program, "color_primaries");
   glGenTextures(2, self->gl.planes);
   for (GLuint plane : self->gl.planes) {
     SetSampling(plane);
   }
+  glUniform1i(glGetUniformLocation(program, "gamut_cusps"), 2);
+  glGenTextures(1, &self->gl.gamut_cusps);
+  glActiveTexture(GL_TEXTURE2);
+  SetSampling(self->gl.gamut_cusps);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  if (epoxy_gl_version() >= 30) {
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+  }
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, lychee_linux::kGamutCuspCount, 1, 0,
+               GL_RGBA, GL_UNSIGNED_BYTE, lychee_linux::GamutCusps().data());
+  glActiveTexture(GL_TEXTURE0);
   glGenFramebuffers(1, &self->gl.framebuffer);
   glGenBuffers(1, &self->gl.buffer);
   glBindBuffer(GL_ARRAY_BUFFER, self->gl.buffer);
@@ -560,6 +595,20 @@ static gboolean lychee_texture_convert(LycheeTexture* self,
     glUseProgram(self->gl.program);
     glUniform3fv(self->offset_location, 1, offset);
     glUniformMatrix3fv(self->matrix_location, 1, GL_FALSE, matrix);
+    // API 13 appended these fields. Old descriptors remain SDR.
+    const bool color_metadata =
+        dmabuf->struct_size >= offsetof(lychee_dmabuf, color_transfer) +
+                                   sizeof(dmabuf->color_transfer);
+    int primaries = color_metadata ? dmabuf->color_primaries : 0;
+    if (primaries == 0 || primaries == 2) {
+      primaries =
+          dmabuf->color_matrix == 9 || dmabuf->color_matrix == 10 ? 9 : 1;
+    }
+    glUniform1i(self->transfer_location,
+                color_metadata ? dmabuf->color_transfer : 0);
+    glUniform1i(self->primaries_location, primaries);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, self->gl.gamut_cusps);
     // The renderer's vertex array would otherwise take the attribute.
     if (epoxy_gl_version() >= 30) {
       glBindVertexArray(0);

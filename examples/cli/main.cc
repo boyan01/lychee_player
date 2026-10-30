@@ -78,6 +78,15 @@ struct Options {
   // --dmabuf: the DRM render node to decode on.
   std::string dmabuf_node;
   bool virtual_time = false;
+  // Where to write what the silent audio device played (testing.h), as a
+  // WAV for tool/audio_check.py; needs --virtual-time or --null-audio, and
+  // a volume above 0.
+  std::string audio_dump;
+  // Pause this many seconds after playback starts, for |pause_for|.
+  double pause_at = -1;
+  double pause_for = 0;
+  // A silent audio device pulled on its own thread, even without a sound card.
+  bool null_audio = false;
   // Where to write each subtitle with pictures, drawn on a grey canvas of
   // the video's size (binary PPM), to look at bitmap subtitles.
   std::string subtitle_ppm;
@@ -98,6 +107,8 @@ struct Options {
   double stall_audio_after = -1;
   double stall_audio_for = -1;
   bool stall_audio = false;
+  // The first |fail_audio_starts| audio device starts fail.
+  int fail_audio_starts = 0;
   // Stop pulling frames this many seconds after playback starts, as an app
   // in the background does, for |hide_for| seconds.
   double hide_after = -1;
@@ -280,6 +291,15 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       if (!v) return false;
       options->stall_audio = true;
       options->stall_audio_after = atof(v);
+    } else if (arg == "--fail-audio-start") {
+      const char* v = value();
+      if (!v) return false;
+      char* end = nullptr;
+      const long count = std::strtol(v, &end, 10);
+      if (end == v || *end != '\0' || count < 0 || count > 1000) {
+        return false;
+      }
+      options->fail_audio_starts = static_cast<int>(count);
     } else if (arg == "--stall-audio-for") {
       const char* v = value();
       if (!v) return false;
@@ -333,8 +353,20 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       if (colon == std::string::npos || colon + 1 == spec.size()) return false;
       options->snapshots.push_back(
           {atof(spec.substr(0, colon).c_str()), spec.substr(colon + 1)});
+    } else if (arg == "--audio-dump") {
+      const char* v = value();
+      if (!v) return false;
+      options->audio_dump = v;
+    } else if (arg == "--pause") {
+      const char* at = value();
+      const char* duration = value();
+      if (!at || !duration) return false;
+      options->pause_at = strtod(at, nullptr);
+      options->pause_for = strtod(duration, nullptr);
     } else if (arg == "--virtual-time") {
       options->virtual_time = true;
+    } else if (arg == "--null-audio") {
+      options->null_audio = true;
     } else if (arg == "--no-hw") {
       options->hardware = false;
     } else if (arg == "--cpu") {
@@ -351,6 +383,9 @@ bool ParseOptions(int argc, char** argv, Options* options) {
     } else if (arg == "--d3d11") {
       // CPU frames too, as the Flutter plugin takes them.
       options->frame_type = LYCHEE_FRAME_D3D11_TEXTURE | LYCHEE_FRAME_CPU_BGRA;
+    } else if (arg == "--d3d11-hdr") {
+      options->frame_type = LYCHEE_FRAME_D3D11_TEXTURE_HDR |
+                            LYCHEE_FRAME_D3D11_TEXTURE | LYCHEE_FRAME_CPU_BGRA;
     } else if (arg == "--dmabuf") {
       // Dmabufs on the GPU of a DRM render node, CPU frames too, as the
       // Flutter plugin takes them.
@@ -422,7 +457,23 @@ void PrintMetadata(lychee_player* player) {
 // Subtitle pictures on the video's own canvas: where each goes, and how
 // much of it is opaque and in what colour, to tell text from boxes.
 #if defined(_WIN32)
-// The center pixel of a LYCHEE_FRAME_D3D11_TEXTURE frame, as R, G, B.
+// Normalized RGB bytes, retaining PQ encoding for native HDR textures.
+void TextureRgb(const uint8_t* pixel, DXGI_FORMAT format, int* rgb) {
+  if (format == DXGI_FORMAT_R10G10B10A2_UNORM) {
+    uint32_t value = 0;
+    std::memcpy(&value, pixel, sizeof(value));
+    for (int i = 0; i < 3; ++i) {
+      rgb[i] =
+          static_cast<int>(((value >> (10 * i)) & 1023) * 255 + 511) / 1023;
+    }
+  } else {
+    rgb[0] = pixel[2];
+    rgb[1] = pixel[1];
+    rgb[2] = pixel[0];
+  }
+}
+
+// The center pixel of a D3D11 texture frame, as R, G, B.
 void ReadCenterPixel(ID3D11Device* device,
                      ID3D11DeviceContext* context,
                      lychee_frame* frame,
@@ -439,12 +490,14 @@ void ReadCenterPixel(ID3D11Device* device,
     return;
   }
   D3D11_TEXTURE2D_DESC desc = {};
+  opened->GetDesc(&desc);
   desc.Width = desc.Height = 1;
   desc.MipLevels = desc.ArraySize = 1;
-  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-  desc.SampleDesc.Count = 1;
+  desc.SampleDesc = {1, 0};
   desc.Usage = D3D11_USAGE_STAGING;
+  desc.BindFlags = 0;
   desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  desc.MiscFlags = 0;
   ComPtr<ID3D11Texture2D> staging;
   if (FAILED(device->CreateTexture2D(&desc, nullptr, &staging))) {
     return;
@@ -457,9 +510,14 @@ void ReadCenterPixel(ID3D11Device* device,
   D3D11_MAPPED_SUBRESOURCE mapped = {};
   if (SUCCEEDED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
     const auto* p = static_cast<const uint8_t*>(mapped.pData);
-    rgb[0] = p[2];
-    rgb[1] = p[1];
-    rgb[2] = p[0];
+    TextureRgb(p, desc.Format, rgb);
+    if (desc.Format == DXGI_FORMAT_R10G10B10A2_UNORM) {
+      uint32_t value = 0;
+      std::memcpy(&value, p, sizeof(value));
+      printf(
+          "native frame: R10G10B10A2 transfer=16 primaries=9 rgb10=%u,%u,%u\n",
+          value & 1023, (value >> 10) & 1023, (value >> 20) & 1023);
+    }
     context->Unmap(staging.Get(), 0);
   }
 }
@@ -656,10 +714,28 @@ bool ReadTexture(ID3D11Device* device,
   if (FAILED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
     return false;
   }
-  CopyRgb(static_cast<const uint8_t*>(mapped.pData), mapped.RowPitch,
-          std::min<int>(lychee_frame_get_width(frame), desc.Width),
-          std::min<int>(lychee_frame_get_height(frame), desc.Height), true,
-          image);
+  const int width = std::min<int>(lychee_frame_get_width(frame), desc.Width);
+  const int height = std::min<int>(lychee_frame_get_height(frame), desc.Height);
+  if (desc.Format == DXGI_FORMAT_R10G10B10A2_UNORM) {
+    image->width = width;
+    image->height = height;
+    image->pixels.resize(static_cast<size_t>(width) * height * 3);
+    for (int y = 0; y < height; ++y) {
+      const auto* row = static_cast<const uint8_t*>(mapped.pData) +
+                        static_cast<size_t>(y) * mapped.RowPitch;
+      for (int x = 0; x < width; ++x) {
+        int rgb[3] = {};
+        TextureRgb(row + static_cast<size_t>(x) * 4, desc.Format, rgb);
+        for (int c = 0; c < 3; ++c) {
+          image->pixels[(static_cast<size_t>(y) * width + x) * 3 + c] =
+              static_cast<uint8_t>(rgb[c]);
+        }
+      }
+    }
+  } else {
+    CopyRgb(static_cast<const uint8_t*>(mapped.pData), mapped.RowPitch, width,
+            height, true, image);
+  }
   context->Unmap(staging.Get(), 0);
   return true;
 }
@@ -727,7 +803,8 @@ void WriteFramePpm(lychee_player* player,
   }
 #endif
 #if defined(_WIN32)
-  if (type == LYCHEE_FRAME_D3D11_TEXTURE) {
+  if (type == LYCHEE_FRAME_D3D11_TEXTURE ||
+      type == LYCHEE_FRAME_D3D11_TEXTURE_HDR) {
     read =
         ReadTexture(static_cast<ID3D11Device*>(device),
                     static_cast<ID3D11DeviceContext*>(context), frame, &image);
@@ -954,30 +1031,41 @@ class LiveFeed {
 int main(int argc, char** argv) {
   Options options;
   if (!ParseOptions(argc, argv, &options)) {
-    fprintf(stderr,
-            "usage: %s [--seconds N] [--seek SEC [--seek-after SEC]] "
-            "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
-            "[--cpu | --rgba | --native | --d3d11 | --dmabuf NODE | "
-            "--android-surface] "
-            "[--rate R [--rate-after "
-            "SEC]] [--loop [--loop-off-after SEC]] "
-            "[--open-after SEC URL] [--soak SEC URL] [--select "
-            "TYPE:INDEX[@SEC]]... "
-            "[--select-after SEC] [--lose-decoder-after SEC]... "
-            "[--hang-decoder-after SEC]... [--rebuild-decoder-after SEC]... "
-            "[--stall-audio-after SEC "
-            "[--stall-audio-for SEC]] "
-            "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
-            "[--live [--latency MS] [--live-jitter MS] "
-            "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
-            "[--subtitle-ppm FILE] [--frame-ppm SEC:FILE]... [--virtual-time] "
-            "<file or url>\n",
-            argv[0]);
+    fprintf(
+        stderr,
+        "usage: %s [--seconds N] [--seek SEC [--seek-after SEC]] "
+        "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
+        "[--cpu | --rgba | --native | --d3d11 | --d3d11-hdr | --dmabuf NODE | "
+        "--android-surface] "
+        "[--rate R [--rate-after "
+        "SEC]] [--loop [--loop-off-after SEC]] "
+        "[--open-after SEC URL] [--soak SEC URL] [--select "
+        "TYPE:INDEX[@SEC]]... "
+        "[--select-after SEC] [--lose-decoder-after SEC]... "
+        "[--hang-decoder-after SEC]... [--rebuild-decoder-after SEC]... "
+        "[--stall-audio-after SEC "
+        "[--stall-audio-for SEC]] [--fail-audio-start N] "
+        "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
+        "[--live [--latency MS] [--live-jitter MS] "
+        "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
+        "[--subtitle-ppm FILE] [--frame-ppm SEC:FILE]... [--virtual-time] "
+        "[--null-audio] [--audio-dump FILE] [--pause SEC FOR] "
+        "<file or url>\n",
+        argv[0]);
     return 2;
   }
 
   if (options.virtual_time) {
     lychee_testing_enable_virtual_time();
+  }
+  if (options.null_audio) {
+    lychee_testing_enable_null_audio();
+  }
+  if (!options.audio_dump.empty()) {
+    lychee_testing_capture_audio();
+  }
+  if (options.fail_audio_starts > 0) {
+    lychee_testing_fail_audio_starts(options.fail_audio_starts);
   }
   if (options.stall_audio && options.stall_audio_after <= 0) {
     options.stall_audio_after = 0;
@@ -1044,6 +1132,21 @@ int main(int argc, char** argv) {
     fprintf(stderr, "open rejected\n");
     return 1;
   }
+  // Start after the early returns above; the only exit below stops and joins
+  // the thread before destroying the player. std::jthread is still experimental
+  // in the Android NDK's libc++.
+  std::atomic<bool> stop_null_audio{false};
+  std::thread null_audio_thread;
+  if (options.null_audio && !options.virtual_time) {
+    // The renderer sees real concurrent device pulls, including a stall and
+    // recovery, without requiring the host to have an audio output device.
+    null_audio_thread = std::thread([&stop_null_audio] {
+      while (!stop_null_audio.load()) {
+        lychee_testing_render_audio();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+    });
+  }
   lychee_player_play(player);
   bool reopened = false;
   if (options.reopen_after == 0) {
@@ -1075,6 +1178,7 @@ int main(int argc, char** argv) {
   int64_t audio_onset = INT64_MIN;
   int64_t ready_wall = 0;
   bool stalled_audio = false;
+  bool paused = false;
   // Wall clock vs. media clock since playback last (re)started, to spot
   // drift.
   int64_t drift_wall = 0;
@@ -1214,6 +1318,17 @@ int main(int argc, char** argv) {
       if (frame) {
         int64_t pts = lychee_frame_get_pts(frame);
         frame_type = lychee_frame_get_type(frame);
+        if (frame_type == LYCHEE_FRAME_DMABUF && frames_pulled == 0) {
+          const auto* dmabuf = static_cast<const lychee_dmabuf*>(
+              lychee_frame_get_native_handle(frame));
+          if (dmabuf && dmabuf->struct_size >= sizeof(lychee_dmabuf)) {
+            printf("dmabuf: fourcc=%08" PRIx32
+                   " primaries=%d transfer=%d matrix=%d full_range=%d\n",
+                   dmabuf->fourcc, dmabuf->color_primaries,
+                   dmabuf->color_transfer, dmabuf->color_matrix,
+                   dmabuf->full_range);
+          }
+        }
 #if defined(__APPLE__)
         if (frame_type == LYCHEE_FRAME_CVPIXELBUFFER_NATIVE &&
             frames_pulled == 0) {
@@ -1221,7 +1336,8 @@ int main(int argc, char** argv) {
         }
 #endif
 #if defined(_WIN32)
-        if (frame_type == LYCHEE_FRAME_D3D11_TEXTURE &&
+        if ((frame_type == LYCHEE_FRAME_D3D11_TEXTURE ||
+             frame_type == LYCHEE_FRAME_D3D11_TEXTURE_HDR) &&
             frames_pulled % 30 == 0) {
           ReadCenterPixel(device.Get(), context.Get(), frame, center_pixel);
         }
@@ -1421,6 +1537,20 @@ int main(int argc, char** argv) {
         lychee_testing_lose_video_decoder(player);
       }
     }
+    if (options.pause_at >= 0 && ready_wall != 0) {
+      const int64_t since = now - ready_wall;
+      if (!paused && since >= static_cast<int64_t>(options.pause_at * 1e6)) {
+        paused = true;
+        printf("pause at %.3fs\n", position / 1e6);
+        lychee_player_pause(player);
+      } else if (paused &&
+                 since >= static_cast<int64_t>(
+                              (options.pause_at + options.pause_for) * 1e6)) {
+        options.pause_at = -1;
+        printf("play at %.3fs\n", position / 1e6);
+        lychee_player_play(player);
+      }
+    }
     if (options.stall_audio && ready_wall != 0) {
       const int64_t since = now - ready_wall;
       if (!stalled_audio &&
@@ -1598,10 +1728,43 @@ int main(int argc, char** argv) {
     lychee_frame_release(shown);
   }
   const auto destroy_start = std::chrono::steady_clock::now();
+  // The device plays on while the player is destroyed: a stop fades out.
+  // Virtual time then runs at about the real rate.
+  std::atomic<bool> destroyed{false};
+  std::thread destroy_clock;
+  if (options.virtual_time) {
+    destroy_clock = std::thread([&destroyed, destroy_start] {
+      // By the real time passed: a sleep lasts ~15 ms on Windows.
+      const int64_t from = lychee_now_us();
+      while (!destroyed.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        lychee_testing_set_time(
+            from + std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::steady_clock::now() - destroy_start)
+                       .count());
+      }
+    });
+  }
   lychee_player_destroy(player);
-  printf("destroyed in %.3fs\n",
-         std::chrono::duration<double>(std::chrono::steady_clock::now() -
-                                       destroy_start)
-             .count());
+  const double destroy_seconds =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                    destroy_start)
+          .count();
+  destroyed = true;
+  if (destroy_clock.joinable()) {
+    destroy_clock.join();
+    // So the recording ends in the silence after the stop.
+    lychee_testing_set_time(lychee_now_us() + 100000);
+  }
+  if (null_audio_thread.joinable()) {
+    stop_null_audio = true;
+    null_audio_thread.join();
+  }
+  printf("destroyed in %.3fs\n", destroy_seconds);
+  if (!options.audio_dump.empty() &&
+      lychee_testing_write_captured_audio(options.audio_dump.c_str()) != 0) {
+    printf("error: cannot write %s\n", options.audio_dump.c_str());
+    exit_code = 1;
+  }
   return exit_code;
 }

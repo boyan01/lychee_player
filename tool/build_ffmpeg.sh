@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 # Builds an LGPL-only FFmpeg as shared libraries for one platform.
 #
-#   tool/build_ffmpeg.sh PLATFORM FFMPEG_SOURCE_DIR [MBEDTLS_SOURCE_DIR]
+#   tool/build_ffmpeg.sh PLATFORM FFMPEG_SOURCE_DIR
 #
 # PLATFORM: macos-arm64, macos-x86_64, ios-arm64, ios-sim-arm64,
-# ios-sim-x86_64, android-arm64-v8a, android-x86_64, linux-x86_64,
+# ios-sim-x86_64, android-arm64-v8a, android-armeabi-v7a, android-x86_64, linux-x86_64,
 # linux-arm64 (each built on that architecture),
 # windows-x86_64 (cross-compiled on Linux).
 # Output: third_party/ffmpeg/PLATFORM/{include,lib}. For Apple platforms,
 # tool/package_ffmpeg_apple.sh then wraps the libraries into xcframeworks.
 #
-# Android needs MBEDTLS_SOURCE_DIR (an Mbed TLS 3.6 release) for https:
-# Apple platforms use the system's TLS, Android's has no C API. mbedTLS is
-# Apache-2.0, which LGPL 2.1 cannot take, so Android builds are LGPL 3.
+# Android's FFmpeg provides cleartext HTTP only. The core's DataSource
+# opens HTTPS through HttpURLConnection; AES HLS uses javax.crypto.
+# Apple uses SecureTransport and Windows uses Schannel.
 #
 # DAV1D_SOURCE_DIR (a dav1d release; BSD-2, built with meson and ninja),
-# in the environment, adds dav1d on Apple and Android, linked statically
+# in the environment, adds dav1d on every platform, linked statically
 # into libavcodec: it decodes AV1 where the GPU does not (Apple before M3
 # and A17 Pro, most Android devices). Releases have it
-# (tool/release.sh); without it, and on Linux and Windows, AV1 plays only
+# (tool/release.sh); without it, AV1 plays only
 # where the GPU decodes it.
 #
 # License: no --enable-gpl, no --enable-nonfree, and nothing that would need
@@ -98,17 +98,15 @@ case "$platform" in
         } ;;
     esac
     ;;
-  android-arm64-v8a|android-x86_64)
-    mbedtls="$(cd "${3:?Android needs MBEDTLS_SOURCE_DIR}" && pwd)"
+  android-arm64-v8a|android-armeabi-v7a|android-x86_64)
     ndk="${ANDROID_NDK_HOME:-$(ls -d "$HOME"/Library/Android/sdk/ndk/* | sort -V | tail -1)}"
     toolchain="$(ls -d "$ndk"/toolchains/llvm/prebuilt/*)"
     api=24
-    if [ "$platform" = android-arm64-v8a ]; then
-      triple=aarch64-linux-android; arch=aarch64; abi=arm64-v8a
-    else
-      triple=x86_64-linux-android; arch=x86_64; abi=x86_64
-    fi
-    tls="$work/mbedtls"
+    case "$platform" in
+      android-arm64-v8a) triple=aarch64-linux-android; arch=aarch64; abi=arm64-v8a ;;
+      android-armeabi-v7a) triple=armv7a-linux-androideabi; arch=arm; abi=armeabi-v7a ;;
+      android-x86_64) triple=x86_64-linux-android; arch=x86_64; abi=x86_64 ;;
+    esac
     dav1d_cc="$toolchain/bin/$triple$api-clang"
     dav1d_ar="$toolchain/bin/llvm-ar"
     dav1d_flags="'-Wl,-z,max-page-size=16384'"
@@ -121,16 +119,20 @@ case "$platform" in
       --ar="$toolchain/bin/llvm-ar" --nm="$toolchain/bin/llvm-nm"
       --ranlib="$toolchain/bin/llvm-ranlib" --strip="$toolchain/bin/llvm-strip"
       --sysroot="$toolchain/sysroot"
-      --extra-cflags="-I$tls/include"
       # Android 15+ devices may use 16 KB pages.
-      --extra-ldflags="-Wl,-z,max-page-size=16384 -L$tls/lib"
-      # Linked statically into libavformat. The core hands it the system's
-      # CA certificates (ffmpeg_demuxer.cc).
-      --enable-mbedtls --enable-version3
+      --extra-ldflags="-Wl,-z,max-page-size=16384"
+      # The system handles all TLS, keeping FFmpeg LGPL 2.1+.
+      --disable-protocol=https,tls
       # Homebrew's pkg-config would find the Mac's libraries.
       --pkg-config=false
     )
-    license="LGPL version 3 or later"
+    if [ "$abi" = armeabi-v7a ]; then
+      # Android's 32-bit ARM ABI includes Thumb-2 and NEON, with softfp
+      # argument passing even when floating point uses hardware.
+      dav1d_flags="'-march=armv7-a', '-mfpu=neon', '-mfloat-abi=softfp', $dav1d_flags"
+      flags+=(--cpu=armv7-a --enable-neon
+        --extra-cflags="-march=armv7-a -mfpu=neon -mfloat-abi=softfp")
+    fi
     # x86_64 assembly needs nasm; not worth it for the emulator.
     [ "$platform" = android-x86_64 ] && { flags+=(--disable-asm); dav1d_asm=false; }
     ;;
@@ -154,6 +156,11 @@ case "$platform" in
       command -v nasm >/dev/null || { echo "nasm not found" >&2; exit 1; }
     fi
     [ "$(uname -m)" = "$arch" ] || { echo "$platform builds on $arch only" >&2; exit 1; }
+    dav1d_cc="${CC:-cc}"
+    dav1d_ar="${AR:-ar}"
+    dav1d_flags=""
+    dav1d_system=linux
+    dav1d_cpu=$arch
     flags=(
       --target-os=linux --arch="$arch"
       --disable-autodetect
@@ -170,6 +177,11 @@ case "$platform" in
     # never asks for DXVA2), and zlib, libgcc and the rest of the mingw
     # runtime linked statically: the DLLs import Windows' own DLLs only.
     command -v nasm >/dev/null || { echo "nasm not found" >&2; exit 1; }
+    dav1d_cc=x86_64-w64-mingw32-gcc
+    dav1d_ar=x86_64-w64-mingw32-ar
+    dav1d_flags="'-static'"
+    dav1d_system=windows
+    dav1d_cpu=x86_64
     flags=(
       --target-os=mingw32 --arch=x86_64 --cross-prefix=x86_64-w64-mingw32-
       --disable-autodetect
@@ -194,16 +206,17 @@ esac
 rm -rf "$work" "$out"
 mkdir -p "$work"
 cd "$work"
-if [ -n "${tls:-}" ]; then
-  cmake -S "$mbedtls" -B "$work/mbedtls-build" -G Ninja \
-    -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
-    -DANDROID_ABI=$abi -DANDROID_PLATFORM=$api \
-    -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_INSTALL_PREFIX="$tls" \
-    -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF >mbedtls.log 2>&1 &&
-    cmake --build "$work/mbedtls-build" --target install >>mbedtls.log 2>&1 ||
-    { tail -20 mbedtls.log; exit 1; }
-fi
+# FFmpeg 9.0.2's libavformat/hls.c loses a subtitle playlist's unused
+# 32 KB read buffer and overwrites the AVIO probe/previous segment buffer,
+# and refuses https URLs when FFmpeg has no https protocol (Android's
+# build, whose https goes through the core's io_open to the platform).
+# Compile a patched out-of-tree copy; never change the caller's source
+# tree, which may be shared by other platform builds.
+mkdir -p libavformat
+cp "$src/libavformat/hls.c" libavformat/hls.c
+patch -f -s -p1 <"$root/tool/patches/ffmpeg-hls-subtitle-buffers.patch"
+patch -f -s -p1 <"$root/tool/patches/ffmpeg-hls-https-io-open.patch"
+flags+=(--extra-cflags="-iquote$src/libavformat")
 if [ -n "${dav1d_cc:-}" ] && [ -z "${DAV1D_SOURCE_DIR:-}" ]; then
   echo "no DAV1D_SOURCE_DIR: AV1 only in hardware" >&2
 elif [ -n "${dav1d_cc:-}" ]; then
@@ -230,9 +243,17 @@ CROSS
     >dav1d.log 2>&1 &&
     ninja -C "$work/dav1d-build" install >>dav1d.log 2>&1 ||
     { tail -20 dav1d.log; exit 1; }
-  # pkg-config finds dav1d's .pc only, not the Mac's own libraries.
-  export PKG_CONFIG_LIBDIR="$dav1d/lib/pkgconfig" PKG_CONFIG_PATH=
-  flags+=(--pkg-config=pkg-config --pkg-config-flags=--static
+  if [ "$dav1d_system" = linux ]; then
+    # Native builds still need the system's GnuTLS, libva and libdrm.
+    export PKG_CONFIG_PATH="$dav1d/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+    # dav1d is static already. --static here would also ask pkg-config
+    # for GnuTLS's private dependencies, though GnuTLS stays shared.
+  else
+    # Cross builds must not find libraries from the build host.
+    export PKG_CONFIG_LIBDIR="$dav1d/lib/pkgconfig" PKG_CONFIG_PATH=
+    flags+=(--pkg-config-flags=--static)
+  fi
+  flags+=(--pkg-config=pkg-config
     --enable-libdav1d --enable-decoder=libdav1d)
 fi
 "$src/configure" "${common[@]}" "${flags[@]}" >configure.log 2>&1 || {

@@ -7,14 +7,14 @@
 Dependabot reads none of these pins:
   FFmpeg    ffmpeg_version in tool/release.sh (what every platform's
             FFmpeg builds from, and the source the releases carry)
-  Mbed TLS  mbedtls_version in tool/release.sh (Android's https)
   GLFW      the URL in examples/glfw/CMakeLists.txt (the Windows harness;
             macOS and Linux take the system's GLFW)
 
 For each it prints the pinned version, the newest release with the same
 major and minor version (a patch to take as it is) and the newest release
-overall (a new FFmpeg major changes the API the core follows, and Mbed TLS
-4 drops what 3.6 LTS has). Updating a pin means its version and SHA-256
+overall (a new FFmpeg major changes the API the core follows).
+
+Updating a pin means its version and SHA-256
 together. Only reads: it opens nothing and
 always exits 0 unless a source cannot be read. GITHUB_TOKEN, if set, lifts
 GitHub's rate limit for unauthenticated requests.
@@ -69,8 +69,6 @@ def pins():
     return {
         "FFmpeg": (re.search(r"^ffmpeg_version=(\S+)", release, re.M).group(1), "tool/release.sh",
                    ffmpeg_releases),
-        "Mbed TLS": (re.search(r"^mbedtls_version=(\S+)", release, re.M).group(1), "tool/release.sh",
-                     lambda: github_releases("Mbed-TLS/mbedtls", r"mbedtls-(\d+\.\d+\.\d+)")),
         "GLFW": (re.search(r"glfw/releases/download/([\d.]+)/", glfw).group(1), "examples/glfw/CMakeLists.txt",
                  lambda: github_releases("glfw/glfw", r"(\d+\.\d+(?:\.\d+)?)")),
     }

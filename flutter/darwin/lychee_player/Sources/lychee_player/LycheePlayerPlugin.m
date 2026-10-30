@@ -318,16 +318,14 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   if (!_wasBackgrounded) return;
   _wasBackgrounded = NO;
   os_unfair_lock_lock(&_lock);
-  if (_player) {
-    lychee_stats stats = {.struct_size = sizeof(stats)};
-    lychee_player_get_stats(_player, &stats);
 #if LYCHEE_API_VERSION >= 12
-    // A checkout may still use the older release pinned by prebuilt.json.
-    if (stats.hardware_decoding) {
-      lychee_player_rebuild_video_decoder(_player);
-    }
-#endif
+  // A checkout may still use the older release pinned by prebuilt.json.
+  // Also when the stats say software: rebuilds in the background fail
+  // into software, and the core tells that fallback from a choice.
+  if (_player) {
+    lychee_player_rebuild_video_decoder(_player);
   }
+#endif
   os_unfair_lock_unlock(&_lock);
 }
 

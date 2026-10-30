@@ -7,10 +7,14 @@
 
 namespace lychee {
 
+struct ColorInfo;
+
 // Retains |pixel_buffer| (a CVPixelBufferRef) for the frame's lifetime. A
 // YCbCr buffer without a matrix gets the library's convention attached:
-// BT.709 above 576 lines, BT.601 otherwise.
-std::shared_ptr<VideoFrame> WrapPixelBuffer(void* pixel_buffer);
+// BT.709 above 576 lines, BT.601 otherwise. With source color information,
+// its unspecified fields take the defaults rather than decoder guesses.
+std::shared_ptr<VideoFrame> WrapPixelBuffer(void* pixel_buffer,
+                                            const ColorInfo* color = nullptr);
 
 }  // namespace lychee
 

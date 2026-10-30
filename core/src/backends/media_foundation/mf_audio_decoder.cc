@@ -44,6 +44,8 @@ GUID Subtype(AudioCodec codec) {
       return MFAudioFormat_ALAC;
     case AudioCodec::kOpus:
       return MFAudioFormat_Opus;
+    case AudioCodec::kAC3:
+      return MFAudioFormat_Dolby_AC3;
     default:
       return GUID_NULL;
   }
@@ -64,10 +66,9 @@ std::vector<uint8_t> FlacStreamInfo(const std::vector<uint8_t>& config) {
   return {};
 }
 
-// What the decoder takes as MF_MT_USER_DATA, as Windows' own MP4 source
-// hands it over: for FLAC the STREAMINFO block with its header, marked
-// last; for ALAC the 24-byte ALACSpecificConfig (MP4's alac box comes with
-// its header, version and flags); for Opus the OpusHead packet.
+// Codec initialization bytes: FLAC's STREAMINFO metadata block is passed
+// in-band before the first frame. ALAC's 24-byte ALACSpecificConfig and
+// Opus's OpusHead are passed through MF_MT_USER_DATA.
 std::vector<uint8_t> UserData(AudioCodec codec,
                               const std::vector<uint8_t>& config) {
   switch (codec) {
@@ -84,6 +85,21 @@ std::vector<uint8_t> UserData(AudioCodec codec,
     case AudioCodec::kALAC:
       if (config.size() >= 12 + 24 && std::memcmp(&config[4], "alac", 4) == 0) {
         return {config.begin() + 12, config.end()};
+      }
+      return config;
+    case AudioCodec::kOpus:
+      // Windows' Opus decoder mishandles the pre-skip: it drops a quarter
+      // of it from the first packet's start and the rest from its end
+      // (78 and 234 of 312 frames), so 4.9 ms of the content is the
+      // encoder's lookahead instead, a step at the end of the first
+      // output (checked on Windows 11 26100, 2026-10-29). Without it the
+      // decoder outputs the whole packet, and the renderer drops what
+      // precedes the start by the packet's (negative) timestamp.
+      if (config.size() >= 12 &&
+          std::memcmp(config.data(), "OpusHead", 8) == 0) {
+        std::vector<uint8_t> head = config;
+        head[10] = head[11] = 0;
+        return head;
       }
       return config;
     default:
@@ -205,7 +221,14 @@ bool MFAudioDecoder::Open(const std::vector<uint8_t>& extradata,
       decoder_.Reset();
       return false;
     }
-    if (!user_data.empty()) {
+    if (config_.codec == AudioCodec::kFLAC) {
+      const std::vector<uint8_t> info = FlacStreamInfo(extradata);
+      // Without this required attribute SetInputType returns
+      // MF_E_ATTRIBUTENOTFOUND, regardless of the container.
+      const UINT32 bits = ((info[12] & 1u) << 4) + (info[13] >> 4) + 1;
+      input->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, bits);
+    }
+    if (!user_data.empty() && config_.codec != AudioCodec::kFLAC) {
       input->SetBlob(MF_MT_USER_DATA, user_data.data(),
                      static_cast<UINT32>(user_data.size()));
     }
@@ -236,7 +259,8 @@ bool MFAudioDecoder::Open(const std::vector<uint8_t>& extradata,
 }
 
 bool MFAudioDecoder::SetUpOutput() {
-  // Float if offered, else 16-bit integers.
+  // Float if offered, else byte-aligned PCM. The resampler below converts
+  // integer output, including 24-bit FLAC, into the sink's float format.
   ComPtr<IMFMediaType> chosen;
   for (DWORD i = 0;; ++i) {
     ComPtr<IMFMediaType> type;
@@ -249,9 +273,10 @@ bool MFAudioDecoder::SetUpOutput() {
       chosen = type;
       break;
     }
-    if (subtype == MFAudioFormat_PCM && !chosen &&
-        MFGetAttributeUINT32(type.Get(), MF_MT_AUDIO_BITS_PER_SAMPLE, 0) ==
-            16) {
+    const UINT32 bits =
+        MFGetAttributeUINT32(type.Get(), MF_MT_AUDIO_BITS_PER_SAMPLE, 0);
+    if (subtype == MFAudioFormat_PCM && !chosen && bits > 0 && bits <= 32 &&
+        bits % 8 == 0) {
       chosen = type;
     }
   }
@@ -265,13 +290,24 @@ bool MFAudioDecoder::SetUpOutput() {
   const int channels = static_cast<int>(
       MFGetAttributeUINT32(chosen.Get(), MF_MT_AUDIO_NUM_CHANNELS, 0));
   resampler_.Reset();
+  rate_resampler_.reset();
   float_output_ = subtype == MFAudioFormat_Float;
   decoder_rate_ = rate;
-  decoder_frame_bytes_ = (float_output_ ? 4 : 2) * channels;
+  const int sample_bytes =
+      float_output_
+          ? 4
+          : static_cast<int>(MFGetAttributeUINT32(
+                                 chosen.Get(), MF_MT_AUDIO_BITS_PER_SAMPLE, 0) /
+                             8);
+  decoder_frame_bytes_ = sample_bytes * channels;
   const char* codec = config_.codec_name.c_str();
-  if (rate == output_format_.sample_rate &&
-      channels == output_format_.channels && float_output_) {
-    LOGI("decoder opened for %s %d Hz %d ch", codec, rate, channels);
+  if (rate != output_format_.sample_rate) {
+    rate_resampler_ = std::make_unique<Resampler>(output_format_.channels, rate,
+                                                  output_format_.sample_rate);
+  }
+  if (channels == output_format_.channels && float_output_) {
+    LOGI("decoder opened for %s %d Hz %d ch -> %d Hz", codec, rate, channels,
+         output_format_.sample_rate);
     return true;
   }
 
@@ -280,7 +316,8 @@ bool MFAudioDecoder::SetUpOutput() {
     return false;
   }
   const UINT32 out_channels = static_cast<UINT32>(output_format_.channels);
-  const UINT32 out_rate = static_cast<UINT32>(output_format_.sample_rate);
+  // At the decoder's rate: |rate_resampler_| converts it.
+  const UINT32 out_rate = static_cast<UINT32>(rate);
   output->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
   output->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_Float);
   output->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, out_channels);
@@ -362,8 +399,20 @@ bool MFAudioDecoder::Decode(const EncodedPacket& packet,
   }
   data += adts;
   size -= adts;
+  std::vector<uint8_t> flac_packet;
+  if (config_.codec == AudioCodec::kFLAC && flac_header_pending_) {
+    // The FLAC MFT parses a native FLAC stream. Container packets contain
+    // only frames, so supply its marker and STREAMINFO once after a flush.
+    flac_packet = {'f', 'L', 'a', 'C'};
+    const auto metadata = UserData(config_.codec, config_.extradata);
+    flac_packet.insert(flac_packet.end(), metadata.begin(), metadata.end());
+    flac_packet.insert(flac_packet.end(), data, data + size);
+    data = flac_packet.data();
+    size = flac_packet.size();
+  }
   if (next_pts_ == kNoTimestamp) {
     next_pts_ = packet.pts;
+    output_frames_ = 0;
   }
   ComPtr<IMFSample> sample =
       CreateMFSample(data, size, packet.pts,
@@ -382,6 +431,7 @@ bool MFAudioDecoder::Decode(const EncodedPacket& packet,
     LOGW("ProcessInput: %s", HResultString(hr).c_str());
     return ++consecutive_errors_ < kMaxConsecutiveErrors;
   }
+  flac_header_pending_ = false;
   // Microseconds of audio in the packet, for the codecs whose decoders
   // drop their delay.
   int64_t packet_us = 0;
@@ -476,6 +526,11 @@ bool MFAudioDecoder::Deliver(std::vector<ComPtr<IMFSample>>* decoded,
     for (ComPtr<IMFSample>& sample : *decoded) {
       Emit(sample.Get(), output);
     }
+    if (drain && rate_resampler_) {
+      std::vector<float> tail;
+      rate_resampler_->Drain(&tail);
+      EmitFrames(std::move(tail), output);
+    }
     return true;
   }
   std::vector<ComPtr<IMFSample>> resampled;
@@ -501,6 +556,11 @@ bool MFAudioDecoder::Deliver(std::vector<ComPtr<IMFSample>>* decoded,
   for (ComPtr<IMFSample>& sample : resampled) {
     Emit(sample.Get(), output);
   }
+  if (drain && rate_resampler_) {
+    std::vector<float> tail;
+    rate_resampler_->Drain(&tail);
+    EmitFrames(std::move(tail), output);
+  }
   return true;
 }
 
@@ -512,30 +572,44 @@ void MFAudioDecoder::Emit(IMFSample* sample, const OutputCallback& output) {
       FAILED(buffer->Lock(&data, nullptr, &length))) {
     return;
   }
-  auto audio = std::make_shared<AudioBuffer>();
-  audio->sample_rate = output_format_.sample_rate;
-  audio->channels = output_format_.channels;
   const size_t bytes = float_output_ ? sizeof(float) : sizeof(int16_t);
   const size_t frame_bytes = bytes * output_format_.channels;
   const size_t count = length / frame_bytes * output_format_.channels;
-  audio->samples.resize(count);
+  std::vector<float> samples(count);
   if (float_output_) {
-    std::memcpy(audio->samples.data(), data, count * sizeof(float));
+    std::memcpy(samples.data(), data, count * sizeof(float));
   } else {
     for (size_t i = 0; i < count; ++i) {
       int16_t value;
       std::memcpy(&value, data + i * sizeof(int16_t), sizeof(value));
-      audio->samples[i] = value / 32768.0f;
+      samples[i] = value / 32768.0f;
     }
   }
   buffer->Unlock();
-  if (audio->samples.empty()) {
+  if (rate_resampler_) {
+    std::vector<float> resampled;
+    rate_resampler_->Push(samples.data(),
+                          static_cast<int>(count / output_format_.channels),
+                          &resampled);
+    samples = std::move(resampled);
+  }
+  EmitFrames(std::move(samples), output);
+}
+
+void MFAudioDecoder::EmitFrames(std::vector<float> samples,
+                                const OutputCallback& output) {
+  if (samples.empty()) {
     return;
   }
-  audio->pts = next_pts_;
+  auto audio = std::make_shared<AudioBuffer>();
+  audio->sample_rate = output_format_.sample_rate;
+  audio->channels = output_format_.channels;
+  audio->samples = std::move(samples);
   if (next_pts_ != kNoTimestamp) {
-    next_pts_ += audio->duration();
+    audio->pts = next_pts_ +
+                 output_frames_ * kMicrosPerSecond / output_format_.sample_rate;
   }
+  output_frames_ += audio->frames();
   output(std::move(audio));
 }
 
@@ -546,9 +620,13 @@ void MFAudioDecoder::Flush() {
   if (resampler_) {
     resampler_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
   }
+  if (rate_resampler_) {
+    rate_resampler_->Reset();
+  }
   next_pts_ = kNoTimestamp;
   expected_us_ = 0;
   consecutive_errors_ = 0;
+  flac_header_pending_ = true;
 }
 
 }  // namespace lychee

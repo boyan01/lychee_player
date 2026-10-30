@@ -27,13 +27,17 @@ bool MediaClock::SystemTimesFor(const std::vector<int64_t>& media_times,
                                 std::vector<int64_t>* system_times) const {
   int64_t now = NowMicros();
   std::lock_guard<std::mutex> lock(mutex_);
-  const bool moving = MovingLocked();
+  // Audio can run out while Play() remains in effect. Extrapolating that
+  // expired anchor makes frame selection advance past the held position.
+  const int64_t media_now = MediaTimeAtLocked(now);
+  const bool moving = MovingLocked() && media_now < max_media_time_;
   int64_t anchor_system_time = moving ? anchor_system_time_ : now;
+  const int64_t anchor_media_time = moving ? anchor_media_time_ : media_now;
   system_times->clear();
   for (int64_t media_time : media_times) {
     system_times->push_back(
         anchor_system_time +
-        std::llround((media_time - anchor_media_time_) / rate_));
+        std::llround((media_time - anchor_media_time) / rate_));
   }
   return moving;
 }

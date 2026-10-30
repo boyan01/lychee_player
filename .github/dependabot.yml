@@ -1,5 +1,5 @@
 # Proposes updates to the Actions the workflows pin by commit SHA (the
-# comment after each pin names its release). FFmpeg, GLFW and Mbed TLS
+# comment after each pin names its release). FFmpeg, dav1d and GLFW
 # sources are pinned in tool/ scripts, which Dependabot cannot read; they
 # follow Homebrew's FFmpeg major version (AGENTS.md).
 version: 2

@@ -1,5 +1,7 @@
 #include "media/factory.h"
 
+#include <atomic>
+
 #include "base/time.h"
 #include "media/cpu_frame_converter.h"
 #include "media/null_audio_sink.h"
@@ -16,10 +18,10 @@
 
 #include "backends/apple/apple_frame_converter.h"
 #include "backends/apple/core_audio_sink.h"
+#include "backends/apple/vt_video_decoder.h"
 #include "media/probing_demuxer.h"
 #if !defined(LYCHEE_WITH_FFMPEG)
 #include "backends/apple/at_audio_decoder.h"
-#include "backends/apple/vt_video_decoder.h"
 #include "media/text_subtitle_decoder.h"
 #endif
 #elif defined(__ANDROID__)
@@ -50,6 +52,12 @@
 #endif
 
 namespace lychee {
+
+namespace {
+
+std::atomic<bool> g_null_audio_for_testing{false};
+
+}  // namespace
 
 std::unique_ptr<Demuxer> CreateDemuxer() {
 #if defined(LYCHEE_WITH_FFMPEG) && \
@@ -109,12 +117,17 @@ std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
         MediaCodecVideoDecoder::Codecs::kSoftwareOnly));
   }
 #endif
-#if defined(__APPLE__) && !defined(LYCHEE_WITH_FFMPEG)
-#if TARGET_OS_OSX
+#if defined(__APPLE__)
+#if TARGET_OS_OSX || defined(LYCHEE_WITH_FFMPEG)
+  // FFmpeg's VideoToolbox adapter waits after every frame. The native
+  // decoder batches file input; FFmpeg remains the fallback for streams
+  // it cannot decode.
   if (allow_hardware) {
     decoders.push_back(std::make_unique<VTVideoDecoder>(true));
   }
+#if !defined(LYCHEE_WITH_FFMPEG)
   decoders.push_back(std::make_unique<VTVideoDecoder>(false));
+#endif
 #else
   // iOS lets apps pick neither: VideoToolbox decides.
   decoders.push_back(std::make_unique<VTVideoDecoder>(true));
@@ -219,7 +232,7 @@ std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder() {
 }
 
 std::unique_ptr<AudioSink> CreateAudioSink() {
-  if (IsVirtualTime()) {
+  if (IsVirtualTime() || g_null_audio_for_testing.load()) {
     return std::make_unique<NullAudioSink>();
   }
 #if defined(__APPLE__)
@@ -233,6 +246,10 @@ std::unique_ptr<AudioSink> CreateAudioSink() {
 #else
   return nullptr;
 #endif
+}
+
+void UseNullAudioSinkForTesting() {
+  g_null_audio_for_testing = true;
 }
 
 std::unique_ptr<FrameConverter> CreateFrameConverter() {

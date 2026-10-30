@@ -31,6 +31,7 @@ class WinHttpDataSource : public DataSource {
   void ClearInterrupt() override;
   bool interrupted() const override;
   std::string error() const override;
+  int64_t transfer_rate() const override;
 
  private:
   explicit WinHttpDataSource(std::unique_ptr<WinHttpState> state);

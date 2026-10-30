@@ -20,6 +20,7 @@
 
 extern "C" {
 #include <libavutil/imgutils.h>
+#include <libavutil/intreadwrite.h>
 #include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
 #if defined(_WIN32)
@@ -160,6 +161,8 @@ std::shared_ptr<VideoFrame> WrapDmabuf(const AVFrame* frame) {
           ? frame->colorspace
           : (frame->height > 576 ? AVCOL_SPC_BT709 : AVCOL_SPC_SMPTE170M);
   dmabuf.full_range = frame->color_range == AVCOL_RANGE_JPEG;
+  dmabuf.color_primaries = frame->color_primaries;
+  dmabuf.color_transfer = frame->color_trc;
 
   auto result = std::make_shared<VideoFrame>();
   result->storage = VideoFrameStorage::kDmabuf;
@@ -238,7 +241,9 @@ bool FFmpegVideoDecoder::Initialize(const VideoConfig& config,
     if (!InitializeHardware(codec, error)) {
       return false;
     }
-    // Hardware decoders do their own pipelining.
+    // Avoid host frame threads ahead of VAAPI/D3D11VA's own pipelining.
+    // LOW_DELAY below applies to hardware too; their reference surface
+    // pools are not an additional presentation queue.
     context_->thread_count = 1;
   } else {
     context_->thread_count = 0;
@@ -393,13 +398,18 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
   std::shared_ptr<VideoFrame> result;
 #if defined(__APPLE__)
   if (frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
-    result = WrapPixelBuffer(frame->data[3]);
+    ColorInfo color;
+    color.primaries = static_cast<uint8_t>(frame->color_primaries);
+    color.transfer = static_cast<uint8_t>(frame->color_trc);
+    color.matrix = static_cast<uint8_t>(frame->colorspace);
+    result = WrapPixelBuffer(frame->data[3], &color);
   }
 #elif defined(_WIN32)
   if (frame->format == AV_PIX_FMT_D3D11 &&
       device_.type == VideoDevice::Type::kD3D11Adapter &&
       (accepted_storage_ &
-       static_cast<uint32_t>(VideoFrameStorage::kD3D11Texture))) {
+       (static_cast<uint32_t>(VideoFrameStorage::kD3D11Texture) |
+        static_cast<uint32_t>(VideoFrameStorage::kD3D11TextureHdr)))) {
     if (!d3d11_processor_) {
       d3d11_processor_ = std::make_unique<D3D11VideoProcessor>();
     }
@@ -407,7 +417,9 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
     result = d3d11_processor_->Convert(
         reinterpret_cast<ID3D11Texture2D*>(frame->data[0]),
         static_cast<UINT>(reinterpret_cast<intptr_t>(frame->data[1])),
-        frame->width, frame->height, FrameColorSpace(frame));
+        frame->width, frame->height, FrameColorSpace(frame),
+        (accepted_storage_ &
+         static_cast<uint32_t>(VideoFrameStorage::kD3D11TextureHdr)) != 0);
     if (!result && !logged_d3d11_fallback_) {
       logged_d3d11_fallback_ = true;
       LOGW("cannot convert D3D11 frames on the GPU, downloading them");
@@ -465,20 +477,29 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
                        : AV_PIX_FMT_BGRA;
   output->width = frame->width;
   output->height = frame->height;
-  output->data[0] = data->data;
-  output->linesize[0] = stride;
   output->color_range = AVCOL_RANGE_JPEG;
-  if (frame->color_trc == AVCOL_TRC_SMPTE2084 ||
-      frame->color_trc == AVCOL_TRC_ARIB_STD_B67) {
+  const bool hdr = frame->color_trc == AVCOL_TRC_SMPTE2084 ||
+                   frame->color_trc == AVCOL_TRC_ARIB_STD_B67;
+  if (hdr) {
     // HDR into 8-bit SDR instead of passing PQ or HLG code values through.
     // With its default intent (relative colorimetric) swscale keeps
     // absolute luminance, 203 nits as white, and clips above it;
     // D3D11VideoProcessor's PQ shader does the same.
     output->color_primaries = AVCOL_PRI_BT709;
     output->color_trc = AVCOL_TRC_BT709;
+    // swscale's 8-bit RGB path changes chromatic HDR colors, even without
+    // scaling. Keep the color conversion at 16 bits and quantize only its
+    // final SDR result. Planar GBR(A) also retains alpha; the caller still
+    // receives the same 8-bit frame type.
+    output->format = AV_PIX_FMT_GBRAP16LE;
+    if (av_frame_get_buffer(output.get(), 64) < 0) {
+      return nullptr;
+    }
   } else {
     output->color_primaries = frame->color_primaries;
     output->color_trc = frame->color_trc;
+    output->data[0] = data->data;
+    output->linesize[0] = stride;
   }
   if (frame->colorspace == AVCOL_SPC_UNSPECIFIED) {
     // swscale reads an unspecified matrix as BT.601; untagged HD is BT.709
@@ -490,6 +511,26 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
   if (ret < 0) {
     LOGE("sws_scale_frame: %s", AVErrorString(ret).c_str());
     return nullptr;
+  }
+  if (hdr) {
+    constexpr int kPlanes[] = {2, 0, 1, 3};  // Planar GBR(A) to RGB(A).
+    for (int y = 0; y < frame->height; ++y) {
+      uint8_t* target = data->data + static_cast<size_t>(y) * stride;
+      for (int channel = 0; channel < 4; ++channel) {
+        const int component =
+            cpu_storage_ == VideoFrameStorage::kCpuBgra && channel < 3
+                ? 2 - channel
+                : channel;
+        const int plane = kPlanes[component];
+        const uint8_t* source =
+            output->data[plane] +
+            static_cast<size_t>(y) * output->linesize[plane];
+        for (int x = 0; x < frame->width; ++x) {
+          target[x * 4 + channel] = static_cast<uint8_t>(
+              (AV_RL16(source + static_cast<size_t>(x) * 2) + 128) / 257);
+        }
+      }
+    }
   }
 
   auto result = std::make_shared<VideoFrame>();

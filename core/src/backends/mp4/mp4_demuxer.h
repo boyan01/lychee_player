@@ -2,6 +2,8 @@
 #define LYCHEE_BACKENDS_MP4_MP4_DEMUXER_H_
 
 #include <atomic>
+#include <deque>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -14,7 +16,8 @@ namespace lychee {
 
 // MP4 and QuickTime files (ISO/IEC 14496-12), for builds without FFmpeg:
 // sample tables in the moov box, fragmented MP4 (moof boxes after a moov
-// with mvex), or both. Video, audio and tx3g (mov_text) subtitle tracks;
+// with mvex), or both. Video, audio, tx3g (mov_text), boxed WebVTT and
+// IMSC text/image subtitle tracks;
 // codec configuration is passed through as the container stores it
 // (avcC, hvcC, the AudioSpecificConfig, ALAC's cookie, the tx3g entry).
 //
@@ -29,7 +32,10 @@ class Mp4Demuxer : public Demuxer {
   const char* name() const override { return "mp4"; }
   bool Open(const std::string& url, std::string* error) override;
   // Reads |source| instead of a URL (tests, the fuzzer).
-  bool Open(std::unique_ptr<DataSource> source, std::string* error);
+  bool Open(std::unique_ptr<DataSource> source,
+            std::string* error,
+            const std::string& base_url = {},
+            DataSourceOpener opener = {});
   const MediaInfo& media_info() const override { return media_info_; }
   void SetEnabledStreams(const std::vector<int>& stream_indices) override;
   DemuxerReadResult Read(EncodedPacket* packet) override;
@@ -55,6 +61,10 @@ class Mp4Demuxer : public Demuxer {
     size_t next = 0;
     bool enabled = true;
     MediaType type = MediaType::kUnknown;
+    // wvtt becomes WebVTT; stpp becomes normalized text/picture cues.
+    std::string subtitle_format;
+    std::map<uint64_t, std::vector<uint32_t>> subsamples;
+    std::map<uint64_t, std::vector<uint32_t>> moov_subsamples;
     // From tkhd, mdhd and the edit list: media time |media_time| (in
     // |timescale| units) is at |empty| microseconds.
     uint32_t id = 0;
@@ -109,7 +119,7 @@ class Mp4Demuxer : public Demuxer {
   // Fragmented MP4. A moof box's bytes, from its header; appends its
   // samples to the enabled tracks if |store|, and reads and advances
   // |decode_times| (one per track) where a traf has no tfdt.
-  void ParseMoof(const uint8_t* data,
+  bool ParseMoof(const uint8_t* data,
                  size_t size,
                  int64_t offset,
                  bool store,
@@ -155,6 +165,17 @@ class Mp4Demuxer : public Demuxer {
   DemuxerReadResult Fail(int64_t at, const char* reason, const char* detail);
   bool aborted() const { return aborted_ || interrupted_; }
 
+  bool ParseSubsamples(const uint8_t* data,
+                       size_t size,
+                       Track* track,
+                       size_t first);
+  bool ReadSubtitleResource(std::string_view uri, std::vector<uint8_t>* bytes);
+  std::string base_url_;
+  DataSourceOpener opener_;
+  // Published only while the read thread loads a picture; cancellation
+  // uses the source lock, just as it does for the media source.
+  std::unique_ptr<DataSource> subtitle_resource_;
+
   // Set once by Open(); the mutex is for Interrupt() and Abort() on other
   // threads meanwhile.
   std::mutex source_mutex_;
@@ -162,6 +183,7 @@ class Mp4Demuxer : public Demuxer {
   MediaInfo media_info_;
   // Parallel to media_info_.streams.
   std::vector<Track> tracks_;
+  std::deque<EncodedPacket> subtitle_packets_;
   // While parsing: the file's size (-1 if unknown), and how many samples
   // the tracks may still have (kMaxSamples in all).
   int64_t file_size_ = -1;

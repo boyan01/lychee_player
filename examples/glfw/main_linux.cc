@@ -9,8 +9,11 @@
 // SEC:NAME presses one at SEC seconds, --seconds N quits after N seconds,
 // --size WxH sizes the window, and --snapshot SEC:FILE writes what the
 // window drew at SEC seconds as a PPM.
+// --soak SEC URL loops, seeks twice, then switches files, every SEC seconds.
 
 #include <lychee/lychee.h>
+
+#include "../../flutter/linux/hdr_to_sdr.h"
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -29,6 +32,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -70,7 +74,7 @@ void main() {
 )";
 
 // RGBA from plane0, or YUV from plane0 (luma) and plane1 (chroma).
-const char* kFragmentShader = R"(#version 300 es
+constexpr char kFragmentShader[] = R"(#version 300 es
 precision highp float;
 in vec2 uv;
 uniform sampler2D plane0;
@@ -78,11 +82,17 @@ uniform sampler2D plane1;
 uniform bool yuv;
 uniform vec3 offset;
 uniform mat3 matrix;
+uniform int color_transfer;
+uniform int color_primaries;
 out vec4 color;
+)";
+
+constexpr char kFragmentMain[] = R"(
+
 void main() {
   if (yuv) {
     vec3 value = vec3(texture(plane0, uv).r, texture(plane1, uv).rg);
-    color = vec4(matrix * (value - offset), 1.0);
+    color = vec4(hdrToSdr(matrix * (value - offset)), 1.0);
   } else {
     color = vec4(texture(plane0, uv).rgb, 1.0);
   }
@@ -177,9 +187,13 @@ void YuvToRgb(const lychee_dmabuf* dmabuf,
   }
 }
 
-GLuint CompileShader(GLenum type, const char* source) {
+GLuint CompileShader(GLenum type,
+                     const char* source,
+                     const char* middle = nullptr,
+                     const char* suffix = nullptr) {
   GLuint shader = glCreateShader(type);
-  glShaderSource(shader, 1, &source, nullptr);
+  const char* parts[] = {source, middle, suffix};
+  glShaderSource(shader, middle ? 3 : 1, parts, nullptr);
   glCompileShader(shader);
   GLint ok = GL_FALSE;
   glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
@@ -206,7 +220,8 @@ class Renderer {
   // With the window's context current.
   bool Init() {
     GLuint vertex = CompileShader(GL_VERTEX_SHADER, kVertexShader);
-    GLuint fragment = CompileShader(GL_FRAGMENT_SHADER, kFragmentShader);
+    GLuint fragment = CompileShader(GL_FRAGMENT_SHADER, kFragmentShader,
+                                    lychee_linux::kHdrShader, kFragmentMain);
     if (vertex && fragment) {
       program_ = glCreateProgram();
       glAttachShader(program_, vertex);
@@ -231,6 +246,16 @@ class Renderer {
     yuv_location_ = glGetUniformLocation(program_, "yuv");
     offset_location_ = glGetUniformLocation(program_, "offset");
     matrix_location_ = glGetUniformLocation(program_, "matrix");
+    transfer_location_ = glGetUniformLocation(program_, "color_transfer");
+    primaries_location_ = glGetUniformLocation(program_, "color_primaries");
+    glUniform1i(glGetUniformLocation(program_, "gamut_cusps"), 2);
+    glGenTextures(1, &gamut_cusps_);
+    glActiveTexture(GL_TEXTURE2);
+    SetSampling(gamut_cusps_);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, lychee_linux::kGamutCuspCount, 1, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, lychee_linux::GamutCusps().data());
+    glActiveTexture(GL_TEXTURE0);
     glGenTextures(1, &rgba_);
     glGenTextures(2, planes_);
     for (GLuint texture : {rgba_, planes_[0], planes_[1]}) {
@@ -302,6 +327,8 @@ class Renderer {
     glBindTexture(GL_TEXTURE_2D, yuv_ ? planes_[0] : rgba_);
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, planes_[1]);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, gamut_cusps_);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     return true;
   }
@@ -313,6 +340,7 @@ class Renderer {
     if (frame_) lychee_frame_release(frame_);
     frame_ = nullptr;
     glDeleteTextures(1, &rgba_);
+    glDeleteTextures(1, &gamut_cusps_);
     glDeleteTextures(2, planes_);
     glDeleteProgram(program_);
   }
@@ -401,17 +429,32 @@ class Renderer {
     glUseProgram(program_);
     glUniform3fv(offset_location_, 1, offset);
     glUniformMatrix3fv(matrix_location_, 1, GL_FALSE, matrix);
+    // API 13 appended these fields. Old descriptors remain SDR.
+    const bool color_metadata =
+        dmabuf->struct_size >= offsetof(lychee_dmabuf, color_transfer) +
+                                   sizeof(dmabuf->color_transfer);
+    int primaries = color_metadata ? dmabuf->color_primaries : 0;
+    if (primaries == 0 || primaries == 2) {
+      primaries =
+          dmabuf->color_matrix == 9 || dmabuf->color_matrix == 10 ? 9 : 1;
+    }
+    glUniform1i(transfer_location_,
+                color_metadata ? dmabuf->color_transfer : 0);
+    glUniform1i(primaries_location_, primaries);
     return true;
   }
 
   GLuint program_ = 0;
   GLuint rgba_ = 0;        // CPU frames.
+  GLuint gamut_cusps_ = 0;
   GLuint planes_[2] = {};  // Luma and chroma of dmabuf frames.
   GLint scale_location_ = -1;
   GLint turns_location_ = -1;
   GLint yuv_location_ = -1;
   GLint offset_location_ = -1;
   GLint matrix_location_ = -1;
+  GLint transfer_location_ = -1;
+  GLint primaries_location_ = -1;
   PFNEGLCREATEIMAGEKHRPROC create_image_ = nullptr;
   PFNEGLDESTROYIMAGEKHRPROC destroy_image_ = nullptr;
   PFNGLEGLIMAGETARGETTEXTURE2DOESPROC image_target_ = nullptr;
@@ -510,6 +553,8 @@ int main(int argc, char** argv) {
   int window_width = 960, window_height = 540;
   std::vector<ScriptedKey> keys;
   std::vector<Snapshot> snapshots;
+  double soak_every = -1;
+  std::string soak_url;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--seconds" && i + 1 < argc) {
@@ -524,6 +569,14 @@ int main(int argc, char** argv) {
     } else if (arg == "--snapshot" && i + 1 < argc &&
                ParseSnapshot(argv[i + 1], &snapshots)) {
       ++i;
+    } else if (arg == "--soak" && i + 2 < argc) {
+      char* end = nullptr;
+      soak_every = std::strtod(argv[++i], &end);
+      if (*end != '\0' || !std::isfinite(soak_every) || soak_every <= 0) {
+        url.clear();
+        break;
+      }
+      soak_url = argv[++i];
     } else if (!arg.empty() && arg[0] != '-') {
       url = arg;
     } else {
@@ -534,7 +587,8 @@ int main(int argc, char** argv) {
   if (url.empty()) {
     fprintf(stderr,
             "usage: %s [--seconds N] [--key SEC:space|left|right|escape]... "
-            "[--size WxH] [--snapshot SEC:FILE]... <file or url>\n",
+            "[--size WxH] [--snapshot SEC:FILE]... [--soak SEC URL] "
+            "<file or url>\n",
             argv[0]);
     return 2;
   }
@@ -590,7 +644,8 @@ int main(int argc, char** argv) {
   glfwSetKeyCallback(window, &OnKey);
 
   // The display's refresh interval, for when a frame drawn now is shown.
-  const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
+  GLFWmonitor* primary = glfwGetPrimaryMonitor();
+  const GLFWvidmode* mode = primary ? glfwGetVideoMode(primary) : nullptr;
   const int64_t refresh_us =
       mode && mode->refreshRate > 0 ? 1000000 / mode->refreshRate : 16667;
 
@@ -599,8 +654,16 @@ int main(int argc, char** argv) {
     fprintf(stderr, "could not start playback\n");
     exit_code = 1;
   } else {
+    if (soak_every > 0) {
+      lychee_player_set_looping(player, 1);
+    }
     lychee_player_play(player);
     const int64_t start = lychee_now_us();
+    // Repeatable stress actions, not a source of unpredictable values.
+    std::mt19937_64 random(1);  // NOLINT(bugprone-random-generator-seed)
+    double soak_next = soak_every;
+    int64_t soak_actions = 0;
+    bool soak_on_alternate = false;
     int64_t tick = start;
     size_t next_key = 0;
     size_t next_snapshot = 0;
@@ -617,6 +680,26 @@ int main(int argc, char** argv) {
       const double elapsed = static_cast<double>(lychee_now_us() - start) / 1e6;
       while (next_key < keys.size() && elapsed >= keys[next_key].at) {
         OnKey(window, keys[next_key++].key, 0, GLFW_PRESS, 0);
+      }
+      if (soak_every > 0 && elapsed >= soak_next) {
+        soak_next = elapsed + soak_every;
+        const int64_t duration = lychee_player_get_duration(player);
+        if (soak_actions++ % 3 == 2) {
+          soak_on_alternate = !soak_on_alternate;
+          const std::string& next = soak_on_alternate ? soak_url : url;
+          printf("soak: open -> %s\n", next.c_str());
+          if (lychee_player_open(player, next.c_str()) != 0) {
+            exit_code = 1;
+            break;
+          }
+          lychee_player_play(player);
+        } else if (duration > 0) {
+          const int64_t target =
+              std::uniform_int_distribution<int64_t>(0, duration - 1)(random);
+          printf("soak: seek -> %.3fs\n", target / 1e6);
+          lychee_player_seek(player, target);
+        }
+        fflush(stdout);
       }
       if (seconds > 0 && elapsed >= seconds) break;
 

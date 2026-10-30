@@ -20,6 +20,10 @@ namespace {
 constexpr int64_t kMinQueuedDuration = 3 * kMicrosPerSecond;
 // ...unless the queues already hold this many bytes.
 constexpr size_t kMaxQueuedBytes = size_t{64} * 1024 * 1024;
+// A loop trims at most this much from the container's start and end where
+// the tracks start later or end sooner: codec priming and padding (AAC's
+// 1024 samples, Opus's pre-skip, a duration rounded up), not content.
+constexpr int64_t kMaxLoopTrim = 100 * kMicrosPerMilli;
 
 const char* StateName(PlayerState state) {
   switch (state) {
@@ -83,6 +87,16 @@ void Player::StopPipeline() {
   // A track change in flight may have reset the queues for a new renderer.
   video_queue_.Abort();
   audio_queue_.Abort();
+  // A stop fades out like a pause. The control thread is gone, so nothing
+  // else calls into the renderers.
+  for (auto& retired : retired_audio_) {
+    retired->FadeOutForStop();
+    retired->Stop();
+  }
+  retired_audio_.clear();
+  if (audio_renderer_) {
+    audio_renderer_->FadeOutForStop();
+  }
   if (video_renderer_) {
     video_renderer_->Stop();
   }
@@ -123,6 +137,8 @@ void Player::StopPipeline() {
     loop_seek_pending_ = false;
     prerolling_ = false;
     loops_ = 0;
+    loop_start_ = loop_length_ = 0;
+    spans_.clear();
     loop_end_ = kNoTimestamp;
     track_request_ = TrackRequest();
     input_error_.clear();
@@ -334,6 +350,15 @@ void Player::RebuildVideoDecoder() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!video_renderer_ || state_ == PlayerState::kError ||
         track_request_.rebuild_video) {
+      return;
+    }
+    // Software by choice or for want of a hardware decoder for the codec:
+    // nothing to recover, and a rebuild would only resync. Software after
+    // hardware losses is recovered: iOS invalidates VideoToolbox sessions
+    // in the background (-12903), so rebuilds there fail into software,
+    // and the foreground is when hardware works again.
+    if (!video_renderer_->is_hardware() &&
+        (!config_.hardware_decoding || video_decoder_losses_ < 2)) {
       return;
     }
     // An explicit platform recovery gets another hardware attempt, like a
@@ -703,10 +728,10 @@ int64_t Player::LoopOffsetLocked(int64_t media_time) const {
   if (loop_end_ != kNoTimestamp) {
     media_time = std::min(media_time, loop_end_ - 1);
   }
-  // WrapLoop() needs a known duration.
-  const int64_t pass = std::clamp<int64_t>(
-      (media_time - media_info_.start_time) / media_info_.duration, 0, loops_);
-  return pass * media_info_.duration;
+  // Pass 0 runs from the file's start to |loop_start_| + |loop_length_|.
+  const int64_t pass =
+      std::clamp<int64_t>((media_time - loop_start_) / loop_length_, 0, loops_);
+  return pass * loop_length_;
 }
 
 void Player::ApplyLoopEndLocked() {
@@ -717,9 +742,9 @@ void Player::ApplyLoopEndLocked() {
   loop_end_ = kNoTimestamp;
   int64_t end = kNoTimestamp;
   if (!looping_ && loops_ > 0) {
-    const int64_t pass = LoopOffsetLocked(clock_.Now()) / media_info_.duration;
+    const int64_t pass = LoopOffsetLocked(clock_.Now()) / loop_length_;
     if (loops_ > pass) {
-      end = media_info_.start_time + (pass + 1) * media_info_.duration;
+      end = loop_start_ + (pass + 1) * loop_length_;
     }
   }
   loop_end_ = end;
@@ -797,7 +822,7 @@ void Player::Run(const std::string& url) {
           resync = true;
           const int64_t now = clock_.Now();
           const int64_t offset = LoopOffsetLocked(now);
-          resync_loops = offset ? offset / media_info_.duration : 0;
+          resync_loops = offset ? offset / loop_length_ : 0;
           int64_t position = std::max<int64_t>(
               now - offset - media_info_.start_time, 0);
           if (media_info_.duration != kNoTimestamp) {
@@ -991,7 +1016,7 @@ bool Player::Prepare(const std::string& url, std::string* error) {
   if (audio_renderer_) {
     audio_renderer_->SetVolume(volume_);
     audio_renderer_->SetRate(rate_);
-    audio_renderer_->Start();
+    audio_renderer_->Start(live_ ? kNoTimestamp : info.start_time);
   }
   if (video_renderer_) {
     video_renderer_->Start();
@@ -1075,7 +1100,15 @@ void Player::ChangeTracks(const TrackRequest& request) {
     }
     audio_queue_.Abort();
     if (old) {
-      old->Stop();
+      // It fades out while the next renderer starts; UpdateState() stops
+      // its sink once the device has played that.
+      old->Retire();
+      if (old->SinkStopped()) {
+        old->Stop();
+      } else {
+        std::lock_guard<std::mutex> lock(mutex_);
+        retired_audio_.push_back(std::move(old));
+      }
       old.reset();
     }
     audio_queue_.Reset(generation_);
@@ -1090,7 +1123,8 @@ void Player::ChangeTracks(const TrackRequest& request) {
       audio_stream_ = request.audio;
       audio_renderer_->SetVolume(volume_);
       audio_renderer_->SetRate(rate_);
-      audio_renderer_->Start();
+      // The resync seek that follows sets where it starts.
+      audio_renderer_->Start(kNoTimestamp);
     }
   }
   std::lock_guard<std::mutex> lock(mutex_);
@@ -1186,7 +1220,7 @@ void Player::ReadPacket() {
     return;
   }
   // The read thread is the only writer while it runs.
-  const int64_t offset = loops_ ? loops_ * media_info_.duration : 0;
+  const int64_t offset = loops_ ? loops_ * loop_length_ : 0;
   if (result != DemuxerReadResult::kOk) {
     if (video_stream_ >= 0) {
       video_queue_.Push(EncodedPacket::CreateEndOfStream(video_stream_));
@@ -1207,6 +1241,18 @@ void Player::ReadPacket() {
     return;
   }
 
+  if (packet->pts != kNoTimestamp && (packet->stream_index == video_stream_ ||
+                                      packet->stream_index == audio_stream_)) {
+    StreamSpan& span = spans_[packet->stream_index];
+    if (span.first == kNoTimestamp || packet->pts < span.first) {
+      span.first = packet->pts;
+    }
+    const int64_t end = packet->pts + std::max<int64_t>(packet->duration, 0);
+    if (span.end == kNoTimestamp || end >= span.end) {
+      span.end = end;
+      span.open_end = packet->duration <= 0;
+    }
+  }
   if (offset &&
       (packet->stream_index == video_stream_ ||
        packet->stream_index == audio_stream_)) {
@@ -1263,11 +1309,13 @@ bool Player::WrapLoop() {
     }
     return false;
   }
-  // Each pass lasts the container's duration: audio past it (encoder
-  // padding) is cut, and a shorter track is padded with silence, so
-  // passes neither overlap nor leave gaps.
-  const int64_t boundary =
-      media_info_.start_time + (loops_ + 1) * media_info_.duration;
+  if (loops_ == 0) {
+    SetLoopSpan();
+  }
+  // Each pass lasts |loop_length_|: audio past it (encoder padding) is
+  // cut, and a shorter track is padded with silence, so passes neither
+  // overlap nor leave gaps.
+  const int64_t boundary = loop_start_ + (loops_ + 1) * loop_length_;
   if (video_stream_ >= 0) {
     video_queue_.Push(EncodedPacket::CreateBoundary(video_stream_, boundary));
   }
@@ -1289,6 +1337,58 @@ bool Player::WrapLoop() {
   return true;
 }
 
+void Player::SetLoopSpan() {
+  // The container's duration may count codec padding past the tracks'
+  // end (Matroska and WebM written by FFmpeg: Duration on the block
+  // timeline, rounded up), and audio may start with priming before the
+  // video (MPEG-TS, which has no edit list). Each would play as silence
+  // at every seam, so later passes take the span all selected tracks
+  // cover, when it differs by padding alone. The first pass keeps the
+  // file's own start.
+  const int64_t file_start = media_info_.start_time;
+  const int64_t file_end = file_start + media_info_.duration;
+  int64_t start = file_start;
+  int64_t end = kInfiniteTime;
+  bool start_known = true;
+  bool end_known = true;
+  for (int stream : {video_stream_, audio_stream_}) {
+    if (stream < 0) {
+      continue;
+    }
+    auto it = spans_.find(stream);
+    if (it == spans_.end()) {
+      start_known = end_known = false;
+      break;
+    }
+    start = std::max(start, it->second.first);
+    if (it->second.open_end) {
+      end_known = false;
+    } else {
+      end = std::min(end, it->second.end);
+    }
+  }
+  int64_t loop_start = file_start;
+  int64_t loop_end = file_end;
+  if (start_known && start - file_start <= kMaxLoopTrim) {
+    loop_start = start;
+  }
+  if (end_known && end < file_end && file_end - end <= kMaxLoopTrim) {
+    loop_end = end;
+  }
+  if (loop_end - loop_start <= 0) {
+    loop_start = file_start;
+    loop_end = file_end;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  loop_start_ = loop_start;
+  loop_length_ = loop_end - loop_start;
+  if (loop_start != file_start || loop_end != file_end) {
+    LOGI("loop: passes span %lld..%lld us of %lld..%lld",
+         static_cast<long long>(loop_start), static_cast<long long>(loop_end),
+         static_cast<long long>(file_start), static_cast<long long>(file_end));
+  }
+}
+
 void Player::ProcessSeek(int64_t target,
                          bool loop,
                          bool resync,
@@ -1297,8 +1397,7 @@ void Player::ProcessSeek(int64_t target,
   const int64_t file_target = media_info_.start_time + target;
   // A resync stays in the pass playing; the read thread offsets its packets
   // by as much.
-  const int64_t media_target =
-      file_target + (loops ? loops * media_info_.duration : 0);
+  const int64_t media_target = file_target + (loops ? loops * loop_length_ : 0);
   LOGI("%s to %lld us", loop ? "loop" : "seek", static_cast<long long>(target));
   const bool user_seek = !loop && !resync && !tracks_changed;
   if (!media_info_.seekable) {
@@ -1396,6 +1495,16 @@ void Player::UpdateState() {
   }
   if (audio_renderer_) {
     audio_renderer_->PullForStalledDevice(NowMicros());
+    audio_renderer_->StopSinkAfterFadeOut(NowMicros());
+  }
+  for (auto it = retired_audio_.begin(); it != retired_audio_.end();) {
+    (*it)->StopSinkAfterFadeOut(NowMicros());
+    if ((*it)->SinkStopped()) {
+      (*it)->Stop();
+      it = retired_audio_.erase(it);
+    } else {
+      ++it;
+    }
   }
   if (state_ != PlayerState::kError) {
     if (video_renderer_ && video_renderer_->HasError()) {

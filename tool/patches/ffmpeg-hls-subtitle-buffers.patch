@@ -1,0 +1,30 @@
+--- a/libavformat/hls.c
++++ b/libavformat/hls.c
+@@ -1915,6 +1915,7 @@
+     if (!(pls->ctx = avformat_alloc_context()))
+         return AVERROR(ENOMEM);
+ 
++    av_freep(&pls->pb.pub.buffer);
+     pls->read_buffer = av_malloc(INITIAL_BUFFER_SIZE);
+     if (!pls->read_buffer) {
+         avformat_free_context(pls->ctx);
+@@ -2403,7 +2404,9 @@
+             pls->cur_seq_no = highest_cur_seq_no;
+         }
+ 
+-        pls->read_buffer = av_malloc(INITIAL_BUFFER_SIZE);
++        pls->read_buffer = pls->is_subtitle
++                         ? (unsigned char*)av_strdup("WEBVTT\n")
++                         : av_malloc(INITIAL_BUFFER_SIZE);
+         if (!pls->read_buffer){
+             avformat_free_context(pls->ctx);
+             pls->ctx = NULL;
+@@ -2411,7 +2414,7 @@
+         }
+ 
+         if (pls->is_subtitle)
+-            ffio_init_context(&pls->pb, (unsigned char*)av_strdup("WEBVTT\n"), (int)strlen("WEBVTT\n"), 0, pls,
++            ffio_init_context(&pls->pb, pls->read_buffer, (int)strlen("WEBVTT\n"), 0, pls,
+                                        NULL, NULL, NULL);
+         else
+             ffio_init_context(&pls->pb, pls->read_buffer, INITIAL_BUFFER_SIZE, 0, pls,

@@ -33,7 +33,7 @@ constexpr GUID kSubtypeFloat = {
     0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
 // Shared-mode buffer, in 100 ns units. Longer than the engine period (10 ms)
 // so a late wakeup does not glitch; its latency is part of the playout time.
-constexpr REFERENCE_TIME kBufferDuration = 40 * 10000;
+constexpr REFERENCE_TIME kBufferDuration = 40LL * 10000;
 // The render thread also wakes without an event, to notice a device that
 // went away silently and to retry opening one.
 constexpr DWORD kPollMillis = 200;
@@ -118,7 +118,7 @@ class WasapiSink::Stream {
     const int written =
         std::clamp(callback(destination, count, PlayoutTime(padding)), 0, count);
     if (written < count) {
-      memset(destination + written * kChannels, 0,
+      memset(destination + static_cast<ptrdiff_t>(written) * kChannels, 0,
              static_cast<size_t>(count - written) * sizeof(float) * kChannels);
     }
     hr = render_->ReleaseBuffer(frames, 0);
@@ -314,8 +314,10 @@ bool WasapiSink::Open(RenderCallback callback, std::string* error) {
   return true;
 }
 
-void WasapiSink::Start() {
+bool WasapiSink::Start() {
+  // The render thread reopens a lost device and starts it again.
   SetStarted(true);
+  return true;
 }
 
 void WasapiSink::Stop() {

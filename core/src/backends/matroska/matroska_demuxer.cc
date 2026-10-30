@@ -71,6 +71,7 @@ constexpr uint32_t kSimpleBlock = 0xA3;
 constexpr uint32_t kBlockGroup = 0xA0;
 constexpr uint32_t kBlock = 0xA1;
 constexpr uint32_t kBlockDuration = 0x9B;
+constexpr uint32_t kDiscardPadding = 0x75A2;
 constexpr uint32_t kReferenceBlock = 0xFB;
 constexpr uint32_t kCues = 0x1C53BB6B;
 constexpr uint32_t kCuePoint = 0xBB;
@@ -195,6 +196,19 @@ uint64_t UInt(const Child& child) {
     value = (value << 8) | child.data[i];
   }
   return value;
+}
+
+// A big-endian two's complement integer of 1 to 8 bytes.
+int64_t SignedInt(const Child& child) {
+  if (child.size == 0 || child.size > 8) {
+    return 0;
+  }
+  uint64_t value = UInt(child);
+  const unsigned bits = static_cast<unsigned>(child.size) * 8;
+  if (bits < 64 && (value >> (bits - 1)) & 1) {
+    value |= ~uint64_t{0} << bits;
+  }
+  return static_cast<int64_t>(value);
 }
 
 double Float(const Child& child) {
@@ -994,6 +1008,7 @@ bool MatroskaDemuxer::ParseTrackEntry(const uint8_t* data, size_t size) {
     }
     config.extradata = std::move(codec_private);
     track.codec_delay = codec_delay / 1000;
+    track.audio = true;
   } else if (type == 0x11) {
     info.type = MediaType::kSubtitle;
     MapSubtitleCodec(codec_id, &info.subtitle);
@@ -1465,6 +1480,7 @@ DemuxerReadResult MatroskaDemuxer::ParseNext() {
         const Child* block = nullptr;
         bool reference = false;
         int64_t duration = -1;
+        int64_t discard_padding = 0;
         std::vector<Child> children = Children(bytes->data(), bytes->size());
         for (const Child& child : children) {
           if (child.id == kBlock) {
@@ -1474,13 +1490,16 @@ DemuxerReadResult MatroskaDemuxer::ParseNext() {
           } else if (child.id == kBlockDuration) {
             duration = static_cast<int64_t>(
                 std::min<uint64_t>(UInt(child), 1ull << 52));
+          } else if (child.id == kDiscardPadding) {
+            discard_padding = SignedInt(child);
           }
         }
         if (block) {
           auto copy = std::make_shared<std::vector<uint8_t>>(
               block->data, block->data + block->size);
           copy->resize(block->size + kPacketPadding, 0);
-          ParseBlock(copy, block->size, false, reference, duration);
+          ParseBlock(copy, block->size, false, reference, duration,
+                     discard_padding);
         }
       }
     }
@@ -1496,7 +1515,8 @@ void MatroskaDemuxer::ParseBlock(
     size_t size,
     bool simple,
     bool reference,
-    int64_t duration_ticks) {
+    int64_t duration_ticks,
+    int64_t discard_padding) {
   const uint8_t* data = bytes->data();
   size_t pos = 0;
   uint64_t number = 0;
@@ -1598,9 +1618,28 @@ void MatroskaDemuxer::ParseBlock(
       sizes[0] -= skipped;
     }
   }
-  const int64_t time = ToMicros(cluster_time_ + relative) - track->codec_delay;
+  // Muxers write timestamps (FFmpeg's also BlockDuration) on the block
+  // timeline, which is the audio's moved later by the CodecDelay rounded
+  // to its ticks: undo that, so a stream ends where its last block says.
+  // The first block, at 0, gets the exact delay instead, so that the
+  // audio left after the decoder drops the delay starts at 0, not up to
+  // half a tick off (the renderer joins the rest to it by frame count).
+  const int64_t block_time = cluster_time_ + relative;
+  const int64_t time =
+      block_time == 0
+          ? -track->codec_delay
+          : ToMicros(block_time) -
+                ToMicros((track->codec_delay * 1000 + timestamp_scale_ / 2) /
+                         timestamp_scale_);
   int64_t frame_duration = 0;
-  if (track->default_duration > 0) {
+  const bool own_duration =
+      duration_ticks >= 0 && sizes.size() == 1 && track->audio;
+  if (own_duration) {
+    // An audio block's own duration overrides the track's default: the
+    // last block is often shorter (FLAC's, and Opus's and AAC's less
+    // their DiscardPadding, as FFmpeg writes it).
+    frame_duration = ToMicros(duration_ticks);
+  } else if (track->default_duration > 0) {
     // In whole ticks, as the timestamps are: a 33.333 ms frame at 7.467 s
     // must not look like it covers 7.500 s.
     frame_duration = ToMicros((track->default_duration + timestamp_scale_ / 2) /
@@ -1608,6 +1647,15 @@ void MatroskaDemuxer::ParseBlock(
   } else if (duration_ticks >= 0) {
     frame_duration =
         ToMicros(duration_ticks) / static_cast<int64_t>(sizes.size());
+  }
+  // DiscardPadding: audio at the block's end that is not content (Opus
+  // padding up to the frame), in nanoseconds. The decoder still outputs
+  // it, but the stream ends before it, so a loop's passes join where the
+  // content does. A BlockDuration leaves it out already.
+  if (discard_padding > 0 && !own_duration && sizes.size() == 1 &&
+      frame_duration > 0) {
+    frame_duration =
+        std::max<int64_t>(frame_duration - discard_padding / 1000, 0);
   }
   last_time_ = std::max(
       last_time_, time + frame_duration * static_cast<int64_t>(sizes.size()));

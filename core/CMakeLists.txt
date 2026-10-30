@@ -39,6 +39,8 @@ set(LYCHEE_SOURCES
   src/media/cpu_frame_converter.cc
   src/media/factory.cc
   src/media/null_audio_sink.cc
+  src/media/subtitle_decoder.cc
+  src/media/text_subtitle_decoder.cc
   src/pipeline/audio_renderer.cc
   src/pipeline/audio_renderer_algorithm.cc
   src/pipeline/live_demuxer.cc
@@ -64,8 +66,14 @@ if(LYCHEE_WITH_FFMPEG)
   )
 endif()
 
+if(ANDROID AND LYCHEE_WITH_FFMPEG)
+  list(APPEND LYCHEE_SOURCES src/backends/ffmpeg/cleartext_redirect.cc)
+endif()
+
 if(ANDROID)
   list(APPEND LYCHEE_SOURCES
+    src/backends/android/aes.cc
+    src/backends/android/subtitle_image.cc
     src/backends/android/aaudio_sink.cc
     src/backends/android/http_data_source.cc
     src/backends/android/jvm.cc
@@ -82,6 +90,7 @@ if(ANDROID)
     src/backends/mp2t/ts_parser.cc
     src/backends/mp2t/ts_reader.cc
     src/backends/mp4/mp4_demuxer.cc
+    src/backends/mp4/mp4_subtitle.cc
     src/media/probing_demuxer.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
@@ -92,7 +101,6 @@ if(ANDROID)
     list(APPEND LYCHEE_SOURCES
       src/backends/android/media_codec_audio_decoder.cc
       src/media/resampler.cc
-      src/media/text_subtitle_decoder.cc
     )
   endif()
 endif()
@@ -102,6 +110,7 @@ if(WIN32)
   list(APPEND LYCHEE_SOURCES
     src/backends/media_foundation/mf_common.cc
     src/backends/media_foundation/mf_video_decoder.cc
+    src/backends/windows/subtitle_image.cc
     src/backends/windows/d3d11_video_processor.cc
     src/backends/windows/http_data_source.cc
     src/backends/windows/wasapi_sink.cc
@@ -118,20 +127,23 @@ if(WIN32)
     src/backends/mp2t/ts_parser.cc
     src/backends/mp2t/ts_reader.cc
     src/backends/mp4/mp4_demuxer.cc
+    src/backends/mp4/mp4_subtitle.cc
     src/media/probing_demuxer.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
     # Without FFmpeg: H.264 and HEVC in hardware or software, AAC, MP3,
-    # FLAC, ALAC and Opus through Media Foundation, text subtitles.
+    # FLAC, ALAC and Opus through Media Foundation (rate conversion by our
+    # own resampler), text subtitles.
     list(APPEND LYCHEE_SOURCES
       src/backends/media_foundation/mf_audio_decoder.cc
-      src/media/text_subtitle_decoder.cc
+      src/media/resampler.cc
     )
   endif()
 endif()
 
 if(UNIX AND NOT APPLE AND NOT ANDROID)
   list(APPEND LYCHEE_SOURCES
+    src/backends/linux/subtitle_image.cc
     src/backends/linux/pulse_audio_sink.cc
   )
   if(LYCHEE_WITH_FFMPEG)
@@ -148,6 +160,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
       src/backends/mp2t/ts_parser.cc
       src/backends/mp2t/ts_reader.cc
       src/backends/mp4/mp4_demuxer.cc
+      src/backends/mp4/mp4_subtitle.cc
       src/media/data_source.cc
       src/media/probing_demuxer.cc
     )
@@ -156,10 +169,12 @@ endif()
 
 if(APPLE)
   list(APPEND LYCHEE_SOURCES
+    src/backends/apple/subtitle_image.cc
     src/backends/apple/apple_frame_converter.cc
     src/backends/apple/core_audio_sink.cc
     src/backends/apple/http_data_source.mm
     src/backends/apple/pixel_buffer.cc
+    src/backends/apple/vt_video_decoder.cc
     # Files and http(s) for both demuxers.
     src/media/data_source.cc
     # MP4 (also fragmented), MPEG-TS and HLS from files and http(s), and
@@ -173,16 +188,14 @@ if(APPLE)
     src/backends/mp2t/ts_parser.cc
     src/backends/mp2t/ts_reader.cc
     src/backends/mp4/mp4_demuxer.cc
+    src/backends/mp4/mp4_subtitle.cc
     src/media/probing_demuxer.cc
   )
   if(NOT LYCHEE_WITH_FFMPEG)
-    # Without FFmpeg: H.264 and HEVC, VP9 and AV1 through VideoToolbox;
-    # AAC, ALAC, Opus, FLAC and MP3 through AudioToolbox; tx3g and text
-    # subtitles.
+    # Without FFmpeg: AAC, ALAC, Opus, FLAC and MP3 through AudioToolbox;
+    # tx3g and text subtitles.
     list(APPEND LYCHEE_SOURCES
       src/backends/apple/at_audio_decoder.cc
-      src/backends/apple/vt_video_decoder.cc
-      src/media/text_subtitle_decoder.cc
     )
   endif()
   if(IOS)
@@ -255,6 +268,9 @@ endif()
 
 if(APPLE)
   target_link_libraries(lychee PRIVATE
+    "-framework ImageIO"
+    "-framework CoreGraphics"
+    "-framework Accelerate"
     "-framework AudioToolbox"
     "-framework CoreAudio"
     "-framework CoreFoundation"
@@ -274,12 +290,12 @@ if(APPLE)
 endif()
 
 if(ANDROID)
-  target_link_libraries(lychee PRIVATE aaudio mediandk nativewindow log)
+  target_link_libraries(lychee PRIVATE aaudio mediandk nativewindow log jnigraphics dl)
 endif()
 
 if(WIN32)
   target_link_libraries(lychee PRIVATE
-    bcrypt ole32 avrt d3d11 d3dcompiler mfplat mfuuid winhttp wmcodecdspuuid)
+    windowscodecs bcrypt ole32 avrt d3d11 d3dcompiler mfplat mfuuid winhttp wmcodecdspuuid)
   # base/thread_name.h includes <windows.h>, whose min/max macros break
   # std::min and numeric_limits::max in the files that include it.
   target_compile_definitions(lychee PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -305,6 +321,8 @@ endif()
 
 if(UNIX AND NOT APPLE AND NOT ANDROID)
   find_package(PkgConfig REQUIRED)
+  find_package(PNG REQUIRED)
+  target_link_libraries(lychee PRIVATE PNG::PNG)
   pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse)
   target_link_libraries(lychee PRIVATE PkgConfig::PULSE)
 endif()

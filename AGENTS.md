@@ -19,6 +19,14 @@ message and, where it matters later, in a code comment, the README or this
 file; what was done and how it was checked stays in the commit. Commit each
 finished item locally.
 
+Finish a feature on every platform it applies to (macOS, iOS, Android,
+Windows, Linux) in one piece of work, not one platform per round: this Mac
+runs the iOS simulator and the Android emulator, and reaches the Windows
+PC, WSL and the Ubuntu VM through the `flutter-remote-test` skill. Leave a
+platform in `docs/roadmap.md` only for the part that needs the user's
+hands, and say there exactly what that is. Likewise, take the items that
+need no hands together, rather than one per session.
+
 Stop and ask only for:
 
 - Pushing, publishing or hosting anything: `git push`, pub.dev,
@@ -95,7 +103,9 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
   playback goes on silently; the device takes over on its next pull.
 - Looping does not seek: at the end of the input the read thread seeks
   the demuxer back to the start and pushes a boundary packet, and reads
-  each later pass with timestamps a duration later (`Player::loops_`), so
+  each later pass with timestamps a pass length later (`Player::loops_`;
+  passes after the first span what the tracks cover, without codec
+  priming or padding past them: `Player::SetLoopSpan`), so
   the clock, the audio device and the renderers run on without a stop. At
   a boundary a renderer drains and flushes its decoder and cuts or pads
   audio to the boundary, without a new generation. The position, frame
@@ -160,11 +170,13 @@ The layers, lowest first:
    `realtime-*` cases that check CoreAudio timing) set `realtime=1`; do
    not run them while a Flutter or Gradle build loads the machine. CI's
    hosted VMs are loaded, so CI sets `REALTIME_ADVISORY=1`: their drift,
-   glitches and drops only warn there. On pushes the plain `core-macos`
-   run goes to an idle self-hosted Mac instead, which checks them
-   strictly.
+   glitches and drops only warn there, so check timing changes locally
+   on an idle machine.
    `frames` cases check the frame on screen by pixels (`--frame-ppm`
    and `tool/frame_check.py`): conversion, rotation, tone mapping.
+   `audio` cases check what the audio device output for clicks
+   (`--audio-dump` and `tool/audio_check.py`): seeks, pauses, rate
+   changes and loops.
 3. **The platform's native harness**: the smallest native app that takes
    the platform's frames to the screen (frame hand-off, conversion,
    rotation, HDR, the display link), with no Flutter in between, so it
@@ -241,8 +253,7 @@ What each area needs (run `tool/changes.sh`):
   `tool/bench.sh` before and after on an idle machine (fps, open and
   seek latency, peak memory per resolution; rows kept in
   `build-release/bench.tsv`, and `tool/bench_compare.py` compares the
-  last commit's rows with the one before; CI's `bench` job does the same
-  for every push on the self-hosted Mac). For changes to object lifetimes, caches or
+  last commit's rows with the one before). For changes to object lifetimes, caches or
   pools, `tool/soak.sh` (minutes of looping, random seeks and file
   switches on the virtual clock) checks that memory and threads stay
   flat.
@@ -333,7 +344,7 @@ formats the lines the branch changed (`.clang-format`, Chromium style;
 older code is reformatted only when someone edits it), and CI's format
 job fails on what it would change. Then run `tool/tidy.sh` (clang-tidy
 with `.clang-tidy`, on the lines the branch changed) and fix what it
-reports; `--all` checks all of `core/src`, which still has findings.
+reports; `--all` checks all of `core/src` compiled on this host.
 `lychee.h` must stay plain C99: `core/test/c_header_test.c` compiles it
 as such with `-Wpedantic`.
 
@@ -349,7 +360,7 @@ there is none). When a new directory or file kind appears, give it an
 area in `tool/changes.sh`.
 
 CI (`.github/workflows/ci.yml`) checks the format of every push, runs
-the ABI check for `lychee.h` changes, the core on macOS (plain, TSan, and ASan with UBSan; for pushes plain and TSan on a self-hosted Intel Mac, which links the LGPL FFmpeg), Linux and Windows (with `examples/glfw`'s build), the Apple builds with `swift test` (Flutter's analyze and
+the ABI check for `lychee.h` changes, the core on macOS (plain, TSan, and ASan with UBSan, on hosted VMs), Linux and Windows (with `examples/glfw`'s build), the Apple builds with `swift test` (Flutter's analyze and
 example build only for `flutter/` changes), the Android SDK with
 `tool/android_check.sh` on an x86_64 emulator, and the Rust crates,
 each only for its areas. Harness screenshots on the desktops, iOS and
@@ -404,16 +415,18 @@ phones stay local.
   and protocols. A format that plays in the CLI (Homebrew's full FFmpeg)
   may fail in the apps: check new formats with `FFMPEG_ROOT=
   third_party/ffmpeg/macos-arm64 tool/regression.sh`, and add what is
-  missing to the script's lists. Android's FFmpeg links mbedTLS for https
-  (LGPL 3, third argument: an Mbed TLS 3.6 source tree); mbedTLS trusts
-  only its `ca_file`, which `ffmpeg_demuxer.cc` writes from Android's CA
-  store and passes to every connection through `io_open`. FFmpeg's http
-  serves only programs without a Java VM (`lychee_cli` from `adb shell`)
-  and cleartext the app's network security config refuses: in apps,
-  `DataSource` reads http(s) through `HttpURLConnection`
-  (`backends/android/http_data_source.cc`), which needs Java to load
-  `liblychee` by name (`System.loadLibrary("lychee")`) so its
-  `JNI_OnLoad` keeps the VM.
+  missing to the script's lists. Android's FFmpeg provides cleartext HTTP
+  only (LGPL 2.1+); all TLS goes through `HttpURLConnection`, and AES-128
+  HLS through `javax.crypto`. The cleartext fallback resolves up to five
+  redirects before handing HTTPS back to DataSource. FFmpeg's HLS refuses
+  a URL whose protocol FFmpeg lacks before it calls `io_open`, so without
+  `tool/patches/ffmpeg-hls-https-io-open.patch` its fallback opens no
+  https playlist or segment on Android ("Invalid data found"); keep the
+  patch applying on a new FFmpeg. Its AES-128 segments (`crypto+https://`)
+  are decrypted in `FFmpegDemuxer::IoOpen`, not by FFmpeg. `lychee_cli` from
+  `adb shell` has no Java VM and cannot open HTTPS. Apps need Java to load
+  `liblychee` by name (`System.loadLibrary("lychee")`) so `JNI_OnLoad`
+  keeps the VM for both HTTP and AES.
 - The Flutter plugin never links the system FFmpeg. Build the LGPL one once
   per platform with `tool/build_ffmpeg.sh PLATFORM <ffmpeg source>` into
   `third_party/ffmpeg/` (`macos-arm64` and `macos-x86_64`; `ios-sim-arm64`

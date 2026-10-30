@@ -14,7 +14,10 @@
 #    /tmp/lychee-media, from MEDIA_ONLY=1 tool/regression.sh) through
 #    tool/serve_media.py and `adb reverse`, decoding in software and with
 #    MediaCodec, and two snapshots of each pass tool/frame_check.py
-#    (hardware frames with --matrix bt601: the emulator's compositor
+#    AES-128 TS and fMP4 HLS also seek through HlsDemuxer, without fallback.
+#    (--bilinear matches PixelCopy's texture sampling when it scales;
+#    swscale's downscaling filter instead averages a wider area;
+#    hardware frames also use --matrix bt601: the emulator's compositor
 #    converts them so; README, "Checking frames by pixels").
 #
 # NDK: ANDROID_NDK_HOME, else the newest under ANDROID_HOME (or the
@@ -33,12 +36,13 @@ port=8765
 die() { echo "android_check.sh: $*" >&2; exit 1; }
 [ -d "$ndk" ] || die "no NDK; set ANDROID_NDK_HOME"
 [ -f "$apk" ] || die "no $apk; run sdk/android/gradlew -p sdk/android :example:assembleDebug"
-for f in h264_aac.mp4 rotated.mp4; do
+for f in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8; do
   [ -f "$media/$f" ] || die "no $media/$f; run MEDIA_ONLY=1 tool/regression.sh"
 done
 
 abi="$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
 case "$abi" in
+  armeabi-v7a) triple=arm-linux-androideabi ;;
   arm64-v8a) triple=aarch64-linux-android ;;
   x86_64) triple=x86_64-linux-android ;;
   *) die "unsupported ABI $abi" ;;
@@ -51,7 +55,7 @@ build="$root/build-android-$abi"
 cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI="$abi" -DANDROID_PLATFORM=26 -DANDROID_STL=c++_shared \
-  -DLYCHEE_FFMPEG_ROOT="$ffmpeg" >/dev/null
+  -DLYCHEE_WITH_FFMPEG=ON -DLYCHEE_FFMPEG_ROOT="$ffmpeg" >/dev/null
 cmake --build "$build" --target lychee_unittests >/dev/null
 adb shell "rm -rf $dir && mkdir -p $dir"
 adb push "$build/core/test/lychee_unittests" "$ffmpeg"/lib/*.so \
@@ -70,33 +74,53 @@ trap 'kill $server 2>/dev/null || true' EXIT
 adb reverse "tcp:$port" "tcp:$port" >/dev/null
 adb install -r -t "$apk" >/dev/null
 package=tech.soit.lychee.example
+files="/data/user/0/$package/files"
+adb shell "run-as $package mkdir -p files"
 snaps="$build/snapshots"
+rm -rf "$snaps" && mkdir -p "$snaps"
 failed=0
-for file in h264_aac.mp4 rotated.mp4; do
-  for hw in false true; do
-    name="${file%.mp4}-hw-$hw"
+for file in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8; do
+  modes="false true"
+  seek=()
+  reference="$file"
+  case "$file" in
+    hls_aes/ts.m3u8) modes=true; seek=(--es seek 1:6); reference=hls/index.m3u8 ;;
+    hls_aes/fmp4.m3u8) modes=true; seek=(--es seek 1:6); reference=hls_fmp4/index.m3u8 ;;
+  esac
+  for hw in $modes; do
+    name="${file//\//-}-hw-$hw"
     adb shell am force-stop "$package"
     adb logcat -c
-    adb shell "rm -rf /sdcard/Android/data/$package/files/*"
+    adb shell "run-as $package rm -f files/$name-a.ppm files/$name-b.ppm"
     adb shell am start -n "$package/.MainActivity" --es url "http://127.0.0.1:$port/$file" \
-      --ez hw "$hw" --es snapshot "2:$name-a.ppm,3.5:$name-b.ppm" >/dev/null
+      --ez hw "$hw" ${seek[@]+"${seek[@]}"} --es snapshot "2:$files/$name-a.ppm,3.5:$files/$name-b.ppm" >/dev/null
     log=""
     for _ in $(seq 60); do
       log="$(adb logcat -d -s lychee-example:I | grep -o 'snapshot .*' || true)"
       [ "$(grep -c . <<<"$log")" -lt 2 ] || break
       sleep 0.5
     done
+    adb logcat -d -s lychee-example:I lychee:I >"$snaps/$name.logcat.txt"
     adb shell am force-stop "$package"
-    rm -rf "$snaps" && mkdir -p "$snaps"
-    adb pull "/sdcard/Android/data/$package/files/." "$snaps" >/dev/null 2>&1
+    for suffix in a b; do
+      adb exec-out run-as "$package" cat "files/$name-$suffix.ppm" >"$snaps/$name-$suffix.ppm"
+    done
+    if [[ "$file" = hls_aes/* ]]; then
+      if grep -q 'the fallback opens it' "$snaps/$name.logcat.txt" ||
+        ! grep -q 'seek -> 6.0s' "$snaps/$name.logcat.txt"; then
+        echo "AES HLS did not seek through HlsDemuxer"
+        failed=1
+      fi
+    fi
     matrix=()
     [ "$hw" = false ] || matrix=(--matrix bt601)
+    sed "s|/[^ ]*/files/|$snaps/|" <<<"$log" >"$snaps/$name.txt"
     echo "-- $file hw=$hw"
     if [ "$(grep -c ' pts=' <<<"$log")" != 2 ]; then
       echo "${log:-no snapshot}"
       failed=1
-    elif ! sed "s|/[^ ]*/files/|$snaps/|" <<<"$log" |
-      python3 -I "$root/tool/frame_check.py" "$media/$file" --log - ${matrix[@]+"${matrix[@]}"}; then
+    elif ! python3 -I "$root/tool/frame_check.py" "$media/$reference" \
+      --log "$snaps/$name.txt" --bilinear ${matrix[@]+"${matrix[@]}"}; then
       failed=1
     fi
   done
