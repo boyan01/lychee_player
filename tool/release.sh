@@ -370,27 +370,43 @@ cmd_check() {
   [ ! -f macos/Podfile ] || sed -i.bak -E "s/^#? *platform :osx, .*/platform :osx, '11.0'/" macos/Podfile
   [ ! -f ios/Podfile ] || sed -i.bak -E "s/^#? *platform :ios, .*/platform :ios, '16.0'/" ios/Podfile
 
-  # The pod (Swift Package Manager off for this app), from the local server.
-  swift_package_manager false
-  check_apple CocoaPods
-  # The plugin's Package.swift with the copy of sdk/apple. SwiftPM
-  # downloads only over https, so the release is unzipped into the package
-  # instead, which the manifest takes.
-  for f in "${frameworks[@]}"; do
-    unzip -q "$out/$f.xcframework.zip" -d "$pkg/darwin/lychee_player/Frameworks"
+  # Build both backend selections with ordinary Flutter commands. Changing
+  # the process environment alone does not invalidate CocoaPods' lock files.
+  local backend
+  for backend in OFF ON; do
+    export LYCHEE_WITH_FFMPEG="$backend"
+    flutter clean >"$tmp/clean-$backend.log" 2>&1
+    swift_package_manager false
+    check_apple "CocoaPods-$backend" "$backend"
+    # SwiftPM takes HTTPS only; use the already checksum-checked assets by path.
+    if [ ! -d "$pkg/darwin/lychee_player/Frameworks" ]; then
+      for f in "${release_frameworks[@]}"; do
+        unzip -q "$out/$f.xcframework.zip" -d "$pkg/darwin/lychee_player/Frameworks"
+      done
+    fi
+    flutter clean >"$tmp/clean-spm-$backend.log" 2>&1
+    swift_package_manager true
+    for f in macos/Flutter/LycheePlayer.xcconfig ios/Flutter/LycheePlayer.xcconfig; do
+      printf 'LYCHEE_PLAYER_FFMPEG = %s\n' "$backend" >"$f"
+    done
+    unset LYCHEE_WITH_FFMPEG
+    check_apple "SwiftPM-app-$backend" "$backend"
+    export LYCHEE_WITH_FFMPEG="$backend"
+    for f in build/macos/Build/Products/Debug/lychee_check.app/Contents/MacOS build/ios/iphonesimulator/Runner.app; do
+      { nm "$f"/* 2>/dev/null || true; } | grep -q LycheeFrameDriver || die "$f does not use sdk/apple's LycheeFrameDriver"
+    done
+    echo "== Android (FFmpeg=$backend)"
+    env 'ORG_GRADLE_PROJECT_kotlin.compiler.execution.strategy=in-process' \
+      flutter build apk --debug >"$tmp/android-$backend.log" 2>&1 ||
+      { tail -40 "$tmp/android-$backend.log"; die "Android build failed"; }
+    check_apk_abis build/app/outputs/flutter-apk/app-debug.apk
+    unzip -Z1 build/app/outputs/flutter-apk/app-debug.apk >"$tmp/apk-files"
+    if [ "$backend" = ON ]; then
+      grep -q 'liblychee_ffmpeg.so' "$tmp/apk-files" || die "the Android app has no FFmpeg extension"
+    else
+      ! grep -q 'liblychee_ffmpeg.so' "$tmp/apk-files" || die "the Android base app carries FFmpeg"
+    fi
   done
-  swift_package_manager true
-  check_apple "Swift Package Manager"
-  # Debug builds keep the app's code in NAME.debug.dylib. nm fails on the
-  # files that are not Mach-O, which pipefail would take for no match.
-  for f in build/macos/Build/Products/Debug/lychee_check.app/Contents/MacOS build/ios/iphonesimulator/Runner.app; do
-    { nm "$f"/* 2>/dev/null || true; } | grep -q LycheeFrameDriver || die "$f does not use sdk/apple's LycheeFrameDriver"
-  done
-  echo "== Android"
-  flutter build apk --debug >"$tmp/android.log" 2>&1 || { tail -40 "$tmp/android.log"; die "Android build failed"; }
-  # Every ABI the APK has Flutter for needs the core too, or the app
-  # installs on devices where it cannot play.
-  check_apk_abis build/app/outputs/flutter-apk/app-debug.apk
   echo "== Android split APKs"
   flutter build apk --debug --split-per-abi --target-platform=android-arm,android-arm64,android-x64 \
     >"$tmp/android-split.log" 2>&1 || { tail -40 "$tmp/android-split.log"; die "Android split build failed"; }
@@ -411,7 +427,7 @@ cmd_check() {
   (cd "$root" && LYCHEE_ANDROID_REPO="$sdk_repo" LYCHEE_ANDROID_BUILD_ONLY=1 \
     tool/android_extension_check.sh) >"$tmp/android-sdk.log" 2>&1 ||
     { tail -40 "$tmp/android-sdk.log"; die "Android native SDK build failed"; }
-  grep -q "GET /$tag/lychee-$v.aar" "$tmp/server.log" && grep -q "GET /$tag/lychee.xcframework.zip" "$tmp/server.log" ||
+  grep -q "GET /$tag/lychee-$v.aar" "$tmp/server.log" && grep -q "GET /$tag/lychee_noffmpeg.xcframework.zip" "$tmp/server.log" ||
     die "the builds did not download from the release"
   echo "ok: a fresh app builds with the package and the release of $tag ($tmp)"
 }
@@ -423,6 +439,40 @@ create_app() {
   flutter create --org tech.soit --platforms="$1" "$app" >"$tmp/create.log"
   cd "$app"
   flutter pub add "lychee_player:{path: $pkg}" >"$tmp/add.log"
+  if [ -d macos ] || [ -d ios ]; then
+    mkdir -p tool
+    cp "$pkg/example/tool/lychee_apple.sh" tool/
+    # Install the same app-owned SwiftPM embed integration as the example.
+    python3 -I - <<'EOF'
+from pathlib import Path
+for platform in ["ios", "macos"]:
+    root = Path(platform)
+    if not root.exists():
+        continue
+    config = root / "Flutter/LycheePlayer.xcconfig"
+    config.write_text("LYCHEE_PLAYER_FFMPEG = OFF\n")
+    for mode in ["Debug", "Release"]:
+        name = f"{mode}.xcconfig" if platform == "ios" else f"Flutter-{mode}.xcconfig"
+        p = root / "Flutter" / name
+        p.write_text(p.read_text() + '#include "LycheePlayer.xcconfig"\n')
+    p = root / "Runner.xcodeproj/project.pbxproj"
+    lines = p.read_text().splitlines()
+    needle = "embed_and_thin" if platform == "ios" else "macos_assemble.sh embed"
+    for index, line in enumerate(lines):
+        if "shellScript = " in line and needle in line:
+            assert line.endswith('";')
+            lines[index] = line[:-2] + r'\n/bin/bash \"$FLUTTER_APPLICATION_PATH/tool/lychee_apple.sh\"\n";'
+            # A declared app resource makes Xcode re-sign the outer bundle
+            # when the script replaces a nested framework incrementally.
+            start = next(i for i in range(index, -1, -1) if "isa = PBXShellScriptBuildPhase" in lines[i])
+            output = next(i for i in range(start, index) if "outputPaths = (" in lines[i])
+            lines.insert(output + 1, '\t\t\t\t"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lychee_player_backend",')
+            break
+    else:
+        raise SystemExit(f"Flutter embed phase missing: {platform}")
+    p.write_text("\n".join(lines) + "\n")
+EOF
+  fi
   cat >lib/main.dart <<'EOF'
 import 'package:flutter/material.dart';
 import 'package:lychee_player/lychee_player.dart';
@@ -442,6 +492,7 @@ EOF
 check_windows() {
   local dir=build/windows/x64/runner/Debug lib
   create_app windows
+  export LYCHEE_WITH_FFMPEG=ON
   echo "== Windows"
   # LYCHEE_FFMPEG_ROOT would skip the download this checks.
   env -u LYCHEE_FFMPEG_ROOT flutter build windows --debug >"$tmp/windows.log" 2>&1 ||
@@ -452,6 +503,11 @@ check_windows() {
   done
   grep -q "GET /$tag/ffmpeg-windows-x86_64.zip" "$tmp/server.log" ||
     die "the build did not download from the release"
+  flutter clean >"$tmp/windows-clean.log" 2>&1
+  export LYCHEE_WITH_FFMPEG=OFF
+  flutter build windows --debug >"$tmp/windows-base.log" 2>&1 ||
+    { tail -40 "$tmp/windows-base.log"; die "Windows base build failed"; }
+  ! compgen -G "$dir/avcodec-*.dll" >/dev/null || die "the Windows base app carries FFmpeg"
   echo "ok: a fresh Windows app builds with the package and the release of $tag ($tmp)"
 }
 
@@ -489,6 +545,7 @@ swift_package_manager() {
 # check_apple LABEL: builds the app in the current directory for macOS and
 # the iOS simulator and checks that both carry the core.
 check_apple() {
+  local expected="${2:-${LYCHEE_WITH_FFMPEG:-OFF}}"
   local log="$tmp/$(tr -cd 'a-zA-Z' <<<"$1")"
   echo "== macOS ($1)"
   LANG=en_US.UTF-8 flutter build macos --debug >"$log-macos.log" 2>&1 || { tail -40 "$log-macos.log"; die "macOS build failed"; }
@@ -498,6 +555,17 @@ check_apple() {
   LANG=en_US.UTF-8 flutter build ios --simulator --debug >"$log-ios.log" 2>&1 || { tail -40 "$log-ios.log"; die "iOS build failed"; }
   [ -f build/ios/iphonesimulator/Runner.app/Frameworks/lychee.framework/lychee ] ||
     die "the iOS app has no lychee.framework"
+  local bundle
+  for bundle in build/macos/Build/Products/Debug/lychee_check.app/Contents/Frameworks build/ios/iphonesimulator/Runner.app/Frameworks; do
+    if [ "$expected" = ON ]; then
+      [ -d "$bundle/libavcodec.framework" ] || die "$bundle has no FFmpeg"
+      otool -L "$bundle/lychee.framework/lychee" | grep -q libavcodec || die "$bundle still uses the base core"
+    else
+      [ ! -d "$bundle/libavcodec.framework" ] || die "$bundle unexpectedly carries FFmpeg"
+      ! otool -L "$bundle/lychee.framework/lychee" | grep -q libavcodec || die "$bundle uses the FFmpeg core"
+    fi
+  done
+  codesign --verify --deep --strict build/macos/Build/Products/Debug/lychee_check.app || die "invalid macOS app signature"
 }
 
 # Fails unless every ABI with libflutter.so in APK also has liblychee.so,

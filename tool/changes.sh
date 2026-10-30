@@ -100,6 +100,7 @@ while IFS= read -r f; do
     tool/abi_check.py) mark abi ;;
     tool/android_check.sh | tool/android_extension_check.sh) mark android ;;
     tool/maven_central.py | tool/maven_central_test.py) mark packaging ;;
+    flutter/android/consumer-rules.pro) mark packaging flutter android ;;
     core/* | CMakeLists.txt | examples/cli/* | tool/regression.sh | tool/*.py) mark core ;;
     examples/glfw/main_win*) mark windows ;;
     examples/glfw/main_linux*) mark linux ;;
@@ -107,6 +108,7 @@ while IFS= read -r f; do
     examples/glfw/*) mark apple ;;
     # A Swift package builds the Apple side and is what a release ships.
     Package.swift | sdk/apple/Package.swift) mark packaging apple ;;
+    flutter/darwin/embed_frameworks.sh | flutter/example/tool/lychee_apple.sh) mark packaging apple flutter ;;
     flutter/darwin/lychee_player/Package.swift) mark packaging apple flutter ;;
     rust/*) mark rust ;;
     sdk/apple/*) mark apple ;;

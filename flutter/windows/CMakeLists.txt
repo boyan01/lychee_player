@@ -14,11 +14,14 @@ set(PLUGIN_NAME "lychee_player_plugin")
 # LYCHEE_WITH_FFMPEG=OFF (cache or environment variable) builds the core
 # without FFmpeg: Media Foundation and the core's own demuxers, no FFmpeg
 # DLLs in the app (README, "Building the core").
-# The environment wins over the cache, so changing it needs no clean build.
+# The environment overrides an explicit CMake setting. New builds default OFF.
 if(DEFINED ENV{LYCHEE_WITH_FFMPEG})
-  set(LYCHEE_WITH_FFMPEG "$ENV{LYCHEE_WITH_FFMPEG}")
+  string(TOUPPER "$ENV{LYCHEE_WITH_FFMPEG}" LYCHEE_WITH_FFMPEG)
+  if(NOT LYCHEE_WITH_FFMPEG MATCHES "^(ON|OFF)$")
+    message(FATAL_ERROR "LYCHEE_WITH_FFMPEG must be ON or OFF")
+  endif()
 elseif(NOT DEFINED LYCHEE_WITH_FFMPEG)
-  set(LYCHEE_WITH_FFMPEG ON)
+  set(LYCHEE_WITH_FFMPEG OFF)
 endif()
 
 # The pinned LGPL FFmpeg, unless one is given: the LYCHEE_FFMPEG_ROOT cache

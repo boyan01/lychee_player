@@ -2,7 +2,6 @@ package tech.soit.lychee.lychee_player
 
 import android.content.Context
 import android.hardware.display.DisplayManager
-import android.util.Log
 import android.view.Display
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
@@ -17,14 +16,12 @@ class LycheePlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private val textures = HashMap<Long, LycheeTexture>()
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        // The core from the Android SDK, whose C ABI Dart opens through FFI;
-        // loaded here so its FFmpeg dependencies resolve. It exists for 64-bit
-        // ABIs only: on a 32-bit device the app still starts, and
-        // LycheePlayer.create() fails in Dart instead.
-        try {
-            System.loadLibrary("lychee")
-        } catch (e: UnsatisfiedLinkError) {
-            Log.e("lychee_player", "no liblychee.so for this device's ABI (64-bit only)", e)
+        System.loadLibrary("lychee")
+        if (BuildConfig.LYCHEE_WITH_FFMPEG) {
+            // The extension must be registered before Dart creates any player.
+            // Reflection keeps the base-only build independent of its classes.
+            Class.forName("tech.soit.lychee.LycheeFFmpeg")
+                .getMethod("load").invoke(null)
         }
         context = binding.applicationContext
         textureRegistry = binding.textureRegistry

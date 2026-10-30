@@ -6,6 +6,10 @@ project(lychee_player_example LANGUAGES CXX)
 # the on-disk name of your application.
 set(BINARY_NAME "lychee_player_example")
 
+# App default, set before generated_plugins.cmake includes the plugin.
+# The LYCHEE_WITH_FFMPEG environment variable can override this for a build.
+set(LYCHEE_WITH_FFMPEG OFF)
+
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
 cmake_policy(VERSION 3.14...3.25)

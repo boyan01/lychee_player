@@ -1,4 +1,4 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.1
 //
 // The plugin for Flutter's Swift Package Manager integration
 // (`flutter config --enable-swift-package-manager`); lychee_player.podspec
@@ -32,16 +32,21 @@
 import Foundation
 import PackageDescription
 
-let frameworks = ["lychee", "libavformat", "libavcodec", "libswresample", "libswscale", "libavutil"]
+// Select the backend in the ordinary Flutter/Xcode build process environment.
+let backend = ProcessInfo.processInfo.environment["LYCHEE_WITH_FFMPEG", default: "OFF"].uppercased()
+precondition(["ON", "OFF"].contains(backend), "LYCHEE_WITH_FFMPEG must be ON or OFF")
+let withFFmpeg = backend == "ON"
+let frameworks = withFFmpeg
+  ? ["lychee", "libavformat", "libavcodec", "libswresample", "libswscale", "libavutil"]
+  : ["lychee_noffmpeg"]
 
 let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent().resolvingSymlinksInPath()
-let fileManager = FileManager.default
 func exists(_ path: String) -> Bool {
-  fileManager.fileExists(atPath: here.appendingPathComponent(path).path)
+  FileManager.default.fileExists(atPath: here.appendingPathComponent(path).path)
 }
 
 let sdk = here.appendingPathComponent("../../../sdk/apple").standardized.path
-let localBuild = fileManager.fileExists(atPath: "\(sdk)/Package.swift")
+let localBuild = FileManager.default.fileExists(atPath: "\(sdk)/Package.swift")
   && !exists("../Frameworks/.prebuilt")
   && frameworks.allSatisfy { exists("../Frameworks/\($0).xcframework") }
 let bundledSDK = exists("Sources/LycheePlayer")
@@ -58,8 +63,10 @@ func pinnedFrameworks() -> [Target] {
   let manifest = try! JSONDecoder().decode(Manifest.self, from: data)
   let mirror = ProcessInfo.processInfo.environment["LYCHEE_PREBUILT_URL"] ?? ""
   let url = mirror.isEmpty ? manifest.url : mirror
-  // Not lychee_noffmpeg, the core without FFmpeg that the release also has.
-  let names = frameworks.map { "\($0).xcframework" }.filter { manifest.files["\($0).zip"] != nil }
+  let names = frameworks.map { "\($0).xcframework" }
+  precondition(
+    names.allSatisfy { manifest.files["\($0).zip"] != nil },
+    "The pinned release has no requested Apple backend")
   if names.allSatisfy({ exists("Frameworks/\($0)") }) {
     return names.map { .binaryTarget(name: String($0.dropLast(".xcframework".count)), path: "Frameworks/\($0)") }
   }
@@ -81,7 +88,7 @@ var targets: [Target] = []
 var cSettings: [CSetting] = []
 
 if localBuild {
-  dependencies.append(.package(path: sdk))
+  dependencies.append(.package(path: sdk, traits: [withFFmpeg ? "FFmpeg" : "NoFFmpeg"]))
   pluginDependencies.append(.product(name: "LycheePlayer", package: "apple"))
   cSettings.append(.define("LYCHEE_SDK_DRIVER", to: "1"))
 } else {
@@ -118,5 +125,6 @@ let package = Package(
         .linkedFramework("AVFAudio", .when(platforms: [.iOS])),
       ]
     ),
-  ]
+  ],
+  swiftLanguageModes: [.v5]
 )

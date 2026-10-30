@@ -26,10 +26,24 @@ buildscript {
 // repository and checked against its SHA-256s. LYCHEE_PREBUILT_URL replaces
 // the release URL with a mirror's. The app resolves the plugin's
 // dependencies, so every project gets the repository.
+// The app can persist this in android/gradle.properties; CI can override it.
+val backend = providers.environmentVariable("LYCHEE_WITH_FFMPEG")
+    .orElse(providers.gradleProperty("LYCHEE_WITH_FFMPEG"))
+    .orElse("OFF").get().uppercase()
+require(backend in listOf("ON", "OFF")) { "LYCHEE_WITH_FFMPEG must be ON or OFF" }
+val withFFmpeg = backend == "ON"
+val artifacts = if (withFFmpeg) listOf("lychee", "lychee-ffmpeg") else listOf("lychee")
 val localRepo = file("../../sdk/android/build/repo")
-val (lycheeRepo, lycheeVersion) = if (localRepo.isDirectory) {
-    localRepo to Regex("""(?m)^version: (\S+)""")
-        .find(file("../pubspec.yaml").readText())!!.groupValues[1]
+val checkoutVersion = Regex("""(?m)^version: (\S+)""")
+    .find(file("../pubspec.yaml").readText())!!.groupValues[1]
+// A directory can hold an older SDK or only the base AAR. Use local builds
+// only when the selected artifacts are complete for this exact version.
+val completeLocalRepo = artifacts.all { artifact ->
+    val dir = File(localRepo, "io/github/boyan01/lychee/$artifact/$checkoutVersion")
+    listOf("aar", "pom").all { File(dir, "$artifact-$checkoutVersion.$it").isFile }
+}
+val (lycheeRepo, lycheeVersion) = if (completeLocalRepo) {
+    localRepo to checkoutVersion
 } else {
     fetchPrebuiltAar()
 }
@@ -47,38 +61,40 @@ fun fetchPrebuiltAar(): Pair<File, String> {
         ?: File(System.getProperty("user.home"), ".cache")
     val repo = File(cacheHome, "lychee_player/$tag/maven")
     val version = tag.removePrefix("v")
-    val dir = File(repo, "io/github/boyan01/lychee/lychee/$version")
     fun sha256(f: File) = MessageDigest.getInstance("SHA-256")
         .digest(f.readBytes()).joinToString("") { "%02x".format(it) }
-    for (name in listOf("lychee-$version.aar", "lychee-$version.pom")) {
-        val sha = files[name] ?: throw GradleException("lychee_player: prebuilt.json has no $name")
-        val target = File(dir, name)
-        if (target.isFile && sha256(target) == sha) continue
-        dir.mkdirs()
-        val from = "$url/$tag/$name"
-        logger.lifecycle("lychee_player: downloading $from")
-        val part = File(dir, "$name.part")
-        var error: Exception? = null
-        for (attempt in 1..3) {
-            try {
-                URI(from).toURL().openStream().use { input ->
-                    part.outputStream().use { input.copyTo(it) }
+    for (artifact in artifacts) {
+        val dir = File(repo, "io/github/boyan01/lychee/$artifact/$version")
+        for (name in listOf("$artifact-$version.aar", "$artifact-$version.pom")) {
+            val sha = files[name] ?: throw GradleException("lychee_player: prebuilt.json has no $name")
+            val target = File(dir, name)
+            if (target.isFile && sha256(target) == sha) continue
+            dir.mkdirs()
+            val from = "$url/$tag/$name"
+            logger.lifecycle("lychee_player: downloading $from")
+            val part = File(dir, "$name.part")
+            var error: Exception? = null
+            for (attempt in 1..3) {
+                try {
+                    URI(from).toURL().openStream().use { input ->
+                        part.outputStream().use { input.copyTo(it) }
+                    }
+                    error = null
+                    break
+                } catch (e: IOException) {
+                    error = e
                 }
-                error = null
-                break
-            } catch (e: IOException) {
-                error = e
             }
+            if (error != null) {
+                throw GradleException("lychee_player: cannot download $from; LYCHEE_PREBUILT_URL can name a mirror", error)
+            }
+            val got = sha256(part)
+            if (got != sha) {
+                part.delete()
+                throw GradleException("lychee_player: $from has SHA-256 $got, not $sha")
+            }
+            part.renameTo(target)
         }
-        if (error != null) {
-            throw GradleException("lychee_player: cannot download $from; LYCHEE_PREBUILT_URL can name a mirror", error)
-        }
-        val got = sha256(part)
-        if (got != sha) {
-            part.delete()
-            throw GradleException("lychee_player: $from has SHA-256 $got, not $sha")
-        }
-        part.renameTo(target)
     }
     return repo to version
 }
@@ -111,13 +127,18 @@ android {
         }
     }
 
+    buildFeatures { buildConfig = true }
+
     defaultConfig {
+        consumerProguardFiles("consumer-rules.pro")
         minSdk = 26
+        buildConfigField("boolean", "LYCHEE_WITH_FFMPEG", withFFmpeg.toString())
     }
 }
 
 dependencies {
     implementation("io.github.boyan01.lychee:lychee:$lycheeVersion")
+    if (withFFmpeg) implementation("io.github.boyan01.lychee:lychee-ffmpeg:$lycheeVersion")
 }
 
 kotlin {

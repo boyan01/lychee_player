@@ -317,7 +317,7 @@ macOS FFmpeg uses assembly only if `nasm` is installed.
 `lychee_noffmpeg.xcframework` (still `lychee.framework` inside;
 MP4, Matroska/WebM, MPEG-TS and HLS through the core's own demuxers,
 VideoToolbox and AudioToolbox decoders), which needs none of the other
-frameworks. The Flutter plugin does not use it.
+frameworks. The Flutter plugin uses it by default.
 
 ## Swift package
 
@@ -563,10 +563,119 @@ cd rust && cargo run --example play -- /tmp/lychee-media/h264_aac.mp4 /tmp/frame
 The plugin lives in `flutter/`. On iOS and macOS it builds with CocoaPods
 (`darwin/lychee_player.podspec`) or, with Flutter's Swift Package Manager
 integration on, as a Swift package (`darwin/lychee_player/Package.swift`);
-both take the Apple frameworks above. The Swift package pulls frames
-through `sdk/apple`'s `LycheeFrameDriver` (`tool/release.sh` copies its
+both take the selected Apple frameworks above. The Swift package pulls
+frames through `sdk/apple`'s `LycheeFrameDriver` (`tool/release.sh` copies its
 sources into the published package); the pod cannot depend on a Swift
 package and keeps a port of it.
+
+The Flutter plugin uses the FFmpeg-free core by default on Android, iOS,
+macOS and Windows. The existing native build scripts read one optional
+process environment variable, `LYCHEE_WITH_FFMPEG=ON`, to include FFmpeg:
+
+```sh
+LYCHEE_WITH_FFMPEG=ON flutter build apk --release
+LYCHEE_WITH_FFMPEG=ON flutter build ios --release
+LYCHEE_WITH_FFMPEG=ON flutter run -d macos
+```
+
+On Windows (PowerShell):
+
+```powershell
+$env:LYCHEE_WITH_FFMPEG = 'ON'
+flutter build windows --release
+```
+
+Set it to `OFF` to force the base version. Without an environment override,
+the app settings below apply; without either setting the default is OFF.
+After changing this native dependency setting, run `flutter clean` and then
+your normal Flutter run/build command. No wrapper command, extra pub
+package, or custom pubspec field is required. Environment overrides must
+reach the IDE's build process; Xcode scheme Run environment variables only
+affect the launched app, not package resolution. The SwiftPM plugin
+manifest needs Swift 6.1 or later. Linux continues to require FFmpeg.
+
+To keep the choice in the consuming app instead of setting the environment
+for each build, use the platform's project configuration. The environment
+variable takes priority over these app settings:
+
+- Android, in **the app's** `android/gradle.properties`:
+
+  ```properties
+  LYCHEE_WITH_FFMPEG=ON
+  ```
+
+- Windows, in **the app's** `windows/CMakeLists.txt`, before
+  `include(flutter/generated_plugins.cmake)`:
+
+  ```cmake
+  set(LYCHEE_WITH_FFMPEG ON)
+  ```
+
+  Use a normal variable as shown, so editing the file changes the choice
+  even if an older CMake cache exists.
+
+- Apple with CocoaPods, near the top of **the app's** `ios/Podfile` or
+  `macos/Podfile`, before `flutter_install_all_*_pods`:
+
+  ```ruby
+  ENV['LYCHEE_WITH_FFMPEG'] ||= 'ON'
+  ```
+
+  This is a CocoaPods setting; it does not configure Flutter's SwiftPM
+  integration. Use the next setting for SwiftPM.
+
+- Apple with SwiftPM, in **the app's** `ios/Flutter/LycheePlayer.xcconfig`
+  and `macos/Flutter/LycheePlayer.xcconfig`:
+
+  ```xcconfig
+  LYCHEE_PLAYER_FFMPEG = ON
+  ```
+
+  The example already includes these files and the build-phase integration.
+  For another app, copy `flutter/example/tool/lychee_apple.sh` into its
+  `tool/` directory. Include `LycheePlayer.xcconfig` from the app's iOS
+  `Flutter/Debug.xcconfig` and `Release.xcconfig`, and macOS
+  `Flutter/Flutter-Debug.xcconfig` and `Flutter-Release.xcconfig`:
+
+  ```xcconfig
+  #include "LycheePlayer.xcconfig"
+  ```
+
+  In Xcode's Runner target, append this line to the existing final Flutter
+  embed phase (iOS: **Thin Binary**; macOS: the phase running
+  `macos_assemble.sh embed`):
+
+  ```sh
+  /bin/bash "$FLUTTER_APPLICATION_PATH/tool/lychee_apple.sh"
+  ```
+
+  Add this phase's **Output Files** entry so incremental builds re-sign
+  the app after changing embedded frameworks:
+
+  ```text
+  $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lychee_player_backend
+  ```
+
+  Keep **User Script Sandboxing** disabled for Runner, as in Flutter's
+  template. This is a one-time project setup. Subsequent builds read the
+  `.xcconfig` setting automatically, including builds started in Xcode.
+  `LYCHEE_WITH_FFMPEG` in the build environment still overrides it.
+
+The example keeps an explicit OFF default in each of these files. Change
+it to ON, then use ordinary Flutter run/build commands. Run `flutter clean`
+when changing the backend, as above. No files in the pub cache need editing.
+
+Android's Gradle script conditionally adds the matching `lychee-ffmpeg`
+AAR and the plugin loads it before Dart creates a player. CocoaPods and
+SwiftPM select either the base Apple core or the FFmpeg-enabled core and
+its dependencies. For the SwiftPM app setting, the final embed phase
+selects the implementation after compiling against the common C ABI.
+It also synchronizes Xcode's app-local debug framework directory, so the
+debugger loads the same core. Downloads are checksum-checked against the
+same release pins and cached under the app's build directory. The script
+does not change the shared pub cache or SwiftPM artifact cache.
+Windows CMake switches its existing backend and DLL
+bundling. Native SDK defaults and the playback API are unchanged.
 
 ```dart
 final player = await LycheePlayer.create();
@@ -599,8 +708,9 @@ does what `--seconds 5` does on the desktop.
 Outside this repository (from pub.dev, or a git dependency without local
 builds), the plugin takes the Apple frameworks and the Android AAR from the
 GitHub release that `flutter/prebuilt.json` pins, downloaded into
-`~/.cache/lychee_player` (SwiftPM's own cache with Swift Package
-Manager) and checked against their SHA-256s; `LYCHEE_PREBUILT_URL` names
+`~/.cache/lychee_player` (SwiftPM's own cache for resolved binary targets;
+the app's derived build directory for the optional embed step) and checked
+against their SHA-256s; `LYCHEE_PREBUILT_URL` names
 a mirror of the release URL (an https one for SwiftPM). Inside it, local
 builds win: the xcframeworks in `flutter/darwin/Frameworks` and the AAR in
 `sdk/android/build/repo`. Windows and Linux compile the repository's
@@ -636,8 +746,8 @@ python3 -I tool/audio_check.py /tmp/a.wav
   ABIs and needs minSdk 26 (AAudio); FFmpeg is optional. Native Android
   hosts can add `lychee-ffmpeg` to their app and call `LycheeFFmpeg.load()`
   in `Application.onCreate()` before Flutter creates any players.
-- **Windows**: `flutter build windows`. The plugin downloads the FFmpeg
-  that `flutter/prebuilt.json` pins (`ffmpeg-windows-x86_64.zip`, the
+- **Windows**: `flutter build windows`. With FFmpeg enabled, the plugin
+  downloads the FFmpeg that `flutter/prebuilt.json` pins (`ffmpeg-windows-x86_64.zip`, the
   release's decode-only LGPL 2.1 build, 8 MB of DLLs) at configure time and ships its DLLs
   next to the app; `LYCHEE_FFMPEG_ROOT` (CMake or environment) names a
   local one instead, e.g. from `tool/build_ffmpeg.sh windows-x86_64 SRC`,

@@ -17,44 +17,62 @@ require 'digest'
 require 'fileutils'
 require 'json'
 
-frameworks = %w[lychee libavformat libavcodec libswresample libswscale libavutil]
+backend = ENV.fetch('LYCHEE_WITH_FFMPEG', 'OFF').upcase
+raise 'LYCHEE_WITH_FFMPEG must be ON or OFF' unless %w[ON OFF].include?(backend)
+with_ffmpeg = backend == 'ON'
+artifacts = with_ffmpeg ? %w[lychee libavformat libavcodec libswresample libswscale libavutil] : %w[lychee_noffmpeg]
+frameworks = with_ffmpeg ? artifacts : %w[lychee]
+root = File.join(__dir__, 'Frameworks')
+local = !File.exist?(File.join(root, '.prebuilt')) &&
+        artifacts.all? { |name| Dir.exist?(File.join(root, "#{name}.xcframework")) }
 
-lambda do
-  dir = File.join(__dir__, 'Frameworks')
-  manifest = JSON.parse(File.read(File.join(__dir__, '..', 'prebuilt.json')))
-  tag = manifest['tag'] or return
-  # Not every zip: the release also has the core without FFmpeg, for SwiftPM.
-  zips = manifest['files'].select { |name, _| frameworks.include?(name.delete_suffix('.xcframework.zip')) }.to_a
-  stamp = File.join(dir, '.prebuilt')
-  want = ([tag] + zips.map { |z| z.join(' ') }).join("\n")
-  if File.exist?(stamp)
-    return if File.read(stamp) == want
-  elsif frameworks.all? { |f| Dir.exist?(File.join(dir, "#{f}.xcframework")) }
-    return
+if local
+  framework_dir = root
+  unless with_ffmpeg
+    # CocoaPods takes -framework from the outer basename. The base artifact
+    # also contains lychee.framework; alias it without replacing the full core.
+    framework_dir = File.join(root, 'noffmpeg')
+    FileUtils.mkdir_p(framework_dir)
+    link = File.join(framework_dir, 'lychee.xcframework')
+    FileUtils.ln_sf('../lychee_noffmpeg.xcframework', link) unless File.exist?(link)
   end
-
-  url = ENV['LYCHEE_PREBUILT_URL'].to_s.empty? ? manifest['url'] : ENV['LYCHEE_PREBUILT_URL']
+else
+  manifest = JSON.parse(File.read(File.join(__dir__, '..', 'prebuilt.json')))
+  tag = manifest.fetch('tag')
+  zips = artifacts.map { |name| ["#{name}.xcframework.zip", manifest.fetch('files').fetch("#{name}.xcframework.zip")] }
+  identity = Digest::SHA256.hexdigest(zips.flatten.join("\n"))[0, 16]
+  # Apps share pub's package directory. Different versions/backends coexist;
+  # selecting one must never delete frameworks another app is building with.
+  framework_dir = File.join(root, 'prebuilt', "#{tag}-#{identity}")
+  url = ENV['LYCHEE_PREBUILT_URL'].to_s.empty? ? manifest.fetch('url') : ENV['LYCHEE_PREBUILT_URL']
   cache_home = ENV['XDG_CACHE_HOME'].to_s.empty? ? File.join(Dir.home, '.cache') : ENV['XDG_CACHE_HOME']
   cache = File.join(cache_home, 'lychee_player', tag)
   FileUtils.mkdir_p(cache)
-  zips.each do |name, sha|
-    zip = File.join(cache, name)
-    next if File.exist?(zip) && Digest::SHA256.file(zip).hexdigest == sha
-    from = "#{url}/#{tag}/#{name}"
-    Pod::UI.puts "lychee_player: downloading #{from}"
-    system('curl', '-fsSL', '--retry', '3', '-o', "#{zip}.part", from) or
-      raise "lychee_player: cannot download #{from}; LYCHEE_PREBUILT_URL can name a mirror"
-    got = Digest::SHA256.file("#{zip}.part").hexdigest
-    raise "lychee_player: #{from} has SHA-256 #{got}, not #{sha}" unless got == sha
-    File.rename("#{zip}.part", zip)
+  File.open(File.join(cache, "#{identity}.lock"), 'w') do |lock|
+    lock.flock(File::LOCK_EX)
+    unless File.exist?(File.join(framework_dir, '.complete'))
+      FileUtils.mkdir_p(framework_dir)
+      zips.each do |name, sha|
+        zip = File.join(cache, "#{sha}-#{name}")
+        unless File.exist?(zip) && Digest::SHA256.file(zip).hexdigest == sha
+          from = "#{url}/#{tag}/#{name}"
+          Pod::UI.puts "lychee_player: downloading #{from}"
+          system('curl', '-fsSL', '--retry', '3', '-o', "#{zip}.part", from) or
+            raise "lychee_player: cannot download #{from}; LYCHEE_PREBUILT_URL can name a mirror"
+          raise "lychee_player: SHA-256 mismatch for #{name}" unless Digest::SHA256.file("#{zip}.part").hexdigest == sha
+          File.rename("#{zip}.part", zip)
+        end
+        system('unzip', '-oq', zip, '-d', framework_dir) or raise "lychee_player: cannot unzip #{name}"
+      end
+      unless with_ffmpeg
+        target = File.join(framework_dir, 'lychee.xcframework')
+        File.rename(File.join(framework_dir, 'lychee_noffmpeg.xcframework'), target) unless Dir.exist?(target)
+      end
+      File.write(File.join(framework_dir, '.complete'), '')
+    end
   end
-  FileUtils.rm_rf(dir)
-  FileUtils.mkdir_p(dir)
-  zips.each do |name, _|
-    system('unzip', '-q', File.join(cache, name), '-d', dir) or raise "lychee_player: cannot unzip #{name}"
-  end
-  File.write(stamp, want)
-end.call
+end
+framework_path = framework_dir.delete_prefix("#{__dir__}/")
 
 Pod::Spec.new do |s|
   s.name             = 'lychee_player'
@@ -76,19 +94,12 @@ Pod::Spec.new do |s|
   s.frameworks = 'CoreVideo', 'QuartzCore'
   s.ios.frameworks = 'AVFAudio'
 
-  present = frameworks.select { |f| Dir.exist?(File.join(__dir__, 'Frameworks', "#{f}.xcframework")) }
-  # A release's are complete with the ones it has.
-  unless File.exist?(File.join(__dir__, 'Frameworks', '.prebuilt')) || present == frameworks
-    Pod::UI.warn "lychee_player: missing #{(frameworks - present).join(', ')}.xcframework in Frameworks/; " \
-                 'build them with tool/build_ffmpeg.sh, tool/package_ffmpeg_apple.sh ' \
-                 'and tool/build_apple.sh'
-  end
-  s.vendored_frameworks = present.map { |f| "Frameworks/#{f}.xcframework" }
+  s.vendored_frameworks = frameworks.map { |name| "#{framework_path}/#{name}.xcframework" }
 
   # CocoaPods copies the xcframework slices too late for this pod's own
   # compile and link, so point at the slices directly.
   slice_paths = lambda do |slice|
-    "$(inherited) \"${PODS_TARGET_SRCROOT}/Frameworks/lychee.xcframework/#{slice}\""
+    "$(inherited) \"${PODS_TARGET_SRCROOT}/#{framework_path}/lychee.xcframework/#{slice}\""
   end
   common = {
     'DEFINES_MODULE' => 'YES',

@@ -1,0 +1,2 @@
+// App default for SwiftPM builds; the build environment can override this.
+LYCHEE_PLAYER_FFMPEG = OFF

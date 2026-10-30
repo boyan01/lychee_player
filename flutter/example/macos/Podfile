@@ -1,5 +1,9 @@
 platform :osx, '12.0'
 
+# App default for CocoaPods; an exported build environment setting wins.
+# This Podfile setting does not configure Flutter's SwiftPM integration.
+ENV['LYCHEE_WITH_FFMPEG'] ||= 'OFF'
+
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
