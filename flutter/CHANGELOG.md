@@ -1,15 +1,17 @@
 ## Unreleased
 
-* The consuming app can persist the FFmpeg choice in Android
-  `gradle.properties`, Windows `CMakeLists.txt`, a CocoaPods `Podfile`, or
-  an Apple `.xcconfig` with the SwiftPM embed integration shown in the example.
-  `LYCHEE_WITH_FFMPEG` in the build environment overrides the app default.
+### Breaking
 
-* Flutter uses the FFmpeg-free core by default on iOS, macOS and Windows,
-  as on Android. Set `LYCHEE_WITH_FFMPEG=ON` in the build environment to
-  include FFmpeg using normal Flutter run/build commands. CocoaPods and
-  SwiftPM remain supported; the latter requires Swift 6.1. Run
-  `flutter clean` when switching backends. Linux keeps FFmpeg.
+* iOS, macOS and Windows: FFmpeg is no longer included by default, as on
+  Android. MP4, Matroska/WebM, MPEG-TS and HLS still play; other formats
+  need `LYCHEE_WITH_FFMPEG=ON`. Run `flutter clean` after switching.
+* iOS and macOS: Swift Package Manager builds need Swift 6.1.
+
+### New
+
+* Keep the FFmpeg choice in the app: `LYCHEE_WITH_FFMPEG` in
+  `gradle.properties`, `windows/CMakeLists.txt` or the `Podfile`, or
+  `LYCHEE_PLAYER_FFMPEG` in an `.xcconfig` for Swift Package Manager.
 
 ## 1.0.0-beta.3
 

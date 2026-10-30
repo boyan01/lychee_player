@@ -410,6 +410,25 @@ example build only for `flutter/` changes), the Android SDK with
 each only for its areas. Harness screenshots on the desktops, iOS and
 phones stay local.
 
+## Changelog
+
+`flutter/CHANGELOG.md` is what pub.dev and the GitHub release show to
+the people using the package. Add an entry under `## Unreleased` in the
+commit that makes the change; a release renames that heading to
+`## VERSION` (`tool/release.sh version` requires it).
+
+- Write for an app developer: what they can now do, what behaves
+  differently, what they must change. Leave out how it was done: no
+  internal classes, threads, scripts, tests or CI.
+- Only what a user can notice. No entry for refactors, docs, tooling, or
+  fixes to bugs no release had.
+- One bullet per change, one or two short sentences. Start with the
+  platform when it is one (`Android:`). When the user has to act, the
+  bullet says how, with the exact setting or call.
+- Group under `### Breaking`, `### New` and `### Fixed`, in that order,
+  leaving out empty groups. Merge related bullets; a release with more
+  than about ten is usually listing internals.
+
 ## Gotchas
 
 - The Flutter plugin on iOS and macOS (`flutter/darwin`) and the Swift
