@@ -100,7 +100,10 @@ for file in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8; do
       [ "$(grep -c . <<<"$log")" -lt 2 ] || break
       sleep 0.5
     done
-    adb logcat -d -s lychee-example:I lychee:I >"$snaps/$name.logcat.txt"
+    # A missing snapshot can also follow an activity restart. Keep its
+    # lifecycle and crash diagnostics alongside the player's output.
+    adb logcat -d -s lychee-example:I lychee:I ActivityTaskManager:I \
+      ActivityManager:I WindowManager:I AndroidRuntime:E >"$snaps/$name.logcat.txt"
     adb shell am force-stop "$package"
     for suffix in a b; do
       adb exec-out run-as "$package" cat "files/$name-$suffix.ppm" >"$snaps/$name-$suffix.ppm"

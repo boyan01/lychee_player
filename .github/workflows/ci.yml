@@ -309,8 +309,32 @@ jobs:
           distribution: temurin
           java-version: 21
       - name: Install tools
-        # meson builds dav1d into FFmpeg (tool/build_ffmpeg.sh).
-        run: sudo apt-get install -y meson ninja-build pkg-config
+        # meson builds dav1d; the emulator's version check links PulseAudio.
+        run: sudo apt-get install -y meson ninja-build pkg-config libpulse0
+      - name: Install Android CLI and pinned emulator
+        # Use the versioned CLI itself, not its auto-updating launcher.
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/android" \
+            https://dl.google.com/android/cli/1.1.16717390/linux_x86_64/android-cli
+          echo "b34ed0baeeffa2aaee2720d82491b975835696e2e56840449078bec885436564  $RUNNER_TEMP/android" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/android"
+          echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >>"$GITHUB_PATH"
+          "$RUNNER_TEMP/android" --version
+          "$RUNNER_TEMP/android" sdk install cmdline-tools/23.0
+          "$RUNNER_TEMP/android" sdk install --force emulator@37.2.13
+          "$RUNNER_TEMP/android" sdk install 'system-images/android-34/google_apis/x86_64@14.0.0'
+          "$ANDROID_HOME/platform-tools/adb" version
+          "$ANDROID_HOME/emulator/emulator" -version
+      - name: Create emulator
+        # The unified CLI's create command chooses its own system image;
+        # avdmanager keeps the API 34 image our pixel checks use.
+        run: |
+          printf 'no\n' | "$ANDROID_HOME/cmdline-tools/23.0/bin/avdmanager" create avd --force --name lychee_api34 \
+            --package 'system-images;android-34;google_apis;x86_64'
+          config="$HOME/.android/avd/lychee_api34.avd/config.ini"
+          sed -i '/^hw\.gpu\./d; /^hw\.cpu\.ncore=/d' "$config"
+          printf '%s\n' hw.cpu.ncore=2 hw.gpu.enabled=yes hw.gpu.mode=swiftshader >>"$config"
       - name: FFmpeg cache key
         id: ffmpeg
         run: |
@@ -345,20 +369,27 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Emulator
-        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
-        with:
-          api-level: 34
-          target: google_apis
-          arch: x86_64
-          disable-animations: true
-          emulator-options: -no-window -no-snapshot -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: tool/android_check.sh
+        run: |
+          android emulator start --headless --cold lychee_api34
+          test "$(adb -s emulator-5554 shell getprop sys.boot_completed | tr -d '\r')" = 1
+          for setting in window_animation_scale transition_animation_scale animator_duration_scale; do
+            adb -s emulator-5554 shell settings put global "$setting" 0
+          done
+          ANDROID_SERIAL=emulator-5554 tool/android_check.sh
+      - name: Stop emulator
+        if: always()
+        run: |
+          if command -v android >/dev/null; then
+            android emulator stop lychee_api34
+          fi
       - name: Android snapshots
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-snapshots
-          path: build-android-*/snapshots
+          path: |
+            build-android-*/snapshots
+            ~/.android/lychee_api34/emulator.log
           if-no-files-found: ignore
 
   fuzz:
