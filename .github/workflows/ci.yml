@@ -33,6 +33,7 @@ jobs:
           chmod +x "$RUNNER_TEMP/android"
           echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
           "$RUNNER_TEMP/android" --version
+          "$RUNNER_TEMP/android" sdk install cmdline-tools/23.0
           "$RUNNER_TEMP/android" sdk install --force emulator@37.2.13
           "$RUNNER_TEMP/android" sdk install 'system-images/android-34/google_apis/x86_64@14.0.0'
       - name: FFmpeg cache key
@@ -72,7 +73,7 @@ jobs:
         # The unified CLI's create command chooses its own system image;
         # avdmanager keeps the API 34 image our pixel checks use.
         run: |
-          printf 'no\n' | avdmanager create avd --force --name lychee_api34 \
+          printf 'no\n' | "$ANDROID_HOME/cmdline-tools/23.0/bin/avdmanager" create avd --force --name lychee_api34 \
             --package 'system-images;android-34;google_apis;x86_64'
           config="$HOME/.android/avd/lychee_api34.avd/config.ini"
           sed -i '/^hw.gpu./d; /^hw.cpu.ncore=/d' "$config"
