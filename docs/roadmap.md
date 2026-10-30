@@ -48,6 +48,13 @@ building on top of them.
 
 ## Known defects
 
+- **Android release-consumer snapshots on fresh CI emulators**
+  (2026-10-30): the R8 example cannot write its captures under
+  `/sdcard/Android/data/tech.soit.lychee.example/files` (`EACCES`), so
+  `tool/android_extension_check.sh` fails before validating frames.
+  Both AARs' dependency/library checks and all 145 device unit tests pass.
+  Done when the example owns its capture directory on a clean emulator
+  and both release consumers pass the snapshot checks there.
 - **Hosted macOS live HLS timing check** (2026-10-30):
   `http-hls-live-variants` ended at 12.123 s in plain CI, outside its
   expected 12.0xx s, with all 360 frames pulled and no backward timestamp
