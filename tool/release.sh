@@ -313,7 +313,8 @@ cmd_check() {
     die "flutter/prebuilt.json does not pin $tag; run tool/release.sh pin $1"
 
   echo "== package"
-  with_core dart pub publish --to-archive="$tmp/package.tar.gz" >"$tmp/pack.log" 2>&1 ||
+  # A freshly cloned Flutter SDK must bootstrap before resolving sdk:flutter.
+  with_core flutter pub publish --to-archive="$tmp/package.tar.gz" >"$tmp/pack.log" 2>&1 ||
     { cat "$tmp/pack.log"; die "pub cannot pack the package"; }
   # Uncommitted pins are fine here; the release workflow commits them first.
   ! sed -n '/^Validating package/,$p' "$tmp/pack.log" | grep '^\* ' |
