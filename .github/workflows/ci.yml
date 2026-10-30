@@ -32,10 +32,22 @@ jobs:
           echo "b34ed0baeeffa2aaee2720d82491b975835696e2e56840449078bec885436564  $RUNNER_TEMP/android" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/android"
           echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >>"$GITHUB_PATH"
           "$RUNNER_TEMP/android" --version
           "$RUNNER_TEMP/android" sdk install cmdline-tools/23.0
           "$RUNNER_TEMP/android" sdk install --force emulator@37.2.13
           "$RUNNER_TEMP/android" sdk install 'system-images/android-34/google_apis/x86_64@14.0.0'
+          "$ANDROID_HOME/platform-tools/adb" version
+          "$ANDROID_HOME/emulator/emulator" -version
+      - name: Create emulator
+        # The unified CLI's create command chooses its own system image;
+        # avdmanager keeps the API 34 image our pixel checks use.
+        run: |
+          printf 'no\n' | "$ANDROID_HOME/cmdline-tools/23.0/bin/avdmanager" create avd --force --name lychee_api34 \
+            --package 'system-images;android-34;google_apis;x86_64'
+          config="$HOME/.android/avd/lychee_api34.avd/config.ini"
+          sed -i '/^hw\.gpu\./d; /^hw\.cpu\.ncore=/d' "$config"
+          printf '%s\n' hw.cpu.ncore=2 hw.gpu.enabled=yes hw.gpu.mode=${{ matrix.gpu }} >>"$config"
       - name: FFmpeg cache key
         id: ffmpeg
         run: |
@@ -69,15 +81,6 @@ jobs:
             sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Create emulator
-        # The unified CLI's create command chooses its own system image;
-        # avdmanager keeps the API 34 image our pixel checks use.
-        run: |
-          printf 'no\n' | "$ANDROID_HOME/cmdline-tools/23.0/bin/avdmanager" create avd --force --name lychee_api34 \
-            --package 'system-images;android-34;google_apis;x86_64'
-          config="$HOME/.android/avd/lychee_api34.avd/config.ini"
-          sed -i '/^hw.gpu./d; /^hw.cpu.ncore=/d' "$config"
-          printf '%s\n' hw.cpu.ncore=2 hw.gpu.enabled=yes hw.gpu.mode=${{ matrix.gpu }} >>"$config"
       - name: Emulator rendering comparison
         run: |
           failed=0
@@ -103,6 +106,12 @@ jobs:
           if command -v android >/dev/null; then
             android emulator stop lychee_api34
           fi
+      - name: Build output
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: android-build-${{ matrix.gpu }}
+          path: sdk/android/example/build/outputs/apk/debug/example-debug.apk
       - name: Android snapshots
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
