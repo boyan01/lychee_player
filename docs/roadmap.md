@@ -48,6 +48,13 @@ building on top of them.
 
 ## Known defects
 
+- **Hosted macOS live HLS timing check** (2026-10-30):
+  `http-hls-live-variants` ended at 12.123 s in plain CI, outside its
+  expected 12.0xx s, with all 360 frames pulled and no backward timestamp
+  jumps. The targeted local run and the ASan CI run passed. Not reproduced
+  locally. Done when the live test distinguishes an actual timeline error
+  from delayed end-of-stream handling on a loaded runner, without weakening
+  its frame-count and timestamp-order checks.
 - **The Flutter example crashed on quitting on Windows**: after
   `--seconds N` it calls `exitApplication(AppExitType.required)`, and
   every run on 2026-10-28 between 11:07 and 12:22 ended with 0xC000041D
