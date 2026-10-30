@@ -1,6 +1,6 @@
 name: lychee_player
 description: A cross-platform media player for Flutter, built on a reusable C/C++ core with hardware decoding.
-version: 1.0.0-beta.2
+version: 1.0.0-beta.3
 repository: https://github.com/boyan01/lychee_player
 
 environment:
