@@ -223,8 +223,7 @@ cmd_pack() {
     android)
       v="$(version)"
       for artifact in lychee lychee-ffmpeg; do
-        for suffix in aar pom; do
-          f="$artifact-$v.$suffix"
+        for f in "$artifact-$v.aar" "$artifact-$v.pom" "$artifact-$v-sources.jar" "$artifact-$v-javadoc.jar"; do
           cp "$root/sdk/android/build/repo/tech/soit/lychee/$artifact/$v/$f" "$out/" ||
             die "no $f; run tool/release.sh build android"
         done
@@ -275,7 +274,10 @@ frameworks = sys.argv[5:]
 version = tag[1:]
 names = [f"{f}.xcframework.zip" for f in frameworks] + [
     f"lychee-{version}.aar", f"lychee-{version}.pom",
-    f"lychee-ffmpeg-{version}.aar", f"lychee-ffmpeg-{version}.pom", "ffmpeg-windows-x86_64.zip",
+    f"lychee-ffmpeg-{version}.aar", f"lychee-ffmpeg-{version}.pom",
+    f"lychee-{version}-sources.jar", f"lychee-{version}-javadoc.jar",
+    f"lychee-ffmpeg-{version}-sources.jar", f"lychee-ffmpeg-{version}-javadoc.jar",
+    "ffmpeg-windows-x86_64.zip",
     "ffmpeg-linux-x86_64.tar.xz", "ffmpeg-linux-arm64.tar.xz"]
 missing = [n for n in names if not (out / n).is_file()]
 if missing:
@@ -566,6 +568,8 @@ def sources(name):
         return ["lychee"]
     if name.startswith("lychee-") and name.endswith(".pom"):
         return []
+    if name.startswith("lychee-") and name.endswith(("-sources.jar", "-javadoc.jar")):
+        return ["lychee"]
     if name.startswith(("lychee.", "lychee_noffmpeg.")):
         return ["lychee"]
     if name.startswith(("libavcodec.", "ffmpeg-linux-")):

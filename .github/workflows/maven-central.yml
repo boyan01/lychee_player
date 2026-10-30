@@ -1,0 +1,74 @@
+# Explicitly dispatch after the corresponding GitHub release exists. This
+# consumes the exact checked release assets; it never rebuilds either AAR.
+name: Maven Central
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag (for example v1.0.0-beta.3)
+        required: true
+      publish:
+        description: Publish publicly after validation (false only stages it)
+        type: boolean
+        default: false
+
+concurrency: maven-central-${{ inputs.tag }}
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Validate tag and version
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          grep -Fqx "version: ${RELEASE_TAG#v}" flutter/pubspec.yaml
+          echo "VERSION=${RELEASE_TAG#v}" >>"$GITHUB_ENV"
+      - name: Download checked Android publications
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir dist
+          for artifact in lychee lychee-ffmpeg; do
+            for suffix in .aar .pom -sources.jar -javadoc.jar; do
+              gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+                --pattern "$artifact-$VERSION$suffix" --dir dist
+            done
+          done
+          python3 -I - <<'PY'
+          import hashlib, json, pathlib
+          manifest = json.loads(pathlib.Path('flutter/prebuilt.json').read_text())
+          for path in pathlib.Path('dist').iterdir():
+              assert hashlib.sha256(path.read_bytes()).hexdigest() == manifest['files'][path.name], path.name
+          PY
+      - name: Install signing tool
+        run: sudo apt-get update && sudo apt-get install -y gnupg
+      - name: Sign and validate one bundle containing both artifacts
+        env:
+          MAVEN_SIGNING_KEY: ${{ secrets.MAVEN_SIGNING_KEY }}
+          MAVEN_SIGNING_PASSWORD: ${{ secrets.MAVEN_SIGNING_PASSWORD }}
+        run: |
+          python3 -I tool/maven_central.py bundle dist --version "$VERSION" --output central-bundle.zip
+          python3 -I tool/maven_central.py check central-bundle.zip --version "$VERSION"
+      - name: Upload to Central
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          MAVEN_SIGNING_KEY: ${{ secrets.MAVEN_SIGNING_KEY }}
+          MAVEN_SIGNING_PASSWORD: ${{ secrets.MAVEN_SIGNING_PASSWORD }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          args=()
+          [ "$PUBLISH" != true ] || args+=(--publish)
+          python3 -I tool/maven_central.py upload central-bundle.zip --version "$VERSION" "${args[@]}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: central-bundle-${{ inputs.tag }}
+          path: central-bundle.zip

@@ -1,6 +1,9 @@
+import org.jetbrains.dokka.gradle.tasks.DokkaGeneratePublicationTask
+
 plugins {
     id("com.android.library")
     `maven-publish`
+    id("org.jetbrains.dokka")
 }
 
 val repoRoot = rootDir.resolve("../..")
@@ -34,7 +37,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    publishing { singleVariant("release") }
+    publishing { singleVariant("release") { withSourcesJar() } }
 }
 
 dependencies {
@@ -63,6 +66,35 @@ androidComponents {
     }
 }
 tasks.withType<GenerateModuleMetadata>().configureEach { enabled = false }
+dokka {
+    moduleName.set("Lychee FFmpeg")
+    moduleVersion.set(lycheeVersion)
+    dokkaPublications.named("html") {
+        offlineMode.set(true)
+        failOnWarning.set(true)
+    }
+    dokkaSourceSets.configureEach {
+        suppress.set(name != "release")
+        if (name != "release") return@configureEach
+        sourceRoots.from(file("src/main/kotlin"))
+        classpath.from(androidComponents.sdkComponents.bootClasspath)
+        jdkVersion.set(17)
+        sourceLink {
+            localDirectory.set(file("src/main/kotlin"))
+            remoteUrl("https://github.com/boyan01/lychee_player/blob/v$lycheeVersion/sdk/android/${project.name}/src/main/kotlin")
+            remoteLineSuffix.set("#L")
+        }
+    }
+}
+val apiDocumentationJar = tasks.register<Jar>("apiDocumentationJar") {
+    archiveClassifier.set("javadoc")
+    from(tasks.named<DokkaGeneratePublicationTask>("dokkaGeneratePublicationHtml").flatMap { it.outputDirectory })
+    from(repoRoot.resolve("core/include/lychee/lychee.h")) { into("c-api") }
+    from(repoRoot.resolve("README.md"))
+}
+
+apply(from = rootProject.file("publishing.gradle.kts"))
+
 publishing {
     publications {
         register<MavenPublication>("release") {
@@ -70,6 +102,7 @@ publishing {
             artifactId = "lychee-ffmpeg"
             version = lycheeVersion
             afterEvaluate { from(components["release"]) }
+            artifact(tasks.named("apiDocumentationJar"))
         }
     }
     repositories {

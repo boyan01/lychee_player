@@ -29,6 +29,7 @@ jobs:
       abi: ${{ steps.areas.outputs.abi }}
       rust: ${{ steps.areas.outputs.rust }}
       flutter: ${{ steps.areas.outputs.flutter }}
+      packaging: ${{ steps.areas.outputs.packaging }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -40,6 +41,17 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: tool/changes.sh --github "$BASE" "$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
+
+  packaging:
+    needs: changes
+    if: needs.changes.outputs.packaging == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check Central bundle integrity and publication opt-in
+        run: |
+          gpg --version
+          python3 -I tool/maven_central_test.py
 
   format:
     # clang-format on the C, C++ and Objective-C++ lines a push or pull

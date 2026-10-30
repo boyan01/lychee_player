@@ -707,6 +707,58 @@ the secret `RELEASE_DEPLOY_KEY` (the workflow's own token cannot start
 on the package's pub.dev Admin page (repository `boyan01/lychee_player`,
 tag pattern `v{{version}}`, environment `pub.dev`).
 
+The Android publications can also be sent to Maven Central after the
+corresponding GitHub release exists. Both use the `tech.soit.lychee`
+group; verify the `tech.soit` namespace in the Central Portal first.
+Central currently requires a manual ownership review for this namespace.
+Contact `central-support@sonatype.com` with the Portal account and project
+URL, and offer to prove control of `soit.tech` through DNS. Do not add a
+TXT record until Central supplies its verification value.
+
+The Gradle `publish` tasks write only to the local repository. Each
+publication includes its AAR, POM, Kotlin/native sources and generated
+Dokka API documentation. `tool/release.sh pack android` includes all
+eight files, and `pin` records their SHA-256 hashes. The separate
+`Maven Central` workflow downloads those exact release assets, checks
+their hashes, signs them and submits both AARs in one deployment.
+
+Configure four repository secrets before running that workflow:
+
+| Secret | Value |
+| --- | --- |
+| `CENTRAL_USERNAME` | The username from a Central Portal user token |
+| `CENTRAL_PASSWORD` | The password from the same token, not the account password |
+| `MAVEN_SIGNING_KEY` | ASCII-armored private signing key, including its header/footer |
+| `MAVEN_SIGNING_PASSWORD` | The key's passphrase |
+
+Keep a protected backup of the signing key and passphrase outside the
+checkout. Publish only its public key to a
+[Central-supported keyserver](https://central.sonatype.org/publish/requirements/gpg/#distributing-your-public-key).
+The token needs publishing access to the verified namespace. Neither
+credential belongs in Gradle properties committed to Git.
+
+For a local check, set `MAVEN_SIGNING_KEY` and `MAVEN_SIGNING_PASSWORD`
+in the process environment, then run:
+
+```sh
+python3 -I tool/maven_central_test.py
+python3 -I tool/maven_central.py bundle /tmp/dist --version VERSION --output /tmp/central-bundle.zip
+python3 -I tool/maven_central.py check /tmp/central-bundle.zip --version VERSION
+```
+
+Verification can use `MAVEN_PUBLIC_KEY` instead of the private key.
+`--unsigned` on `bundle` and `check` is for local packaging tests only;
+unsigned bundles cannot be uploaded. The helper checks both artifacts,
+matching versions, all three Android ABIs, POM metadata, sources,
+documentation, checksums and signatures.
+
+The workflow's `publish` input defaults to `false`: Central validates
+and stages the deployment for inspection. Select `true` only when
+public publication has been authorized. For a separately authorized
+local upload, `tool/maven_central.py upload /tmp/central-bundle.zip
+--version VERSION` has the same staging default; `--publish` opts into
+automatic publication. A released version is immutable on Central.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

@@ -150,16 +150,24 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    file; betas need no check after publishing, since `release.yml`'s
    `tool/release.sh check` builds fresh apps against the same package
    and assets (the user, 2026-10-27).
-2. **Release leftovers**: both Android AARs on Maven Central (what native
-   Android users expect; needs a Sonatype account for `tech.soit`);
+2. **Maven Central account setup** (waiting on the user): Central rejects
+   `tech.soit` registration with "Protected domain which requires manual
+   review of requests". Keep the existing coordinates pending the user's
+   decision to request ownership review from `central-support@sonatype.com`
+   or switch to the verified GitHub namespace. DNS for `soit.tech` is at
+   Cloudflare; no verification value has been issued and no DNS was changed.
+   Finish creating the Portal token, publishing the public signing key and
+   installing the four documented repository secrets after approval.
+   Upload and public publication remain separately authorized actions.
+3. **Release leftovers**:
    the Linux jobs in `ubuntu:22.04` containers once GitHub retires those
    runner images.
-3. **Native SDKs**: drop the pod and the plugin's copy of
+4. **Native SDKs**: drop the pod and the plugin's copy of
    `LycheeFrameDriver` (`LycheeTexture`) once Flutter drops CocoaPods;
    the Rust crates on crates.io.
    Windows and Linux native users
    take the C ABI as it is.
-4. **Engineering practices**, in rough order of value:
+5. **Engineering practices**, in rough order of value:
    - **FFmpeg upstream report** (waiting on the user to submit; no report
      has been sent). Suggested report text: "FFmpeg 9.0.2's HLS demuxer
      leaks 34,848 bytes for a WebVTT subtitle rendition. On Linux,

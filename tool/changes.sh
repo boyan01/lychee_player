@@ -99,6 +99,7 @@ while IFS= read -r f; do
     core/src/media/factory.cc) mark core parsers apple android windows linux ;;
     tool/abi_check.py) mark abi ;;
     tool/android_check.sh | tool/android_extension_check.sh) mark android ;;
+    tool/maven_central.py | tool/maven_central_test.py) mark packaging ;;
     core/* | CMakeLists.txt | examples/cli/* | tool/regression.sh | tool/*.py) mark core ;;
     examples/glfw/main_win*) mark windows ;;
     examples/glfw/main_linux*) mark linux ;;
