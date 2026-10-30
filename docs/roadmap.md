@@ -154,9 +154,8 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
 
 1. **1.0.0**, once the beta has been used. Before it, and only then, a
    fresh app on `lychee_player` from pub.dev on every platform plays a
-   file; betas need no check after publishing, since `release.yml`'s
-   `tool/release.sh check` builds fresh apps against the same package
-   and assets (the user, 2026-10-27).
+   file. Betas need no fresh-app check, after publishing or in
+   `release.yml` (the user, 2026-10-27 and 2026-10-30).
 2. **Release leftovers**:
    the Linux jobs in `ubuntu:22.04` containers once GitHub retires those
    runner images.

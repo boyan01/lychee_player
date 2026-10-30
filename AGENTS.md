@@ -169,7 +169,7 @@ area ever needs, not a checklist for every change.
   the CI jobs still running, and end the turn.
 - `tool/release.sh check`, `tool/soak.sh`, `tool/fuzz.sh`,
   `tool/bench.sh` and the full regression on several platforms are for
-  the changes the list below names and for releases, not for small fixes.
+  the changes the list below names, not for small fixes or releases.
 
 Drive every app from its command line: the CLI, the native harnesses and
 the Flutter example take the file or URL as an argument, `--seconds N`

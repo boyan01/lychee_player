@@ -787,14 +787,15 @@ gh workflow run release.yml -f version=1.0.0
 It builds the Apple xcframeworks, both Android AARs and the Windows and
 Linux FFmpeg (on Ubuntu; Windows cross-compiled), pins them in
 `flutter/prebuilt.json` and `Package.swift` (which lets SwiftPM take
-`sdk/apple` by URL), builds a fresh app against the package pub would
-publish (macOS, iOS and Android on macOS, Windows on Windows), attests
+`sdk/apple` by URL), attests
 the assets' build provenance and an SPDX SBOM of them, drafts the GitHub
 release with the assets, the SBOM and the sources of FFmpeg and dav1d,
 and pushes the commit `Release VERSION` and the tag
 `vVERSION`. The tag starts `publish.yml`, which publishes the release and
 the package on pub.dev, then both Android AARs on Maven Central.
-Each step is a `tool/release.sh` command and runs
+It runs no regression and builds no fresh app: CI has
+checked the commit, and `tool/release.sh check` is for changes to
+packaging (AGENTS.md). Each step is a `tool/release.sh` command and runs
 locally too:
 
 ```sh
@@ -831,8 +832,6 @@ Dokka API documentation. `tool/release.sh pack android` includes all
 eight files, and `pin` records their SHA-256 hashes. `Publish` calls the
 reusable `Maven Central` workflow, which downloads those release assets, checks
 their hashes, signs them and submits both AARs in one deployment.
-It waits for all platform checks and GitHub/pub.dev publication, so a
-failed platform check cannot publish an incomplete release to Central.
 Normal releases need no second dispatch.
 Create a new release containing these publications first; older tags
 whose assets use the previous coordinates or omit sources/documentation
