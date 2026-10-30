@@ -17,7 +17,7 @@ changes (bump `LYCHEE_API_VERSION` with a history line) or new
 dependencies that fit the design rules below. Put the reason in the commit
 message and, where it matters later, in a code comment, the README or this
 file; what was done and how it was checked stays in the commit. Commit each
-finished item locally.
+finished item locally, in commits as "Commits" describes.
 
 Finish a feature on every platform it applies to (macOS, iOS, Android,
 Windows, Linux) in one piece of work, not one platform per round: this Mac
@@ -428,6 +428,43 @@ commit that makes the change; a release renames that heading to
 - Group under `### Breaking`, `### New` and `### Fixed`, in that order,
   leaving out empty groups. Merge related bullets; a release with more
   than about ten is usually listing internals.
+
+## Commits
+
+The convention is mpv's and Go's (the projects this one learns from),
+not Conventional Commits: the changelog is written by hand, so a
+`feat:` or `fix:` type adds nothing, while the area tells a reader
+where to look.
+
+- One logical change per commit, building and passing its checks on its
+  own, so `git bisect` works. Refactors, renames and reformatting go in
+  a commit before the change that needs them. A change across platforms
+  can be a core commit and one per platform. If the subject needs
+  "and", or the body lists unrelated things, split it. Its tests, docs,
+  roadmap and changelog entry stay in the same commit.
+- Subject: `area: what it does`, imperative, lowercase after the colon,
+  no period, at most 72 characters. The area is where a reader would
+  look: one from `tool/changes.sh` (`core`, `android`, `apple`,
+  `windows`, `linux`, `flutter`, `rust`, `ci`), a narrower one when it
+  is clearer (`core/hls`, `android/sdk`, `examples/glfw`), or
+  `release`, `tool`, `docs`. Two areas: `apple, android:`; more: the
+  lowest layer they share.
+- Body, plain text wrapped at 72: why the change is needed and what the
+  diff does not show (the cause of a bug, why not the obvious
+  alternative), not a file-by-file account. End with `Tested:` and the
+  checks that ran, plus what was not checked when it matters (a real
+  device, listening).
+
+The shape, with an invented change:
+
+```
+core/hls: keep segment times across discontinuities
+
+A discontinuity reset the next segment's start to zero, so seeks
+after an ad break landed up to a segment early.
+
+Tested: ONLY='hls-*' tool/regression.sh
+```
 
 ## Gotchas
 
