@@ -1,3 +1,30 @@
+## 1.0.0-beta.3
+
+* Android now uses an FFmpeg-free SDK by default. Native Android apps can
+  add the optional `lychee-ffmpeg` package and call `LycheeFFmpeg.load()`
+  before creating a player. Both AARs are published under
+  `io.github.boyan01.lychee` on Maven Central, with sources and API docs.
+* Android adds armeabi-v7a support alongside arm64-v8a and x86_64.
+* HLS gains fragmented MP4, AES-128 encryption, adaptive video variants,
+  alternate audio and subtitle renditions through the built-in demuxers.
+  Android uses system HTTPS and AES support, including FFmpeg fallback
+  streams and redirects from HTTP to HTTPS.
+* Android decodes VP8, VP9 and AV1 through MediaCodec. Windows can decode
+  VP9 and AV1 through the installed system codec extensions, and supports
+  more audio formats without FFmpeg. The optional FFmpeg builds include
+  dav1d for software AV1 decoding.
+* Add fragmented MP4 WebVTT and IMSC text and image subtitles in HLS.
+  Subtitle rendering is now text and bitmap only: libass is removed,
+  and ASS subtitles display as plain text without styling.
+* Fade audio around seeks, pauses, playback-rate changes and track
+  switches, close gaps at loop boundaries, and retry an audio device
+  that failed to start.
+* Recover iOS hardware decoding after returning to the foreground,
+  improve Apple decoding throughput and software H.264 startup, and
+  correct HDR tone mapping on Linux and FFmpeg software frame paths.
+* Fix HLS byte-range handling, early subtitle cues, transport-stream
+  timestamp discontinuities and an FFmpeg HLS subtitle buffer leak.
+
 ## 1.0.0-beta.2
 
 * iOS and macOS: the plugin builds with Swift Package Manager as well as
