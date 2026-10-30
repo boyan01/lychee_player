@@ -1,5 +1,8 @@
 # Releasing
 
+Each registry a release publishes to has a version badge in the
+README's Packages table; a new registry (crates.io, ...) adds one.
+
 A release is one run of `.github/workflows/release.yml`, after a
 `## VERSION` section in `flutter/CHANGELOG.md`:
 

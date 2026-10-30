@@ -1,5 +1,7 @@
 # lychee_player
 
+[![pub](https://img.shields.io/pub/v/lychee_player?include_prereleases)](https://pub.dev/packages/lychee_player) [![pub points](https://img.shields.io/pub/points/lychee_player)](https://pub.dev/packages/lychee_player/score) [![CI](https://github.com/boyan01/lychee_player/actions/workflows/ci.yml/badge.svg)](https://github.com/boyan01/lychee_player/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/github/license/boyan01/lychee_player)](https://github.com/boyan01/lychee_player/blob/main/LICENSE)
+
 A video and audio player for Flutter on Android, iOS, macOS, Windows and
 Linux. It decodes on the GPU with each platform's own decoders and shows
 frames as Flutter textures, without a copy where the platform allows.

@@ -1,5 +1,7 @@
 # lychee_player
 
+[![CI](https://github.com/boyan01/lychee_player/actions/workflows/ci.yml/badge.svg)](https://github.com/boyan01/lychee_player/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/github/license/boyan01/lychee_player)](https://github.com/boyan01/lychee_player/blob/main/LICENSE)
+
 A video and audio player for apps on macOS, iOS, Android, Windows and
 Linux. It decodes on the GPU through each platform's own decoders, hands
 frames to the app as native textures, and is one C library underneath a
@@ -27,13 +29,13 @@ Flutter plugin, a Swift package, an Android library and Rust crates.
 
 ## Packages
 
-| For | Package | Get started |
-| --- | --- | --- |
-| Flutter | [`lychee_player`](https://pub.dev/packages/lychee_player) on pub.dev | [flutter/README.md](flutter/README.md) |
-| Swift (macOS, iOS) | `LycheePlayer`, this repository as a Swift package | [Swift](docs/native-sdks.md#swift) |
-| Android | `io.github.boyan01.lychee:lychee` on Maven Central | [Android](docs/native-sdks.md#android) |
-| Rust | `lychee` and `lychee-sys` in [`rust/`](rust) | [Rust](docs/native-sdks.md#rust) |
-| C, C++ | [`lychee.h`](core/include/lychee/lychee.h) | [C ABI](docs/native-sdks.md#c-abi) |
+| For | Package | Version | Get started |
+| --- | --- | --- | --- |
+| Flutter | [`lychee_player`](https://pub.dev/packages/lychee_player) on pub.dev | [![pub](https://img.shields.io/pub/v/lychee_player?include_prereleases)](https://pub.dev/packages/lychee_player) | [flutter/README.md](flutter/README.md) |
+| Swift (macOS, iOS) | `LycheePlayer`, this repository as a Swift package | [![release](https://img.shields.io/github/v/release/boyan01/lychee_player?include_prereleases)](https://github.com/boyan01/lychee_player/releases) | [Swift](docs/native-sdks.md#swift) |
+| Android | `io.github.boyan01.lychee:lychee` on Maven Central | [![Maven Central](https://img.shields.io/maven-metadata/v?metadataUrl=https%3A%2F%2Frepo1.maven.org%2Fmaven2%2Fio%2Fgithub%2Fboyan01%2Flychee%2Flychee%2Fmaven-metadata.xml&label=maven%20central)](https://central.sonatype.com/artifact/io.github.boyan01.lychee/lychee) | [Android](docs/native-sdks.md#android) |
+| Rust | `lychee` and `lychee-sys` in [`rust/`](rust) | not on crates.io yet | [Rust](docs/native-sdks.md#rust) |
+| C, C++ | [`lychee.h`](core/include/lychee/lychee.h) | with every release | [C ABI](docs/native-sdks.md#c-abi) |
 
 ```dart
 final player = await LycheePlayer.create();
