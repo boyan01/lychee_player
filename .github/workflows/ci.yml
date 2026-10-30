@@ -375,7 +375,8 @@ jobs:
           for setting in window_animation_scale transition_animation_scale animator_duration_scale; do
             adb -s emulator-5554 shell settings put global "$setting" 0
           done
-          ANDROID_SERIAL=emulator-5554 tool/android_check.sh
+          LYCHEE_ANDROID_REPO="$GITHUB_WORKSPACE/sdk/android/build/repo" \
+            ANDROID_SERIAL=emulator-5554 tool/android_extension_check.sh
       - name: Stop emulator
         if: always()
         run: |
@@ -389,6 +390,8 @@ jobs:
           name: android-snapshots
           path: |
             build-android-*/snapshots
+            build-android-extension/*.log
+            build-android-extension/*-snapshots
             ~/.android/lychee_api34/emulator.log
           if-no-files-found: ignore
 

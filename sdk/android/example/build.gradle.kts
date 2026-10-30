@@ -18,8 +18,30 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+        }
+    }
 }
 
 dependencies {
-    implementation(project(":lychee"))
+    val published = providers.gradleProperty("lychee.example.repo").isPresent
+    val sdkVersion = providers.gradleProperty("lychee.example.version").orNull
+        ?: Regex("""(?m)^version: (\S+)""")
+            .find(rootDir.resolve("../../flutter/pubspec.yaml").readText())!!.groupValues[1]
+    if (published) {
+        implementation("tech.soit.lychee:lychee:$sdkVersion")
+    } else {
+        implementation(project(":lychee"))
+    }
+    if (providers.gradleProperty("lychee.example.ffmpeg").orNull == "true") {
+        if (published) {
+            implementation("tech.soit.lychee:lychee-ffmpeg:$sdkVersion")
+        } else {
+            implementation(project(":ffmpeg"))
+        }
+    }
 }

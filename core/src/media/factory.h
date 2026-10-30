@@ -15,8 +15,8 @@
 
 namespace lychee {
 
-// Creates the implementations compiled into this build. Which backends exist
-// is decided at build time (e.g. LYCHEE_WITH_FFMPEG).
+// Creates the implementations compiled into this build, or registered by
+// Android's optional FFmpeg extension before the first player is created.
 
 std::unique_ptr<Demuxer> CreateDemuxer();
 

@@ -50,7 +50,11 @@ These are decisions, not accidents. Keep them unless the user changes them.
 - **FFmpeg is an optional backend.** FFmpeg types and headers appear only
   under `core/src/backends/ffmpeg/`. `media/` and `pipeline/` use the
   library's own types (`EncodedPacket`, `VideoConfig`, `VideoFrame`, ...).
-  Backends are chosen at build time in `media/factory.cc`.
+  Backends are chosen in `media/factory.cc`. Android's base AAR is
+  FFmpeg-free; its optional `lychee-ffmpeg` AAR registers the FFmpeg
+  backend through `LycheeFFmpeg.load()` before any player is created.
+  The private extension interface requires matching SDK sources and NDK;
+  only the C ABI is public and stable across builds.
 - **Frames leave as native handles** (`CVPixelBufferRef` today; D3D11
   textures, dmabuf, AHardwareBuffer later). The library never renders. The
   caller pulls frames per vsync with `has_new_frame` / `acquire_frame`, in
@@ -279,14 +283,16 @@ What each area needs (run `tool/changes.sh`):
   NoFFmpeg`. When the shipped FFmpeg build changes:
   `FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh`.
 - **android**: `sdk/android/gradlew -p sdk/android :lychee:publish
-  :example:assembleDebug` (zero warnings), install the example on an
+  :ffmpeg:publish :example:assembleDebug` (zero warnings), install the example on an
   emulator or a phone and check snapshots of `h264_aac.mp4` and
   `rotated.mp4` with `tool/frame_check.py`, each with hardware decoding
   and without (the `url`, `hw` and `snapshot` intent extras; README,
   "Checking frames by pixels", and its `--matrix bt601` for hardware
   frames on the emulator); `tool/android_check.sh` does that for both
-  files and also runs the core's unit tests on the device, as CI's
-  `android` job does. The Flutter plugin takes its frame driver from
+  files and also runs the core's unit tests on the device.
+  `tool/android_extension_check.sh` additionally consumes both published
+  AARs with R8, checks both frame paths and the loader's failure cases;
+  CI's `android` job runs it. The Flutter plugin takes its frame driver from
   the SDK, so a change to `LycheeFrameDriver` also runs the Flutter
   example on Android.
 - **windows**, **linux**: `tool/regression.sh` on that platform (Linux:
@@ -415,7 +421,7 @@ phones stay local.
   and protocols. A format that plays in the CLI (Homebrew's full FFmpeg)
   may fail in the apps: check new formats with `FFMPEG_ROOT=
   third_party/ffmpeg/macos-arm64 tool/regression.sh`, and add what is
-  missing to the script's lists. Android's FFmpeg provides cleartext HTTP
+  missing to the script's lists. Android's optional FFmpeg extension provides cleartext HTTP
   only (LGPL 2.1+); all TLS goes through `HttpURLConnection`, and AES-128
   HLS through `javax.crypto`. The cleartext fallback resolves up to five
   redirects before handing HTTPS back to DataSource. FFmpeg's HLS refuses
@@ -433,8 +439,9 @@ phones stay local.
   and `ios-sim-x86_64` for the simulator, `ios-arm64` for devices;
   `android-arm64-v8a`), then `tool/package_ffmpeg_apple.sh` and
   `tool/build_apple.sh` for Apple; the pod vendors the result from
-  `flutter/darwin/Frameworks`. On Android the SDK's AAR (`sdk/android`)
-  links `third_party/ffmpeg/android-ABI` and carries it. Use the FFmpeg major version
+  `flutter/darwin/Frameworks`. On Android the optional `lychee-ffmpeg` AAR
+  links `third_party/ffmpeg/android-ABI` and carries it; the base AAR
+  builds independently. Use the FFmpeg major version
   Homebrew has: the core follows the current FFmpeg API (e.g.
   `sws_free_context`). After a new FFmpeg build, rerun all of them and
   `pod install` in `flutter/example/macos` and `flutter/example/ios`.

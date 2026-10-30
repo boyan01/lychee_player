@@ -136,12 +136,8 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    event and an acquire call for its bytes at the clock's time (like
    subtitles), in every binding; worth it once a caller needs it (HLS
    ad markers, live captions' ID3).
-2. **Android**: an FFmpeg-free AAR in the release
-   (`-Plychee.ffmpeg=false` builds it, and the Flutter plugin plays on
-   it; a second artifact is a publishing decision) if native Android
-   users want one.
-   VP8 hardware decoding needs another phone: the Xiaomi 14 exposes only
-   the software VP8 path, so it cannot close that hardware check.
+2. **Android**: VP8 hardware decoding needs another phone: the Xiaomi 14
+   exposes only the software VP8 path, so it cannot close that hardware check.
    Opus seeks lose 80 ms: Android's decoder discards SeekPreRoll after
    a flush, and the demuxer seeks to the target rather than that much
    before it (Chromium seeks back by it). Media Foundation's Opus MFT
@@ -154,7 +150,7 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    file; betas need no check after publishing, since `release.yml`'s
    `tool/release.sh check` builds fresh apps against the same package
    and assets (the user, 2026-10-27).
-2. **Release leftovers**: the AAR on Maven Central too (what native
+2. **Release leftovers**: both Android AARs on Maven Central (what native
    Android users expect; needs a Sonatype account for `tech.soit`);
    the Linux jobs in `ubuntu:22.04` containers once GitHub retires those
    runner images.

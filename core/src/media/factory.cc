@@ -4,6 +4,9 @@
 
 #include "base/time.h"
 #include "media/cpu_frame_converter.h"
+#if defined(__ANDROID__) && !defined(LYCHEE_WITH_FFMPEG)
+#include "media/ffmpeg_extension.h"
+#endif
 #include "media/null_audio_sink.h"
 
 #if defined(LYCHEE_WITH_FFMPEG)
@@ -82,6 +85,11 @@ std::unique_ptr<Demuxer> CreateDemuxer() {
 #elif defined(LYCHEE_WITH_FFMPEG)
   return std::make_unique<FFmpegDemuxer>();
 #elif defined(__APPLE__) || defined(_WIN32) || defined(__ANDROID__)
+#if defined(__ANDROID__)
+  if (const auto* backend = AndroidFFmpegExtension().backend()) {
+    return std::make_unique<ProbingDemuxer>(backend->demuxer);
+  }
+#endif
   return std::make_unique<ProbingDemuxer>();
 #else
   return nullptr;
@@ -112,9 +120,17 @@ std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
           surface, rotate_surface_frames,
           MediaCodecVideoDecoder::Codecs::kHardwareOnly));
     }
-    decoders.push_back(std::make_unique<MediaCodecVideoDecoder>(
-        surface, rotate_surface_frames,
-        MediaCodecVideoDecoder::Codecs::kSoftwareOnly));
+    if (!AndroidFFmpegExtension().backend()) {
+      decoders.push_back(std::make_unique<MediaCodecVideoDecoder>(
+          surface, rotate_surface_frames,
+          MediaCodecVideoDecoder::Codecs::kSoftwareOnly));
+    }
+  }
+  if (const auto* backend = AndroidFFmpegExtension().backend()) {
+    if (allow_hardware) {
+      decoders.push_back(backend->video(true, accepted_storage, device));
+    }
+    decoders.push_back(backend->video(false, accepted_storage, device));
   }
 #endif
 #if defined(__APPLE__)
@@ -211,6 +227,10 @@ std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders() {
 #if defined(__APPLE__) && !defined(LYCHEE_WITH_FFMPEG)
   decoders.push_back(std::make_unique<ATAudioDecoder>());
 #elif defined(__ANDROID__) && !defined(LYCHEE_WITH_FFMPEG)
+  if (const auto* backend = AndroidFFmpegExtension().backend()) {
+    decoders.push_back(backend->audio());
+    return decoders;
+  }
   decoders.push_back(std::make_unique<MediaCodecAudioDecoder>());
 #elif defined(_WIN32) && !defined(LYCHEE_WITH_FFMPEG)
   decoders.push_back(std::make_unique<MFAudioDecoder>());
@@ -225,6 +245,11 @@ std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder() {
 #if defined(LYCHEE_WITH_FFMPEG)
   return std::make_unique<FFmpegSubtitleDecoder>();
 #elif defined(__APPLE__) || defined(_WIN32) || defined(__ANDROID__)
+#if defined(__ANDROID__)
+  if (const auto* backend = AndroidFFmpegExtension().backend()) {
+    return backend->subtitle();
+  }
+#endif
   return std::make_unique<TextSubtitleDecoder>();
 #else
   return nullptr;

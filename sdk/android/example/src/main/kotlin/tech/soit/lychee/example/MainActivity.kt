@@ -48,6 +48,7 @@ class MainActivity : Activity() {
     private val quitTask = Runnable {
         val stats = player.stats
         Log.i("lychee-example", "summary: state=${player.state} " +
+            "decoder=${stats.videoDecoder} " +
             "position=${player.positionMs / 1000.0}s hw=${if (stats.hardwareDecoding) 1 else 0} " +
             "rendered=${stats.framesRendered} dropped=${stats.framesDropped}")
         finishAndRemoveTask()
@@ -61,12 +62,28 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Reflection is only for this harness: the same example also builds
+        // without the optional AAR. Apps call LycheeFFmpeg.load() directly.
+        val extension = intent.getStringExtra("ffmpeg")
+        if (extension != null && extension != "late") {
+            loadFFmpeg(extension)
+        }
         val url = intent.getStringExtra("url") ?: "http://127.0.0.1:8765/h264_aac.mp4"
         initialUrl = url
         alternateUrl = intent.getStringExtra("soak_url")
         soakEveryMs = ((intent.getStringExtra("soak")?.toDoubleOrNull() ?: 0.0) * 1000).toLong()
         nextSoakMs = SystemClock.elapsedRealtime() + soakEveryMs
         player = LycheePlayer(hardwareDecoding = intent.getBooleanExtra("hw", true))
+        if (extension == "twice") loadFFmpeg("load")
+        if (extension == "late") {
+            try {
+                loadFFmpeg("load")
+                error("Late FFmpeg load was accepted")
+            } catch (e: java.lang.reflect.InvocationTargetException) {
+                check(e.cause is IllegalStateException)
+                Log.i("lychee-example", "ffmpeg: late load rejected: ${e.cause?.message}")
+            }
+        }
         player.isLooping = true
         player.open(url)
         player.play()
@@ -106,8 +123,45 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun loadFFmpeg(mode: String) {
+        val load = Class.forName("tech.soit.lychee.LycheeFFmpeg").getMethod("load")
+        if (mode == "missing") {
+            try {
+                load.invoke(null)
+                error("Missing FFmpeg library was accepted")
+            } catch (e: java.lang.reflect.InvocationTargetException) {
+                check(e.cause is IllegalStateException)
+                check(e.cause?.message?.contains("Cannot load") == true)
+                Log.i("lychee-example", "ffmpeg: missing library rejected")
+            }
+            return
+        }
+        if (mode == "concurrent") {
+            val failures = java.util.concurrent.ConcurrentLinkedQueue<Throwable>()
+            val threads = List(8) {
+                Thread {
+                    try { load.invoke(null) } catch (e: Throwable) { failures.add(e) }
+                }.apply { start() }
+            }
+            threads.forEach { it.join() }
+            check(failures.isEmpty()) { failures.toString() }
+        } else {
+            load.invoke(null)
+            if (mode == "twice") load.invoke(null)
+        }
+        Log.i("lychee-example", "ffmpeg: $mode loaded")
+    }
+
     private fun scheduleSnapshots(spec: String?) {
-        for (item in spec?.split(',').orEmpty()) {
+        if (spec == null || player.state == LycheePlayer.State.ERROR) return
+        // A cold software codec may still be starting at the first delay.
+        // Measure snapshot delays from the first displayed frame so two
+        // scheduled snapshots observe playback, not startup or a paused codec.
+        if (player.stats.framesRendered == 0L) {
+            handler.postDelayed({ scheduleSnapshots(spec) }, 50)
+            return
+        }
+        for (item in spec.split(',')) {
             val seconds = item.substringBefore(':').toDoubleOrNull() ?: continue
             val name = item.substringAfter(':')
             handler.postDelayed({

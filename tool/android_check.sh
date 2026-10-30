@@ -17,8 +17,11 @@
 #    AES-128 TS and fMP4 HLS also seek through HlsDemuxer, without fallback.
 #    (--bilinear matches PixelCopy's texture sampling when it scales;
 #    swscale's downscaling filter instead averages a wider area;
-#    hardware frames also use --matrix bt601: the emulator's compositor
-#    converts them so; README, "Checking frames by pixels").
+#    MediaCodec frames (including system software decoding) use --matrix
+#    bt601: the emulator's compositor converts them so; README,
+#    "Checking frames by pixels").
+#    LYCHEE_FFMPEG_EXTENSION=1 loads the optional backend and also checks
+#    encrypted HLS through FFmpeg's fallback and its memory data source.
 #
 # NDK: ANDROID_NDK_HOME, else the newest under ANDROID_HOME (or the
 # default SDK location). Needs ffmpeg and ffprobe on PATH for
@@ -29,7 +32,8 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 media="$(cd "${1:-/tmp/lychee-media}" && pwd)"
 sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 ndk="${ANDROID_NDK_HOME:-$(ls -d "$sdk"/ndk/* 2>/dev/null | sort -V | tail -1)}"
-apk="$root/sdk/android/example/build/outputs/apk/debug/example-debug.apk"
+apk="${LYCHEE_ANDROID_APK:-$root/sdk/android/example/build/outputs/apk/debug/example-debug.apk}"
+ffmpeg_extension="${LYCHEE_FFMPEG_EXTENSION:-0}"
 dir=/data/local/tmp/lychee-check
 port=8765
 
@@ -50,22 +54,26 @@ esac
 ffmpeg="$root/third_party/ffmpeg/android-$abi"
 [ -d "$ffmpeg/lib" ] || die "no $ffmpeg; run tool/build_ffmpeg.sh android-$abi"
 
-echo "== unit tests ($abi)"
 build="$root/build-android-$abi"
-cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
-  -DANDROID_ABI="$abi" -DANDROID_PLATFORM=26 -DANDROID_STL=c++_shared \
-  -DLYCHEE_WITH_FFMPEG=ON -DLYCHEE_FFMPEG_ROOT="$ffmpeg" >/dev/null
-cmake --build "$build" --target lychee_unittests >/dev/null
-adb shell "rm -rf $dir && mkdir -p $dir"
-adb push "$build/core/test/lychee_unittests" "$ffmpeg"/lib/*.so \
-  "$(ls "$ndk"/toolchains/llvm/prebuilt/*/sysroot/usr/lib/"$triple"/libc++_shared.so | head -1)" \
-  "$dir/" >/dev/null 2>&1
-# adb shell passes the remote command's exit status since Android 7.
-adb shell "cd $dir && LD_LIBRARY_PATH=. ./lychee_unittests" >"$build/unittests.txt" 2>&1 ||
-  { cat "$build/unittests.txt"; die "unit tests failed"; }
-tail -1 "$build/unittests.txt"
-adb shell "rm -rf $dir"
+mkdir -p "$build"
+if [ "${LYCHEE_SKIP_UNIT:-0}" != 1 ]; then
+  echo "== unit tests ($abi)"
+  cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
+    -DANDROID_ABI="$abi" -DANDROID_PLATFORM=26 -DANDROID_STL=c++_shared \
+    -DLYCHEE_WITH_FFMPEG=ON -DLYCHEE_FFMPEG_ROOT="$ffmpeg" >/dev/null
+  cmake --build "$build" --target lychee_unittests >/dev/null
+  adb shell "rm -rf $dir && mkdir -p $dir"
+  adb push "$build/core/test/lychee_unittests" "$build/core/test/liblychee_ffmpeg_mismatch.so" "$ffmpeg"/lib/*.so \
+    "$(ls "$ndk"/toolchains/llvm/prebuilt/*/sysroot/usr/lib/"$triple"/libc++_shared.so | head -1)" \
+    "$dir/" >/dev/null 2>&1
+  # adb shell passes the remote command's exit status since Android 7.
+  adb shell "cd $dir && LD_LIBRARY_PATH=. ./lychee_unittests" >"$build/unittests.txt" 2>&1 ||
+    { cat "$build/unittests.txt"; die "unit tests failed"; }
+  tail -1 "$build/unittests.txt"
+  adb shell "rm -rf $dir"
+
+fi
 
 echo "== example"
 python3 -I "$root/tool/serve_media.py" "$media" "$port" >"$build/server.log" 2>&1 &
@@ -75,17 +83,26 @@ adb reverse "tcp:$port" "tcp:$port" >/dev/null
 adb install -r -t "$apk" >/dev/null
 package=tech.soit.lychee.example
 files="/data/user/0/$package/files"
-adb shell "run-as $package mkdir -p files"
+file_access="run-as $package"
+if [ "${LYCHEE_ANDROID_PUBLIC_FILES:-0}" = 1 ]; then
+  files="/sdcard/Android/data/$package/files"
+  file_access=""
+fi
+adb shell "$file_access mkdir -p $files"
 snaps="$build/snapshots"
 rm -rf "$snaps" && mkdir -p "$snaps"
 failed=0
-for file in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8; do
+cases=(h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8)
+if [ "$ffmpeg_extension" = 1 ]; then
+  cases+=(hls_aes/ts_fallback.m3u8 hls_aes/fmp4_fallback.m3u8)
+fi
+for file in "${cases[@]}"; do
   modes="false true"
   seek=()
   reference="$file"
   case "$file" in
-    hls_aes/ts.m3u8) modes=true; seek=(--es seek 1:6); reference=hls/index.m3u8 ;;
-    hls_aes/fmp4.m3u8) modes=true; seek=(--es seek 1:6); reference=hls_fmp4/index.m3u8 ;;
+    hls_aes/ts.m3u8 | hls_aes/ts_fallback.m3u8) modes=true; seek=(--es seek 1:6); reference=hls/index.m3u8 ;;
+    hls_aes/fmp4.m3u8 | hls_aes/fmp4_fallback.m3u8) modes=true; seek=(--es seek 1:6); reference=hls_fmp4/index.m3u8 ;;
   esac
   for hw in $modes; do
     name="${file//\//-}-hw-$hw"
@@ -96,8 +113,10 @@ for file in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8; do
     fi
     adb shell am force-stop "$package"
     adb logcat -c
-    adb shell "run-as $package rm -f files/$name-a.ppm files/$name-b.ppm"
-    adb shell am start -n "$package/.MainActivity" --es url "http://127.0.0.1:$port/$file" \
+    adb shell "$file_access rm -f $files/$name-a.ppm $files/$name-b.ppm"
+    extension_args=()
+    [ "$ffmpeg_extension" != 1 ] || extension_args=(--es ffmpeg load)
+    adb shell am start -n "$package/.MainActivity" ${extension_args[@]+"${extension_args[@]}"} --es url "http://127.0.0.1:$port/$file" \
       --ez hw "$hw" ${seek[@]+"${seek[@]}"} ${recreate[@]+"${recreate[@]}"} --es snapshot "2:$files/$name-a.ppm,3.5:$files/$name-b.ppm" >/dev/null
     log=""
     for _ in $(seq 60); do
@@ -119,17 +138,31 @@ for file in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8; do
     fi
     adb shell am force-stop "$package"
     for suffix in a b; do
-      adb exec-out run-as "$package" cat "files/$name-$suffix.ppm" >"$snaps/$name-$suffix.ppm"
+      adb exec-out $file_access cat "$files/$name-$suffix.ppm" >"$snaps/$name-$suffix.ppm"
     done
     if [[ "$file" = hls_aes/* ]]; then
-      if grep -q 'the fallback opens it' "$snaps/$name.logcat.txt" ||
-        ! grep -q 'seek -> 6.0s' "$snaps/$name.logcat.txt"; then
-        echo "AES HLS did not seek through HlsDemuxer"
+      if [[ "$file" = *_fallback.m3u8 ]]; then
+        if ! grep -q 'the fallback opens it' "$snaps/$name.logcat.txt" ||
+          ! grep -q 'decrypted an AES-128 segment' "$snaps/$name.logcat.txt"; then
+          echo "AES HLS did not use the FFmpeg extension's fallback/decryption"
+          failed=1
+        fi
+      elif grep -q 'the fallback opens it' "$snaps/$name.logcat.txt"; then
+        echo "AES HLS unexpectedly used FFmpeg's fallback"
+        failed=1
+      fi
+      if ! grep -q 'seek -> 6.0s' "$snaps/$name.logcat.txt"; then
+        echo "AES HLS did not seek"
         failed=1
       fi
     fi
+    if [ "$ffmpeg_extension" = 1 ] && [ "$hw" = false ] &&
+      ! grep -q '\[I/ffmpeg_video\] ffmpeg decoder opened' "$snaps/$name.logcat.txt"; then
+      echo "software playback did not use FFmpeg"
+      failed=1
+    fi
     matrix=()
-    [ "$hw" = false ] || matrix=(--matrix bt601)
+    { [ "$hw" = false ] && [ "$ffmpeg_extension" = 1 ]; } || matrix=(--matrix bt601)
     sed "s|/[^ ]*/files/|$snaps/|" <<<"$log" >"$snaps/$name.txt"
     echo "-- $file hw=$hw"
     if [ "$(grep -c ' pts=' <<<"$log")" != 2 ]; then

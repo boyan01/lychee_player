@@ -48,7 +48,8 @@
 # SwiftPM's binaryTarget takes; the pod unzips the same files) and
 # lychee_noffmpeg, the core without FFmpeg (the Swift package's NoFFmpeg
 # trait),
-# lychee-VERSION.aar and .pom (the Flutter plugin lays them out as a Maven
+# lychee-VERSION and lychee-ffmpeg-VERSION .aar and .pom (the Flutter plugin
+# takes the base AAR and lays it out as a Maven
 # repository), ffmpeg-windows-x86_64.zip (the Windows plugin's FFmpeg:
 # bin/*.dll, lib/*.lib, include/), ffmpeg-linux-x86_64.tar.xz and
 # ffmpeg-linux-arm64.tar.xz (the Linux plugin's: lib/*.so*, include/; each
@@ -193,7 +194,7 @@ cmd_build() {
         DAV1D_SOURCE_DIR="$dav1d/dav1d-$dav1d_version" \
           build_ffmpeg "$p" "$src/ffmpeg-$ffmpeg_version"
       done
-      "$root/sdk/android/gradlew" -p "$root/sdk/android" :lychee:publish
+      "$root/sdk/android/gradlew" -p "$root/sdk/android" :lychee:publish :ffmpeg:publish
       ;;
     linux)
       p="$(linux_platform)"
@@ -207,7 +208,7 @@ cmd_build() {
 }
 
 cmd_pack() {
-  local target="${1:?apple, android, linux or windows}" out f v stage
+  local target="${1:?apple, android, linux or windows}" out f v stage artifact suffix
   mkdir -p "${2:?out}"
   out="$(cd "$2" && pwd)"
   case "$target" in
@@ -221,9 +222,12 @@ cmd_pack() {
       ;;
     android)
       v="$(version)"
-      for f in "lychee-$v.aar" "lychee-$v.pom"; do
-        cp "$root/sdk/android/build/repo/tech/soit/lychee/lychee/$v/$f" "$out/" ||
-          die "no $f; run tool/release.sh build android"
+      for artifact in lychee lychee-ffmpeg; do
+        for suffix in aar pom; do
+          f="$artifact-$v.$suffix"
+          cp "$root/sdk/android/build/repo/tech/soit/lychee/$artifact/$v/$f" "$out/" ||
+            die "no $f; run tool/release.sh build android"
+        done
       done
       ;;
     windows)
@@ -270,7 +274,8 @@ tag = str(tag)
 frameworks = sys.argv[5:]
 version = tag[1:]
 names = [f"{f}.xcframework.zip" for f in frameworks] + [
-    f"lychee-{version}.aar", f"lychee-{version}.pom", "ffmpeg-windows-x86_64.zip",
+    f"lychee-{version}.aar", f"lychee-{version}.pom",
+    f"lychee-ffmpeg-{version}.aar", f"lychee-ffmpeg-{version}.pom", "ffmpeg-windows-x86_64.zip",
     "ffmpeg-linux-x86_64.tar.xz", "ffmpeg-linux-arm64.tar.xz"]
 missing = [n for n in names if not (out / n).is_file()]
 if missing:
@@ -389,6 +394,20 @@ cmd_check() {
   for abi in armeabi-v7a arm64-v8a x86_64; do
     check_apk_abis "build/app/outputs/flutter-apk/app-$abi-debug.apk" "$abi"
   done
+  echo "== Android native SDK (base and optional FFmpeg, with R8)"
+  local sdk_repo="$tmp/android-maven" artifact suffix name
+  for artifact in lychee lychee-ffmpeg; do
+    mkdir -p "$sdk_repo/tech/soit/lychee/$artifact/$v"
+    for suffix in aar pom; do
+      name="$artifact-$v.$suffix"
+      pinned="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["files"][sys.argv[2]])' "$manifest" "$name")"
+      [ "$(sha256 "$out/$name")" = "$pinned" ] || die "$name does not match its pin"
+      cp "$out/$name" "$sdk_repo/tech/soit/lychee/$artifact/$v/"
+    done
+  done
+  (cd "$root" && LYCHEE_ANDROID_REPO="$sdk_repo" LYCHEE_ANDROID_BUILD_ONLY=1 \
+    tool/android_extension_check.sh) >"$tmp/android-sdk.log" 2>&1 ||
+    { tail -40 "$tmp/android-sdk.log"; die "Android native SDK build failed"; }
   grep -q "GET /$tag/lychee-$v.aar" "$tmp/server.log" && grep -q "GET /$tag/lychee.xcframework.zip" "$tmp/server.log" ||
     die "the builds did not download from the release"
   echo "ok: a fresh app builds with the package and the release of $tag ($tmp)"
@@ -541,8 +560,10 @@ packages = [
 ]
 
 def sources(name):
-    if name.startswith("lychee-") and name.endswith(".aar"):
+    if name.startswith("lychee-ffmpeg-") and name.endswith(".aar"):
         return ["lychee", "FFmpeg", "dav1d"]
+    if name.startswith("lychee-") and name.endswith(".aar"):
+        return ["lychee"]
     if name.startswith("lychee-") and name.endswith(".pom"):
         return []
     if name.startswith(("lychee.", "lychee_noffmpeg.")):

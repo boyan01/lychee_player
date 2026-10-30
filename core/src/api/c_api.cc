@@ -17,6 +17,9 @@
 #include "lychee/lychee.h"
 #include "media/annexb.h"
 #include "media/factory.h"
+#if defined(__ANDROID__) && !defined(LYCHEE_WITH_FFMPEG)
+#include "media/ffmpeg_extension.h"
+#endif
 #include "media/null_audio_sink.h"
 #include "pipeline/audio_renderer.h"
 #include "pipeline/player.h"
@@ -182,6 +185,9 @@ void lychee_config_init(lychee_config* config, uint32_t struct_size) {
 }
 
 lychee_player* lychee_player_create(const lychee_config* config) {
+#if defined(__ANDROID__) && !defined(LYCHEE_WITH_FFMPEG)
+  lychee::AndroidFFmpegExtension().Seal();
+#endif
   lychee_config defaults = DefaultConfig();
   if (config) {
     // Older callers may pass a smaller struct; keep defaults for the rest.

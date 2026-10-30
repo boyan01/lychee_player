@@ -98,7 +98,7 @@ while IFS= read -r f; do
     core/src/backends/ffmpeg/*) mark core apple windows linux ;;
     core/src/media/factory.cc) mark core parsers apple android windows linux ;;
     tool/abi_check.py) mark abi ;;
-    tool/android_check.sh) mark android ;;
+    tool/android_check.sh | tool/android_extension_check.sh) mark android ;;
     core/* | CMakeLists.txt | examples/cli/* | tool/regression.sh | tool/*.py) mark core ;;
     examples/glfw/main_win*) mark windows ;;
     examples/glfw/main_linux*) mark linux ;;

@@ -1,5 +1,5 @@
 // The AAR tech.soit.lychee:lychee: the core as liblychee.so (also a prefab
-// module, for native callers of the C ABI) with its FFmpeg, and the Kotlin
+// module, for native callers of the C ABI), without FFmpeg, and the Kotlin
 // LycheePlayer, LycheeFrameDriver and LycheePlayerView over it.
 //
 //   ./gradlew :lychee:publish   # into build/repo, where the Flutter plugin
@@ -15,18 +15,8 @@ val repoRoot = rootDir.resolve("../..")
 val lycheeVersion = Regex("""(?m)^version: (\S+)""")
     .find(repoRoot.resolve("flutter/pubspec.yaml").readText())!!.groupValues[1]
 
-// -Plychee.ffmpeg=false builds the core without FFmpeg: MP4, Matroska,
-// MPEG-TS and HLS, decoded by MediaCodec (roadmap, FFmpeg-free builds).
-// Releases keep it.
-val withFfmpeg = (findProperty("lychee.ffmpeg") as String?)?.toBoolean() ?: true
-
-// FFmpeg comes from tool/build_ffmpeg.sh android-ABI; only the ABIs it was
-// built for are built.
-val ffmpegAbis = listOf("armeabi-v7a", "arm64-v8a", "x86_64")
-    .filter { !withFfmpeg || repoRoot.resolve("third_party/ffmpeg/android-$it").isDirectory }
-if (ffmpegAbis.isEmpty()) {
-    logger.warn("lychee: no Android FFmpeg in third_party/ffmpeg; run tool/build_ffmpeg.sh android-arm64-v8a")
-}
+// The base AAR never links FFmpeg; the optional :ffmpeg module supplies it.
+val supportedAbis = listOf("armeabi-v7a", "arm64-v8a", "x86_64")
 
 android {
     namespace = "tech.soit.lychee"
@@ -36,13 +26,14 @@ android {
         // AAudio.
         minSdk = 26
         ndk {
-            abiFilters += ffmpegAbis
+            abiFilters += supportedAbis
         }
         externalNativeBuild {
             cmake {
                 arguments += "-DANDROID_STL=c++_shared"
+                arguments += "-DLYCHEE_SDK_VERSION=$lycheeVersion"
                 // Always explicit: CMake's cache would keep the last value.
-                arguments += "-DLYCHEE_WITH_FFMPEG=${if (withFfmpeg) "ON" else "OFF"}"
+                arguments += "-DLYCHEE_WITH_FFMPEG=OFF"
             }
         }
         consumerProguardFiles("consumer-rules.pro")
@@ -75,8 +66,8 @@ android {
     }
 }
 
-// The notices for what the AAR carries (FFmpeg, dav1d, code from
-// Chromium), as a Java resource, so that they end up in every APK as
+// The SDK notices distinguish the base and optional artifacts. Keep them
+// as a Java resource, so that they end up in every APK as
 // META-INF/lychee/THIRD_PARTY_NOTICES.
 abstract class CopyNotices : DefaultTask() {
     @get:InputFile

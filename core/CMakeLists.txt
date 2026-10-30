@@ -72,6 +72,7 @@ endif()
 
 if(ANDROID)
   list(APPEND LYCHEE_SOURCES
+    src/backends/android/ffmpeg_extension.cc
     src/backends/android/aes.cc
     src/backends/android/subtitle_image.cc
     src/backends/android/aaudio_sink.cc
@@ -204,6 +205,10 @@ if(APPLE)
 endif()
 
 add_library(lychee ${LYCHEE_SOURCES})
+if(ANDROID)
+  include(cmake/ffmpeg_extension.cmake)
+  lychee_extension_fingerprint(lychee)
+endif()
 target_compile_features(lychee PUBLIC cxx_std_20)
 target_include_directories(lychee
   PUBLIC include

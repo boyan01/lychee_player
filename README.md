@@ -219,7 +219,8 @@ xcrun simctl launch --console-pty booted tech.soit.lychee.example --seconds 5 \
 ```
 
 The Android SDK's example takes snapshots with its `snapshot` intent
-extra (`SEC:NAME,...`): it pauses, copies the `SurfaceView` with
+extra (`SEC:NAME,...`, seconds after the first displayed frame): it pauses,
+copies the `SurfaceView` with
 `PixelCopy` (`LycheePlayerView.snapshot`), writes the PPM into its
 external files directory and logs the line, then plays on.
 An absolute `NAME` writes to that path instead. This permits app-private
@@ -233,13 +234,14 @@ adb shell am start -n tech.soit.lychee.example/.MainActivity \
 adb pull /sdcard/Android/data/tech.soit.lychee.example/files/. /tmp/snaps
 adb logcat -d -s lychee-example:I | grep -o 'snapshot .*' |
   sed 's|/[^ ]*/files/|/tmp/snaps/|' |
-  python3 -I tool/frame_check.py rotated.mp4 --log - --bilinear
+  python3 -I tool/frame_check.py rotated.mp4 --log - --bilinear --matrix bt601
 ```
 
 The emulator's compositor converts MediaCodec's YUV surfaces with BT.601
-whatever their dataspace, so hardware-decoded HD fails there by its
-matrix alone; `--matrix bt601` checks the rest (frame, pts, rotation,
-scale). A phone shows whether the hardware path keeps BT.709.
+whatever their dataspace, for both hardware and system software decoding.
+HD fails there by its matrix alone; `--matrix bt601` checks the rest
+(frame, pts, rotation, scale). Omit it on a phone, which shows whether
+that path keeps BT.709, and for FFmpeg's software RGB output.
 `--bilinear` converts to RGB at native size, then samples the four source
 pixels around each destination pixel center, as `PixelCopy` does when
 resizing the surface into the bitmap. Without it, the reference keeps
@@ -366,34 +368,74 @@ the simulator reads `/tmp` of the Mac.
 
 ## Android library
 
-`sdk/android` builds one AAR, `tech.soit.lychee:lychee` (minSdk 26): the
-core as `liblychee.so` with the LGPL FFmpeg next to it (build it first:
-`tool/build_ffmpeg.sh android-arm64-v8a SRC`, `android-armeabi-v7a` for
-32-bit ARM systems, and `android-x86_64` for x86 emulators), and Kotlin classes over it.
-HTTPS uses HttpURLConnection and AES-128 HLS uses javax.crypto, in both
-builds; redirects from http to https are followed (five at most), never
-back to http. FFmpeg handles cleartext HTTP refused by the app's network
+`sdk/android` builds two complementary AARs (minSdk 26), both with
+`armeabi-v7a`, `arm64-v8a` and `x86_64`:
+
+- `tech.soit.lychee:lychee`: the FFmpeg-free core as `liblychee.so`,
+  Kotlin's `LycheePlayer`, `LycheeFrameDriver` and `LycheePlayerView`.
+  MP4, Matroska/WebM, MPEG-TS and HLS use the own demuxers, and Android's
+  MediaCodec supplies hardware and software audio/video decoders. The core
+  is also a Prefab module (`lychee`, header `lychee/lychee.h`) for C ABI callers.
+- `tech.soit.lychee:lychee-ffmpeg`: the optional FFmpeg backend and its
+  LGPL shared libraries. It depends on the matching base AAR and contains
+  no second player core. Build FFmpeg first with
+  `tool/build_ffmpeg.sh android-arm64-v8a SRC`, `android-armeabi-v7a`
+  and `android-x86_64` for the other ABIs.
+
+Publish both into `sdk/android/build/repo` for local consumption:
+
+```sh
+sdk/android/gradlew -p sdk/android :lychee:publish :ffmpeg:publish
+```
+
+Until the AARs are published on Maven Central, add the local repository
+in the consuming app's `settings.gradle.kts`:
+
+```kotlin
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("/path/to/lychee_player/sdk/android/build/repo") }
+    }
+}
+```
+
+The base AAR builds without any FFmpeg installation. Native apps can use
+it alone. Add the optional dependency and explicitly load it to enable
+FFmpeg (the two coordinates must have the same version):
+
+```kotlin
+dependencies {
+    implementation("tech.soit.lychee:lychee:$lycheeVersion")
+    implementation("tech.soit.lychee:lychee-ffmpeg:$lycheeVersion") // Optional.
+}
+
+// Application.onCreate(), before any player (including C ABI/Flutter players).
+LycheeFFmpeg.load()
+```
+
+Repeated loads are safe, including after players exist. A first load after
+creating a player throws `IllegalStateException`, as does a missing native
+extension or a mismatched build. The loader checks a private fingerprint
+of the core sources, SDK version and toolchain before exchanging internal
+objects. Use both AARs from the same SDK build. A successful load stays
+active for the process lifetime; it does not force software video decoding.
+With it, MediaCodec hardware video remains first, with FFmpeg decoders as
+fallback; audio and subtitles use FFmpeg, as in the previous bundled build.
+Without `load()`, even an app that includes the optional AAR keeps using
+the system backend.
+
+HTTPS uses HttpURLConnection and AES-128 HLS uses javax.crypto in the
+base. With the extension, HLS that needs FFmpeg's demuxer also uses the
+platform HTTP client; its AES-128 segments are decrypted in the backend
+with `av_aes`. FFmpeg handles cleartext HTTP refused by the app's network
 security config. That fallback probes redirects with HEAD (GET with a
 one-byte Range if HEAD is unsupported), follows at most five redirects,
 and opens an HTTPS destination through HttpURLConnection. A host whose URL
 did not redirect is not probed again until FFmpeg fails on one of its
-URLs, which then probes that URL again; FFmpeg has no TLS on Android.
-HLS that needs FFmpeg's demuxer (for example, an unsupported subtitle
-rendition) reads its playlists and segments the same way, and its AES-128
-segments are read whole and decrypted in the core (`av_aes`), as on Apple
-platforms and Windows, rather than by FFmpeg's crypto protocol. The
-native CLI run from `adb shell` has no Java VM and cannot open HTTPS.
-
-The release AAR has all three ABIs. The core is also a prefab module
-(`lychee`, header `lychee/lychee.h`) for native code that uses the C ABI.
-
-```sh
-sdk/android/gradlew -p sdk/android :lychee:publish   # into sdk/android/build/repo
-```
-
-`-Plychee.ffmpeg=false` builds the core without FFmpeg: MP4, Matroska,
-MPEG-TS and HLS from files and http(s), decoded by MediaCodec (roadmap,
-FFmpeg-free builds).
+URLs; FFmpeg has no TLS on Android. The native CLI run from `adb shell`
+has no Java VM and cannot open HTTPS.
 
 Either way http(s) goes through Java's `HttpURLConnection`, so the app's
 network security config applies: an app that plays plain http needs
@@ -417,7 +459,15 @@ MediaCodec renders the video upright into the `SurfaceView`
 your own, use `LycheeFrameDriver`: it pulls frames per vsync and asks for a
 new Surface when frames switch between MediaCodec and software decoding.
 
-The example app (`sdk/android/example`, `:example:assembleDebug`) plays the
+The example app (`sdk/android/example`, `:example:assembleDebug`) defaults
+to the base package. Build with `-Plychee.example.ffmpeg=true` to include
+the extension, then pass `--es ffmpeg load` to enable it. The harness also
+accepts `twice`, `concurrent` and `late` to check loading behavior.
+`tool/android_extension_check.sh` consumes the two local Maven publications
+in minified apps, checks frame snapshots with both backends, and checks
+loading failures (including a deliberately missing library).
+
+The example plays the
 `url` intent extra, by default `h264_aac.mp4` from `tool/serve_media.py`
 through `adb reverse tcp:8765 tcp:8765`; `--ez hw false` decodes in
 software. `--es soak 3 --es soak_url OTHER_URL` repeats seeks and file
@@ -582,8 +632,10 @@ python3 -I tool/audio_check.py /tmp/a.wav
   converts frames with `VTPixelTransferSession` (iOS 16).
 - **Android**: the AAR from the Android library above, published into
   `sdk/android/build/repo`, where the plugin looks for it first; rerun the
-  publish after changing `core/`. It has the ABIs FFmpeg was built for.
-  Needs minSdk 26 (AAudio).
+  publish after changing `core/`. The base AAR has all three supported
+  ABIs and needs minSdk 26 (AAudio); FFmpeg is optional. Native Android
+  hosts can add `lychee-ffmpeg` to their app and call `LycheeFFmpeg.load()`
+  in `Application.onCreate()` before Flutter creates any players.
 - **Windows**: `flutter build windows`. The plugin downloads the FFmpeg
   that `flutter/prebuilt.json` pins (`ffmpeg-windows-x86_64.zip`, the
   release's decode-only LGPL 2.1 build, 8 MB of DLLs) at configure time and ships its DLLs
@@ -622,7 +674,7 @@ A release is one run of `.github/workflows/release.yml`, after a
 gh workflow run release.yml -f version=1.0.0
 ```
 
-It builds the Apple xcframeworks, the Android AAR and the Windows and
+It builds the Apple xcframeworks, both Android AARs and the Windows and
 Linux FFmpeg (on Ubuntu; Windows cross-compiled), pins them in
 `flutter/prebuilt.json` and `Package.swift` (which lets SwiftPM take
 `sdk/apple` by URL), builds a fresh app against the package pub would
