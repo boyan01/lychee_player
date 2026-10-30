@@ -62,16 +62,20 @@ if [ "${LYCHEE_ANDROID_BUILD_ONLY:-0}" = 1 ]; then
   exit 0
 fi
 
+package=tech.soit.lychee.example
+# Each R8 consumer must create its own capture directory on first launch.
+# Reusing a debug installation can hide scoped-storage ownership failures.
+adb uninstall "$package" >/dev/null 2>&1 || true
 LYCHEE_ANDROID_APK="$out/false.apk" "$root/tool/android_check.sh" "${1:-/tmp/lychee-media}"
 abi="$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
 rm -rf "$out/base-snapshots"
 cp -R "$root/build-android-$abi/snapshots" "$out/base-snapshots"
+adb uninstall "$package" >/dev/null 2>&1 || true
 LYCHEE_ANDROID_APK="$out/true.apk" LYCHEE_SKIP_UNIT=1 LYCHEE_FFMPEG_EXTENSION=1 \
   "$root/tool/android_check.sh" "${1:-/tmp/lychee-media}"
 rm -rf "$out/ffmpeg-snapshots"
 cp -R "$root/build-android-$abi/snapshots" "$out/ffmpeg-snapshots"
 
-package=tech.soit.lychee.example
 check_mode() {
   local mode="$1" expected="$2"
   adb shell am force-stop "$package"

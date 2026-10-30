@@ -84,11 +84,17 @@ adb install -r -t "$apk" >/dev/null
 package=tech.soit.lychee.example
 files="/data/user/0/$package/files"
 file_access="run-as $package"
+snapshot_prefix="$files/"
 if [ "${LYCHEE_ANDROID_PUBLIC_FILES:-0}" = 1 ]; then
   files="/sdcard/Android/data/$package/files"
   file_access=""
+  # Relative names make the app call getExternalFilesDir(), which creates
+  # its directory with the right ownership. A shell-created one is not writable
+  # by a freshly installed release app under scoped storage.
+  snapshot_prefix=""
+else
+  adb shell "$file_access mkdir -p $files"
 fi
-adb shell "$file_access mkdir -p $files"
 snaps="$build/snapshots"
 rm -rf "$snaps" && mkdir -p "$snaps"
 failed=0
@@ -117,7 +123,7 @@ for file in "${cases[@]}"; do
     extension_args=()
     [ "$ffmpeg_extension" != 1 ] || extension_args=(--es ffmpeg load)
     adb shell am start -n "$package/.MainActivity" ${extension_args[@]+"${extension_args[@]}"} --es url "http://127.0.0.1:$port/$file" \
-      --ez hw "$hw" ${seek[@]+"${seek[@]}"} ${recreate[@]+"${recreate[@]}"} --es snapshot "2:$files/$name-a.ppm,3.5:$files/$name-b.ppm" >/dev/null
+      --ez hw "$hw" ${seek[@]+"${seek[@]}"} ${recreate[@]+"${recreate[@]}"} --es snapshot "2:${snapshot_prefix}$name-a.ppm,3.5:${snapshot_prefix}$name-b.ppm" >/dev/null
     log=""
     for _ in $(seq 60); do
       # A recreation can log the same path twice; the last line describes
