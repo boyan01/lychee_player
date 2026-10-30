@@ -38,6 +38,8 @@ const char* Mime(AudioCodec codec) {
       return "audio/flac";
     case AudioCodec::kALAC:
       return "audio/alac";
+    case AudioCodec::kAC3:
+      return "audio/ac3";
     default:
       return nullptr;
   }
@@ -152,6 +154,7 @@ bool MediaCodecAudioDecoder::CreateCodec(std::string* error) {
   }
   codec_ = codec;
   had_output_ = false;
+  opus_at_start_ = true;
   LOGI("%s opened for %s %d Hz %d ch -> %d Hz %d ch", codec_name_.c_str(),
        mime_, rate, channels, output_format_.sample_rate,
        output_format_.channels);
@@ -172,7 +175,7 @@ bool MediaCodecAudioDecoder::Decode(const EncodedPacket& packet,
     if (!codec_) {
       return true;
     }
-    if (!QueueInput(nullptr, 0, last_pts_,
+    if (!QueueInput(nullptr, 0, last_pts_ - opus_input_offset_,
                     AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM, output)) {
       return false;
     }
@@ -232,8 +235,21 @@ bool MediaCodecAudioDecoder::Decode(const EncodedPacket& packet,
     pts = last_pts_ + packet.duration;
   }
   last_pts_ = pts;
-  return QueueInput(packet.buffer->data() + skip, packet.size() - skip, pts, 0,
-                    output) &&
+  if (config_.codec == AudioCodec::kOpus && anchor_pts_ == kNoTimestamp) {
+    // Android's C2SoftOpusDec::process recognizes timestamp zero as a
+    // restart and trims OpusHead's pre-skip instead of the seek preroll.
+    // Rebase loop input locally; keep output on the player's timeline.
+    const bool at_start = opus_at_start_ || pts <= 0;
+    opus_input_offset_ = at_start ? pts : 0;
+    const int pre_skip = csd_[10] | (csd_[11] << 8);
+    const int64_t skip_us = at_start ? pre_skip * kMicrosPerSecond / 48000
+                                     : kOpusSeekPrerollNs / 1000;
+    // MediaCodec returns the packet timestamp unchanged after trimming.
+    // Count from the first input plus the samples it actually discards.
+    anchor_pts_ = pts + skip_us;
+  }
+  return QueueInput(packet.buffer->data() + skip, packet.size() - skip,
+                    pts - opus_input_offset_, 0, output) &&
          DrainOutput(output);
 }
 
@@ -409,6 +425,7 @@ size_t MediaCodecAudioDecoder::AdtsHeaderSize(
 }
 
 void MediaCodecAudioDecoder::Flush() {
+  opus_at_start_ = false;
   if (codec_) {
     if (had_output_) {
       media_status_t status = AMediaCodec_flush(codec_);
@@ -431,6 +448,12 @@ void MediaCodecAudioDecoder::Flush() {
   anchor_pts_ = kNoTimestamp;
   frames_out_ = 0;
   end_of_stream_ = false;
+  opus_input_offset_ = 0;
+}
+
+void MediaCodecAudioDecoder::Restart() {
+  Flush();
+  opus_at_start_ = true;
 }
 
 }  // namespace lychee

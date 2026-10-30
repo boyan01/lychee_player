@@ -46,6 +46,39 @@ SubtitleCue BitmapCue(int64_t start, int64_t end, int width, int height) {
   return cue;
 }
 
+// Test registration allocates before main, as the existing TESTs do.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(SubtitleRenderer, KeepsDistinctPicturesWithTheSameStart) {
+  for (const int64_t second_end : {kSecond, 2 * kSecond}) {
+    SubtitleRenderer renderer;
+    auto first = BitmapCue(0, 2 * kSecond, 1, 1);
+    auto second = BitmapCue(0, second_end, 1, 1);
+    first.bitmaps = std::make_shared<const std::vector<SubtitleBitmap>>(
+        std::vector<SubtitleBitmap>{{1, 1, 1, 1, {255, 0, 0, 255}}});
+    second.bitmaps = std::make_shared<const std::vector<SubtitleBitmap>>(
+        std::vector<SubtitleBitmap>{{2, 1, 1, 1, {0, 255, 0, 255}}});
+    renderer.AddCue(first);
+    renderer.AddCue(second);
+    // A replay has new owners but the same complete content.
+    first.bitmaps =
+        std::make_shared<const std::vector<SubtitleBitmap>>(*first.bitmaps);
+    second.bitmaps =
+        std::make_shared<const std::vector<SubtitleBitmap>>(*second.bitmaps);
+    renderer.AddCue(first);
+    renderer.AddCue(second);
+    auto early = renderer.ImagesAt(kSecond / 2, 0, 0, 1920, 1080);
+    EXPECT_TRUE(early && early->images.size() == 2);
+    if (early && early->images.size() == 2) {
+      EXPECT_EQ(early->images[0].bitmap->rgba[0], 255);
+      EXPECT_EQ(early->images[1].bitmap->rgba[1], 255);
+    }
+    auto later = renderer.ImagesAt(3 * kSecond / 2, 0, 0, 1920, 1080);
+    EXPECT_TRUE(later &&
+                later->images.size() == (second_end == kSecond ? 1u : 2u));
+    EXPECT_TRUE(renderer.ImagesAt(2 * kSecond, 0, 0, 1920, 1080) == nullptr);
+  }
+}
+
 TEST(SubtitleRenderer, ScalesPicturesToTheCanvas) {
   SubtitleRenderer renderer;
   renderer.AddCue(BitmapCue(1 * kSecond, 2 * kSecond, 200, 100));

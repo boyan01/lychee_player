@@ -23,6 +23,8 @@ class FFmpegAudioDecoder : public AudioDecoder {
 
  private:
   void ReceiveFrames(const OutputCallback& output);
+  // At the end of the input: what the resampler still holds.
+  void DrainResampler(const OutputCallback& output);
   std::shared_ptr<AudioBuffer> Resample(AVFrame* frame);
   bool EnsureResampler(const AVFrame* frame);
 

@@ -35,6 +35,10 @@ class AudioDecoder {
                       const OutputCallback& output) = 0;
 
   virtual void Flush() = 0;
+
+  // Flush before a loop reads the source from its beginning. Codecs with
+  // different initial delay and seek preroll override this distinction.
+  virtual void Restart() { Flush(); }
 };
 
 }  // namespace lychee

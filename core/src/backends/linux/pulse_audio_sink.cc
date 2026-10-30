@@ -103,9 +103,9 @@ bool PulseAudioSink::Open(RenderCallback callback, std::string* error) {
   return ok;
 }
 
-void PulseAudioSink::Start() {
+bool PulseAudioSink::Start() {
   if (!mainloop_) {
-    return;
+    return true;
   }
   pa_threaded_mainloop_lock(mainloop_);
   started_ = true;
@@ -115,6 +115,8 @@ void PulseAudioSink::Start() {
     }
   }
   pa_threaded_mainloop_unlock(mainloop_);
+  // A stream not ready yet uncorks when it is.
+  return true;
 }
 
 void PulseAudioSink::Stop() {

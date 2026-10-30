@@ -259,6 +259,9 @@ class Player {
   // playback runs on without stopping. False if it cannot; the control
   // thread then loops by seeking.
   bool WrapLoop();
+  // Read thread, at the first wrap: |loop_start_| and |loop_length_| from
+  // |spans_|.
+  void SetLoopSpan();
   // Media time of the start of the pass playing at |media_time|, relative
   // to the first pass.
   int64_t LoopOffsetLocked(int64_t media_time) const;
@@ -302,6 +305,8 @@ class Player {
   std::atomic<int64_t> audio_output_lead_{0};
   VideoRenderer::Ptr video_renderer_;
   std::unique_ptr<AudioRenderer> audio_renderer_;
+  // Renderers a track switch replaced, playing their fade-out.
+  std::vector<std::unique_ptr<AudioRenderer>> retired_audio_;
   // One per subtitle stream that has a decoder, from Prepare() until
   // StopPipeline(): every subtitle stream is read, so a track switched on
   // midway already has the cues read so far. The map itself does not
@@ -374,6 +379,21 @@ class Player {
   // under |mutex_| by the read thread, or by the control thread while it is
   // parked; the read thread reads it without the lock.
   int64_t loops_ = 0;
+  // Passes after the first start at |loop_start_| + N * |loop_length_|
+  // (media time; file time plus N lengths), where the content starts and
+  // ends rather than the container (WrapLoop()). Set by the read thread
+  // like |loops_|, before the first wrap; used only while |loops_| > 0.
+  int64_t loop_start_ = 0;
+  int64_t loop_length_ = 0;
+  // Read thread only: the file time each video and audio stream's packets
+  // span, over all reads since the open.
+  struct StreamSpan {
+    int64_t first = kNoTimestamp;
+    int64_t end = kNoTimestamp;
+    // A packet with a timestamp but no duration: the end is unknown.
+    bool open_end = false;
+  };
+  std::map<int, StreamSpan> spans_;
   // ApplyLoopEndLocked(): where playback ends instead of looping, or
   // kNoTimestamp.
   int64_t loop_end_ = kNoTimestamp;

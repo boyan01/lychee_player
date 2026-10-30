@@ -11,6 +11,10 @@
 #include "media/data_source.h"
 #include "media/demuxer.h"
 
+#if defined(__ANDROID__)
+#include "backends/ffmpeg/cleartext_redirect.h"
+#endif
+
 struct AVDictionary;
 struct AVFormatContext;
 struct AVIOContext;
@@ -62,9 +66,13 @@ class FFmpegDemuxer : public Demuxer {
   // Null with |error| set if the source cannot be opened or its first
   // bytes cannot be read; |cleartext_refused| then says whether FFmpeg's
   // http should read it instead (DataSource::cleartext_refused()).
+  // |decrypt| reads the source whole and decrypts it with the AES-128 key
+  // and IV in |options|, as FFmpeg's crypto protocol would.
   AVIOContext* OpenIo(const std::string& url,
                       std::string* error,
-                      bool* cleartext_refused);
+                      bool* cleartext_refused,
+                      AVDictionary* options,
+                      bool decrypt);
   void CloseIo(AVIOContext* pb);
   void RemoveIo(Io* io);
 #endif
@@ -77,8 +85,16 @@ class FFmpegDemuxer : public Demuxer {
   // Timestamps that start over (or jump back) go on from where the
   // stream's previous packet ended.
   void ApplyDiscontinuity(int stream, EncodedPacket* packet);
+  // Matroska keeps milliseconds, and FFmpeg moves a stream back by its
+  // CodecDelay rounded to them: Opus's 312 samples (6.5 ms) as 7 ms. The
+  // first block, at the delay's negative, gets the exact time, so that the
+  // audio after the decoder drops the delay starts at 0, not 0.5 ms early.
+  void ExactCodecDelay(int stream, EncodedPacket* packet) const;
   bool SeekFFmpeg(int64_t time);
   bool SeekToStart();
+  // Matroska only: to the earliest block any stream's index knows, which
+  // can be before the start. False if it did not seek.
+  bool SeekMatroskaToFirstBlock();
   // Formats without an index: seeks to before |time| and reads up to it,
   // keeping the packets from the keyframe at or before it for Read().
   bool SeekByScanning(int64_t time);
@@ -131,6 +147,9 @@ class FFmpegDemuxer : public Demuxer {
   std::vector<std::unique_ptr<Io>> ios_;
   // Why the last open or read failed, from the source.
   std::string io_error_;
+#if defined(__ANDROID__)
+  CleartextRedirects redirects_;
+#endif
 #endif
 };
 

@@ -24,6 +24,8 @@ enum class VideoFrameStorage : uint32_t {
   kDmabuf = 1 << 5,
   // CVPixelBufferRef in the decoder's format, handed out as is.
   kCVPixelBufferNative = 1 << 6,
+  // ID3D11Texture2D, shared R10G10B10A2, full-range PQ / BT.2020.
+  kD3D11TextureHdr = 1 << 7,
 };
 
 struct VideoFrame {

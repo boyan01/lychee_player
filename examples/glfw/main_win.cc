@@ -147,11 +147,43 @@ class Renderer {
     if (frame_) lychee_frame_release(frame_);
   }
 
-  bool Init(GLFWwindow* window, lychee_player* player, bool cpu) {
+  bool Init(GLFWwindow* window, lychee_player* player, bool cpu, bool follow) {
     window_ = window;
     player_ = player;
     cpu_ = cpu;
+    if (follow) {
+      adapter_index_ = AdapterOfWindow();
+    }
     return CreateDevice();
+  }
+
+  // The adapter that drives the display the window is mostly on, as
+  // Flutter picks its adapter; the first if none does.
+  UINT AdapterOfWindow() const {
+    HMONITOR monitor = MonitorFromWindow(glfwGetWin32Window(window_),
+                                         MONITOR_DEFAULTTONEAREST);
+    ComPtr<IDXGIFactory1> factory;
+    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) return 0;
+    ComPtr<IDXGIAdapter1> adapter;
+    for (UINT i = 0;
+         factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i) {
+      ComPtr<IDXGIOutput> output;
+      for (UINT j = 0; adapter->EnumOutputs(j, &output) != DXGI_ERROR_NOT_FOUND;
+           ++j) {
+        DXGI_OUTPUT_DESC desc;
+        if (SUCCEEDED(output->GetDesc(&desc)) && desc.Monitor == monitor) {
+          return i;
+        }
+      }
+    }
+    return 0;
+  }
+
+  // Moves to the adapter of the window's display when it changed, as an
+  // app whose window went to a display on another GPU.
+  bool FollowWindow() {
+    const UINT index = AdapterOfWindow();
+    return index == adapter_index_ || SwitchAdapter(index);
   }
 
   // Moves to adapter |index| (--adapter), as when the window goes to a
@@ -644,6 +676,8 @@ int main(int argc, char** argv) {
                    [](const AdapterSwitch& a, const AdapterSwitch& b) {
                      return a.at < b.at;
                    });
+  // The adapter follows the window's display unless --adapter sets it.
+  const bool follow = adapters.empty();
 
   if (!glfwInit()) {
     fprintf(stderr, "glfwInit failed\n");
@@ -674,7 +708,7 @@ int main(int argc, char** argv) {
   int exit_code = 0;
   {
     Renderer renderer;
-    if (!renderer.Init(window, player, cpu) ||
+    if (!renderer.Init(window, player, cpu, follow) ||
         lychee_player_open(player, url.c_str()) != 0) {
       fprintf(stderr, "could not start playback\n");
       exit_code = 1;
@@ -691,6 +725,7 @@ int main(int argc, char** argv) {
       size_t next_key = 0;
       size_t next_snapshot = 0;
       size_t next_adapter = 0;
+      double next_follow = 0;
       while (!glfwWindowShouldClose(window)) {
         renderer.Wait();
         glfwPollEvents();
@@ -710,6 +745,13 @@ int main(int argc, char** argv) {
         while (next_adapter < adapters.size() &&
                elapsed >= adapters[next_adapter].at) {
           if (!renderer.SwitchAdapter(adapters[next_adapter++].index)) {
+            exit_code = 1;
+          }
+        }
+        // Once a second, as the plugin checks the window's monitor.
+        if (follow && elapsed >= next_follow) {
+          next_follow = elapsed + 1;
+          if (!renderer.FollowWindow()) {
             exit_code = 1;
           }
         }

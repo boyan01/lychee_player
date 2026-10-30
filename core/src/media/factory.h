@@ -48,6 +48,10 @@ std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders();
 
 std::unique_ptr<AudioSink> CreateAudioSink();
 
+// Chooses the silent sink without changing the clock. Call before creating
+// players; the caller then drives NullAudioSink::RenderAll().
+void UseNullAudioSinkForTesting();
+
 std::unique_ptr<FrameConverter> CreateFrameConverter();
 
 // Null if this build has no subtitle decoder.

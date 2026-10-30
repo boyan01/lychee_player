@@ -14,9 +14,9 @@
 
 namespace lychee {
 
-// H.264 and HEVC through Windows' decoder MFTs on a D3D11 device of their
-// own, on the caller's adapter: Microsoft's H.264 decoder, and the HEVC
-// decoder of the Store's HEVC Video Extensions where installed. Frames
+// H.264, HEVC, VP9 and AV1 through Windows' decoder MFTs on a D3D11 device of
+// their own, on the caller's adapter: Microsoft's H.264 decoder, and the
+// Store's HEVC, VP9 and AV1 extensions where installed. Frames
 // leave like FFmpeg's D3D11VA ones, as shared BGRA textures
 // (D3D11VideoProcessor), or downloaded when the caller takes no textures
 // or gave no adapter. With |hardware| a stream the GPU cannot decode fails
@@ -54,6 +54,7 @@ class MFVideoDecoder : public VideoDecoder {
   const bool hardware_;
   // Frames go out as textures only if someone can open them.
   const bool output_textures_;
+  const bool output_hdr_;
   VideoConfig config_;
   AnnexBConverter converter_;
   Microsoft::WRL::ComPtr<ID3D11Device> d3d11_device_;

@@ -123,6 +123,11 @@ std::string WebVttToPlainText(std::string_view text) {
 
 bool TextSubtitleDecoder::Initialize(const SubtitleConfig& config,
                                      std::string* error) {
+  normalized_ = config.normalized;
+  if (normalized_) {
+    return true;
+  }
+
   static const char* kCodecs[] = {"subrip", "srt",    "text",    "ass",
                                   "ssa",    "webvtt", "mov_text"};
   for (const char* codec : kCodecs) {
@@ -213,6 +218,15 @@ std::string TextSubtitleDecoder::ToPlainText(const std::string& codec_name,
 
 bool TextSubtitleDecoder::Decode(const EncodedPacket& packet,
                                  std::vector<SubtitleCue>* cues) {
+  if (normalized_ && !packet.end_of_stream) {
+    SubtitleCue cue;
+    if (!UnpackSubtitleCue(packet, &cue)) {
+      return false;
+    }
+    cues->push_back(std::move(cue));
+    return true;
+  }
+
   if (packet.end_of_stream || packet.pts == kNoTimestamp || !packet.buffer) {
     return true;
   }

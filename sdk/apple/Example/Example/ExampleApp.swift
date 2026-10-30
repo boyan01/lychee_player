@@ -2,7 +2,8 @@
 // /tmp/lychee-media/h264_aac.mp4, which the iOS simulator sees too) on a
 // loop, with a stats line under the video.
 //
-//   Example [--seconds N] [--snapshot SEC:FILE]... [--size WxH] [FILE_OR_URL]
+//   Example [--seconds N] [--snapshot SEC:FILE]... [--size WxH]
+//           [--soak SEC URL] [FILE_OR_URL]
 //
 // --seconds quits after N seconds, printing a summary: line. --snapshot
 // writes what the video view shows at SEC seconds as a PPM and prints
@@ -10,6 +11,7 @@
 // for tool/frame_check.py --log, as examples/glfw does. --size sets the
 // video view's size in points on macOS (a strong downscale differs from
 // the reference at sharp edges: Core Animation filters differently).
+// --soak loops, seeks twice, then switches files, every SEC seconds.
 
 import AVFoundation
 import Combine
@@ -28,6 +30,8 @@ struct Options {
   var seconds: Double?
   var snapshots: [(at: Double, path: String)] = []
   var size: CGSize?
+  var soakEvery: Double?
+  var soakURL: String?
 
   init(_ arguments: [String]) {
     var args = arguments.makeIterator()
@@ -35,6 +39,9 @@ struct Options {
       switch arg {
       case "--seconds":
         seconds = args.next().flatMap(Double.init)
+      case "--soak":
+        soakEvery = args.next().flatMap(Double.init)
+        soakURL = args.next()
       case "--snapshot":
         // SEC:FILE; the first colon, so FILE may hold one.
         if let value = args.next(), let colon = value.firstIndex(of: ":"),
@@ -87,8 +94,15 @@ final class PlayerModel: ObservableObject {
   let size: CGSize?
   @Published var status = ""
   private var timer: AnyCancellable?
+  private let options: Options
+  private let started = Date()
+  private var nextSoak: Double = 0
+  private var soakActions = 0
+  private var soakOnAlternate = false
 
   init(_ options: Options) {
+    self.options = options
+    nextSoak = options.soakEvery ?? 0
     size = options.size
     player.isLooping = true
     player.open(options.url)
@@ -109,6 +123,29 @@ final class PlayerModel: ObservableObject {
   }
 
   private func update() {
+    if options.soakEvery != nil, player.error != nil {
+      print("error: \(player.error ?? "playback failed")")
+      quit()
+      return
+    }
+    let elapsed = Date().timeIntervalSince(started)
+    if let every = options.soakEvery, every > 0, let alternate = options.soakURL,
+      elapsed >= nextSoak {
+      nextSoak = elapsed + every
+      if soakActions % 3 == 2 {
+        soakOnAlternate.toggle()
+        let url = soakOnAlternate ? alternate : options.url
+        print("soak: open -> \(url)")
+        player.open(url)
+        player.play()
+      } else if let duration = player.duration, duration > 0 {
+        let target = Double.random(in: 0..<duration)
+        print(String(format: "soak: seek -> %.3fs", target))
+        player.seek(to: target)
+      }
+      soakActions += 1
+      fflush(stdout)
+    }
     let stats = player.stats
     let size = player.videoSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "-"
     status = String(

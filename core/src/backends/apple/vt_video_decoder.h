@@ -3,8 +3,12 @@
 
 #include <VideoToolbox/VideoToolbox.h>
 
+#include <array>
+#include <atomic>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <vector>
 
 #include "media/annexb.h"
@@ -12,7 +16,7 @@
 
 namespace lychee {
 
-// H.264, HEVC, VP9 and AV1 through VideoToolbox, without FFmpeg. Outputs
+// H.264, HEVC, VP9 and AV1 directly through VideoToolbox. Outputs
 // the decoder's CVPixelBuffers (kCVPixelBuffer). |hardware| requires the
 // hardware decoder; otherwise only Apple's software decoder is used, the
 // fallback when the hardware one is lost or refuses the stream. VP9 is a
@@ -24,7 +28,7 @@ class VTVideoDecoder : public VideoDecoder {
   ~VTVideoDecoder() override;
 
   const char* name() const override;
-  bool is_hardware() const override { return hardware_; }
+  bool is_hardware() const override { return hardware_output_; }
   bool Initialize(const VideoConfig& config, std::string* error) override;
   bool Decode(const EncodedPacket& packet,
               const OutputCallback& output) override;
@@ -35,6 +39,14 @@ class VTVideoDecoder : public VideoDecoder {
     CVPixelBufferRef image;
     int64_t duration;
   };
+  struct Pending {
+    OSStatus status = noErr;
+    bool keyframe = false;
+  };
+  // Bound queued work and its added file-playback latency. Software H.264
+  // stays synchronous to deliver the first frame immediately; live input
+  // also stays synchronous.
+  static constexpr size_t kMaxPendingFrames = 4;
   // What a VP9 stream's vpcC says, from the container until a keyframe's
   // header says otherwise.
   struct Vp9Format {
@@ -69,12 +81,19 @@ class VTVideoDecoder : public VideoDecoder {
   // (Re)creates the session for |parameter_sets_|.
   bool CreateSession();
   void DestroySession();
+  // Joins callbacks before reading their status or reusing their slots.
+  bool CompleteFrames();
   // Hands out frames with pts <= |up_to|, in pts order; all with
   // kInfiniteTime.
   void Emit(int64_t up_to, const OutputCallback& output);
 
-  const bool hardware_;
+  // Only macOS lets the caller select the implementation.
+  [[maybe_unused]] const bool hardware_;
+  std::atomic<bool> hardware_output_;
   VideoConfig config_;
+  // Authoritative H.264/HEVC container/format color, including unspecified
+  // fields.
+  std::optional<ColorInfo> output_color_;
   // kCMVideoCodecType_VP9 or _AV1, or 0 for H.264 and HEVC.
   CMVideoCodecType codec_type_ = 0;
   Vp9Format vp9_;
@@ -87,10 +106,13 @@ class VTVideoDecoder : public VideoDecoder {
   // Decoded frames not yet handed out, by pts. VideoToolbox outputs in
   // decode order.
   std::multimap<int64_t, Decoded> reorder_;
+  // Only callbacks write these while a batch is pending. Callbacks may
+  // run together; client output always runs on the decode thread.
+  std::mutex output_mutex_;
+  std::array<Pending, kMaxPendingFrames> pending_;
+  size_t pending_count_ = 0;
   int consecutive_errors_ = 0;
   bool session_lost_ = false;
-  // The status OnOutput() got for the frame being decoded.
-  OSStatus output_status_ = noErr;
   // Whether a frame came out since the session was made.
   bool decoded_ = false;
   // After bad data: packets are dropped up to the next keyframe.

@@ -28,16 +28,17 @@ namespace lychee {
 // as video streams, described by CODECS and RESOLUTION and read only once
 // selected (their audio is the first's). While the first one's stream is
 // selected, it moves between the variants of its codec and audio group
-// by the bandwidth its segments arrived at (MPEG-TS segments, whose
-// parameter sets come in band). Its audio renditions
+// by the bandwidth its segments arrived at (TS, or fMP4 with each map
+// supplying the in-band parameter sets at a keyframe). Its audio renditions
 // (EXT-X-MEDIA) with a playlist of their own are audio streams
 // (DEFAULT=YES the default one), read alongside in decode order, and so
-// are its WebVTT subtitle renditions as subtitle streams.
+// are its WebVTT and fMP4 IMSC text/image and WebVTT subtitle renditions.
 // VOD seeks by segment; live input starts three target durations from
 // the end and reloads each playlist read as its segments are used up.
 // Each discontinuity sequence gets its own offset onto one continuous
 // timeline, shared by the renditions, whose timestamps match. AES-128
-// segments are decrypted (each key fetched once); SAMPLE-AES is refused.
+// segments are decrypted through the platform (CommonCrypto, BCrypt or
+// javax.crypto, each key fetched once); SAMPLE-AES is refused.
 class HlsDemuxer : public Demuxer {
  public:
   HlsDemuxer();
@@ -74,7 +75,7 @@ class HlsDemuxer : public Demuxer {
   };
   void set_clock(Clock clock) { clock_ = std::move(clock); }
   // Makes Open() fail for a master playlist with subtitle renditions
-  // that are not WebVTT, which this demuxer does not read: for builds
+  // that this demuxer cannot read: for builds
   // with a demuxer that reads them (FFmpeg's). Set before Open().
   void set_refuse_subtitles(bool refuse) { refuse_subtitles_ = refuse; }
 

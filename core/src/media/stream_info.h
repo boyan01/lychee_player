@@ -64,6 +64,8 @@ struct SubtitleConfig {
   bool text = false;
   std::vector<uint8_t> extradata;
   std::shared_ptr<const CodecPrivate> codec_private;
+  // The shared demuxer has decoded timing/text/pictures on the read thread.
+  bool normalized = false;
 };
 
 struct StreamInfo {

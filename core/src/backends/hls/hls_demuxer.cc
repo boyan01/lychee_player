@@ -13,6 +13,8 @@
 
 #if defined(__APPLE__)
 #include <CommonCrypto/CommonCryptor.h>
+#elif defined(__ANDROID__)
+#include "backends/android/aes.h"
 #elif defined(_WIN32)
 #include <windows.h>
 
@@ -553,7 +555,7 @@ bool HlsDemuxer::Fetch(const std::string& url,
 
 bool HlsDemuxer::Decrypt(const HlsKey& key,
                          int64_t sequence,
-                         [[maybe_unused]] std::vector<uint8_t>* data,
+                         std::vector<uint8_t>* data,
                          std::string* error) {
   auto known = keys_.find(key.url);
   if (known == keys_.end()) {
@@ -625,7 +627,10 @@ bool HlsDemuxer::Decrypt(const HlsKey& key,
   plain.resize(moved);
   *data = std::move(plain);
   return true;
+#elif defined(__ANDROID__)
+  return DecryptAes128(known->second.data(), iv, data, error);
 #else
+  (void)data;
   *error = "AES-128 HLS needs FFmpeg here";
   return false;
 #endif
@@ -676,8 +681,7 @@ void HlsDemuxer::Measure(int64_t rate, int64_t bytes) {
 
 void HlsDemuxer::Adapt(Rendition* r) {
   if (ladder_.size() < 2 || estimate_ <= 0 || r->video < 0 ||
-      !enabled_[r->video] || r->current >= r->segments.size() ||
-      r->segments[r->current].initialization) {
+      !enabled_[r->video] || r->current >= r->segments.size()) {
     return;
   }
   size_t want = 0;
@@ -694,11 +698,9 @@ void HlsDemuxer::Adapt(Rendition* r) {
   std::string final_url;
   std::string error;
   if (!LoadPlaylist(nullptr, variant.url, &playlist, &final_url, &error) ||
-      playlist.master || playlist.segments.empty() ||
-      std::any_of(playlist.segments.begin(), playlist.segments.end(),
-                  [](const HlsSegment& s) { return s.initialization; })) {
+      playlist.master || playlist.segments.empty()) {
     LOGW("variant %s: %s", variant.url.c_str(),
-         error.empty() ? "not MPEG-TS" : error.c_str());
+         error.empty() ? "empty media playlist" : error.c_str());
     ladder_.erase(ladder_.begin() + static_cast<ptrdiff_t>(want));
     if (want < rung_) {
       --rung_;
@@ -768,10 +770,11 @@ bool HlsDemuxer::OpenWebVtt(Rendition* r, std::string* error) {
   auto anchor = offsets_.find(segment.discontinuity);
   r->offset = anchor != offsets_.end() ? anchor->second : 0;
   // The MPEG-2 timestamp unwrapped next to where the segment plays.
-  const int64_t near =
+  // (Not `near`: <windows.h> defines it as a macro.)
+  const int64_t around =
       media_info_.start_time + segment.start - r->origin - r->offset;
   const int64_t base = TsReader::TicksToMicros(
-      TsReader::Nearest(mpegts, TsReader::MicrosToTicks(near)));
+      TsReader::Nearest(mpegts, TsReader::MicrosToTicks(around)));
   for (const WebVttCue& cue : cues) {
     EncodedPacket packet;
     packet.stream_index = 0;
@@ -792,10 +795,10 @@ bool HlsDemuxer::OpenWebVtt(Rendition* r, std::string* error) {
 }
 
 bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
-  if (r->only == MediaType::kSubtitle) {
+  const Segment& segment = r->segments[r->current];
+  if (r->only == MediaType::kSubtitle && !segment.initialization) {
     return OpenWebVtt(r, error);
   }
-  const Segment& segment = r->segments[r->current];
   if (segment.key.method == HlsKey::Method::kOther ||
       (segment.initialization &&
        segment.map.key.method == HlsKey::Method::kOther)) {
@@ -824,7 +827,7 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
   }
   if (segment.initialization) {
     mp4 = std::make_unique<Mp4Demuxer>();
-    if (!mp4->Open(std::move(source), error)) {
+    if (!mp4->Open(std::move(source), error, segment.url, opener_)) {
       *error = segment.url + ": " + *error;
       return false;
     }
@@ -863,6 +866,14 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
       const int index = static_cast<int>(media_info_.streams.size());
       media_info_.streams.push_back(info);
       media_info_.streams.back().index = index;
+      if (mp4 && info.type == MediaType::kVideo &&
+          (info.video.codec == VideoCodec::kH264 ||
+           info.video.codec == VideoCodec::kHEVC)) {
+        // Every fMP4 keyframe carries this segment map's parameter sets,
+        // as TS already does. A later variant can then replace them in
+        // band, without keeping the first variant's avcC/hvcC.
+        media_info_.streams.back().video.extradata.clear();
+      }
       r->streams.push_back(index);
       if (info.type == MediaType::kVideo &&
           media_info_.default_video_stream < 0) {
@@ -900,8 +911,7 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
     }
     r->stream_map.push_back(index);
     if (mp4 && index >= 0 && stream.type == MediaType::kVideo &&
-        media_info_.streams[index].video.extradata.empty() &&
-        !stream.video.extradata.empty() && r->annexb.Initialize(stream.video)) {
+        r->annexb.Initialize(stream.video)) {
       annexb_stream = static_cast<int>(i);
     }
     const int64_t first_pts = streams[i].second;
@@ -1187,7 +1197,7 @@ DemuxerReadResult HlsDemuxer::Read(EncodedPacket* packet) {
         continue;
       }
       if (!r->has_next && r->only == MediaType::kSubtitle && !r->text_open &&
-          r->loaded && r->current < r->segments.size() &&
+          !r->mp4 && r->loaded && r->current < r->segments.size() &&
           last_dts_ != kNoTimestamp &&
           media_info_.start_time + r->segments[r->current].start - r->origin >
               last_dts_ + kReadAhead) {

@@ -77,13 +77,15 @@ void AAudioSink::CloseStreamLocked() {
   }
 }
 
-void AAudioSink::Start() {
+bool AAudioSink::Start() {
   std::lock_guard<std::mutex> lock(mutex_);
   started_ = true;
   if (stream_) {
     start_time_ = NowMicros();
     AAudioStream_requestStart(stream_);
   }
+  // A lost stream is reopened, and started, by Reopen().
+  return true;
 }
 
 void AAudioSink::Stop() {
@@ -141,7 +143,7 @@ aaudio_data_callback_result_t AAudioSink::OnData(AAudioStream* stream,
   auto* destination = static_cast<float*>(audio_data);
   const int written = self->callback_(destination, frames, playout_time);
   if (written < frames) {
-    memset(destination + written * kChannels, 0,
+    memset(destination + static_cast<ptrdiff_t>(written) * kChannels, 0,
            static_cast<size_t>(frames - written) * sizeof(float) * kChannels);
   }
   return AAUDIO_CALLBACK_RESULT_CONTINUE;

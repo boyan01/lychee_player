@@ -18,15 +18,15 @@ using Microsoft::WRL::ComPtr;
 
 constexpr int kMaxConsecutiveErrors = 10;
 
-ComPtr<IMFTransform> CreateDecoderMft(bool hevc) {
+ComPtr<IMFTransform> CreateDecoderMft(const GUID& subtype) {
   ComPtr<IMFTransform> decoder;
-  if (!hevc) {
+  if (subtype == MFVideoFormat_H264) {
     CoCreateInstance(CLSID_CMSH264DecoderMFT, nullptr, CLSCTX_INPROC_SERVER,
                      IID_PPV_ARGS(&decoder));
     return decoder;
   }
-  // HEVC comes with the Store's HEVC Video Extensions, if at all.
-  MFT_REGISTER_TYPE_INFO input = {MFMediaType_Video, MFVideoFormat_HEVC};
+  // HEVC, VP9 and AV1 come with their Store extensions, if installed.
+  MFT_REGISTER_TYPE_INFO input = {MFMediaType_Video, subtype};
   IMFActivate** activates = nullptr;
   UINT32 count = 0;
   if (FAILED(MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER,
@@ -97,7 +97,12 @@ MFVideoDecoder::MFVideoDecoder(uint32_t accepted_storage,
       output_textures_(
           device_.type == VideoDevice::Type::kD3D11Adapter &&
           (accepted_storage &
-           static_cast<uint32_t>(VideoFrameStorage::kD3D11Texture))) {}
+           (static_cast<uint32_t>(VideoFrameStorage::kD3D11Texture) |
+            static_cast<uint32_t>(VideoFrameStorage::kD3D11TextureHdr)))),
+      output_hdr_(
+          output_textures_ &&
+          (accepted_storage &
+           static_cast<uint32_t>(VideoFrameStorage::kD3D11TextureHdr))) {}
 
 MFVideoDecoder::~MFVideoDecoder() {
   if (decoder_) {
@@ -106,10 +111,28 @@ MFVideoDecoder::~MFVideoDecoder() {
 }
 
 bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
-  if ((config.codec != VideoCodec::kH264 &&
-       config.codec != VideoCodec::kHEVC) ||
-      !converter_.Initialize(config)) {
-    *error = "mediafoundation: not H.264 or HEVC";
+  GUID subtype = GUID_NULL;
+  switch (config.codec) {
+    case VideoCodec::kH264:
+      subtype = MFVideoFormat_H264;
+      break;
+    case VideoCodec::kHEVC:
+      subtype = MFVideoFormat_HEVC;
+      break;
+    case VideoCodec::kVP9:
+      subtype = MFVideoFormat_VP90;
+      break;
+    case VideoCodec::kAV1:
+      subtype = MFVideoFormat_AV1;
+      break;
+    default:
+      *error = "mediafoundation: unsupported video codec";
+      return false;
+  }
+  const bool nal_units =
+      config.codec == VideoCodec::kH264 || config.codec == VideoCodec::kHEVC;
+  if (nal_units && !converter_.Initialize(config)) {
+    *error = "mediafoundation: invalid codec configuration";
     return false;
   }
   config_ = config;
@@ -117,12 +140,15 @@ bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
     *error = "mediafoundation: cannot start Media Foundation";
     return false;
   }
-  const bool hevc = converter_.hevc();
-  decoder_ = CreateDecoderMft(hevc);
+  decoder_ = CreateDecoderMft(subtype);
   if (!decoder_) {
-    *error = hevc ? "mediafoundation: no HEVC decoder (HEVC Video Extensions)"
-                  : "mediafoundation: no H.264 decoder (Windows N without "
-                    "the Media Feature Pack)";
+    const char* extension =
+        config.codec == VideoCodec::kHEVC  ? "HEVC Video Extensions"
+        : config.codec == VideoCodec::kVP9 ? "VP9 Video Extensions"
+        : config.codec == VideoCodec::kAV1 ? "AV1 Video Extension"
+                                           : "Media Feature Pack";
+    *error = std::string("mediafoundation: no ") +
+             VideoCodecName(config.codec) + " decoder (" + extension + ")";
     return false;
   }
   ComPtr<IMFAttributes> attributes;
@@ -155,9 +181,23 @@ bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
     return false;
   }
   input->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-  input->SetGUID(MF_MT_SUBTYPE, hevc ? MFVideoFormat_HEVC : MFVideoFormat_H264);
+  input->SetGUID(MF_MT_SUBTYPE, subtype);
+  // VPx uses progressive input (as in Chromium's
+  // media/gpu/windows/dxva_video_decode_accelerator_win.cc). AV1 is
+  // progressive too; H.264 and HEVC may interlace.
   input->SetUINT32(MF_MT_INTERLACE_MODE,
-                   MFVideoInterlace_MixedInterlaceOrProgressive);
+                   nal_units ? MFVideoInterlace_MixedInterlaceOrProgressive
+                             : MFVideoInterlace_Progressive);
+  if (config.low_delay && config.codec == VideoCodec::kHEVC && !hardware_) {
+    // A live packet is one complete picture. Without explicit NAL
+    // lengths the software HEVC MFT waits for the next sample to find
+    // the picture's end, retaining the last frame indefinitely. A drain
+    // releases it but discards the reference pictures needed on resume.
+    // MF_NALU_LENGTH_SET / MF_NALU_LENGTH_INFORMATION let it finish each
+    // picture while keeping those references (Microsoft's HEVC decoder
+    // and NALU length attribute documentation).
+    input->SetUINT32(MF_NALU_LENGTH_SET, TRUE);
+  }
   if (config.width > 0 && config.height > 0) {
     MFSetAttributeSize(input.Get(), MF_MT_FRAME_SIZE, config.width,
                        config.height);
@@ -173,7 +213,7 @@ bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
   SetOutputType();
   decoder_->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
   decoder_->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
-  LOGI("%s decoder opened for %s %dx%d%s", name(), hevc ? "hevc" : "h264",
+  LOGI("%s decoder opened for %s %dx%d%s", name(), VideoCodecName(config.codec),
        config.width, config.height, hardware_ ? "" : " (software)");
   return true;
 }
@@ -267,19 +307,58 @@ bool MFVideoDecoder::Decode(const EncodedPacket& packet,
   if (!packet.buffer) {
     return true;
   }
-  // Annex B, with the parameter sets again at every keyframe: a flush
-  // forgets them.
-  annexb_.clear();
-  if (!converter_.Convert(packet.buffer->data(), packet.size(), packet.keyframe,
-                          &annexb_)) {
-    LOGW("%s: malformed sample", name());
-    return ++consecutive_errors_ < kMaxConsecutiveErrors;
+  const uint8_t* data = packet.buffer->data();
+  size_t size = packet.size();
+  if (config_.codec == VideoCodec::kH264 ||
+      config_.codec == VideoCodec::kHEVC) {
+    // Annex B, with parameter sets again at every keyframe: a flush
+    // forgets them. VP9 frames and AV1 OBUs already have their wire format.
+    annexb_.clear();
+    if (!converter_.Convert(data, size, packet.keyframe, &annexb_)) {
+      LOGW("%s: malformed sample", name());
+      return ++consecutive_errors_ < kMaxConsecutiveErrors;
+    }
+    data = annexb_.data();
+    size = annexb_.size();
   }
-  ComPtr<IMFSample> sample = CreateMFSample(annexb_.data(), annexb_.size(),
-                                            packet.pts, packet.duration);
+  ComPtr<IMFSample> sample =
+      CreateMFSample(data, size, packet.pts, packet.duration);
   if (!sample) {
     LOGE("%s: cannot make a sample", name());
     return false;
+  }
+  if (config_.low_delay && config_.codec == VideoCodec::kHEVC && !hardware_) {
+    // Each length includes its Annex B start code, so the spans cover
+    // the entire input sample, including in-band parameter sets.
+    std::vector<DWORD> lengths;
+    size_t previous = 0;
+    for (size_t i = 0; i + 3 <= annexb_.size(); ++i) {
+      size_t prefix = 0;
+      if (annexb_[i] == 0 && annexb_[i + 1] == 0) {
+        if (annexb_[i + 2] == 1) {
+          prefix = 3;
+        } else if (i + 4 <= annexb_.size() && annexb_[i + 2] == 0 &&
+                   annexb_[i + 3] == 1) {
+          prefix = 4;
+        }
+      }
+      if (prefix != 0) {
+        if (i > previous) {
+          lengths.push_back(static_cast<DWORD>(i - previous));
+        }
+        previous = i;
+        i += prefix - 1;
+      }
+    }
+    lengths.push_back(static_cast<DWORD>(annexb_.size() - previous));
+    if (lengths.size() > MAXDWORD / sizeof(DWORD) ||
+        FAILED(sample->SetBlob(
+            MF_NALU_LENGTH_INFORMATION,
+            reinterpret_cast<const uint8_t*>(lengths.data()),
+            static_cast<UINT32>(lengths.size() * sizeof(DWORD))))) {
+      LOGE("%s: cannot describe the input NAL lengths", name());
+      return false;
+    }
   }
   HRESULT hr = decoder_->ProcessInput(0, sample.Get(), 0);
   if (hr == MF_E_NOTACCEPTING) {
@@ -434,8 +513,8 @@ std::shared_ptr<VideoFrame> MFVideoDecoder::CreateFrame(IMFSample* sample) {
       return nullptr;
     }
   }
-  std::shared_ptr<VideoFrame> frame =
-      processor_.Convert(texture.Get(), slice, width_, height_, color_space_);
+  std::shared_ptr<VideoFrame> frame = processor_.Convert(
+      texture.Get(), slice, width_, height_, color_space_, output_hdr_);
   if (frame && !output_textures_) {
     frame = processor_.Download(*frame);
   }

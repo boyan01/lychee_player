@@ -47,8 +47,8 @@ class FFmpegHttpDataSource : public DataSource {
       }
     }
     if (offset >= behind_start_ && offset < position_) {
-      const size_t n = std::min<size_t>(
-          size, static_cast<size_t>(position_ - offset));
+      const size_t n =
+          std::min<size_t>(size, static_cast<size_t>(position_ - offset));
       const auto from = behind_.begin() + (offset - behind_start_);
       std::copy(from, from + static_cast<std::ptrdiff_t>(n), data);
       return static_cast<int64_t>(n);
@@ -104,8 +104,8 @@ class FFmpegHttpDataSource : public DataSource {
     av_dict_set(&options, "reconnect_delay_total_max", "10", 0);
     av_dict_set(&options, "rw_timeout", "10000000", 0);
     const AVIOInterruptCB interrupt = {&InterruptCallback, this};
-    const int ret = avio_open2(&io_, url_.c_str(), AVIO_FLAG_READ, &interrupt,
-                               &options);
+    const int ret =
+        avio_open2(&io_, url_.c_str(), AVIO_FLAG_READ, &interrupt, &options);
     av_dict_free(&options);
     if (ret < 0) {
       SetError(url_ + ": " + AVErrorString(ret));
@@ -125,8 +125,8 @@ class FFmpegHttpDataSource : public DataSource {
 
   // Reads at |position_|, keeping what it read behind (|behind_|).
   int64_t ReadIo(uint8_t* data, size_t size) {
-    const int ret = avio_read(
-        io_, data, static_cast<int>(std::min<size_t>(size, INT_MAX)));
+    const int ret =
+        avio_read(io_, data, static_cast<int>(std::min<size_t>(size, INT_MAX)));
     if (ret == AVERROR_EOF) {
       return 0;
     }
@@ -166,9 +166,9 @@ class FFmpegHttpDataSource : public DataSource {
     }
     uint8_t skipped[64 << 10];
     while (position_ < offset) {
-      const int64_t ret = ReadIo(
-          skipped, static_cast<size_t>(std::min<int64_t>(offset - position_,
-                                                         sizeof(skipped))));
+      const int64_t ret =
+          ReadIo(skipped, static_cast<size_t>(std::min<int64_t>(
+                              offset - position_, sizeof(skipped))));
       if (ret <= 0) {
         if (ret == 0) {
           SetError("read: unexpected end of data");

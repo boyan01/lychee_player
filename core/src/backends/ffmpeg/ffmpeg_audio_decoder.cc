@@ -66,7 +66,39 @@ bool FFmpegAudioDecoder::Decode(const EncodedPacket& packet,
     consecutive_errors_++;
   }
   ReceiveFrames(output);
+  if (packet.end_of_stream) {
+    DrainResampler(output);
+  }
   return consecutive_errors_ < kMaxConsecutiveDecodeErrors;
+}
+
+void FFmpegAudioDecoder::DrainResampler(const OutputCallback& output) {
+  // A resampler holds back its filter's delay (17 frames from 44.1 to 48
+  // kHz). Left in it at the end, the input loses its last frames: a loop
+  // then joins its passes that much early, a step in the waveform where
+  // no padding follows the audio (FLAC; MP3's padding hid it).
+  if (!swr_context_ || next_pts_ == kNoTimestamp) {
+    return;
+  }
+  const int capacity = swr_get_out_samples(swr_context_, 0);
+  if (capacity <= 0) {
+    return;
+  }
+  auto buffer = std::make_shared<AudioBuffer>();
+  buffer->sample_rate = output_format_.sample_rate;
+  buffer->channels = output_format_.channels;
+  buffer->samples.resize(static_cast<size_t>(capacity) *
+                         output_format_.channels);
+  uint8_t* out[] = {reinterpret_cast<uint8_t*>(buffer->samples.data())};
+  const int converted = swr_convert(swr_context_, out, capacity, nullptr, 0);
+  if (converted <= 0) {
+    return;
+  }
+  buffer->samples.resize(static_cast<size_t>(converted) *
+                         output_format_.channels);
+  buffer->pts = next_pts_;
+  next_pts_ += buffer->duration();
+  output(std::move(buffer));
 }
 
 void FFmpegAudioDecoder::ReceiveFrames(const OutputCallback& output) {

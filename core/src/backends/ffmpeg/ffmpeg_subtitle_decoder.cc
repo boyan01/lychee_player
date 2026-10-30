@@ -17,6 +17,11 @@ FFmpegSubtitleDecoder::~FFmpegSubtitleDecoder() = default;
 
 bool FFmpegSubtitleDecoder::Initialize(const SubtitleConfig& config,
                                        std::string* error) {
+  normalized_ = config.normalized;
+  if (normalized_) {
+    return true;
+  }
+
   AVCodecParameters* parameters = CreateCodecParameters(config);
   const AVCodec* codec = avcodec_find_decoder(parameters->codec_id);
   if (!codec) {
@@ -69,6 +74,15 @@ SubtitleBitmap FFmpegSubtitleDecoder::ToBitmap(const AVSubtitleRect& rect) {
 
 bool FFmpegSubtitleDecoder::Decode(const EncodedPacket& packet,
                                    std::vector<SubtitleCue>* cues) {
+  if (normalized_ && !packet.end_of_stream) {
+    SubtitleCue cue;
+    if (!UnpackSubtitleCue(packet, &cue)) {
+      return false;
+    }
+    cues->push_back(std::move(cue));
+    return true;
+  }
+
   if (packet.end_of_stream || packet.pts == kNoTimestamp) {
     return true;
   }

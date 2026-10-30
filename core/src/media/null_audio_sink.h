@@ -2,6 +2,7 @@
 #define LYCHEE_MEDIA_NULL_AUDIO_SINK_H_
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "media/audio_sink.h"
@@ -22,10 +23,16 @@ class NullAudioSink : public AudioSink {
   // NowMicros() timebase, or kNoTimestamp: where a test clip's sound
   // starts, for its A/V sync.
   static int64_t FirstSound();
+  // From now on, records what every sink plays, mixed on the NowMicros()
+  // timeline: silence where none plays, as a device would output it.
+  static void StartCapture();
+  // Writes the recording up to now as a 32-bit float WAV. False if it
+  // cannot.
+  static bool WriteCapture(const std::string& path);
 
   bool Open(RenderCallback callback, std::string* error) override;
   AudioOutputFormat format() const override;
-  void Start() override;
+  bool Start() override;
   void Stop() override;
 
  private:
@@ -36,6 +43,8 @@ class NullAudioSink : public AudioSink {
   // Guarded by the sink list's mutex while started.
   int64_t start_time_ = 0;
   int64_t frames_rendered_ = 0;
+  // Where frame 0 goes in the recording; set at Start() while capturing.
+  int64_t capture_offset_ = 0;
   std::vector<float> buffer_;
 };
 

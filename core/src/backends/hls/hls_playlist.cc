@@ -178,7 +178,7 @@ bool ParseIv(const std::string& text, uint8_t iv[16]) {
       text.size() - 2 > 32) {
     return false;
   }
-  std::fill(iv, iv + 16, 0);
+  std::fill(iv, iv + 16, uint8_t{0});
   int nibble = 0;
   for (size_t i = text.size(); i-- > 2; ++nibble) {
     const int digit = HexDigit(text[i]);
@@ -263,7 +263,7 @@ void HlsIv(const HlsKey& key, int64_t sequence, uint8_t iv[16]) {
     std::copy(key.iv, key.iv + 16, iv);
     return;
   }
-  std::fill(iv, iv + 8, 0);
+  std::fill(iv, iv + 8, uint8_t{0});
   for (int i = 0; i < 8; ++i) {
     iv[15 - i] =
         static_cast<uint8_t>(static_cast<uint64_t>(sequence) >> (8 * i));

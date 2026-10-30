@@ -12,6 +12,8 @@
 #                                 # (clang; LLVM_COV, LLVM_PROFDATA)
 #   MEDIA_DIR=... tool/regression.sh
 #   NO_HW=1 tool/regression.sh    # Software decoding only (CI runners)
+#   NULL_AUDIO=1 tool/regression.sh # The two realtime cases requiring audio
+#                                 # use a threaded silent device (no sound card)
 #   REALTIME_ADVISORY=1 tool/regression.sh  # The realtime cases' drift,
 #                                 # glitches and drops only warn (CI's VMs)
 #   ONLY='seek-* rate-2x' tool/regression.sh   # Only cases matching a glob
@@ -22,7 +24,7 @@
 #                                 # instead of the system's, in build-lgpl/
 #   NO_FFMPEG=1 tool/regression.sh  # macOS without FFmpeg, in build-noffmpeg/:
 #                                 # only the cases with MP4, Matroska,
-#                                 # WebM, MPEG-TS and HLS media, text subtitles
+#                                 # WebM, MPEG-TS and HLS media, text/bitmap subtitles
 #   MEDIA_ONLY=1 tool/regression.sh # Only generate the media (for the Swift
 #                                 # and Rust tests), no build
 #
@@ -52,7 +54,6 @@ abspath() {
 if [ "$windows" = 1 ] && ! python3 -c '' 2>/dev/null; then
   python3() { python "$@"; }
 fi
-
 root="$(abspath "$(dirname "$0")/..")"
 media="${MEDIA_DIR:-/tmp/lychee-media}"
 mkdir -p "$media"
@@ -105,6 +106,10 @@ fi
 own_ts=0
 case "$(uname)" in Darwin | Linux) own_ts=1 ;; esac
 [ "$windows" = 1 ] && own_ts=1
+# FFmpeg reads files and http(s) through DataSource on Apple and Windows
+# (ffmpeg_demuxer.h); on Linux through its own protocols.
+data_source=0
+{ [ "$(uname)" = Darwin ] || [ "$windows" = 1 ]; } && data_source=1
 
 # Test media, generated once. Synthetic so the expected output is known.
 gen() {
@@ -117,6 +122,13 @@ gen h264_aac.mp4 -f lavfi -i "$src" -f lavfi -i sine=frequency=440:sample_rate=4
   -c:v libx264 -preset veryfast -bf 3 -pix_fmt yuv420p -c:a aac -b:a 128k
 gen hevc10.mp4 -f lavfi -i testsrc2=size=1920x1080:rate=24 -f lavfi -i sine=frequency=660:sample_rate=48000 -t 10 \
   -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -tag:v hvc1 -x265-params log-level=error -c:a aac
+# Native color metadata: untagged SD HEVC, and only one specified VUI field.
+gen sd_hevc.mp4 -i "$media/h264_aac.mp4" -map 0:v -t 8 -vf scale=640:360 \
+  -c:v libx265 -preset ultrafast -pix_fmt yuv420p -tag:v hvc1 -x265-params log-level=error
+gen sd_hevc_primaries.mp4 -i "$media/sd_hevc.mp4" -map 0:v -c copy \
+  -bsf:v hevc_metadata=colour_primaries=6:transfer_characteristics=2:matrix_coefficients=2
+gen sd_hevc_pq.mp4 -i "$media/sd_hevc.mp4" -map 0:v -c copy \
+  -bsf:v hevc_metadata=colour_primaries=2:transfer_characteristics=16:matrix_coefficients=2
 # HDR10: mid gray in PQ, about 92 nits. Tone-mapped to SDR it is light
 # gray (~182), not the 50% gray its code values would give as SDR.
 gen hdr_pq.mp4 -f lavfi -i color=c=gray:size=1280x720:rate=30 -t 3 -c:v libx265 -preset ultrafast \
@@ -133,10 +145,29 @@ gen hdr_pq_bars.mp4 -f lavfi \
   -i "nullsrc=s=1280x720:r=30,format=yuv420p10le,geq=lum='if(lt(X,256),509,if(lt(X,512),573,if(lt(X,768),636,if(lt(X,1024),723,855))))':cb=512:cr=512" \
   -t 3 -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -tag:v hvc1 -color_primaries bt2020 -color_trc smpte2084 \
   -colorspace bt2020nc -x265-params log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:hdr10=1:max-cll=4000,400
+# Saturated BT.2020 colors expose chromatic tone/gamut mapping errors that
+# gray PQ/HLG cannot. Keep the RGB source at 16 bits until HEVC encoding.
+gen hdr_pq_colors.mp4 -f lavfi \
+  -i "nullsrc=s=640x360:r=30,format=gbrp16le,geq=r='if(bitand(floor(X/80),1),23397,0)':g='if(bitand(floor(X/80),2),23397,0)':b='if(bitand(floor(X/80),4),23397,0)'" \
+  -vf scale=out_color_matrix=bt2020 -t 3 -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -tag:v hvc1 \
+  -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+  -x265-params log-level=error:lossless=1:pools=2:frame-threads=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc
+gen hdr_pq_highlights.mp4 -f lavfi \
+  -i "nullsrc=s=640x360:r=30,format=gbrp16le,geq=r='if(bitand(floor(X/80),1),if(lt(Y,90),38055,if(lt(Y,180),42767,if(lt(Y,270),49271,59150))),0)':g='if(bitand(floor(X/80),2),if(lt(Y,90),38055,if(lt(Y,180),42767,if(lt(Y,270),49271,59150))),0)':b='if(bitand(floor(X/80),4),if(lt(Y,90),38055,if(lt(Y,180),42767,if(lt(Y,270),49271,59150))),0)'" \
+  -vf scale=out_color_matrix=bt2020 -t 3 -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -tag:v hvc1 \
+  -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+  -x265-params log-level=error:lossless=1:pools=2:frame-threads=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc
+gen hdr_hlg_colors.mp4 -f lavfi \
+  -i "nullsrc=s=640x360:r=30,format=gbrp16le,geq=r='if(bitand(floor(X/80),1),32768,0)':g='if(bitand(floor(X/80),2),32768,0)':b='if(bitand(floor(X/80),4),32768,0)'" \
+  -vf scale=out_color_matrix=bt2020 -t 3 -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -tag:v hvc1 \
+  -color_primaries bt2020 -color_trc arib-std-b67 -colorspace bt2020nc \
+  -x265-params log-level=error:lossless=1:pools=2:frame-threads=1:colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc
 gen vp9_opus.webm -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=550:sample_rate=48000 -t 10 \
   -c:v libvpx-vp9 -deadline realtime -cpu-used 8 -b:v 2M -c:a libopus
 gen av1.mkv -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=330:sample_rate=48000 -t 10 \
   -c:v libsvtav1 -preset 12 -svtav1-params log-level=0 -c:a aac
+gen vp9.mp4 -i "$media/vp9_opus.webm" -c copy
+gen av1.mp4 -i "$media/av1.mkv" -c copy
 gen rotated.mp4 -display_rotation 90 -i "$media/h264_aac.mp4" -c copy
 # HD with a BT.601 matrix (in the stream and the container): the tag wins
 # over the convention for untagged HD (BT.709).
@@ -144,13 +175,21 @@ gen h264_bt601.mp4 -i "$media/h264_aac.mp4" -t 3 -c copy -colorspace smpte170m \
   -bsf:v h264_metadata=matrix_coefficients=6
 gen audio_only.mp3 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a libmp3lame
 gen video_only.mp4 -f lavfi -i testsrc2=size=1280x720:rate=60 -t 8 -c:v libx264 -preset veryfast -pix_fmt yuv420p
+# Fewer pictures than VideoToolbox's asynchronous batch: end-of-stream
+# must complete and deliver the partial batch, including a reordered B-frame.
+gen short_video.mp4 -f lavfi -i testsrc2=size=320x180:rate=30 -frames:v 3 \
+  -c:v libx264 -preset veryfast -bf 1 -pix_fmt yuv420p
 gen offset.ts -i "$media/h264_aac.mp4" -c copy -output_ts_offset 10 -f mpegts
 # A keyframe a second, as broadcasts have (h264_aac.mp4 has one).
 gen keyframes.ts -i "$media/h264_aac.mp4" -c:v libx264 -preset veryfast -g 30 -c:a copy -f mpegts
 gen hevc10.ts -i "$media/hevc10.mp4" -c copy -f mpegts
-# AC-3 (the own demuxer, FFmpeg's decoder) and LATM AAC (FFmpeg's demuxer)
-# in TS.
+# AC-3 (the own demuxer) and LATM AAC (FFmpeg's demuxer) in TS.
 gen ac3.ts -i "$media/h264_aac.mp4" -t 4 -c:v copy -c:a ac3 -f mpegts
+# Louder than the Dolby decoder's dialog-normalized downmix, so the
+# silent sink's first-sound check observes PCM rather than only video.
+gen ac3_audio.mp4 -f lavfi -i sine=frequency=440:sample_rate=44100 -t 4 \
+  -af volume=4 -c:a ac3
+gen ac3_audio.mkv -i "$media/ac3_audio.mp4" -c copy
 gen latm.ts -i "$media/h264_aac.mp4" -t 4 -c:v copy -c:a aac -mpegts_flags latm -f mpegts
 # The index at the front, so a cut file still opens; then cut in half.
 gen faststart.mp4 -i "$media/h264_aac.mp4" -c copy -movflags +faststart
@@ -195,6 +234,16 @@ for size in 1280x720 640x360; do
 done
 gen live_alac.mp4 -f lavfi -i "testsrc2=size=1280x720:rate=30" -f lavfi -i sine=frequency=440:sample_rate=44100 -t 5 \
   -c:v libx264 -preset veryfast -bf 0 -g 30 -pix_fmt yuv420p -c:a alac
+# Apple's encoder produces the AAC-ELD AirPlay sends: 44.1 kHz stereo,
+# 512 samples per packet, AudioSpecificConfig f8 e8 40 00. The live source
+# strips the container and pushes that ASC plus raw access units.
+if command -v afconvert >/dev/null && [ ! -f "$media/aac_eld.m4a" ]; then
+  gen aac_eld.wav -f lavfi -i sine=frequency=997:sample_rate=44100 -t 2 -ac 2
+  afconvert -f m4af -d aace "$media/aac_eld.wav" "$media/aac_eld.tmp.m4a" &&
+    ffprobe -v error -select_streams a:0 -show_entries stream=extradata -show_data \
+      "$media/aac_eld.tmp.m4a" | grep -q 'f8e8 4000' &&
+    mv "$media/aac_eld.tmp.m4a" "$media/aac_eld.m4a" || exit 1
+fi
 printf "file 'live_1280x720.ts'\nfile 'live_640x360.ts'\n" >"$media/live_list.txt"
 gen live_resolution.ts -f concat -i "$media/live_list.txt" -c copy -muxdelay 0 -muxpreload 0
 # Valid headers, then noise where the media data should be.
@@ -359,6 +408,11 @@ fi
   '#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS="avc1.64001e,mp4a.40.2"' ../hls_fmp4_low/index.m3u8 \
   '#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2"' index.m3u8 \
   >"$media/hls_fmp4/master.m3u8"
+# ISO BMFF WebVTT and IMSC text subtitle renditions (FFmpeg's muxer
+# cannot generate these sample entries).
+[ -f "$media/hls_fmp4_subtitles/stpp_master.m3u8" ] &&
+[ -f "$media/hls_fmp4_images/external-short_master.m3u8" ] ||
+  python3 -I "$root/tool/mp4_subtitle_cases.py" "$media" || exit 1
 # AES-128 (FFmpeg encrypts no fMP4): the TS segments with the media
 # sequence number as the IV, the fMP4 ones with an IV attribute and the
 # map in the clear.
@@ -377,6 +431,13 @@ if [ ! -f "$media/hls_aes/fmp4.m3u8" ]; then
   sed -e 's|^#EXT-X-MAP.*|#EXT-X-MAP:URI="../hls_fmp4/init.mp4"\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin",IV=0x'"$iv"'|' \
     "$media/hls_fmp4/index.m3u8" >"$media/hls_aes/fmp4.m3u8"
 fi
+# The same forced through FFmpeg's HLS (the own one finds no variant it
+# decodes), which opens each segment as crypto+http://.
+for v in ts fmp4; do
+  [ -f "$media/hls_aes/${v}_fallback.m3u8" ] || printf '%s\n' '#EXTM3U' \
+    '#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="vp09.00.40.08,mp4a.40.2"' \
+    "$v.m3u8" >"$media/hls_aes/${v}_fallback.m3u8"
+done
 # Audio in renditions of their own (EXT-X-MEDIA), the variant without:
 # French (the default, TS) is silent until a tone at 1 s, English the
 # MP4's audio as fMP4 segments.
@@ -413,6 +474,9 @@ for mode in no-cues unknown-sizes huge-tracks huge-block corrupt truncated; do
 done
 gen flac.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=440:sample_rate=44100 -map 0:v -map 1:a -t 5 \
   -c:v copy -c:a flac
+gen flac.mp4 -i "$media/flac.mkv" -c copy -strict -2
+gen flac24.mp4 -i "$media/flac.mkv" -c:v copy -c:a flac -sample_fmt s32 \
+  -bits_per_raw_sample 24 -strict -2
 # Silence, then a tone from 1 s exactly: where the sound starts shows
 # whether the decoder trims the encoder's priming as the container says.
 onset='aevalsrc=if(gte(t\,1)\,0.5*sin(2*PI*440*t)\,0):s=48000:d=3'
@@ -451,6 +515,33 @@ if [ ! -f "$media/hls/subs_master.m3u8" ]; then
     '#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en",DEFAULT=YES,URI="subs.m3u8"' \
     '#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",SUBTITLES="subs"' \
     index.m3u8 >"$media/hls/subs_master.m3u8"
+fi
+# Force FFmpeg's HLS fallback while keeping the same H.264 segments.
+# Its subtitle probe and each new segment must release their AVIO buffers.
+[ -f "$media/hls/subs_fallback.m3u8" ] || sed 's/avc1.640028/vp09.00.40.08/' \
+  "$media/hls/subs_master.m3u8" >"$media/hls/subs_fallback.m3u8"
+# Byte-range HLS forced through FFmpeg: a large prefix makes ignoring
+# offset fail before MPEG-TS probing can find any sync bytes. Later ranges
+# omit @offset, exercising the playlist's implicit offsets and AVIO reuse.
+if [ ! -f "$media/hls_range/fallback.m3u8" ]; then
+  python3 -I - "$media" <<'PYRANGE'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+out = root / "hls_range"
+out.mkdir(exist_ok=True)
+parts = [bytes(4 << 20)]
+offset = len(parts[0])
+lines = ["#EXTM3U", "#EXT-X-VERSION:4", "#EXT-X-TARGETDURATION:2", "#EXT-X-PLAYLIST-TYPE:VOD"]
+for i in range(6):
+    data = (root / f"hls/seg{i}.ts").read_bytes()
+    lines += ["#EXTINF:2.0,", f"#EXT-X-BYTERANGE:{len(data)}" + (f"@{offset}" if i == 0 else ""), "all.ts"]
+    parts.append(data)
+    offset += len(data)
+(out / "all.ts").write_bytes(b"".join(parts))
+(out / "index.m3u8").write_text("\n".join(lines + ["#EXT-X-ENDLIST"]) + "\n")
+master = (root / "hls/subs_fallback.m3u8").read_text().replace('URI="subs.m3u8"', 'URI="../hls/subs.m3u8"')
+(out / "fallback.m3u8").write_text(master)
+PYRANGE
 fi
 # And one in two segments, the first without cues, the second placed by
 # X-TIMESTAMP-MAP: its cue at 10 s on the MPEG-TS timestamps.
@@ -512,7 +603,7 @@ cli="$build/examples/cli/lychee_cli"
 # report rather than the first; the patterns below fail it.
 export TSAN_OPTIONS=halt_on_error=0
 export UBSAN_OPTIONS=print_stacktrace=1
-sanitizer_reports="WARNING: ThreadSanitizer|ERROR: AddressSanitizer|runtime error:"
+sanitizer_reports="WARNING: ThreadSanitizer|ERROR: (AddressSanitizer|LeakSanitizer)|runtime error:"
 # The start of the first report in $1, if any.
 print_reports() {
   grep -Eq "$sanitizer_reports" <<<"$1" || return 0
@@ -529,6 +620,12 @@ fi
 
 failures=0
 
+# The HDR reference is checked against independently generated light,
+# before comparing the player's colored HDR frames with that reference.
+if [ "${NO_FFMPEG:-0}" != 1 ]; then
+  python3 -I "$root/tool/frame_check_test.py" || exit 1
+fi
+
 # Unit tests first: they pinpoint a failure the playback cases only show.
 unit_out="$("$build/core/test/lychee_unittests" 2>&1)"
 unit_status=$?
@@ -539,6 +636,16 @@ if [ $unit_status -eq 0 ] && ! grep -Eq "$sanitizer_reports" <<<"$unit_out"; the
 else
   echo "FAIL unittests"
   grep -v '^PASS' <<<"$unit_out" | sed 's/^/  /'
+  failures=$((failures + 1))
+fi
+
+# Exercise the soak checker without a timed playback run, also on CI.
+soak_out="$(python3 -I "$root/tool/soak_test.py" 2>&1)"
+if [ $? -eq 0 ]; then
+  echo "PASS soak checker"
+else
+  echo "FAIL soak checker"
+  echo "$soak_out"
   failures=$((failures + 1))
 fi
 
@@ -638,6 +745,12 @@ expect() {
       grep -Eq "$pattern" <<<"$out" || problems+=" missing:'$pattern'"
     fi
   done
+  if [ "${image_transition:-0}" = 1 ] &&
+      ! awk '/^subtitle images: 2 / { seen = 1 }
+             /^subtitle images: 1 / && seen { changed = 1 }
+             END { exit !changed }' <<<"$out"; then
+    problems+=" no-2-to-1-image-transition"
+  fi
   if [ -z "$problems" ]; then
     pass "$name"
   else
@@ -667,6 +780,34 @@ frames() {
   checked="$(grep '^snapshot ' <<<"$out" |
     python3 -I "$root/tool/frame_check.py" "$file" --log - ${self_test:+--self-test} 2>&1)" ||
     problems+=" pixels"
+  if [ -z "$problems" ]; then
+    echo "PASS $name ($((SECONDS - start))s)"
+  else
+    echo "FAIL $name ($((SECONDS - start))s):$problems"
+    grep -E '^(summary|error)' <<<"$out" | sed 's/^/     /'
+    sed 's/^/     /' <<<"$checked"
+    print_reports "$out"
+  fi
+}
+
+# audio NAME MEDIA [CHECK_ARGS]... -- CLI_ARGS: plays MEDIA with the volume
+# up, records what the silent device output (--audio-dump, into
+# $build/audio/NAME.wav) and passes if tool/audio_check.py finds no click
+# in it (CHECK_ARGS: e.g. --max-gap MS where no silence belongs).
+audio() {
+  local name="$1" file="$2"; shift 2
+  local wav="$build/audio/$name.wav" check=() out status checked problems="" start=$SECONDS
+  mkdir -p "$build/audio"
+  while [ "$1" != -- ]; do check+=("$1"); shift; done
+  shift
+  [ "${NO_HW:-0}" = 1 ] && set -- --no-hw "$@"
+  out="$("$cli" --virtual-time --volume 1 --audio-dump "$wav" "$@" "$file" 2>&1)"
+  status=$?
+  out="${out//$'\r'/}"
+  [ "$status" = 0 ] || problems+=" exit=$status"
+  grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
+  checked="$(python3 -I "$root/tool/audio_check.py" "$wav" ${check[@]+"${check[@]}"} 2>&1)" ||
+    problems+=" clicks"
   if [ -z "$problems" ]; then
     echo "PASS $name ($((SECONDS - start))s)"
   else
@@ -726,13 +867,13 @@ selected() {
   done
   return 1
 }
-# Without FFmpeg: MP4, Matroska, WebM, MPEG-TS and HLS, with text subtitles.
+# Without FFmpeg: MP4, Matroska, WebM, MPEG-TS and HLS, with text/PNG subtitles.
 plays_without_ffmpeg() {
   case "$1" in
-    # Bitmap subtitles have no decoder.
+    # Encoded PGS/DVB/VobSub need FFmpeg; IMSC PNG uses the shared reader.
     subtitle-pgs | subtitle-dvb | subtitle-vobsub) return 1 ;;
-    # No software AV1 decoder: av1-videotoolbox instead.
-    av1-software) return 1 ;;
+    # Windows uses the Store AV1 extension; Apple needs newer hardware.
+    av1-software | av1-mp4-software) [ "$windows" = 1 ] || return 1 ;;
   esac
   local arg
   for arg in "$@"; do
@@ -742,9 +883,7 @@ plays_without_ffmpeg() {
       *) return 1 ;;
     esac
     # VideoToolbox decodes VP9 only in hardware.
-    [ "${NO_HW:-0}" = 1 ] && [[ "$arg" == *vp9* ]] && return 1
-    # Media Foundation has no VP9 (without the Store's extension).
-    [ "$windows" = 1 ] && [[ "$arg" == *vp9* ]] && return 1
+    [ "$windows" != 1 ] && [ "${NO_HW:-0}" = 1 ] && [[ "$arg" == *vp9* ]] && return 1
   done
   return 0
 }
@@ -782,16 +921,36 @@ par check hevc10        1 - -- "$media/hevc10.mp4"
 vp9_hw=1
 [ "$(uname -sm)" = "Darwin x86_64" ] && vp9_hw=0
 par check vp9           $vp9_hw - -- "$media/vp9_opus.webm"
-# The shipped FFmpeg decodes AV1 in software only with dav1d (Apple and
-# Android releases; tool/build_ffmpeg.sh).
-if [ -z "${FFMPEG_ROOT:-}" ] || grep -q dav1d "$FFMPEG_ROOT/lib/pkgconfig/libavcodec.pc" 2>/dev/null; then
-  par check av1-software  0 - -- "$media/av1.mkv"
+par check vp9-mp4       $vp9_hw - -- "$media/vp9.mp4"
+# The shipped FFmpeg decodes AV1 in software only with dav1d
+# (tool/build_ffmpeg.sh).
+if [ "${NO_FFMPEG:-0}:$windows" = 1:1 ] || [ -z "${FFMPEG_ROOT:-}" ] ||
+  grep -q dav1d "$FFMPEG_ROOT/lib/pkgconfig/libavcodec.pc" 2>/dev/null; then
+  par check av1-software  0 - -- --no-hw "$media/av1.mkv"
+  par check av1-mp4-software 0 - -- --no-hw "$media/av1.mp4"
 fi
-# Without FFmpeg AV1 needs a hardware decoder (M3, A17 Pro): elsewhere the
-# video track is off and the audio plays to the end.
-[ "${NO_FFMPEG:-0}" = 1 ] &&
+# Without FFmpeg on Apple, AV1 needs a hardware decoder (M3, A17 Pro):
+# elsewhere the video track is off and the audio plays to the end.
+[ "${NO_FFMPEG:-0}" = 1 ] && [ "$windows" != 1 ] &&
   par expect av1-videotoolbox "track 0: video av1 " "summary: state=ended position=10\.0" -- "$media/av1.mkv"
-par check flac-mkv      1 - -- "$media/flac.mkv"
+[ "${NO_FFMPEG:-0}" = 1 ] && [ "$windows" != 1 ] &&
+  par expect av1-mp4-videotoolbox "track 0: video av1 " "summary: state=ended position=10\.0" -- "$media/av1.mp4"
+if [ "${NO_FFMPEG:-0}" = 1 ] && [ "$windows" = 1 ]; then
+  # Windows' Store extensions decode on the GPU or CPU, without FFmpeg.
+  par check vp9-software 0 - -- --no-hw "$media/vp9_opus.webm"
+  par check av1-mediafoundation 1 - -- "$media/av1.mkv"
+  par check av1-mp4 1 - -- "$media/av1.mp4"
+fi
+par expect flac-mkv "track 1: audio flac .*selected=1" \
+  "summary: state=ended .*audio_onset=" -- --volume 1 "$media/flac.mkv"
+par expect flac-mp4 "track 1: audio flac .*selected=1" \
+  "summary: state=ended .*audio_onset=" -- --volume 1 "$media/flac.mp4"
+par expect flac24-mp4 "track 1: audio flac .*selected=1" \
+  "summary: state=ended .*audio_onset=" -- --volume 1 "$media/flac24.mp4"
+par expect ac3-mp4 "track 0: audio ac3 44100 Hz 1 ch " \
+  "summary: state=ended .*audio_onset=-?0\.0[0-9]+s" -- --volume 1 "$media/ac3_audio.mp4"
+par expect ac3-mkv "track 0: audio ac3 44100 Hz 1 ch " \
+  "summary: state=ended .*audio_onset=-?0\.0[0-9]+s" -- --volume 1 "$media/ac3_audio.mkv"
 # A/V sync: the tone plays at 1 s on the clock (audio_onset, from the
 # silent device with the volume up), so priming is trimmed, in both builds
 # (AudioToolbox decodes these without FFmpeg).
@@ -808,6 +967,8 @@ par check rotated       1 - -- "$media/rotated.mp4"
 par expect rotation "track 0: video h264 1920x1080 rotation=270 " -- --seconds 1 "$media/rotated.mp4"
 par check audio-only    - - -- "$media/audio_only.mp3"
 par check video-only    1 - -- "$media/video_only.mp4"
+par expect video-short "summary: state=ended position=0\.100s .*rendered=3 dropped=0 .*backward_jumps=0 " -- \
+  "$media/short_video.mp4"
 par check ts-offset     1 - -- "$media/offset.ts"
 par check ts-hevc10     1 - -- "$media/hevc10.ts"
 par check no-hw-cpu     0 - -- --no-hw --cpu "$media/h264_aac.mp4"
@@ -816,12 +977,46 @@ par expect hdr-tonemap "center pixel: 1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9]),1(7[5-9]
   "$media/hdr_pq.mp4"
 par expect hdr-tonemap-sw "hw=0 " "center pixel: 1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9])$" -- --cpu \
   --no-hw --seconds 1 "$media/hdr_pq.mp4"
-# Apple: the decoder's own buffers, 10-bit and tagged PQ for HDR10; BGRA
-# from software decoding.
+# Apple: VideoToolbox keeps HDR10 in 10-bit PQ buffers, even in software.
+# With FFmpeg and hardware disabled, CPU frames are tone-mapped into BGRA.
 if [ "$(uname)" = Darwin ]; then
   native_hdr="native frame: x420 transfer=SMPTE_ST_2084_PQ$"
-  [ "${NO_HW:-0}" = 1 ] && native_hdr="native frame: BGRA "
+  if [ "${NO_HW:-0}" = 1 ] && [ "${NO_FFMPEG:-0}" != 1 ]; then
+    native_hdr="native frame: BGRA transfer=none$"
+  fi
   par expect native-hdr "$native_hdr" "frame_type=64 " -- --native --seconds 1 "$media/hdr_pq.mp4"
+fi
+# Windows native HDR has a fixed, independently readable encoding even on
+# an SDR monitor. MF can upload software output; FFmpeg's software path
+# falls back to the accepted CPU type and tone maps it as before.
+if [ "$windows" = 1 ]; then
+  if [ "${NO_HW:-0}" != 1 ] || [ "${NO_FFMPEG:-0}" = 1 ]; then
+    par expect d3d11-hdr-pq "frame_type=128 " \
+      "native frame: R10G10B10A2 transfer=16 primaries=9 rgb10=" \
+      "center pixel: 12[6-9],12[6-9],12[6-9]$" -- --d3d11-hdr --seconds 1.1 "$media/hdr_pq.mp4"
+    par expect d3d11-hdr-hlg "frame_type=128 " \
+      "native frame: R10G10B10A2 transfer=16 primaries=9 rgb10=" \
+      "center pixel: 11[0-5],11[0-5],11[0-5]$" -- --d3d11-hdr --seconds 1.1 "$media/hdr_hlg.mp4"
+  fi
+  sw_hdr_type=1
+  sw_hdr_gray="1(7[5-9]|8[0-9])"
+  sdr_type=16
+  if [ "${NO_FFMPEG:-0}" = 1 ]; then
+    sw_hdr_type=128
+    sw_hdr_gray="12[6-9]"
+  elif [ "${NO_HW:-0}" = 1 ]; then
+    sdr_type=1
+  fi
+  par expect d3d11-hdr-sw "frame_type=$sw_hdr_type " "hw=0 " \
+    "center pixel: $sw_hdr_gray,$sw_hdr_gray,$sw_hdr_gray$" -- \
+    --no-hw --d3d11-hdr --seconds 1.1 "$media/hdr_pq.mp4"
+  par expect d3d11-hdr-sdr "frame_type=$sdr_type " -- \
+    --d3d11-hdr --seconds 1.1 "$media/h264_aac.mp4"
+  par frames frame-d3d11-hdr-sdr "$media/h264_aac.mp4" 1 -- \
+    --d3d11-hdr --seconds 1.1
+  par expect d3d11-sdr-compat "frame_type=$sdr_type " \
+    "center pixel: 1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9])$" -- \
+    --d3d11 --seconds 1.1 "$media/hdr_pq.mp4"
 fi
 # Frames by pixels, against FFmpeg's decode of the same pts: each frame
 # path (CVPixelBuffer BGRA on Apple, RGBA elsewhere; --cpu; software
@@ -836,6 +1031,13 @@ par frames frame-h264-sw "$media/h264_aac.mp4" 1 -- --no-hw --cpu --seconds 1.1
 par frames frame-hevc10 "$media/hevc10.mp4" 1 -- --seconds 1.1
 par frames frame-rotated "$media/rotated.mp4" 1 -- --seconds 1.1
 par frames frame-hdr "$media/hdr_pq.mp4" 1 -- --seconds 1.1
+# Software HDR conversion must agree on colored pixels, too. These fail
+# when swscale converts directly into an 8-bit destination before mapping.
+if [ "${NO_FFMPEG:-0}" != 1 ]; then
+  par frames frame-hdr-colors-sw "$media/hdr_pq_colors.mp4" 1 -- --no-hw --cpu --seconds 1.1
+  par frames frame-hdr-highlights-sw "$media/hdr_pq_highlights.mp4" 1 -- --no-hw --cpu --seconds 1.1
+  par frames frame-hlg-colors-sw "$media/hdr_hlg_colors.mp4" 1 -- --no-hw --cpu --seconds 1.1
+fi
 # VideoToolbox maps HLG darker than swscale (roadmap): elsewhere it
 # matches.
 [ "$(uname)" = Darwin ] || par frames frame-hlg "$media/hdr_hlg.mp4" 1 -- --seconds 1.1
@@ -900,12 +1102,13 @@ if [ "$own_ts" = 1 ]; then
   par check seek-ts-jump 1 6.233 -- --seek 4.8 --seek-after 1 "$media/ts_jump_ahead.ts"
   par check seek-ts-jump-backward 1 2.933 -- --seek 1.5 --seek-after 5 "$media/ts_jump_ahead.ts"
 fi
-# FFmpeg's decoders take AC-3 from the own demuxer, which hands what it
-# would skip (LATM here) to FFmpeg's demuxer. No AC-3 or LATM without
-# FFmpeg.
-if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
+# The own demuxer supplies AC-3 to FFmpeg or the system decoder. LATM
+# still needs FFmpeg's demuxer and decoder.
+if [ "$own_ts" = 1 ]; then
   par expect ts-ac3 "<=0 the fallback opens it" "track 1: audio ac3 44100 Hz 1 ch " \
     "summary: state=ended position=4\.1[0-9]{2}s .*rendered=122 " -- "$media/ac3.ts"
+fi
+if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
   par expect ts-fallback "mpegts: stream type 0x11 not supported; the fallback opens it" \
     "track 1: audio aac_latm " "summary: state=ended position=4\.(09[0-9]|1[0-9]{2})s .*rendered=122 .*glitches=0 " -- \
     "$media/latm.ts"
@@ -936,6 +1139,30 @@ par expect rate-change "rate -> 1.50" "summary: state=ended" "summary:.*glitches
 par expect rate-audio-only "summary: state=ended" "$small_drift" -- --rate 2 "$media/audio_only.mp3"
 par expect rate-video-only "summary: state=ended" "$few_glitches" "$small_drift" -- \
   --rate 2 "$media/video_only.mp4"
+# What the device outputs around a seek, a pause, a rate change, a track
+# switch, a stop and a loop: a waveform cut or started mid-cycle clicks
+# (tool/audio_check.py). All but the loop fade out and in; a loop joins
+# the passes without a gap. Every case ends with a stop: the CLI records
+# until after the player is destroyed.
+par audio audio-seek "$media/h264_aac.mp4" -- --seconds 4 --seek 5.237 --seek-after 1
+par audio audio-pause "$media/h264_aac.mp4" -- --seconds 3 --pause 1 0.5
+par audio audio-loop "$media/loop.mp4" --max-gap 1 -- --loop --seconds 8
+# Containers without an edit list, where AAC's priming starts every pass
+# (MPEG-TS, Matroska); Opus whose Duration counts its padding and whose
+# block times are rounded to milliseconds (WebM); 44.1 kHz resampled to
+# 48 kHz, which must give the resampler's tail back at the end (MP3,
+# FLAC).
+par audio audio-loop-mkv "$media/h264_aac.mkv" --max-gap 1 -- --loop --seconds 14
+par audio audio-loop-ts "$media/keyframes.ts" --max-gap 1 -- --loop --seconds 14
+par audio audio-loop-webm "$media/vp9_opus.webm" --max-gap 1 -- --loop --seconds 12
+par audio audio-loop-mp3 "$media/audio_only.mp3" --max-gap 1 -- --loop --seconds 10
+par audio audio-loop-flac "$media/flac.mkv" --max-gap 1 -- --loop --seconds 7
+par audio audio-rate "$media/h264_aac.mp4" -- --seconds 4 --rate 1.5 --rate-after 1
+par audio audio-seek-mkv "$media/h264_aac.mkv" -- --seconds 4 --seek 5.237 --seek-after 1
+par audio audio-seek-ts "$media/keyframes.ts" -- --seconds 4 --seek 5.237 --seek-after 1
+par audio audio-seek-fmp4 "$media/frag.mp4" -- --seconds 4 --seek 5.237 --seek-after 1
+par audio audio-track "$media/tracks.mkv" -- --seconds 3 --select audio:2 --select-after 1
+par audio audio-stop "$media/h264_aac.mp4" -- --seconds 1.5
 # Looping: back to the start without ENDED or BUFFERING, and without
 # stopping: a frame held too long at the jump is a glitch.
 par expect loop "summary: state=ready" "loops=2" "summary:.*backward_jumps=0 " "summary:.*glitches=0 " \
@@ -984,9 +1211,21 @@ par expect decoder-lost-twice "<=0 event: state error" \
   --lose-decoder-after 2 --lose-decoder-after 5 "$media/h264_aac.mp4"
 # Foreground recovery uses the public API, before any packet fails. Each
 # transition gets a fresh hardware attempt rather than forcing software.
-par expect decoder-rebuild "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" "<=0 event: state error" \
+# Software by choice has nothing to recover, so no rebuild (and no resync).
+rebuilt="video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s"
+[ "${NO_HW:-0}" = 1 ] && rebuilt="<=0 video rebuilt"
+par expect decoder-rebuild "$rebuilt" "<=0 event: state error" \
   "summary: state=ended .* hw=$hw_first .*backward_jumps=0 " -- \
   --rebuild-decoder-after 2 --rebuild-decoder-after 5 "$media/h264_aac.mp4"
+# iOS in the background: rebuilds fail too, into software. The
+# foreground's rebuild then goes back to hardware, playing and paused.
+par expect decoder-foreground "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" "<=0 event: state error" \
+  "summary: state=ended .* hw=$hw_first .*backward_jumps=0 " -- \
+  --lose-decoder-after 2 --lose-decoder-after 4 --rebuild-decoder-after 6 "$media/h264_aac.mp4"
+par expect decoder-foreground-paused "<=0 event: state error" "play at" \
+  "summary: state=ended .* hw=$hw_first .*backward_jumps=0 " -- \
+  --pause 3 5 --lose-decoder-after 2 --lose-decoder-after 4 --rebuild-decoder-after 6 \
+  "$media/h264_aac.mp4"
 # A hardware decoder that never returns (a driver hang) is given up after
 # 4 s without frames and rebuilt in software at the position. Destroying
 # the player meanwhile waits for it no longer than that.
@@ -1002,13 +1241,26 @@ realtime=1 par expect decoder-hung-destroy "hang video decoder at" "destroyed in
 par expect audio-device-dead "audio device pulled nothing for 20[0-9]{2} ms" \
   "summary: state=ended position=12\.000s .*backward_jumps=0 .*stalls=0" -- \
   --stall-audio-after 0 --seconds 20 "$media/h264_aac.mp4"
+# A device that fails to start (iOS refuses audio in the background) is
+# started again every second while the stalled device's audio is pulled
+# for; the fourth start takes over.
+par expect audio-device-start-retry "audio device pulled nothing for 20[0-9]{2} ms" \
+  "audio device started on retry" "audio device pulls again" \
+  "summary: state=ended position=12\.000s .*backward_jumps=0 .*stalls=0" -- \
+  --fail-audio-start 3 --seconds 20 "$media/h264_aac.mp4"
+# Video holds one frame for the 2 s, including under TSan.
+stalled_glitches='[0-3]'
 par expect audio-device-stalled "stall audio device at 2\." "audio device pulled nothing for 20[0-9]{2} ms" \
-  "audio device pulls again" "summary: state=ended position=12\.000s .*glitches=[0-3] backward_jumps=0 .*stalls=0" -- \
+  "audio device pulls again" "summary: state=ended position=12\.000s .*glitches=$stalled_glitches backward_jumps=0 .*stalls=0" -- \
   --stall-audio-after 2 --stall-audio-for 4 --seconds 20 "$media/h264_aac.mp4"
 # The same with the platform's audio device pulling on its own thread.
+# A Windows hosted runner has no audio output device. Opt in to a silent
+# device on a real audio thread, keeping the stall and recovery checks strict.
+null_audio=()
+[ "${NULL_AUDIO:-0}" = 1 ] && null_audio=(--null-audio)
 realtime=1 par expect audio-device-stalled-realtime "audio device pulled nothing for 20[0-9]{2} ms" \
   "audio device pulls again" "summary: state=ready position=[34]\.[0-9]{3}s .*backward_jumps=0 " -- \
-  --stall-audio-after 1 --stall-audio-for 3 --seconds 6 "$media/h264_aac.mp4"
+  ${null_audio[@]+"${null_audio[@]}"} --stall-audio-after 1 --stall-audio-for 3 --seconds 6 "$media/h264_aac.mp4"
 # Nobody pulls frames for 3 s, as in the background: frames that went by
 # meanwhile are not counted as dropped, and playback resumes at the clock.
 par expect background "show at " "summary: state=ended .*dropped=0 glitches=[0-3] backward_jumps=0 " -- \
@@ -1066,6 +1318,16 @@ par expect live-h264 "$live_ok" "^seekable=0$" "summary: state=ready .*rendered=
   --live "$media/live_h264.mp4"
 par expect live-hevc "$live_ok" "summary: state=ready .*rendered=300 dropped=0 ${tsan_glitches:-glitches=[0-3] }backward_jumps=0 .*stalls=0 $live_latency" -- \
   --live "$media/live_hevc.mp4"
+# Windows' software HEVC decoder must finish the last complete picture
+# without a destructive drain, including after input pauses mid-GOP.
+if [ "$windows" = 1 ] && [ "${NO_FFMPEG:-0}" = 1 ]; then
+  par expect live-hevc-software "$live_ok" \
+    "summary: state=ready .*hw=0 .*rendered=300 dropped=0 glitches=[0-3] backward_jumps=0 .*stalls=0" -- \
+    --no-hw --live "$media/live_hevc.mp4"
+  par expect live-hevc-software-stall "$live_ok" \
+    "summary: state=ready .*hw=0 .*rendered=(28[7-9]|29[0-9]|300) dropped=([0-9]|1[0-3]) .*backward_jumps=0 .*stalls=0" -- \
+    --no-hw --live --live-stall 4 0.5 "$media/live_hevc.mp4"
+fi
 par expect live-latency "$live_ok" "summary: .*dropped=0 .*live_vbuf=0\.(2[5-9]|30)[0-9]s" -- \
   --live --latency 300 "$media/live_h264.mp4"
 par expect live-decoder-rebuild "rebuild video decoder at" "<=0 event: state error" \
@@ -1076,6 +1338,13 @@ par expect live-audio-only "$live_ok" "summary: state=ready position=1[23]\.[0-9
 # ALAC, as AirPlay sends: the track's config is its magic cookie.
 par expect live-alac "$live_ok" "track 1: audio alac 44100 Hz" "summary: .*dropped=0 .*live_abuf=0\.(0[1-9]|1[0-9])[0-9]s" -- \
   --live "$media/live_alac.mp4"
+# This needs Apple's encoder when generating media, but the saved fixture
+# can also be replayed on Android or another host.
+if [ -f "$media/aac_eld.m4a" ]; then
+  par expect live-aac-eld "$live_ok" "track 0: audio aac 44100 Hz" \
+    "summary: state=ready .*audio_onset=0\\.[01][0-9]+s" -- \
+    --live --volume 1 "$media/aac_eld.m4a"
+fi
 # Arrival jitter within the latency costs nothing.
 par expect live-jitter "$live_ok" "summary: .*rendered=360 dropped=0 ${tsan_glitches:-glitches=[0-3] }backward_jumps=0 " -- \
   --live --live-jitter 30 "$media/live_h264.mp4"
@@ -1231,7 +1500,9 @@ if [ "${NO_FFMPEG:-0}" != 1 ]; then
   seq_ expect http-no-ranges-decoder-lost "video rebuilt" "<=0 event: state error" \
     "summary: state=ended position=12\.000s .*pulled=3(5[5-9]|6[0-9]) .*backward_jumps=0 " -- \
     --lose-decoder-after 2 "$url"
-  seq_ expect http-no-ranges-decoder-rebuild "video rebuilt" "<=0 event: state error" \
+  rebuilt="video rebuilt"
+  [ "${NO_HW:-0}" = 1 ] && rebuilt="<=0 video rebuilt"
+  seq_ expect http-no-ranges-decoder-rebuild "$rebuilt" "<=0 event: state error" \
     "summary: state=ended position=12\.000s .*pulled=3(5[5-9]|6[0-9]) .*backward_jumps=0 " -- \
     --rebuild-decoder-after 2 "$url"
 fi
@@ -1311,6 +1582,29 @@ seq_ expect http-hls-master "$hls_variant" "summary: state=ended position=12\.00
 if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
   seq_ expect http-hls-fallback "hls: no HLS variant .*; the fallback opens it" "video size 1920x1080" \
     "summary: state=ended position=12\.000s" -- "http://127.0.0.1:$port/hls/vp9_master.m3u8"
+  seq_ expect http-hls-subtitles-fallback "hls: no HLS variant .*; the fallback opens it" \
+    "track 0: subtitle webvtt lang=en .*selected=1" \
+    "subtitle at 0\.0[0-9]{2}s: Hello$" "subtitle at 1\.5[0-9]{2}s: \(none\)" \
+    "summary: state=ended position=12\.000s" -- "http://127.0.0.1:$port/hls/subs_fallback.m3u8"
+  seq_ expect http-hls-subtitles-fallback-seek "subtitle at 0\.0[0-9]{2}s: Hello$" \
+    "subtitle at 1\.0[0-9]{2}s: Hello$" "subtitle at 1\.5[0-9]{2}s: \(none\)" \
+    "summary: state=ready .*backward_jumps=0 " -- --seek 1 --seek-after 4 --seconds 6 \
+    "http://127.0.0.1:$port/hls/subs_fallback.m3u8"
+  seq_ frames http-hls-range-fallback "http://127.0.0.1:$port/hls_range/fallback.m3u8" \
+    1 3 -- --seconds 4 --seek 7 --seek-after 2
+  seq_ expect http-hls-subtitles-fallback-close "hls: no HLS variant .*; the fallback opens it" \
+    "subtitle at 0\.0[0-9]{2}s: Hello$" "summary: state=ready" -- --seconds 1 "http://127.0.0.1:$port/hls/subs_fallback.m3u8"
+  # Where FFmpeg reads through DataSource, its AES-128 segments do too and
+  # are decrypted there, not by FFmpeg's crypto protocol.
+  decrypted=()
+  [ "$data_source" = 1 ] && decrypted=("decrypted an AES-128 segment")
+  for v in ts fmp4; do
+    seq_ expect "http-hls-aes-fallback-$v" "hls: no HLS variant .*; the fallback opens it" \
+      ${decrypted[@]+"${decrypted[@]}"} "summary: state=ended position=12\.000s" -- \
+      "http://127.0.0.1:$port/hls_aes/${v}_fallback.m3u8"
+  done
+  seq_ frames http-hls-aes-fallback-frames "http://127.0.0.1:$port/hls_aes/ts_fallback.m3u8" \
+    1 3 -- --seconds 4 --seek 7 --seek-after 2
 fi
 # WebVTT renditions are subtitle tracks, their cues on the media's
 # timeline (the video starts at 1.417 s).
@@ -1322,6 +1616,42 @@ if [ "$own_ts" = 1 ]; then
     "summary: state=ended position=12\.000s" -- "http://127.0.0.1:$port/hls/vtt_map_master.m3u8"
   seq_ expect http-hls-subtitles-seek "subtitle at 9\.[0-9]{3}s: Later on$" -- --seek 9 --seek-after 1 --seconds 3 \
     "http://127.0.0.1:$port/hls/vtt_map_master.m3u8"
+  # AAC priming places the variant origin at 0 or 23 ms across FFmpeg
+  # muxer versions; allow that and up to two display intervals for the control-thread event.
+  for codec in stpp wvtt; do
+    label=IMSC
+    [ "$codec" != wvtt ] || label=WebVTT
+    codec_name=webvtt
+    [ "$codec" != stpp ] || codec_name=ttml
+    seq_ expect "http-hls-subtitles-$codec" "track 2: subtitle $codec_name lang=en title=English selected=1" \
+      "subtitle at (0\.9[6-9][0-9]|1\.0[01][0-9])s: Hello & $label" "subtitle at (2\.9[6-9][0-9]|3\.0[01][0-9])s: \(none\)" \
+      "subtitle at 8\.(4[6-9][0-9]|5[01][0-9])s: Later <$label>" "subtitle at 9\.(4[6-9][0-9]|5[01][0-9])s: \(none\)" \
+      "summary: state=ended position=12\.000s" -- \
+      "http://127.0.0.1:$port/hls_fmp4_subtitles/${codec}_master.m3u8"
+    seq_ expect "http-hls-subtitles-$codec-seek" "subtitle at 9\.[0-9]{3}s: Later <$label>" \
+      "summary: state=ended position=12\.000s" -- --seek 9 --seek-after 0.2 \
+      "http://127.0.0.1:$port/hls_fmp4_subtitles/${codec}_master.m3u8"
+  done
+  for mode in aux external aux-short external-short; do
+    first="subtitle images: 1 \| 480x270 at 480,540 opaque=50% rgb=127,0,127$"
+    both="subtitle images: 2 \| 480x270 at 480,540 opaque=50% rgb=127,0,127 \| 480x270 at 1200,135 opaque=100% rgb=127,127,127$"
+    ending="<=0 subtitle images: 1"
+    seek_images="$both"
+    case "$mode" in *-short) ending="$first"; seek_images="$first" ;; esac
+    image_transition=0
+    case "$mode" in *-short) image_transition=1 ;; esac
+    image_transition="$image_transition" seq_ expect "http-hls-subtitles-image-$mode" \
+      "track 2: subtitle ttml lang=en title=Images selected=1" \
+      "$both" "$ending" "summary: state=ended position=12\.000s" -- \
+      "http://127.0.0.1:$port/hls_fmp4_images/${mode}_master.m3u8"
+    image_transition=0
+    seq_ expect "http-hls-subtitles-image-$mode-seek" "$seek_images" \
+      "summary: state=ready" -- --seek 9 --seek-after 0.5 --seconds 2 \
+      "http://127.0.0.1:$port/hls_fmp4_images/${mode}_master.m3u8"
+    seq_ expect "http-hls-subtitles-image-$mode-close" "$both" \
+      "summary: state=ready" -- --seconds 1.2 \
+      "http://127.0.0.1:$port/hls_fmp4_images/${mode}_master.m3u8"
+  done
 elif [ "${NO_FFMPEG:-0}" != 1 ]; then
   seq_ expect http-hls-subtitles "track 0: subtitle webvtt lang=en " "summary: state=ended position=12\.000s" -- \
     "http://127.0.0.1:$port/hls/subs_master.m3u8"
@@ -1377,15 +1707,20 @@ if [ "$own_ts" = 1 ]; then
   serve --live /hls_alt/video/live.m3u8 /hls_alt/video/index.m3u8 \
     --live /hls_alt/fre/live.m3u8 /hls_alt/fre/index.m3u8 --live /hls_alt/eng/live.m3u8 /hls_alt/eng/index.m3u8
   realtime=1 seq_ expect http-hls-live-renditions "^seekable=0$" "track 2: audio .* lang=fr .*selected=1" \
-    "select audio 1 at [0-9.]+s: accepted" "track switch: resumed" "<=0 event: state error" \
-    "summary: state=ended .*backward_jumps=0 " -- --select audio:1@4 "http://127.0.0.1:$port/hls_alt/live.m3u8"
+    "select audio 1 at [0-9.]+s: accepted" "track 1: audio .* lang=en .*selected=1" \
+    "track switch: resumed" "<=0 event: state error" \
+    "summary: state=ended .*backward_jumps=0 " -- ${null_audio[@]+"${null_audio[@]}"} \
+    --select audio:1@4 "http://127.0.0.1:$port/hls_alt/live.m3u8"
 fi
 # Slower than the 1080p variant (5 Mbit/s against 2.5): after its first
-# segment the own HLS goes on with the 800 kbit/s one.
-if [ "$own_ts" = 1 ]; then
+# segment the own HLS goes on with the 800 kbit/s one. The system http
+# sources measure transfer_rate (Android is checked through its SDK app).
+if [ "$own_ts" = 1 ] && { [ "$(uname)" = Darwin ] || [ "$windows" = 1 ]; }; then
   serve --rate 300
   seq_ expect http-hls-adaptive "variant .*/hls_low/index\.m3u8 \(800000 bit/s\)" "video size 640x360" \
     "summary: state=ended position=12\.000s .*backward_jumps=0 " -- "http://127.0.0.1:$port/hls/master.m3u8"
+  seq_ expect http-hls-adaptive-fmp4 "variant .*/hls_fmp4_low/index\.m3u8 \(800000 bit/s\)" "video size 640x360" \
+    "summary: state=ended position=12\.000s .*backward_jumps=0 " -- "http://127.0.0.1:$port/hls_fmp4/master.m3u8"
 fi
 # At 2 MB/s, three times the file's bitrate, the drop comes 1.5 s in,
 # after the open: the Apple http source reads ahead as fast as the server

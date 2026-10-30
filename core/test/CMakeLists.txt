@@ -44,8 +44,11 @@ else()
   list(REMOVE_ITEM _lychee_test_sources ../src/backends/matroska/matroska_demuxer.cc)
 endif()
 target_sources(lychee_unittests PRIVATE ${_lychee_test_sources})
-# Built into the library only without FFmpeg on Android.
-if(LYCHEE_WITH_FFMPEG OR NOT ANDROID)
+if(ANDROID AND NOT LYCHEE_WITH_FFMPEG)
+  target_sources(lychee_unittests PRIVATE media_codec_audio_decoder_test.cc)
+endif()
+# Built into the library only without FFmpeg on Android and Windows.
+if(LYCHEE_WITH_FFMPEG OR NOT (ANDROID OR WIN32))
   target_sources(lychee_unittests PRIVATE ../src/media/resampler.cc)
 endif()
 # The tests reach into the library's internals.
@@ -55,9 +58,16 @@ target_compile_features(lychee_unittests PRIVATE cxx_std_20)
 add_test(NAME lychee_unittests COMMAND lychee_unittests)
 
 # The FFmpeg-free MP4, MPEG-TS and HLS demuxers, built on Apple only.
+if(APPLE OR WIN32 OR ANDROID)
+  target_sources(lychee_unittests PRIVATE hls_playlist_test.cc mp4_demuxer_test.cc mp4_subtitle_test.cc)
+endif()
 if(APPLE)
   target_sources(lychee_unittests PRIVATE
-    fuzz_regressions_test.cc hls_playlist_test.cc mp2t_test.cc mp4_demuxer_test.cc)
+    fuzz_regressions_test.cc mp2t_test.cc)
+  # Only macOS can force software VideoToolbox decoding.
+  if(NOT IOS)
+    target_sources(lychee_unittests PRIVATE vt_video_decoder_test.cc)
+  endif()
   # Inputs the fuzzers crashed on, replayed by a test.
   target_compile_definitions(lychee_unittests PRIVATE
     LYCHEE_FUZZ_REGRESSIONS="${CMAKE_CURRENT_SOURCE_DIR}/../fuzz/regressions")
@@ -70,4 +80,9 @@ if(NOT MSVC)
   set_target_properties(lychee_c_header PROPERTIES
     C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
   target_compile_options(lychee_c_header PRIVATE -Wpedantic)
+endif()
+
+# Linux's shared HLS reader also uses the TTML/PNG normalization path.
+if(UNIX AND NOT APPLE AND NOT ANDROID AND LYCHEE_WITH_FFMPEG)
+  target_sources(lychee_unittests PRIVATE mp4_subtitle_test.cc)
 endif()

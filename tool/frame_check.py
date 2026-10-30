@@ -16,6 +16,8 @@ writes FILE.diff.ppm (the absolute difference, four times brighter).
   frame_check.py MEDIA FILE --pts US [--video X,Y,W,H]
   frame_check.py MEDIA ... --matrix bt601    the reference in another
                                             YCbCr matrix
+  frame_check.py MEDIA ... --bilinear        native RGB, then a texture's
+                                            bilinear sampling at pixel centers
   frame_check.py MEDIA FILE --pts US [--video X,Y,W,H] --self-test
                                             also checks that wrong frames
                                             made from FILE fail (written
@@ -37,6 +39,7 @@ Python standard library only; run it as python3 -I tool/frame_check.py.
 """
 
 import argparse
+import array
 import functools
 import json
 import math
@@ -104,6 +107,43 @@ def write_ppm(path, image):
         file.write(image.pixels)
 
 
+def resize_bilinear(image, width, height):
+    """A clamp-to-edge texture sampler, without a downscaling low-pass.
+
+    swscale's bilinear filter widens its kernel when downscaling. GPU
+    textures without mipmaps instead read only the four source pixels
+    around each output pixel center, even for a large reduction.
+    """
+    if (width, height) == (image.width, image.height):
+        return image
+
+    def axis(source, target):
+        samples = []
+        for at in range(target):
+            position = max(0, min(source - 1,
+                                  (at + 0.5) * source / target - 0.5))
+            first = int(position)
+            samples.append((first, min(first + 1, source - 1), position - first))
+        return samples
+
+    columns = axis(image.width, width)
+    pixels = image.pixels
+    result = bytearray()
+    for top, bottom, fy in axis(image.height, height):
+        for left, right, fx in columns:
+            tl, tr = ((top * image.width + left) * 3,
+                      (top * image.width + right) * 3)
+            bl, br = ((bottom * image.width + left) * 3,
+                      (bottom * image.width + right) * 3)
+            for channel in range(3):
+                upper = (pixels[tl + channel] * (1 - fx) +
+                         pixels[tr + channel] * fx)
+                lower = (pixels[bl + channel] * (1 - fx) +
+                         pixels[br + channel] * fx)
+                result.append(round(upper * (1 - fy) + lower * fy))
+    return Image(width, height, bytes(result))
+
+
 @functools.lru_cache
 def probe(media):
     out = subprocess.run(
@@ -140,30 +180,56 @@ def library_matrix(info):
     return "bt709" if info["height"] > 576 else "bt601"
 
 
-def decode(media, pts, width, height, matrix):
+def decode(media, pts, width, height, matrix, bilinear=False):
     """The frame at |pts| (microseconds, the stream's own timeline),
     upright and scaled to width x height, and its pts as decoded."""
     info = probe(media)
-    scale = (f"scale={width}:{height}:"
-             "flags=bilinear+accurate_rnd+full_chroma_int:"
+    hdr = info["transfer"] in ("smpte2084", "arib-std-b67")
+    output_width, output_height = width, height
+    if bilinear:
+        width, height = ((info["height"], info["width"]) if info["quarter_turn"]
+                         else (info["width"], info["height"]))
+    # full_chroma_int selects a different swscale HDR conversion path that
+    # changes flat colors even at 1:1. Leave SDR's established flags alone.
+    flags = "bilinear+accurate_rnd" + ("" if hdr else "+full_chroma_int")
+    scale = (f"scale={width}:{height}:flags={flags}:"
              f"in_color_matrix={matrix}")
-    if info["transfer"] in ("smpte2084", "arib-std-b67"):
-        scale += ":out_primaries=bt709:out_transfer=bt709"
+    if hdr:
+        # Keep color conversion at native size. Fusing it with a resize
+        # selects swscale paths that change even the center of flat colors.
+        # Resize only the resulting SDR RGB, as a texture consumer does.
+        scale = ("scale=iw:ih:flags=bilinear+accurate_rnd:"
+                 f"in_color_matrix={matrix}:out_primaries=bt709:out_transfer=bt709,"
+                 "format=rgb48le,"
+                 f"scale={width}:{height}:flags=bilinear+accurate_rnd")
+    # swscale's direct RGB8 output changes chromatic HDR colors. Retain
+    # precision through tone/gamut mapping, then quantize the SDR result,
+    # just as the core's FFmpeg CPU converter does. SDR stays unchanged.
+    pixel_format = "rgb48le" if hdr else "rgb24"
     # -copyts keeps the stream's timestamps, which the library reports;
     # decoding from the start finds the frame in any container.
     graph = f"select='gte(t\\,{(pts - 500) / 1e6:.6f})',showinfo,{scale}"
     run = subprocess.run(
         ["ffmpeg", "-nostdin", "-hide_banner", "-v", "info", "-copyts", "-i",
          media, "-map", "0:v:0", "-vf", graph, "-frames:v", "1", "-f",
-         "rawvideo", "-pix_fmt", "rgb24", "pipe:1"],
+         "rawvideo", "-pix_fmt", pixel_format, "pipe:1"],
         capture_output=True)
     found = re.search(rb"pts_time:(-?[0-9.]+)", run.stderr)
     if run.returncode != 0 or not found or \
-            len(run.stdout) != width * height * 3:
+            len(run.stdout) != width * height * (6 if hdr else 3):
         tail = run.stderr.decode(errors="replace").strip().splitlines()[-3:]
         raise RuntimeError(f"ffmpeg found no frame at {pts} us: "
                            + " | ".join(tail))
-    return Image(width, height, run.stdout), round(float(found[1]) * 1e6)
+    pixels = run.stdout
+    if hdr:
+        words = array.array("H", pixels)
+        if sys.byteorder != "little":
+            words.byteswap()
+        pixels = bytes((value + 128) // 257 for value in words)
+    reference = Image(width, height, pixels)
+    if bilinear:
+        reference = resize_bilinear(reference, output_width, output_height)
+    return reference, round(float(found[1]) * 1e6)
 
 
 def compare(shown, reference):
@@ -194,7 +260,7 @@ def compare(shown, reference):
     return psnr, mae, worst, worst_at, diff
 
 
-def evaluate(media, path, pts, video, matrix=None):
+def evaluate(media, path, pts, video, matrix=None, bilinear=False):
     """Compares the snapshot at |path| with the frame at |pts|: the
     problems found (none when it passes), the numbers, and the absolute
     difference with its size, or None before a comparison."""
@@ -219,7 +285,7 @@ def evaluate(media, path, pts, video, matrix=None):
 
     problems = []
     reference, ref_pts = decode(media, pts, w, h,
-                                matrix or library_matrix(info))
+                                matrix or library_matrix(info), bilinear)
     if abs(ref_pts - pts) > 1000:
         problems.append(f"no frame at pts {pts} (next is {ref_pts})")
     region = shown if video is None else shown.crop(x, y, w, h)
@@ -243,12 +309,13 @@ def evaluate(media, path, pts, video, matrix=None):
     return problems, numbers, Image(w, h, diff)
 
 
-def check(media, path, pts, video, matrix=None):
+def check(media, path, pts, video, matrix=None, bilinear=False):
     """Prints PASS or FAIL for the snapshot at |path|, writing the
     difference next to it on FAIL. Returns whether it passed."""
     name = os.path.basename(path)
     try:
-        problems, numbers, diff = evaluate(media, path, pts, video, matrix)
+        problems, numbers, diff = evaluate(media, path, pts, video, matrix,
+                                           bilinear)
     except (OSError, RuntimeError, ValueError) as error:
         print(f"FAIL {name}: {error}")
         return False
@@ -271,9 +338,9 @@ def ffmpeg_filter(path, out, graph):
                     "-vf", graph, "-pix_fmt", "rgb24", out], check=True)
 
 
-def self_test(media, path, pts, video):
+def self_test(media, path, pts, video, matrix=None, bilinear=False):
     """The snapshot must pass, and each wrong frame made from it fail."""
-    if not check(media, path, pts, video):
+    if not check(media, path, pts, video, matrix, bilinear):
         print(f"FAIL self-test {os.path.basename(path)}: the snapshot itself")
         return False
     info = probe(media)
@@ -297,7 +364,8 @@ def self_test(media, path, pts, video):
         return (f"split[a][b];[b]crop={w}:{h}:{x}:{y},{graph}[v];"
                 f"[a][v]overlay={x}:{y}")
 
-    bt601 = library_matrix(info) in ("bt601", "smpte170m", "bt470bg")
+    matrix = matrix or library_matrix(info)
+    bt601 = matrix in ("bt601", "smpte170m", "bt470bg")
     other = "bt709" if bt601 else "bt601"
     cases = [
         ("frame before", path, pts - info["frame_us"], video, None),
@@ -318,9 +386,10 @@ def self_test(media, path, pts, video):
         (f"read as {other}", path, pts, video, other),
     ]
     ok = True
-    for name, case_path, case_pts, case_video, matrix in cases:
+    for name, case_path, case_pts, case_video, case_matrix in cases:
         problems, numbers, _ = evaluate(media, case_path, case_pts,
-                                        case_video, matrix)
+                                        case_video, case_matrix or matrix,
+                                        bilinear)
         ok = ok and bool(problems)
         print(f"  {name}: " + (f"fails {numbers or problems[0]}" if problems
                                else f"PASSES (should fail) {numbers}"))
@@ -337,6 +406,10 @@ def main():
     parser.add_argument("--video", help="X,Y,W,H in the snapshot")
     parser.add_argument("--log", help="CLI or harness output, - for stdin")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--bilinear", action="store_true",
+        help="convert at native size, then sample like a GPU bilinear\n"
+             "texture without mipmaps (no downscaling low-pass filter)")
     parser.add_argument(
         "--matrix",
         help="YCbCr matrix of the reference instead of the library's (an\n"
@@ -371,9 +444,11 @@ def main():
 
     for path, pts, video in jobs:
         if args.self_test:
-            ok = self_test(args.media, path, pts, video) and ok
+            ok = self_test(args.media, path, pts, video, args.matrix,
+                           args.bilinear) and ok
         else:
-            ok = check(args.media, path, pts, video, args.matrix) and ok
+            ok = check(args.media, path, pts, video, args.matrix,
+                       args.bilinear) and ok
     return 0 if ok else 1
 
 

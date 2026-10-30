@@ -21,6 +21,7 @@
 #include "backends/mp2t/ts_demuxer.h"
 #include "backends/mp2t/ts_reader.h"
 #include "backends/mp4/mp4_demuxer.h"
+#include "backends/mp4/mp4_subtitle.h"
 #include "media/text_subtitle_decoder.h"
 
 namespace lychee {
@@ -43,7 +44,10 @@ inline void Play(Demuxer* demuxer) {
         continue;
       }
       const StreamInfo& stream = info.streams[packet.stream_index];
-      if (stream.type == MediaType::kSubtitle && stream.subtitle.text) {
+      if (stream.type == MediaType::kSubtitle && stream.subtitle.normalized) {
+        SubtitleCue cue;
+        UnpackSubtitleCue(packet, &cue);
+      } else if (stream.type == MediaType::kSubtitle && stream.subtitle.text) {
         TextSubtitleDecoder::ToPlainText(
             stream.subtitle.codec_name,
             std::string_view(
@@ -74,6 +78,16 @@ constexpr char kHlsPartSeparator[] = "\n#PART\n";
 }  // namespace fuzz
 
 inline void FuzzMp4Demuxer(const uint8_t* data, size_t size) {
+  EncodedPacket normalized;
+  normalized.buffer = PacketBuffer::Copy(data, size);
+  normalized.pts = 0;
+  normalized.duration = 10000000;
+  SubtitleCue unpacked;
+  UnpackSubtitleCue(normalized, &unpacked);
+  std::vector<SubtitleCue> cues;
+  const std::string_view sample(reinterpret_cast<const char*>(data), size);
+  ParseMp4Subtitle("wvtt", sample, 0, 10000000, &cues);
+  ParseMp4Subtitle("stpp", sample, 0, 10000000, &cues);
   Mp4Demuxer demuxer;
   std::string error;
   if (demuxer.Open(fuzz::Memory(data, size), &error)) {

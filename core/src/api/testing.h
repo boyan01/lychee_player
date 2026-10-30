@@ -16,6 +16,12 @@ extern "C" {
 // Switches lychee_now_us() to virtual time, starting at the current time.
 // Call before creating a player.
 LYCHEE_EXPORT void lychee_testing_enable_virtual_time(void);
+// Uses the silent audio device on either clock. Call before creating players,
+// then pull it with lychee_testing_render_audio() on an audio thread in real
+// time (virtual time already pulls it in lychee_testing_set_time()).
+LYCHEE_EXPORT void lychee_testing_enable_null_audio(void);
+// Renders silent devices up to lychee_now_us(). Safe alongside player teardown.
+LYCHEE_EXPORT void lychee_testing_render_audio(void);
 // Moves virtual time forward to |now_us|, rendering the audio due by then.
 LYCHEE_EXPORT void lychee_testing_set_time(int64_t now_us);
 // Non-zero if |player| can play on to |until_us| without waiting for its
@@ -34,10 +40,20 @@ LYCHEE_EXPORT void lychee_testing_hang_video_decoder(lychee_player* player);
 // Non-zero: every player's audio device stops pulling audio, as one that
 // fails to start or stops; zero: it pulls again.
 LYCHEE_EXPORT void lychee_testing_stall_audio_devices(int32_t stalled);
+// The next |count| audio device starts fail, as iOS refuses them in the
+// background; the player retries.
+LYCHEE_EXPORT void lychee_testing_fail_audio_starts(int32_t count);
 // In virtual time: when the silent device first played a sample above a
 // quiet level (lychee_now_us() timebase), or INT64_MIN. With the volume
 // up, where a clip's sound starts, for its A/V sync.
 LYCHEE_EXPORT int64_t lychee_testing_first_sound_us(void);
+// From now on, records what the silent devices play, mixed on the
+// lychee_now_us() timeline, with silence where none plays: what a sound
+// card would output, for tool/audio_check.py.
+LYCHEE_EXPORT void lychee_testing_capture_audio(void);
+// Writes that recording to |wav_path| (48 kHz stereo, 32-bit float WAV).
+// Returns 0 on success.
+LYCHEE_EXPORT int32_t lychee_testing_write_captured_audio(const char* wav_path);
 
 // A file replayed as a live input: its default video and audio streams,
 // in file order, as lychee_player_push_live_packet() takes them (Annex B

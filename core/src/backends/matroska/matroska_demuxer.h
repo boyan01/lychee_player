@@ -52,6 +52,7 @@ class MatroskaDemuxer : public Demuxer {
     bool needs_dts = false;
     // Nanoseconds; 0 if unknown.
     int64_t default_duration = 0;
+    bool audio = false;
     // Microseconds the audio decoder outputs before the first sample:
     // block timestamps are later by as much.
     int64_t codec_delay = 0;
@@ -116,7 +117,8 @@ class MatroskaDemuxer : public Demuxer {
                   size_t size,
                   bool simple,
                   bool reference,
-                  int64_t duration_ticks);
+                  int64_t duration_ticks,
+                  int64_t discard_padding = 0);
   // Sets the dts of unresolved packets that can be resolved now; all of
   // them at the end of the input.
   void ResolveDts(bool all);
