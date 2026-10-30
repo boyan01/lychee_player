@@ -22,7 +22,9 @@ finished item locally.
 Finish a feature on every platform it applies to (macOS, iOS, Android,
 Windows, Linux) in one piece of work, not one platform per round: this Mac
 runs the iOS simulator and the Android emulator, and reaches the Windows
-PC, WSL and the Ubuntu VM through the `flutter-remote-test` skill. Leave a
+PC, WSL and the Ubuntu VM through the `flutter-remote-test` skill (for
+a fix that is not that platform's own code, CI covers Windows and
+Linux; "Verifying a change" has the budget). Leave a
 platform in `docs/roadmap.md` only for the part that needs the user's
 hands, and say there exactly what that is. Likewise, take the items that
 need no hands together, rather than one per session.
@@ -140,6 +142,35 @@ between only adds a slow build and the texture bridge, which has tests of
 its own. `tool/changes.sh` names the areas a branch touches (against
 `main`, uncommitted files included); CI runs its jobs for the same areas.
 
+Checks cost the user's time. Pick them by what the change could break,
+not by which files it touches: the per-area list below is the most an
+area ever needs, not a checklist for every change.
+
+- Run the checks that would fail if this change were wrong, and no
+  others. A small fix gets a check of what it fixed: one regression case,
+  or one test. For test and tool scripts, check syntax and exercise the
+  changed behavior using the smallest relevant case or safe subcommand.
+  Scripts that change build outputs also need a targeted check of the
+  affected output. For workflows, follow the orchestration and build-output
+  rules under **packaging** below.
+- Local checks for a small change should take minutes, about five. Past
+  that, ask whether what is left can catch a bug this change introduces;
+  if not, commit and leave it to CI.
+- Leave to CI what CI runs: TSan and ASan, the core on Linux and Windows,
+  `swift test`, the Android emulator job, Rust. Run one locally only when
+  the change is about what it checks (threads: TSan; buffers, parsers:
+  ASan), or CI failed on it. Use the Windows PC and the Linux machines
+  only for native code of that platform (`examples/glfw`, the plugins
+  there, D3D11, VAAPI).
+- Run each check once per version of the code: edits to docs, comments
+  or the commit message do not reopen verification, and a check that
+  passed is not rerun to be sure.
+- Do not wait for CI before reporting: commit (and push, if asked), name
+  the CI jobs still running, and end the turn.
+- `tool/release.sh check`, `tool/soak.sh`, `tool/fuzz.sh`,
+  `tool/bench.sh` and the full regression on several platforms are for
+  the changes the list below names and for releases, not for small fixes.
+
 Drive every app from its command line: the CLI, the native harnesses and
 the Flutter example take the file or URL as an argument, `--seconds N`
 to quit by themselves, and print a `summary:` line (decoder, `hw`,
@@ -238,11 +269,14 @@ The layers, lowest first:
    drops frames to the Dart JIT whatever the plugin does.
 6. **Packaging**: only for changes to how releases are built.
 
-What each area needs (run `tool/changes.sh`):
+What each area needs at most (run `tool/changes.sh`; the budget above
+decides how much of it a change needs):
 
 - **core**: build and run the unit tests plus the cases the change
   touches (`ONLY=...`, seconds) while iterating; the full
-  `tool/regression.sh` once, when done, with zero build warnings
+  `tool/regression.sh` once, when done, for changes that reach beyond
+  those cases (shared pipeline code, the C API; a contained fix leaves
+  it to CI), with zero build warnings
   (`-Wall -Wextra` and more, MSVC `/W4`, `core/CMakeLists.txt`; GCC,
   clang and MSVC differ, so a Linux or Windows run can find what macOS
   does not; the plugins' and the Android SDK's builds of the core make
@@ -338,12 +372,16 @@ What each area needs (run `tool/changes.sh`):
   flutter/example` with `--seconds N FILE`), its `summary:` line
   rendering at the video's rate.
 - **packaging** (`tool/release.sh`, `flutter/prebuilt.json`, the
-  podspec's or the plugin Gradle's download, `Package.swift`, the release
-  workflows): run the release steps into a scratch directory (README,
-  "Releases"), ending with `tool/release.sh check`, which builds a fresh
-  macOS, iOS-simulator and Android app against the packed package with
-  the assets served locally (Apple with CocoaPods and with Swift Package
-  Manager); then `git checkout` the pins it wrote.
+  podspec's or the plugin Gradle's download, `Package.swift`): when the
+  change alters what is packed or how consumers fetch it, run the release
+  steps into a scratch directory (README, "Releases"), ending with
+  `tool/release.sh check`, which builds a fresh macOS, iOS-simulator and
+  Android app against the packed package with the assets served locally
+  (Apple with CocoaPods and with Swift Package Manager); then `git
+  checkout` the pins it wrote. Workflow orchestration changes (jobs,
+  order, triggers, inputs, secrets) need `actionlint` and diff review.
+  Changes to build commands, flags, or packaged files also need a
+  targeted check of the affected output.
 
 Before committing C, C++ or Objective-C++, run `tool/format.sh`: it
 formats the lines the branch changed (`.clang-format`, Chromium style;
