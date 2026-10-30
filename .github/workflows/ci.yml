@@ -22,8 +22,8 @@ jobs:
           distribution: temurin
           java-version: 21
       - name: Install tools
-        # meson builds dav1d into FFmpeg (tool/build_ffmpeg.sh).
-        run: sudo apt-get install -y meson ninja-build pkg-config
+        # meson builds dav1d; the emulator's version check links PulseAudio.
+        run: sudo apt-get install -y meson ninja-build pkg-config libpulse0
       - name: Install Android CLI and pinned emulator
         # Use the versioned CLI itself, not its auto-updating launcher.
         run: |
