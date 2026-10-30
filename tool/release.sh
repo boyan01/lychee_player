@@ -224,7 +224,7 @@ cmd_pack() {
       v="$(version)"
       for artifact in lychee lychee-ffmpeg; do
         for f in "$artifact-$v.aar" "$artifact-$v.pom" "$artifact-$v-sources.jar" "$artifact-$v-javadoc.jar"; do
-          cp "$root/sdk/android/build/repo/tech/soit/lychee/$artifact/$v/$f" "$out/" ||
+          cp "$root/sdk/android/build/repo/io/github/boyan01/lychee/$artifact/$v/$f" "$out/" ||
             die "no $f; run tool/release.sh build android"
         done
       done
@@ -399,12 +399,12 @@ cmd_check() {
   echo "== Android native SDK (base and optional FFmpeg, with R8)"
   local sdk_repo="$tmp/android-maven" artifact suffix name
   for artifact in lychee lychee-ffmpeg; do
-    mkdir -p "$sdk_repo/tech/soit/lychee/$artifact/$v"
+    mkdir -p "$sdk_repo/io/github/boyan01/lychee/$artifact/$v"
     for suffix in aar pom; do
       name="$artifact-$v.$suffix"
       pinned="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["files"][sys.argv[2]])' "$manifest" "$name")"
       [ "$(sha256 "$out/$name")" = "$pinned" ] || die "$name does not match its pin"
-      cp "$out/$name" "$sdk_repo/tech/soit/lychee/$artifact/$v/"
+      cp "$out/$name" "$sdk_repo/io/github/boyan01/lychee/$artifact/$v/"
     done
   done
   (cd "$root" && LYCHEE_ANDROID_REPO="$sdk_repo" LYCHEE_ANDROID_BUILD_ONLY=1 \

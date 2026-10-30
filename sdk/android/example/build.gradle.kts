@@ -33,13 +33,13 @@ dependencies {
         ?: Regex("""(?m)^version: (\S+)""")
             .find(rootDir.resolve("../../flutter/pubspec.yaml").readText())!!.groupValues[1]
     if (published) {
-        implementation("tech.soit.lychee:lychee:$sdkVersion")
+        implementation("io.github.boyan01.lychee:lychee:$sdkVersion")
     } else {
         implementation(project(":lychee"))
     }
     if (providers.gradleProperty("lychee.example.ffmpeg").orNull == "true") {
         if (published) {
-            implementation("tech.soit.lychee:lychee-ffmpeg:$sdkVersion")
+            implementation("io.github.boyan01.lychee:lychee-ffmpeg:$sdkVersion")
         } else {
             implementation(project(":ffmpeg"))
         }

@@ -490,7 +490,7 @@ phones stay local.
 - Homebrew's FFmpeg is a GPL build and is linked only by the core's own
   CMake build (CLI, GLFW example, `tool/regression.sh`), for development.
 - The Flutter plugin's Android side compiles no C++: it takes the core and
-  the frame driver from the AAR `tech.soit.lychee:lychee`, which
+  the frame driver from the AAR `io.github.boyan01.lychee:lychee`, which
   `sdk/android/gradlew -p sdk/android :lychee:publish` puts into
   `sdk/android/build/repo`. After changing `core/` or `sdk/android`, rerun
   it before building the Flutter example for Android, or the example runs

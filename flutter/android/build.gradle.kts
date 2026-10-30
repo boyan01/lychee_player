@@ -18,8 +18,8 @@ buildscript {
     }
 }
 
-// The core comes from the Android SDK's AAR, tech.soit.lychee:lychee
-// (liblychee.so with its FFmpeg, and the frame driver). In this repository
+// The core comes from the Android SDK's AAR, io.github.boyan01.lychee:lychee
+// (the FFmpeg-free liblychee.so and the frame driver). In this repository
 // that is sdk/android/build/repo, from `sdk/android/gradlew -p sdk/android
 // :lychee:publish`; otherwise the release that ../prebuilt.json pins
 // (tool/release.sh), downloaded once into ~/.cache/lychee_player as a Maven
@@ -47,7 +47,7 @@ fun fetchPrebuiltAar(): Pair<File, String> {
         ?: File(System.getProperty("user.home"), ".cache")
     val repo = File(cacheHome, "lychee_player/$tag/maven")
     val version = tag.removePrefix("v")
-    val dir = File(repo, "tech/soit/lychee/lychee/$version")
+    val dir = File(repo, "io/github/boyan01/lychee/lychee/$version")
     fun sha256(f: File) = MessageDigest.getInstance("SHA-256")
         .digest(f.readBytes()).joinToString("") { "%02x".format(it) }
     for (name in listOf("lychee-$version.aar", "lychee-$version.pom")) {
@@ -117,7 +117,7 @@ android {
 }
 
 dependencies {
-    implementation("tech.soit.lychee:lychee:$lycheeVersion")
+    implementation("io.github.boyan01.lychee:lychee:$lycheeVersion")
 }
 
 kotlin {

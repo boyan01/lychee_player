@@ -11,9 +11,9 @@ What each artifact contains:
   libsw*.xcframework next to it: the lychee core, which includes code
   ported from Chromium (1), linked dynamically against FFmpeg (2) under the
   LGPL version 2.1 or later, which contains dav1d (4).
-- The base Android AAR (tech.soit.lychee:lychee): the lychee core, which
+- The base Android AAR (io.github.boyan01.lychee:lychee): the lychee core, which
   includes code ported from Chromium (1), without FFmpeg.
-- The optional Android AAR (tech.soit.lychee:lychee-ffmpeg): the lychee
+- The optional Android AAR (io.github.boyan01.lychee:lychee-ffmpeg): the lychee
   FFmpeg backend, linked dynamically against FFmpeg (2) under the LGPL
   version 2.1 or later; FFmpeg contains dav1d (4).
 - The Flutter plugin on Windows: the lychee core (1), compiled from

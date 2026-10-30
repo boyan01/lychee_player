@@ -21,7 +21,7 @@ version="$(sed -nE 's/^version: (.+)$/\1/p' "$root/flutter/pubspec.yaml")"
 python3 -I - "$repo" "$version" <<'PY'
 import pathlib, sys, zipfile, xml.etree.ElementTree as ET
 repo, version = pathlib.Path(sys.argv[1]), sys.argv[2]
-base = repo / "tech/soit/lychee"
+base = repo / "io/github/boyan01/lychee"
 for artifact in ("lychee", "lychee-ffmpeg"):
     path = base / artifact / version
     with zipfile.ZipFile(path / f"{artifact}-{version}.aar") as aar:
@@ -38,7 +38,7 @@ for artifact in ("lychee", "lychee-ffmpeg"):
         pom = ET.parse(path / f"{artifact}-{version}.pom")
         deps = [(d.findtext("m:groupId", namespaces=ns), d.findtext("m:artifactId", namespaces=ns),
                  d.findtext("m:version", namespaces=ns)) for d in pom.findall("m:dependencies/m:dependency", ns)]
-        assert ("tech.soit.lychee", "lychee", version) in deps, deps
+        assert ("io.github.boyan01.lychee", "lychee", version) in deps, deps
 print("ok: both AARs' ABIs, library ownership and published dependency")
 PY
 

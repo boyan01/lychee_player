@@ -20,7 +20,8 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 
-GROUP_PATH = "tech/soit/lychee"
+GROUP_ID = "io.github.boyan01.lychee"
+GROUP_PATH = GROUP_ID.replace(".", "/")
 ARTIFACTS = ("lychee", "lychee-ffmpeg")
 BASE_URL = "https://central.sonatype.com/api/v1/publisher"
 NAMESPACE = {"m": "http://maven.apache.org/POM/4.0.0"}
@@ -41,7 +42,7 @@ def validate_publication(files, version):
         if name.endswith(".pom"):
             root = ET.fromstring(data)
             value = lambda path: root.findtext("m:" + path.replace("/", "/m:"), namespaces=NAMESPACE)
-            for field, expected in (("groupId", "tech.soit.lychee"),
+            for field, expected in (("groupId", GROUP_ID),
                                     ("artifactId", artifact), ("version", version),
                                     ("packaging", "aar")):
                 if value(field) != expected:
@@ -53,7 +54,7 @@ def validate_publication(files, version):
                     raise ValueError(f"{name}: missing {field}")
             if artifact == "lychee-ffmpeg":
                 dependencies = root.findall("m:dependencies/m:dependency", NAMESPACE)
-                if not any(d.findtext("m:groupId", namespaces=NAMESPACE) == "tech.soit.lychee"
+                if not any(d.findtext("m:groupId", namespaces=NAMESPACE) == GROUP_ID
                            and d.findtext("m:artifactId", namespaces=NAMESPACE) == "lychee"
                            and d.findtext("m:version", namespaces=NAMESPACE) == version
                            for d in dependencies):

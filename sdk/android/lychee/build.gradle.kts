@@ -1,6 +1,6 @@
 import org.jetbrains.dokka.gradle.tasks.DokkaGeneratePublicationTask
 
-// The AAR tech.soit.lychee:lychee: the core as liblychee.so (also a prefab
+// The AAR io.github.boyan01.lychee:lychee: the core as liblychee.so (also a prefab
 // module, for native callers of the C ABI), without FFmpeg, and the Kotlin
 // LycheePlayer, LycheeFrameDriver and LycheePlayerView over it.
 //
@@ -135,7 +135,7 @@ apply(from = rootProject.file("publishing.gradle.kts"))
 publishing {
     publications {
         register<MavenPublication>("release") {
-            groupId = "tech.soit.lychee"
+            groupId = "io.github.boyan01.lychee"
             artifactId = "lychee"
             version = lycheeVersion
             afterEvaluate {

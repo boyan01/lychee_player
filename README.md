@@ -371,12 +371,12 @@ the simulator reads `/tmp` of the Mac.
 `sdk/android` builds two complementary AARs (minSdk 26), both with
 `armeabi-v7a`, `arm64-v8a` and `x86_64`:
 
-- `tech.soit.lychee:lychee`: the FFmpeg-free core as `liblychee.so`,
+- `io.github.boyan01.lychee:lychee`: the FFmpeg-free core as `liblychee.so`,
   Kotlin's `LycheePlayer`, `LycheeFrameDriver` and `LycheePlayerView`.
   MP4, Matroska/WebM, MPEG-TS and HLS use the own demuxers, and Android's
   MediaCodec supplies hardware and software audio/video decoders. The core
   is also a Prefab module (`lychee`, header `lychee/lychee.h`) for C ABI callers.
-- `tech.soit.lychee:lychee-ffmpeg`: the optional FFmpeg backend and its
+- `io.github.boyan01.lychee:lychee-ffmpeg`: the optional FFmpeg backend and its
   LGPL shared libraries. It depends on the matching base AAR and contains
   no second player core. Build FFmpeg first with
   `tool/build_ffmpeg.sh android-arm64-v8a SRC`, `android-armeabi-v7a`
@@ -407,8 +407,8 @@ FFmpeg (the two coordinates must have the same version):
 
 ```kotlin
 dependencies {
-    implementation("tech.soit.lychee:lychee:$lycheeVersion")
-    implementation("tech.soit.lychee:lychee-ffmpeg:$lycheeVersion") // Optional.
+    implementation("io.github.boyan01.lychee:lychee:$lycheeVersion")
+    implementation("io.github.boyan01.lychee:lychee-ffmpeg:$lycheeVersion") // Optional.
 }
 
 // Application.onCreate(), before any player (including C ABI/Flutter players).
@@ -708,12 +708,11 @@ on the package's pub.dev Admin page (repository `boyan01/lychee_player`,
 tag pattern `v{{version}}`, environment `pub.dev`).
 
 The Android publications can also be sent to Maven Central after the
-corresponding GitHub release exists. Both use the `tech.soit.lychee`
-group; verify the `tech.soit` namespace in the Central Portal first.
-Central currently requires a manual ownership review for this namespace.
-Contact `central-support@sonatype.com` with the Portal account and project
-URL, and offer to prove control of `soit.tech` through DNS. Do not add a
-TXT record until Central supplies its verification value.
+corresponding GitHub release exists. Both use the
+`io.github.boyan01.lychee` group under the GitHub-verified
+`io.github.boyan01` namespace. No custom domain or DNS verification is
+needed. Maven coordinates do not change Kotlin package names: imports
+remain `tech.soit.lychee.*`.
 
 The Gradle `publish` tasks write only to the local repository. Each
 publication includes its AAR, POM, Kotlin/native sources and generated
@@ -721,6 +720,9 @@ Dokka API documentation. `tool/release.sh pack android` includes all
 eight files, and `pin` records their SHA-256 hashes. The separate
 `Maven Central` workflow downloads those exact release assets, checks
 their hashes, signs them and submits both AARs in one deployment.
+Create a new release containing these publications first; older tags
+whose assets use the previous coordinates or omit sources/documentation
+cannot be used by this workflow.
 
 Configure four repository secrets before running that workflow:
 

@@ -43,11 +43,11 @@ class CentralTest(unittest.TestCase):
         self.addCleanup(self.environment.stop)
         for artifact, name in central.filenames(VERSION):
             if name.endswith(".pom"):
-                dependency = (f"<dependencies><dependency><groupId>tech.soit.lychee</groupId>"
+                dependency = (f"<dependencies><dependency><groupId>io.github.boyan01.lychee</groupId>"
                               f"<artifactId>lychee</artifactId><version>{VERSION}</version>"
                               "</dependency></dependencies>" if artifact == "lychee-ffmpeg" else "")
                 data = (f'<project xmlns="http://maven.apache.org/POM/4.0.0">'
-                        f"<groupId>tech.soit.lychee</groupId><artifactId>{artifact}</artifactId>"
+                        f"<groupId>io.github.boyan01.lychee</groupId><artifactId>{artifact}</artifactId>"
                         f"<version>{VERSION}</version><packaging>aar</packaging>"
                         "<name>Lychee</name><description>Media player</description>"
                         "<url>https://github.com/boyan01/lychee_player</url>"
@@ -86,11 +86,11 @@ class CentralTest(unittest.TestCase):
             central.check_bundle(self.output, VERSION, unsigned=True)
         with zipfile.ZipFile(self.output) as result:
             self.assertEqual(len(result.namelist()), 40)
-            self.assertTrue(all(name.startswith("tech/soit/lychee/") for name in result.namelist()))
+            self.assertTrue(all(name.startswith("io/github/boyan01/lychee/") for name in result.namelist()))
 
     def test_corrupted_artifact_is_rejected(self):
         self.bundle()
-        name = f"tech/soit/lychee/lychee/{VERSION}/lychee-{VERSION}.aar"
+        name = f"io/github/boyan01/lychee/lychee/{VERSION}/lychee-{VERSION}.aar"
         self.rewrite(name, b"changed")
         with self.assertRaisesRegex(ValueError, "checksum"):
             central.check_bundle(self.output, VERSION, unsigned=True)
@@ -99,7 +99,7 @@ class CentralTest(unittest.TestCase):
         for duplicate in (False, True):
             with self.subTest(duplicate=duplicate):
                 self.bundle()
-                name = (f"tech/soit/lychee/lychee/{VERSION}/lychee-{VERSION}.aar"
+                name = (f"io/github/boyan01/lychee/lychee/{VERSION}/lychee-{VERSION}.aar"
                         if duplicate else "unexpected.txt")
                 with zipfile.ZipFile(self.output) as source:
                     data = source.read(name) if duplicate else b"unexpected"
@@ -119,6 +119,12 @@ class CentralTest(unittest.TestCase):
             f"<artifactId>lychee</artifactId><version>{VERSION}</version>",
             "<artifactId>lychee</artifactId><version>0.1.0</version>"))
         with self.assertRaisesRegex(ValueError, "matching base dependency"):
+            self.bundle()
+
+    def test_legacy_coordinates_are_rejected(self):
+        path = self.directory / f"lychee-{VERSION}.pom"
+        path.write_text(path.read_text().replace("io.github.boyan01.lychee", "tech.soit.lychee"))
+        with self.assertRaisesRegex(ValueError, "incorrect groupId"):
             self.bundle()
 
     def test_snapshot_and_path_versions_are_rejected(self):
@@ -157,7 +163,7 @@ class CentralTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             central.bundle(self.directory, VERSION, self.output)
             central.check_bundle(self.output, VERSION)
-        name = f"tech/soit/lychee/lychee/{VERSION}/lychee-{VERSION}.pom.asc"
+        name = f"io/github/boyan01/lychee/lychee/{VERSION}/lychee-{VERSION}.pom.asc"
         self.rewrite(name, b"invalid signature")
         with self.assertRaisesRegex(ValueError, "GPG operation failed"):
             central.check_bundle(self.output, VERSION)

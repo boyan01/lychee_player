@@ -98,7 +98,7 @@ apply(from = rootProject.file("publishing.gradle.kts"))
 publishing {
     publications {
         register<MavenPublication>("release") {
-            groupId = "tech.soit.lychee"
+            groupId = "io.github.boyan01.lychee"
             artifactId = "lychee-ffmpeg"
             version = lycheeVersion
             afterEvaluate { from(components["release"]) }
