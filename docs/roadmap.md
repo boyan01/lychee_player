@@ -160,7 +160,7 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    the Linux jobs in `ubuntu:22.04` containers once GitHub retires those
    runner images.
 3. **Native SDKs**: drop the pod and the plugin's copy of
-   `LycheeFrameDriver` (`LycheeTexture`) once Flutter drops CocoaPods;
+   `LycheeFrameDriver` (`LycheePortedFrameDriver`) once Flutter drops CocoaPods;
    the Rust crates on crates.io (and their badge in the README).
    Windows and Linux native users
    take the C ABI as it is.

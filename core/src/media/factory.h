@@ -46,6 +46,12 @@ std::shared_ptr<void> RetainVideoSurface(void* surface);
 
 std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders();
 
+// lychee_codec_supported(): 1 if a decoder of this build decodes |codec|
+// on this device (with hardware if |hardware|), 0 if none does, -1 if
+// that is not known before a stream opens.
+int VideoCodecSupported(VideoCodec codec, bool hardware);
+int AudioCodecSupported(AudioCodec codec);
+
 std::unique_ptr<AudioSink> CreateAudioSink();
 
 // Chooses the silent sink without changing the clock. Call before creating

@@ -45,6 +45,22 @@ ComPtr<IMFTransform> CreateDecoderMft(const GUID& subtype) {
   return decoder;
 }
 
+// The input subtype for |codec|, or GUID_NULL.
+GUID Subtype(VideoCodec codec) {
+  switch (codec) {
+    case VideoCodec::kH264:
+      return MFVideoFormat_H264;
+    case VideoCodec::kHEVC:
+      return MFVideoFormat_HEVC;
+    case VideoCodec::kVP9:
+      return MFVideoFormat_VP90;
+    case VideoCodec::kAV1:
+      return MFVideoFormat_AV1;
+    default:
+      return GUID_NULL;
+  }
+}
+
 // The H.273 code points of what the decoder read from the stream, over
 // what the container said.
 ColorInfo OutputColor(IMFMediaType* type, ColorInfo color) {
@@ -104,6 +120,13 @@ MFVideoDecoder::MFVideoDecoder(uint32_t accepted_storage,
           (accepted_storage &
            static_cast<uint32_t>(VideoFrameStorage::kD3D11TextureHdr))) {}
 
+// static
+bool MFVideoDecoder::CanDecode(VideoCodec codec) {
+  const GUID subtype = Subtype(codec);
+  return subtype != GUID_NULL && StartMediaFoundation() &&
+         CreateDecoderMft(subtype) != nullptr;
+}
+
 MFVideoDecoder::~MFVideoDecoder() {
   if (decoder_) {
     decoder_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
@@ -111,23 +134,10 @@ MFVideoDecoder::~MFVideoDecoder() {
 }
 
 bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
-  GUID subtype = GUID_NULL;
-  switch (config.codec) {
-    case VideoCodec::kH264:
-      subtype = MFVideoFormat_H264;
-      break;
-    case VideoCodec::kHEVC:
-      subtype = MFVideoFormat_HEVC;
-      break;
-    case VideoCodec::kVP9:
-      subtype = MFVideoFormat_VP90;
-      break;
-    case VideoCodec::kAV1:
-      subtype = MFVideoFormat_AV1;
-      break;
-    default:
-      *error = "mediafoundation: unsupported video codec";
-      return false;
+  const GUID subtype = Subtype(config.codec);
+  if (subtype == GUID_NULL) {
+    *error = "mediafoundation: unsupported video codec";
+    return false;
   }
   const bool nal_units =
       config.codec == VideoCodec::kH264 || config.codec == VideoCodec::kHEVC;

@@ -1,4 +1,5 @@
 #include "include/lychee_player/lychee_player_plugin.h"
+#include "include/lychee_player/lychee_host_texture.h"
 
 // libepoxy before anything that includes GL headers.
 #include <epoxy/egl.h>
@@ -18,11 +19,13 @@
 #include <string>
 #include <vector>
 
-// Bridges one lychee_player to a Flutter GL texture. The view's frame clock
-// ticks once per display refresh on the GTK main thread; each tick asks the
-// player whether the frame for that refresh is new, and if so tells
-// Flutter, which then pulls it through populate on its raster thread. The
-// mutex keeps the two threads and disposal apart.
+// Bridges a lychee_player to a Flutter GL texture: one Dart created
+// (createTexture), or players the app sets on a host texture
+// (lychee_host_texture.h), one at a time. While a player is set, the view's
+// frame clock ticks once per display refresh on the GTK main thread; each
+// tick asks the player whether the frame for that refresh is new, and if so
+// tells Flutter, which then pulls it through populate on its raster thread.
+// The mutex keeps the two threads and the player changing apart.
 //
 // populate runs in Flutter's EGL render context and draws the frame into
 // one RGBA texture: CPU frames are uploaded, and hardware-decoded dmabuf
@@ -390,11 +393,15 @@ struct _LycheeTexture {
   FlTextureGL parent_instance;
 
   GMutex mutex;
-  lychee_player* player;      // Guarded by mutex; NULL once disposed.
+  lychee_player* player;      // Guarded by mutex; NULL for none.
   int64_t next_display_time;  // Guarded by mutex.
-  // The player it was created for, even after dispose: the plugin destroys
-  // it when Dart, which owns it, is gone.
+  // For the plugin's own textures, the player Dart created it for, even
+  // after it was unset: the plugin destroys it when Dart, which owns it, is
+  // gone. NULL for host textures, whose players the app owns.
   lychee_player* created_player;
+  // Flutter's DRM render node, set on each player; NULL without dmabuf
+  // import. Read-only after creation.
+  const char* render_node;
 
   // Raster thread only (and finalize). The frame drawn into |gl.output|:
   // the decoder must not reuse its buffers while the GPU may still read
@@ -415,7 +422,8 @@ struct _LycheeTexture {
   // Main thread only.
   FlTextureRegistrar* registrar;
   GtkWidget* view;  // Weak.
-  guint tick_id;
+  guint tick_id;    // While a player is set.
+  gboolean stopped;
 };
 
 G_DEFINE_TYPE(LycheeTexture, lychee_texture, fl_texture_gl_get_type())
@@ -678,7 +686,8 @@ static gboolean lychee_texture_populate(FlTextureGL* texture,
 
   lychee_frame* frame = nullptr;
   g_mutex_lock(&self->mutex);
-  if (self->player) {
+  const bool has_player = self->player != nullptr;
+  if (has_player) {
     int64_t display_time = self->next_display_time;
     const int64_t now = lychee_now_us();
     if (display_time < now) {
@@ -688,6 +697,22 @@ static gboolean lychee_texture_populate(FlTextureGL* texture,
   }
   g_mutex_unlock(&self->mutex);
 
+  if (!has_player && self->frame) {
+    // The player was unset: show nothing rather than its last frame.
+    static const uint8_t kTransparent[4] = {0, 0, 0, 0};
+    lychee_frame_release(self->frame);
+    self->frame = nullptr;
+    glBindTexture(GL_TEXTURE_2D, self->gl.output);
+    if (epoxy_gl_version() >= 30) {
+      glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+      glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 kTransparent);
+    self->width = 1;
+    self->height = 1;
+  }
   if (frame && self->frame &&
       FrameContents(frame) == FrameContents(self->frame)) {
     lychee_frame_release(frame);
@@ -766,47 +791,143 @@ static gboolean lychee_texture_on_tick(GtkWidget*,
   return G_SOURCE_CONTINUE;
 }
 
-static LycheeTexture* lychee_texture_new(lychee_player* player,
-                                         FlTextureRegistrar* registrar,
-                                         GtkWidget* view) {
+// The view whose frame clock paces textures of |registrar|'s engine, which
+// the plugin notes on the registrar when it registers.
+constexpr char kViewKey[] = "lychee-player-view";
+
+static void free_weak_ref(gpointer ref) {
+  g_weak_ref_clear(static_cast<GWeakRef*>(ref));
+  g_free(ref);
+}
+
+// Main thread.
+static LycheeTexture* lychee_texture_new(FlTextureRegistrar* registrar) {
   LycheeTexture* self =
       LYCHEE_TEXTURE(g_object_new(lychee_texture_get_type(), nullptr));
-  self->player = player;
-  self->created_player = player;
   self->registrar = registrar;
   // Hardware-decoded frames then come as dmabufs on Flutter's GPU.
-  if (const char* node = DmabufRenderNode()) {
-    lychee_video_device video_device = {};
-    video_device.struct_size = sizeof(video_device);
-    video_device.type = LYCHEE_VIDEO_DEVICE_DRM_RENDER_NODE;
-    video_device.path = node;
-    lychee_player_set_video_device(player, &video_device);
-  }
+  self->render_node = DmabufRenderNode();
+  auto* view_ref =
+      static_cast<GWeakRef*>(g_object_get_data(G_OBJECT(registrar), kViewKey));
+  g_autoptr(GObject) view =
+      view_ref ? static_cast<GObject*>(g_weak_ref_get(view_ref)) : nullptr;
   if (view) {
-    self->view = view;
-    g_object_add_weak_pointer(G_OBJECT(view),
-                              reinterpret_cast<gpointer*>(&self->view));
-    self->tick_id = gtk_widget_add_tick_callback(view, lychee_texture_on_tick,
-                                                 self, nullptr);
+    self->view = GTK_WIDGET(view);
+    g_object_add_weak_pointer(view, reinterpret_cast<gpointer*>(&self->view));
   } else {
     g_warning("lychee_player: no Flutter view, video will not update");
   }
   return self;
 }
 
-// Main thread. After this returns the player is never touched again and may
-// be destroyed.
-static void lychee_texture_dispose_player(LycheeTexture* self) {
+// Any thread. After this returns, the previous player is never touched
+// again and may be destroyed: the tick and populate use the player only
+// under the mutex.
+static void lychee_texture_swap_player(LycheeTexture* self,
+                                       lychee_player* player) {
+  if (player && self->render_node) {
+    lychee_video_device video_device = {};
+    video_device.struct_size = sizeof(video_device);
+    video_device.type = LYCHEE_VIDEO_DEVICE_DRM_RENDER_NODE;
+    video_device.path = self->render_node;
+    lychee_player_set_video_device(player, &video_device);
+  }
+  g_mutex_lock(&self->mutex);
+  self->player = player;
+  g_mutex_unlock(&self->mutex);
+}
+
+// Main thread: ticks while a player is set, and redraws, so the new
+// player's frames or nothing show.
+static gboolean lychee_texture_update(gpointer user_data) {
+  LycheeTexture* self = LYCHEE_TEXTURE(user_data);
+  if (self->stopped) {
+    return G_SOURCE_REMOVE;
+  }
+  g_mutex_lock(&self->mutex);
+  const bool has_player = self->player != nullptr;
+  g_mutex_unlock(&self->mutex);
+  if (!self->view) {
+    // The view is gone and took its tick callbacks with it.
+    self->tick_id = 0;
+  } else if (has_player && !self->tick_id) {
+    self->tick_id = gtk_widget_add_tick_callback(
+        self->view, lychee_texture_on_tick, self, nullptr);
+  } else if (!has_player && self->tick_id) {
+    gtk_widget_remove_tick_callback(self->view, self->tick_id);
+    self->tick_id = 0;
+  }
+  fl_texture_registrar_mark_texture_frame_available(self->registrar,
+                                                    FL_TEXTURE(self));
+  return G_SOURCE_REMOVE;
+}
+
+// Main thread, before unregistering: no tick and no update from now on.
+static void lychee_texture_stop(LycheeTexture* self) {
+  self->stopped = TRUE;
   if (self->view) {
     // Tick callbacks run on this thread, so none is running now.
-    gtk_widget_remove_tick_callback(self->view, self->tick_id);
+    if (self->tick_id) {
+      gtk_widget_remove_tick_callback(self->view, self->tick_id);
+    }
     g_object_remove_weak_pointer(G_OBJECT(self->view),
                                  reinterpret_cast<gpointer*>(&self->view));
     self->view = nullptr;
   }
-  g_mutex_lock(&self->mutex);
-  self->player = nullptr;
-  g_mutex_unlock(&self->mutex);
+  self->tick_id = 0;
+}
+
+static gboolean release_texture(gpointer texture) {
+  g_object_unref(texture);
+  return G_SOURCE_REMOVE;
+}
+
+// Main thread. Stops |self| and unregisters it.
+static void lychee_texture_retire(LycheeTexture* self) {
+  lychee_texture_swap_player(self, nullptr);
+  lychee_texture_stop(self);
+  fl_texture_registrar_unregister_texture(self->registrar, FL_TEXTURE(self));
+  // The raster thread looks textures up without a reference and may still
+  // be inside populate; keep ours a while so it does not see the texture
+  // freed under it.
+  g_timeout_add_seconds(1, release_texture, self);
+}
+
+// --- Host textures (lychee_host_texture.h) ---------------------------------
+// A host texture is a LycheeTexture without a created_player.
+
+uint32_t lychee_host_texture_frame_types(void) {
+  // Dmabuf frames only come once the texture has found that Flutter's EGL
+  // display imports them; CPU frames otherwise, and for streams hardware
+  // decoding rejects.
+  return LYCHEE_FRAME_DMABUF | LYCHEE_FRAME_CPU_RGBA;
+}
+
+LycheeHostTexture* lychee_host_texture_new(FlTextureRegistrar* registrar) {
+  LycheeTexture* self = lychee_texture_new(registrar);
+  if (!fl_texture_registrar_register_texture(registrar, FL_TEXTURE(self))) {
+    lychee_texture_stop(self);
+    g_object_unref(self);
+    return nullptr;
+  }
+  return reinterpret_cast<LycheeHostTexture*>(self);
+}
+
+int64_t lychee_host_texture_get_id(LycheeHostTexture* texture) {
+  return fl_texture_get_id(FL_TEXTURE(texture));
+}
+
+void lychee_host_texture_set_player(LycheeHostTexture* texture,
+                                    lychee_player* player) {
+  LycheeTexture* self = reinterpret_cast<LycheeTexture*>(texture);
+  lychee_texture_swap_player(self, player);
+  // Runs at once on the main thread, else is queued to it.
+  g_main_context_invoke_full(nullptr, G_PRIORITY_DEFAULT, lychee_texture_update,
+                             g_object_ref(self), g_object_unref);
+}
+
+void lychee_host_texture_free(LycheeHostTexture* texture) {
+  lychee_texture_retire(reinterpret_cast<LycheeTexture*>(texture));
 }
 
 G_DECLARE_FINAL_TYPE(LycheePlayerPlugin,
@@ -817,9 +938,6 @@ G_DECLARE_FINAL_TYPE(LycheePlayerPlugin,
 
 struct _LycheePlayerPlugin {
   GObject parent_instance;
-  // Weak: the registrar owns the messenger, which owns this plugin through
-  // the channel handler; a strong reference would be a cycle.
-  GWeakRef view;
   FlTextureRegistrar* registrar;
   // Texture id -> LycheeTexture (owned).
   GHashTable* textures;
@@ -834,11 +952,6 @@ static gpointer texture_key(int64_t id) {
   return reinterpret_cast<gpointer>(static_cast<intptr_t>(id));
 }
 
-static gboolean release_texture(gpointer texture) {
-  g_object_unref(texture);
-  return G_SOURCE_REMOVE;
-}
-
 static FlMethodResponse* create_texture(LycheePlayerPlugin* self,
                                         FlValue* args) {
   FlValue* player_value = args && fl_value_get_type(args) == FL_VALUE_TYPE_MAP
@@ -850,16 +963,17 @@ static FlMethodResponse* create_texture(LycheePlayerPlugin* self,
   }
   auto* player =
       reinterpret_cast<lychee_player*>(fl_value_get_int(player_value));
-  g_autoptr(GObject) view = static_cast<GObject*>(g_weak_ref_get(&self->view));
-  LycheeTexture* texture = lychee_texture_new(
-      player, self->registrar, view ? GTK_WIDGET(view) : nullptr);
+  LycheeTexture* texture = lychee_texture_new(self->registrar);
   if (!fl_texture_registrar_register_texture(self->registrar,
                                              FL_TEXTURE(texture))) {
-    lychee_texture_dispose_player(texture);
+    lychee_texture_stop(texture);
     g_object_unref(texture);
     return FL_METHOD_RESPONSE(fl_method_error_response_new(
         "texture", "cannot register texture", nullptr));
   }
+  texture->created_player = player;
+  lychee_texture_swap_player(texture, player);
+  lychee_texture_update(texture);
   const int64_t id = fl_texture_get_id(FL_TEXTURE(texture));
   g_hash_table_insert(self->textures, texture_key(id), texture);
   g_autoptr(FlValue) result = fl_value_new_int(id);
@@ -875,15 +989,9 @@ static void destroy_orphan(lychee_player* player) {
 
 // Stops |texture|, already out of the table, pulling frames and unregisters
 // it. Returns its player.
-static lychee_player* retire_texture(LycheePlayerPlugin* self,
-                                     LycheeTexture* texture) {
+static lychee_player* retire_texture(LycheeTexture* texture) {
   lychee_player* player = texture->created_player;
-  lychee_texture_dispose_player(texture);
-  fl_texture_registrar_unregister_texture(self->registrar, FL_TEXTURE(texture));
-  // The raster thread looks textures up without a reference and may still
-  // be inside copy_pixels; keep ours a while so it does not see the texture
-  // freed under it.
-  g_timeout_add_seconds(1, release_texture, texture);
+  lychee_texture_retire(texture);
   return player;
 }
 
@@ -895,7 +1003,7 @@ static lychee_player* remove_texture(LycheePlayerPlugin* self, int64_t id) {
                                    &texture)) {
     return nullptr;
   }
-  return retire_texture(self, LYCHEE_TEXTURE(texture));
+  return retire_texture(LYCHEE_TEXTURE(texture));
 }
 
 // After a hot restart: the previous isolate's players are still playing.
@@ -906,7 +1014,7 @@ static void dispose_all(LycheePlayerPlugin* self) {
   g_hash_table_iter_init(&iter, self->textures);
   while (g_hash_table_iter_next(&iter, nullptr, &texture)) {
     g_hash_table_iter_steal(&iter);
-    destroy_orphan(retire_texture(self, LYCHEE_TEXTURE(texture)));
+    destroy_orphan(retire_texture(LYCHEE_TEXTURE(texture)));
   }
 }
 
@@ -946,7 +1054,8 @@ static void method_call_cb(FlMethodChannel*,
 
 // The engine is shutting down with textures Dart never disposed.
 static void dispose_texture_entry(gpointer texture) {
-  lychee_texture_dispose_player(LYCHEE_TEXTURE(texture));
+  lychee_texture_swap_player(LYCHEE_TEXTURE(texture), nullptr);
+  lychee_texture_stop(LYCHEE_TEXTURE(texture));
   destroy_orphan(LYCHEE_TEXTURE(texture)->created_player);
   g_object_unref(texture);
 }
@@ -955,7 +1064,6 @@ static void lychee_player_plugin_dispose(GObject* object) {
   LycheePlayerPlugin* self = LYCHEE_PLAYER_PLUGIN(object);
   g_clear_pointer(&self->textures, g_hash_table_unref);
   g_clear_object(&self->registrar);
-  g_weak_ref_clear(&self->view);
   G_OBJECT_CLASS(lychee_player_plugin_parent_class)->dispose(object);
 }
 
@@ -964,7 +1072,6 @@ static void lychee_player_plugin_class_init(LycheePlayerPluginClass* klass) {
 }
 
 static void lychee_player_plugin_init(LycheePlayerPlugin* self) {
-  g_weak_ref_init(&self->view, nullptr);
   self->textures = g_hash_table_new_full(g_direct_hash, g_direct_equal, nullptr,
                                          dispose_texture_entry);
 }
@@ -973,11 +1080,16 @@ void lychee_player_plugin_register_with_registrar(
     FlPluginRegistrar* registrar) {
   LycheePlayerPlugin* plugin = LYCHEE_PLAYER_PLUGIN(
       g_object_new(lychee_player_plugin_get_type(), nullptr));
-  // The runner creates the view before registering plugins; NULL when
-  // headless.
-  g_weak_ref_set(&plugin->view, fl_plugin_registrar_get_view(registrar));
   plugin->registrar = FL_TEXTURE_REGISTRAR(
       g_object_ref(fl_plugin_registrar_get_texture_registrar(registrar)));
+  // For every texture of this engine, the plugin's and the app's (the
+  // registrar is the engine's). The runner creates the view before
+  // registering plugins; NULL when headless. Weak: the registrar owns the
+  // messenger, which owns this plugin through the channel handler.
+  auto* view = static_cast<GWeakRef*>(g_malloc0(sizeof(GWeakRef)));
+  g_weak_ref_init(view, fl_plugin_registrar_get_view(registrar));
+  g_object_set_data_full(G_OBJECT(plugin->registrar), kViewKey, view,
+                         free_weak_ref);
 
   g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
   g_autoptr(FlMethodChannel) channel =

@@ -127,6 +127,16 @@ AVCodecID AVCodecIDFromAudioCodec(AudioCodec codec) {
   return AV_CODEC_ID_NONE;
 }
 
+bool FFmpegDecodes(VideoCodec codec) {
+  const AVCodecID id = AVCodecIDFromVideoCodec(codec);
+  return id != AV_CODEC_ID_NONE && avcodec_find_decoder(id) != nullptr;
+}
+
+bool FFmpegDecodes(AudioCodec codec) {
+  const AVCodecID id = AVCodecIDFromAudioCodec(codec);
+  return id != AV_CODEC_ID_NONE && avcodec_find_decoder(id) != nullptr;
+}
+
 namespace {
 
 void CopyExtradata(const std::vector<uint8_t>& extradata,

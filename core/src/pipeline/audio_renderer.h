@@ -32,15 +32,26 @@ namespace lychee {
 // fading the audio out, before the sink stops, and the audio after it
 // fades in. A loop's passes join without a fade.
 //
-// For a live input (|live_output_lead| set) the clock runs on its own and
-// audio timestamps are deadlines: each sample is played when it is due,
-// late ones are dropped and gaps are filled with silence. The renderer
-// stores in |live_output_lead| how far ahead of now the device consumes
-// audio, for the live timeline.
+// For a live input (|live| set) the clock runs on its own and audio
+// timestamps are deadlines: each sample is played when it is due, late ones
+// are dropped and gaps are filled with silence. The renderer reports into
+// |live| how far ahead of now the device consumes audio, for the live
+// timeline, and how much audio it dropped and filled.
 class AudioRenderer {
  public:
-  explicit AudioRenderer(MediaClock* clock,
-                         std::atomic<int64_t>* live_output_lead = nullptr);
+  // Live input: shared by the audio renderers of one open, so the counts
+  // go on across track changes.
+  struct Live {
+    // How far ahead of now the device consumes audio.
+    std::atomic<int64_t> output_lead{0};
+    // Microseconds of audio dropped as too late, and of silence played
+    // because no audio was due, from the first sample each renderer plays
+    // after its start or a flush (not the wait for the first audio).
+    std::atomic<int64_t> late{0};
+    std::atomic<int64_t> silence{0};
+  };
+
+  explicit AudioRenderer(MediaClock* clock, Live* live = nullptr);
   ~AudioRenderer();
 
   bool Initialize(const AudioConfig& config,
@@ -92,6 +103,7 @@ class AudioRenderer {
   bool HasError() const;
   // Decoded audio waiting to be played, in media time.
   int64_t buffered_duration() const;
+  const char* decoder_name() const;
 
   // Every renderer's device pulls nothing while |stalled|, as one that
   // fails to start or stops.
@@ -127,7 +139,7 @@ class AudioRenderer {
   int FramesBeforeEndLocked(double rate) const;
 
   MediaClock* const clock_;
-  std::atomic<int64_t>* const live_output_lead_;
+  Live* const live_;
   PacketQueue* queue_ = nullptr;
   std::unique_ptr<AudioSink> sink_;
   std::unique_ptr<AudioDecoder> decoder_;
@@ -147,6 +159,9 @@ class AudioRenderer {
   std::deque<std::shared_ptr<AudioBuffer>> live_buffers_;
   int live_offset_ = 0;
   int64_t live_frames_ = 0;
+  // A sample has played since the start or the last flush: silence from
+  // then on counts in |live_|.
+  bool live_started_ = false;
   uint64_t generation_ = 0;
   int64_t start_time_ = kNoTimestamp;
   int64_t end_time_ = kNoTimestamp;

@@ -165,6 +165,23 @@ int64_t lychee_now_us(void) {
   return lychee::NowMicros();
 }
 
+int32_t lychee_codec_supported(int32_t codec, int32_t hardware) {
+  switch (codec) {
+    case LYCHEE_CODEC_H264:
+      return lychee::VideoCodecSupported(lychee::VideoCodec::kH264,
+                                         hardware != 0);
+    case LYCHEE_CODEC_HEVC:
+      return lychee::VideoCodecSupported(lychee::VideoCodec::kHEVC,
+                                         hardware != 0);
+    case LYCHEE_CODEC_AAC:
+      return lychee::AudioCodecSupported(lychee::AudioCodec::kAAC);
+    case LYCHEE_CODEC_ALAC:
+      return lychee::AudioCodecSupported(lychee::AudioCodec::kALAC);
+    default:
+      return 0;
+  }
+}
+
 void lychee_set_log_level(int32_t level) {
   level = std::clamp(level, static_cast<int32_t>(LYCHEE_LOG_ERROR),
                      static_cast<int32_t>(LYCHEE_LOG_VERBOSE));
@@ -508,6 +525,12 @@ void lychee_player_get_stats(lychee_player* player, lychee_stats* stats) {
   result.video_buffered_us = player_stats.video_buffered;
   result.audio_buffered_us = player_stats.audio_buffered;
   result.video_decode_time_us = player_stats.video_decode_time;
+  snprintf(result.audio_decoder, sizeof(result.audio_decoder), "%s",
+           player_stats.audio_decoder);
+  result.live_video_packets_dropped = player_stats.live_video_packets_dropped;
+  result.live_audio_late_us = player_stats.live_audio_late;
+  result.live_audio_silence_us = player_stats.live_audio_silence;
+  result.live_audio_behind_us = player_stats.live_audio_behind;
   CopyOut(result, stats);
 }
 

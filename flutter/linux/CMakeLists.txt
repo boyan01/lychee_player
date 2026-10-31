@@ -86,23 +86,47 @@ set_target_properties(lychee PROPERTIES
   INSTALL_RPATH "$ORIGIN"
 )
 
+# For the app's own native code, which links the core as lychee::lychee
+# (directly, or through the plugin target that the runner links). A
+# consumer links liblychee_player.so, whose FFmpeg sits beside it; the
+# linker finds that only through -rpath-link.
+add_library(lychee::lychee ALIAS lychee)
+target_link_options(lychee INTERFACE "LINKER:-rpath-link,${_lychee_out}")
+
 # --- Plugin ---------------------------------------------------------------
 add_library(${PLUGIN_NAME} SHARED lychee_player_plugin.cc)
 apply_standard_settings(${PLUGIN_NAME})
+# Exports the registrant's entry point and lychee_host_texture.h only
+# (libstdc++'s templates have default visibility despite the preset).
+set(_lychee_plugin_exports "${CMAKE_CURRENT_BINARY_DIR}/lychee_player_plugin.map")
+file(WRITE "${_lychee_plugin_exports}" "{ global:
+  lychee_player_plugin_register_with_registrar;
+  lychee_host_texture_frame_types;
+  lychee_host_texture_new;
+  lychee_host_texture_get_id;
+  lychee_host_texture_set_player;
+  lychee_host_texture_free;
+local: *; };\n")
+target_link_options(${PLUGIN_NAME} PRIVATE
+  "-Wl,--version-script=${_lychee_plugin_exports}")
 set_target_properties(${PLUGIN_NAME} PROPERTIES
+  LINK_DEPENDS "${_lychee_plugin_exports}"
   CXX_VISIBILITY_PRESET hidden
   LIBRARY_OUTPUT_DIRECTORY "${_lychee_out}"
   BUILD_WITH_INSTALL_RPATH ON
   INSTALL_RPATH "$ORIGIN"
 )
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
+# The runner links this target (generated_plugins.cmake), so it gets the
+# plugin's headers and, for lychee_host_texture.h, the core's lychee.h and
+# library.
 target_include_directories(${PLUGIN_NAME} INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/include")
 # libepoxy for EGL and GL, as Flutter's Linux embedder uses it.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(EPOXY REQUIRED IMPORTED_TARGET epoxy)
-target_link_libraries(${PLUGIN_NAME} PRIVATE flutter PkgConfig::GTK
-  PkgConfig::EPOXY lychee)
+target_link_libraries(${PLUGIN_NAME} PUBLIC lychee
+  PRIVATE flutter PkgConfig::GTK PkgConfig::EPOXY)
 
 # Installed into the app's bundle/lib next to the plugin.
 set(lychee_player_bundled_libraries

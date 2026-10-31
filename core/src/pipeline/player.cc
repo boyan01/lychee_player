@@ -24,6 +24,8 @@ constexpr size_t kMaxQueuedBytes = size_t{64} * 1024 * 1024;
 // the tracks start later or end sooner: codec priming and padding (AAC's
 // 1024 samples, Opus's pre-skip, a duration rounded up), not content.
 constexpr int64_t kMaxLoopTrim = 100 * kMicrosPerMilli;
+// Live input logs its stats this often.
+constexpr int64_t kLiveLogInterval = 5 * kMicrosPerSecond;
 
 const char* StateName(PlayerState state) {
   switch (state) {
@@ -153,7 +155,10 @@ void Player::StopPipeline() {
   video_queue_.Reset(0);
   audio_queue_.Reset(0);
   clock_.Reset(0);
-  audio_output_lead_ = 0;
+  live_audio_.output_lead = 0;
+  live_audio_.late = 0;
+  live_audio_.silence = 0;
+  live_log_at_ = kNoTimestamp;
 }
 
 void Player::SetEventCallback(EventCallback callback, void* user_data) {
@@ -196,7 +201,8 @@ bool Player::OpenLive(int64_t latency) {
   StopPipeline();
   std::lock_guard<std::mutex> lock(mutex_);
   SetStateLocked(PlayerState::kLoading);
-  auto demuxer = std::make_unique<LiveDemuxer>(latency, &audio_output_lead_);
+  auto demuxer =
+      std::make_unique<LiveDemuxer>(latency, &live_audio_.output_lead);
   live_demuxer_ = demuxer.get();
   demuxer_ = std::move(demuxer);
   live_ = true;
@@ -590,6 +596,10 @@ std::string Player::error() const {
 
 PlayerStats Player::stats() const {
   std::lock_guard<std::mutex> lock(mutex_);
+  return StatsLocked();
+}
+
+PlayerStats Player::StatsLocked() const {
   PlayerStats stats;
   const int64_t now = clock_.Now();
   if (video_renderer_) {
@@ -602,10 +612,62 @@ PlayerStats Player::stats() const {
       stats.video_buffered = std::max<int64_t>(video_last_pts_ - now, 0);
     }
   }
-  if (audio_renderer_ && audio_last_pts_ != kNoTimestamp) {
-    stats.audio_buffered = std::max<int64_t>(audio_last_pts_ - now, 0);
+  if (audio_renderer_) {
+    stats.audio_decoder = audio_renderer_->decoder_name();
+    if (audio_last_pts_ != kNoTimestamp) {
+      stats.audio_buffered = std::max<int64_t>(audio_last_pts_ - now, 0);
+    }
+  }
+  if (live_demuxer_) {
+    stats.live_video_packets_dropped = live_demuxer_->video_packets_dropped();
+    stats.live_audio_late = live_audio_.late.load(std::memory_order_relaxed);
+    stats.live_audio_silence =
+        live_audio_.silence.load(std::memory_order_relaxed);
+    stats.live_audio_behind = live_demuxer_->audio_behind();
   }
   return stats;
+}
+
+void Player::LogLiveStatsLocked() {
+  const int64_t now = NowMicros();
+  if (live_log_at_ != kNoTimestamp && now < live_log_at_) {
+    return;
+  }
+  const PlayerStats stats = StatsLocked();
+  // Tagged as the live demuxer's lines are.
+  if (live_log_at_ != kNoTimestamp && GetLogLevel() >= LogLevel::kInfo) {
+    const PlayerStats& last = live_logged_;
+    const int64_t interval = now - (live_log_at_ - kLiveLogInterval);
+    // A new video renderer counts frames from zero.
+    const bool same_video = stats.frames_rendered >= last.frames_rendered &&
+                            stats.frames_dropped >= last.frames_dropped;
+    const int64_t rendered =
+        stats.frames_rendered - (same_video ? last.frames_rendered : 0);
+    const int64_t dropped =
+        stats.frames_dropped - (same_video ? last.frames_dropped : 0);
+    LogMessage(
+        LogLevel::kInfo, "live",
+        "video %s%s %.1f fps, %lld dropped, %lld packets dropped; audio %s "
+        "late %lld ms, silence %lld ms, behind %lld ms; buffered video %lld "
+        "ms, audio %lld ms",
+        stats.video_decoder, stats.hardware ? " hw" : "",
+        static_cast<double>(rendered) * kMicrosPerSecond /
+            static_cast<double>(std::max<int64_t>(interval, 1)),
+        static_cast<long long>(dropped),
+        static_cast<long long>(stats.live_video_packets_dropped -
+                               last.live_video_packets_dropped),
+        stats.audio_decoder,
+        static_cast<long long>((stats.live_audio_late - last.live_audio_late) /
+                               kMicrosPerMilli),
+        static_cast<long long>(
+            (stats.live_audio_silence - last.live_audio_silence) /
+            kMicrosPerMilli),
+        static_cast<long long>(stats.live_audio_behind / kMicrosPerMilli),
+        static_cast<long long>(stats.video_buffered / kMicrosPerMilli),
+        static_cast<long long>(stats.audio_buffered / kMicrosPerMilli));
+  }
+  live_logged_ = stats;
+  live_log_at_ = now + kLiveLogInterval;
 }
 
 std::vector<int> Player::TrackStreamsLocked() const {
@@ -922,8 +984,8 @@ VideoRenderer::Ptr Player::CreateVideoRenderer(const StreamInfo& info) {
 
 std::unique_ptr<AudioRenderer> Player::CreateAudioRenderer(
     const StreamInfo& info) {
-  auto audio = std::make_unique<AudioRenderer>(
-      &clock_, live_ ? &audio_output_lead_ : nullptr);
+  auto audio =
+      std::make_unique<AudioRenderer>(&clock_, live_ ? &live_audio_ : nullptr);
   std::string error;
   if (!audio->Initialize(info.audio, &audio_queue_, &error)) {
     LOGW("audio stream %d disabled: %s", info.index, error.c_str());
@@ -1523,6 +1585,7 @@ void Player::UpdateState() {
       SetStateLocked(PlayerState::kReady);
     }
     UpdateVideoSizeLocked();
+    LogLiveStatsLocked();
     return;
   }
   switch (state_) {

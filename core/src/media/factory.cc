@@ -11,6 +11,7 @@
 
 #if defined(LYCHEE_WITH_FFMPEG)
 #include "backends/ffmpeg/ffmpeg_audio_decoder.h"
+#include "backends/ffmpeg/ffmpeg_common.h"
 #include "backends/ffmpeg/ffmpeg_demuxer.h"
 #include "backends/ffmpeg/ffmpeg_subtitle_decoder.h"
 #include "backends/ffmpeg/ffmpeg_video_decoder.h"
@@ -239,6 +240,68 @@ std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders() {
   decoders.push_back(std::make_unique<FFmpegAudioDecoder>());
 #endif
   return decoders;
+}
+
+namespace {
+
+// Of several decoders' answers: yes if one says yes, else unknown if one
+// cannot tell.
+[[maybe_unused]] void Merge(int answer, int* result) {
+  if (answer == 1 || (answer == -1 && *result == 0)) {
+    *result = answer;
+  }
+}
+
+}  // namespace
+
+int VideoCodecSupported(VideoCodec codec, [[maybe_unused]] bool hardware) {
+  if (codec != VideoCodec::kH264 && codec != VideoCodec::kHEVC) {
+    return 0;
+  }
+  int result = 0;
+#if defined(__APPLE__)
+  // Apple's software decoder takes both where hardware lacks one (on iOS
+  // VideoToolbox chooses, CreateVideoDecoders()).
+  Merge(hardware ? (VTVideoDecoder::HardwareDecodes(codec) ? 1 : 0) : 1,
+        &result);
+#elif defined(__ANDROID__)
+  // MediaCodec lists its codecs only through Java (MediaCodecList), and
+  // the FFmpeg extension's build is not known here.
+  Merge(-1, &result);
+#elif defined(_WIN32)
+  // Whether a GPU decodes it depends on the adapter and the stream's
+  // profile, found only when one opens.
+  Merge(hardware ? -1 : (MFVideoDecoder::CanDecode(codec) ? 1 : 0), &result);
+#endif
+#if defined(LYCHEE_WITH_FFMPEG)
+  // FFmpeg's hardware decoding (VAAPI, D3D11VA, MediaCodec) is found only
+  // by opening a device.
+  if (FFmpegDecodes(codec)) {
+    Merge(hardware ? -1 : 1, &result);
+  }
+#endif
+  return result;
+}
+
+int AudioCodecSupported(AudioCodec codec) {
+  if (codec != AudioCodec::kAAC && codec != AudioCodec::kALAC) {
+    return 0;
+  }
+  int result = 0;
+#if defined(__APPLE__) && !defined(LYCHEE_WITH_FFMPEG)
+  // AudioToolbox has both.
+  Merge(1, &result);
+#elif defined(__ANDROID__) && !defined(LYCHEE_WITH_FFMPEG)
+  // Android requires an AAC decoder; ALAC is up to the device, or the
+  // FFmpeg extension.
+  Merge(codec == AudioCodec::kAAC ? 1 : -1, &result);
+#elif defined(_WIN32) && !defined(LYCHEE_WITH_FFMPEG)
+  Merge(MFAudioDecoder::CanDecode(codec) ? 1 : 0, &result);
+#endif
+#if defined(LYCHEE_WITH_FFMPEG)
+  Merge(FFmpegDecodes(codec) ? 1 : 0, &result);
+#endif
+  return result;
 }
 
 std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder() {

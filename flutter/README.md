@@ -87,6 +87,21 @@ Subtitles: text arrives in `value.subtitle` for your app to draw over the
 video. Bitmap subtitles (PGS, DVB, VobSub) arrive in
 `value.subtitlePictures`, and `LycheeVideo` draws them itself.
 
+### Players your native code creates
+
+Native code can create players through the C ABI (`lychee/lychee.h`),
+for example to feed a live stream with `lychee_player_open_live()`, and
+show them in a Flutter `Texture`. Create the player with the texture's
+frame types, set it on the texture, and set none before destroying it;
+the headers say which thread each call needs.
+
+| Platform | Texture | Link the core |
+| --- | --- | --- |
+| iOS, macOS | `LycheeHostTexture` (`import lychee_player`) | Through the plugin |
+| Linux | `lychee_host_texture_*` (`lychee_player/lychee_host_texture.h`) | `lychee::lychee` in CMake |
+| Windows | `LycheeHostTexture*` (`lychee_player/lychee_host_texture.h`) | `lychee::lychee` in CMake |
+| Android | Render to a `Surface` with `lychee_player_set_video_surface()` | `lychee` through prefab |
+
 ## Platform setup
 
 | Platform | Minimum | Set in your app |

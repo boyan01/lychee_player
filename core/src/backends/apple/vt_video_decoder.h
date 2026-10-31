@@ -27,6 +27,10 @@ class VTVideoDecoder : public VideoDecoder {
   explicit VTVideoDecoder(bool hardware);
   ~VTVideoDecoder() override;
 
+  // The device has a hardware decoder for |codec| (H.264 or HEVC; false
+  // for others).
+  static bool HardwareDecodes(VideoCodec codec);
+
   const char* name() const override;
   bool is_hardware() const override { return hardware_output_; }
   bool Initialize(const VideoConfig& config, std::string* error) override;

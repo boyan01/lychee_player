@@ -32,8 +32,14 @@ class LycheePlayerPlugin : public flutter::Plugin {
   void DisposeTexture(int64_t texture_id);
   void DisposeAll();
 
+  struct Entry {
+    std::unique_ptr<LycheeTexture> texture;
+    // The player Dart created the texture for.
+    lychee_player* player;
+  };
+
   flutter::PluginRegistrarWindows* const registrar_;
-  std::map<int64_t, std::unique_ptr<LycheeTexture>> textures_;
+  std::map<int64_t, Entry> textures_;
 };
 
 }  // namespace lychee_flutter

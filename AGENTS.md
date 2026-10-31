@@ -311,9 +311,9 @@ decides how much of it a change needs):
   changed. For what ends up on screen (frame selection,
   conversion, rotation) also `lychee_glfw`. The plugin's Swift package
   build uses `LycheeFrameDriver`; its pod keeps a port of it
-  (`LycheeTexture` in `LycheePlayerPlugin.m`): fix both until CocoaPods
-  support is dropped (roadmap, Distribution 3). For the core without
-  FFmpeg: `NO_FFMPEG=1 tool/build_apple.sh` and `swift test --traits
+  (`LycheePortedFrameDriver` in `LycheePlayerPlugin.m`): fix both until
+  CocoaPods support is dropped (roadmap, Distribution 3). For the core
+  without FFmpeg: `NO_FFMPEG=1 tool/build_apple.sh` and `swift test --traits
   NoFFmpeg`. When the shipped FFmpeg build changes:
   `FFMPEG_ROOT=third_party/ffmpeg/macos-arm64 tool/regression.sh`.
 - **android**: `sdk/android/gradlew -p sdk/android :lychee:publish

@@ -61,6 +61,12 @@ struct PlayerStats {
   int64_t video_buffered = 0;
   int64_t audio_buffered = 0;
   int64_t video_decode_time = 0;
+  const char* audio_decoder = "none";
+  // Live input only; lychee_stats has their meaning.
+  int64_t live_video_packets_dropped = 0;
+  int64_t live_audio_late = 0;
+  int64_t live_audio_silence = 0;
+  int64_t live_audio_behind = 0;
 };
 
 // An audio, video or subtitle stream of the open media.
@@ -275,6 +281,9 @@ class Player {
                    bool tracks_changed);
   void FinishSeekLocked();
   void UpdateState();
+  PlayerStats StatsLocked() const;
+  // Live: logs the stats every kLiveLogInterval.
+  void LogLiveStatsLocked();
   void UpdateVideoSizeLocked();
   // The display size of the frame on screen, false before one is shown.
   bool ShownSizeLocked(int* width, int* height) const;
@@ -301,8 +310,12 @@ class Player {
   // that one.
   bool live_ = false;
   LiveDemuxer* live_demuxer_ = nullptr;
-  // Written by the live audio renderer, read by |live_demuxer_|.
-  std::atomic<int64_t> audio_output_lead_{0};
+  // Written by the live audio renderers; |live_demuxer_| reads the lead.
+  AudioRenderer::Live live_audio_;
+  // LogLiveStatsLocked(): when the next line is due, and the counts the
+  // last one ended at.
+  int64_t live_log_at_ = kNoTimestamp;
+  PlayerStats live_logged_;
   VideoRenderer::Ptr video_renderer_;
   std::unique_ptr<AudioRenderer> audio_renderer_;
   // Renderers a track switch replaced, playing their fade-out.

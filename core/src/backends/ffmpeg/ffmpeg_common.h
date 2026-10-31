@@ -37,6 +37,10 @@ AudioCodec AudioCodecFromAVCodecID(AVCodecID id);
 AVCodecID AVCodecIDFromVideoCodec(VideoCodec codec);
 AVCodecID AVCodecIDFromAudioCodec(AudioCodec codec);
 
+// This FFmpeg build has a decoder for |codec|.
+bool FFmpegDecodes(VideoCodec codec);
+bool FFmpegDecodes(AudioCodec codec);
+
 // Returns codec parameters for a config: the attached FFmpeg parameters if
 // present, otherwise rebuilt from the portable fields.
 AVCodecParameters* CreateCodecParameters(const VideoConfig& config);

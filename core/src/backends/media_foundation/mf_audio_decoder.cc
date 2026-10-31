@@ -151,7 +151,24 @@ ComPtr<IMFTransform> CreateDecoder(const GUID& subtype) {
   return decoder;
 }
 
+ComPtr<IMFTransform> CreateDecoder(AudioCodec codec) {
+  ComPtr<IMFTransform> decoder;
+  if (codec == AudioCodec::kAAC) {
+    CoCreateInstance(CLSID_CMSAACDecMFT, nullptr, CLSCTX_INPROC_SERVER,
+                     IID_PPV_ARGS(&decoder));
+    return decoder;
+  }
+  // MP3, and Windows' own FLAC, ALAC and Opus decoders (Windows 10).
+  const GUID subtype = Subtype(codec);
+  return subtype == GUID_NULL ? nullptr : CreateDecoder(subtype);
+}
+
 }  // namespace
+
+// static
+bool MFAudioDecoder::CanDecode(AudioCodec codec) {
+  return StartMediaFoundation() && CreateDecoder(codec) != nullptr;
+}
 
 bool MFAudioDecoder::Initialize(const AudioConfig& config,
                                 const AudioOutputFormat& output_format,
@@ -181,13 +198,7 @@ bool MFAudioDecoder::Open(const std::vector<uint8_t>& extradata,
                           std::string* error) {
   const bool aac = config_.codec == AudioCodec::kAAC;
   const GUID subtype = Subtype(config_.codec);
-  if (aac) {
-    CoCreateInstance(CLSID_CMSAACDecMFT, nullptr, CLSCTX_INPROC_SERVER,
-                     IID_PPV_ARGS(&decoder_));
-  } else {
-    // MP3, and Windows' own FLAC, ALAC and Opus decoders (Windows 10).
-    decoder_ = CreateDecoder(subtype);
-  }
+  decoder_ = CreateDecoder(config_.codec);
   if (!decoder_) {
     *error =
         std::string("mediafoundation: no ") + config_.codec_name + " decoder";

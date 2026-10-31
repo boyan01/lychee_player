@@ -63,7 +63,9 @@ extern "C" {
 //    a platform invalidates its decoder (e.g. iOS background suspension).
 // 13: lychee_dmabuf carries H.273 color primaries and transfer function.
 // 14: LYCHEE_FRAME_D3D11_TEXTURE_HDR, full-range PQ / BT.2020 R10 output.
-#define LYCHEE_API_VERSION 14
+// 15: live input statistics in lychee_stats, lychee_stats.audio_decoder and
+//    lychee_codec_supported().
+#define LYCHEE_API_VERSION 15
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -328,6 +330,27 @@ typedef struct lychee_stats {
   int64_t audio_buffered_us;
   // Moving average of the time decoding one video packet takes.
   int64_t video_decode_time_us;
+  // API version 15. The audio decoder's name, "none" without audio.
+  char audio_decoder[32];
+  // API version 15. Live input only (lychee_player_open_live()), counted
+  // since the open; 0 otherwise.
+  // Video packets dropped before decoding: those before a keyframe (after
+  // the open, a track change, a flush or a new decoder) and everything
+  // queued once the decoders fell too far behind. Packets that
+  // lychee_player_flush_live() or a track change discards are not counted.
+  int64_t live_video_packets_dropped;
+  // Audio cut because it was decoded after its time, and silence played
+  // because no audio was there when due (gaps in the sender's stream, an
+  // empty queue), both as a duration of audio. Silence counts from the
+  // first audio played after the open, a track change or a flush, so the
+  // wait for the first packet is not in it.
+  int64_t live_audio_late_us;
+  int64_t live_audio_silence_us;
+  // How much later than video audio plays to give the output device the
+  // lead it needs (up to 500 ms; see lychee_player_open_live()). Can be
+  // a few tens of ms negative until audio follows a change in video's
+  // timing.
+  int64_t live_audio_behind_us;
 } lychee_stats;
 
 typedef struct lychee_track_info {
@@ -356,6 +379,14 @@ LYCHEE_EXPORT int32_t lychee_api_version(void);
 // Monotonic clock used for display times. On Apple platforms this is
 // mach_absolute_time() converted to microseconds.
 LYCHEE_EXPORT int64_t lychee_now_us(void);
+
+// API version 15. Whether this build can decode |codec| (lychee_codec) on
+// this device: with a hardware decoder if |hardware| is non-zero, else with
+// any decoder. Returns 1 or 0, or -1 if the platform cannot tell without
+// opening a stream (it then may or may not play). Audio decoders are not
+// told apart: |hardware| is ignored for AAC and ALAC. May create a decoder
+// to find out (Windows): call it once, not per stream.
+LYCHEE_EXPORT int32_t lychee_codec_supported(int32_t codec, int32_t hardware);
 
 LYCHEE_EXPORT void lychee_set_log_level(int32_t level);
 // Sends log lines to |callback| instead of stderr; NULL restores stderr. The
@@ -450,7 +481,8 @@ LYCHEE_EXPORT int32_t lychee_player_open(lychee_player* player,
 // track selection do not apply. The position counts from the open, the
 // duration is -1, and lychee_player_get_track_info() lists the declared
 // tracks. lychee_frame_get_pts() is the frame's presentation time in the
-// lychee_now_us() timebase.
+// lychee_now_us() timebase. While it plays, the library logs a line of its
+// lychee_stats every 5 s at LYCHEE_LOG_INFO (API 15).
 LYCHEE_EXPORT int32_t lychee_player_open_live(
     lychee_player* player,
     const lychee_live_config* config);

@@ -9,6 +9,7 @@
 #include <wrl/client.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -17,10 +18,12 @@
 
 namespace lychee_flutter {
 
-// Bridges one lychee_player to a Flutter texture. A thread waits for each
-// DWM composition (the display's vsync) and asks the player whether the
-// next vsync shows a new frame; if so, Flutter is told to pull it through
-// the texture callback on its raster thread.
+// Bridges a lychee_player to a Flutter texture: one Dart created
+// (createTexture), or players the app sets on a host texture
+// (lychee_host_texture.h), one at a time. While a player is set, a thread
+// waits for each DWM composition (the display's vsync) and asks the player
+// whether the next vsync shows a new frame; if so, Flutter is told to pull
+// it through the texture callback on its raster thread.
 //
 // With the adapter Flutter renders on, the texture is a GPU surface:
 // hardware-decoded frames are shared D3D11 textures on that adapter, and
@@ -30,8 +33,7 @@ class LycheeTexture {
  public:
   // |window| is the Flutter view, to find the monitor that shows it.
   // |adapter| is Flutter's, or null.
-  LycheeTexture(lychee_player* player,
-                flutter::TextureRegistrar* registrar,
+  LycheeTexture(flutter::TextureRegistrar* registrar,
                 HWND window,
                 IDXGIAdapter* adapter);
   ~LycheeTexture();
@@ -41,20 +43,24 @@ class LycheeTexture {
 
   // Registers the texture and starts the vsync thread. Returns its id.
   int64_t Start();
-  // After this returns the player is never touched again and may be
-  // destroyed. The texture must still be unregistered; delete it once
-  // Flutter says it is unregistered, since the raster thread may still call
-  // the texture callback until then.
+  int64_t id() const { return texture_id_; }
+  // Shows |player|'s frames, or nothing if null; any thread. After this
+  // returns the previous player is never touched again and may be
+  // destroyed. A new player gets Flutter's adapter as its video device.
+  void SetPlayer(lychee_player* player);
+  // Stops the vsync thread and unsets the player. The texture must still be
+  // unregistered; delete it once Flutter says it is unregistered, since the
+  // raster thread may still call the texture callback until then.
   void Dispose();
-
-  // The player it was created for, even after Dispose(): the plugin
-  // destroys it when Dart, which owns it, is gone.
-  lychee_player* player() const { return created_player_; }
+  // Dispose(), then unregisters the texture and deletes it once Flutter has.
+  // Platform thread.
+  void Retire();
 
  private:
   void VsyncLoop();
-  // Acquires the frame for the next vsync. Raster thread.
-  lychee_frame* AcquireFrame();
+  // Acquires the frame for the next vsync; |has_player| tells whether a
+  // player is set. Raster thread.
+  lychee_frame* AcquireFrame(bool* has_player);
   const FlutterDesktopPixelBuffer* CopyPixelBuffer(size_t width,
                                                    size_t height);
   const FlutterDesktopGpuSurfaceDescriptor* CopyGpuSurface(size_t width,
@@ -64,7 +70,8 @@ class LycheeTexture {
 
   flutter::TextureRegistrar* const registrar_;
   const HWND window_;
-  lychee_player* const created_player_;
+  // Flutter's, given to each player; null without one.
+  Microsoft::WRL::ComPtr<IDXGIAdapter> adapter_;
   // For uploads; null without an adapter.
   Microsoft::WRL::ComPtr<ID3D11Device> device_;
   Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
@@ -78,7 +85,9 @@ class LycheeTexture {
   std::atomic<bool> frame_pending_{false};
 
   std::mutex mutex_;
-  lychee_player* player_;  // Guarded by |mutex_|.
+  // Wakes the vsync thread when a player is set or it should stop.
+  std::condition_variable player_set_;
+  lychee_player* player_ = nullptr;  // Guarded by |mutex_|.
 
   // Raster thread only: what the last callback handed to Flutter.
   FlutterDesktopPixelBuffer buffer_ = {};

@@ -48,11 +48,12 @@ public final class LycheeFrameDriver: NSObject {
     self.onNewFrame = onNewFrame
   }
 
-  /// Pulls the frames of a `lychee_player*` the caller owns, as the Flutter
-  /// plugin does with Dart's players. The driver does not keep it alive:
-  /// destroy it only after ``stop()`` returned.
-  @objc public init(handle: UnsafeMutableRawPointer, onNewFrame: @escaping () -> Void) {
-    self.handle = OpaquePointer(handle)
+  /// Pulls the frames of a `lychee_player*` the caller owns, or none until
+  /// ``setHandle(_:)``, as the Flutter plugin does with Dart's players and
+  /// the app's. The driver does not keep it alive: destroy it only after
+  /// ``stop()`` or ``setHandle(_:)`` with another one returned.
+  @objc public init(handle: UnsafeMutableRawPointer?, onNewFrame: @escaping () -> Void) {
+    self.handle = handle.map(OpaquePointer.init)
     self.onNewFrame = onNewFrame
   }
 
@@ -125,10 +126,20 @@ public final class LycheeFrameDriver: NSObject {
     displayLink?.invalidate()
     #endif
     displayLink = nil
+    setHandle(nil)
+  }
+
+  /// Pulls the frames of another `lychee_player*` the caller owns from the
+  /// next vsync on, or none if nil; ``copyFrame()`` returns nil until it
+  /// has a frame. Any thread. Returns once no call into the previous player
+  /// is in progress, so it may be destroyed then.
+  @objc public func setHandle(_ handle: UnsafeMutableRawPointer?) {
     lock.lock()
-    handle = nil
+    self.handle = handle.map(OpaquePointer.init)
     let player = self.player
     self.player = nil
+    framePending = false
+    framePts = nil
     lock.unlock()
     // Released outside the lock.
     withExtendedLifetime(player) {}

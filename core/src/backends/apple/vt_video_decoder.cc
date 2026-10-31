@@ -114,6 +114,18 @@ void SetColor(CFMutableDictionaryRef extensions, const ColorInfo& color) {
 
 }  // namespace
 
+// static
+bool VTVideoDecoder::HardwareDecodes(VideoCodec codec) {
+  switch (codec) {
+    case VideoCodec::kH264:
+      return VTIsHardwareDecodeSupported(kCMVideoCodecType_H264);
+    case VideoCodec::kHEVC:
+      return VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC);
+    default:
+      return false;
+  }
+}
+
 VTVideoDecoder::VTVideoDecoder(bool hardware)
     : hardware_(hardware), hardware_output_(hardware) {}
 

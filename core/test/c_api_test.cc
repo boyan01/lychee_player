@@ -62,6 +62,26 @@ TEST(CApi, GettersKeepTheCallersSize) {
   lychee_player_destroy(player);
 }
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(CApi, CodecSupported) {
+  for (int32_t codec : {LYCHEE_CODEC_H264, LYCHEE_CODEC_HEVC, LYCHEE_CODEC_AAC,
+                        LYCHEE_CODEC_ALAC}) {
+    for (int32_t hardware : {0, 1}) {
+      const int32_t supported = lychee_codec_supported(codec, hardware);
+      EXPECT_TRUE(supported >= -1 && supported <= 1);
+    }
+  }
+  EXPECT_EQ(lychee_codec_supported(LYCHEE_CODEC_NONE, 0), 0);
+  EXPECT_EQ(lychee_codec_supported(99, 1), 0);
+#if defined(__APPLE__)
+  // VideoToolbox and AudioToolbox, or FFmpeg, decode them all.
+  EXPECT_EQ(lychee_codec_supported(LYCHEE_CODEC_H264, 0), 1);
+  EXPECT_EQ(lychee_codec_supported(LYCHEE_CODEC_HEVC, 0), 1);
+  EXPECT_EQ(lychee_codec_supported(LYCHEE_CODEC_AAC, 0), 1);
+  EXPECT_EQ(lychee_codec_supported(LYCHEE_CODEC_ALAC, 1), 1);
+#endif
+}
+
 struct ReopenFromCallback {
   lychee_player* player = nullptr;
   std::atomic<int> result{1};

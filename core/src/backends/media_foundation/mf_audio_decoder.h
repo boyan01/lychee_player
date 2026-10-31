@@ -22,6 +22,9 @@ class MFAudioDecoder : public AudioDecoder {
   MFAudioDecoder() = default;
   ~MFAudioDecoder() override = default;
 
+  // Windows has a decoder for |codec|. It creates one: not per packet.
+  static bool CanDecode(AudioCodec codec);
+
   const char* name() const override { return "mediafoundation"; }
   bool Initialize(const AudioConfig& config,
                   const AudioOutputFormat& output_format,

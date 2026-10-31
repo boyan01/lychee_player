@@ -102,8 +102,13 @@ fun fetchPrebuiltAar(): Pair<File, String> {
 rootProject.allprojects {
     repositories {
         google()
+        // Only lycheeRepo serves the core, so a published AAR with the same
+        // version never shadows a local build.
+        exclusiveContent {
+            forRepository { maven { url = uri(lycheeRepo) } }
+            filter { includeGroup("io.github.boyan01.lychee") }
+        }
         mavenCentral()
-        maven { url = uri(lycheeRepo) }
     }
 }
 
@@ -137,7 +142,12 @@ android {
 }
 
 dependencies {
-    implementation("io.github.boyan01.lychee:lychee:$lycheeVersion")
+    // api: apps that create their own players in C/C++ (e.g. live input)
+    // get the core's prefab module `lychee` with `buildFeatures { prefab =
+    // true }` and the same AAR the plugin plays with, without declaring it.
+    api("io.github.boyan01.lychee:lychee:$lycheeVersion")
+    // Only loaded at runtime (LycheeFFmpeg.load()); apps compile nothing
+    // against it.
     if (withFFmpeg) implementation("io.github.boyan01.lychee:lychee-ffmpeg:$lycheeVersion")
 }
 

@@ -1,3 +1,17 @@
+## Unreleased
+
+### New
+
+* Live input reports how it plays: `lychee_stats` adds dropped video
+  packets, late audio, audio silence, how far audio runs behind and the
+  audio decoder, and the player logs them every 5 seconds.
+* `lychee_codec_supported()` tells, before a stream opens, whether a
+  codec can be decoded, in hardware or in software.
+* Show players your native code creates in a Flutter `Texture`:
+  `LycheeHostTexture` on iOS and macOS, `lychee_host_texture_*` on Linux
+  and `LycheeHostTexture*` on Windows. Native code links the core as
+  `lychee::lychee` in CMake (Linux, Windows) or through prefab (Android).
+
 ## 1.0.0-beta.4
 
 ### Breaking

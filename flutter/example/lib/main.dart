@@ -57,6 +57,9 @@ class PlayerPage extends StatefulWidget {
 class _PlayerPageState extends State<PlayerPage> {
   late final _url = TextEditingController(text: widget.url);
   LycheePlayer? _player;
+  // The runner's host texture test (LYCHEE_HOST_TEXTURE_TEST), shown in a
+  // corner while the runner swaps the players behind it.
+  int? _hostTexture;
 
   @override
   void initState() {
@@ -68,6 +71,17 @@ class _PlayerPageState extends State<PlayerPage> {
     if (seconds != null) {
       Timer(Duration(microseconds: (seconds * 1e6).round()), _quit);
     }
+    if ((Platform.isLinux || Platform.isWindows) &&
+        Platform.environment.containsKey('LYCHEE_HOST_TEXTURE_TEST')) {
+      _startHostTexture();
+    }
+  }
+
+  Future<void> _startHostTexture() async {
+    final id = await const MethodChannel(
+      'lychee_example/host_texture',
+    ).invokeMethod<int>('start');
+    if (mounted) setState(() => _hostTexture = id);
   }
 
   Future<void> _quit() async {
@@ -159,14 +173,23 @@ class _PlayerPageState extends State<PlayerPage> {
             Expanded(
               child: ColoredBox(
                 color: Colors.black,
-                child: player == null
-                    ? const SizedBox.expand()
-                    : Stack(
-                        children: [
-                          Center(child: _Picture(player)),
-                          _Subtitle(player),
-                        ],
+                child: Stack(
+                  children: [
+                    const SizedBox.expand(),
+                    if (player != null) ...[
+                      Center(child: _Picture(player)),
+                      _Subtitle(player),
+                    ],
+                    if (_hostTexture case final id?)
+                      Positioned(
+                        right: 8,
+                        bottom: 8,
+                        width: 320,
+                        height: 180,
+                        child: Texture(textureId: id),
                       ),
+                  ],
+                ),
               ),
             ),
             if (player != null) _Controls(player),

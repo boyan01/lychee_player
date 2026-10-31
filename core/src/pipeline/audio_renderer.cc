@@ -57,9 +57,8 @@ std::atomic<int> g_failed_sink_starts{0};
 
 }  // namespace
 
-AudioRenderer::AudioRenderer(MediaClock* clock,
-                             std::atomic<int64_t>* live_output_lead)
-    : clock_(clock), live_output_lead_(live_output_lead) {}
+AudioRenderer::AudioRenderer(MediaClock* clock, Live* live)
+    : clock_(clock), live_(live) {}
 
 AudioRenderer::~AudioRenderer() {
   Stop();
@@ -223,7 +222,7 @@ void AudioRenderer::OnBuffer(std::shared_ptr<AudioBuffer> buffer,
   if (stopped_ || generation != generation_) {
     return;
   }
-  if (live_output_lead_) {
+  if (live_) {
     live_frames_ += buffer->frames();
     live_buffers_.push_back(std::move(buffer));
     return;
@@ -289,8 +288,8 @@ int AudioRenderer::Render(float* destination,
     // Then the audio playing, if any.
     const int requested = playing_ ? frames - faded : 0;
     int filled = 0;
-    if (requested > 0 && live_output_lead_) {
-      live_output_lead_->store(playout_time - NowMicros(),
+    if (requested > 0 && live_) {
+      live_->output_lead.store(playout_time - NowMicros(),
                                std::memory_order_relaxed);
       filled = RenderLiveLocked(requested, playout_time);
     } else if (requested > 0) {
@@ -319,7 +318,7 @@ int AudioRenderer::Render(float* destination,
     } else if (filled == 0 && FramesBeforeEndLocked(rate) == 0) {
       clock_->ClearMaxTime();
     } else if (const int64_t end_pts = algorithm_.NextOutputTimestamp();
-               filled > 0 && end_pts != kNoTimestamp && !live_output_lead_) {
+               filled > 0 && end_pts != kNoTimestamp && !live_) {
       // Under the lock: a device taking over from PullForStalledDevice()
       // must not have its update overwritten by an older one.
       // |filled| frames at |rate| cover this much media time.
@@ -354,6 +353,8 @@ int AudioRenderer::RenderLiveLocked(int frames, int64_t playout_time) {
   const int rate = format_.sample_rate;
   const int channels = format_.channels;
   int written = 0;
+  int64_t late = 0;
+  int64_t silence = 0;
   while (written < frames && !live_buffers_.empty()) {
     const AudioBuffer& buffer = *live_buffers_.front();
     const int available = buffer.frames() - live_offset_;
@@ -369,10 +370,12 @@ int AudioRenderer::RenderLiveLocked(int frames, int64_t playout_time) {
         buffer.pts + static_cast<int64_t>(live_offset_) * kMicrosPerSecond / rate;
     if (pts < due - kLiveLateTolerance) {
       // Too late to be heard in time.
-      const int late = static_cast<int>((due - pts) * rate / kMicrosPerSecond);
-      const int skip = std::clamp(late, 1, available);
+      const int too_late =
+          static_cast<int>((due - pts) * rate / kMicrosPerSecond);
+      const int skip = std::clamp(too_late, 1, available);
       live_offset_ += skip;
       live_frames_ -= skip;
+      late += skip;
       continue;
     }
     int count;
@@ -383,6 +386,9 @@ int AudioRenderer::RenderLiveLocked(int frames, int64_t playout_time) {
           static_cast<int>((pts - due) * rate / kMicrosPerSecond));
       for (int k = 0; k < channels; ++k) {
         std::fill_n(render_bus_.channel(k) + written, count, 0.0f);
+      }
+      if (live_started_) {
+        silence += count;
       }
     } else {
       count = std::min(frames - written, available);
@@ -396,8 +402,21 @@ int AudioRenderer::RenderLiveLocked(int frames, int64_t playout_time) {
       }
       live_offset_ += count;
       live_frames_ -= count;
+      live_started_ = true;
     }
     written += count;
+  }
+  // The queue ran empty: the device pads the rest with silence.
+  if (live_started_) {
+    silence += frames - written;
+  }
+  if (late > 0) {
+    live_->late.fetch_add(late * kMicrosPerSecond / rate,
+                          std::memory_order_relaxed);
+  }
+  if (silence > 0) {
+    live_->silence.fetch_add(silence * kMicrosPerSecond / rate,
+                             std::memory_order_relaxed);
   }
   return written;
 }
@@ -415,6 +434,7 @@ void AudioRenderer::Flush(uint64_t generation, int64_t start_time) {
     live_buffers_.clear();
     live_offset_ = 0;
     live_frames_ = 0;
+    live_started_ = false;
     end_time_ = kNoTimestamp;
     end_of_stream_ = false;
   }
@@ -487,7 +507,7 @@ int AudioRenderer::FadeFrames() const {
 void AudioRenderer::FadeOutLocked() {
   // Live input plays each sample when it is due; one already fading out
   // goes on.
-  if (live_output_lead_ || fade_out_offset_ < fade_out_frames_) {
+  if (live_ || fade_out_offset_ < fade_out_frames_) {
     return;
   }
   const int frames = FadeFrames();
@@ -645,6 +665,11 @@ int64_t AudioRenderer::buffered_duration() const {
   return BufferedDurationLocked();
 }
 
+const char* AudioRenderer::decoder_name() const {
+  // Set before the decode thread starts and never changed.
+  return decoder_ ? decoder_->name() : "none";
+}
+
 // static
 void AudioRenderer::StallDevicesForTesting(bool stalled) {
   g_devices_stalled = stalled;
@@ -656,7 +681,7 @@ void AudioRenderer::FailSinkStartsForTesting(int count) {
 }
 
 int64_t AudioRenderer::BufferedDurationLocked() const {
-  if (live_output_lead_) {
+  if (live_) {
     return live_frames_ * kMicrosPerSecond / format_.sample_rate;
   }
   return static_cast<int64_t>(algorithm_.BufferedFrames()) *

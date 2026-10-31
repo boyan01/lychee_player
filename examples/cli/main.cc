@@ -1697,8 +1697,12 @@ int main(int argc, char** argv) {
     printf(" first_pts_after_seek=%.3fs", first_pts_after_seek / 1e6);
   }
   if (live) {
-    printf(" live_vbuf=%.3fs live_abuf=%.3fs", live_vbuf / 1e6,
-           live_abuf / 1e6);
+    printf(" live_vbuf=%.3fs live_abuf=%.3fs live_packets_dropped=%" PRId64
+           " live_late=%.3fs live_silence=%.3fs live_behind=%.3fs"
+           " audio_decoder=%s",
+           live_vbuf / 1e6, live_abuf / 1e6, stats.live_video_packets_dropped,
+           stats.live_audio_late_us / 1e6, stats.live_audio_silence_us / 1e6,
+           stats.live_audio_behind_us / 1e6, stats.audio_decoder);
   }
   if (audio_onset != INT64_MIN) {
     printf(" audio_onset=%.4fs", audio_onset / 1e6);

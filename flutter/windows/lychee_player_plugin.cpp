@@ -1,10 +1,13 @@
 #include "lychee_player_plugin.h"
 
 #include <dxgi.h>
+#include <flutter/plugin_registrar.h>
 #include <flutter/standard_method_codec.h>
 #include <wrl/client.h>
 
 #include <optional>
+
+#include "include/lychee_player/lychee_host_texture.h"
 
 namespace lychee_flutter {
 
@@ -29,6 +32,20 @@ std::optional<int64_t> GetInt(const flutter::EncodableValue* arguments,
 void DestroyOrphan(lychee_player* player) {
   lychee_player_set_event_callback(player, nullptr, nullptr);
   lychee_player_destroy(player);
+}
+
+// A texture for |registrar|'s view, showing nothing yet.
+std::unique_ptr<LycheeTexture> CreateTexture(
+    flutter::PluginRegistrarWindows* registrar) {
+  // The view is looked up now, not at registration: it may not exist yet.
+  flutter::FlutterView* view = registrar->GetView();
+  Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+  if (view) {
+    adapter.Attach(view->GetGraphicsAdapter());
+  }
+  return std::make_unique<LycheeTexture>(
+      registrar->texture_registrar(), view ? view->GetNativeWindow() : nullptr,
+      adapter.Get());
 }
 
 }  // namespace
@@ -57,9 +74,9 @@ LycheePlayerPlugin::LycheePlayerPlugin(
 // unregister callback now.
 LycheePlayerPlugin::~LycheePlayerPlugin() {
   for (auto& entry : textures_) {
-    entry.second->Dispose();
-    DestroyOrphan(entry.second->player());
-    (void)entry.second.release();
+    entry.second.texture->Dispose();
+    DestroyOrphan(entry.second.player);
+    (void)entry.second.texture.release();
   }
 }
 
@@ -72,18 +89,12 @@ void LycheePlayerPlugin::HandleMethodCall(
       result->Error("bad_args", "createTexture needs a player");
       return;
     }
-    // The view is looked up now, not at registration: it may not exist yet.
-    flutter::FlutterView* view = registrar_->GetView();
-    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
-    if (view) {
-      adapter.Attach(view->GetGraphicsAdapter());
-    }
-    auto texture = std::make_unique<LycheeTexture>(
-        reinterpret_cast<lychee_player*>(static_cast<intptr_t>(*player)),
-        registrar_->texture_registrar(),
-        view ? view->GetNativeWindow() : nullptr, adapter.Get());
+    auto* created =
+        reinterpret_cast<lychee_player*>(static_cast<intptr_t>(*player));
+    std::unique_ptr<LycheeTexture> texture = CreateTexture(registrar_);
+    texture->SetPlayer(created);
     const int64_t texture_id = texture->Start();
-    textures_[texture_id] = std::move(texture);
+    textures_[texture_id] = {std::move(texture), created};
     result->Success(flutter::EncodableValue(texture_id));
   } else if (call.method_name() == "disposeAll") {
     DisposeAll();
@@ -106,22 +117,45 @@ void LycheePlayerPlugin::DisposeTexture(int64_t texture_id) {
     return;
   }
   // Dart destroys the player as soon as this returns.
-  it->second->Dispose();
-  // The raster thread may still call the texture's pixel buffer callback
-  // until Flutter has unregistered it.
-  LycheeTexture* texture = it->second.release();
+  it->second.texture.release()->Retire();
   textures_.erase(it);
-  registrar_->texture_registrar()->UnregisterTexture(
-      texture_id, [texture] { delete texture; });
 }
 
 void LycheePlayerPlugin::DisposeAll() {
   while (!textures_.empty()) {
     const int64_t texture_id = textures_.begin()->first;
-    lychee_player* player = textures_.begin()->second->player();
+    lychee_player* player = textures_.begin()->second.player;
     DisposeTexture(texture_id);
     DestroyOrphan(player);
   }
 }
 
 }  // namespace lychee_flutter
+
+uint32_t LycheeHostTextureFrameTypes(void) {
+  // ANGLE opens shared textures only in BGRA.
+  return LYCHEE_FRAME_D3D11_TEXTURE | LYCHEE_FRAME_CPU_BGRA;
+}
+
+LycheeHostTexture* LycheeHostTextureCreate(
+    FlutterDesktopPluginRegistrarRef registrar) {
+  std::unique_ptr<lychee_flutter::LycheeTexture> texture =
+      lychee_flutter::CreateTexture(
+          flutter::PluginRegistrarManager::GetInstance()
+              ->GetRegistrar<flutter::PluginRegistrarWindows>(registrar));
+  texture->Start();
+  return reinterpret_cast<LycheeHostTexture*>(texture.release());
+}
+
+int64_t LycheeHostTextureGetId(LycheeHostTexture* texture) {
+  return reinterpret_cast<lychee_flutter::LycheeTexture*>(texture)->id();
+}
+
+void LycheeHostTextureSetPlayer(LycheeHostTexture* texture,
+                                lychee_player* player) {
+  reinterpret_cast<lychee_flutter::LycheeTexture*>(texture)->SetPlayer(player);
+}
+
+void LycheeHostTextureDestroy(LycheeHostTexture* texture) {
+  reinterpret_cast<lychee_flutter::LycheeTexture*>(texture)->Retire();
+}

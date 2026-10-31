@@ -31,6 +31,10 @@ class MFVideoDecoder : public VideoDecoder {
   MFVideoDecoder(uint32_t accepted_storage, VideoDevice device, bool hardware);
   ~MFVideoDecoder() override;
 
+  // Windows has a decoder for |codec| (HEVC, VP9 and AV1 with their Store
+  // extensions). It creates one: not for every frame.
+  static bool CanDecode(VideoCodec codec);
+
   const char* name() const override { return "mediafoundation"; }
   bool is_hardware() const override { return hardware_; }
   bool Initialize(const VideoConfig& config, std::string* error) override;

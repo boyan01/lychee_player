@@ -1,7 +1,8 @@
 // Opens files one after another in the example app and checks that every
 // replaced player is torn down: its threads exit and nothing crashes. Then
 // checks that the plugin destroys players a hot restart left behind, and
-// that their events do not reach the isolate that is gone.
+// that their events do not reach the isolate that is gone. On macOS, also
+// shows players the app creates itself in a LycheeHostTexture.
 //
 //   cd flutter/example && flutter test integration_test -d macos
 //
@@ -225,4 +226,27 @@ void main() {
     await channel.invokeMethod<void>('disposeAll');
     expect((await _countThreads())['lychee'], 0);
   });
+
+  testWidgets(
+    'a host texture switches between players the app owns',
+    (tester) async {
+      // macos/Runner/MainFlutterWindow.swift: two players in one
+      // LycheeHostTexture, each destroyed right after the switch away from
+      // it. Widths of what the texture handed out: 1 is its blank buffer.
+      const channel = MethodChannel('lychee_player_example/host_texture');
+      final report = (await channel.invokeMapMethod<String, int>(
+        'check',
+        _media[0],
+      ))!;
+      expect(report, {
+        'none': 0,
+        'first': 1920,
+        'second': 1920,
+        'cleared': 1,
+        'clearedAgain': 0,
+      });
+      expect((await _countThreads())['lychee'], 0);
+    },
+    skip: !Platform.isMacOS,
+  );
 }

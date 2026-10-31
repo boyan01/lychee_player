@@ -1330,10 +1330,12 @@ if [ "$windows" = 1 ] && [ "${NO_FFMPEG:-0}" = 1 ]; then
 fi
 par expect live-latency "$live_ok" "summary: .*dropped=0 .*live_vbuf=0\.(2[5-9]|30)[0-9]s" -- \
   --live --latency 300 "$media/live_h264.mp4"
+# The new decoder starts at the next keyframe: the packets before it count
+# as dropped.
 par expect live-decoder-rebuild "rebuild video decoder at" "<=0 event: state error" \
-  "summary: state=ready .*rendered=[23][0-9]{2} .*backward_jumps=0 " -- \
+  "summary: state=ready .*rendered=[23][0-9]{2} .*backward_jumps=0 .*live_packets_dropped=[1-9][0-9]* " -- \
   --live --rebuild-decoder-after 2 "$media/live_h264.mp4"
-par expect live-audio-only "$live_ok" "summary: state=ready position=1[23]\.[0-9]{3}s decoder=none .*live_abuf=0\.0[4-9][0-9]s" -- \
+par expect live-audio-only "$live_ok" "summary: state=ready position=1[23]\.[0-9]{3}s decoder=none .*live_abuf=0\.0[4-9][0-9]s .*audio_decoder=(ffmpeg|audiotoolbox|mediacodec|mediafoundation) " -- \
   --live --audio-only "$media/live_h264.mp4"
 # ALAC, as AirPlay sends: the track's config is its magic cookie.
 par expect live-alac "$live_ok" "track 1: audio alac 44100 Hz" "summary: .*dropped=0 .*live_abuf=0\.(0[1-9]|1[0-9])[0-9]s" -- \
@@ -1349,8 +1351,9 @@ fi
 par expect live-jitter "$live_ok" "summary: .*rendered=360 dropped=0 ${tsan_glitches:-glitches=[0-3] }backward_jumps=0 " -- \
   --live --live-jitter 30 "$media/live_h264.mp4"
 # Half a second without packets, then all at once: what arrived too late is
-# dropped, and the latency comes back.
-par expect live-stall "$live_ok" "summary: .*dropped=([0-9]|1[0-9]) .*backward_jumps=0 .*$live_latency" -- \
+# dropped, and the latency comes back. The stall plays as silence, on top
+# of the second after the last packet (live_silence).
+par expect live-stall "$live_ok" "summary: .*dropped=([0-9]|1[0-9]) .*backward_jumps=0 .*$live_latency .*live_silence=(1\.[3-9]|2\.)[0-9]{2}s" -- \
   --live --live-stall 4 0.5 "$media/live_h264.mp4"
 # A flush (the sender restarted) starts over at the next keyframe.
 par expect live-flush "$live_ok" "live flush at" "summary: .*rendered=3[3-5][0-9] dropped=0 ${tsan_glitches:-glitches=[0-5] }backward_jumps=0 .*$live_latency" -- \

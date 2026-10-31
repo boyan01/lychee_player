@@ -1,4 +1,5 @@
 #import "./include/lychee_player/LycheePlayerPlugin.h"
+#import "./include/lychee_player/LycheeHostTexture.h"
 
 #import <CoreVideo/CoreVideo.h>
 #if TARGET_OS_OSX
@@ -29,87 +30,19 @@ typedef NSView PlatformView;
 typedef UIView PlatformView;
 #endif
 
-// Bridges one lychee_player to a Flutter texture. The display link asks the
-// player whether the next vsync shows a new frame; if so, Flutter is told to
-// pull it through copyPixelBuffer. On macOS the display link follows the
-// screen that shows the Flutter view: with screens at different refresh
-// rates, the vsync of another screen picks frames for the wrong times and
-// drops them. On iOS CADisplayLink already follows the device's screen.
-@interface LycheeTexture : NSObject <FlutterTexture>
-@property(nonatomic) int64_t textureId;
-// The player it was created for, even after dispose: the plugin destroys it
-// when Dart, which owns it, is gone.
-@property(nonatomic, readonly) lychee_player* player;
-- (instancetype)initWithPlayer:(lychee_player*)player
-                      registry:(NSObject<FlutterTextureRegistry>*)registry
-                          view:(nullable PlatformView*)view;
-- (void)start;
-// After this returns the player is never touched again and may be destroyed.
-// Idempotent; dealloc calls it too, for textures the engine drops without a
-// disposeTexture.
-- (void)dispose;
-@end
-
 #if LYCHEE_SDK_DRIVER
 
 // The Swift package build: the frames come through sdk/apple's
 // LycheeFrameDriver, which the native SDK uses too.
-@implementation LycheeTexture {
-  LycheeFrameDriver* _driver;
-  lychee_player* _player;
-  __weak PlatformView* _view;
-}
-
-- (instancetype)initWithPlayer:(lychee_player*)player
-                      registry:(NSObject<FlutterTextureRegistry>*)registry
-                          view:(nullable PlatformView*)view {
-  if (self = [super init]) {
-    _player = player;
-    _view = view;
-    __weak LycheeTexture* weakSelf = self;
-    __weak NSObject<FlutterTextureRegistry>* weakRegistry = registry;
-    // On the main thread.
-    _driver = [[LycheeFrameDriver alloc]
-        initWithHandle:player
-            onNewFrame:^{
-              LycheeTexture* texture = weakSelf;
-              if (texture) {
-                [weakRegistry textureFrameAvailable:texture.textureId];
-              }
-            }];
-  }
-  return self;
-}
-
-- (lychee_player*)player {
-  return _player;
-}
-
-- (void)dealloc {
-  [self dispose];
-}
-
-- (void)start {
-  [_driver startFollowing:_view];
-}
-
-- (void)dispose {
-  [_driver stop];
-}
-
-// Called on the raster thread.
-- (CVPixelBufferRef)copyPixelBuffer {
-  return [_driver copyFrame];
-}
-
-@end
+@compatibility_alias LycheeTextureDriver LycheeFrameDriver;
 
 #else
 
 // The CocoaPods build, which cannot depend on the Swift package, and the
 // Swift package build of a checkout without local frameworks, whose pinned
-// core may be older than sdk/apple: a port of sdk/apple's LycheeFrameDriver.
-// Fix both until CocoaPods support is dropped.
+// core may be older than sdk/apple: a port of sdk/apple's LycheeFrameDriver
+// with the same Objective-C interface. Fix both until CocoaPods support is
+// dropped.
 
 #if TARGET_OS_OSX
 static int64_t HostTimeToMicros(uint64_t host_time) {
@@ -122,22 +55,30 @@ static int64_t HostTimeToMicros(uint64_t host_time) {
 }
 #endif
 
+@interface LycheePortedFrameDriver : NSObject
+- (instancetype)initWithHandle:(nullable void*)handle
+                    onNewFrame:(void (^)(void))onNewFrame;
+- (void)startFollowing:(nullable PlatformView*)view;
+- (void)stop;
+- (void)setHandle:(nullable void*)handle;
+- (nullable CVPixelBufferRef)copyFrame CF_RETURNS_RETAINED;
+@end
+
 #if !TARGET_OS_OSX
-@interface LycheeTexture ()
+@interface LycheePortedFrameDriver ()
 - (void)onDisplayLink:(CADisplayLink*)link;
 @end
 
 // CADisplayLink retains its target; this breaks the cycle.
 @interface LycheeWeakTarget : NSObject
-@property(nonatomic, weak) LycheeTexture* texture;
+@property(nonatomic, weak) LycheePortedFrameDriver* driver;
 @end
 #endif
 
-@implementation LycheeTexture {
+@implementation LycheePortedFrameDriver {
   os_unfair_lock _lock;
-  lychee_player* _player;  // Guarded by _lock; NULL after dispose.
-  lychee_player* _createdPlayer;
-  __weak NSObject<FlutterTextureRegistry>* _registry;
+  lychee_player* _player;  // Guarded by _lock.
+  void (^_onNewFrame)(void);
   __weak PlatformView* _view;
 #if TARGET_OS_OSX
   CVDisplayLinkRef _displayLink;
@@ -159,37 +100,41 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
                               CVOptionFlags flagsIn,
                               CVOptionFlags* flagsOut,
                               void* context) {
-  [(__bridge LycheeTexture*)context onVsync:output];
+  [(__bridge LycheePortedFrameDriver*)context onVsync:output];
   return kCVReturnSuccess;
 }
 
 #endif
 
-- (instancetype)initWithPlayer:(lychee_player*)player
-                      registry:(NSObject<FlutterTextureRegistry>*)registry
-                          view:(nullable PlatformView*)view {
+- (instancetype)initWithHandle:(nullable void*)handle
+                    onNewFrame:(void (^)(void))onNewFrame {
   if (self = [super init]) {
     _lock = OS_UNFAIR_LOCK_INIT;
-    _player = player;
-    _createdPlayer = player;
-    _registry = registry;
-    _view = view;
+    _player = handle;
+    _onNewFrame = onNewFrame;
   }
   return self;
 }
 
-- (lychee_player*)player {
-  return _createdPlayer;
-}
-
 // The macOS display link holds self unretained: stop it before self goes.
 - (void)dealloc {
-  [self dispose];
+  [self stop];
+}
+
+- (void)setHandle:(nullable void*)handle {
+  os_unfair_lock_lock(&_lock);
+  _player = handle;
+  atomic_store(&_framePending, false);
+  os_unfair_lock_unlock(&_lock);
 }
 
 #if TARGET_OS_OSX
 // Main thread only.
-- (void)start {
+- (void)startFollowing:(nullable PlatformView*)view {
+  if (_displayLink) {
+    return;
+  }
+  _view = view;
   if (CVDisplayLinkCreateWithActiveCGDisplays(&_displayLink) !=
       kCVReturnSuccess) {
     NSLog(@"lychee_player: CVDisplayLinkCreateWithActiveCGDisplays failed");
@@ -201,7 +146,7 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   CVDisplayLinkStart(_displayLink);
 
   // A window moved to another screen, or a screen's refresh rate changed.
-  __weak LycheeTexture* weakSelf = self;
+  __weak LycheePortedFrameDriver* weakSelf = self;
   void (^update)(NSNotification*) = ^(NSNotification* notification) {
     [weakSelf followViewScreen];
   };
@@ -246,7 +191,7 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   }
 }
 
-- (void)dispose {
+- (void)stop {
   for (id<NSObject> observer in _observers) {
     [NSNotificationCenter.defaultCenter removeObserver:observer];
   }
@@ -261,9 +206,7 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
     CVDisplayLinkRelease(_displayLink);
     _displayLink = NULL;
   }
-  os_unfair_lock_lock(&_lock);
-  _player = NULL;
-  os_unfair_lock_unlock(&_lock);
+  [self setHandle:NULL];
 }
 
 - (void)onVsync:(const CVTimeStamp*)output {
@@ -276,18 +219,18 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   if (!hasNewFrame || atomic_exchange(&_framePending, true)) {
     return;
   }
-  int64_t textureId = _textureId;
-  NSObject<FlutterTextureRegistry>* registry = _registry;
-  dispatch_async(dispatch_get_main_queue(), ^{
-    [registry textureFrameAvailable:textureId];
-  });
+  // Not self: stop() may be releasing it on the main thread by then.
+  dispatch_async(dispatch_get_main_queue(), _onNewFrame);
 }
 
 #else
 // Main thread only.
-- (void)start {
+- (void)startFollowing:(nullable PlatformView*)view {
+  if (_displayLink) {
+    return;
+  }
   LycheeWeakTarget* target = [[LycheeWeakTarget alloc] init];
-  target.texture = self;
+  target.driver = self;
   _displayLink =
       [CADisplayLink displayLinkWithTarget:target
                                   selector:@selector(onDisplayLink:)];
@@ -295,15 +238,15 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
                      forMode:NSRunLoopCommonModes];
   _wasBackgrounded = UIApplication.sharedApplication.applicationState ==
                      UIApplicationStateBackground;
-  __weak LycheeTexture* weakSelf = self;
+  __weak LycheePortedFrameDriver* weakSelf = self;
   NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
   _observers = @[
     [center addObserverForName:UIApplicationDidEnterBackgroundNotification
                         object:nil
                          queue:NSOperationQueue.mainQueue
                     usingBlock:^(NSNotification* notification) {
-                      LycheeTexture* texture = weakSelf;
-                      if (texture) texture->_wasBackgrounded = YES;
+                      LycheePortedFrameDriver* driver = weakSelf;
+                      if (driver) driver->_wasBackgrounded = YES;
                     }],
     [center addObserverForName:UIApplicationDidBecomeActiveNotification
                         object:nil
@@ -329,7 +272,7 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   os_unfair_lock_unlock(&_lock);
 }
 
-- (void)dispose {
+- (void)stop {
   for (id<NSObject> observer in _observers) {
     [NSNotificationCenter.defaultCenter removeObserver:observer];
   }
@@ -338,9 +281,7 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   // after this.
   [_displayLink invalidate];
   _displayLink = nil;
-  os_unfair_lock_lock(&_lock);
-  _player = NULL;
-  os_unfair_lock_unlock(&_lock);
+  [self setHandle:NULL];
 }
 
 // Main thread. targetTimestamp is in CACurrentMediaTime() seconds, which is
@@ -355,13 +296,13 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
   if (!hasNewFrame || atomic_exchange(&_framePending, true)) {
     return;
   }
-  [_registry textureFrameAvailable:_textureId];
+  _onNewFrame();
 }
 
 #endif
 
-// Called on the raster thread.
-- (CVPixelBufferRef)copyPixelBuffer {
+// Any thread.
+- (nullable CVPixelBufferRef)copyFrame {
   atomic_store(&_framePending, false);
   int64_t displayTime = atomic_load(&_nextDisplayTime);
   int64_t now = lychee_now_us();
@@ -389,19 +330,136 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
 #if !TARGET_OS_OSX
 @implementation LycheeWeakTarget
 - (void)onDisplayLink:(CADisplayLink*)link {
-  [self.texture onDisplayLink:link];
+  [self.driver onDisplayLink:link];
 }
 @end
 #endif
 
+@compatibility_alias LycheeTextureDriver LycheePortedFrameDriver;
+
 #endif  // LYCHEE_SDK_DRIVER
+
+// What a texture shows after its player changed, until the new one has a
+// frame: a transparent pixel, rather than the last frame of the previous
+// player, which the engine would otherwise keep.
+static CVPixelBufferRef BlankPixelBuffer(void) {
+  static CVPixelBufferRef buffer;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    NSDictionary* attributes = @{
+      (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
+      (id)kCVPixelBufferMetalCompatibilityKey : @YES,
+    };
+    CVPixelBufferCreate(kCFAllocatorDefault, 1, 1, kCVPixelFormatType_32BGRA,
+                        (__bridge CFDictionaryRef)attributes, &buffer);
+    CVPixelBufferLockBaseAddress(buffer, 0);
+    memset(CVPixelBufferGetBaseAddress(buffer), 0,
+           CVPixelBufferGetDataSize(buffer));
+    CVPixelBufferUnlockBaseAddress(buffer, 0);
+  });
+  return buffer;
+}
+
+// Both the plugin's textures, for Dart's players, and the app's. On macOS
+// the display link follows the screen that shows the Flutter view, if given
+// one: with screens at different refresh rates, the vsync of another screen
+// picks frames for the wrong times and drops them. On iOS CADisplayLink
+// already follows the device's screen.
+@interface LycheeHostTexture () <FlutterTexture>
+- (instancetype)initWithRegistry:(NSObject<FlutterTextureRegistry>*)registry
+                            view:(nullable PlatformView*)view;
+@end
+
+@implementation LycheeHostTexture {
+  LycheeTextureDriver* _driver;
+  __weak NSObject<FlutterTextureRegistry>* _registry;
+  BOOL _disposed;
+  // Bumped by setPlayer:. copyPixelBuffer remembers which player its last
+  // buffer was for, so a change shows the blank buffer until a frame comes.
+  _Atomic int64_t _generation;
+  _Atomic int64_t _shownGeneration;
+}
+
++ (uint32_t)frameTypes {
+  // What copyPixelBuffer hands to the engine, and the plugin's Dart side
+  // asks for (platformFrameType).
+  return LYCHEE_FRAME_CVPIXELBUFFER;
+}
+
+- (instancetype)initWithRegistry:(NSObject<FlutterTextureRegistry>*)registry {
+  return [self initWithRegistry:registry view:nil];
+}
+
+- (instancetype)initWithRegistry:(NSObject<FlutterTextureRegistry>*)registry
+                            view:(nullable PlatformView*)view {
+  if (self = [super init]) {
+    _registry = registry;
+    __weak LycheeHostTexture* weakSelf = self;
+    // On the main thread.
+    _driver = [[LycheeTextureDriver alloc] initWithHandle:NULL
+                                               onNewFrame:^{
+                                                 [weakSelf frameAvailable];
+                                               }];
+    _textureId = [registry registerTexture:self];
+    [_driver startFollowing:view];
+  }
+  return self;
+}
+
+- (void)setPlayer:(nullable lychee_player*)player {
+  // Waits for a pull of the previous player in progress.
+  [_driver setHandle:player];
+  atomic_fetch_add(&_generation, 1);
+  __weak LycheeHostTexture* weakSelf = self;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [weakSelf frameAvailable];
+  });
+}
+
+// Main thread.
+- (void)frameAvailable {
+  if (!_disposed) {
+    [_registry textureFrameAvailable:_textureId];
+  }
+}
+
+- (void)dispose {
+  if (_disposed) {
+    return;
+  }
+  _disposed = YES;
+  // After this the player is never touched again.
+  [_driver stop];
+  [_registry unregisterTexture:_textureId];
+}
+
+// Called on the raster thread.
+- (CVPixelBufferRef)copyPixelBuffer {
+  // Read first: a frame pulled while setPlayer: runs may be the previous
+  // player's, and must not count for the new one.
+  int64_t generation = atomic_load(&_generation);
+  CVPixelBufferRef frame = [_driver copyFrame];
+  if (frame) {
+    atomic_store(&_shownGeneration, generation);
+    return frame;
+  }
+  if (atomic_exchange(&_shownGeneration, generation) != generation) {
+    return CVPixelBufferRetain(BlankPixelBuffer());
+  }
+  return NULL;
+}
+
+@end
 
 #pragma clang diagnostic pop
 
 @implementation LycheePlayerPlugin {
   __weak NSObject<FlutterPluginRegistrar>* _registrar;
-  NSObject<FlutterTextureRegistry>* _textures;
-  NSMutableDictionary<NSNumber*, LycheeTexture*>* _players;
+  NSObject<FlutterTextureRegistry>* _registry;
+  // By texture id. The plugin destroys the players when Dart, which owns
+  // them, is gone.
+  NSMutableDictionary<NSNumber*, LycheeHostTexture*>* _textures;
+  NSMutableDictionary<NSNumber*, NSValue*>* _players;
 }
 
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
@@ -425,7 +483,8 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
 - (instancetype)initWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
   if (self = [super init]) {
     _registrar = registrar;
-    _textures = registrar.textures;
+    _registry = registrar.textures;
+    _textures = [NSMutableDictionary dictionary];
     _players = [NSMutableDictionary dictionary];
   }
   return self;
@@ -441,24 +500,20 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
 #else
     PlatformView* view = nil;
 #endif
-    LycheeTexture* texture = [[LycheeTexture alloc] initWithPlayer:player
-                                                          registry:_textures
-                                                              view:view];
-    texture.textureId = [_textures registerTexture:texture];
-    _players[@(texture.textureId)] = texture;
-    [texture start];
+    LycheeHostTexture* texture =
+        [[LycheeHostTexture alloc] initWithRegistry:_registry view:view];
+    [texture setPlayer:player];
+    _textures[@(texture.textureId)] = texture;
+    _players[@(texture.textureId)] = [NSValue valueWithPointer:player];
     result(@(texture.textureId));
   } else if ([call.method isEqualToString:@"disposeAll"]) {
     [self destroyAll];
     result(nil);
   } else if ([call.method isEqualToString:@"disposeTexture"]) {
     NSNumber* textureId = call.arguments[@"textureId"];
-    LycheeTexture* texture = _players[textureId];
-    if (texture) {
-      [texture dispose];
-      [_textures unregisterTexture:textureId.longLongValue];
-      [_players removeObjectForKey:textureId];
-    }
+    [_textures[textureId] dispose];
+    [_textures removeObjectForKey:textureId];
+    [_players removeObjectForKey:textureId];
     result(nil);
   } else {
     result(FlutterMethodNotImplemented);
@@ -469,14 +524,14 @@ static CVReturn OnDisplayLink(CVDisplayLinkRef displayLink,
 // that owns them is gone: a hot restart (disposeAll from the new isolate)
 // or the engine going away.
 - (void)destroyAll {
-  for (NSNumber* textureId in _players) {
-    LycheeTexture* texture = _players[textureId];
-    [texture dispose];
-    [_textures unregisterTexture:textureId.longLongValue];
+  for (NSNumber* textureId in _textures) {
+    [_textures[textureId] dispose];
+    lychee_player* player = _players[textureId].pointerValue;
     // Its event callback points into the old isolate.
-    lychee_player_set_event_callback(texture.player, NULL, NULL);
-    lychee_player_destroy(texture.player);
+    lychee_player_set_event_callback(player, NULL, NULL);
+    lychee_player_destroy(player);
   }
+  [_textures removeAllObjects];
   [_players removeAllObjects];
 }
 

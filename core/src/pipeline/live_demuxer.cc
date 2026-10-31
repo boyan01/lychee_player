@@ -149,6 +149,8 @@ bool LiveDemuxer::Push(int index,
   }
   if (bytes_ + size > kMaxQueuedBytes) {
     LOGW("%zu bytes queued; dropping them up to the next keyframe", bytes_);
+    video_packets_dropped_ +=
+        static_cast<int64_t>(streams_[kVideoStream].packets.size());
     for (Stream& s : streams_) {
       DropLocked(&s);
       s.wait_for_keyframe = true;
@@ -210,6 +212,7 @@ bool LiveDemuxer::PrepareVideoLocked(Stream* stream, EncodedPacket* packet) {
   }
   if (stream->wait_for_keyframe) {
     if (!keyframe) {
+      video_packets_dropped_++;
       return false;
     }
     stream->wait_for_keyframe = false;
@@ -246,6 +249,7 @@ void LiveDemuxer::RestartVideo() {
   while (!stream.packets.empty() && !stream.packets.front()->keyframe) {
     bytes_ -= stream.packets.front()->size();
     stream.packets.pop_front();
+    video_packets_dropped_++;
   }
   if (stream.packets.empty()) {
     stream.wait_for_keyframe = true;
@@ -261,6 +265,16 @@ bool LiveDemuxer::Idle() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return !in_flight_ && !ReadableLocked(streams_[kVideoStream]) &&
          !ReadableLocked(streams_[kAudioStream]);
+}
+
+int64_t LiveDemuxer::video_packets_dropped() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return video_packets_dropped_;
+}
+
+int64_t LiveDemuxer::audio_behind() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return timeline_.audio_behind();
 }
 
 void LiveDemuxer::DropLocked(Stream* stream) {

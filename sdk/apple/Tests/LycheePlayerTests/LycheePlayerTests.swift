@@ -1,5 +1,6 @@
 import CoreVideo
 import LycheePlayer
+import lychee
 import XCTest
 
 // Needs the media tool/regression.sh generates in /tmp/lychee-media.
@@ -87,6 +88,43 @@ final class LycheePlayerTests: XCTestCase {
     driver?.stop()
     XCTAssertNil(weakPlayer, "stop() lets go of it")
     driver = nil
+  }
+
+  // Players the caller owns, as the Flutter plugin's host textures switch
+  // one driver between them: each may be destroyed once it was switched
+  // away from, while the display link runs.
+  func testSwitchesCallerOwnedPlayers() {
+    func playing() -> OpaquePointer {
+      var config = lychee_config()
+      lychee_config_init(&config, UInt32(MemoryLayout<lychee_config>.size))
+      config.video_frame_types = LYCHEE_FRAME_CVPIXELBUFFER.rawValue
+      let player = lychee_player_create(&config)!
+      lychee_player_set_volume(player, 0)
+      lychee_player_open(player, url)
+      lychee_player_play(player)
+      return player
+    }
+    func waitForFrame(_ driver: LycheeFrameDriver) -> CVPixelBuffer? {
+      for _ in 0..<500 {
+        if let frame = driver.copyFrame() { return frame }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+      }
+      return nil
+    }
+    let driver = LycheeFrameDriver(handle: nil) {}
+    driver.start()
+    XCTAssertNil(driver.copyFrame())
+    let first = playing()
+    driver.setHandle(UnsafeMutableRawPointer(first))
+    XCTAssertNotNil(waitForFrame(driver))
+    let second = playing()
+    driver.setHandle(UnsafeMutableRawPointer(second))
+    lychee_player_destroy(first)
+    XCTAssertNotNil(waitForFrame(driver))
+    driver.setHandle(nil)
+    lychee_player_destroy(second)
+    XCTAssertNil(driver.copyFrame())
+    driver.stop()
   }
 
   func testArtwork() {

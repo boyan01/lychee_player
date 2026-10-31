@@ -63,14 +63,10 @@ const void* FrameContents(lychee_frame* frame) {
 
 }  // namespace
 
-LycheeTexture::LycheeTexture(lychee_player* player,
-                             flutter::TextureRegistrar* registrar,
+LycheeTexture::LycheeTexture(flutter::TextureRegistrar* registrar,
                              HWND window,
                              IDXGIAdapter* adapter)
-    : registrar_(registrar),
-      window_(window),
-      created_player_(player),
-      player_(player) {
+    : registrar_(registrar), window_(window) {
   D3D11_QUERY_DESC query = {D3D11_QUERY_EVENT, 0};
   if (!adapter ||
       FAILED(D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0,
@@ -89,13 +85,7 @@ LycheeTexture::LycheeTexture(lychee_player* player,
                                  [this](size_t width, size_t height) {
                                    return CopyGpuSurface(width, height);
                                  }));
-  // Hardware-decoded frames then come as textures Flutter's device can
-  // open.
-  lychee_video_device video_device = {};
-  video_device.struct_size = sizeof(video_device);
-  video_device.type = LYCHEE_VIDEO_DEVICE_D3D11_ADAPTER;
-  video_device.handle = adapter;
-  lychee_player_set_video_device(player, &video_device);
+  adapter_ = adapter;
 }
 
 LycheeTexture::~LycheeTexture() {
@@ -111,14 +101,52 @@ int64_t LycheeTexture::Start() {
   return texture_id_;
 }
 
+void LycheeTexture::SetPlayer(lychee_player* player) {
+  if (player && adapter_) {
+    // Hardware-decoded frames then come as textures Flutter's device can
+    // open.
+    lychee_video_device video_device = {};
+    video_device.struct_size = sizeof(video_device);
+    video_device.type = LYCHEE_VIDEO_DEVICE_D3D11_ADAPTER;
+    video_device.handle = adapter_.Get();
+    lychee_player_set_video_device(player, &video_device);
+  }
+  {
+    // VsyncLoop() and AcquireFrame() use the player only under the lock.
+    std::lock_guard<std::mutex> lock(mutex_);
+    player_ = player;
+  }
+  player_set_.notify_all();
+  // Redraw, so that nothing shows; thread-safe.
+  if (!player && texture_id_ >= 0 && !stopping_ &&
+      !frame_pending_.exchange(true)) {
+    registrar_->MarkTextureFrameAvailable(texture_id_);
+  }
+}
+
 void LycheeTexture::Dispose() {
-  stopping_ = true;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    stopping_ = true;
+  }
+  player_set_.notify_all();
   // Waits at most one vblank.
   if (thread_.joinable()) {
     thread_.join();
   }
   std::lock_guard<std::mutex> lock(mutex_);
   player_ = nullptr;
+}
+
+void LycheeTexture::Retire() {
+  Dispose();
+  if (texture_id_ < 0) {
+    delete this;
+    return;
+  }
+  // The raster thread may still call the texture callback until Flutter has
+  // unregistered it.
+  registrar_->UnregisterTexture(texture_id_, [this] { delete this; });
 }
 
 // Waits for each vblank of the monitor showing the window and asks the
@@ -133,7 +161,15 @@ void LycheeTexture::VsyncLoop() {
   int64_t interval = kMicrosPerSecond / 60;
   bool checked = false;
   int64_t monitor_checked = 0;
-  while (!stopping_) {
+  while (true) {
+    {
+      // Idle while no player is set.
+      std::unique_lock<std::mutex> lock(mutex_);
+      player_set_.wait(lock, [this] { return stopping_ || player_; });
+      if (stopping_) {
+        break;
+      }
+    }
     const int64_t now = lychee_now_us();
     if (!checked || now - monitor_checked >= kMonitorCheckInterval) {
       checked = true;
@@ -172,18 +208,20 @@ void LycheeTexture::VsyncLoop() {
   }
 }
 
-lychee_frame* LycheeTexture::AcquireFrame() {
+lychee_frame* LycheeTexture::AcquireFrame(bool* has_player) {
   frame_pending_ = false;
   const int64_t display_time =
       (std::max)(next_display_time_.load(), lychee_now_us());
   std::lock_guard<std::mutex> lock(mutex_);
+  *has_player = player_ != nullptr;
   return player_ ? lychee_player_acquire_frame(player_, display_time)
                  : nullptr;
 }
 
 const FlutterDesktopPixelBuffer* LycheeTexture::CopyPixelBuffer(size_t,
                                                                 size_t) {
-  lychee_frame* frame = AcquireFrame();
+  bool has_player = false;
+  lychee_frame* frame = AcquireFrame(&has_player);
   if (!frame) {
     return nullptr;
   }
@@ -223,7 +261,14 @@ const FlutterDesktopPixelBuffer* LycheeTexture::CopyPixelBuffer(size_t,
 const FlutterDesktopGpuSurfaceDescriptor* LycheeTexture::CopyGpuSurface(
     size_t,
     size_t) {
-  lychee_frame* frame = AcquireFrame();
+  bool has_player = false;
+  lychee_frame* frame = AcquireFrame(&has_player);
+  if (!has_player && shown_frame_) {
+    // The player was unset: show nothing rather than its last frame.
+    lychee_frame_release(shown_frame_);
+    shown_frame_ = nullptr;
+    shown_texture_.Reset();
+  }
   if (!frame) {
     return shown_texture_ ? &descriptor_ : nullptr;
   }

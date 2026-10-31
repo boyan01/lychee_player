@@ -75,6 +75,13 @@ class LiveDemuxer : public Demuxer {
   // Nothing readable is waiting here or on its way to a decoder. For
   // SettledForTesting().
   bool Idle() const;
+  // Video packets dropped since the open while waiting for a keyframe
+  // (after the open, a track change, a flush or a new decoder) and by an
+  // overflow. Those a Flush() or SetTrack() discards are not counted: the
+  // caller asked for that.
+  int64_t video_packets_dropped() const;
+  // LiveTimeline::audio_behind().
+  int64_t audio_behind() const;
 
  private:
   struct Stream {
@@ -103,6 +110,7 @@ class LiveDemuxer : public Demuxer {
   LiveTimeline timeline_;
   Stream streams_[2];
   size_t bytes_ = 0;
+  int64_t video_packets_dropped_ = 0;
   // Annex B VPS/SPS/PPS of the last video packet that had them.
   std::vector<uint8_t> parameter_sets_;
   // A packet Read() returned that is not queued for its decoder yet.
