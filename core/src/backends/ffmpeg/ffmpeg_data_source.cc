@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "backends/ffmpeg/ffmpeg_common.h"
+#include "base/time.h"
 
 extern "C" {
 #include <libavformat/avio.h>
@@ -83,6 +84,13 @@ class FFmpegHttpDataSource : public DataSource {
     return error_;
   }
 
+  int64_t transfer_rate() const override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return received_ > 0 && receive_micros_ > 0
+               ? received_ * 8 * kMicrosPerSecond / receive_micros_
+               : -1;
+  }
+
  private:
   static int InterruptCallback(void* opaque) {
     return static_cast<FFmpegHttpDataSource*>(opaque)->interrupted_.load() ? 1
@@ -104,9 +112,14 @@ class FFmpegHttpDataSource : public DataSource {
     av_dict_set(&options, "reconnect_delay_total_max", "10", 0);
     av_dict_set(&options, "rw_timeout", "10000000", 0);
     const AVIOInterruptCB interrupt = {&InterruptCallback, this};
+    const int64_t began = MonotonicMicros();
     const int ret =
         avio_open2(&io_, url_.c_str(), AVIO_FLAG_READ, &interrupt, &options);
     av_dict_free(&options);
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      receive_micros_ += MonotonicMicros() - began;
+    }
     if (ret < 0) {
       SetError(url_ + ": " + AVErrorString(ret));
       return false;
@@ -125,8 +138,17 @@ class FFmpegHttpDataSource : public DataSource {
 
   // Reads at |position_|, keeping what it read behind (|behind_|).
   int64_t ReadIo(uint8_t* data, size_t size) {
+    const int64_t began = MonotonicMicros();
+    const int64_t fetched = io_->bytes_read;
     const int ret =
         avio_read(io_, data, static_cast<int>(std::min<size_t>(size, INT_MAX)));
+    // What came over the network in the time it took: a read from
+    // FFmpeg's buffer counts neither.
+    if (io_->bytes_read > fetched) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      received_ += io_->bytes_read - fetched;
+      receive_micros_ += MonotonicMicros() - began;
+    }
     if (ret == AVERROR_EOF) {
       return 0;
     }
@@ -199,6 +221,10 @@ class FFmpegHttpDataSource : public DataSource {
   bool seekable_ = false;
   std::string location_;
   std::string error_;
+  // For transfer_rate(): bytes FFmpeg fetched and the microseconds spent
+  // connecting and fetching them, as the platforms' clients measure.
+  int64_t received_ = 0;
+  int64_t receive_micros_ = 0;
 };
 
 }  // namespace

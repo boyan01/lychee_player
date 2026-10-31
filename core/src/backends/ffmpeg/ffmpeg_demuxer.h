@@ -76,6 +76,10 @@ class FFmpegDemuxer : public Demuxer {
                       bool decrypt);
   void CloseIo(AVIOContext* pb);
   void RemoveIo(Io* io);
+#else
+  // Adds what the input's AVIOContext fetched past |fetched| since
+  // |began| (MonotonicMicros()) to the download rate's counts.
+  void CountReceived(int64_t fetched, int64_t began);
 #endif
   void BuildMediaInfo();
   // The next packet of an enabled stream from FFmpeg: 0, or FFmpeg's error
@@ -151,6 +155,12 @@ class FFmpegDemuxer : public Demuxer {
 #if defined(__ANDROID__)
   CleartextRedirects redirects_;
 #endif
+#else
+  // Bytes FFmpeg's http fetched for the input, and the time those reads
+  // took, written by the read thread for download_rate().
+  bool measure_rate_ = false;
+  std::atomic<int64_t> received_{0};
+  std::atomic<int64_t> receive_micros_{0};
 #endif
 };
 

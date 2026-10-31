@@ -11,6 +11,7 @@
 
 #include "backends/ffmpeg/ffmpeg_common.h"
 #include "base/log.h"
+#include "base/time.h"
 
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
 #include <cstddef>
@@ -280,6 +281,10 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
     // A connection that stays silent this long counts as dropped.
     av_dict_set(&options, "rw_timeout", "10000000", 0);
   }
+#if !defined(LYCHEE_FFMPEG_DATA_SOURCE)
+  const int64_t began = MonotonicMicros();
+  measure_rate_ = IsNetworkUrl(url);
+#endif
   int ret = avformat_open_input(&format_context_, url.c_str(), nullptr,
                                 &options);
   av_dict_free(&options);
@@ -307,6 +312,9 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
     *error = "avformat_find_stream_info: " + AVErrorString(ret);
     return false;
   }
+#if !defined(LYCHEE_FFMPEG_DATA_SOURCE)
+  CountReceived(0, began);
+#endif
   BuildMediaInfo();
   enabled_streams_.assign(format_context_->nb_streams, true);
   discontinuous_ = (format_context_->iformat->flags & AVFMT_TS_DISCONT) != 0;
@@ -518,7 +526,15 @@ int FFmpegDemuxer::ReadNext(EncodedPacket* packet) {
     if (aborted_) {
       return AVERROR_EXIT;
     }
+#if !defined(LYCHEE_FFMPEG_DATA_SOURCE)
+    const int64_t began = MonotonicMicros();
+    const int64_t fetched =
+        format_context_->pb ? format_context_->pb->bytes_read : 0;
+#endif
     int ret = av_read_frame(format_context_, av_packet_);
+#if !defined(LYCHEE_FFMPEG_DATA_SOURCE)
+    CountReceived(fetched, began);
+#endif
     if (ret == AVERROR(EAGAIN)) {
       continue;
     }
@@ -1192,9 +1208,24 @@ void FFmpegDemuxer::RemoveIo(Io* io) {
   ios_.erase(it);
 }
 #else
+void FFmpegDemuxer::CountReceived(int64_t fetched, int64_t began) {
+  // Only reads that took bytes from the network count, so time spent
+  // demuxing from FFmpeg's buffer does not lower the rate.
+  const AVIOContext* pb = format_context_->pb;
+  if (!measure_rate_ || !pb || pb->bytes_read <= fetched) {
+    return;
+  }
+  received_ += pb->bytes_read - fetched;
+  receive_micros_ += MonotonicMicros() - began;
+}
+
 int64_t FFmpegDemuxer::download_rate() const {
-  // FFmpeg's own protocols do not say how fast they read.
-  return -1;
+  // What the input's AVIOContext fetched over the time its reads took.
+  // HLS reads its segments through other contexts and reports none here.
+  const int64_t received = received_;
+  const int64_t micros = receive_micros_;
+  return received > 0 && micros > 0 ? received * 8 * kMicrosPerSecond / micros
+                                    : -1;
 }
 #endif
 

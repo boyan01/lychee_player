@@ -48,12 +48,6 @@ building on top of them.
 
 ## Known defects
 
-- **No download rate on Linux** (2026-10-31): `lychee_stats`'s
-  `download_rate_bps` stays -1 there, since FFmpeg's own protocols read
-  the input and `FFmpegDemuxer::download_rate()` has no source to ask.
-  Done when Linux reports the rate it reads at (e.g. from the
-  `AVIOContext`s FFmpeg opens) and `http-slow` expects ~550 kB/s there
-  too.
 - **Hosted macOS live HLS timing check** (2026-10-30):
   `http-hls-live-variants` ended at 12.123 s in plain CI, outside its
   expected 12.0xx s, with all 360 frames pulled and no backward timestamp

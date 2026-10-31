@@ -1745,10 +1745,8 @@ serve --drop-at 3000000 --refuse-after-drop --rate 2000
 exits=1 seq_ expect http-lost "state=error" "error: input ended at" -- "$url"
 # Slower than the bitrate: rebuffer in long stretches, not every few frames.
 serve --rate 550
-# FFmpeg's own http (Linux) reports no rate. The platforms' http clients
-# measure what arrives: 550 kB/s.
-slow_rate="download=-1kbit/s"
-[ "$data_source" = 1 ] && slow_rate="download=(3[5-9]|4[0-9])[0-9]{2}kbit/s"
+# The http clients measure what arrives: 550 kB/s.
+slow_rate="download=(3[5-9]|4[0-9])[0-9]{2}kbit/s"
 realtime=1 seq_ expect http-slow "state=ended" "<=2 event: state buffering" \
   "summary:.* rebuffers=[12] rebuffer=[0-9]+\.[0-9]{3}s .*$slow_rate" "rebuffered for [0-9]+ ms" -- "$url"
 # The read stalls before playback starts; the seek must not wait for it.
