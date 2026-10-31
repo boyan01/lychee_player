@@ -1191,6 +1191,11 @@ void FFmpegDemuxer::RemoveIo(Io* io) {
   removed = std::move(*it);
   ios_.erase(it);
 }
+#else
+int64_t FFmpegDemuxer::download_rate() const {
+  // FFmpeg's own protocols do not say how fast they read.
+  return -1;
+}
 #endif
 
 }  // namespace lychee
