@@ -1338,9 +1338,11 @@ fi
 par expect live-latency "$live_ok" "summary: .*dropped=0 .*live_vbuf=0\.(2[5-9]|30)[0-9]s" -- \
   --live --latency 300 "$media/live_h264.mp4"
 # The new decoder starts at the next keyframe: the packets before it count
-# as dropped.
+# as dropped. A software decoder has nothing to recover and is not rebuilt.
+rebuild_dropped="[1-9][0-9]*"
+[ "${NO_HW:-0}" = 1 ] && rebuild_dropped=0
 par expect live-decoder-rebuild "rebuild video decoder at" "<=0 event: state error" \
-  "summary: state=ready .*rendered=[23][0-9]{2} .*backward_jumps=0 .*live_packets_dropped=[1-9][0-9]* " -- \
+  "summary: state=ready .*rendered=[23][0-9]{2} .*backward_jumps=0 .*live_packets_dropped=$rebuild_dropped " -- \
   --live --rebuild-decoder-after 2 "$media/live_h264.mp4"
 par expect live-audio-only "$live_ok" "summary: state=ready position=1[23]\.[0-9]{3}s decoder=none .*live_abuf=0\.0[4-9][0-9]s .*audio_decoder=(ffmpeg|audiotoolbox|mediacodec|mediafoundation) " -- \
   --live --audio-only "$media/live_h264.mp4"
