@@ -13,8 +13,10 @@
   `lychee::lychee` in CMake (Linux, Windows) or through prefab (Android).
 * `getStats()` (and `lychee_stats`) also report frames decoded, bytes read
   per track, the download rate, the startup time, rebuffering (count and
-  time) and seeks (count and the last one's time), plus the audio
-  decoder. The player logs when it rebuffers, how long seeks and the
+  time), seeks (count and the last one's time), how far video runs
+  ahead of or behind the audio, the audio device's format and latency,
+  the HLS variant playing with its bandwidth, and the audio decoder. The
+  player logs when it rebuffers, how long seeks and the
   startup took, and a summary when it closes the media.
 
 ### Fixed

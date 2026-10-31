@@ -155,6 +155,11 @@ class LycheePlayerStats {
     this.rebufferTime = Duration.zero,
     this.seekCount = 0,
     this.lastSeekTime = Duration.zero,
+    this.videoOffset = Duration.zero,
+    this.audioOutputSampleRate = 0,
+    this.audioOutputChannels = 0,
+    this.audioOutputLatency = Duration.zero,
+    this.variantBandwidth,
   });
 
   final bool hardwareDecoding;
@@ -198,6 +203,20 @@ class LycheePlayerStats {
   /// Seeks completed, and how long the last took.
   final int seekCount;
   final Duration lastSeekTime;
+
+  /// Average of how far ahead of the clock (the audio heard) frames are
+  /// when shown; negative: behind.
+  final Duration videoOffset;
+
+  /// What the audio device plays, 0 without audio, and how far ahead of
+  /// now it plays what it takes.
+  final int audioOutputSampleRate;
+  final int audioOutputChannels;
+  final Duration audioOutputLatency;
+
+  /// The bandwidth (bit/s) of the HLS variant on screen, null for other
+  /// input.
+  final int? variantBandwidth;
 }
 
 class LycheePlayer extends ValueNotifier<LycheePlayerValue>
@@ -384,6 +403,11 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       rebufferTime: Duration(microseconds: s.rebufferTimeUs),
       seekCount: s.seekCount,
       lastSeekTime: Duration(microseconds: s.lastSeekTimeUs),
+      videoOffset: Duration(microseconds: s.videoOffsetUs),
+      audioOutputSampleRate: s.audioOutputSampleRate,
+      audioOutputChannels: s.audioOutputChannels,
+      audioOutputLatency: Duration(microseconds: s.audioOutputLatencyUs),
+      variantBandwidth: s.variantBandwidthBps > 0 ? s.variantBandwidthBps : null,
     );
     calloc.free(stats);
     return result;

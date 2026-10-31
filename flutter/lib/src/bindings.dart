@@ -124,6 +124,16 @@ final class LycheeStats extends Struct {
   external int seekCount;
   @Int64()
   external int lastSeekTimeUs;
+  @Int64()
+  external int videoOffsetUs;
+  @Int32()
+  external int audioOutputSampleRate;
+  @Int32()
+  external int audioOutputChannels;
+  @Int64()
+  external int audioOutputLatencyUs;
+  @Int64()
+  external int variantBandwidthBps;
 }
 
 final class LycheeTrackInfo extends Struct {
