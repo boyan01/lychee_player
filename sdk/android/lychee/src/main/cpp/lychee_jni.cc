@@ -539,14 +539,17 @@ JNIEXPORT jbyteArray JNICALL Java_tech_soit_lychee_LycheePlayer_nativeGetStats(
   lychee_stats stats{};
   stats.struct_size = sizeof(stats);
   lychee_player_get_stats(Player(handle), &stats);
-  const jlong values[] = {stats.hardware_decoding, stats.frames_rendered,
-                          stats.frames_dropped,    stats.video_buffered_us,
-                          stats.audio_buffered_us, stats.video_decode_time_us,
-                          stats.frames_decoded,    stats.video_bytes_read,
-                          stats.audio_bytes_read,  stats.download_rate_bps,
-                          stats.startup_time_us,   stats.rebuffer_count,
-                          stats.rebuffer_time_us,  stats.seek_count,
-                          stats.last_seek_time_us};
+  const jlong values[] = {
+      stats.hardware_decoding,        stats.frames_rendered,
+      stats.frames_dropped,           stats.video_buffered_us,
+      stats.audio_buffered_us,        stats.video_decode_time_us,
+      stats.frames_decoded,           stats.video_bytes_read,
+      stats.audio_bytes_read,         stats.download_rate_bps,
+      stats.startup_time_us,          stats.rebuffer_count,
+      stats.rebuffer_time_us,         stats.seek_count,
+      stats.last_seek_time_us,        stats.video_offset_us,
+      stats.audio_output_sample_rate, stats.audio_output_channels,
+      stats.audio_output_latency_us,  stats.variant_bandwidth_bps};
   env->SetLongArrayRegion(longs, 0, sizeof(values) / sizeof(values[0]), values);
   const std::string decoders =
       FromArray(stats.video_decoder) + "\n" + FromArray(stats.audio_decoder);

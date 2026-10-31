@@ -100,6 +100,17 @@ class LycheePlayer @JvmOverloads constructor(
         /** Seeks completed, and how long the last took. */
         val seekCount: Long,
         val lastSeekTimeMs: Long,
+        /**
+         * Average of how far ahead of the clock (the audio heard) frames are when shown, in
+         * microseconds; negative: behind.
+         */
+        val videoOffsetUs: Long,
+        /** What the audio device plays, 0 without audio, and how far ahead of now it plays. */
+        val audioOutputSampleRate: Int,
+        val audioOutputChannels: Int,
+        val audioOutputLatencyMs: Long,
+        /** The bandwidth of the HLS variant on screen, 0 for other input. */
+        val variantBandwidthBps: Long,
     )
 
     /** The lychee_player*, for the C ABI and [LycheeFrameDriver]. */
@@ -271,7 +282,7 @@ class LycheePlayer @JvmOverloads constructor(
 
     val stats: Stats
         get() {
-            val longs = LongArray(15)
+            val longs = LongArray(20)
             val decoders = String(nativeGetStats(handle(), longs)).split('\n')
             return Stats(
                 hardwareDecoding = longs[0] != 0L, framesRendered = longs[1],
@@ -282,6 +293,9 @@ class LycheePlayer @JvmOverloads constructor(
                 downloadRateBps = longs[9], startupTimeMs = longs[10] / 1000,
                 rebufferCount = longs[11], rebufferTimeMs = longs[12] / 1000,
                 seekCount = longs[13], lastSeekTimeMs = longs[14] / 1000,
+                videoOffsetUs = longs[15], audioOutputSampleRate = longs[16].toInt(),
+                audioOutputChannels = longs[17].toInt(), audioOutputLatencyMs = longs[18] / 1000,
+                variantBandwidthBps = longs[19],
             )
         }
 
