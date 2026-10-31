@@ -130,6 +130,10 @@ struct Options {
   // change; it resumes at a keyframe.
   double live_gap_at = -1;
   double live_gap_for = 0;
+  // No audio for this long, as from a sender that stops sending in
+  // silence; its timestamps jump over the gap.
+  double live_audio_gap_at = -1;
+  double live_audio_gap_for = 0;
 #if defined(__APPLE__)
   int32_t frame_type = LYCHEE_FRAME_CVPIXELBUFFER;
 #else
@@ -340,6 +344,12 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       if (!at || !duration) return false;
       options->live_gap_at = atof(at);
       options->live_gap_for = atof(duration);
+    } else if (arg == "--live-audio-gap") {
+      const char* at = value();
+      const char* duration = value();
+      if (!at || !duration) return false;
+      options->live_audio_gap_at = strtod(at, nullptr);
+      options->live_audio_gap_for = strtod(duration, nullptr);
     } else if (arg == "--audio-only") {
       options->frame_type = 0;
     } else if (arg == "--subtitle-ppm") {
@@ -958,6 +968,9 @@ class LiveFeed {
       if (packet_.type == LYCHEE_TRACK_VIDEO && InGap(since)) {
         continue;
       }
+      if (packet_.type == LYCHEE_TRACK_AUDIO && InAudioGap(since)) {
+        continue;
+      }
       packet_.data = data_.data();
       packet_.size = static_cast<int32_t>(data_.size());
       lychee_player_push_live_packet(player_, &packet_);
@@ -998,6 +1011,15 @@ class LiveFeed {
       return false;
     }
     return true;
+  }
+
+  bool InAudioGap(int64_t since) const {
+    const int64_t gap_at =
+        static_cast<int64_t>(options_.live_audio_gap_at * 1e6);
+    const int64_t gap_end =
+        gap_at + static_cast<int64_t>(options_.live_audio_gap_for * 1e6);
+    return options_.live_audio_gap_at >= 0 && since >= gap_at &&
+           since < gap_end;
   }
 
   // The live source puts parameter sets before every keyframe.
@@ -1051,7 +1073,8 @@ int main(int argc, char** argv) {
         "[--stall-audio-for SEC]] [--fail-audio-start N] "
         "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
         "[--live [--latency MS] [--live-jitter MS] "
-        "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
+        "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR] "
+        "[--live-audio-gap SEC FOR]] "
         "[--subtitle-ppm FILE] [--frame-ppm SEC:FILE]... [--virtual-time] "
         "[--null-audio] [--verbose] [--audio-dump FILE] [--pause SEC FOR] "
         "<file or url>\n",

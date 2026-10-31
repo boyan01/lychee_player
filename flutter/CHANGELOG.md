@@ -1,3 +1,10 @@
+## Unreleased
+
+### Fixed
+
+* Live audio no longer breaks up after a pause in the sender's audio or a
+  change in its delay when Android, Apple or Windows decoders decode it.
+
 ## 1.0.0-beta.5
 
 ### New

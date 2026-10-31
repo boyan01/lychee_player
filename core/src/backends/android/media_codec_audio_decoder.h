@@ -73,6 +73,7 @@ class MediaCodecAudioDecoder : public AudioDecoder {
   // out since.
   int64_t anchor_pts_ = kNoTimestamp;
   int64_t frames_out_ = 0;
+  AudioTimestampFollower timestamps_;
   int64_t last_pts_ = 0;
   bool end_of_stream_ = false;
   // Opus distinguishes a source restart from a midstream seek by a zero

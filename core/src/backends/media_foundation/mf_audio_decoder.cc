@@ -424,6 +424,11 @@ bool MFAudioDecoder::Decode(const EncodedPacket& packet,
   if (next_pts_ == kNoTimestamp) {
     next_pts_ = packet.pts;
     output_frames_ = 0;
+    timestamps_.Reset();
+  } else if (output_frames_ > 0) {
+    next_pts_ += timestamps_.Follow(
+        packet.pts, next_pts_ + output_frames_ * kMicrosPerSecond /
+                                    output_format_.sample_rate);
   }
   ComPtr<IMFSample> sample =
       CreateMFSample(data, size, packet.pts,

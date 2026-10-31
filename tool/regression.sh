@@ -1370,6 +1370,10 @@ par expect live-flush "$live_ok" "live flush at" "summary: .*rendered=3[3-5][0-9
 # No video for 3 s (a still screen), audio on: video resumes at a keyframe.
 par expect live-gap "$live_ok" "live video resumes" "summary: .*rendered=2[6-7][0-9] dropped=0 ${tsan_glitches:-glitches=[0-3] }backward_jumps=0 .*$live_latency" -- \
   --live --live-gap 4 3 "$media/live_h264.mp4"
+# No audio for a second, as a sender sends none in silence: the decoded
+# audio follows the timestamps over the gap, and none of it plays late.
+par expect live-audio-gap "$live_ok" "summary: .*dropped=0 .*live_late=0\.0[0-4][0-9]s" -- \
+  --live --live-audio-gap 4 1 "$media/live_h264.mp4"
 # New parameter sets in the stream, as when the sender rotates. The
 # decoder restarts, which can hold a frame a vsync longer.
 par expect live-resolution "$live_ok" "video size 1280x720" "video size 640x360" \

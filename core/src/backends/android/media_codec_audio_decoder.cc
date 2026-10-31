@@ -373,6 +373,11 @@ bool MediaCodecAudioDecoder::DrainOutput(const OutputCallback& output) {
     if (anchor_pts_ == kNoTimestamp) {
       anchor_pts_ = info.presentationTimeUs;
       frames_out_ = 0;
+    } else {
+      anchor_pts_ +=
+          timestamps_.Follow(info.presentationTimeUs,
+                             anchor_pts_ + frames_out_ * kMicrosPerSecond /
+                                               output_format_.sample_rate);
     }
     const int out_channels = output_format_.channels;
     mixed_.assign(static_cast<size_t>(frames) * out_channels, 0.0f);
@@ -447,6 +452,7 @@ void MediaCodecAudioDecoder::Flush() {
   resampled_.clear();
   anchor_pts_ = kNoTimestamp;
   frames_out_ = 0;
+  timestamps_.Reset();
   end_of_stream_ = false;
   opus_input_offset_ = 0;
 }

@@ -282,6 +282,11 @@ bool ATAudioDecoder::Decode(const EncodedPacket& packet,
     if (next_pts_ == kNoTimestamp) {
       next_pts_ = packet.pts;
       output_frames_ = 0;
+      timestamps_.Reset();
+    } else if (!first_output_) {
+      next_pts_ += timestamps_.Follow(
+          packet.pts, next_pts_ + output_frames_ * kMicrosPerSecond /
+                                      output_format_.sample_rate);
     }
   } else {
     return true;
@@ -340,6 +345,7 @@ bool ATAudioDecoder::Decode(const EncodedPacket& packet,
       // The converter may be left mid-packet.
       AudioConverterReset(converter_);
       first_output_ = true;
+      timestamps_.Reset();
       consecutive_errors_++;
       break;
     }

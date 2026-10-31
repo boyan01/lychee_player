@@ -98,7 +98,11 @@ building on top of them.
      `raop_buffer_dequeue` drops, so lychee got audio with gaps and the
      user heard crackle; then every packet was no-data and nothing reached
      lychee. Suspect how the live audio path cuts or pads those gaps (no
-     fade). Not reproduced offline yet.
+     fade). Not reproduced offline yet. Since found: the Android, Apple
+     and Windows decoders counted audio timestamps from the first packet,
+     so after a gap or an audio timeline move nearly all audio played late
+     and was dropped (TCL TV, 2026-10-31); they now follow the packets'
+     timestamps (`live-audio-gap`). Recheck this session after it.
    - Capture and replay, so a mirroring problem needs no manual A/B run:
      an environment switch in flutter-airplay writes each packet
      `lychee_player_push_live_packet` gets (track, pts, bytes) to a file;

@@ -4,6 +4,7 @@ add_executable(lychee_unittests
   apple_frame_converter_test.cc
   c_api_test.cc
   audio_renderer_algorithm_test.cc
+  audio_timestamp_follower_test.cc
   cpu_frame_converter_test.cc
   live_demuxer_test.cc
   live_timeline_test.cc

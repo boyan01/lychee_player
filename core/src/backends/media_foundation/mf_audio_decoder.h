@@ -71,6 +71,7 @@ class MFAudioDecoder : public AudioDecoder {
   // would fall behind (1024 frames at 48 kHz, 2 frames in 3 s).
   int64_t next_pts_ = kNoTimestamp;
   int64_t output_frames_ = 0;
+  AudioTimestampFollower timestamps_;
   // Microseconds of MP3 or Opus fed since the start or a flush, until the
   // first output; -1 after it.
   int64_t expected_us_ = 0;

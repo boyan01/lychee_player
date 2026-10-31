@@ -48,6 +48,7 @@ class ATAudioDecoder : public AudioDecoder {
   // would fall behind (1024 frames at 48 kHz, 2 frames in 3 s).
   int64_t next_pts_ = kNoTimestamp;
   int64_t output_frames_ = 0;
+  AudioTimestampFollower timestamps_;
   // The next output is the first since the converter started: Opus and MP3
   // lose the decoder's delay from it.
   bool first_output_ = true;
