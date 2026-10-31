@@ -71,8 +71,10 @@ class LycheePlayer @JvmOverloads constructor(
         val channels: Int,
     )
 
+    /** Counts are since the open. */
     data class Stats(
         val hardwareDecoding: Boolean,
+        /** Frames shown, and frames skipped because a later one was due. */
         val framesRendered: Long,
         val framesDropped: Long,
         val videoDecoder: String,
@@ -81,6 +83,23 @@ class LycheePlayer @JvmOverloads constructor(
         val audioBufferedMs: Long,
         /** Average time decoding one video packet takes, in microseconds. */
         val videoDecodeTimeUs: Long,
+        /** "none" without audio. */
+        val audioDecoder: String,
+        /** Frames the video decoder output, including those skipped to reach a seek target. */
+        val framesDecoded: Long,
+        /** Bytes read for the selected video and audio tracks. */
+        val videoBytesRead: Long,
+        val audioBytesRead: Long,
+        /** Bits per second the input last arrived at over the network, -1 if unknown. */
+        val downloadRateBps: Long,
+        /** From the open to the first [State.READY]; 0 before. */
+        val startupTimeMs: Long,
+        /** Times playback ran out of data while playing, and the time spent so. */
+        val rebufferCount: Long,
+        val rebufferTimeMs: Long,
+        /** Seeks completed, and how long the last took. */
+        val seekCount: Long,
+        val lastSeekTimeMs: Long,
     )
 
     /** The lychee_player*, for the C ABI and [LycheeFrameDriver]. */
@@ -252,13 +271,17 @@ class LycheePlayer @JvmOverloads constructor(
 
     val stats: Stats
         get() {
-            val longs = LongArray(6)
-            val decoder = String(nativeGetStats(handle(), longs))
+            val longs = LongArray(15)
+            val decoders = String(nativeGetStats(handle(), longs)).split('\n')
             return Stats(
                 hardwareDecoding = longs[0] != 0L, framesRendered = longs[1],
-                framesDropped = longs[2], videoDecoder = decoder,
+                framesDropped = longs[2], videoDecoder = decoders[0],
                 videoBufferedMs = longs[3] / 1000, audioBufferedMs = longs[4] / 1000,
-                videoDecodeTimeUs = longs[5],
+                videoDecodeTimeUs = longs[5], audioDecoder = decoders.getOrElse(1) { "none" },
+                framesDecoded = longs[6], videoBytesRead = longs[7], audioBytesRead = longs[8],
+                downloadRateBps = longs[9], startupTimeMs = longs[10] / 1000,
+                rebufferCount = longs[11], rebufferTimeMs = longs[12] / 1000,
+                seekCount = longs[13], lastSeekTimeMs = longs[14] / 1000,
             )
         }
 

@@ -529,9 +529,8 @@ Java_tech_soit_lychee_LycheePlayer_nativeSubtitleImage(JNIEnv* env,
   return ToBytes(env, pixels.data(), pixels.size());
 }
 
-// Fills |longs| with hardware_decoding, frames_rendered, frames_dropped,
-// video_buffered_us, audio_buffered_us and video_decode_time_us, and
-// returns the video decoder's name.
+// Fills |longs| with the numbers of lychee_stats, in the order below, and
+// returns the video and the audio decoder's names, a newline between.
 JNIEXPORT jbyteArray JNICALL Java_tech_soit_lychee_LycheePlayer_nativeGetStats(
     JNIEnv* env,
     jclass,
@@ -540,12 +539,18 @@ JNIEXPORT jbyteArray JNICALL Java_tech_soit_lychee_LycheePlayer_nativeGetStats(
   lychee_stats stats{};
   stats.struct_size = sizeof(stats);
   lychee_player_get_stats(Player(handle), &stats);
-  const jlong values[] = {stats.hardware_decoding,  stats.frames_rendered,
-                          stats.frames_dropped,     stats.video_buffered_us,
-                          stats.audio_buffered_us,  stats.video_decode_time_us};
-  env->SetLongArrayRegion(longs, 0, 6, values);
-  const std::string decoder = FromArray(stats.video_decoder);
-  return ToBytes(env, decoder.data(), decoder.size());
+  const jlong values[] = {stats.hardware_decoding, stats.frames_rendered,
+                          stats.frames_dropped,    stats.video_buffered_us,
+                          stats.audio_buffered_us, stats.video_decode_time_us,
+                          stats.frames_decoded,    stats.video_bytes_read,
+                          stats.audio_bytes_read,  stats.download_rate_bps,
+                          stats.startup_time_us,   stats.rebuffer_count,
+                          stats.rebuffer_time_us,  stats.seek_count,
+                          stats.last_seek_time_us};
+  env->SetLongArrayRegion(longs, 0, sizeof(values) / sizeof(values[0]), values);
+  const std::string decoders =
+      FromArray(stats.video_decoder) + "\n" + FromArray(stats.audio_decoder);
+  return ToBytes(env, decoders.data(), decoders.size());
 }
 
 // LycheeFrameDriver.
