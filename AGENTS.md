@@ -438,10 +438,13 @@ where to look.
 
 - One logical change per commit, building and passing its checks on its
   own, so `git bisect` works. Refactors, renames and reformatting go in
-  a commit before the change that needs them. A change across platforms
-  can be a core commit and one per platform. If the subject needs
-  "and", or the body lists unrelated things, split it. Its tests, docs,
-  roadmap and changelog entry stay in the same commit.
+  a commit before the change that needs them. A feature or fix is one
+  commit with every platform and binding it reaches (core, Rust, Apple,
+  Android, Flutter), not a core commit and one per platform: a commit
+  of one platform alone leaves the others behind the core, and a reader
+  of the log looks for the feature, not the platform. If the subject
+  needs "and", or the body lists unrelated things, split it. Its tests,
+  docs, roadmap and changelog entry stay in the same commit.
 - Subject: `area: what it does`, imperative, lowercase after the colon,
   no period, at most 72 characters. The area is where a reader would
   look: one from `tool/changes.sh` (`core`, `android`, `apple`,
