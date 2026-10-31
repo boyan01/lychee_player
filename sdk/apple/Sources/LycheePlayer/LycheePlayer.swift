@@ -63,8 +63,10 @@ public final class LycheePlayer {
     public let pictures: [(image: CGImage, rect: CGRect)]
   }
 
+  /// Counts are since the open.
   public struct Stats {
     public let hardwareDecoding: Bool
+    /// Frames shown, and frames skipped because a later one was due.
     public let framesRendered: Int
     public let framesDropped: Int
     public let videoDecoder: String
@@ -73,6 +75,25 @@ public final class LycheePlayer {
     public let audioBuffered: TimeInterval
     /// Average time decoding one video packet takes.
     public let videoDecodeTime: TimeInterval
+    /// "none" without audio.
+    public let audioDecoder: String
+    /// Frames the video decoder output, including those skipped to reach a
+    /// seek target.
+    public let framesDecoded: Int
+    /// Bytes read for the selected video and audio tracks.
+    public let videoBytesRead: Int64
+    public let audioBytesRead: Int64
+    /// Bits per second the input last arrived at over the network, nil if
+    /// unknown.
+    public let downloadRate: Int64?
+    /// From the open to the first `.ready`; 0 before.
+    public let startupTime: TimeInterval
+    /// Times playback ran out of data while playing, and the time spent so.
+    public let rebufferCount: Int
+    public let rebufferTime: TimeInterval
+    /// Seeks completed, and how long the last took.
+    public let seekCount: Int
+    public let lastSeekTime: TimeInterval
   }
 
   /// Called on the main queue.
@@ -288,7 +309,17 @@ public final class LycheePlayer {
       videoDecoder: string(&stats.video_decoder),
       videoBuffered: seconds(stats.video_buffered_us),
       audioBuffered: seconds(stats.audio_buffered_us),
-      videoDecodeTime: seconds(stats.video_decode_time_us))
+      videoDecodeTime: seconds(stats.video_decode_time_us),
+      audioDecoder: string(&stats.audio_decoder),
+      framesDecoded: Int(stats.frames_decoded),
+      videoBytesRead: stats.video_bytes_read,
+      audioBytesRead: stats.audio_bytes_read,
+      downloadRate: stats.download_rate_bps >= 0 ? stats.download_rate_bps : nil,
+      startupTime: seconds(stats.startup_time_us),
+      rebufferCount: Int(stats.rebuffer_count),
+      rebufferTime: seconds(stats.rebuffer_time_us),
+      seekCount: Int(stats.seek_count),
+      lastSeekTime: seconds(stats.last_seek_time_us))
   }
 
   fileprivate func event(_ type: Int32, _ arg0: Int64, _ arg1: Int64) -> Event? {

@@ -51,7 +51,11 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(size, CGSize(width: 1920, height: 1080))
     driver?.stop()
     XCTAssertNil(driver?.copyFrame())
-    XCTAssertEqual(player.stats.framesDropped, 0)
+    let stats = player.stats
+    XCTAssertEqual(stats.framesDropped, 0)
+    XCTAssertGreaterThanOrEqual(stats.framesDecoded, stats.framesRendered)
+    XCTAssertGreaterThan(stats.videoBytesRead, 0)
+    XCTAssertGreaterThan(stats.startupTime, 0)
   }
 
   func testRebuildKeepsPausedPlayerPaused() {
