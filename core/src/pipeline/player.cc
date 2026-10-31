@@ -24,8 +24,12 @@ constexpr size_t kMaxQueuedBytes = size_t{64} * 1024 * 1024;
 // the tracks start later or end sooner: codec priming and padding (AAC's
 // 1024 samples, Opus's pre-skip, a duration rounded up), not content.
 constexpr int64_t kMaxLoopTrim = 100 * kMicrosPerMilli;
-// Live input logs its stats this often.
-constexpr int64_t kLiveLogInterval = 5 * kMicrosPerSecond;
+// Playback logs its stats this often.
+constexpr int64_t kStatsLogInterval = 5 * kMicrosPerSecond;
+
+long long Millis(int64_t micros) {
+  return static_cast<long long>(micros / kMicrosPerMilli);
+}
 
 const char* StateName(PlayerState state) {
   switch (state) {
@@ -105,6 +109,27 @@ void Player::StopPipeline() {
   if (audio_renderer_) {
     audio_renderer_->Stop();
   }
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ != PlayerState::kIdle) {
+      EndRebufferLocked();
+      const PlayerStats stats = StatsLocked();
+      LOGI(
+          "closed after %lld ms: video %lld decoded, %lld rendered, %lld "
+          "dropped; read video %lld kB, audio %lld kB; startup %lld ms; "
+          "%lld rebuffers, %lld ms; %lld seeks",
+          Millis(MonotonicMicros() - open_time_),
+          static_cast<long long>(stats.frames_decoded),
+          static_cast<long long>(stats.frames_rendered),
+          static_cast<long long>(stats.frames_dropped),
+          static_cast<long long>(stats.video_bytes_read / 1000),
+          static_cast<long long>(stats.audio_bytes_read / 1000),
+          Millis(stats.startup_time),
+          static_cast<long long>(stats.rebuffer_count),
+          Millis(stats.rebuffer_time),
+          static_cast<long long>(stats.seek_count));
+    }
+  }
 
   VideoRenderer::Ptr video;
   std::unique_ptr<AudioRenderer> audio;
@@ -158,7 +183,18 @@ void Player::StopPipeline() {
   live_audio_.output_lead = 0;
   live_audio_.late = 0;
   live_audio_.silence = 0;
-  live_log_at_ = kNoTimestamp;
+  stats_log_at_ = kNoTimestamp;
+  stats_logged_ = PlayerStats();
+  retired_video_ = VideoRenderer::Counts();
+  open_time_ = MonotonicMicros();
+  startup_time_ = 0;
+  rebuffer_start_ = kNoTimestamp;
+  rebuffer_count_ = rebuffer_time_ = 0;
+  seek_request_time_ = kNoTimestamp;
+  seek_count_ = last_seek_time_ = 0;
+  video_bytes_read_ = 0;
+  audio_bytes_read_ = 0;
+  download_rate_ = -1;
 }
 
 void Player::SetEventCallback(EventCallback callback, void* user_data) {
@@ -317,6 +353,7 @@ void Player::Seek(int64_t position) {
     seek_pending_ = true;
     seek_target_ = position;
     report_seek_ = true;
+    seek_request_time_ = MonotonicMicros();
     loop_seek_pending_ = false;
     // Do not wait for a read stalled on the network. Not during Prepare():
     // that would abort the open itself.
@@ -602,11 +639,16 @@ PlayerStats Player::stats() const {
 PlayerStats Player::StatsLocked() const {
   PlayerStats stats;
   const int64_t now = clock_.Now();
+  stats.frames_rendered = retired_video_.rendered;
+  stats.frames_dropped = retired_video_.dropped;
+  stats.frames_decoded = retired_video_.decoded;
   if (video_renderer_) {
     stats.video_decoder = video_renderer_->decoder_name();
     stats.hardware = video_renderer_->is_hardware();
-    stats.frames_rendered = video_renderer_->frames_rendered();
-    stats.frames_dropped = video_renderer_->frames_dropped();
+    const VideoRenderer::Counts counts = video_renderer_->counts();
+    stats.frames_rendered += counts.rendered;
+    stats.frames_dropped += counts.dropped;
+    stats.frames_decoded += counts.decoded;
     stats.video_decode_time = video_renderer_->average_decode_time();
     if (video_last_pts_ != kNoTimestamp) {
       stats.video_buffered = std::max<int64_t>(video_last_pts_ - now, 0);
@@ -625,49 +667,87 @@ PlayerStats Player::StatsLocked() const {
         live_audio_.silence.load(std::memory_order_relaxed);
     stats.live_audio_behind = live_demuxer_->audio_behind();
   }
+  stats.video_bytes_read = video_bytes_read_.load(std::memory_order_relaxed);
+  stats.audio_bytes_read = audio_bytes_read_.load(std::memory_order_relaxed);
+  stats.download_rate = download_rate_.load(std::memory_order_relaxed);
+  stats.startup_time = startup_time_;
+  stats.rebuffer_count = rebuffer_count_;
+  stats.rebuffer_time = rebuffer_time_;
+  if (rebuffer_start_ != kNoTimestamp) {
+    stats.rebuffer_time += MonotonicMicros() - rebuffer_start_;
+  }
+  stats.seek_count = seek_count_;
+  stats.last_seek_time = last_seek_time_;
   return stats;
 }
 
-void Player::LogLiveStatsLocked() {
+void Player::LogStatsLocked() {
   const int64_t now = NowMicros();
-  if (live_log_at_ != kNoTimestamp && now < live_log_at_) {
+  if (!live_ && !clock_running_) {
+    // Paused, ended, or waiting for data: nothing moves. Count the next
+    // interval from when playback runs again.
+    stats_log_at_ = kNoTimestamp;
+    return;
+  }
+  if (stats_log_at_ != kNoTimestamp && now < stats_log_at_) {
     return;
   }
   const PlayerStats stats = StatsLocked();
-  // Tagged as the live demuxer's lines are.
-  if (live_log_at_ != kNoTimestamp && GetLogLevel() >= LogLevel::kInfo) {
-    const PlayerStats& last = live_logged_;
-    const int64_t interval = now - (live_log_at_ - kLiveLogInterval);
-    // A new video renderer counts frames from zero.
-    const bool same_video = stats.frames_rendered >= last.frames_rendered &&
-                            stats.frames_dropped >= last.frames_dropped;
-    const int64_t rendered =
-        stats.frames_rendered - (same_video ? last.frames_rendered : 0);
-    const int64_t dropped =
-        stats.frames_dropped - (same_video ? last.frames_dropped : 0);
-    LogMessage(
-        LogLevel::kInfo, "live",
-        "video %s%s %.1f fps, %lld dropped, %lld packets dropped; audio %s "
-        "late %lld ms, silence %lld ms, behind %lld ms; buffered video %lld "
-        "ms, audio %lld ms",
-        stats.video_decoder, stats.hardware ? " hw" : "",
-        static_cast<double>(rendered) * kMicrosPerSecond /
-            static_cast<double>(std::max<int64_t>(interval, 1)),
-        static_cast<long long>(dropped),
-        static_cast<long long>(stats.live_video_packets_dropped -
-                               last.live_video_packets_dropped),
-        stats.audio_decoder,
-        static_cast<long long>((stats.live_audio_late - last.live_audio_late) /
-                               kMicrosPerMilli),
-        static_cast<long long>(
-            (stats.live_audio_silence - last.live_audio_silence) /
-            kMicrosPerMilli),
-        static_cast<long long>(stats.live_audio_behind / kMicrosPerMilli),
-        static_cast<long long>(stats.video_buffered / kMicrosPerMilli),
-        static_cast<long long>(stats.audio_buffered / kMicrosPerMilli));
+  const LogLevel level = live_ ? LogLevel::kInfo : LogLevel::kDebug;
+  if (stats_log_at_ != kNoTimestamp && GetLogLevel() >= level) {
+    const PlayerStats& last = stats_logged_;
+    const int64_t interval =
+        std::max<int64_t>(now - (stats_log_at_ - kStatsLogInterval), 1);
+    const double fps =
+        static_cast<double>(stats.frames_rendered - last.frames_rendered) *
+        kMicrosPerSecond / static_cast<double>(interval);
+    const long long video_kbps =
+        (stats.video_bytes_read - last.video_bytes_read) * 8 * 1000 / interval;
+    const long long audio_kbps =
+        (stats.audio_bytes_read - last.audio_bytes_read) * 8 * 1000 / interval;
+    if (live_) {
+      // Tagged as the live demuxer's lines are.
+      LogMessage(
+          LogLevel::kInfo, "live",
+          "video %s%s %.1f fps, %lld dropped, %lld packets dropped, read %lld "
+          "kbit/s; audio %s late %lld ms, silence %lld ms, behind %lld ms; "
+          "buffered video %lld ms, audio %lld ms",
+          stats.video_decoder, stats.hardware ? " hw" : "", fps,
+          static_cast<long long>(stats.frames_dropped - last.frames_dropped),
+          static_cast<long long>(stats.live_video_packets_dropped -
+                                 last.live_video_packets_dropped),
+          video_kbps, stats.audio_decoder,
+          Millis(stats.live_audio_late - last.live_audio_late),
+          Millis(stats.live_audio_silence - last.live_audio_silence),
+          Millis(stats.live_audio_behind), Millis(stats.video_buffered),
+          Millis(stats.audio_buffered));
+    } else {
+      LOGD(
+          "video %s%s %.1f fps, %lld dropped, decode %.1f ms, read %lld "
+          "kbit/s; "
+          "audio %s read %lld kbit/s; buffered video %lld ms, audio %lld ms; "
+          "download %lld kbit/s",
+          stats.video_decoder, stats.hardware ? " hw" : "", fps,
+          static_cast<long long>(stats.frames_dropped - last.frames_dropped),
+          static_cast<double>(stats.video_decode_time) / kMicrosPerMilli,
+          video_kbps, stats.audio_decoder, audio_kbps,
+          Millis(stats.video_buffered), Millis(stats.audio_buffered),
+          static_cast<long long>(
+              stats.download_rate >= 0 ? stats.download_rate / 1000 : -1));
+    }
   }
-  live_logged_ = stats;
-  live_log_at_ = now + kLiveLogInterval;
+  stats_logged_ = stats;
+  stats_log_at_ = now + kStatsLogInterval;
+}
+
+void Player::EndRebufferLocked() {
+  if (rebuffer_start_ == kNoTimestamp) {
+    return;
+  }
+  const int64_t duration = MonotonicMicros() - rebuffer_start_;
+  rebuffer_time_ += duration;
+  rebuffer_start_ = kNoTimestamp;
+  LOGI("rebuffered for %lld ms", Millis(duration));
 }
 
 std::vector<int> Player::TrackStreamsLocked() const {
@@ -1114,6 +1194,13 @@ void Player::ChangeTracks(const TrackRequest& request) {
       }
       old = std::move(video_renderer_);
       video_stream_ = -1;
+      if (old) {
+        // Nothing pulls from it any more; the counts go on in the next.
+        const VideoRenderer::Counts counts = old->counts();
+        retired_video_.rendered += counts.rendered;
+        retired_video_.dropped += counts.dropped;
+        retired_video_.decoded += counts.decoded;
+      }
     }
     video_queue_.Abort();
     int64_t shown_end = kNoTimestamp;
@@ -1328,14 +1415,19 @@ void Player::ReadPacket() {
   if (auto it = histories_.find(packet->stream_index); it != histories_.end()) {
     it->second.Push(packet, clock_.Now());
   }
+  download_rate_.store(demuxer_->download_rate(), std::memory_order_relaxed);
   int64_t pts = packet->pts;
   if (packet->stream_index == video_stream_) {
+    video_bytes_read_.fetch_add(static_cast<int64_t>(packet->size()),
+                                std::memory_order_relaxed);
     video_queue_.Push(std::move(packet));
     if (pts != kNoTimestamp) {
       std::lock_guard<std::mutex> lock(mutex_);
       video_last_pts_ = std::max(video_last_pts_, pts);
     }
   } else if (packet->stream_index == audio_stream_) {
+    audio_bytes_read_.fetch_add(static_cast<int64_t>(packet->size()),
+                                std::memory_order_relaxed);
     audio_queue_.Push(std::move(packet));
     if (pts != kNoTimestamp) {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -1521,6 +1613,7 @@ void Player::ProcessSeek(int64_t target,
   std::lock_guard<std::mutex> lock(mutex_);
   end_of_input_ = false;
   rebuffering_ = false;
+  EndRebufferLocked();
   input_error_.clear();
   loops_ = loops;
   loop_end_ = kNoTimestamp;
@@ -1545,6 +1638,12 @@ void Player::FinishSeekLocked() {
   seek_in_progress_ = false;
   if (current_seek_reported_) {
     current_seek_reported_ = false;
+    seek_count_++;
+    if (seek_request_time_ != kNoTimestamp) {
+      last_seek_time_ = MonotonicMicros() - seek_request_time_;
+    }
+    LOGI("seek to %lld us done in %lld ms",
+         static_cast<long long>(seek_target_), Millis(last_seek_time_));
     PostEventLocked(PlayerEvent::kSeekCompleted, seek_target_);
   }
 }
@@ -1585,7 +1684,7 @@ void Player::UpdateState() {
       SetStateLocked(PlayerState::kReady);
     }
     UpdateVideoSizeLocked();
-    LogLiveStatsLocked();
+    LogStatsLocked();
     return;
   }
   switch (state_) {
@@ -1594,6 +1693,7 @@ void Player::UpdateState() {
       if (PrerollDoneLocked() &&
           (!rebuffering_ || end_of_input_ || !NeedMoreData())) {
         rebuffering_ = false;
+        EndRebufferLocked();
         SetStateLocked(PlayerState::kReady);
         FinishSeekLocked();
       }
@@ -1619,6 +1719,11 @@ void Player::UpdateState() {
         }
       } else if (clock_running_ && StarvedLocked()) {
         rebuffering_ = true;
+        rebuffer_count_++;
+        rebuffer_start_ = MonotonicMicros();
+        const int64_t now = clock_.Now();
+        LOGI("rebuffering at %lld ms",
+             Millis(now - LoopOffsetLocked(now) - media_info_.start_time));
         SetStateLocked(PlayerState::kBuffering);
       }
       break;
@@ -1628,6 +1733,7 @@ void Player::UpdateState() {
   ApplyPlayingLocked();
   UpdateVideoSizeLocked();
   UpdateSubtitleLocked();
+  LogStatsLocked();
 }
 
 bool Player::ShownSizeLocked(int* width, int* height) const {
@@ -1878,6 +1984,11 @@ void Player::SetStateLocked(PlayerState state) {
     return;
   }
   LOGD("state %s -> %s", StateName(state_), StateName(state));
+  if (state == PlayerState::kReady && startup_time_ == 0 &&
+      open_time_ != kNoTimestamp) {
+    startup_time_ = std::max<int64_t>(MonotonicMicros() - open_time_, 1);
+    LOGI("ready %lld ms after the open", Millis(startup_time_));
+  }
   state_ = state;
   PostEventLocked(PlayerEvent::kStateChanged, static_cast<int64_t>(state));
 }

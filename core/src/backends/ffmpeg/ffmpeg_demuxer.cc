@@ -1043,6 +1043,18 @@ int64_t FFmpegDemuxer::SeekPacket(void* opaque, int64_t offset, int whence) {
   return position;
 }
 
+int64_t FFmpegDemuxer::download_rate() const {
+  // The source opened last: an HLS stream's newest segment.
+  std::lock_guard<std::mutex> lock(ios_mutex_);
+  for (auto it = ios_.rbegin(); it != ios_.rend(); ++it) {
+    const int64_t rate = (*it)->source->transfer_rate();
+    if (rate >= 0) {
+      return rate;
+    }
+  }
+  return -1;
+}
+
 AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url,
                                    std::string* error,
                                    bool* cleartext_refused,

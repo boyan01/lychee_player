@@ -65,7 +65,10 @@ extern "C" {
 // 14: LYCHEE_FRAME_D3D11_TEXTURE_HDR, full-range PQ / BT.2020 R10 output.
 // 15: live input statistics in lychee_stats, lychee_stats.audio_decoder and
 //    lychee_codec_supported().
-#define LYCHEE_API_VERSION 15
+// 16: playback statistics in lychee_stats (frames decoded, bytes read,
+//    download rate, startup, rebuffering and seek times); its frame counts
+//    go on across track changes and decoder rebuilds.
+#define LYCHEE_API_VERSION 16
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -318,10 +321,14 @@ typedef struct lychee_live_packet {
   int32_t size;
 } lychee_live_packet;
 
+// Counts are since the open. Before API version 16 the frame counts started
+// over with each video decoder (a track change, a rebuild).
 typedef struct lychee_stats {
   // Must be sizeof(lychee_stats).
   uint32_t struct_size;
   int32_t hardware_decoding;
+  // Video frames handed out by lychee_player_acquire_frame(), and frames
+  // skipped there because a later one was due.
   int64_t frames_rendered;
   int64_t frames_dropped;
   char video_decoder[32];
@@ -351,6 +358,30 @@ typedef struct lychee_stats {
   // a few tens of ms negative until audio follows a change in video's
   // timing.
   int64_t live_audio_behind_us;
+  // API version 16.
+  // Video frames the decoder output, including those skipped to reach a
+  // seek target and those dropped later.
+  int64_t frames_decoded;
+  // Bytes of the packets read for the selected video and audio tracks:
+  // over an interval, their bitrate.
+  int64_t video_bytes_read;
+  int64_t audio_bytes_read;
+  // Bits per second the input last arrived at over the network (http on
+  // Apple platforms, Windows and Android; HLS's bandwidth estimate), or -1
+  // if unknown.
+  int64_t download_rate_bps;
+  // Real time from lychee_player_open() (or lychee_player_open_live()) to
+  // the first LYCHEE_STATE_READY, 0 before.
+  int64_t startup_time_us;
+  // Times playback ran out of data while playing (LYCHEE_STATE_BUFFERING
+  // not caused by a seek), and the real time spent so, including a
+  // rebuffering in progress; a seek ends one.
+  int64_t rebuffer_count;
+  int64_t rebuffer_time_us;
+  // Seeks completed (LYCHEE_EVENT_SEEK_COMPLETED), and the real time the
+  // last took from lychee_player_seek() to playback being ready.
+  int64_t seek_count;
+  int64_t last_seek_time_us;
 } lychee_stats;
 
 typedef struct lychee_track_info {
@@ -655,7 +686,9 @@ LYCHEE_EXPORT int32_t lychee_player_get_artwork(lychee_player* player,
 
 // |stats->struct_size| must be set by the caller; fields past it are not
 // written, so callers built against version 1 keep working. It stays as the
-// caller set it.
+// caller set it. While other input plays, the library logs a line of these
+// every 5 s at LYCHEE_LOG_DEBUG, and a summary at LYCHEE_LOG_INFO when it
+// closes the input (API 16).
 LYCHEE_EXPORT void lychee_player_get_stats(lychee_player* player,
                                            lychee_stats* stats);
 

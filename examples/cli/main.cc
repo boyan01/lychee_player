@@ -87,6 +87,8 @@ struct Options {
   double pause_for = 0;
   // A silent audio device pulled on its own thread, even without a sound card.
   bool null_audio = false;
+  // Logs at LYCHEE_LOG_DEBUG: state changes, stats every 5 s.
+  bool verbose = false;
   // Where to write each subtitle with pictures, drawn on a grey canvas of
   // the video's size (binary PPM), to look at bitmap subtitles.
   std::string subtitle_ppm;
@@ -367,6 +369,8 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       options->virtual_time = true;
     } else if (arg == "--null-audio") {
       options->null_audio = true;
+    } else if (arg == "--verbose") {
+      options->verbose = true;
     } else if (arg == "--no-hw") {
       options->hardware = false;
     } else if (arg == "--cpu") {
@@ -1049,7 +1053,7 @@ int main(int argc, char** argv) {
         "[--live [--latency MS] [--live-jitter MS] "
         "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR]] "
         "[--subtitle-ppm FILE] [--frame-ppm SEC:FILE]... [--virtual-time] "
-        "[--null-audio] [--audio-dump FILE] [--pause SEC FOR] "
+        "[--null-audio] [--verbose] [--audio-dump FILE] [--pause SEC FOR] "
         "<file or url>\n",
         argv[0]);
     return 2;
@@ -1057,6 +1061,9 @@ int main(int argc, char** argv) {
 
   if (options.virtual_time) {
     lychee_testing_enable_virtual_time();
+  }
+  if (options.verbose) {
+    lychee_set_log_level(LYCHEE_LOG_DEBUG);
   }
   if (options.null_audio) {
     lychee_testing_enable_null_audio();
@@ -1719,6 +1726,15 @@ int main(int argc, char** argv) {
   }
   printf(" wall=%.3fs",
          std::chrono::duration<double>(wall_now() - wall_open).count());
+  // The library's own playback counts.
+  printf(" decoded=%" PRId64 " startup=%.3fs rebuffers=%" PRId64
+         " rebuffer=%.3fs seeks=%" PRId64 " last_seek=%.3fs read_video=%" PRId64
+         "kB read_audio=%" PRId64 "kB download=%" PRId64 "kbit/s",
+         stats.frames_decoded, stats.startup_time_us / 1e6,
+         stats.rebuffer_count, stats.rebuffer_time_us / 1e6, stats.seek_count,
+         stats.last_seek_time_us / 1e6, stats.video_bytes_read / 1000,
+         stats.audio_bytes_read / 1000,
+         stats.download_rate_bps < 0 ? -1 : stats.download_rate_bps / 1000);
   printf("\n");
   if (center_pixel[0] >= 0) {
     printf("center pixel: %d,%d,%d\n", center_pixel[0], center_pixel[1],

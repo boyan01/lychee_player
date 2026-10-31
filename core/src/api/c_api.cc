@@ -531,6 +531,15 @@ void lychee_player_get_stats(lychee_player* player, lychee_stats* stats) {
   result.live_audio_late_us = player_stats.live_audio_late;
   result.live_audio_silence_us = player_stats.live_audio_silence;
   result.live_audio_behind_us = player_stats.live_audio_behind;
+  result.frames_decoded = player_stats.frames_decoded;
+  result.video_bytes_read = player_stats.video_bytes_read;
+  result.audio_bytes_read = player_stats.audio_bytes_read;
+  result.download_rate_bps = player_stats.download_rate;
+  result.startup_time_us = player_stats.startup_time;
+  result.rebuffer_count = player_stats.rebuffer_count;
+  result.rebuffer_time_us = player_stats.rebuffer_time;
+  result.seek_count = player_stats.seek_count;
+  result.last_seek_time_us = player_stats.last_seek_time;
   CopyOut(result, stats);
 }
 

@@ -60,6 +60,9 @@ class HlsDemuxer : public Demuxer {
   void Interrupt() override;
   void Abort() override;
   std::string error() const override { return error_; }
+  int64_t download_rate() const override {
+    return estimate_ > 0 ? estimate_ : -1;
+  }
 
   // Opens the playlists and segments the input refers to; a shared
   // opener (CreateSharedOpener) unless set (the fuzzer serves them from

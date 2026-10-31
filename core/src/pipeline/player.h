@@ -67,6 +67,16 @@ struct PlayerStats {
   int64_t live_audio_late = 0;
   int64_t live_audio_silence = 0;
   int64_t live_audio_behind = 0;
+  // Since the open; lychee_stats has their meaning.
+  int64_t frames_decoded = 0;
+  int64_t video_bytes_read = 0;
+  int64_t audio_bytes_read = 0;
+  int64_t download_rate = -1;
+  int64_t startup_time = 0;
+  int64_t rebuffer_count = 0;
+  int64_t rebuffer_time = 0;
+  int64_t seek_count = 0;
+  int64_t last_seek_time = 0;
 };
 
 // An audio, video or subtitle stream of the open media.
@@ -282,8 +292,11 @@ class Player {
   void FinishSeekLocked();
   void UpdateState();
   PlayerStats StatsLocked() const;
-  // Live: logs the stats every kLiveLogInterval.
-  void LogLiveStatsLocked();
+  // Logs the stats every kStatsLogInterval while playing: live input at
+  // kInfo, other input at kDebug.
+  void LogStatsLocked();
+  // Ends the rebuffering in progress, if any, into the counts.
+  void EndRebufferLocked();
   void UpdateVideoSizeLocked();
   // The display size of the frame on screen, false before one is shown.
   bool ShownSizeLocked(int* width, int* height) const;
@@ -312,10 +325,26 @@ class Player {
   LiveDemuxer* live_demuxer_ = nullptr;
   // Written by the live audio renderers; |live_demuxer_| reads the lead.
   AudioRenderer::Live live_audio_;
-  // LogLiveStatsLocked(): when the next line is due, and the counts the
-  // last one ended at.
-  int64_t live_log_at_ = kNoTimestamp;
-  PlayerStats live_logged_;
+  // LogStatsLocked(): when the next line is due, and the counts the last
+  // one ended at.
+  int64_t stats_log_at_ = kNoTimestamp;
+  PlayerStats stats_logged_;
+  // Counts since the open that outlive renderers. MonotonicMicros() times:
+  // of the open, of the last user seek request, and since when playback
+  // is rebuffering (kNoTimestamp when it is not).
+  VideoRenderer::Counts retired_video_;
+  int64_t open_time_ = kNoTimestamp;
+  int64_t startup_time_ = 0;
+  int64_t rebuffer_start_ = kNoTimestamp;
+  int64_t rebuffer_count_ = 0;
+  int64_t rebuffer_time_ = 0;
+  int64_t seek_request_time_ = kNoTimestamp;
+  int64_t seek_count_ = 0;
+  int64_t last_seek_time_ = 0;
+  // Written by the read thread.
+  std::atomic<int64_t> video_bytes_read_{0};
+  std::atomic<int64_t> audio_bytes_read_{0};
+  std::atomic<int64_t> download_rate_{-1};
   VideoRenderer::Ptr video_renderer_;
   std::unique_ptr<AudioRenderer> audio_renderer_;
   // Renderers a track switch replaced, playing their fade-out.

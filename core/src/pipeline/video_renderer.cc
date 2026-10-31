@@ -294,6 +294,7 @@ void VideoRenderer::OnFrame(std::shared_ptr<VideoFrame> frame,
     if (generation != generation_) {
       return;
     }
+    counts_.decoded++;
     // Accurate seek: skip frames that end before the seek target.
     if (start_time_ != kNoTimestamp && frame->pts != kNoTimestamp &&
         FrameEnd(*frame) <= start_time_ + kFrameEndSlop) {
@@ -526,7 +527,7 @@ std::shared_ptr<VideoFrame> VideoRenderer::SelectFrameLocked(
   }
   selected_vsync_ = vsync.time;
   if (!was_hidden) {
-    frames_dropped_ += static_cast<int64_t>(dropped);
+    counts_.dropped += static_cast<int64_t>(dropped);
   }
   return selected_;
 }
@@ -549,7 +550,7 @@ std::shared_ptr<VideoFrame> VideoRenderer::Acquire(int64_t display_time) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::shared_ptr<VideoFrame> frame = SelectFrameLocked(display_time);
     if (frame && frame != current_) {
-      frames_rendered_++;
+      counts_.rendered++;
       if (frame->present) {
         frame->present(display_time);
         frame->present = nullptr;
@@ -575,14 +576,9 @@ bool VideoRenderer::is_hardware() const {
   return decoder_ && decoder_->is_hardware();
 }
 
-int64_t VideoRenderer::frames_rendered() const {
+VideoRenderer::Counts VideoRenderer::counts() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return frames_rendered_;
-}
-
-int64_t VideoRenderer::frames_dropped() const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  return frames_dropped_;
+  return counts_;
 }
 
 int64_t VideoRenderer::average_decode_time() const {

@@ -120,8 +120,16 @@ class VideoRenderer {
 
   const char* decoder_name() const;
   bool is_hardware() const;
-  int64_t frames_rendered() const;
-  int64_t frames_dropped() const;
+  struct Counts {
+    // Frames handed out by Acquire(), and frames skipped there because a
+    // later one was due.
+    int64_t rendered = 0;
+    int64_t dropped = 0;
+    // Frames the decoder output for the current generation, including
+    // those before a seek target that are never queued.
+    int64_t decoded = 0;
+  };
+  Counts counts() const;
   // Moving average of the time Decode() takes per packet.
   int64_t average_decode_time() const;
 
@@ -210,8 +218,7 @@ class VideoRenderer {
   bool released_ = false;
   int shown_width_ = 0;
   int shown_height_ = 0;
-  int64_t frames_rendered_ = 0;
-  int64_t frames_dropped_ = 0;
+  Counts counts_;
   int64_t average_decode_time_ = 0;
 };
 

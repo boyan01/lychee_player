@@ -39,6 +39,9 @@ class TsDemuxer : public Demuxer {
   void Interrupt() override;
   void Abort() override;
   std::string error() const override { return error_; }
+  int64_t download_rate() const override {
+    return source_ ? source_->transfer_rate() : -1;
+  }
 
   // Makes Open() fail early, before it reads on, where the program has
   // audio, video or subtitles it would skip: MPEG-2 video, DVB subtitles,

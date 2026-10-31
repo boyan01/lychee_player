@@ -185,4 +185,8 @@ std::string ProbingDemuxer::error() const {
   return demuxer_ ? demuxer_->error() : "";
 }
 
+int64_t ProbingDemuxer::download_rate() const {
+  return demuxer_ ? demuxer_->download_rate() : -1;
+}
+
 }  // namespace lychee

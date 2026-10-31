@@ -709,6 +709,7 @@ check() {
   fi
   if [ "$seek_pts" != - ]; then
     grep -q "first_pts_after_seek=$seek_pts" <<<"$summary" || problems+=" seek-landed-elsewhere"
+    grep -q " seeks=1 " <<<"$summary" || problems+=" seek-not-counted"
   fi
   if [ -z "$problems" ]; then
     pass "$name"
@@ -967,7 +968,7 @@ par check rotated       1 - -- "$media/rotated.mp4"
 par expect rotation "track 0: video h264 1920x1080 rotation=270 " -- --seconds 1 "$media/rotated.mp4"
 par check audio-only    - - -- "$media/audio_only.mp3"
 par check video-only    1 - -- "$media/video_only.mp4"
-par expect video-short "summary: state=ended position=0\.100s .*rendered=3 dropped=0 .*backward_jumps=0 " -- \
+par expect video-short "summary: state=ended position=0\.100s .*rendered=3 dropped=0 .*backward_jumps=0 .* decoded=3 " -- \
   "$media/short_video.mp4"
 par check ts-offset     1 - -- "$media/offset.ts"
 par check ts-hevc10     1 - -- "$media/hevc10.ts"
@@ -1214,8 +1215,9 @@ par expect decoder-lost-twice "<=0 event: state error" \
 # Software by choice has nothing to recover, so no rebuild (and no resync).
 rebuilt="video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s"
 [ "${NO_HW:-0}" = 1 ] && rebuilt="<=0 video rebuilt"
+# The frame counts go on across the rebuilds: 12 s at 30 fps.
 par expect decoder-rebuild "$rebuilt" "<=0 event: state error" \
-  "summary: state=ended .* hw=$hw_first .*backward_jumps=0 " -- \
+  "summary: state=ended .* hw=$hw_first .*rendered=3[56][0-9] .*backward_jumps=0 " -- \
   --rebuild-decoder-after 2 --rebuild-decoder-after 5 "$media/h264_aac.mp4"
 # iOS in the background: rebuilds fail too, into software. The
 # foreground's rebuild then goes back to hardware, playing and paused.
@@ -1733,7 +1735,11 @@ serve --drop-at 3000000 --refuse-after-drop --rate 2000
 exits=1 seq_ expect http-lost "state=error" "error: input ended at" -- "$url"
 # Slower than the bitrate: rebuffer in long stretches, not every few frames.
 serve --rate 550
-realtime=1 seq_ expect http-slow "state=ended" "<=2 event: state buffering" -- "$url"
+slow_rate="download=[0-9]+kbit/s"
+# The platforms' http clients measure what arrives: 550 kB/s.
+[ "$data_source" = 1 ] && slow_rate="download=(3[5-9]|4[0-9])[0-9]{2}kbit/s"
+realtime=1 seq_ expect http-slow "state=ended" "<=2 event: state buffering" \
+  "summary:.* rebuffers=[12] rebuffer=[0-9]+\.[0-9]{3}s .*$slow_rate" "rebuffered for [0-9]+ ms" -- "$url"
 # The read stalls before playback starts; the seek must not wait for it.
 # Interrupting that read must not turn the end of the file into an error.
 serve --stall-at 3000000 --stall-for 10

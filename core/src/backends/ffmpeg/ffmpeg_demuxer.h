@@ -50,6 +50,7 @@ class FFmpegDemuxer : public Demuxer {
   void Interrupt() override;
   void Abort() override;
   std::string error() const override { return error_; }
+  int64_t download_rate() const override;
 
  private:
   static int InterruptCallback(void* opaque);
@@ -143,7 +144,7 @@ class FFmpegDemuxer : public Demuxer {
   // Every open source: the input's and what demuxers open themselves (HLS
   // playlists and segments). Interrupt() and Abort() reach them from other
   // threads under the mutex.
-  std::mutex ios_mutex_;
+  mutable std::mutex ios_mutex_;
   std::vector<std::unique_ptr<Io>> ios_;
   // Why the last open or read failed, from the source.
   std::string io_error_;

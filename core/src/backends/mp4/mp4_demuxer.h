@@ -43,6 +43,9 @@ class Mp4Demuxer : public Demuxer {
   void Interrupt() override;
   void Abort() override;
   std::string error() const override { return error_; }
+  int64_t download_rate() const override {
+    return source_ ? source_->transfer_rate() : -1;
+  }
 
  private:
   struct Sample {

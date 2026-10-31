@@ -1,6 +1,7 @@
 #ifndef LYCHEE_MEDIA_DEMUXER_H_
 #define LYCHEE_MEDIA_DEMUXER_H_
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -43,6 +44,11 @@ class Demuxer {
 
   // Why the last Read() returned kError.
   virtual std::string error() const = 0;
+
+  // Called on the thread that reads. Bits per second the input last
+  // arrived at over the network (DataSource::transfer_rate(); HLS: its
+  // bandwidth estimate), or -1 if unknown.
+  virtual int64_t download_rate() const { return -1; }
 };
 
 }  // namespace lychee
