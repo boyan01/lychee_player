@@ -44,6 +44,7 @@ class ProbingDemuxer : public Demuxer {
   void Abort() override;
   std::string error() const override;
   int64_t download_rate() const override;
+  int64_t variant_bandwidth() const override;
 
  private:
   // Makes |demuxer| the one calls go to; it may then open.

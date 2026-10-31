@@ -126,13 +126,6 @@ building on top of them.
      swscale's reference (`hdr_pq_bars.mp4`: 27.9 dB), and HLG comes out
      darker (98 for a 0.5 signal against 142); that is Apple's mapping.
 
-3. **Playback stats not reported yet** (`lychee_stats`, API 16, has the
-   rest): the offset of the frame on screen from the audio clock (mpv's
-   avsync; the CLI measures it itself as `max_drift`), the audio
-   device's format and latency (only logged), and the HLS variant
-   playing with its bandwidth. Done when `lychee_stats` reports them and
-   a regression case checks each.
-
 ## FFmpeg-free builds
 
 The goal is FFmpeg-free builds on Apple platforms, Windows and Android;

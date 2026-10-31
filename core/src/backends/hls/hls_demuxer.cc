@@ -161,6 +161,7 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
          playlist.variants.size(), static_cast<long long>(variant.bandwidth),
          variant.width, variant.height, variant.codecs.c_str());
     main->url = variant.url;
+    main->bandwidth = variant.bandwidth;
     for (const HlsRendition& rendition : playlist.renditions) {
       if (rendition.type == HlsRendition::Type::kAudio &&
           !variant.audio.empty() && rendition.group == variant.audio &&
@@ -462,6 +463,7 @@ void HlsDemuxer::AddVariants(const std::vector<HlsVariant>& variants,
     media_info_.streams.push_back(info);
     auto r = std::make_unique<Rendition>();
     r->url = variant.url;
+    r->bandwidth = variant.bandwidth;
     r->video = info.index;
     r->streams.push_back(info.index);
     r->streams.insert(r->streams.end(), audio.begin(), audio.end());
@@ -731,6 +733,7 @@ void HlsDemuxer::Adapt(Rendition* r) {
        static_cast<long long>(variant.bandwidth),
        static_cast<long long>(estimate_));
   r->url = variant.url;
+  r->bandwidth = variant.bandwidth;
   r->segments = std::move(next.segments);
   r->current = index;
   r->live = !playlist.ended;
@@ -1215,6 +1218,7 @@ DemuxerReadResult HlsDemuxer::Read(EncodedPacket* packet) {
           return result;
         }
         r->has_next = true;
+        r->next_bandwidth = r->bandwidth;
       }
       if (!pick || r->next.dts < pick->next.dts) {
         pick = r.get();
@@ -1231,6 +1235,9 @@ DemuxerReadResult HlsDemuxer::Read(EncodedPacket* packet) {
     if (!pick->skip_until.empty() && pick->skip_until[index] != kNoTimestamp &&
         pick->next.dts <= pick->skip_until[index]) {
       continue;
+    }
+    if (index == pick->video) {
+      variant_bandwidth_ = pick->next_bandwidth;
     }
     *packet = std::move(pick->next);
     last_dts_ = packet->dts;

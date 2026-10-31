@@ -192,6 +192,8 @@ void Player::StopPipeline() {
   rebuffer_count_ = rebuffer_time_ = 0;
   seek_request_time_ = kNoTimestamp;
   seek_count_ = last_seek_time_ = 0;
+  variant_switches_.clear();
+  variant_logged_ = 0;
   video_bytes_read_ = 0;
   audio_bytes_read_ = 0;
   download_rate_ = -1;
@@ -650,12 +652,18 @@ PlayerStats Player::StatsLocked() const {
     stats.frames_dropped += counts.dropped;
     stats.frames_decoded += counts.decoded;
     stats.video_decode_time = video_renderer_->average_decode_time();
+    stats.video_offset = video_renderer_->average_offset();
+    stats.variant_bandwidth = VariantBandwidthLocked();
     if (video_last_pts_ != kNoTimestamp) {
       stats.video_buffered = std::max<int64_t>(video_last_pts_ - now, 0);
     }
   }
   if (audio_renderer_) {
     stats.audio_decoder = audio_renderer_->decoder_name();
+    stats.audio_output_sample_rate =
+        audio_renderer_->output_format().sample_rate;
+    stats.audio_output_channels = audio_renderer_->output_format().channels;
+    stats.audio_output_latency = audio_renderer_->output_latency();
     if (audio_last_pts_ != kNoTimestamp) {
       stats.audio_buffered = std::max<int64_t>(audio_last_pts_ - now, 0);
     }
@@ -723,21 +731,38 @@ void Player::LogStatsLocked() {
           Millis(stats.audio_buffered));
     } else {
       LOGD(
-          "video %s%s %.1f fps, %lld dropped, decode %.1f ms, read %lld "
-          "kbit/s; "
-          "audio %s read %lld kbit/s; buffered video %lld ms, audio %lld ms; "
-          "download %lld kbit/s",
+          "video %s%s %.1f fps, %lld dropped, decode %.1f ms, offset %.1f "
+          "ms, read %lld kbit/s; audio %s read %lld kbit/s, latency %lld ms; "
+          "buffered video %lld ms, audio %lld ms; download %lld kbit/s, "
+          "variant %lld kbit/s",
           stats.video_decoder, stats.hardware ? " hw" : "", fps,
           static_cast<long long>(stats.frames_dropped - last.frames_dropped),
           static_cast<double>(stats.video_decode_time) / kMicrosPerMilli,
-          video_kbps, stats.audio_decoder, audio_kbps,
+          static_cast<double>(stats.video_offset) / kMicrosPerMilli, video_kbps,
+          stats.audio_decoder, audio_kbps, Millis(stats.audio_output_latency),
           Millis(stats.video_buffered), Millis(stats.audio_buffered),
           static_cast<long long>(
-              stats.download_rate >= 0 ? stats.download_rate / 1000 : -1));
+              stats.download_rate >= 0 ? stats.download_rate / 1000 : -1),
+          static_cast<long long>(stats.variant_bandwidth / 1000));
     }
   }
   stats_logged_ = stats;
   stats_log_at_ = now + kStatsLogInterval;
+}
+
+int64_t Player::VariantBandwidthLocked() const {
+  if (variant_switches_.empty()) {
+    return 0;
+  }
+  const int64_t now = clock_.Now();
+  int64_t bandwidth = variant_switches_.front().second;
+  for (const auto& [pts, switched_to] : variant_switches_) {
+    if (pts > now) {
+      break;
+    }
+    bandwidth = switched_to;
+  }
+  return bandwidth;
 }
 
 void Player::EndRebufferLocked() {
@@ -1416,6 +1441,7 @@ void Player::ReadPacket() {
     it->second.Push(packet, clock_.Now());
   }
   download_rate_.store(demuxer_->download_rate(), std::memory_order_relaxed);
+  const int64_t variant_bandwidth = demuxer_->variant_bandwidth();
   int64_t pts = packet->pts;
   if (packet->stream_index == video_stream_) {
     video_bytes_read_.fetch_add(static_cast<int64_t>(packet->size()),
@@ -1424,6 +1450,16 @@ void Player::ReadPacket() {
     if (pts != kNoTimestamp) {
       std::lock_guard<std::mutex> lock(mutex_);
       video_last_pts_ = std::max(video_last_pts_, pts);
+      if (variant_switches_.empty() ||
+          variant_switches_.back().second != variant_bandwidth) {
+        variant_switches_.emplace_back(pts, variant_bandwidth);
+      }
+      // Keep the one playing.
+      const int64_t now = clock_.Now();
+      while (variant_switches_.size() > 1 &&
+             variant_switches_[1].first <= now) {
+        variant_switches_.pop_front();
+      }
     }
   } else if (packet->stream_index == audio_stream_) {
     audio_bytes_read_.fetch_add(static_cast<int64_t>(packet->size()),
@@ -1614,6 +1650,7 @@ void Player::ProcessSeek(int64_t target,
   end_of_input_ = false;
   rebuffering_ = false;
   EndRebufferLocked();
+  variant_switches_.clear();
   input_error_.clear();
   loops_ = loops;
   loop_end_ = kNoTimestamp;
@@ -1733,6 +1770,14 @@ void Player::UpdateState() {
   ApplyPlayingLocked();
   UpdateVideoSizeLocked();
   UpdateSubtitleLocked();
+  if (const int64_t bandwidth = VariantBandwidthLocked();
+      bandwidth != 0 && bandwidth != variant_logged_) {
+    const int64_t now = clock_.Now();
+    LOGI("variant of %lld bit/s plays from %lld ms",
+         static_cast<long long>(bandwidth),
+         Millis(now - LoopOffsetLocked(now) - media_info_.start_time));
+    variant_logged_ = bandwidth;
+  }
   LogStatsLocked();
 }
 

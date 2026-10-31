@@ -66,8 +66,9 @@ extern "C" {
 // 15: live input statistics in lychee_stats, lychee_stats.audio_decoder and
 //    lychee_codec_supported().
 // 16: playback statistics in lychee_stats (frames decoded, bytes read,
-//    download rate, startup, rebuffering and seek times); its frame counts
-//    go on across track changes and decoder rebuilds.
+//    download rate, startup, rebuffering and seek times, video's offset
+//    from the clock, the audio output, the HLS variant playing); its frame
+//    counts go on across track changes and decoder rebuilds.
 #define LYCHEE_API_VERSION 16
 
 typedef struct lychee_player lychee_player;
@@ -382,6 +383,19 @@ typedef struct lychee_stats {
   // last took from lychee_player_seek() to playback being ready.
   int64_t seek_count;
   int64_t last_seek_time_us;
+  // How far ahead of the clock (the audio heard) video frames are when
+  // first shown, averaged over about the last 16 shown while playing;
+  // negative: behind. Within a frame duration of 0 while in sync.
+  int64_t video_offset_us;
+  // What the audio device plays, 0 without audio, and how far ahead of
+  // now it plays what it takes: its buffer and output latency.
+  int32_t audio_output_sample_rate;
+  int32_t audio_output_channels;
+  int64_t audio_output_latency_us;
+  // HLS: the BANDWIDTH (bit/s) the master playlist declares for the
+  // variant on screen, as adaptive streaming switches; 0 otherwise, also
+  // for HLS that FFmpeg plays (subtitle renditions only it reads).
+  int64_t variant_bandwidth_bps;
 } lychee_stats;
 
 typedef struct lychee_track_info {

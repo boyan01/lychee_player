@@ -706,6 +706,11 @@ check() {
     local glitches
     glitches="$(sed -E 's/.*glitches=([0-9]+).*/\1/' <<<"$summary")"
     [ "${glitches:-99}" -le 3 ] || timing " glitches=$glitches"
+    # Frames shown in sync with the clock: within a frame of it.
+    local offset
+    offset="$(grep -oE ' video_offset=-?[0-9.]+ms' <<<"$summary" | grep -oE -- '-?[0-9.]+')"
+    awk -v o="${offset:-999}" 'BEGIN { exit !(o + 0 > -42 && o + 0 < 42) }' ||
+      problems+=" video_offset=${offset:-missing}ms"
   fi
   if [ "$seek_pts" != - ]; then
     grep -q "first_pts_after_seek=$seek_pts" <<<"$summary" || problems+=" seek-landed-elsewhere"
@@ -1722,8 +1727,11 @@ fi
 # sources measure transfer_rate (Android is checked through its SDK app).
 if [ "$own_ts" = 1 ] && { [ "$(uname)" = Darwin ] || [ "$windows" = 1 ]; }; then
   serve --rate 300
+  # The stats follow the variant on screen, not the one read ahead.
   seq_ expect http-hls-adaptive "variant .*/hls_low/index\.m3u8 \(800000 bit/s\)" "video size 640x360" \
-    "summary: state=ended position=12\.000s .*backward_jumps=0 " -- "http://127.0.0.1:$port/hls/master.m3u8"
+    "variant of 5000000 bit/s plays from 0 ms" "variant of 800000 bit/s plays from [1-9][0-9]{3} ms" \
+    "summary: state=ended position=12\.000s .*backward_jumps=0 .* variant=800kbit/s" -- \
+    "http://127.0.0.1:$port/hls/master.m3u8"
   seq_ expect http-hls-adaptive-fmp4 "variant .*/hls_fmp4_low/index\.m3u8 \(800000 bit/s\)" "video size 640x360" \
     "summary: state=ended position=12\.000s .*backward_jumps=0 " -- "http://127.0.0.1:$port/hls_fmp4/master.m3u8"
 fi

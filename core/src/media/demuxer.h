@@ -49,6 +49,10 @@ class Demuxer {
   // arrived at over the network (DataSource::transfer_rate(); HLS: its
   // bandwidth estimate), or -1 if unknown.
   virtual int64_t download_rate() const { return -1; }
+
+  // Called on the thread that reads. The declared bandwidth (bit/s) of the
+  // adaptive stream variant the last video packet read came from, or 0.
+  virtual int64_t variant_bandwidth() const { return 0; }
 };
 
 }  // namespace lychee

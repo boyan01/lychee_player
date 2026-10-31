@@ -4,6 +4,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -77,6 +78,11 @@ struct PlayerStats {
   int64_t rebuffer_time = 0;
   int64_t seek_count = 0;
   int64_t last_seek_time = 0;
+  int64_t video_offset = 0;
+  int audio_output_sample_rate = 0;
+  int audio_output_channels = 0;
+  int64_t audio_output_latency = 0;
+  int64_t variant_bandwidth = 0;
 };
 
 // An audio, video or subtitle stream of the open media.
@@ -297,6 +303,9 @@ class Player {
   void LogStatsLocked();
   // Ends the rebuffering in progress, if any, into the counts.
   void EndRebufferLocked();
+  // The bandwidth of the variant at the clock's position, from
+  // |variant_switches_|.
+  int64_t VariantBandwidthLocked() const;
   void UpdateVideoSizeLocked();
   // The display size of the frame on screen, false before one is shown.
   bool ShownSizeLocked(int* width, int* height) const;
@@ -341,6 +350,11 @@ class Player {
   int64_t seek_request_time_ = kNoTimestamp;
   int64_t seek_count_ = 0;
   int64_t last_seek_time_ = 0;
+  // Where the adaptive stream variant read changed, as (video pts, its
+  // bandwidth), from the one playing on; and the one last logged as
+  // playing.
+  std::deque<std::pair<int64_t, int64_t>> variant_switches_;
+  int64_t variant_logged_ = 0;
   // Written by the read thread.
   std::atomic<int64_t> video_bytes_read_{0};
   std::atomic<int64_t> audio_bytes_read_{0};

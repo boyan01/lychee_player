@@ -60,7 +60,8 @@ VideoRenderer::Ptr VideoRenderer::Create(MediaClock* clock,
 VideoRenderer::VideoRenderer(MediaClock* clock,
                              uint32_t accepted_storage,
                              bool rotate_surface_frames)
-    : accepted_storage_(accepted_storage),
+    : clock_(clock),
+      accepted_storage_(accepted_storage),
       rotate_surface_frames_(rotate_surface_frames),
       converter_(CreateFrameConverter()),
       algorithm_([clock](const std::vector<int64_t>& media_times,
@@ -521,9 +522,11 @@ std::shared_ptr<VideoFrame> VideoRenderer::SelectFrameLocked(
     // media/renderers/video_renderer_impl.cc PaintFirstFrame().
     first_frame_pending_ = false;
     selected_ = algorithm_.Render(vsync.time, vsync.time, &dropped);
+    selected_first_ = true;
   } else {
     selected_ =
         algorithm_.Render(vsync.time, vsync.time + vsync.interval, &dropped);
+    selected_first_ = false;
   }
   selected_vsync_ = vsync.time;
   if (!was_hidden) {
@@ -551,6 +554,11 @@ std::shared_ptr<VideoFrame> VideoRenderer::Acquire(int64_t display_time) {
     std::shared_ptr<VideoFrame> frame = SelectFrameLocked(display_time);
     if (frame && frame != current_) {
       counts_.rendered++;
+      if (!selected_first_ && frame->pts != kNoTimestamp && clock_->moving()) {
+        const int64_t offset = frame->pts - clock_->MediaTimeAt(display_time);
+        // About the last 16 frames.
+        average_offset_ += (offset - average_offset_) / 16;
+      }
       if (frame->present) {
         frame->present(display_time);
         frame->present = nullptr;
@@ -579,6 +587,11 @@ bool VideoRenderer::is_hardware() const {
 VideoRenderer::Counts VideoRenderer::counts() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return counts_;
+}
+
+int64_t VideoRenderer::average_offset() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return average_offset_;
 }
 
 int64_t VideoRenderer::average_decode_time() const {

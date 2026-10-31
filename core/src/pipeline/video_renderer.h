@@ -130,6 +130,11 @@ class VideoRenderer {
     int64_t decoded = 0;
   };
   Counts counts() const;
+  // Moving average, over about the last 16 frames shown while the clock
+  // ran, of how far each frame's pts was ahead of the clock at the display
+  // time it was first acquired for (negative: behind). Within a frame
+  // duration of 0 while in sync; mpv's avsync. 0 before any.
+  int64_t average_offset() const;
   // Moving average of the time Decode() takes per packet.
   int64_t average_decode_time() const;
 
@@ -157,6 +162,7 @@ class VideoRenderer {
   // did): the caller is not showing video, e.g. a view in the background.
   bool HiddenLocked(int64_t now) const;
 
+  MediaClock* const clock_;
   const uint32_t accepted_storage_;
   const bool rotate_surface_frames_;
   VideoDevice device_;
@@ -178,8 +184,10 @@ class VideoRenderer {
   mutable std::mutex mutex_;
   std::condition_variable condition_;
   VideoRendererAlgorithm algorithm_;
-  // The algorithm's choice for the vsync at |selected_vsync_|.
+  // The algorithm's choice for the vsync at |selected_vsync_|, and
+  // whether it is the first frame after a flush, shown however late.
   std::shared_ptr<VideoFrame> selected_;
+  bool selected_first_ = false;
   int64_t selected_vsync_ = kNoTimestamp;
   VsyncEstimator vsync_estimator_;
   // NowMicros() of the last HasNewFrame() or Acquire().
@@ -219,6 +227,7 @@ class VideoRenderer {
   int shown_width_ = 0;
   int shown_height_ = 0;
   Counts counts_;
+  int64_t average_offset_ = 0;
   int64_t average_decode_time_ = 0;
 };
 

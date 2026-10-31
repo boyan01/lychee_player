@@ -161,6 +161,11 @@ pub struct lychee_stats {
     pub rebuffer_time_us: i64,
     pub seek_count: i64,
     pub last_seek_time_us: i64,
+    pub video_offset_us: i64,
+    pub audio_output_sample_rate: i32,
+    pub audio_output_channels: i32,
+    pub audio_output_latency_us: i64,
+    pub variant_bandwidth_bps: i64,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

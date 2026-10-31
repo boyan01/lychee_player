@@ -1729,12 +1729,17 @@ int main(int argc, char** argv) {
   // The library's own playback counts.
   printf(" decoded=%" PRId64 " startup=%.3fs rebuffers=%" PRId64
          " rebuffer=%.3fs seeks=%" PRId64 " last_seek=%.3fs read_video=%" PRId64
-         "kB read_audio=%" PRId64 "kB download=%" PRId64 "kbit/s",
+         "kB read_audio=%" PRId64 "kB download=%" PRId64
+         "kbit/s video_offset=%.1fms audio_output=%dHz/%dch"
+         " audio_latency=%.1fms variant=%" PRId64 "kbit/s",
          stats.frames_decoded, stats.startup_time_us / 1e6,
          stats.rebuffer_count, stats.rebuffer_time_us / 1e6, stats.seek_count,
          stats.last_seek_time_us / 1e6, stats.video_bytes_read / 1000,
          stats.audio_bytes_read / 1000,
-         stats.download_rate_bps < 0 ? -1 : stats.download_rate_bps / 1000);
+         stats.download_rate_bps < 0 ? -1 : stats.download_rate_bps / 1000,
+         stats.video_offset_us / 1e3, stats.audio_output_sample_rate,
+         stats.audio_output_channels, stats.audio_output_latency_us / 1e3,
+         stats.variant_bandwidth_bps / 1000);
   printf("\n");
   if (center_pixel[0] >= 0) {
     printf("center pixel: %d,%d,%d\n", center_pixel[0], center_pixel[1],

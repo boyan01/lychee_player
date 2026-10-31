@@ -263,6 +263,8 @@ int AudioRenderer::Render(float* destination,
     const double rate = rate_.load();
     if (from_device) {
       device_pull_time_ = NowMicros();
+      output_latency_.store(playout_time - device_pull_time_,
+                            std::memory_order_relaxed);
       if (stalled_playout_time_ != kNoTimestamp) {
         LOGI("audio device pulls again");
         stalled_playout_time_ = kNoTimestamp;

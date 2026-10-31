@@ -34,6 +34,8 @@ class MediaClock {
   void Pause();
   // Play() was called; time may still be waiting for audio.
   bool playing() const;
+  // Playing, and not waiting for audio: media time advances.
+  bool moving() const;
   // Continues from the current media time at |rate| (> 0).
   void SetRate(double rate);
   double rate() const;

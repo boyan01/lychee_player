@@ -189,4 +189,8 @@ int64_t ProbingDemuxer::download_rate() const {
   return demuxer_ ? demuxer_->download_rate() : -1;
 }
 
+int64_t ProbingDemuxer::variant_bandwidth() const {
+  return demuxer_ ? demuxer_->variant_bandwidth() : 0;
+}
+
 }  // namespace lychee

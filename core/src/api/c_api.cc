@@ -540,6 +540,11 @@ void lychee_player_get_stats(lychee_player* player, lychee_stats* stats) {
   result.rebuffer_time_us = player_stats.rebuffer_time;
   result.seek_count = player_stats.seek_count;
   result.last_seek_time_us = player_stats.last_seek_time;
+  result.video_offset_us = player_stats.video_offset;
+  result.audio_output_sample_rate = player_stats.audio_output_sample_rate;
+  result.audio_output_channels = player_stats.audio_output_channels;
+  result.audio_output_latency_us = player_stats.audio_output_latency;
+  result.variant_bandwidth_bps = player_stats.variant_bandwidth;
   CopyOut(result, stats);
 }
 

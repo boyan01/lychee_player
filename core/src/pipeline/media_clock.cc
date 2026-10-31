@@ -80,6 +80,11 @@ bool MediaClock::playing() const {
   return playing_;
 }
 
+bool MediaClock::moving() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return MovingLocked();
+}
+
 void MediaClock::SetRate(double rate) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (rate <= 0 || rate == rate_) {

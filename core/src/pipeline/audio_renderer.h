@@ -104,6 +104,13 @@ class AudioRenderer {
   // Decoded audio waiting to be played, in media time.
   int64_t buffered_duration() const;
   const char* decoder_name() const;
+  // What the device plays, set by Initialize().
+  const AudioOutputFormat& output_format() const { return format_; }
+  // How far ahead of now the device plays the audio it pulls (its
+  // buffering and latency), as of its last pull; 0 before.
+  int64_t output_latency() const {
+    return output_latency_.load(std::memory_order_relaxed);
+  }
 
   // Every renderer's device pulls nothing while |stalled|, as one that
   // fails to start or stops.
@@ -173,6 +180,7 @@ class AudioRenderer {
   bool stopped_ = false;
   // When the device last pulled, or playing started.
   int64_t device_pull_time_ = 0;
+  std::atomic<int64_t> output_latency_{0};
   // While the device is stalled: when the audio pulled in its place next
   // plays.
   int64_t stalled_playout_time_ = kNoTimestamp;

@@ -63,6 +63,7 @@ class HlsDemuxer : public Demuxer {
   int64_t download_rate() const override {
     return estimate_ > 0 ? estimate_ : -1;
   }
+  int64_t variant_bandwidth() const override { return variant_bandwidth_; }
 
   // Opens the playlists and segments the input refers to; a shared
   // opener (CreateSharedOpener) unless set (the fuzzer serves them from
@@ -95,8 +96,10 @@ class HlsDemuxer : public Demuxer {
     // variants once selected. Until then a position to start from.
     bool loaded = false;
     int64_t resume = kNoTimestamp;
-    // A variant's own video stream, or -1 (audio renditions).
+    // A variant's own video stream, or -1 (audio renditions), and the
+    // BANDWIDTH of the variant it reads (0 without a master playlist).
     int video = -1;
+    int64_t bandwidth = 0;
     std::vector<Segment> segments;
     size_t current = 0;
     bool live = false;
@@ -133,8 +136,10 @@ class HlsDemuxer : public Demuxer {
     bool text_open = false;
     std::deque<EncodedPacket> text;
 
-    // The next packet, read ahead to interleave the renditions.
+    // The next packet, read ahead to interleave the renditions, and the
+    // bandwidth it was read at.
     EncodedPacket next;
+    int64_t next_bandwidth = 0;
     bool has_next = false;
     bool at_end = false;
     // Enabled while playing, from before the read position: what streams
@@ -217,6 +222,8 @@ class HlsDemuxer : public Demuxer {
   std::vector<HlsVariant> ladder_;
   size_t rung_ = 0;
   int64_t estimate_ = 0;
+  // Of the last video packet Read() returned.
+  int64_t variant_bandwidth_ = 0;
   // AES-128 keys by URL.
   std::map<std::string, std::array<uint8_t, 16>> keys_;
   // Discontinuity sequence -> microseconds added to its timestamps.
