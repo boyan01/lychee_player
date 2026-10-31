@@ -111,6 +111,13 @@ fn plays_seeks_and_ends() {
     });
     let stats = player.stats();
     assert!(stats.frames_rendered > 0, "{stats:?}");
+    assert!(stats.frames_decoded >= stats.frames_rendered, "{stats:?}");
+    assert!(
+        stats.video_bytes_read > 0 && stats.audio_bytes_read > 0,
+        "{stats:?}"
+    );
+    assert!(!stats.startup_time.is_zero(), "{stats:?}");
+    assert_eq!(stats.seek_count, 1, "{stats:?}");
     assert_eq!(player.error(), None);
 }
 
@@ -227,7 +234,10 @@ fn subtitle_pictures() {
     let images = subtitle.images();
     assert_eq!(images.len(), 1);
     let image = images[0];
-    assert_eq!((image.x, image.y, image.width, image.height), (330, 450, 300, 40));
+    assert_eq!(
+        (image.x, image.y, image.width, image.height),
+        (330, 450, 300, 40)
+    );
     assert_eq!((image.bitmap_width, image.bitmap_height), (600, 80));
     assert_eq!(image.data.len(), image.stride * 80);
     // Black border, white inside, opaque.

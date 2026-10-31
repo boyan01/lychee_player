@@ -268,7 +268,9 @@ pub enum Event {
     /// The subtitle on screen changed: read its text with
     /// [`Player::subtitle`]. With `pictures`, it is drawn by
     /// [`Player::acquire_subtitle`] instead, text included.
-    SubtitleChanged { pictures: bool },
+    SubtitleChanged {
+        pictures: bool,
+    },
 }
 
 impl Event {
@@ -325,6 +327,8 @@ pub struct Track {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stats {
     pub hardware_decoding: bool,
+    /// Frames handed out by [`Player::acquire_frame`], and frames skipped
+    /// there because a later one was due; since the open.
     pub frames_rendered: u64,
     pub frames_dropped: u64,
     pub video_decoder: String,
@@ -333,6 +337,24 @@ pub struct Stats {
     pub audio_buffered: Duration,
     /// Moving average of the time decoding one video packet takes.
     pub video_decode_time: Duration,
+    /// `"none"` without audio.
+    pub audio_decoder: String,
+    /// Frames the video decoder output, including those skipped to reach a
+    /// seek target.
+    pub frames_decoded: u64,
+    /// Bytes read for the selected video and audio tracks.
+    pub video_bytes_read: u64,
+    pub audio_bytes_read: u64,
+    /// Bits per second the input last arrived at over the network.
+    pub download_rate_bps: Option<u64>,
+    /// From the open to the first [`State::Ready`]; zero before.
+    pub startup_time: Duration,
+    /// Times playback ran out of data while playing, and the time spent so.
+    pub rebuffer_count: u64,
+    pub rebuffer_time: Duration,
+    /// Seeks completed, and how long the last took.
+    pub seek_count: u64,
+    pub last_seek_time: Duration,
 }
 
 /// Codecs of live tracks; see `lychee_codec` in `lychee.h` for the packet
@@ -407,7 +429,10 @@ impl Player {
     pub fn new(config: &Config) -> Result<Player> {
         let mut raw_config = unsafe {
             let mut c = std::mem::MaybeUninit::<sys::lychee_config>::uninit();
-            sys::lychee_config_init(c.as_mut_ptr(), std::mem::size_of::<sys::lychee_config>() as u32);
+            sys::lychee_config_init(
+                c.as_mut_ptr(),
+                std::mem::size_of::<sys::lychee_config>() as u32,
+            );
             c.assume_init()
         };
         raw_config.video_frame_types = config.frame_types.iter().fold(0, |m, t| m | t.bit());
@@ -587,9 +612,19 @@ impl Player {
     /// video fills (0 x 0: the video's size), or `None` if there are none.
     /// Call it every frame while [`Event::SubtitleChanged`] said
     /// `pictures`, and redraw when [`Subtitle::id`] changes.
-    pub fn acquire_subtitle(&self, display_time_us: i64, width: u32, height: u32) -> Option<Subtitle> {
+    pub fn acquire_subtitle(
+        &self,
+        display_time_us: i64,
+        width: u32,
+        height: u32,
+    ) -> Option<Subtitle> {
         let raw = unsafe {
-            sys::lychee_player_acquire_subtitle(self.raw(), display_time_us, width as i32, height as i32)
+            sys::lychee_player_acquire_subtitle(
+                self.raw(),
+                display_time_us,
+                width as i32,
+                height as i32,
+            )
         };
         NonNull::new(raw).map(|raw| Subtitle { raw })
     }
@@ -604,16 +639,13 @@ impl Player {
 
     /// The cover picture as the container stores it, usually JPEG or PNG.
     pub fn artwork(&self) -> Option<Vec<u8>> {
-        let size = unsafe {
-            sys::lychee_player_get_artwork(self.raw(), std::ptr::null_mut(), 0)
-        };
+        let size = unsafe { sys::lychee_player_get_artwork(self.raw(), std::ptr::null_mut(), 0) };
         if size < 0 {
             return None;
         }
         let mut artwork = vec![0u8; size as usize];
-        let copied = unsafe {
-            sys::lychee_player_get_artwork(self.raw(), artwork.as_mut_ptr(), size)
-        };
+        let copied =
+            unsafe { sys::lychee_player_get_artwork(self.raw(), artwork.as_mut_ptr(), size) };
         // A reopen in between can change the picture.
         artwork.truncate(copied.clamp(0, size) as usize);
         Some(artwork)
@@ -631,6 +663,16 @@ impl Player {
             video_buffered: micros(stats.video_buffered_us),
             audio_buffered: micros(stats.audio_buffered_us),
             video_decode_time: micros(stats.video_decode_time_us),
+            audio_decoder: c_array(&stats.audio_decoder),
+            frames_decoded: stats.frames_decoded as u64,
+            video_bytes_read: stats.video_bytes_read as u64,
+            audio_bytes_read: stats.audio_bytes_read as u64,
+            download_rate_bps: u64::try_from(stats.download_rate_bps).ok(),
+            startup_time: micros(stats.startup_time_us),
+            rebuffer_count: stats.rebuffer_count as u64,
+            rebuffer_time: micros(stats.rebuffer_time_us),
+            seek_count: stats.seek_count as u64,
+            last_seek_time: micros(stats.last_seek_time_us),
         }
     }
 
@@ -817,7 +859,8 @@ impl Subtitle {
             .filter_map(|i| {
                 let mut image: sys::lychee_subtitle_image = unsafe { std::mem::zeroed() };
                 image.struct_size = size_of::<sys::lychee_subtitle_image>() as u32;
-                if unsafe { sys::lychee_subtitle_get_image(self.raw.as_ptr(), i, &mut image) } != 0 {
+                if unsafe { sys::lychee_subtitle_get_image(self.raw.as_ptr(), i, &mut image) } != 0
+                {
                     return None;
                 }
                 let len = image.stride as usize * image.bitmap_height as usize;
