@@ -208,7 +208,16 @@ if player.has_new_frame(display_time) {
 ```
 
 `Player` is `Send + Sync`; a `Frame` is `Send` and may outlive the player.
-The example plays a file headless and can save a frame as PPM:
+The desktop window example displays CPU frames on macOS, Windows and Linux
+(X11). Resize the window to fit the video; Escape closes it. It uses
+nearest-neighbor scaling rather than a GPU renderer. `--seconds N` closes it
+after N seconds for unattended runs:
+
+```sh
+cd rust && cargo run --example window -- /tmp/lychee-media/h264_aac.mp4
+```
+
+The headless example can save a frame as PPM:
 
 ```sh
 cd rust && cargo run --example play -- /tmp/lychee-media/h264_aac.mp4 /tmp/frame.ppm

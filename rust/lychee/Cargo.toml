@@ -8,3 +8,6 @@ repository.workspace = true
 
 [dependencies]
 lychee-sys = { path = "../lychee-sys" }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dev-dependencies]
+minifb = { version = "0.28", default-features = false, features = ["x11"] }
