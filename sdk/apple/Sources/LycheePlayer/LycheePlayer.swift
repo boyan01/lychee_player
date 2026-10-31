@@ -94,6 +94,17 @@ public final class LycheePlayer {
     /// Seeks completed, and how long the last took.
     public let seekCount: Int
     public let lastSeekTime: TimeInterval
+    /// Average of how far ahead of the clock (the audio heard) frames are
+    /// when shown; negative: behind.
+    public let videoOffset: TimeInterval
+    /// What the audio device plays, 0 without audio, and how far ahead of
+    /// now it plays what it takes.
+    public let audioOutputSampleRate: Int
+    public let audioOutputChannels: Int
+    public let audioOutputLatency: TimeInterval
+    /// The bandwidth (bit/s) of the HLS variant on screen, nil for other
+    /// input.
+    public let variantBandwidth: Int64?
   }
 
   /// Called on the main queue.
@@ -319,7 +330,12 @@ public final class LycheePlayer {
       rebufferCount: Int(stats.rebuffer_count),
       rebufferTime: seconds(stats.rebuffer_time_us),
       seekCount: Int(stats.seek_count),
-      lastSeekTime: seconds(stats.last_seek_time_us))
+      lastSeekTime: seconds(stats.last_seek_time_us),
+      videoOffset: Double(stats.video_offset_us) / 1_000_000,
+      audioOutputSampleRate: Int(stats.audio_output_sample_rate),
+      audioOutputChannels: Int(stats.audio_output_channels),
+      audioOutputLatency: seconds(stats.audio_output_latency_us),
+      variantBandwidth: stats.variant_bandwidth_bps > 0 ? stats.variant_bandwidth_bps : nil)
   }
 
   fileprivate func event(_ type: Int32, _ arg0: Int64, _ arg1: Int64) -> Event? {
