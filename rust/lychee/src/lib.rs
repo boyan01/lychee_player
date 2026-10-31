@@ -355,6 +355,16 @@ pub struct Stats {
     /// Seeks completed, and how long the last took.
     pub seek_count: u64,
     pub last_seek_time: Duration,
+    /// Moving average of how far the frame on screen is ahead of the clock
+    /// (positive) or behind it, in microseconds.
+    pub video_offset_us: i64,
+    /// What the audio device plays: 0 without audio.
+    pub audio_output_sample_rate: u32,
+    pub audio_output_channels: u32,
+    /// How far ahead of now the device plays the audio it takes.
+    pub audio_output_latency: Duration,
+    /// The HLS variant playing; `None` for other input.
+    pub variant_bandwidth_bps: Option<u64>,
 }
 
 /// Codecs of live tracks; see `lychee_codec` in `lychee.h` for the packet
@@ -673,6 +683,13 @@ impl Player {
             rebuffer_time: micros(stats.rebuffer_time_us),
             seek_count: stats.seek_count as u64,
             last_seek_time: micros(stats.last_seek_time_us),
+            video_offset_us: stats.video_offset_us,
+            audio_output_sample_rate: stats.audio_output_sample_rate as u32,
+            audio_output_channels: stats.audio_output_channels as u32,
+            audio_output_latency: micros(stats.audio_output_latency_us),
+            variant_bandwidth_bps: u64::try_from(stats.variant_bandwidth_bps)
+                .ok()
+                .filter(|&bps| bps > 0),
         }
     }
 
