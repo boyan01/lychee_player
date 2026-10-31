@@ -133,6 +133,8 @@ class LycheeSubtitlePicture {
 }
 
 /// Playback statistics, read on demand with [LycheePlayer.getStats].
+///
+/// Counts are since the open, across track changes.
 @immutable
 class LycheePlayerStats {
   const LycheePlayerStats({
@@ -143,6 +145,16 @@ class LycheePlayerStats {
     this.videoBuffered = Duration.zero,
     this.audioBuffered = Duration.zero,
     this.videoDecodeTime = Duration.zero,
+    this.audioDecoder = '',
+    this.framesDecoded = 0,
+    this.videoBytesRead = 0,
+    this.audioBytesRead = 0,
+    this.downloadRate,
+    this.startupTime = Duration.zero,
+    this.rebufferCount = 0,
+    this.rebufferTime = Duration.zero,
+    this.seekCount = 0,
+    this.lastSeekTime = Duration.zero,
   });
 
   final bool hardwareDecoding;
@@ -160,6 +172,32 @@ class LycheePlayerStats {
 
   /// Average time decoding one video packet takes.
   final Duration videoDecodeTime;
+
+  /// `none` without audio.
+  final String audioDecoder;
+
+  /// Frames the video decoder output, including those skipped to reach a
+  /// seek target.
+  final int framesDecoded;
+
+  /// Bytes read for the selected video and audio tracks.
+  final int videoBytesRead;
+  final int audioBytesRead;
+
+  /// Bits per second the input last arrived at over the network, null if
+  /// unknown.
+  final int? downloadRate;
+
+  /// From the open to the first [LycheePlayerState.ready]; zero before.
+  final Duration startupTime;
+
+  /// Times playback ran out of data while playing, and the time spent so.
+  final int rebufferCount;
+  final Duration rebufferTime;
+
+  /// Seeks completed, and how long the last took.
+  final int seekCount;
+  final Duration lastSeekTime;
 }
 
 class LycheePlayer extends ValueNotifier<LycheePlayerValue>
@@ -318,18 +356,34 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     final stats = calloc<native.LycheeStats>();
     stats.ref.structSize = sizeOf<native.LycheeStats>();
     native.playerGetStats(_player, stats);
-    final decoder = <int>[];
-    for (var i = 0; i < 32 && stats.ref.videoDecoder[i] != 0; i++) {
-      decoder.add(stats.ref.videoDecoder[i]);
+    String name(Array<Uint8> chars) {
+      final codes = <int>[];
+      for (var i = 0; i < 32 && chars[i] != 0; i++) {
+        codes.add(chars[i]);
+      }
+      return String.fromCharCodes(codes);
     }
+
+    final s = stats.ref;
     final result = LycheePlayerStats(
-      hardwareDecoding: stats.ref.hardwareDecoding != 0,
-      framesRendered: stats.ref.framesRendered,
-      framesDropped: stats.ref.framesDropped,
-      videoDecoder: String.fromCharCodes(decoder),
-      videoBuffered: Duration(microseconds: stats.ref.videoBufferedUs),
-      audioBuffered: Duration(microseconds: stats.ref.audioBufferedUs),
-      videoDecodeTime: Duration(microseconds: stats.ref.videoDecodeTimeUs),
+      hardwareDecoding: s.hardwareDecoding != 0,
+      framesRendered: s.framesRendered,
+      framesDropped: s.framesDropped,
+      videoDecoder: name(s.videoDecoder),
+      videoBuffered: Duration(microseconds: s.videoBufferedUs),
+      audioBuffered: Duration(microseconds: s.audioBufferedUs),
+      videoDecodeTime: Duration(microseconds: s.videoDecodeTimeUs),
+      audioDecoder: name(s.audioDecoder),
+      framesDecoded: s.framesDecoded,
+      videoBytesRead: s.videoBytesRead,
+      audioBytesRead: s.audioBytesRead,
+      // A core older than API 16 leaves it 0.
+      downloadRate: s.downloadRateBps > 0 ? s.downloadRateBps : null,
+      startupTime: Duration(microseconds: s.startupTimeUs),
+      rebufferCount: s.rebufferCount,
+      rebufferTime: Duration(microseconds: s.rebufferTimeUs),
+      seekCount: s.seekCount,
+      lastSeekTime: Duration(microseconds: s.lastSeekTimeUs),
     );
     calloc.free(stats);
     return result;

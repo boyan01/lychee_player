@@ -106,6 +106,24 @@ final class LycheeStats extends Struct {
   external int liveAudioSilenceUs;
   @Int64()
   external int liveAudioBehindUs;
+  @Int64()
+  external int framesDecoded;
+  @Int64()
+  external int videoBytesRead;
+  @Int64()
+  external int audioBytesRead;
+  @Int64()
+  external int downloadRateBps;
+  @Int64()
+  external int startupTimeUs;
+  @Int64()
+  external int rebufferCount;
+  @Int64()
+  external int rebufferTimeUs;
+  @Int64()
+  external int seekCount;
+  @Int64()
+  external int lastSeekTimeUs;
 }
 
 final class LycheeTrackInfo extends Struct {

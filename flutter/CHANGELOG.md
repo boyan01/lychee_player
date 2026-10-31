@@ -11,6 +11,16 @@
   `LycheeHostTexture` on iOS and macOS, `lychee_host_texture_*` on Linux
   and `LycheeHostTexture*` on Windows. Native code links the core as
   `lychee::lychee` in CMake (Linux, Windows) or through prefab (Android).
+* `getStats()` (and `lychee_stats`) also report frames decoded, bytes read
+  per track, the download rate, the startup time, rebuffering (count and
+  time) and seeks (count and the last one's time), plus the audio
+  decoder. The player logs when it rebuffers, how long seeks and the
+  startup took, and a summary when it closes the media.
+
+### Fixed
+
+* Frame counts in `getStats()` no longer start over after a track change
+  or a decoder recovery.
 
 ## 1.0.0-beta.4
 

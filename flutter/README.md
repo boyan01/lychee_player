@@ -80,7 +80,7 @@ aspect ratio and rotation (`fit` changes the scaling).
 | `setRate(1.5)`, `setVolume(0.5)`, `setLooping(true)` | Rate is 0.25 to 4, pitch kept. |
 | `selectTrack(type, index)` | An index into `value.tracks`; `null` turns that type off. |
 | `getMetadata('title')` | A container tag; `value.artwork` has the cover. |
-| `getStats()` | Decoder, hardware or not, rendered and dropped frames. |
+| `getStats()` | Decoders, hardware or not, decoded, rendered and dropped frames, bytes read, download rate, startup, rebuffering and seek times. |
 | `dispose()` | Required: releases the native player. |
 
 Subtitles: text arrives in `value.subtitle` for your app to draw over the
