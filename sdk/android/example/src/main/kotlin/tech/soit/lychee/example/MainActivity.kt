@@ -13,6 +13,7 @@
 // "seek" ("SEC:TARGET,...") seeks at SEC seconds after the start.
 // "seconds" stops the activity after that many seconds and logs summary:.
 // "recreate" (seconds) recreates the activity once to check pending captures.
+// "subtitle" (a URL) adds that subtitle file to the media.
 
 package tech.soit.lychee.example
 
@@ -86,6 +87,7 @@ class MainActivity : Activity() {
         }
         player.isLooping = true
         player.open(url)
+        intent.getStringExtra("subtitle")?.let { player.addSubtitle(it) }
         player.play()
 
         video = LycheePlayerView(this).also { it.player = player }

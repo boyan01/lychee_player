@@ -46,6 +46,12 @@ class LycheePlayer @JvmOverloads constructor(
          * does that.
          */
         data class SubtitleChanged(val pictures: Boolean) : Event()
+        /**
+         * An [addSubtitle] request finished: if [added], the file is the
+         * subtitle track with that [Track.id], selected ([TracksChanged]
+         * follows); otherwise it could not be read or is not a subtitle file.
+         */
+        data class SubtitleAdded(val id: Int, val added: Boolean) : Event()
     }
 
     fun interface Listener {
@@ -57,7 +63,7 @@ class LycheePlayer @JvmOverloads constructor(
         /** Pass to [selectTrack]. */
         val index: Int,
         val type: TrackType,
-        /** The container's stream index. */
+        /** The container's stream index; for a subtitle file, the id [addSubtitle] returned. */
         val id: Int,
         val isSelected: Boolean,
         val codec: String,
@@ -69,6 +75,8 @@ class LycheePlayer @JvmOverloads constructor(
         /** Audio only. */
         val sampleRate: Int,
         val channels: Int,
+        /** A subtitle file [addSubtitle] added. */
+        val isExternal: Boolean = false,
     )
 
     /** Counts are since the open. */
@@ -210,7 +218,7 @@ class LycheePlayer @JvmOverloads constructor(
     val tracks: List<Track>
         get() {
             val handle = handle()
-            val ints = IntArray(7)
+            val ints = IntArray(8)
             return (0 until nativeGetTrackCount(handle)).mapNotNull { index ->
                 val strings = nativeGetTrackInfo(handle, index, ints)?.let(::String)
                     ?.split('\u0000') ?: return@mapNotNull null
@@ -220,6 +228,7 @@ class LycheePlayer @JvmOverloads constructor(
                     index = index, type = type, id = ints[1], isSelected = ints[2] != 0,
                     codec = strings[0], language = strings[1], title = strings[2],
                     width = ints[3], height = ints[4], sampleRate = ints[5], channels = ints[6],
+                    isExternal = ints[7] != 0,
                 )
             }
         }
@@ -231,6 +240,21 @@ class LycheePlayer @JvmOverloads constructor(
      */
     fun selectTrack(type: TrackType, index: Int?): Boolean =
         nativeSelectTrack(handle(), type.value, index ?: -1)
+
+    /**
+     * Reads the subtitle file [url] (a path, file:// or http(s):// URL;
+     * SubRip, WebVTT or ASS/SSA, in UTF-8 or UTF-16 with a byte order mark)
+     * in the background and adds it to the media opened last as a subtitle
+     * track after the container's, its cue times counting from the start of
+     * the media. Once loaded it is selected; [Event.SubtitleAdded] with the
+     * returned id says how it went. Opening other media drops it. Returns
+     * null if nothing is open.
+     */
+    @JvmOverloads
+    fun addSubtitle(url: String, language: String? = null, title: String? = null): Int? =
+        nativeAddSubtitle(
+            handle(), url.toByteArray(), language?.toByteArray(), title?.toByteArray(),
+        ).takeIf { it >= 0 }
 
     /** The subtitle text on screen now, lines separated by "\n". */
     val subtitle: String?
@@ -326,6 +350,7 @@ class LycheePlayer @JvmOverloads constructor(
             6 -> Event.Error
             7 -> Event.TracksChanged
             8 -> Event.SubtitleChanged(arg1 != 0L)
+            9 -> Event.SubtitleAdded(arg0.toInt(), arg1 != 0L)
             else -> null
         } ?: return
         // A copy: listeners may remove themselves.
@@ -388,6 +413,9 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeGetTrackCount(handle: Long): Int
         @JvmStatic private external fun nativeGetTrackInfo(handle: Long, index: Int, ints: IntArray): ByteArray?
         @JvmStatic private external fun nativeSelectTrack(handle: Long, type: Int, index: Int): Boolean
+        @JvmStatic private external fun nativeAddSubtitle(
+            handle: Long, url: ByteArray, language: ByteArray?, title: ByteArray?,
+        ): Int
         @JvmStatic private external fun nativeGetSubtitle(handle: Long): ByteArray?
         @JvmStatic private external fun nativeGetMetadata(handle: Long, key: ByteArray): ByteArray?
         @JvmStatic private external fun nativeGetArtwork(handle: Long): ByteArray?

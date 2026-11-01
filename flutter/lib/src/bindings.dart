@@ -60,6 +60,7 @@ const int kEventSeekCompleted = 5;
 const int kEventError = 6;
 const int kEventTracksChanged = 7;
 const int kEventSubtitleChanged = 8;
+const int kEventSubtitleAdded = 9;
 
 const int kTrackVideo = 1;
 const int kTrackAudio = 2;
@@ -159,6 +160,9 @@ final class LycheeTrackInfo extends Struct {
   external int sampleRate;
   @Int32()
   external int channels;
+  // lychee_track_info.external (API 17); an older core leaves it 0.
+  @Int32()
+  external int isExternal;
 }
 
 typedef EventCallbackNative = Void Function(
@@ -272,6 +276,17 @@ final playerGetTrackInfo = _library.lookupFunction<
 final playerSelectTrack = _library.lookupFunction<
     Int32 Function(Pointer<Void>, Int32, Int32),
     int Function(Pointer<Void>, int, int)>('lychee_player_select_track');
+
+/// Null with a core older than API 17 (the released one a fresh checkout
+/// pins).
+final int Function(Pointer<Void>, Pointer<Char>, Pointer<Char>, Pointer<Char>)?
+    playerAddSubtitle = _library.providesSymbol('lychee_player_add_subtitle')
+        ? _library.lookupFunction<
+            Int32 Function(
+                Pointer<Void>, Pointer<Char>, Pointer<Char>, Pointer<Char>),
+            int Function(Pointer<Void>, Pointer<Char>, Pointer<Char>,
+                Pointer<Char>)>('lychee_player_add_subtitle')
+        : null;
 
 final playerGetSubtitle = _library.lookupFunction<
     Int32 Function(Pointer<Void>, Int64, Pointer<Char>, Int32),

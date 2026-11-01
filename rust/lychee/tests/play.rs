@@ -223,6 +223,31 @@ fn last_reference_owned_by_replaced_callback() {
 }
 
 #[test]
+fn subtitle_file() {
+    let (player, events) = open();
+    let id = player
+        .add_subtitle(&media("subs.srt"), Some("en"), Some("Added"))
+        .unwrap();
+    player.play();
+    wait_for(&player, &events, |e| {
+        *e == Event::SubtitleAdded { id, added: true }
+    });
+    let track = player.tracks().into_iter().find(|t| t.id == id).unwrap();
+    assert!(track.external && track.selected);
+    assert_eq!(track.kind, TrackType::Subtitle);
+    assert_eq!((track.codec.as_str(), track.language.as_str()), ("subrip", "en"));
+    // Its first cue, 1 s to 2.5 s.
+    wait_for(&player, &events, |e| {
+        *e == Event::SubtitleChanged { pictures: false }
+    });
+    assert_eq!(player.subtitle(0).as_deref(), Some("Hello world"));
+    let missing = player.add_subtitle(&media("missing.srt"), None, None).unwrap();
+    wait_for(&player, &events, |e| {
+        *e == Event::SubtitleAdded { id: missing, added: false }
+    });
+}
+
+#[test]
 fn subtitle_pictures() {
     // A PGS box at 660,900, 600x80 on a 1920x1080 canvas, from 1 s.
     let (player, events) = open_file(&media("sub_pgs.mkv"));

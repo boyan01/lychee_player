@@ -7,6 +7,7 @@
 
 #include "media/audio_decoder.h"
 #include "media/audio_sink.h"
+#include "media/data_source.h"
 #include "media/demuxer.h"
 #include "media/frame_converter.h"
 #include "media/subtitle_decoder.h"
@@ -62,6 +63,11 @@ std::unique_ptr<FrameConverter> CreateFrameConverter();
 
 // Null if this build has no subtitle decoder.
 std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder();
+
+// OpenDataSource(), or null with |error| set in a build that reads no
+// files or URLs of its own (Linux without FFmpeg).
+std::unique_ptr<DataSource> OpenInput(const std::string& url,
+                                      std::string* error);
 
 }  // namespace lychee
 

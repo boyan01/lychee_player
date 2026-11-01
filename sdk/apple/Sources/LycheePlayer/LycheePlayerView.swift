@@ -1,3 +1,4 @@
+import CoreText
 import CoreVideo
 import QuartzCore
 #if os(macOS)
@@ -7,10 +8,51 @@ import UIKit
 #endif
 
 /// Shows a player's video, aspect-fit and rotated as the media says, with
-/// its subtitle pictures over it (text subtitles are left to the caller:
-/// ``LycheePlayer/subtitle``). Frames are pulled only while the view is in a
-/// window.
+/// its subtitles over it: the pictures of bitmap subtitles, and text
+/// subtitles (``LycheePlayer/subtitle``) in ``subtitleStyle``. Frames are
+/// pulled only while the view is in a window.
 public final class LycheePlayerView: LycheePlatformView {
+  /// How text subtitles are drawn. Sizes are fractions of the video's
+  /// height, so the text scales with the picture.
+  public struct SubtitleStyle {
+    /// A font's PostScript name; nil for the system font.
+    public var fontName: String?
+    public var fontSize: CGFloat
+    public var textColor: CGColor
+    /// Drawn around each glyph, `outlineWidth` times the font size wide;
+    /// nil for none.
+    public var outlineColor: CGColor?
+    public var outlineWidth: CGFloat
+    /// Behind the text; nil for none.
+    public var backgroundColor: CGColor?
+    /// Between the last line and the bottom of the video.
+    public var bottomMargin: CGFloat
+
+    public init(
+      fontName: String? = nil,
+      fontSize: CGFloat = 0.05,
+      textColor: CGColor = CGColor(gray: 1, alpha: 1),
+      outlineColor: CGColor? = CGColor(gray: 0, alpha: 1),
+      outlineWidth: CGFloat = 0.08,
+      backgroundColor: CGColor? = nil,
+      bottomMargin: CGFloat = 0.05
+    ) {
+      self.fontName = fontName
+      self.fontSize = fontSize
+      self.textColor = textColor
+      self.outlineColor = outlineColor
+      self.outlineWidth = outlineWidth
+      self.backgroundColor = backgroundColor
+      self.bottomMargin = bottomMargin
+    }
+  }
+
+  /// Nil draws no text subtitles, for drawing ``LycheePlayer/subtitle``
+  /// yourself.
+  public var subtitleStyle: SubtitleStyle? = SubtitleStyle() {
+    didSet { layoutSubtitleText() }
+  }
+
   public var player: LycheePlayer? {
     didSet {
       guard player !== oldValue else { return }
@@ -26,6 +68,12 @@ public final class LycheePlayerView: LycheePlatformView {
   // Laid out in pixels of the rotated video, scaled onto it.
   private let subtitleLayer = CALayer()
   private var subtitleId: Int64 = 0
+  // Text subtitles, in the view's points: the outline drawn under the
+  // fill, both over the background.
+  private let textLayer = CALayer()
+  private let outlineTextLayer = CATextLayer()
+  private let fillTextLayer = CATextLayer()
+  private var subtitleText: String?
   private var driver: LycheeFrameDriver?
   // Kept while its IOSurface is the layer's contents, so the decoder's pool
   // does not reuse the surface on screen.
@@ -43,14 +91,21 @@ public final class LycheePlayerView: LycheePlatformView {
     wantsLayer = true
     layer?.backgroundColor = CGColor.black
     layer?.addSublayer(videoLayer)
+    layer?.addSublayer(textLayer)
     layer?.addSublayer(subtitleLayer)
     subtitleLayer.isGeometryFlipped = true
     #else
     backgroundColor = .black
     layer.addSublayer(videoLayer)
+    layer.addSublayer(textLayer)
     layer.addSublayer(subtitleLayer)
     #endif
     videoLayer.contentsGravity = .resizeAspect
+    for text in [outlineTextLayer, fillTextLayer] {
+      text.isWrapped = true
+      textLayer.addSublayer(text)
+    }
+    textLayer.isHidden = true
   }
 
   @available(*, unavailable)
@@ -106,6 +161,7 @@ public final class LycheePlayerView: LycheePlatformView {
       // No video (an audio file, the video track turned off): no frame
       // will replace the last one.
       if player?.videoSize == nil { clear() }
+      layoutSubtitleText()
     default:
       break
     }
@@ -119,6 +175,8 @@ public final class LycheePlayerView: LycheePlatformView {
     shownFramePts = nil
     setHDR(0)
     showSubtitle(nil)
+    subtitleText = nil
+    layoutSubtitleText()
     CATransaction.commit()
   }
 
@@ -183,8 +241,90 @@ public final class LycheePlayerView: LycheePlatformView {
   private func refreshSubtitle() {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    showSubtitle(player?.subtitlePictures(width: Int(canvasSize.width), height: Int(canvasSize.height)))
+    let pictures = player?.subtitlePictures(width: Int(canvasSize.width), height: Int(canvasSize.height))
+    showSubtitle(pictures)
+    // Pictures hold the text too.
+    subtitleText = pictures == nil ? player?.subtitle : nil
+    layoutSubtitleText()
     CATransaction.commit()
+  }
+
+  // Where the video is in the view.
+  private var videoRect: CGRect {
+    let canvas = canvasSize
+    guard canvas.width > 0, canvas.height > 0 else { return .zero }
+    let scale = min(bounds.width / canvas.width, bounds.height / canvas.height)
+    let size = CGSize(width: canvas.width * scale, height: canvas.height * scale)
+    return CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
+                  width: size.width, height: size.height)
+  }
+
+  private func layoutSubtitleText() {
+    let video = videoRect
+    guard let style = subtitleStyle, let text = subtitleText, !text.isEmpty,
+          video.height > 0 else {
+      textLayer.isHidden = true
+      return
+    }
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    defer { CATransaction.commit() }
+    let fontSize = style.fontSize * video.height
+    let font = style.fontName.map { CTFontCreateWithName($0 as CFString, fontSize, nil) }
+      ?? CTFontCreateUIFontForLanguage(.system, fontSize, nil)
+      ?? CTFontCreateWithName("Helvetica" as CFString, fontSize, nil)
+    var alignment = CTTextAlignment.center
+    let paragraph = withUnsafeBytes(of: &alignment) { bytes in
+      var setting = CTParagraphStyleSetting(spec: .alignment, valueSize: bytes.count,
+                                            value: bytes.baseAddress!)
+      return CTParagraphStyleCreate(&setting, 1)
+    }
+    func string(_ attributes: [CFString: Any]) -> NSAttributedString {
+      var all: [CFString: Any] = [kCTFontAttributeName: font, kCTParagraphStyleAttributeName: paragraph]
+      all.merge(attributes) { $1 }
+      return NSAttributedString(string: text, attributes: Dictionary(uniqueKeysWithValues: all.map {
+        (NSAttributedString.Key($0.key as String), $0.value)
+      }))
+    }
+    let fill = string([kCTForegroundColorAttributeName: style.textColor])
+    let outline = style.outlineWidth * fontSize
+    // Wide enough for the outline around the outermost glyphs.
+    let padding = outline / 2 + 1
+    let framesetter = CTFramesetterCreateWithAttributedString(fill)
+    let size = CTFramesetterSuggestFrameSizeWithConstraints(
+      framesetter, CFRange(), nil,
+      CGSize(width: video.width * 0.9, height: .greatestFiniteMagnitude), nil)
+    let width = ceil(size.width) + 2 * padding
+    let height = ceil(size.height) + 2 * padding
+    let margin = style.bottomMargin * video.height
+    #if os(macOS)
+    // y up.
+    let y = video.minY + margin - padding
+    let scale = window?.backingScaleFactor ?? 2
+    #else
+    let y = video.maxY - margin + padding - height
+    let scale = window?.screen.scale ?? 2
+    #endif
+    textLayer.frame = CGRect(x: video.midX - width / 2, y: y, width: width, height: height)
+    textLayer.backgroundColor = style.backgroundColor
+    let inside = CGRect(x: padding, y: padding, width: width - 2 * padding,
+                        height: height - 2 * padding)
+    fillTextLayer.frame = inside
+    fillTextLayer.string = fill
+    if let color = style.outlineColor, outline > 0 {
+      // A positive width strokes without filling, as a percentage of the
+      // font size.
+      outlineTextLayer.string = string([kCTStrokeColorAttributeName: color,
+                                        kCTStrokeWidthAttributeName: style.outlineWidth * 100])
+      outlineTextLayer.frame = inside
+      outlineTextLayer.isHidden = false
+    } else {
+      outlineTextLayer.isHidden = true
+    }
+    for layer in [outlineTextLayer, fillTextLayer] {
+      layer.contentsScale = scale
+    }
+    textLayer.isHidden = false
   }
 
   private func showSubtitle(_ subtitle: LycheePlayer.SubtitlePictures?) {
@@ -224,6 +364,7 @@ public final class LycheePlayerView: LycheePlatformView {
     #endif
     videoLayer.setAffineTransform(CGAffineTransform(rotationAngle: angle))
     layoutSubtitleLayer()
+    layoutSubtitleText()
     CATransaction.commit()
   }
 }

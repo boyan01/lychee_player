@@ -194,6 +194,43 @@ final class LycheePlayerTests: XCTestCase {
     }
   }
 
+  // A subtitle file becomes a selected track, and the view draws its text.
+  func testSubtitleFile() throws {
+    let player = LycheePlayer()
+    player.volume = 0
+    let view = LycheePlayerView(frame: CGRect(x: 0, y: 0, width: 960, height: 540))
+    view.player = player
+    let added = expectation(description: "added")
+    let shown = expectation(description: "text")
+    shown.assertForOverFulfill = false
+    var id: Int?
+    player.onEvent = { event in
+      if case .subtitleAdded(let added_id, true) = event, added_id == id { added.fulfill() }
+      if case .subtitleChanged(pictures: false) = event, player.subtitle != nil { shown.fulfill() }
+    }
+    player.open(url)
+    id = player.addSubtitle("/tmp/lychee-media/subs.srt", language: "en")
+    XCTAssertNotNil(id)
+    player.play()
+    wait(for: [added, shown], timeout: 10)
+    let track = try XCTUnwrap(player.tracks.first { $0.id == id })
+    XCTAssertTrue(track.isExternal)
+    XCTAssertTrue(track.isSelected)
+    XCTAssertEqual(track.codec, "subrip")
+    XCTAssertEqual(track.language, "en")
+    XCTAssertEqual(player.subtitle, "Hello world")
+    #if os(macOS)
+    let textLayer = try XCTUnwrap(view.layer?.sublayers?[1])
+    #else
+    let textLayer = try XCTUnwrap(view.layer.sublayers?[1])
+    #endif
+    XCTAssertFalse(textLayer.isHidden)
+    // At the bottom of the 960x540 video, centered.
+    XCTAssertEqual(textLayer.frame.midX, 480, accuracy: 1)
+    view.subtitleStyle = nil
+    XCTAssertTrue(textLayer.isHidden)
+  }
+
   // The view's pictures follow subtitle events, not only new frames: turned
   // off while paused, they go at once. The app's onEvent still gets them.
   func testViewClearsSubtitleWhilePaused() throws {

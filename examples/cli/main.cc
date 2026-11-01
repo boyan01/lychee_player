@@ -92,6 +92,8 @@ struct Options {
   // Where to write each subtitle with pictures, drawn on a grey canvas of
   // the video's size (binary PPM), to look at bitmap subtitles.
   std::string subtitle_ppm;
+  // Subtitle files to add right after the open.
+  std::vector<std::string> add_subtitles;
   // Frames to write as they would be shown (tool/frame_check.py), by time.
   std::vector<FrameSnapshot> snapshots;
   // Seconds after playback starts to make the video decoder fail as after a
@@ -186,6 +188,10 @@ void OnEvent(void*, int32_t type, int64_t arg0, int64_t arg1) {
       break;
     case LYCHEE_EVENT_SUBTITLE_CHANGED:
       g_subtitle_changed = true;
+      break;
+    case LYCHEE_EVENT_SUBTITLE_ADDED:
+      printf("event: subtitle %" PRId64 " %s\n", arg0,
+             arg1 ? "added" : "failed");
       break;
     case LYCHEE_EVENT_VIDEO_SIZE_CHANGED:
       printf("event: video size %" PRId64 "x%" PRId64 "\n", arg0, arg1);
@@ -352,6 +358,10 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       options->live_audio_gap_for = strtod(duration, nullptr);
     } else if (arg == "--audio-only") {
       options->frame_type = 0;
+    } else if (arg == "--add-subtitle") {
+      const char* v = value();
+      if (!v) return false;
+      options->add_subtitles.push_back(v);
     } else if (arg == "--subtitle-ppm") {
       const char* v = value();
       if (!v) return false;
@@ -443,8 +453,8 @@ void PrintTracks(lychee_player* player) {
     } else if (info.type == LYCHEE_TRACK_AUDIO) {
       printf(" %d Hz %d ch", info.sample_rate, info.channels);
     }
-    printf(" lang=%s title=%s selected=%d\n", info.language, info.title,
-           info.selected);
+    printf(" lang=%s title=%s selected=%d%s\n", info.language, info.title,
+           info.selected, info.external ? " external" : "");
   }
 }
 
@@ -1075,7 +1085,8 @@ int main(int argc, char** argv) {
         "[--live [--latency MS] [--live-jitter MS] "
         "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR] "
         "[--live-audio-gap SEC FOR]] "
-        "[--subtitle-ppm FILE] [--frame-ppm SEC:FILE]... [--virtual-time] "
+        "[--add-subtitle URL]... [--subtitle-ppm FILE] [--frame-ppm "
+        "SEC:FILE]... [--virtual-time] "
         "[--null-audio] [--verbose] [--audio-dump FILE] [--pause SEC FOR] "
         "<file or url>\n",
         argv[0]);
@@ -1161,6 +1172,11 @@ int main(int argc, char** argv) {
   } else if (lychee_player_open(player, options.url.c_str()) != 0) {
     fprintf(stderr, "open rejected\n");
     return 1;
+  }
+  for (const std::string& subtitle : options.add_subtitles) {
+    printf(
+        "add subtitle %s: %d\n", subtitle.c_str(),
+        lychee_player_add_subtitle(player, subtitle.c_str(), nullptr, nullptr));
   }
   // Start after the early returns above; the only exit below stops and joins
   // the thread before destroying the player. std::jthread is still experimental

@@ -10,6 +10,7 @@
 #include "base/log.h"
 #include "base/thread_name.h"
 #include "media/factory.h"
+#include "media/subtitle_file.h"
 
 namespace lychee {
 
@@ -74,6 +75,9 @@ void Player::StopPipeline() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     quit_ = true;
+    for (DataSource* source : subtitle_sources_) {
+      source->Interrupt();
+    }
   }
   condition_.notify_all();
   {
@@ -89,6 +93,15 @@ void Player::StopPipeline() {
   audio_queue_.Abort();
   if (thread_.joinable()) {
     thread_.join();
+  }
+  // |quit_| keeps AddSubtitle() from starting more meanwhile.
+  std::vector<std::thread> subtitle_loads;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    subtitle_loads.swap(subtitle_loads_);
+  }
+  for (std::thread& load : subtitle_loads) {
+    load.join();
   }
   // A track change in flight may have reset the queues for a new renderer.
   video_queue_.Abort();
@@ -134,6 +147,7 @@ void Player::StopPipeline() {
   VideoRenderer::Ptr video;
   std::unique_ptr<AudioRenderer> audio;
   std::map<int, std::unique_ptr<SubtitleRenderer>> subtitles;
+  std::map<int, ExternalSubtitle> external_subtitles;
   std::unique_ptr<Demuxer> demuxer;
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -141,6 +155,8 @@ void Player::StopPipeline() {
     audio = std::move(audio_renderer_);
     subtitles = std::move(subtitle_renderers_);
     subtitle_renderers_.clear();
+    external_subtitles = std::move(external_subtitles_);
+    external_subtitles_.clear();
     histories_.clear();
     demuxer = std::move(demuxer_);
     live_ = false;
@@ -473,14 +489,17 @@ bool Player::SelectTrack(MediaType type, int track) {
         return false;
       }
       stream = streams[track];
-      const StreamInfo& info = media_info_.streams[stream];
-      if (info.type != type) {
+      const MediaType stream_type = stream >= kExternalSubtitleStream
+                                        ? MediaType::kSubtitle
+                                        : media_info_.streams[stream].type;
+      if (stream_type != type) {
         return false;
       }
     }
     if (type == MediaType::kSubtitle) {
       // Its stream is read all along: nothing to seek or rebuild.
-      if (stream >= 0 && !subtitle_renderers_.count(stream)) {
+      if (stream >= 0 && !subtitle_renderers_.count(stream) &&
+          !external_subtitles_.count(stream)) {
         return false;
       }
       if (stream != subtitle_stream_) {
@@ -519,6 +538,99 @@ bool Player::SelectTrack(MediaType type, int track) {
   }
   condition_.notify_all();
   return true;
+}
+
+int Player::AddSubtitle(const std::string& url,
+                        const std::string& language,
+                        const std::string& title) {
+  if (url.empty()) {
+    return -1;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (quit_ || live_ || state_ == PlayerState::kIdle ||
+      state_ == PlayerState::kError) {
+    return -1;
+  }
+  const int stream = next_external_subtitle_++;
+  subtitle_loads_pending_++;
+  subtitle_loads_.emplace_back(&Player::LoadSubtitle, this, stream, url,
+                               language, title);
+  return stream;
+}
+
+void Player::LoadSubtitle(int stream,
+                          const std::string& url,
+                          std::string language,
+                          std::string title) {
+  SetCurrentThreadName("lychee-subtitle");
+  std::string error;
+  std::string data;
+  std::unique_ptr<DataSource> source = OpenInput(url, &error);
+  bool stopped = false;
+  if (source) {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      stopped = quit_;
+      if (!stopped) {
+        subtitle_sources_.insert(source.get());
+      }
+    }
+    // The whole file: subtitles are small, and once in memory a seek
+    // needs nothing more.
+    uint8_t buffer[64 * 1024];
+    while (!stopped) {
+      const int64_t read = source->Read(static_cast<int64_t>(data.size()),
+                                        buffer, sizeof(buffer));
+      if (read < 0) {
+        error = source->error();
+        break;
+      }
+      if (read == 0) {
+        break;
+      }
+      data.append(reinterpret_cast<const char*>(buffer),
+                  static_cast<size_t>(read));
+      if (data.size() > kMaxSubtitleFileBytes) {
+        error = "larger than " + std::to_string(kMaxSubtitleFileBytes >> 20) +
+                " MB";
+        break;
+      }
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    subtitle_sources_.erase(source.get());
+  }
+  std::vector<SubtitleCue> cues;
+  std::string format;
+  if (error.empty() && !ParseSubtitleFile(data, &cues, &format)) {
+    error = "not a SubRip, WebVTT or ASS file with cues";
+  }
+  ExternalSubtitle subtitle;
+  if (error.empty()) {
+    subtitle.renderer = std::make_unique<SubtitleRenderer>();
+    for (SubtitleCue& cue : cues) {
+      subtitle.renderer->AddCue(std::move(cue));
+    }
+    subtitle.codec = format;
+    subtitle.language = std::move(language);
+    subtitle.title = std::move(title);
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  subtitle_loads_pending_--;
+  if (quit_) {
+    return;
+  }
+  if (!error.empty()) {
+    LOGW("subtitle %s not added: %s", url.c_str(), error.c_str());
+    PostEventLocked(PlayerEvent::kSubtitleAdded, stream, 0);
+    return;
+  }
+  LOGI("subtitle %s added: %s, %zu cues, stream %d", url.c_str(),
+       subtitle.codec.c_str(), cues.size(), stream);
+  external_subtitles_[stream] = std::move(subtitle);
+  subtitle_stream_ = stream;
+  PostEventLocked(PlayerEvent::kSubtitleAdded, stream, 1);
+  PostEventLocked(PlayerEvent::kTracksChanged);
+  UpdateSubtitleLocked();
 }
 
 PlayerState Player::state() const {
@@ -783,6 +895,9 @@ std::vector<int> Player::TrackStreamsLocked() const {
       streams.push_back(info.index);
     }
   }
+  for (const auto& [stream, subtitle] : external_subtitles_) {
+    streams.push_back(stream);
+  }
   return streams;
 }
 
@@ -790,6 +905,19 @@ std::vector<TrackInfo> Player::tracks() const {
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<TrackInfo> tracks;
   for (int index : TrackStreamsLocked()) {
+    if (auto it = external_subtitles_.find(index);
+        it != external_subtitles_.end()) {
+      TrackInfo track;
+      track.type = MediaType::kSubtitle;
+      track.stream_index = index;
+      track.selected = index == subtitle_stream_;
+      track.codec = it->second.codec;
+      track.language = it->second.language;
+      track.title = it->second.title;
+      track.external = true;
+      tracks.push_back(std::move(track));
+      continue;
+    }
     const StreamInfo& info = media_info_.streams[index];
     TrackInfo track;
     track.type = info.type;
@@ -836,8 +964,22 @@ std::shared_ptr<const std::vector<uint8_t>> Player::artwork() const {
 }
 
 SubtitleRenderer* Player::SelectedSubtitleLocked() const {
+  if (auto it = external_subtitles_.find(subtitle_stream_);
+      it != external_subtitles_.end()) {
+    return it->second.renderer.get();
+  }
   auto it = subtitle_renderers_.find(subtitle_stream_);
   return it == subtitle_renderers_.end() ? nullptr : it->second.get();
+}
+
+int64_t Player::SubtitleTimeLocked(int64_t media_time) const {
+  // Subtitle packets keep the file's timeline, so every pass finds the
+  // same cues.
+  int64_t time = media_time - LoopOffsetLocked(media_time);
+  if (subtitle_stream_ >= kExternalSubtitleStream) {
+    time -= media_info_.start_time;
+  }
+  return time;
 }
 
 std::shared_ptr<const SubtitleImages> Player::subtitle_images(
@@ -851,8 +993,8 @@ std::shared_ptr<const SubtitleImages> Player::subtitle_images(
   }
   const int64_t media_time =
       display_time ? clock_.MediaTimeAt(display_time) : clock_.Now();
-  return renderer->ImagesAt(media_time - LoopOffsetLocked(media_time), width,
-                            height, video_width_, video_height_);
+  return renderer->ImagesAt(SubtitleTimeLocked(media_time), width, height,
+                            video_width_, video_height_);
 }
 
 std::string Player::subtitle(int64_t display_time) const {
@@ -863,9 +1005,7 @@ std::string Player::subtitle(int64_t display_time) const {
   }
   const int64_t media_time =
       display_time ? clock_.MediaTimeAt(display_time) : clock_.Now();
-  // Subtitle packets keep the file's timeline, so every pass finds the
-  // same cues.
-  return renderer->TextAt(media_time - LoopOffsetLocked(media_time));
+  return renderer->TextAt(SubtitleTimeLocked(media_time));
 }
 
 bool Player::HasNewFrame(int64_t display_time) const {
@@ -1173,9 +1313,12 @@ bool Player::Prepare(const std::string& url, std::string* error) {
   histories_ = std::move(histories);
   video_stream_ = video ? info.default_video_stream : -1;
   audio_stream_ = audio ? info.default_audio_stream : -1;
-  subtitle_stream_ = subtitles.count(info.default_subtitle_stream)
-                         ? info.default_subtitle_stream
-                         : -1;
+  // A subtitle file added while the input opened stays selected.
+  if (subtitle_stream_ < kExternalSubtitleStream) {
+    subtitle_stream_ = subtitles.count(info.default_subtitle_stream)
+                           ? info.default_subtitle_stream
+                           : -1;
+  }
   video_renderer_ = std::move(video);
   audio_renderer_ = std::move(audio);
   subtitle_renderers_ = std::move(subtitles);
@@ -1816,7 +1959,7 @@ void Player::UpdateSubtitleLocked() {
     if (seek_pending_ || seek_in_progress_ || prerolling_) {
       return;
     }
-    const int64_t now = clock_.Now() - LoopOffsetLocked(clock_.Now());
+    const int64_t now = SubtitleTimeLocked(clock_.Now());
     text = renderer->TextAt(now);
     images = renderer->ImagesKeyAt(now);
   }
@@ -1853,8 +1996,9 @@ bool Player::SettledForTesting(int64_t until) const {
   std::lock_guard<std::mutex> lock(mutex_);
   // The control thread hands out events every 10 ms of real time, which
   // can be seconds of virtual time: wait for it, or the caller sees them
-  // late, as a cue shown from a time past its start.
-  if (!events_.empty() || dispatching_) {
+  // late, as a cue shown from a time past its start. Likewise a subtitle
+  // file still loading, whose cues would come in late.
+  if (!events_.empty() || dispatching_ || subtitle_loads_pending_ > 0) {
     return false;
   }
   if (live_) {
@@ -1898,7 +2042,7 @@ bool Player::SettledForTesting(int64_t until) const {
     return false;
   }
   if (const SubtitleRenderer* renderer = SelectedSubtitleLocked()) {
-    const int64_t now = clock_.Now() - LoopOffsetLocked(clock_.Now());
+    const int64_t now = SubtitleTimeLocked(clock_.Now());
     if (renderer->TextAt(now) != subtitle_text_ ||
         renderer->ImagesKeyAt(now) != subtitle_images_key_) {
       return false;

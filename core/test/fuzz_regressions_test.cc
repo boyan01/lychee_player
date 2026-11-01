@@ -22,7 +22,7 @@ TEST(Fuzz, Regressions) {
   const std::map<std::string, void (*)(const uint8_t*, size_t)> targets = {
       {"mp4", FuzzMp4Demuxer},   {"matroska", FuzzMatroskaDemuxer},
       {"mpegts", FuzzTsDemuxer}, {"hls_playlist", FuzzHlsPlaylist},
-      {"hls", FuzzHlsDemuxer},
+      {"hls", FuzzHlsDemuxer},   {"subtitle_file", FuzzSubtitleFile},
   };
   int inputs = 0;
   for (const auto& dir :

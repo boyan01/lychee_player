@@ -20,8 +20,10 @@ Flutter plugin, a Swift package, an Android library and Rust crates.
   audio and subtitle renditions.
 - **Playback**: accurate seeking, rate from 0.25x to 4x with pitch kept,
   gapless looping, audio, video and subtitle track selection.
-- **Subtitles**: text (SRT, WebVTT, tx3g, IMSC) for the app to draw, and
-  bitmap subtitles (PGS, DVB, VobSub, IMSC images) as pictures.
+- **Subtitles**: text (SRT, WebVTT, tx3g, IMSC), drawn by the views in a
+  style the app sets or left to it, and bitmap subtitles (PGS, DVB,
+  VobSub, IMSC images) as pictures; subtitle files and URLs (SRT, WebVTT,
+  ASS) beside the media.
 - **HDR** video tone-mapped to SDR, or kept as HDR on Apple displays and
   Windows HDR textures.
 - **Live input**: push H.264/HEVC and AAC packets, e.g. from screen

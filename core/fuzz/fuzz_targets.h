@@ -22,6 +22,7 @@
 #include "backends/mp2t/ts_reader.h"
 #include "backends/mp4/mp4_demuxer.h"
 #include "backends/mp4/mp4_subtitle.h"
+#include "media/subtitle_file.h"
 #include "media/text_subtitle_decoder.h"
 
 namespace lychee {
@@ -124,6 +125,14 @@ inline void FuzzHlsPlaylist(const uint8_t* data, size_t size) {
       PickHlsVariant(playlist.variants);
     }
   }
+}
+
+// A subtitle file for lychee_player_add_subtitle().
+inline void FuzzSubtitleFile(const uint8_t* data, size_t size) {
+  std::vector<SubtitleCue> cues;
+  std::string format;
+  ParseSubtitleFile(std::string_view(reinterpret_cast<const char*>(data), size),
+                    &cues, &format);
 }
 
 // The HLS demuxer over an input of resources separated by

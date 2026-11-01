@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
@@ -13,15 +14,19 @@ import android.util.Size
 import android.view.PixelCopy
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import android.view.View
 import android.widget.FrameLayout
+import kotlin.math.ceil
 
 /**
- * Shows a player's video in a [SurfaceView], aspect-fit, with its subtitle
- * pictures over it (text subtitles are left to the caller:
- * [LycheePlayer.subtitle]). The player renders it upright (see
- * [LycheePlayer]). Frames are pulled only while the view is attached to a
- * window. Main thread only.
+ * Shows a player's video in a [SurfaceView], aspect-fit, with its subtitles
+ * over it: the pictures of bitmap subtitles, and text subtitles
+ * ([LycheePlayer.subtitle]) in [subtitleStyle]. The player renders it
+ * upright (see [LycheePlayer]). Frames are pulled only while the view is
+ * attached to a window. Main thread only.
  */
 class LycheePlayerView @JvmOverloads constructor(
     context: Context,
@@ -37,6 +42,31 @@ class LycheePlayerView @JvmOverloads constructor(
             requestLayout()
         }
 
+    /**
+     * How text subtitles are drawn. Sizes are fractions of the video's
+     * height, so the text scales with the picture.
+     */
+    data class SubtitleStyle(
+        /** Null for the default sans-serif. */
+        val typeface: Typeface? = null,
+        val textSize: Float = 0.05f,
+        val textColor: Int = Color.WHITE,
+        /** Drawn around each glyph, [outlineWidth] times the text size wide; transparent for none. */
+        val outlineColor: Int = Color.BLACK,
+        val outlineWidth: Float = 0.08f,
+        /** Behind the text; transparent for none. */
+        val backgroundColor: Int = Color.TRANSPARENT,
+        /** Between the last line and the bottom of the video. */
+        val bottomMargin: Float = 0.05f,
+    )
+
+    /** Null draws no text subtitles, for drawing [LycheePlayer.subtitle] yourself. */
+    var subtitleStyle: SubtitleStyle? = SubtitleStyle()
+        set(value) {
+            field = value
+            subtitleView.style = value
+        }
+
     private var driver: LycheeFrameDriver? = null
     // Replaced whenever the driver needs a new Surface.
     private var surfaceView: SurfaceView? = null
@@ -47,6 +77,8 @@ class LycheePlayerView @JvmOverloads constructor(
         }
         if (event is LycheePlayer.Event.SubtitleChanged) {
             showSubtitle(if (event.pictures) player else null)
+            // Pictures hold the text too.
+            subtitleView.text = if (event.pictures) null else player?.subtitle
         }
     }
 
@@ -77,6 +109,7 @@ class LycheePlayerView @JvmOverloads constructor(
 
     private fun stop() {
         showSubtitle(null)
+        subtitleView.text = null
         player?.removeListener(listener)
         driver?.close()
         driver = null
@@ -148,13 +181,26 @@ class LycheePlayerView @JvmOverloads constructor(
     }
 
     // Draws the pictures scaled from the canvas they were laid out on to the
-    // view, which covers the video.
+    // view, which covers the video, and text subtitles.
     private class SubtitleView(context: Context) : View(context) {
         var subtitleId = 0L
             private set
+        var text: String? = null
+            set(value) {
+                if (value == field) return
+                field = value
+                invalidate()
+            }
+        var style: SubtitleStyle? = SubtitleStyle()
+            set(value) {
+                field = value
+                invalidate()
+            }
         private var pictures: List<Pair<Bitmap, Rect>> = emptyList()
         private var canvasSize: Size? = null
         private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+        private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+        private val backgroundPaint = Paint()
 
         fun show(subtitle: LycheePlayer.SubtitlePictures?, canvas: Size?) {
             pictures.forEach { it.first.recycle() }
@@ -165,9 +211,49 @@ class LycheePlayerView @JvmOverloads constructor(
         }
 
         override fun onDraw(canvas: Canvas) {
+            drawText(canvas)
             val size = canvasSize ?: return
             canvas.scale(width.toFloat() / size.width, height.toFloat() / size.height)
             pictures.forEach { (bitmap, rect) -> canvas.drawBitmap(bitmap, null, rect, paint) }
+        }
+
+        private fun drawText(canvas: Canvas) {
+            val text = text?.takeIf { it.isNotEmpty() } ?: return
+            val style = style ?: return
+            if (width <= 0 || height <= 0) return
+            textPaint.textSize = style.textSize * height
+            textPaint.typeface = style.typeface ?: Typeface.SANS_SERIF
+            val outline = style.outlineWidth * textPaint.textSize
+            val layout = StaticLayout.Builder
+                .obtain(text, 0, text.length, textPaint, (width * 0.9f).toInt())
+                .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                .build()
+            val left = (width - layout.width) / 2f
+            val top = height - style.bottomMargin * height - layout.height
+            canvas.save()
+            canvas.translate(left, top)
+            if (Color.alpha(style.backgroundColor) != 0) {
+                backgroundPaint.color = style.backgroundColor
+                val pad = ceil(outline / 2)
+                for (line in 0 until layout.lineCount) {
+                    canvas.drawRect(
+                        layout.getLineLeft(line) - pad, layout.getLineTop(line).toFloat(),
+                        layout.getLineRight(line) + pad, layout.getLineBottom(line).toFloat(),
+                        backgroundPaint,
+                    )
+                }
+            }
+            if (Color.alpha(style.outlineColor) != 0 && outline > 0) {
+                textPaint.style = Paint.Style.STROKE
+                textPaint.strokeJoin = Paint.Join.ROUND
+                textPaint.strokeWidth = outline
+                textPaint.color = style.outlineColor
+                layout.draw(canvas)
+            }
+            textPaint.style = Paint.Style.FILL
+            textPaint.color = style.textColor
+            layout.draw(canvas)
+            canvas.restore()
         }
     }
 

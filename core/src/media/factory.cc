@@ -348,4 +348,15 @@ std::unique_ptr<FrameConverter> CreateFrameConverter() {
 #endif
 }
 
+std::unique_ptr<DataSource> OpenInput(const std::string& url,
+                                      std::string* error) {
+#if defined(__linux__) && !defined(__ANDROID__) && !defined(LYCHEE_WITH_FFMPEG)
+  (void)url;
+  *error = "no file or http reader in this build";
+  return nullptr;
+#else
+  return OpenDataSource(url, error);
+#endif
+}
+
 }  // namespace lychee

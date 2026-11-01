@@ -406,9 +406,9 @@ JNIEXPORT jint JNICALL Java_tech_soit_lychee_LycheePlayer_nativeGetTrackCount(
   return lychee_player_get_track_count(Player(handle));
 }
 
-// Fills |ints| with type, id, selected, width, height, sample_rate and
-// channels, and returns codec, language and title separated by NULs; null
-// if |index| is out of range.
+// Fills |ints| with type, id, selected, width, height, sample_rate,
+// channels and external, and returns codec, language and title separated by
+// NULs; null if |index| is out of range.
 JNIEXPORT jbyteArray JNICALL
 Java_tech_soit_lychee_LycheePlayer_nativeGetTrackInfo(JNIEnv* env,
                                                       jclass,
@@ -420,10 +420,10 @@ Java_tech_soit_lychee_LycheePlayer_nativeGetTrackInfo(JNIEnv* env,
   if (lychee_player_get_track_info(Player(handle), index, &info) != 0) {
     return nullptr;
   }
-  const jint values[] = {info.type,   info.id,          info.selected,
-                         info.width,  info.height,      info.sample_rate,
-                         info.channels};
-  env->SetIntArrayRegion(ints, 0, 7, values);
+  const jint values[] = {info.type,     info.id,      info.selected,
+                         info.width,    info.height,  info.sample_rate,
+                         info.channels, info.external};
+  env->SetIntArrayRegion(ints, 0, 8, values);
   const std::string strings = FromArray(info.codec) + '\0' +
                               FromArray(info.language) + '\0' +
                               FromArray(info.title);
@@ -437,6 +437,20 @@ JNIEXPORT jboolean JNICALL Java_tech_soit_lychee_LycheePlayer_nativeSelectTrack(
     jint type,
     jint index) {
   return lychee_player_select_track(Player(handle), type, index) == 0;
+}
+
+JNIEXPORT jint JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeAddSubtitle(JNIEnv* env,
+                                                     jclass,
+                                                     jlong handle,
+                                                     jbyteArray url,
+                                                     jbyteArray language,
+                                                     jbyteArray title) {
+  const std::string language_text = language ? FromBytes(env, language) : "";
+  const std::string title_text = title ? FromBytes(env, title) : "";
+  return lychee_player_add_subtitle(Player(handle), FromBytes(env, url).c_str(),
+                                    language ? language_text.c_str() : nullptr,
+                                    title ? title_text.c_str() : nullptr);
 }
 
 JNIEXPORT jbyteArray JNICALL

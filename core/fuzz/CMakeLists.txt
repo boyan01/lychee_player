@@ -36,6 +36,7 @@ add_library(lychee_parsers STATIC
   ${_src}/media/codec.cc
   ${_src}/media/data_source.cc
   ${_src}/media/subtitle_decoder.cc
+  ${_src}/media/subtitle_file.cc
   ${_src}/media/text_subtitle_decoder.cc
 )
 target_include_directories(lychee_parsers PUBLIC ${_src} ../include)
@@ -59,7 +60,8 @@ endif()
 
 # lychee_TARGET_fuzzer: the directory regressions/TARGET holds its inputs.
 foreach(_target mp4:FuzzMp4Demuxer matroska:FuzzMatroskaDemuxer mpegts:FuzzTsDemuxer
-                hls_playlist:FuzzHlsPlaylist hls:FuzzHlsDemuxer)
+                hls_playlist:FuzzHlsPlaylist hls:FuzzHlsDemuxer
+                subtitle_file:FuzzSubtitleFile)
   string(REPLACE ":" ";" _target "${_target}")
   list(GET _target 0 _name)
   list(GET _target 1 _function)

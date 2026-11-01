@@ -3,7 +3,7 @@
 // loop, with a stats line under the video.
 //
 //   Example [--seconds N] [--snapshot SEC:FILE]... [--size WxH]
-//           [--soak SEC URL] [FILE_OR_URL]
+//           [--soak SEC URL] [--subtitle URL] [FILE_OR_URL]
 //
 // --seconds quits after N seconds, printing a summary: line. --snapshot
 // writes what the video view shows at SEC seconds as a PPM and prints
@@ -12,6 +12,7 @@
 // video view's size in points on macOS (a strong downscale differs from
 // the reference at sharp edges: Core Animation filters differently).
 // --soak loops, seeks twice, then switches files, every SEC seconds.
+// --subtitle adds a subtitle file to the media.
 
 import AVFoundation
 import Combine
@@ -32,6 +33,7 @@ struct Options {
   var size: CGSize?
   var soakEvery: Double?
   var soakURL: String?
+  var subtitle: String?
 
   init(_ arguments: [String]) {
     var args = arguments.makeIterator()
@@ -48,6 +50,8 @@ struct Options {
            let at = Double(value[..<colon]) {
           snapshots.append((at, String(value[value.index(after: colon)...])))
         }
+      case "--subtitle":
+        subtitle = args.next()
       case "--size":
         let parts = (args.next() ?? "").split(separator: "x").compactMap { Double($0) }
         if parts.count == 2 { size = CGSize(width: parts[0], height: parts[1]) }
@@ -106,6 +110,9 @@ final class PlayerModel: ObservableObject {
     size = options.size
     player.isLooping = true
     player.open(options.url)
+    if let subtitle = options.subtitle {
+      player.addSubtitle(subtitle)
+    }
     player.play()
     timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect().sink { [weak self] _ in
       self?.update()

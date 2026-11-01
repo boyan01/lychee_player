@@ -1,5 +1,20 @@
 ## Unreleased
 
+### Breaking
+
+* `LycheeVideo`, and `LycheePlayerView` on Apple and Android, now draw
+  text subtitles too. If your app draws `subtitle` itself, pass
+  `subtitleStyle: null` (Apple: `subtitleStyle = nil`).
+
+### New
+
+* Add subtitle files and URLs (SubRip, WebVTT, ASS/SSA) to what plays with
+  `addSubtitle()` (`lychee_player_add_subtitle()` in C): the file becomes
+  a subtitle track, selected once loaded, its times counted from the
+  start of the media. Tracks say whether they came from one (`external`).
+* Style the text subtitles the views draw with `subtitleStyle`: font,
+  size, color, outline, background and margin.
+
 ### Fixed
 
 * Live audio no longer breaks up after a pause in the sender's audio or a

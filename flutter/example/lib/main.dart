@@ -8,8 +8,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lychee_player/lychee_player.dart';
 
-/// Desktop command line: `[--seconds N] [file or URL]`. The file or URL
-/// opens at launch (else the LYCHEE_URL define). With --seconds the app
+/// Desktop command line: `[--seconds N] [--subtitle URL] [file or URL]`.
+/// The file or URL opens at launch (else the LYCHEE_URL define), with the
+/// subtitle file added to it. With --seconds the app
 /// prints a summary line in examples/glfw's format after N seconds and
 /// quits, for unattended runs. It writes to logcat on Android, stderr
 /// elsewhere. Mobile apps get no arguments, so the LYCHEE_SECONDS define
@@ -18,37 +19,42 @@ void main(List<String> args) {
   var url = const String.fromEnvironment('LYCHEE_URL');
   const defined = int.fromEnvironment('LYCHEE_SECONDS');
   double? seconds = defined > 0 ? defined.toDouble() : null;
+  String? subtitle;
   for (var i = 0; i < args.length; i++) {
     if (args[i] == '--seconds' && i + 1 < args.length) {
       seconds = double.tryParse(args[++i]);
+    } else if (args[i] == '--subtitle' && i + 1 < args.length) {
+      subtitle = args[++i];
     } else if (!args[i].startsWith('-')) {
       url = args[i];
     }
   }
-  runApp(ExampleApp(url: url, seconds: seconds));
+  runApp(ExampleApp(url: url, seconds: seconds, subtitle: subtitle));
 }
 
 class ExampleApp extends StatelessWidget {
-  const ExampleApp({super.key, this.url = '', this.seconds});
+  const ExampleApp({super.key, this.url = '', this.seconds, this.subtitle});
 
   final String url;
   final double? seconds;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'lychee_player',
       theme: ThemeData(colorSchemeSeed: Colors.deepOrange),
-      home: PlayerPage(url: url, seconds: seconds),
+      home: PlayerPage(url: url, seconds: seconds, subtitle: subtitle),
     );
   }
 }
 
 class PlayerPage extends StatefulWidget {
-  const PlayerPage({super.key, this.url = '', this.seconds});
+  const PlayerPage({super.key, this.url = '', this.seconds, this.subtitle});
 
   final String url;
   final double? seconds;
+  final String? subtitle;
 
   @override
   State<PlayerPage> createState() => _PlayerPageState();
@@ -65,7 +71,13 @@ class _PlayerPageState extends State<PlayerPage> {
   void initState() {
     super.initState();
     if (_url.text.isNotEmpty) {
-      _open();
+      _open().then((_) {
+        final player = _player;
+        if (!mounted) return;
+        if (widget.subtitle case final subtitle? when player != null) {
+          _addSubtitle(context, player, subtitle);
+        }
+      });
     }
     final seconds = widget.seconds;
     if (seconds != null) {
@@ -176,10 +188,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 child: Stack(
                   children: [
                     const SizedBox.expand(),
-                    if (player != null) ...[
-                      Center(child: _Picture(player)),
-                      _Subtitle(player),
-                    ],
+                    if (player != null) Center(child: _Picture(player)),
                     if (_hostTexture case final id?)
                       Positioned(
                         right: 8,
@@ -299,49 +308,18 @@ class _Picture extends StatelessWidget {
   }
 }
 
-/// The subtitle text over the bottom of the video.
-class _Subtitle extends StatelessWidget {
-  const _Subtitle(this.player);
-
-  final LycheePlayer player;
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<LycheePlayerValue>(
-      valueListenable: player,
-      builder: (context, value, _) {
-        final text = value.subtitle;
-        // LycheeVideo draws subtitle pictures.
-        if (text == null || value.subtitlePictures != null) {
-          return const SizedBox.shrink();
-        }
-        return Positioned(
-          left: 16,
-          right: 16,
-          bottom: 16,
-          child: Center(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                child: Text(
-                  text,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white, fontSize: 18),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
+/// Adds a subtitle file to what [player] plays, saying so if it is not one.
+Future<void> _addSubtitle(
+    BuildContext context, LycheePlayer player, String url) async {
+  final added = await player.addSubtitle(url);
+  if (!added && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Not added: $url')),
     );
   }
 }
 
-/// Audio and subtitle tracks.
+/// Audio and subtitle tracks, and adding a subtitle file.
 class _TrackMenu extends StatelessWidget {
   const _TrackMenu(this.player, this.tracks);
 
@@ -352,13 +330,15 @@ class _TrackMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final choices =
         tracks.where((t) => t.type != LycheeTrackType.video).toList();
-    // Values are track indices; -1 turns subtitles off.
+    // Values are track indices; -1 turns subtitles off, -2 adds a file.
     return PopupMenuButton<int>(
       tooltip: 'Tracks',
       icon: const Icon(Icons.subtitles),
-      onSelected: (index) => index < 0
-          ? player.selectTrack(LycheeTrackType.subtitle, null)
-          : player.selectTrack(tracks[index].type, index),
+      onSelected: (index) => switch (index) {
+        -1 => player.selectTrack(LycheeTrackType.subtitle, null),
+        -2 => _pickSubtitle(context),
+        _ => player.selectTrack(tracks[index].type, index),
+      },
       itemBuilder: (context) => [
         for (final track in choices)
           CheckedPopupMenuItem(
@@ -367,8 +347,21 @@ class _TrackMenu extends StatelessWidget {
             child: Text(_label(track)),
           ),
         const PopupMenuItem(value: -1, child: Text('Subtitles off')),
+        const PopupMenuItem(value: -2, child: Text('Add subtitle file…')),
       ],
     );
+  }
+
+  Future<void> _pickSubtitle(BuildContext context) async {
+    final file = await openFile(
+      acceptedTypeGroups: const [
+        XTypeGroup(
+            label: 'Subtitles', extensions: ['srt', 'vtt', 'ass', 'ssa']),
+      ],
+    );
+    if (file != null && context.mounted) {
+      await _addSubtitle(context, player, file.path);
+    }
   }
 
   static String _label(LycheeTrack track) {

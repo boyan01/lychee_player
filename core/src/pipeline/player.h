@@ -8,10 +8,12 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "media/data_source.h"
 #include "media/demuxer.h"
 #include "pipeline/audio_renderer.h"
 #include "pipeline/live_demuxer.h"
@@ -42,6 +44,7 @@ enum class PlayerEvent {
   kError = 6,
   kTracksChanged = 7,
   kSubtitleChanged = 8,
+  kSubtitleAdded = 9,
 };
 
 struct PlayerConfig {
@@ -98,6 +101,8 @@ struct TrackInfo {
   int height = 0;
   int sample_rate = 0;
   int channels = 0;
+  // A subtitle file added with Player::AddSubtitle().
+  bool external = false;
 };
 
 // Owns the demuxer and the renderers. The control thread opens the input,
@@ -159,6 +164,13 @@ class Player {
   // invalid; otherwise the change happens asynchronously and is reported by
   // kTracksChanged.
   bool SelectTrack(MediaType type, int track);
+  // Loads the subtitle file |url| in the background and adds it as a
+  // subtitle track, selected, of what is open now. Returns the stream id
+  // the track will have (TrackInfo::stream_index), or -1 if nothing that
+  // takes subtitles is open; kSubtitleAdded with that id follows.
+  int AddSubtitle(const std::string& url,
+                  const std::string& language,
+                  const std::string& title);
 
   PlayerState state() const;
   bool playing() const;
@@ -215,6 +227,17 @@ class Player {
     int64_t arg1;
   };
 
+  // Stream ids of AddSubtitle()'s tracks, past any container's.
+  static constexpr int kExternalSubtitleStream = 1 << 20;
+  static constexpr size_t kMaxSubtitleFileBytes = 16 << 20;
+  struct ExternalSubtitle {
+    // Holds the file's cues; it has no decoder.
+    std::unique_ptr<SubtitleRenderer> renderer;
+    std::string codec;
+    std::string language;
+    std::string title;
+  };
+
   // A requested stream per type; kUnchanged if none was requested.
   static constexpr int kUnchanged = -2;
   // Live track changes and flushes the caller asked for, per
@@ -266,6 +289,15 @@ class Player {
   std::unique_ptr<AudioRenderer> CreateAudioRenderer(const StreamInfo& info);
   // The renderer of |subtitle_stream_|, or null.
   SubtitleRenderer* SelectedSubtitleLocked() const;
+  // The time on the selected subtitle's timeline at |media_time|: the
+  // file's (the first pass's, while looping), and for an added subtitle
+  // file the position, so that its zero is where the media starts.
+  int64_t SubtitleTimeLocked(int64_t media_time) const;
+  // A thread per AddSubtitle() call.
+  void LoadSubtitle(int stream,
+                    const std::string& url,
+                    std::string language,
+                    std::string title);
   std::unique_ptr<SubtitleRenderer> CreateSubtitleRenderer(
       const StreamInfo& info);
   void EnableStreamsLocked();
@@ -368,6 +400,18 @@ class Player {
   // midway already has the cues read so far. The map itself does not
   // change in between, so the read thread uses it without the lock.
   std::map<int, std::unique_ptr<SubtitleRenderer>> subtitle_renderers_;
+  // AddSubtitle()'s tracks by stream id, under |mutex_|: they are added
+  // while the read thread runs, which never sees them.
+  std::map<int, ExternalSubtitle> external_subtitles_;
+  // Not reset by an open, so that a binding never takes the event of an
+  // earlier media's request for one of its own.
+  int next_external_subtitle_ = kExternalSubtitleStream;
+  // Under |mutex_|. AddSubtitle()'s threads, joined by StopPipeline(),
+  // how many are still loading, and the sources they read, which
+  // StopPipeline() interrupts.
+  std::vector<std::thread> subtitle_loads_;
+  int subtitle_loads_pending_ = 0;
+  std::set<DataSource*> subtitle_sources_;
   // Input that cannot seek (not live): one per video and audio stream, from
   // Prepare() until StopPipeline(). A resync replays them in place of a
   // seek. Every one of those streams is read (in HLS, video only once

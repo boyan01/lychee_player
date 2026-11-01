@@ -69,7 +69,9 @@ extern "C" {
 //    download rate, startup, rebuffering and seek times, video's offset
 //    from the clock, the audio output, the HLS variant playing); its frame
 //    counts go on across track changes and decoder rebuilds.
-#define LYCHEE_API_VERSION 16
+// 17: subtitle files and URLs: lychee_player_add_subtitle(),
+//    LYCHEE_EVENT_SUBTITLE_ADDED and lychee_track_info.external.
+#define LYCHEE_API_VERSION 17
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -216,6 +218,11 @@ typedef enum lychee_event_type {
   // has pictures (lychee_player_acquire_subtitle()), which then hold all
   // of it, text included: draw them instead of the text.
   LYCHEE_EVENT_SUBTITLE_CHANGED = 8,
+  // API version 17. A lychee_player_add_subtitle() request finished.
+  // arg0: the id it returned. arg1: 1 if the file was added as a subtitle
+  // track and selected (LYCHEE_EVENT_TRACKS_CHANGED follows), 0 if it
+  // could not be read or is not a subtitle file (the log says why).
+  LYCHEE_EVENT_SUBTITLE_ADDED = 9,
 } lychee_event_type;
 
 typedef enum lychee_track_type {
@@ -403,7 +410,8 @@ typedef struct lychee_track_info {
   uint32_t struct_size;
   // lychee_track_type.
   int32_t type;
-  // The container's stream index.
+  // The container's stream index; for a subtitle file, the id
+  // lychee_player_add_subtitle() returned.
   int32_t id;
   int32_t selected;
   // NUL-terminated, truncated to fit.
@@ -417,6 +425,9 @@ typedef struct lychee_track_info {
   // Audio. Otherwise 0.
   int32_t sample_rate;
   int32_t channels;
+  // API version 17. 1 for a subtitle file lychee_player_add_subtitle()
+  // added, which comes after the container's tracks.
+  int32_t external;
 } lychee_track_info;
 
 LYCHEE_EXPORT int32_t lychee_api_version(void);
@@ -628,6 +639,21 @@ LYCHEE_EXPORT int32_t lychee_player_get_track_info(lychee_player* player,
 LYCHEE_EXPORT int32_t lychee_player_select_track(lychee_player* player,
                                                  int32_t type,
                                                  int32_t index);
+// API version 17. Reads the subtitle file |url| (a path, file:// or
+// http(s):// URL: SubRip, WebVTT or ASS/SSA, told apart by content, in
+// UTF-8 or UTF-16 with a byte order mark; ASS as plain text) in the
+// background, and adds it to the media opened last as a subtitle track,
+// after the container's, with |language| and |title| (either may be NULL)
+// as its track info. Its cue times count from the start of the media, as
+// the position does. Once loaded it is selected:
+// LYCHEE_EVENT_SUBTITLE_ADDED reports how it went. Call it any time after
+// lychee_player_open(), also before the media is loaded; opening other
+// media drops it. Returns the id of the track it adds (>= 0), or -1 if
+// nothing is open (or a live input, or the player failed).
+LYCHEE_EXPORT int32_t lychee_player_add_subtitle(lychee_player* player,
+                                                 const char* url,
+                                                 const char* language,
+                                                 const char* title);
 // Copies the subtitle text showing at |display_time_us| (lychee_now_us()
 // timebase; 0 for now) into |buffer| (NUL-terminated UTF-8, lines separated
 // by '\n'). Returns the full text length; 0 if no cue is showing.

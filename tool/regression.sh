@@ -1400,6 +1400,23 @@ done
 par expect subtitle-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line" -- --seek 3.5 --seek-after 0.5 "$media/sub_srt.mkv"
 par expect subtitle-mov-text-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line \| with break$" "<=0 Hello world" -- \
   --seek 3.5 --seek-after 0.5 "$media/sub_mov_text.mp4"
+# Subtitle files beside the media (lychee_player_add_subtitle()): a
+# track after the container's, selected once loaded, its cues from the
+# start of the media, also where its timestamps start later (this TS at
+# 1.44 s) and after a seek.
+par expect subtitle-file-srt "event: subtitle [0-9]+ added" "track 2: subtitle subrip .*selected=1 external$" \
+  "subtitle at [01]\.[0-9]{3}s: Hello world$" "subtitle at [34]\.[0-9]{3}s: Second line \| with break$" \
+  "summary: state=ended" -- --add-subtitle "$media/subs.srt" "$media/h264_aac.mp4"
+par expect subtitle-file-ass "subtitle at [01]\.[0-9]{3}s: Bold and, plain \| next line$" -- \
+  --seconds 3 --add-subtitle "$media/subs.ass" "$media/h264_aac.mp4"
+par expect subtitle-file-ts "track 2: subtitle webvtt .*external$" "subtitle at 1\.0[0-9]{2}s: Hello vtt$" \
+  "subtitle at 2\.5[0-9]{2}s: \(none\)" -- --seconds 3 --add-subtitle "$media/subs.vtt" "$media/keyframes.ts"
+par expect subtitle-file-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line" "<=0 Hello world" -- \
+  --seconds 5 --seek 3.5 --seek-after 0.5 --add-subtitle "$media/subs.srt" "$media/h264_aac.mp4"
+# A file that is not there, or not subtitles, adds nothing.
+par expect subtitle-file-missing "event: subtitle [0-9]+ failed" "event: subtitle [0-9]+ failed" "<=0 external" \
+  "summary: state=ready" -- --seconds 1 --add-subtitle "$media/missing.srt" --add-subtitle "$media/cover.png" \
+  "$media/h264_aac.mp4"
 par expect metadata "metadata: title=Lychee Test artist=Lychee Artist album=Lychee Album" "summary: state=ended" -- \
   "$media/meta.mp4"
 par expect artwork-id3 "metadata: title=Lychee Cover" "artwork: [0-9]+ bytes jpeg" "<=0 track 1" \
@@ -1475,6 +1492,8 @@ serve
 seq_ check http          1 - -- "$url"
 # lychee_player_is_seekable(), known with the media info.
 seq_ expect http-seekable "^seekable=1$" -- --seconds 1 "$url"
+seq_ expect http-subtitle-file "event: subtitle [0-9]+ added" "subtitle at [01]\.[0-9]{3}s: Hello world$" -- \
+  --seconds 2 --add-subtitle "http://127.0.0.1:$port/subs.srt" "$url"
 serve --drop-at 3000000
 seq_ check http-reconnect 1 - -- "$url"
 # A server without range requests: FFmpeg cannot seek, so the seek is

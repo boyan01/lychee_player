@@ -100,7 +100,8 @@ as the media decodes, with audio to a null sink). `--live` pushes the
 file's packets into a live input when a sender would send them, with
 `--latency MS`, `--live-jitter MS`, `--live-stall SEC FOR`,
 `--live-flush SEC` and `--live-gap SEC FOR` to simulate the network.
-`--subtitle-ppm FILE` writes each subtitle with pictures (bitmap
+`--add-subtitle URL` (repeatable) adds a subtitle file right after the
+open. `--subtitle-ppm FILE` writes each subtitle with pictures (bitmap
 subtitles) onto a grey canvas of the video's size. `--verbose` logs at
 the debug level: state changes, and the playback stats every 5 s.
 `--frame-ppm SEC:FILE` (repeatable) writes the frame on screen SEC seconds

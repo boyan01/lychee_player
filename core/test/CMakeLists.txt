@@ -12,6 +12,7 @@ add_executable(lychee_unittests
   packet_history_test.cc
   packet_queue_test.cc
   resampler_test.cc
+  subtitle_file_test.cc
   subtitle_renderer_test.cc
   text_subtitle_decoder_test.cc
   video_renderer_algorithm_test.cc

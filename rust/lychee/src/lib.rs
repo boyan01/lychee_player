@@ -271,6 +271,14 @@ pub enum Event {
     SubtitleChanged {
         pictures: bool,
     },
+    /// A [`Player::add_subtitle`] request finished: `added`, the file is a
+    /// subtitle track with the id it returned and is selected
+    /// ([`Event::TracksChanged`] follows); otherwise it could not be read
+    /// or is not a subtitle file.
+    SubtitleAdded {
+        id: i32,
+        added: bool,
+    },
 }
 
 impl Event {
@@ -291,6 +299,10 @@ impl Event {
             sys::LYCHEE_EVENT_SUBTITLE_CHANGED => Event::SubtitleChanged {
                 pictures: arg1 != 0,
             },
+            sys::LYCHEE_EVENT_SUBTITLE_ADDED => Event::SubtitleAdded {
+                id: arg0 as i32,
+                added: arg1 != 0,
+            },
             _ => return None,
         })
     }
@@ -309,7 +321,8 @@ pub struct Track {
     /// The index for [`Player::select_track`].
     pub index: usize,
     pub kind: TrackType,
-    /// The container's stream index.
+    /// The container's stream index; for a subtitle file, the id
+    /// [`Player::add_subtitle`] returned.
     pub id: i32,
     pub selected: bool,
     pub codec: String,
@@ -322,6 +335,8 @@ pub struct Track {
     /// Audio. Otherwise 0.
     pub sample_rate: u32,
     pub channels: u32,
+    /// A subtitle file [`Player::add_subtitle`] added.
+    pub external: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -596,6 +611,7 @@ impl Player {
             height: info.height as u32,
             sample_rate: info.sample_rate as u32,
             channels: info.channels as u32,
+            external: info.external != 0,
         })
     }
 
@@ -607,6 +623,41 @@ impl Player {
             unsafe { sys::lychee_player_select_track(self.raw(), kind.raw(), index) },
             "track selection rejected",
         )
+    }
+
+    /// Loads the subtitle file `url` (a path, file:// or http(s)://
+    /// URL; SubRip, WebVTT or ASS/SSA, in UTF-8 or UTF-16 with a byte
+    /// order mark) in the background and adds it as a subtitle track of
+    /// the media opened last, after the container's, its cue times
+    /// counting from the start of the media. Once loaded it is selected;
+    /// [`Event::SubtitleAdded`] with the returned id says how it went.
+    /// Opening other media drops it.
+    pub fn add_subtitle(
+        &self,
+        url: &str,
+        language: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<i32> {
+        let url = CString::new(url).map_err(|_| Error("URL contains NUL"))?;
+        let text = |s: Option<&str>| {
+            s.map(CString::new)
+                .transpose()
+                .map_err(|_| Error("text contains NUL"))
+        };
+        let language = text(language)?;
+        let title = text(title)?;
+        let id = unsafe {
+            sys::lychee_player_add_subtitle(
+                self.raw(),
+                url.as_ptr(),
+                language.as_ref().map_or(std::ptr::null(), |s| s.as_ptr()),
+                title.as_ref().map_or(std::ptr::null(), |s| s.as_ptr()),
+            )
+        };
+        if id < 0 {
+            return Err(Error("nothing open to add a subtitle to"));
+        }
+        Ok(id)
     }
 
     /// The subtitle text showing at `display_time_us` ([`now_us`]

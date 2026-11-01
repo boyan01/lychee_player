@@ -9,4 +9,4 @@ export 'src/player.dart'
         LycheeSubtitlePicture,
         LycheeTrack,
         LycheeTrackType;
-export 'src/video_view.dart' show LycheeVideo;
+export 'src/video_view.dart' show LycheeSubtitleStyle, LycheeVideo;

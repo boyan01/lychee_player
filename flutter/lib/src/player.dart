@@ -37,13 +37,15 @@ class LycheeTrack {
     this.height = 0,
     this.sampleRate = 0,
     this.channels = 0,
+    this.external = false,
   });
 
   /// Pass to [LycheePlayer.selectTrack].
   final int index;
   final LycheeTrackType type;
 
-  /// The container's stream index.
+  /// The container's stream index; for a subtitle file, the id
+  /// [LycheePlayer.addSubtitle] gave it.
   final int id;
   final bool selected;
   final String codec;
@@ -57,6 +59,9 @@ class LycheeTrack {
   /// Audio only.
   final int sampleRate;
   final int channels;
+
+  /// A subtitle file [LycheePlayer.addSubtitle] added.
+  final bool external;
 }
 
 @immutable
@@ -108,8 +113,9 @@ class LycheePlayerValue {
   final bool seekable;
   final List<LycheeTrack> tracks;
 
-  /// Subtitle text on screen, lines separated by '\n'; null if none. Draw it
-  /// over the video yourself, unless [subtitlePictures] is set.
+  /// Subtitle text on screen, lines separated by '\n'; null if none.
+  /// [LycheeVideo] draws it, unless [subtitlePictures] is set (they hold the
+  /// text too).
   final String? subtitle;
 
   /// Bitmap subtitles (PGS, DVB, VobSub): they hold all of the subtitle,
@@ -246,6 +252,8 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   int _picturesId = 0;
   List<LycheeSubtitlePicture>? _pictures;
   Uint8List? _artwork;
+  // addSubtitle() requests waiting for LYCHEE_EVENT_SUBTITLE_ADDED, by id.
+  final Map<int, Completer<bool>> _addingSubtitles = {};
 
   // A hot restart drops the previous isolate's players without dispose();
   // the plugin destroys them before this isolate creates its first.
@@ -297,6 +305,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     _hasPictures = false;
     _setPictures(0, null);
     _artwork = null;
+    _finishAddingSubtitles();
     final nativeUrl = url.toNativeUtf8();
     native.playerOpen(_player, nativeUrl.cast());
     malloc.free(nativeUrl);
@@ -346,6 +355,38 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   bool selectTrack(LycheeTrackType type, int? index) {
     if (_disposed) return false;
     return native.playerSelectTrack(_player, type.value, index ?? -1) == 0;
+  }
+
+  /// Adds the subtitle file [url] (a path, file:// or http(s):// URL;
+  /// SubRip, WebVTT or ASS/SSA, in UTF-8 or UTF-16 with a byte order mark)
+  /// to the media opened last, as a subtitle track after the container's.
+  /// Its cue times count from the start of the media. It is read in the
+  /// background and selected once loaded; the future says whether it was
+  /// added (false: it could not be read or is not a subtitle file, or
+  /// other media was opened first). Call it any time after [open]; opening
+  /// other media drops it.
+  Future<bool> addSubtitle(String url, {String? language, String? title}) {
+    final add = native.playerAddSubtitle;
+    if (_disposed || add == null) return Future.value(false);
+    final strings = [url, language, title]
+        .map((s) => s == null ? nullptr : s.toNativeUtf8())
+        .toList();
+    final id =
+        add(_player, strings[0].cast(), strings[1].cast(), strings[2].cast());
+    for (final s in strings) {
+      if (s != nullptr) malloc.free(s);
+    }
+    if (id < 0) return Future.value(false);
+    // The event may be in flight already: it is handled on this isolate's
+    // event loop, after this returns.
+    return (_addingSubtitles[id] = Completer<bool>()).future;
+  }
+
+  void _finishAddingSubtitles() {
+    for (final completer in _addingSubtitles.values) {
+      completer.complete(false);
+    }
+    _addingSubtitles.clear();
   }
 
   /// A container tag such as 'title', 'artist' or 'album'; null if absent.
@@ -424,6 +465,8 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       _subtitle = arg0 > 0 ? _readSubtitle(arg0) : null;
       _hasPictures = arg1 != 0;
       _readPictures();
+    } else if (type == native.kEventSubtitleAdded) {
+      _addingSubtitles.remove(arg0)?.complete(arg1 != 0);
     }
     _refresh();
   }
@@ -459,6 +502,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
         height: ref.height,
         sampleRate: ref.sampleRate,
         channels: ref.channels,
+        external: ref.isExternal != 0,
       ));
     }
     calloc.free(info);
@@ -613,6 +657,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     _disposed = true;
     _ticker?.cancel();
     _setPictures(0, null);
+    _finishAddingSubtitles();
     super.dispose();
     _release();
   }

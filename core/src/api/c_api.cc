@@ -369,6 +369,7 @@ int32_t lychee_player_get_track_info(lychee_player* player,
   result.height = track.height;
   result.sample_rate = track.sample_rate;
   result.channels = track.channels;
+  result.external = track.external ? 1 : 0;
   CopyOut(result, info);
   return 0;
 }
@@ -382,6 +383,17 @@ int32_t lychee_player_select_track(lychee_player* player,
   }
   return player->player->SelectTrack(static_cast<MediaType>(type), index) ? 0
                                                                           : -1;
+}
+
+int32_t lychee_player_add_subtitle(lychee_player* player,
+                                   const char* url,
+                                   const char* language,
+                                   const char* title) {
+  if (!url) {
+    return -1;
+  }
+  return player->player->AddSubtitle(url, language ? language : "",
+                                     title ? title : "");
 }
 
 int32_t lychee_player_get_subtitle(lychee_player* player,

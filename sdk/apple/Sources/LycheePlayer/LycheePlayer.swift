@@ -33,6 +33,11 @@ public final class LycheePlayer {
     /// from ``subtitlePictures(width:height:)`` instead, text included;
     /// ``LycheePlayerView`` does that.
     case subtitleChanged(pictures: Bool)
+    /// An ``addSubtitle(_:language:title:)`` request finished: if `added`,
+    /// the file is the subtitle track with that ``Track/id``, selected
+    /// (``tracksChanged`` follows); otherwise it could not be read or is
+    /// not a subtitle file.
+    case subtitleAdded(id: Int, added: Bool)
   }
 
   /// An audio, video or subtitle stream of the open media.
@@ -40,7 +45,8 @@ public final class LycheePlayer {
     /// Pass to ``selectTrack(_:index:)``.
     public let index: Int
     public let type: TrackType
-    /// The container's stream index.
+    /// The container's stream index; for a subtitle file, the id
+    /// ``addSubtitle(_:language:title:)`` returned.
     public let id: Int
     public let isSelected: Bool
     public let codec: String
@@ -52,6 +58,8 @@ public final class LycheePlayer {
     /// Audio only.
     public let sampleRate: Int
     public let channels: Int
+    /// A subtitle file ``addSubtitle(_:language:title:)`` added.
+    public let isExternal: Bool
   }
 
   /// Bitmap subtitles (PGS, DVB, VobSub), laid out on a canvas the video
@@ -243,7 +251,8 @@ public final class LycheePlayer {
         index: Int(index), type: type, id: Int(info.id), isSelected: info.selected != 0,
         codec: string(&info.codec), language: string(&info.language),
         title: string(&info.title), width: Int(info.width), height: Int(info.height),
-        sampleRate: Int(info.sample_rate), channels: Int(info.channels))
+        sampleRate: Int(info.sample_rate), channels: Int(info.channels),
+        isExternal: info.external != 0)
     }
   }
 
@@ -253,6 +262,19 @@ public final class LycheePlayer {
   @discardableResult
   public func selectTrack(_ type: TrackType, index: Int?) -> Bool {
     lychee_player_select_track(handle, type.rawValue, Int32(index ?? -1)) == 0
+  }
+
+  /// Reads the subtitle file `url` (a path, file:// or http(s):// URL;
+  /// SubRip, WebVTT or ASS/SSA, in UTF-8 or UTF-16 with a byte order mark)
+  /// in the background and adds it to the media opened last as a subtitle
+  /// track after the container's, its cue times counting from the start of
+  /// the media. Once loaded it is selected; ``Event/subtitleAdded(id:added:)``
+  /// with the returned id says how it went. Opening other media drops it.
+  /// Returns nil if nothing is open.
+  @discardableResult
+  public func addSubtitle(_ url: String, language: String? = nil, title: String? = nil) -> Int? {
+    let id = lychee_player_add_subtitle(handle, url, language, title)
+    return id >= 0 ? Int(id) : nil
   }
 
   /// The subtitle text on screen now, lines separated by "\n".
@@ -350,6 +372,7 @@ public final class LycheePlayer {
     case LYCHEE_EVENT_ERROR: return .error
     case LYCHEE_EVENT_TRACKS_CHANGED: return .tracksChanged
     case LYCHEE_EVENT_SUBTITLE_CHANGED: return .subtitleChanged(pictures: arg1 != 0)
+    case LYCHEE_EVENT_SUBTITLE_ADDED: return .subtitleAdded(id: Int(arg0), added: arg1 != 0)
     default: return nil
     }
   }

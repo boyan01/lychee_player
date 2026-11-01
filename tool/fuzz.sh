@@ -28,7 +28,7 @@ set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 build="$root/build-fuzz"
-all_targets=(mp4 matroska mpegts hls_playlist hls)
+all_targets=(mp4 matroska mpegts hls_playlist hls subtitle_file)
 read -r -a targets <<<"${FUZZ_TARGET:-${all_targets[*]}}"
 for target in "${targets[@]}"; do
   case " ${all_targets[*]} " in *" $target "*) ;; *)
@@ -273,6 +273,21 @@ seeds_hls() {
     >"$media/one.m3u8"
   hls_seed renditions "$media/renditions.m3u8" "$media/one.m3u8" "$segs/seg0.ts" "$media/one.m3u8" \
     "$segs/audio.ts"
+}
+
+# Subtitle files: one of each format, and UTF-16.
+seeds_subtitle_file() {
+  local dir="$seeds/subtitle_file"
+  mkdir -p "$dir"
+  cp "$media/subs.srt" "$dir/subs.srt"
+  printf '%s\n' $'\xEF\xBB\xBFWEBVTT' 'X-TIMESTAMP-MAP=LOCAL:00:00.000,MPEGTS:0' '' 'NOTE x' '' 'id' \
+    '00:00.100 --> 00:00.600 align:start' '<v A>Hi</v> &amp;' '' '01:00:00.000 --> 01:00:01.000' 'b' >"$dir/subs.vtt"
+  printf '%s\r\n' '[Script Info]' 'ScriptType: v4.00+' '' '[Events]' \
+    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text' \
+    'Dialogue: 0,0:00:00.10,0:00:00.60,Default,,0,0,0,,{\b1}Hi{\b0}\Nthere' >"$dir/subs.ass"
+  if command -v iconv >/dev/null; then
+    { printf '\xFF\xFE'; iconv -f UTF-8 -t UTF-16LE "$media/subs.srt"; } >"$dir/utf16.srt"
+  fi
 }
 
 if command -v ffmpeg >/dev/null; then
