@@ -105,7 +105,8 @@ class _PlayerPageState extends State<PlayerPage> {
           'hw=${stats.hardwareDecoding ? 1 : 0} '
           'rendered=${stats.framesRendered} dropped=${stats.framesDropped} '
           'position=${position.toStringAsFixed(3)} '
-          'state=${player.value.state.name}';
+          'state=${player.value.state.name}'
+          '${player.value.subtitle == null ? '' : ' subtitle=${player.value.subtitle}'}';
       if (Platform.isAndroid) {
         // Android's process stderr does not reach logcat.
         debugPrintSynchronously(summary);

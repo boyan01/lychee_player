@@ -226,7 +226,7 @@ fn last_reference_owned_by_replaced_callback() {
 fn subtitle_file() {
     let (player, events) = open();
     let id = player
-        .add_subtitle(&media("subs.srt"), Some("en"), Some("Added"))
+        .add_subtitle(&media("subs.srt"), Some("en"), Some("Added"), None)
         .unwrap();
     player.play();
     wait_for(&player, &events, |e| {
@@ -241,7 +241,17 @@ fn subtitle_file() {
         *e == Event::SubtitleChanged { pictures: false }
     });
     assert_eq!(player.subtitle(0).as_deref(), Some("Hello world"));
-    let missing = player.add_subtitle(&media("missing.srt"), None, None).unwrap();
+    // The same cue time in GBK, named.
+    let gbk = player
+        .add_subtitle(&media("subs_gbk.srt"), None, None, Some("GBK"))
+        .unwrap();
+    wait_for(&player, &events, |e| {
+        *e == Event::SubtitleAdded { id: gbk, added: true }
+    });
+    assert_eq!(player.subtitle(0).as_deref(), Some("你好，世界"));
+    let missing = player
+        .add_subtitle(&media("missing.srt"), None, None, None)
+        .unwrap();
     wait_for(&player, &events, |e| {
         *e == Event::SubtitleAdded { id: missing, added: false }
     });

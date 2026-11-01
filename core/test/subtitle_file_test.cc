@@ -1,5 +1,7 @@
 #include "media/subtitle_file.h"
 
+#include "media/text_encoding.h"
+
 #include <string>
 #include <vector>
 
@@ -10,7 +12,7 @@ namespace {
 
 std::vector<SubtitleCue> Parse(std::string_view data, std::string* format) {
   std::vector<SubtitleCue> cues;
-  ParseSubtitleFile(data, &cues, format);
+  ParseSubtitleFile(data, "", &cues, format);
   return cues;
 }
 
@@ -108,15 +110,57 @@ TEST(SubtitleFile, Utf16) {
   }
 }
 
+// "1\n00:00:01,000 --> 00:00:02,000\n" then |text|.
+std::string Cue(std::string_view text) {
+  return "1\n00:00:01,000 --> 00:00:02,000\n" + std::string(text) + "\n";
+}
+
+std::string FirstText(const std::string& data, const std::string& encoding) {
+  std::string format;
+  std::vector<SubtitleCue> cues;
+  ParseSubtitleFile(data, encoding, &cues, &format);
+  return cues.empty() ? std::string() : cues[0].text;
+}
+
+TEST(SubtitleFile, LegacyEncodings) {
+  // A name no platform knows reads UTF-8, invalid bytes replaced.
+  EXPECT_EQ(FirstText(Cue("ok\xFF"), "no-such-encoding"),
+            std::string("ok\xEF\xBF\xBD"));
+  std::string probe;
+  if (!ConvertToUtf8("a", "GBK", &probe)) {
+    // Android without a Java VM (the tests from adb shell): no converter.
+    return;
+  }
+  // 你好，世界 (hello, world) in GBK and Big5; à bientôt, ça va in
+  // windows-1252. Guessed, as no file says its encoding.
+  const std::string utf8 =
+      "\xE4\xBD\xA0\xE5\xA5\xBD\xEF\xBC\x8C\xE4\xB8\x96\xE7\x95\x8C";
+  EXPECT_EQ(FirstText(Cue("\xC4\xE3\xBA\xC3\xA3\xAC\xCA\xC0\xBD\xE7"), ""),
+            utf8);
+  EXPECT_EQ(FirstText(Cue("\xA7\x41\xA6\x6E\xA1\x41\xA5\x40\xAC\xC9"), ""),
+            utf8);
+  EXPECT_EQ(FirstText(Cue("\xE0 bient\xF4t, \xE7"
+                          "a va"),
+                      ""),
+            std::string("\xC3\xA0 bient\xC3\xB4t, \xC3\xA7"
+                        "a va"));
+  // Named by the caller: Shift_JIS, which no guess picks (こんにちは).
+  EXPECT_EQ(
+      FirstText(Cue("\x82\xB1\x82\xF1\x82\xC9\x82\xBF\x82\xCD"), "Shift_JIS"),
+      std::string("\xE3\x81\x93\xE3\x82\x93\xE3\x81\xAB\xE3\x81\xA1"
+                  "\xE3\x81\xAF"));
+}
+
 TEST(SubtitleFile, RejectsOtherData) {
   std::string format;
   std::vector<SubtitleCue> cues;
-  EXPECT_TRUE(!ParseSubtitleFile("", &cues, &format));
-  EXPECT_TRUE(!ParseSubtitleFile("\n\n", &cues, &format));
-  EXPECT_TRUE(!ParseSubtitleFile("<html>not found</html>", &cues, &format));
-  EXPECT_TRUE(!ParseSubtitleFile("WEBVTT\n\nno cues here\n", &cues, &format));
+  EXPECT_TRUE(!ParseSubtitleFile("", "", &cues, &format));
+  EXPECT_TRUE(!ParseSubtitleFile("\n\n", "", &cues, &format));
+  EXPECT_TRUE(!ParseSubtitleFile("<html>not found</html>", "", &cues, &format));
   EXPECT_TRUE(
-      !ParseSubtitleFile("a --> b\n00:61,000 --> 00:62,000\nx", &cues, &format));
+      !ParseSubtitleFile("WEBVTT\n\nno cues here\n", "", &cues, &format));
+  EXPECT_TRUE(!ParseSubtitleFile("a --> b\n00:61,000 --> 00:62,000\nx", "",
+                                 &cues, &format));
   EXPECT_TRUE(format.empty());
 }
 

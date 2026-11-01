@@ -265,16 +265,29 @@ public final class LycheePlayer {
   }
 
   /// Reads the subtitle file `url` (a path, file:// or http(s):// URL;
-  /// SubRip, WebVTT or ASS/SSA, in UTF-8 or UTF-16 with a byte order mark)
-  /// in the background and adds it to the media opened last as a subtitle
-  /// track after the container's, its cue times counting from the start of
-  /// the media. Once loaded it is selected; ``Event/subtitleAdded(id:added:)``
-  /// with the returned id says how it went. Opening other media drops it.
-  /// Returns nil if nothing is open.
+  /// SubRip, WebVTT or ASS/SSA) in the background and adds it to the media
+  /// opened last as a subtitle track after the container's, its cue times
+  /// counting from the start of the media. Once loaded it is selected;
+  /// ``Event/subtitleAdded(id:added:)`` with the returned id says how it
+  /// went. Opening other media drops it. Returns nil if nothing is open.
+  ///
+  /// Without a byte order mark, the text is in `encoding`, an IANA name
+  /// such as "GB18030", "Big5", "Shift_JIS" or "windows-1251"; nil reads
+  /// UTF-8, or guesses between GB18030 (GBK), Big5 and windows-1252 when
+  /// the file is not UTF-8.
   @discardableResult
-  public func addSubtitle(_ url: String, language: String? = nil, title: String? = nil) -> Int? {
-    let id = lychee_player_add_subtitle(handle, url, language, title)
+  public func addSubtitle(
+    _ url: String, language: String? = nil, title: String? = nil, encoding: String? = nil
+  ) -> Int? {
+    let id = lychee_player_add_subtitle(handle, url, language, title, encoding)
     return id >= 0 ? Int(id) : nil
+  }
+
+  /// Shows the subtitles of every track this many seconds later; negative
+  /// shows them earlier (a container's only as far as the read is ahead,
+  /// usually a few seconds). Kept across ``open(_:)``.
+  public var subtitleDelay: TimeInterval = 0 {
+    didSet { lychee_player_set_subtitle_delay(handle, micros(subtitleDelay)) }
   }
 
   /// The subtitle text on screen now, lines separated by "\n".

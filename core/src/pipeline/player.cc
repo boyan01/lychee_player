@@ -390,6 +390,12 @@ void Player::SetVolume(float volume) {
   }
 }
 
+void Player::SetSubtitleDelay(int64_t delay) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  subtitle_delay_ = delay;
+  UpdateSubtitleLocked();
+}
+
 void Player::SetVideoDevice(VideoDevice device) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -542,7 +548,8 @@ bool Player::SelectTrack(MediaType type, int track) {
 
 int Player::AddSubtitle(const std::string& url,
                         const std::string& language,
-                        const std::string& title) {
+                        const std::string& title,
+                        const std::string& encoding) {
   if (url.empty()) {
     return -1;
   }
@@ -554,14 +561,15 @@ int Player::AddSubtitle(const std::string& url,
   const int stream = next_external_subtitle_++;
   subtitle_loads_pending_++;
   subtitle_loads_.emplace_back(&Player::LoadSubtitle, this, stream, url,
-                               language, title);
+                               language, title, encoding);
   return stream;
 }
 
 void Player::LoadSubtitle(int stream,
                           const std::string& url,
                           std::string language,
-                          std::string title) {
+                          std::string title,
+                          const std::string& encoding) {
   SetCurrentThreadName("lychee-subtitle");
   std::string error;
   std::string data;
@@ -601,7 +609,7 @@ void Player::LoadSubtitle(int stream,
   }
   std::vector<SubtitleCue> cues;
   std::string format;
-  if (error.empty() && !ParseSubtitleFile(data, &cues, &format)) {
+  if (error.empty() && !ParseSubtitleFile(data, encoding, &cues, &format)) {
     error = "not a SubRip, WebVTT or ASS file with cues";
   }
   ExternalSubtitle subtitle;
@@ -975,7 +983,7 @@ SubtitleRenderer* Player::SelectedSubtitleLocked() const {
 int64_t Player::SubtitleTimeLocked(int64_t media_time) const {
   // Subtitle packets keep the file's timeline, so every pass finds the
   // same cues.
-  int64_t time = media_time - LoopOffsetLocked(media_time);
+  int64_t time = media_time - LoopOffsetLocked(media_time) - subtitle_delay_;
   if (subtitle_stream_ >= kExternalSubtitleStream) {
     time -= media_info_.start_time;
   }

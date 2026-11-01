@@ -626,17 +626,22 @@ impl Player {
     }
 
     /// Loads the subtitle file `url` (a path, file:// or http(s)://
-    /// URL; SubRip, WebVTT or ASS/SSA, in UTF-8 or UTF-16 with a byte
-    /// order mark) in the background and adds it as a subtitle track of
-    /// the media opened last, after the container's, its cue times
-    /// counting from the start of the media. Once loaded it is selected;
-    /// [`Event::SubtitleAdded`] with the returned id says how it went.
-    /// Opening other media drops it.
+    /// URL; SubRip, WebVTT or ASS/SSA) in the background and adds it as a
+    /// subtitle track of the media opened last, after the container's,
+    /// its cue times counting from the start of the media. Once loaded it
+    /// is selected; [`Event::SubtitleAdded`] with the returned id says how
+    /// it went. Opening other media drops it.
+    ///
+    /// Without a byte order mark, the text is in `encoding`, an IANA name
+    /// such as `"GB18030"`, `"Big5"`, `"Shift_JIS"` or `"windows-1251"`;
+    /// `None` reads UTF-8, or guesses between GB18030 (GBK), Big5 and
+    /// windows-1252 when the file is not UTF-8.
     pub fn add_subtitle(
         &self,
         url: &str,
         language: Option<&str>,
         title: Option<&str>,
+        encoding: Option<&str>,
     ) -> Result<i32> {
         let url = CString::new(url).map_err(|_| Error("URL contains NUL"))?;
         let text = |s: Option<&str>| {
@@ -646,18 +651,28 @@ impl Player {
         };
         let language = text(language)?;
         let title = text(title)?;
+        let encoding = text(encoding)?;
+        let pointer = |s: &Option<CString>| s.as_ref().map_or(std::ptr::null(), |s| s.as_ptr());
         let id = unsafe {
             sys::lychee_player_add_subtitle(
                 self.raw(),
                 url.as_ptr(),
-                language.as_ref().map_or(std::ptr::null(), |s| s.as_ptr()),
-                title.as_ref().map_or(std::ptr::null(), |s| s.as_ptr()),
+                pointer(&language),
+                pointer(&title),
+                pointer(&encoding),
             )
         };
         if id < 0 {
             return Err(Error("nothing open to add a subtitle to"));
         }
         Ok(id)
+    }
+
+    /// Shows the subtitles of every track `delay_us` microseconds later;
+    /// negative shows them earlier (a container's only as far as the read
+    /// is ahead, usually a few seconds). Kept across [`Player::open`].
+    pub fn set_subtitle_delay(&self, delay_us: i64) {
+        unsafe { sys::lychee_player_set_subtitle_delay(self.raw(), delay_us) }
     }
 
     /// The subtitle text showing at `display_time_us` ([`now_us`]

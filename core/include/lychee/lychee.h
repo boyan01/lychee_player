@@ -71,7 +71,9 @@ extern "C" {
 //    counts go on across track changes and decoder rebuilds.
 // 17: subtitle files and URLs: lychee_player_add_subtitle(),
 //    LYCHEE_EVENT_SUBTITLE_ADDED and lychee_track_info.external.
-#define LYCHEE_API_VERSION 17
+// 18: lychee_player_add_subtitle() reads legacy encodings and takes an
+//    |encoding|; lychee_player_set_subtitle_delay().
+#define LYCHEE_API_VERSION 18
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -639,21 +641,37 @@ LYCHEE_EXPORT int32_t lychee_player_get_track_info(lychee_player* player,
 LYCHEE_EXPORT int32_t lychee_player_select_track(lychee_player* player,
                                                  int32_t type,
                                                  int32_t index);
-// API version 17. Reads the subtitle file |url| (a path, file:// or
-// http(s):// URL: SubRip, WebVTT or ASS/SSA, told apart by content, in
-// UTF-8 or UTF-16 with a byte order mark; ASS as plain text) in the
-// background, and adds it to the media opened last as a subtitle track,
-// after the container's, with |language| and |title| (either may be NULL)
-// as its track info. Its cue times count from the start of the media, as
-// the position does. Once loaded it is selected:
+// API version 18 (17 without |encoding|). Reads the subtitle file |url|
+// (a path, file:// or http(s):// URL: SubRip, WebVTT or ASS/SSA, told
+// apart by content; ASS as plain text) in the background, and adds it to the
+// media opened last as a subtitle track, after the container's, with |language|
+// and |title| (either may be NULL) as its track info. Its cue times count from
+// the start of the media, as the position does. Once loaded it is selected:
 // LYCHEE_EVENT_SUBTITLE_ADDED reports how it went. Call it any time after
 // lychee_player_open(), also before the media is loaded; opening other
 // media drops it. Returns the id of the track it adds (>= 0), or -1 if
 // nothing is open (or a live input, or the player failed).
+//
+// A byte order mark says UTF-8 or UTF-16. Without one the text is in
+// |encoding|, an IANA name such as "GB18030", "Big5", "Shift_JIS",
+// "EUC-KR" or "windows-1251", converted by the platform (iconv on Apple
+// and Linux, Java's charsets on Android, code pages on Windows). NULL
+// reads UTF-8 when the file is valid UTF-8, and otherwise guesses from
+// its bytes between GB18030 (GBK), Big5 and windows-1252. Bytes the
+// encoding cannot read show as U+FFFD; an encoding the platform does not
+// know reads as UTF-8 (the log says so).
 LYCHEE_EXPORT int32_t lychee_player_add_subtitle(lychee_player* player,
                                                  const char* url,
                                                  const char* language,
-                                                 const char* title);
+                                                 const char* title,
+                                                 const char* encoding);
+// API version 18. Shows the subtitles of every track |delay_us|
+// microseconds later; negative shows them earlier. Kept across
+// lychee_player_open(). A container's subtitles show early only as far as
+// the read has got ahead of playback (usually a few seconds); a subtitle
+// file's always do.
+LYCHEE_EXPORT void lychee_player_set_subtitle_delay(lychee_player* player,
+                                                    int64_t delay_us);
 // Copies the subtitle text showing at |display_time_us| (lychee_now_us()
 // timebase; 0 for now) into |buffer| (NUL-terminated UTF-8, lines separated
 // by '\n'). Returns the full text length; 0 if no cue is showing.

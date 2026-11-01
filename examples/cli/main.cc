@@ -92,8 +92,12 @@ struct Options {
   // Where to write each subtitle with pictures, drawn on a grey canvas of
   // the video's size (binary PPM), to look at bitmap subtitles.
   std::string subtitle_ppm;
-  // Subtitle files to add right after the open.
+  // Subtitle files to add right after the open, in this encoding (empty:
+  // guessed).
   std::vector<std::string> add_subtitles;
+  std::string subtitle_encoding;
+  // Seconds to show subtitles later (negative: earlier).
+  double subtitle_delay = 0;
   // Frames to write as they would be shown (tool/frame_check.py), by time.
   std::vector<FrameSnapshot> snapshots;
   // Seconds after playback starts to make the video decoder fail as after a
@@ -362,6 +366,14 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       const char* v = value();
       if (!v) return false;
       options->add_subtitles.push_back(v);
+    } else if (arg == "--subtitle-encoding") {
+      const char* v = value();
+      if (!v) return false;
+      options->subtitle_encoding = v;
+    } else if (arg == "--subtitle-delay") {
+      const char* v = value();
+      if (!v) return false;
+      options->subtitle_delay = strtod(v, nullptr);
     } else if (arg == "--subtitle-ppm") {
       const char* v = value();
       if (!v) return false;
@@ -1085,7 +1097,8 @@ int main(int argc, char** argv) {
         "[--live [--latency MS] [--live-jitter MS] "
         "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR] "
         "[--live-audio-gap SEC FOR]] "
-        "[--add-subtitle URL]... [--subtitle-ppm FILE] [--frame-ppm "
+        "[--add-subtitle URL]... [--subtitle-encoding NAME] "
+        "[--subtitle-delay SEC] [--subtitle-ppm FILE] [--frame-ppm "
         "SEC:FILE]... [--virtual-time] "
         "[--null-audio] [--verbose] [--audio-dump FILE] [--pause SEC FOR] "
         "<file or url>\n",
@@ -1173,10 +1186,15 @@ int main(int argc, char** argv) {
     fprintf(stderr, "open rejected\n");
     return 1;
   }
+  lychee_player_set_subtitle_delay(
+      player, static_cast<int64_t>(options.subtitle_delay * 1e6));
   for (const std::string& subtitle : options.add_subtitles) {
-    printf(
-        "add subtitle %s: %d\n", subtitle.c_str(),
-        lychee_player_add_subtitle(player, subtitle.c_str(), nullptr, nullptr));
+    const char* encoding = options.subtitle_encoding.empty()
+                               ? nullptr
+                               : options.subtitle_encoding.c_str();
+    printf("add subtitle %s: %d\n", subtitle.c_str(),
+           lychee_player_add_subtitle(player, subtitle.c_str(), nullptr,
+                                      nullptr, encoding));
   }
   // Start after the early returns above; the only exit below stops and joins
   // the thread before destroying the player. std::jthread is still experimental

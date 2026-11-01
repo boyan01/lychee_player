@@ -3,7 +3,8 @@
 // loop, with a stats line under the video.
 //
 //   Example [--seconds N] [--snapshot SEC:FILE]... [--size WxH]
-//           [--soak SEC URL] [--subtitle URL] [FILE_OR_URL]
+//           [--soak SEC URL] [--subtitle URL] [--subtitle-encoding NAME]
+//           [--subtitle-delay SEC] [FILE_OR_URL]
 //
 // --seconds quits after N seconds, printing a summary: line. --snapshot
 // writes what the video view shows at SEC seconds as a PPM and prints
@@ -12,7 +13,10 @@
 // video view's size in points on macOS (a strong downscale differs from
 // the reference at sharp edges: Core Animation filters differently).
 // --soak loops, seeks twice, then switches files, every SEC seconds.
-// --subtitle adds a subtitle file to the media.
+// --subtitle adds a subtitle file to the media, in the encoding
+// --subtitle-encoding names (default: guessed); --subtitle-delay shows
+// subtitles SEC later. Subtitle text is printed as it changes:
+//   subtitle at SECs: TEXT
 
 import AVFoundation
 import Combine
@@ -34,6 +38,8 @@ struct Options {
   var soakEvery: Double?
   var soakURL: String?
   var subtitle: String?
+  var subtitleEncoding: String?
+  var subtitleDelay: Double = 0
 
   init(_ arguments: [String]) {
     var args = arguments.makeIterator()
@@ -52,6 +58,10 @@ struct Options {
         }
       case "--subtitle":
         subtitle = args.next()
+      case "--subtitle-encoding":
+        subtitleEncoding = args.next()
+      case "--subtitle-delay":
+        subtitleDelay = args.next().flatMap(Double.init) ?? 0
       case "--size":
         let parts = (args.next() ?? "").split(separator: "x").compactMap { Double($0) }
         if parts.count == 2 { size = CGSize(width: parts[0], height: parts[1]) }
@@ -103,6 +113,7 @@ final class PlayerModel: ObservableObject {
   private var nextSoak: Double = 0
   private var soakActions = 0
   private var soakOnAlternate = false
+  private var printedSubtitle: String?
 
   init(_ options: Options) {
     self.options = options
@@ -110,8 +121,9 @@ final class PlayerModel: ObservableObject {
     size = options.size
     player.isLooping = true
     player.open(options.url)
+    player.subtitleDelay = options.subtitleDelay
     if let subtitle = options.subtitle {
-      player.addSubtitle(subtitle)
+      player.addSubtitle(subtitle, encoding: options.subtitleEncoding)
     }
     player.play()
     timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect().sink { [weak self] _ in
@@ -151,6 +163,12 @@ final class PlayerModel: ObservableObject {
         player.seek(to: target)
       }
       soakActions += 1
+      fflush(stdout)
+    }
+    let subtitle = player.subtitle
+    if subtitle != printedSubtitle {
+      printedSubtitle = subtitle
+      print(String(format: "subtitle at %.3fs: %@", player.position, subtitle ?? "(none)"))
       fflush(stdout)
     }
     let stats = player.stats

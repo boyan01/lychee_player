@@ -44,6 +44,8 @@ target_compile_features(lychee_parsers PUBLIC cxx_std_20)
 target_compile_definitions(lychee_parsers PRIVATE LYCHEE_IMPLEMENTATION=1)
 find_package(Threads REQUIRED)
 target_link_libraries(lychee_parsers PUBLIC Threads::Threads)
+# Subtitle files in legacy encodings.
+target_sources(lychee_parsers PRIVATE ${_src}/backends/iconv/text_encoding.cc)
 if(APPLE)
   # OpenDataSource() reaches the NSURLSession client for http(s).
   enable_language(OBJCXX)
@@ -51,7 +53,7 @@ if(APPLE)
   set_source_files_properties(${_src}/backends/apple/http_data_source.mm
     PROPERTIES COMPILE_OPTIONS -fobjc-arc)
   target_sources(lychee_parsers PRIVATE ${_src}/backends/apple/subtitle_image.cc)
-  target_link_libraries(lychee_parsers PUBLIC "-framework Foundation" "-framework ImageIO" "-framework CoreGraphics" "-framework Accelerate")
+  target_link_libraries(lychee_parsers PUBLIC "-framework Foundation" "-framework ImageIO" "-framework CoreGraphics" "-framework Accelerate" iconv)
 else()
   find_package(PNG REQUIRED)
   target_sources(lychee_parsers PRIVATE ${_src}/backends/linux/subtitle_image.cc)

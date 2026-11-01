@@ -3,6 +3,8 @@
 #include <cctype>
 #include <cstdint>
 
+#include "base/log.h"
+#include "media/text_encoding.h"
 #include "media/text_subtitle_decoder.h"
 
 namespace lychee {
@@ -30,20 +32,165 @@ void AppendUtf8(uint32_t code_point, std::string* out) {
   }
 }
 
+bool StartsWithNoCase(std::string_view text, std::string_view prefix) {
+  if (text.size() < prefix.size()) {
+    return false;
+  }
+  for (size_t i = 0; i < prefix.size(); ++i) {
+    if (std::tolower(static_cast<unsigned char>(text[i])) !=
+        std::tolower(static_cast<unsigned char>(prefix[i]))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// The length of the UTF-8 sequence at |i|, or 0 if none starts there
+// (a stray continuation byte, an overlong form, a surrogate, past U+10FFFF,
+// cut off).
+size_t Utf8Length(std::string_view data, size_t i) {
+  const auto byte = [&data](size_t at) {
+    return static_cast<uint8_t>(data[at]);
+  };
+  const uint8_t lead = byte(i);
+  if (lead < 0x80) {
+    return 1;
+  }
+  size_t length = 0;
+  // The range the second byte must fall in.
+  uint8_t low = 0x80;
+  uint8_t high = 0xbf;
+  if (lead >= 0xc2 && lead <= 0xdf) {
+    length = 2;
+  } else if (lead >= 0xe0 && lead <= 0xef) {
+    length = 3;
+    low = lead == 0xe0 ? 0xa0 : 0x80;
+    high = lead == 0xed ? 0x9f : 0xbf;
+  } else if (lead >= 0xf0 && lead <= 0xf4) {
+    length = 4;
+    low = lead == 0xf0 ? 0x90 : 0x80;
+    high = lead == 0xf4 ? 0x8f : 0xbf;
+  } else {
+    return 0;
+  }
+  if (data.size() - i < length || byte(i + 1) < low || byte(i + 1) > high) {
+    return 0;
+  }
+  for (size_t k = 2; k < length; ++k) {
+    if (byte(i + k) < 0x80 || byte(i + k) > 0xbf) {
+      return 0;
+    }
+  }
+  return length;
+}
+
+bool IsUtf8(std::string_view data) {
+  for (size_t i = 0; i < data.size();) {
+    const size_t length = Utf8Length(data, i);
+    if (length == 0) {
+      return false;
+    }
+    i += length;
+  }
+  return true;
+}
+
+// |data| with each byte that starts no UTF-8 sequence replaced by U+FFFD.
+std::string ReplaceInvalidUtf8(std::string_view data) {
+  std::string text;
+  text.reserve(data.size());
+  for (size_t i = 0; i < data.size();) {
+    const size_t length = Utf8Length(data, i);
+    if (length == 0) {
+      text += "\xEF\xBF\xBD";
+      ++i;
+    } else {
+      text.append(data.substr(i, length));
+      i += length;
+    }
+  }
+  return text;
+}
+
+// The legacy encoding |data|, which is not UTF-8, most likely is, by the
+// shape of its bytes (files say nothing about it). GBK (read as its
+// superset GB18030) and Big5 write each Han character as two bytes, the
+// first with the high bit set, so in a line of Chinese most bytes have
+// it; single-byte encodings put an accented letter here and there among
+// ASCII. Big5 puts the second byte in 0x40-0x7e for about 40% of its
+// characters, where GB2312's, nearly all a GBK subtitle uses, never put
+// it. Others (Shift JIS, EUC-KR, Cyrillic) need the caller to name them.
+const char* GuessLegacyEncoding(std::string_view data) {
+  const auto byte = [&data](size_t at) {
+    return static_cast<uint8_t>(data[at]);
+  };
+  // Over the lines with any byte that has the high bit set.
+  size_t line_bytes = 0;
+  size_t high_bytes = 0;
+  size_t pairs = 0;
+  size_t low_trails = 0;
+  size_t line_start = 0;
+  size_t line_high = 0;
+  for (size_t i = 0; i <= data.size(); ++i) {
+    if (i == data.size() || byte(i) == '\n') {
+      if (line_high > 0) {
+        line_bytes += i - line_start;
+        high_bytes += line_high;
+      }
+      line_start = i + 1;
+      line_high = 0;
+      continue;
+    }
+    const uint8_t lead = byte(i);
+    if (lead < 0x80) {
+      continue;
+    }
+    ++line_high;
+    const uint8_t trail = i + 1 < data.size() ? byte(i + 1) : 0;
+    if (lead >= 0x81 && lead <= 0xfe && trail >= 0x40 && trail <= 0xfe &&
+        trail != 0x7f) {
+      ++pairs;
+      low_trails += trail < 0xa1 ? 1 : 0;
+      line_high += trail >= 0x80 ? 1 : 0;
+      ++i;
+    }
+  }
+  if (high_bytes * 10 < line_bytes * 3) {
+    return "windows-1252";
+  }
+  return low_trails * 10 > pairs ? "Big5" : "GB18030";
+}
+
 // UTF-8 without its byte order mark; UTF-16 after one, converted (a lone
-// surrogate becomes U+FFFD).
-std::string ToUtf8(std::string_view data) {
+// surrogate becomes U+FFFD). Without one, |encoding| if not empty, else
+// UTF-8 when the data is that, else the legacy encoding it looks like.
+std::string ToUtf8(std::string_view data, const std::string& encoding) {
   const auto byte = [&data](size_t i) {
     return static_cast<uint8_t>(data[i]);
   };
   if (data.size() >= 3 && byte(0) == 0xef && byte(1) == 0xbb &&
       byte(2) == 0xbf) {
-    return std::string(data.substr(3));
+    return ReplaceInvalidUtf8(data.substr(3));
   }
   const bool little = data.size() >= 2 && byte(0) == 0xff && byte(1) == 0xfe;
   const bool big = data.size() >= 2 && byte(0) == 0xfe && byte(1) == 0xff;
   if (!little && !big) {
-    return std::string(data);
+    std::string name = encoding;
+    if (name.empty()) {
+      if (IsUtf8(data)) {
+        return std::string(data);
+      }
+      name = GuessLegacyEncoding(data);
+    }
+    std::string text;
+    if (StartsWithNoCase(name, "utf-8") && name.size() == 5) {
+      return ReplaceInvalidUtf8(data);
+    }
+    if (ConvertToUtf8(data, name, &text)) {
+      return text;
+    }
+    LOGW("subtitle file: no converter from %s, reading UTF-8", name.c_str());
+    return ReplaceInvalidUtf8(data);
   }
   const auto unit = [&](size_t i) -> uint32_t {
     return little ? byte(i) | (byte(i + 1) << 8) : (byte(i) << 8) | byte(i + 1);
@@ -92,19 +239,6 @@ std::string_view Trim(std::string_view text) {
     text.remove_suffix(1);
   }
   return text;
-}
-
-bool StartsWithNoCase(std::string_view text, std::string_view prefix) {
-  if (text.size() < prefix.size()) {
-    return false;
-  }
-  for (size_t i = 0; i < prefix.size(); ++i) {
-    if (std::tolower(static_cast<unsigned char>(text[i])) !=
-        std::tolower(static_cast<unsigned char>(prefix[i]))) {
-      return false;
-    }
-  }
-  return true;
 }
 
 // A time at |*pos|, skipping spaces before it: up to three fields
@@ -249,11 +383,12 @@ bool IsAss(const std::vector<std::string_view>& lines) {
 }  // namespace
 
 bool ParseSubtitleFile(std::string_view data,
+                       const std::string& encoding,
                        std::vector<SubtitleCue>* cues,
                        std::string* format) {
   cues->clear();
   format->clear();
-  const std::string text = ToUtf8(data);
+  const std::string text = ToUtf8(data, encoding);
   const std::vector<std::string_view> lines = SplitLines(text);
   size_t first = 0;
   while (first < lines.size() && Trim(lines[first]).empty()) {

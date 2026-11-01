@@ -243,18 +243,39 @@ class LycheePlayer @JvmOverloads constructor(
 
     /**
      * Reads the subtitle file [url] (a path, file:// or http(s):// URL;
-     * SubRip, WebVTT or ASS/SSA, in UTF-8 or UTF-16 with a byte order mark)
-     * in the background and adds it to the media opened last as a subtitle
-     * track after the container's, its cue times counting from the start of
-     * the media. Once loaded it is selected; [Event.SubtitleAdded] with the
-     * returned id says how it went. Opening other media drops it. Returns
-     * null if nothing is open.
+     * SubRip, WebVTT or ASS/SSA) in the background and adds it to the media
+     * opened last as a subtitle track after the container's, its cue times
+     * counting from the start of the media. Once loaded it is selected;
+     * [Event.SubtitleAdded] with the returned id says how it went. Opening
+     * other media drops it. Returns null if nothing is open.
+     *
+     * Without a byte order mark, the text is in [encoding], a name
+     * [java.nio.charset.Charset] knows such as "GB18030", "Big5",
+     * "Shift_JIS" or "windows-1251"; null reads UTF-8, or guesses between
+     * GB18030 (GBK), Big5 and windows-1252 when the file is not UTF-8.
      */
     @JvmOverloads
-    fun addSubtitle(url: String, language: String? = null, title: String? = null): Int? =
+    fun addSubtitle(
+        url: String,
+        language: String? = null,
+        title: String? = null,
+        encoding: String? = null,
+    ): Int? =
         nativeAddSubtitle(
             handle(), url.toByteArray(), language?.toByteArray(), title?.toByteArray(),
+            encoding?.toByteArray(),
         ).takeIf { it >= 0 }
+
+    /**
+     * Shows the subtitles of every track this many milliseconds later;
+     * negative shows them earlier (a container's only as far as the read
+     * is ahead, usually a few seconds). Kept across [open].
+     */
+    var subtitleDelayMs: Long = 0
+        set(value) {
+            field = value
+            nativeSetSubtitleDelay(handle(), value * 1000)
+        }
 
     /** The subtitle text on screen now, lines separated by "\n". */
     val subtitle: String?
@@ -415,7 +436,9 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeSelectTrack(handle: Long, type: Int, index: Int): Boolean
         @JvmStatic private external fun nativeAddSubtitle(
             handle: Long, url: ByteArray, language: ByteArray?, title: ByteArray?,
+            encoding: ByteArray?,
         ): Int
+        @JvmStatic private external fun nativeSetSubtitleDelay(handle: Long, delayUs: Long)
         @JvmStatic private external fun nativeGetSubtitle(handle: Long): ByteArray?
         @JvmStatic private external fun nativeGetMetadata(handle: Long, key: ByteArray): ByteArray?
         @JvmStatic private external fun nativeGetArtwork(handle: Long): ByteArray?

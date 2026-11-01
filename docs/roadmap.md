@@ -116,13 +116,7 @@ building on top of them.
      checkout (`AIRPLAY_LYCHEE_ROOT`) on every platform, so its CI and
      release jobs cannot build yet. Done when they take lychee from a
      release (the Apple frameworks, the AAR, the core's source) instead.
-2. **Subtitle files beyond UTF**: `lychee_player_add_subtitle()` reads
-   UTF-8 and UTF-16 with a byte order mark; GBK, Big5 and other legacy
-   encodings, common in Chinese SRT files, show as mojibake. Converting
-   needs a detector and tables (ICU, iconv, or each platform's API), so
-   it waits for a user who has such files. There is no subtitle delay
-   setting yet either. Done when a GBK SRT shows right on every platform.
-3. **HDR beyond Apple's SDK**:
+2. **HDR beyond Apple's SDK**:
    - Flutter: textures are 8-bit SDR on every platform, so the plugin
      stays on tone-mapped BGRA.
    - Android: the user confirmed incorrect HDR colors on the Xiaomi 14

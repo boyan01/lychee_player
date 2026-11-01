@@ -388,12 +388,18 @@ int32_t lychee_player_select_track(lychee_player* player,
 int32_t lychee_player_add_subtitle(lychee_player* player,
                                    const char* url,
                                    const char* language,
-                                   const char* title) {
+                                   const char* title,
+                                   const char* encoding) {
   if (!url) {
     return -1;
   }
   return player->player->AddSubtitle(url, language ? language : "",
-                                     title ? title : "");
+                                     title ? title : "",
+                                     encoding ? encoding : "");
+}
+
+void lychee_player_set_subtitle_delay(lychee_player* player, int64_t delay_us) {
+  player->player->SetSubtitleDelay(delay_us);
 }
 
 int32_t lychee_player_get_subtitle(lychee_player* player,

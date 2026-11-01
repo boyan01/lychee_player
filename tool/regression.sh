@@ -327,6 +327,10 @@ Bonjour le monde
 00:00:03,000 --> 00:00:04,500
 Deuxieme
 SRT
+# GBK, with no byte order mark: 你好，世界.
+[ -f "$media/subs_gbk.srt" ] ||
+  printf '1\n00:00:01,000 --> 00:00:02,500\n\304\343\272\303\243\254\312\300\275\347\n' \
+    >"$media/subs_gbk.srt"
 [ -f "$media/subs.ass" ] || cat >"$media/subs.ass" <<'ASS'
 [Script Info]
 ScriptType: v4.00+
@@ -1413,6 +1417,17 @@ par expect subtitle-file-ts "track 2: subtitle webvtt .*external$" "subtitle at 
   "subtitle at 2\.5[0-9]{2}s: \(none\)" -- --seconds 3 --add-subtitle "$media/subs.vtt" "$media/keyframes.ts"
 par expect subtitle-file-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line" "<=0 Hello world" -- \
   --seconds 5 --seek 3.5 --seek-after 0.5 --add-subtitle "$media/subs.srt" "$media/h264_aac.mp4"
+# A legacy encoding, guessed and named.
+par expect subtitle-file-gbk "subtitle at [01]\.[0-9]{3}s: 你好，世界$" -- \
+  --seconds 2 --add-subtitle "$media/subs_gbk.srt" "$media/h264_aac.mp4"
+par expect subtitle-file-encoding "subtitle at [01]\.[0-9]{3}s: 你好，世界$" -- \
+  --seconds 2 --subtitle-encoding gbk --add-subtitle "$media/subs_gbk.srt" "$media/h264_aac.mp4"
+# The delay moves a file's cues and a container's, also earlier.
+par expect subtitle-delay-file "subtitle at 2\.[0-9]{3}s: Hello world$" "<=0 subtitle at 1\.[0-9]{3}s: Hello" \
+  "subtitle at 4\.[0-9]{3}s: Second line" -- \
+  --seconds 5 --subtitle-delay 1 --add-subtitle "$media/subs.srt" "$media/h264_aac.mp4"
+par expect subtitle-delay-early "subtitle at 0\.[5-9][0-9]{2}s: Hello world$" -- \
+  --seconds 2 --subtitle-delay -0.5 "$media/sub_srt.mkv"
 # A file that is not there, or not subtitles, adds nothing.
 par expect subtitle-file-missing "event: subtitle [0-9]+ failed" "event: subtitle [0-9]+ failed" "<=0 external" \
   "summary: state=ready" -- --seconds 1 --add-subtitle "$media/missing.srt" --add-subtitle "$media/cover.png" \

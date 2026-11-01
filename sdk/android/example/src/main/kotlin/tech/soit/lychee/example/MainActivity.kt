@@ -13,7 +13,10 @@
 // "seek" ("SEC:TARGET,...") seeks at SEC seconds after the start.
 // "seconds" stops the activity after that many seconds and logs summary:.
 // "recreate" (seconds) recreates the activity once to check pending captures.
-// "subtitle" (a URL) adds that subtitle file to the media.
+// "subtitle" (a URL) adds that subtitle file to the media, in the
+// "subtitle_encoding" extra's encoding (default: guessed); "subtitle_delay"
+// (seconds) shows subtitles that much later. Subtitle text is logged as it
+// changes: subtitle at SECs: TEXT.
 
 package tech.soit.lychee.example
 
@@ -87,7 +90,11 @@ class MainActivity : Activity() {
         }
         player.isLooping = true
         player.open(url)
-        intent.getStringExtra("subtitle")?.let { player.addSubtitle(it) }
+        player.subtitleDelayMs =
+            ((intent.getStringExtra("subtitle_delay")?.toDoubleOrNull() ?: 0.0) * 1000).toLong()
+        intent.getStringExtra("subtitle")?.let {
+            player.addSubtitle(it, encoding = intent.getStringExtra("subtitle_encoding"))
+        }
         player.play()
 
         video = LycheePlayerView(this).also { it.player = player }
@@ -241,7 +248,14 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
+    private var loggedSubtitle: String? = null
+
     private fun update() {
+        val subtitle = player.subtitle
+        if (subtitle != loggedSubtitle) {
+            loggedSubtitle = subtitle
+            Log.i("lychee-example", "subtitle at ${player.positionMs / 1000.0}s: $subtitle")
+        }
         val now = SystemClock.elapsedRealtime()
         val alternate = alternateUrl
         if (soakEveryMs > 0 && alternate != null && now >= nextSoakMs) {

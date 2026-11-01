@@ -132,7 +132,7 @@ inline void FuzzSubtitleFile(const uint8_t* data, size_t size) {
   std::vector<SubtitleCue> cues;
   std::string format;
   ParseSubtitleFile(std::string_view(reinterpret_cast<const char*>(data), size),
-                    &cues, &format);
+                    "", &cues, &format);
 }
 
 // The HLS demuxer over an input of resources separated by

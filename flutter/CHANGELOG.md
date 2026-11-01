@@ -12,6 +12,10 @@
   `addSubtitle()` (`lychee_player_add_subtitle()` in C): the file becomes
   a subtitle track, selected once loaded, its times counted from the
   start of the media. Tracks say whether they came from one (`external`).
+  Files in GBK, Big5 or windows-1252 are recognized; pass `encoding`
+  (such as `'Shift_JIS'`) for others.
+* Shift all subtitles later or earlier with `setSubtitleDelay()`
+  (`lychee_player_set_subtitle_delay()` in C).
 * Style the text subtitles the views draw with `subtitleStyle`: font,
   size, color, outline, background and margin.
 

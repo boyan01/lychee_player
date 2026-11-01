@@ -168,9 +168,15 @@ class Player {
   // subtitle track, selected, of what is open now. Returns the stream id
   // the track will have (TrackInfo::stream_index), or -1 if nothing that
   // takes subtitles is open; kSubtitleAdded with that id follows.
+  // |encoding| names the file's text encoding; empty guesses it
+  // (ParseSubtitleFile()).
   int AddSubtitle(const std::string& url,
                   const std::string& language,
-                  const std::string& title);
+                  const std::string& title,
+                  const std::string& encoding);
+  // Shows every subtitle track |delay| microseconds later (earlier if
+  // negative). Kept across Open().
+  void SetSubtitleDelay(int64_t delay);
 
   PlayerState state() const;
   bool playing() const;
@@ -291,13 +297,15 @@ class Player {
   SubtitleRenderer* SelectedSubtitleLocked() const;
   // The time on the selected subtitle's timeline at |media_time|: the
   // file's (the first pass's, while looping), and for an added subtitle
-  // file the position, so that its zero is where the media starts.
+  // file the position, so that its zero is where the media starts; less
+  // the subtitle delay.
   int64_t SubtitleTimeLocked(int64_t media_time) const;
   // A thread per AddSubtitle() call.
   void LoadSubtitle(int stream,
                     const std::string& url,
                     std::string language,
-                    std::string title);
+                    std::string title,
+                    const std::string& encoding);
   std::unique_ptr<SubtitleRenderer> CreateSubtitleRenderer(
       const StreamInfo& info);
   void EnableStreamsLocked();
@@ -437,6 +445,8 @@ class Player {
   int audio_stream_ = -1;
   // Under |mutex_|; the read thread does not use it.
   int subtitle_stream_ = -1;
+  // SetSubtitleDelay().
+  int64_t subtitle_delay_ = 0;
   // Control thread only.
   uint64_t generation_ = 0;
 

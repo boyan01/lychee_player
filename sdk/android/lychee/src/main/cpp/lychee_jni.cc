@@ -445,12 +445,23 @@ Java_tech_soit_lychee_LycheePlayer_nativeAddSubtitle(JNIEnv* env,
                                                      jlong handle,
                                                      jbyteArray url,
                                                      jbyteArray language,
-                                                     jbyteArray title) {
+                                                     jbyteArray title,
+                                                     jbyteArray encoding) {
   const std::string language_text = language ? FromBytes(env, language) : "";
   const std::string title_text = title ? FromBytes(env, title) : "";
+  const std::string encoding_text = encoding ? FromBytes(env, encoding) : "";
   return lychee_player_add_subtitle(Player(handle), FromBytes(env, url).c_str(),
                                     language ? language_text.c_str() : nullptr,
-                                    title ? title_text.c_str() : nullptr);
+                                    title ? title_text.c_str() : nullptr,
+                                    encoding ? encoding_text.c_str() : nullptr);
+}
+
+JNIEXPORT void JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeSetSubtitleDelay(JNIEnv*,
+                                                          jclass,
+                                                          jlong handle,
+                                                          jlong delay_us) {
+  lychee_player_set_subtitle_delay(Player(handle), delay_us);
 }
 
 JNIEXPORT jbyteArray JNICALL

@@ -358,21 +358,26 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   }
 
   /// Adds the subtitle file [url] (a path, file:// or http(s):// URL;
-  /// SubRip, WebVTT or ASS/SSA, in UTF-8 or UTF-16 with a byte order mark)
-  /// to the media opened last, as a subtitle track after the container's.
-  /// Its cue times count from the start of the media. It is read in the
-  /// background and selected once loaded; the future says whether it was
-  /// added (false: it could not be read or is not a subtitle file, or
-  /// other media was opened first). Call it any time after [open]; opening
-  /// other media drops it.
-  Future<bool> addSubtitle(String url, {String? language, String? title}) {
+  /// SubRip, WebVTT or ASS/SSA) to the media opened last, as a subtitle
+  /// track after the container's. Its cue times count from the start of
+  /// the media. It is read in the background and selected once loaded; the
+  /// future says whether it was added (false: it could not be read or is
+  /// not a subtitle file, or other media was opened first). Call it any
+  /// time after [open]; opening other media drops it.
+  ///
+  /// Without a byte order mark, the text is in [encoding], an IANA name
+  /// such as 'GB18030', 'Big5', 'Shift_JIS' or 'windows-1251'; null reads
+  /// UTF-8, or guesses between GB18030 (GBK), Big5 and windows-1252 when
+  /// the file is not UTF-8.
+  Future<bool> addSubtitle(String url,
+      {String? language, String? title, String? encoding}) {
     final add = native.playerAddSubtitle;
     if (_disposed || add == null) return Future.value(false);
-    final strings = [url, language, title]
+    final strings = [url, language, title, encoding]
         .map((s) => s == null ? nullptr : s.toNativeUtf8())
         .toList();
-    final id =
-        add(_player, strings[0].cast(), strings[1].cast(), strings[2].cast());
+    final id = add(_player, strings[0].cast(), strings[1].cast(),
+        strings[2].cast(), strings[3].cast());
     for (final s in strings) {
       if (s != nullptr) malloc.free(s);
     }
@@ -380,6 +385,14 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     // The event may be in flight already: it is handled on this isolate's
     // event loop, after this returns.
     return (_addingSubtitles[id] = Completer<bool>()).future;
+  }
+
+  /// Shows the subtitles of every track [delay] later; negative shows them
+  /// earlier (a container's only as far as the read is ahead, usually a
+  /// few seconds). Kept across [open].
+  void setSubtitleDelay(Duration delay) {
+    if (_disposed) return;
+    native.playerSetSubtitleDelay?.call(_player, delay.inMicroseconds);
   }
 
   void _finishAddingSubtitles() {
@@ -448,7 +461,8 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       audioOutputSampleRate: s.audioOutputSampleRate,
       audioOutputChannels: s.audioOutputChannels,
       audioOutputLatency: Duration(microseconds: s.audioOutputLatencyUs),
-      variantBandwidth: s.variantBandwidthBps > 0 ? s.variantBandwidthBps : null,
+      variantBandwidth:
+          s.variantBandwidthBps > 0 ? s.variantBandwidthBps : null,
     );
     calloc.free(stats);
     return result;
@@ -560,8 +574,8 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       ui.decodeImageFromPixels(pixels, image.bitmapWidth, image.bitmapHeight,
           ui.PixelFormat.rgba8888, completer.complete,
           rowBytes: image.stride);
-      pending.add(completer.future
-          .then((image) => LycheeSubtitlePicture(image, rect)));
+      pending.add(
+          completer.future.then((image) => LycheeSubtitlePicture(image, rect)));
     }
     calloc.free(info);
     native.subtitleRelease(subtitle);

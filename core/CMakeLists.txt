@@ -76,6 +76,7 @@ if(ANDROID)
     src/backends/android/ffmpeg_extension.cc
     src/backends/android/aes.cc
     src/backends/android/subtitle_image.cc
+    src/backends/android/text_encoding.cc
     src/backends/android/aaudio_sink.cc
     src/backends/android/http_data_source.cc
     src/backends/android/jvm.cc
@@ -113,6 +114,7 @@ if(WIN32)
     src/backends/media_foundation/mf_common.cc
     src/backends/media_foundation/mf_video_decoder.cc
     src/backends/windows/subtitle_image.cc
+    src/backends/windows/text_encoding.cc
     src/backends/windows/d3d11_video_processor.cc
     src/backends/windows/http_data_source.cc
     src/backends/windows/wasapi_sink.cc
@@ -145,6 +147,7 @@ endif()
 
 if(UNIX AND NOT APPLE AND NOT ANDROID)
   list(APPEND LYCHEE_SOURCES
+    src/backends/iconv/text_encoding.cc
     src/backends/linux/subtitle_image.cc
     src/backends/linux/pulse_audio_sink.cc
   )
@@ -172,6 +175,7 @@ endif()
 if(APPLE)
   list(APPEND LYCHEE_SOURCES
     src/backends/apple/subtitle_image.cc
+    src/backends/iconv/text_encoding.cc
     src/backends/apple/apple_frame_converter.cc
     src/backends/apple/core_audio_sink.cc
     src/backends/apple/http_data_source.mm
@@ -284,6 +288,8 @@ if(APPLE)
     "-framework CoreVideo"
     "-framework IOSurface"
     "-framework VideoToolbox"
+    # Subtitle files in legacy encodings (backends/iconv).
+    iconv
   )
   if(IOS)
     set_source_files_properties(src/backends/apple/audio_session.mm
