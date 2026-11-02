@@ -53,6 +53,42 @@ constexpr int64_t kBandwidthHeadroom = 133;
 // Smaller segments measure latency more than bandwidth.
 constexpr int64_t kMinMeasuredBytes = 64 << 10;
 
+// A packet buffer that owns the vector it was written into.
+class VectorPacketBuffer : public PacketBuffer {
+ public:
+  // |bytes| holds the data and kPacketPadding bytes after |size|.
+  VectorPacketBuffer(std::vector<uint8_t> bytes, size_t size)
+      : bytes_(std::move(bytes)) {
+    data_ = bytes_.data();
+    size_ = size;
+  }
+
+ private:
+  std::vector<uint8_t> bytes_;
+};
+
+// |sample| as Annex B, written once into the packet's own buffer; null if
+// a NAL length runs past its end.
+std::shared_ptr<const PacketBuffer> ToAnnexB(const AnnexBConverter& converter,
+                                             const PacketBuffer& sample,
+                                             bool keyframe) {
+  // The same size with four-byte NAL lengths, plus the parameter sets.
+  size_t reserve = sample.size() + kPacketPadding;
+  if (keyframe) {
+    for (const std::vector<uint8_t>& nal : converter.parameter_sets()) {
+      reserve += nal.size() + 4;
+    }
+  }
+  std::vector<uint8_t> bytes;
+  bytes.reserve(reserve);
+  if (!converter.Convert(sample.data(), sample.size(), keyframe, &bytes)) {
+    return nullptr;
+  }
+  const size_t size = bytes.size();
+  bytes.resize(size + kPacketPadding);
+  return std::make_shared<VectorPacketBuffer>(std::move(bytes), size);
+}
+
 }  // namespace
 
 HlsDemuxer::HlsDemuxer() = default;
@@ -1175,10 +1211,10 @@ DemuxerReadResult HlsDemuxer::ReadFrom(Rendition* r, EncodedPacket* packet) {
       need_keyframe_[index] = false;
     }
     if (source_index == r->annexb_stream && r->mp4 && packet->buffer) {
-      std::vector<uint8_t> annexb;
-      if (r->annexb.Convert(packet->buffer->data(), packet->buffer->size(),
-                            packet->keyframe, &annexb)) {
-        packet->buffer = PacketBuffer::Copy(annexb.data(), annexb.size());
+      std::shared_ptr<const PacketBuffer> annexb =
+          ToAnnexB(r->annexb, *packet->buffer, packet->keyframe);
+      if (annexb) {
+        packet->buffer = std::move(annexb);
       }
     }
     packet->stream_index = index;
