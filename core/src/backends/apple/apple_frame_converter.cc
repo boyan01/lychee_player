@@ -3,7 +3,6 @@
 #include "backends/apple/apple_frame_converter.h"
 
 #include <cstring>
-#include <vector>
 
 #include "backends/apple/pixel_buffer.h"
 #include "base/log.h"
@@ -198,14 +197,20 @@ std::shared_ptr<VideoFrame> AppleFrameConverter::ToCpuBgra(
   if (!bgra) {
     return nullptr;
   }
+  // The frame reads the pixel buffer in place rather than a copy of it,
+  // which keeps the buffer mapped and out of its pool while the frame
+  // lives.
   auto buffer = static_cast<CVPixelBufferRef>(bgra->native_handle);
-  size_t stride = static_cast<size_t>(bgra->width) * 4;
-  auto pixels = std::make_shared<std::vector<uint8_t>>(stride * bgra->height);
-  CVPixelBufferLockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly);
-  CopyRows(static_cast<const uint8_t*>(CVPixelBufferGetBaseAddress(buffer)),
-           CVPixelBufferGetBytesPerRow(buffer), pixels->data(), stride, stride,
-           bgra->height);
-  CVPixelBufferUnlockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly);
+  if (CVPixelBufferLockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly) !=
+      kCVReturnSuccess) {
+    return nullptr;
+  }
+  CVPixelBufferRetain(buffer);
+  std::shared_ptr<void> owner(buffer, [](void* locked) {
+    auto buffer = static_cast<CVPixelBufferRef>(locked);
+    CVPixelBufferUnlockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly);
+    CVPixelBufferRelease(buffer);
+  });
 
   auto result = std::make_shared<VideoFrame>();
   result->storage = VideoFrameStorage::kCpuBgra;
@@ -213,9 +218,10 @@ std::shared_ptr<VideoFrame> AppleFrameConverter::ToCpuBgra(
   result->height = bgra->height;
   result->pts = frame->pts;
   result->duration = frame->duration;
-  result->data = pixels->data();
-  result->stride = static_cast<int>(stride);
-  result->owner = std::move(pixels);
+  result->data =
+      static_cast<const uint8_t*>(CVPixelBufferGetBaseAddress(buffer));
+  result->stride = static_cast<int>(CVPixelBufferGetBytesPerRow(buffer));
+  result->owner = std::move(owner);
   return result;
 }
 
