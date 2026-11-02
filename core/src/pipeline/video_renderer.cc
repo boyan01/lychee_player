@@ -537,21 +537,30 @@ std::shared_ptr<VideoFrame> VideoRenderer::SelectFrameLocked(
 
 bool VideoRenderer::HasNewFrame(int64_t display_time) {
   bool result;
+  bool freed;
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    const size_t queued = algorithm_.frames_queued();
     std::shared_ptr<VideoFrame> frame = SelectFrameLocked(display_time);
     result = frame && frame != current_;
+    freed = waiting_ && algorithm_.frames_queued() < queued;
   }
-  // Selection may have freed queue space.
-  condition_.notify_all();
+  // Selection freed queue space for a frame waiting for it. Not on every
+  // vsync: most leave the queue as it was.
+  if (freed) {
+    condition_.notify_all();
+  }
   return result;
 }
 
 std::shared_ptr<VideoFrame> VideoRenderer::Acquire(int64_t display_time) {
   std::shared_ptr<VideoFrame> result;
+  bool freed;
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    const size_t queued = algorithm_.frames_queued();
     std::shared_ptr<VideoFrame> frame = SelectFrameLocked(display_time);
+    freed = waiting_ && algorithm_.frames_queued() < queued;
     if (frame && frame != current_) {
       counts_.rendered++;
       if (!selected_first_ && frame->pts != kNoTimestamp && clock_->moving()) {
@@ -570,7 +579,9 @@ std::shared_ptr<VideoFrame> VideoRenderer::Acquire(int64_t display_time) {
     }
     result = current_;
   }
-  condition_.notify_all();
+  if (freed) {
+    condition_.notify_all();
+  }
   return result;
 }
 
