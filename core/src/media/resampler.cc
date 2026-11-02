@@ -61,6 +61,15 @@ void Resampler::Push(const float* input,
                      std::vector<float>* output) {
   buffer_.insert(buffer_.end(), input,
                  input + static_cast<size_t>(frames) * channels_);
+  // Room for what this produces, which the callers' empty vectors would
+  // otherwise grow to a sample at a time. Doubling at least, for a caller
+  // that appends many pushes.
+  const size_t needed =
+      output->size() +
+      static_cast<size_t>(frames * output_rate_ / input_rate_ + 2) * channels_;
+  if (needed > output->capacity()) {
+    output->reserve(std::max(needed, output->capacity() * 2));
+  }
   Produce(static_cast<int64_t>(buffer_.size() / channels_), output);
   // Keep only what the next output frame's taps reach back to.
   const int64_t consumed = time_ / output_rate_ - (kHalf - 1);
