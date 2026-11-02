@@ -59,6 +59,8 @@ class D3D11VideoProcessor {
   struct Output;
   // Output textures of one size and format, idle until reused.
   struct OutputPool;
+  // Download()'s pixel buffers, idle until reused.
+  struct PixelPool;
   struct HandleCloser {
     void operator()(void* handle) const;
   };
@@ -126,6 +128,7 @@ class D3D11VideoProcessor {
   bool shader_failed_ = false;
   // Download(): reused while the size stays.
   Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_;
+  std::shared_ptr<PixelPool> pixels_;
 };
 
 }  // namespace lychee

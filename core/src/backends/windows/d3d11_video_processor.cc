@@ -41,6 +41,9 @@ constexpr int64_t kIdleLimit = kMicrosPerSecond;
 // Decoders cycle through a fixed set of textures (FFmpeg's pool of array
 // slices); more than this many input views means they changed.
 constexpr size_t kMaxInputViews = 64;
+// Download() buffers kept idle: more than the renderer's queue and the
+// frame on screen ever return at once.
+constexpr size_t kMaxIdlePixels = 8;
 
 // PQ into SDR close to how swscale does it for software-decoded frames
 // (FFmpegVideoDecoder::ConvertToCpu), so a stream looks about the same
@@ -268,6 +271,14 @@ struct D3D11VideoProcessor::OutputPool {
   }
 };
 
+struct D3D11VideoProcessor::PixelPool {
+  std::mutex mutex;
+  // What the idle buffers hold; a buffer of another size is freed on its
+  // return.
+  size_t size = 0;
+  std::vector<std::unique_ptr<uint8_t[]>> idle;
+};
+
 void D3D11VideoProcessor::HandleCloser::operator()(void* handle) const {
   CloseHandle(handle);
 }
@@ -286,6 +297,7 @@ bool D3D11VideoProcessor::SetUp(ID3D11Device* device) {
   device_ = device;
   device_->GetImmediateContext(&context_);
   pool_ = std::make_shared<OutputPool>();
+  pixels_ = std::make_shared<PixelPool>();
   D3D11_QUERY_DESC query = {D3D11_QUERY_EVENT, 0};
   context_.As(&video_context1_);
   ComPtr<ID3D11Device5> device5;
@@ -735,10 +747,27 @@ std::shared_ptr<VideoFrame> D3D11VideoProcessor::Download(
     return nullptr;
   }
   const int stride = frame.width * 4;
-  auto pixels = std::make_shared<std::vector<uint8_t>>(
-      static_cast<size_t>(stride) * frame.height);
+  const size_t size = static_cast<size_t>(stride) * frame.height;
+  // A frame's worth is large enough that a fresh allocation comes from the
+  // system and faults in every page on the copy.
+  std::unique_ptr<uint8_t[]> pixels;
+  // Freed after the lock.
+  std::vector<std::unique_ptr<uint8_t[]>> unused;
+  {
+    std::lock_guard<std::mutex> lock(pixels_->mutex);
+    if (pixels_->size != size) {
+      unused.swap(pixels_->idle);
+      pixels_->size = size;
+    } else if (!pixels_->idle.empty()) {
+      pixels = std::move(pixels_->idle.back());
+      pixels_->idle.pop_back();
+    }
+  }
+  if (!pixels) {
+    pixels = std::make_unique_for_overwrite<uint8_t[]>(size);
+  }
   for (int y = 0; y < frame.height; ++y) {
-    std::memcpy(pixels->data() + static_cast<size_t>(y) * stride,
+    std::memcpy(pixels.get() + static_cast<size_t>(y) * stride,
                 static_cast<const uint8_t*>(mapped.pData) +
                     static_cast<size_t>(y) * mapped.RowPitch,
                 stride);
@@ -750,9 +779,16 @@ std::shared_ptr<VideoFrame> D3D11VideoProcessor::Download(
   result->height = frame.height;
   result->pts = frame.pts;
   result->duration = frame.duration;
-  result->data = pixels->data();
+  result->data = pixels.get();
   result->stride = stride;
-  result->owner = std::move(pixels);
+  result->owner = std::shared_ptr<void>(
+      pixels.release(), [pool = pixels_, size](void* data) {
+        std::unique_ptr<uint8_t[]> pixels(static_cast<uint8_t*>(data));
+        std::lock_guard<std::mutex> lock(pool->mutex);
+        if (pool->size == size && pool->idle.size() < kMaxIdlePixels) {
+          pool->idle.push_back(std::move(pixels));
+        }
+      });
   return result;
 }
 

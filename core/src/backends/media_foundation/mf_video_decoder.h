@@ -67,6 +67,10 @@ class MFVideoDecoder : public VideoDecoder {
   D3D11VideoProcessor processor_;
   // Software decoding: what the decoder's output is copied into.
   Microsoft::WRL::ComPtr<ID3D11Texture2D> upload_;
+  // Software decoding: the sample the decoder writes into, reused while
+  // it is large enough.
+  Microsoft::WRL::ComPtr<IMFSample> output_sample_;
+  DWORD output_size_ = 0;
   // The output type's format, coded size and picture (its display
   // aperture), color space, and whether the decoder allocates its output
   // samples, as it does on D3D11.

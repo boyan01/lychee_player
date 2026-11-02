@@ -393,12 +393,22 @@ bool MFVideoDecoder::Drain(const OutputCallback& output) {
     ComPtr<IMFSample> sample;
     if (!hardware_ && !provides_samples_) {
       // A software decoder writes into a sample of ours.
+      // Upload() copies each picture out, so one sample serves them all.
       MFT_OUTPUT_STREAM_INFO info = {};
       decoder_->GetOutputStreamInfo(0, &info);
-      sample = CreateMFOutputSample(std::max<DWORD>(info.cbSize, 1));
-      if (!sample) {
-        return false;
+      const DWORD size = std::max<DWORD>(info.cbSize, 1);
+      if (!output_sample_ || output_size_ < size) {
+        output_sample_ = CreateMFOutputSample(size);
+        output_size_ = output_sample_ ? size : 0;
+        if (!output_sample_) {
+          return false;
+        }
       }
+      ComPtr<IMFMediaBuffer> memory;
+      if (SUCCEEDED(output_sample_->GetBufferByIndex(0, &memory))) {
+        memory->SetCurrentLength(0);
+      }
+      sample = output_sample_;
       buffer.pSample = sample.Get();
     }
     DWORD status = 0;
