@@ -86,6 +86,12 @@ building on top of them.
   white box at the top in FFmpeg's frame and in the Swift example, but
   none in the Flutter example's window, before the day's changes too.
   Done when the Flutter example draws it there.
+- **Subtitle history grows throughout live playback**: `SubtitleRenderer`
+  keeps every text cue and its lookup entries, including expired cues in
+  unseekable HLS. Its 32 MB limit bounds bitmap pixels only. Done when
+  live playback retires cues outside the needed subtitle-delay window
+  and memory plateaus as new cues arrive, while seekable files still show
+  a cue when seeking into its middle.
 
 ## Performance
 
