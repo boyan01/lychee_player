@@ -52,6 +52,9 @@ constexpr int64_t kMaxSegmentBytes = int64_t{256} << 20;
 constexpr int64_t kBandwidthHeadroom = 133;
 // Smaller segments measure latency more than bandwidth.
 constexpr int64_t kMinMeasuredBytes = 64 << 10;
+// What a source that connects on its first read (Android's, FFmpeg's)
+// downloads of the next segment ahead: a few seconds of HD and more.
+constexpr size_t kPrefetchBytes = 16 << 20;
 
 // A packet buffer that owns the vector it was written into.
 class VectorPacketBuffer : public PacketBuffer {
@@ -1232,6 +1235,10 @@ void HlsDemuxer::Prefetch(Rendition* r) {
   r->prefetch = opener_(next.url, &error);
   if (!r->prefetch) {
     return;  // The open at the segment's start says why.
+  }
+  if (!r->prefetch->reads_ahead()) {
+    r->prefetch =
+        CreatePrefetchingDataSource(std::move(r->prefetch), kPrefetchBytes);
   }
   r->prefetch_url = next.url;
   r->prefetch_sequence = next.sequence;

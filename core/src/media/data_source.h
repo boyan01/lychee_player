@@ -52,6 +52,12 @@ class DataSource {
   // a request to its last bytes), or -1 if unknown: what HLS adapts its
   // variant to.
   virtual int64_t transfer_rate() const { return -1; }
+
+  // Whether its bytes come without waiting once it is open: a local file,
+  // or a client that downloads ahead of the reader by itself (Apple's,
+  // Windows'). Others connect on their first Read(), so opening one early
+  // fetches nothing (CreatePrefetchingDataSource()).
+  virtual bool reads_ahead() const { return false; }
 };
 
 // Blocking. A path or file:// URL, or http(s):// where the platform has a
@@ -72,6 +78,15 @@ DataSourceOpener CreateSharedOpener();
 
 // Bytes in memory (tests, the fuzzer).
 std::unique_ptr<DataSource> CreateMemoryDataSource(std::vector<uint8_t> data);
+
+// |source|, with a thread of its own that reads its first |limit| bytes
+// into memory from now on: HLS's next segment while the current one plays.
+// Reads wait for those bytes; past them, or once the thread stopped
+// early, they go to |source|. Its other calls answer from the thread's
+// last read until it is done.
+std::unique_ptr<DataSource> CreatePrefetchingDataSource(
+    std::unique_ptr<DataSource> source,
+    size_t limit);
 
 }  // namespace lychee
 

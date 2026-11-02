@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
+#include <thread>
 
 #if defined(__APPLE__)
 #include "backends/apple/http_data_source.h"
@@ -89,6 +92,7 @@ class FileDataSource : public DataSource {
 
   int64_t size() const override { return size_; }
   std::string error() const override { return error_; }
+  bool reads_ahead() const override { return true; }
 
  private:
   std::FILE* file_;
@@ -115,15 +119,153 @@ class MemoryDataSource : public DataSource {
 
   int64_t size() const override { return static_cast<int64_t>(data_.size()); }
   std::string error() const override { return "read before the start"; }
+  bool reads_ahead() const override { return true; }
 
  private:
   const std::vector<uint8_t> data_;
+};
+
+class PrefetchingDataSource : public DataSource {
+ public:
+  PrefetchingDataSource(std::unique_ptr<DataSource> source, size_t limit)
+      : source_(std::move(source)), limit_(limit) {
+    thread_ = std::thread([this] { Fill(); });
+  }
+
+  ~PrefetchingDataSource() override {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      stop_ = true;
+    }
+    source_->Interrupt();
+    thread_.join();
+  }
+
+  int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
+    std::unique_lock<std::mutex> lock(mutex_);
+    condition_.wait(lock, [&] {
+      return interrupted_ || done_ ||
+             (offset >= 0 && static_cast<uint64_t>(offset) < buffer_.size());
+    });
+    if (interrupted_) {
+      return -1;
+    }
+    if (offset >= 0 && static_cast<uint64_t>(offset) < buffer_.size()) {
+      size = std::min(size, buffer_.size() - static_cast<size_t>(offset));
+      memcpy(data, buffer_.data() + offset, size);
+      return static_cast<int64_t>(size);
+    }
+    // The thread is done and touches |source_| no more.
+    lock.unlock();
+    return source_->Read(offset, data, size);
+  }
+
+  int64_t size() const override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return done_ ? source_->size() : size_;
+  }
+  bool seekable() const override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return done_ ? source_->seekable() : seekable_;
+  }
+  std::string url() const override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return done_ ? source_->url() : url_;
+  }
+  bool cleartext_refused() const override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return done_ ? source_->cleartext_refused() : cleartext_refused_;
+  }
+  std::string error() const override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return done_ ? source_->error() : error_;
+  }
+  int64_t transfer_rate() const override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return done_ ? source_->transfer_rate() : transfer_rate_;
+  }
+
+  void Interrupt() override {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      interrupted_ = true;
+    }
+    condition_.notify_all();
+    source_->Interrupt();
+  }
+  void ClearInterrupt() override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    interrupted_ = false;
+    source_->ClearInterrupt();
+  }
+  bool interrupted() const override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return interrupted_;
+  }
+
+ private:
+  void Fill() {
+    std::vector<uint8_t> chunk(size_t{64} * 1024);
+    size_t filled = 0;
+    for (;;) {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stop_ || filled >= limit_) {
+          break;
+        }
+      }
+      const int64_t n =
+          source_->Read(static_cast<int64_t>(filled), chunk.data(),
+                        std::min(chunk.size(), limit_ - filled));
+      std::lock_guard<std::mutex> lock(mutex_);
+      size_ = source_->size();
+      seekable_ = source_->seekable();
+      url_ = source_->url();
+      cleartext_refused_ = source_->cleartext_refused();
+      error_ = source_->error();
+      transfer_rate_ = source_->transfer_rate();
+      if (n <= 0) {
+        break;
+      }
+      buffer_.insert(buffer_.end(), chunk.data(), chunk.data() + n);
+      filled += static_cast<size_t>(n);
+      condition_.notify_all();
+    }
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      done_ = true;
+    }
+    condition_.notify_all();
+  }
+
+  const std::unique_ptr<DataSource> source_;
+  const size_t limit_;
+  std::thread thread_;
+  mutable std::mutex mutex_;
+  std::condition_variable condition_;
+  std::vector<uint8_t> buffer_;
+  bool stop_ = false;
+  bool done_ = false;
+  bool interrupted_ = false;
+  // |source_|'s answers after the thread's last read.
+  int64_t size_ = -1;
+  bool seekable_ = true;
+  std::string url_;
+  bool cleartext_refused_ = false;
+  std::string error_;
+  int64_t transfer_rate_ = -1;
 };
 
 }  // namespace
 
 std::unique_ptr<DataSource> CreateMemoryDataSource(std::vector<uint8_t> data) {
   return std::make_unique<MemoryDataSource>(std::move(data));
+}
+
+std::unique_ptr<DataSource> CreatePrefetchingDataSource(
+    std::unique_ptr<DataSource> source,
+    size_t limit) {
+  return std::make_unique<PrefetchingDataSource>(std::move(source), limit);
 }
 
 DataSourceOpener CreateSharedOpener() {

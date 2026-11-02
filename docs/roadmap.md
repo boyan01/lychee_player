@@ -42,7 +42,15 @@ building on top of them.
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays
    slower still).
-4. **iOS audio after the background**: on the iPhone 17 (2026-10-29)
+4. **HLS prefetch on Android and Linux** (2026-11-02): their sources
+   connect on their first read, so a thread now reads the next segment
+   ahead (`CreatePrefetchingDataSource`); its unit tests show it reading
+   ahead, but no run has shown the download overlapping the current
+   segment there. Done when `media_server.py --verbose`'s log of
+   `http-hls-prefetch-hls` on Linux, or of the Android example playing
+   `hls/index.m3u8`, has segment 5 requested before segment 4's last
+   bytes went out.
+5. **iOS audio after the background**: on the iPhone 17 (2026-10-29)
    sound and hardware video came back after the Home Screen, but that
    run's audio device never failed to start, so the renderer's retry of
    a refused start (`'what'`, `audio device started on retry`) is seen
@@ -85,8 +93,7 @@ What the review of 2026-11-02 found and left, by expected gain.
    frame at 4K. Done when the core hands out a buffer the compositor
    takes (AHardwareBuffer with ASurfaceControl, or a YV12 window),
    checked by pixels.
-4. **HLS**: prefetching the next segment does nothing with the Android
-   and FFmpeg data sources, which connect on their first read; AES-128
+4. **HLS**: AES-128
    segments are still decrypted whole before their first packet
    (streaming CBC needs a chained cipher on CommonCrypto, BCrypt and
    javax.crypto); only one segment is fetched ahead.
