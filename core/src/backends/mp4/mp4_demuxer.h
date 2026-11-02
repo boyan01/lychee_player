@@ -23,7 +23,9 @@ namespace lychee {
 //
 // Fragmented files are read one moof at a time. Seeks find the fragment
 // in mfra or a sidx that covers the file, or else by reading the moof
-// boxes from the last one known (on http, a range request each).
+// boxes from the last one known (on http, a range request each), up to
+// the seek's time only. Without mehd or an index the duration is where
+// the moof boxes at the end of the file end.
 class Mp4Demuxer : public Demuxer {
  public:
   Mp4Demuxer();
@@ -104,6 +106,8 @@ class Mp4Demuxer : public Demuxer {
     int64_t sync_time = kNoTimestamp;
     int64_t end = kNoTimestamp;
     size_t samples = 0;
+    // A traf without tfdt: its times follow the fragments before it.
+    bool relative = false;
   };
   enum class LoadResult { kLoaded, kEnd, kError, kAborted };
 
@@ -151,6 +155,10 @@ class Mp4Demuxer : public Demuxer {
   bool OpenFragments(std::string* error);
   bool ReadMfra();
   void ReadSidx();
+  // Raises fragment_end_ to where the moof boxes near the end of the file
+  // end, without reading those before. False if none is found there, or
+  // one has no tfdt.
+  bool ReadLastFragments();
   // Reads the moof boxes from |*offset| on, advancing it and
   // |decode_times| and raising fragment_end_, and adds seek points if
   // |add_points|. kLoaded once a seek point is past |until|, kEnd at the

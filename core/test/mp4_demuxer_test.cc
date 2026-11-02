@@ -148,6 +148,34 @@ std::unique_ptr<Mp4Demuxer> OpenBytes(Bytes bytes, std::string* error) {
   return demuxer;
 }
 
+// Counts reads, and the requests an http source would make for them: one
+// for each read outside the bytes it has around the last one (1 MB
+// behind, 512 KB ahead, as the platforms' sources keep).
+class CountingSource : public DataSource {
+ public:
+  CountingSource(Bytes bytes, int* reads, int* requests)
+      : source_(CreateMemoryDataSource(std::move(bytes))),
+        reads_(reads),
+        requests_(requests) {}
+  int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
+    ++*reads_;
+    if (end_ < 0 || offset < end_ - (1 << 20) || offset > end_ + (512 << 10)) {
+      ++*requests_;
+    }
+    int64_t n = source_->Read(offset, data, size);
+    end_ = offset + std::max<int64_t>(n, 0);
+    return n;
+  }
+  int64_t size() const override { return source_->size(); }
+  std::string error() const override { return source_->error(); }
+
+ private:
+  std::unique_ptr<DataSource> source_;
+  int* reads_;
+  int* requests_;
+  int64_t end_ = -1;
+};
+
 // The pts of every packet to the end, in milliseconds.
 std::vector<int64_t> ReadAll(Mp4Demuxer* demuxer, DemuxerReadResult* last) {
   std::vector<int64_t> times;
@@ -234,6 +262,34 @@ TEST(Mp4Demuxer, FragmentsWithoutTfdt) {
   times = ReadAll(demuxer.get(), &last);
   EXPECT_EQ(times.empty() ? -1 : times.front(), 2000);
   EXPECT_EQ(times.size(), 30u);
+}
+
+// Without mehd or an index, open takes the duration from the moofs at the
+// end of the file rather than reading every one; a seek reads them up to
+// its time.
+TEST(Mp4Demuxer, FragmentDurationFromTheEnd) {
+  constexpr int kFragments = 400;
+  int reads = 0;
+  int requests = 0;
+  auto demuxer = std::make_unique<Mp4Demuxer>();
+  std::string error;
+  EXPECT_TRUE(
+      demuxer->Open(std::make_unique<CountingSource>(
+                        FragmentedFile(kFragments, 0, true), &reads, &requests),
+                    &error));
+  EXPECT_EQ(demuxer->media_info().duration, int64_t{kFragments} * 1000000);
+  // Box headers up to the moov, mfra's and the first moof, the tail.
+  EXPECT_TRUE(reads < 20);
+  EXPECT_TRUE(demuxer->Seek(350500000));
+  DemuxerReadResult last;
+  std::vector<int64_t> times = ReadAll(demuxer.get(), &last);
+  EXPECT_TRUE(last == DemuxerReadResult::kEndOfStream);
+  EXPECT_EQ(times.empty() ? -1 : times.front(), 350000);
+  EXPECT_EQ(times.size(), 500u);
+  EXPECT_TRUE(demuxer->Seek(20500000));
+  times = ReadAll(demuxer.get(), &last);
+  EXPECT_EQ(times.empty() ? -1 : times.front(), 20000);
+  EXPECT_EQ(times.size(), size_t{kFragments - 20} * kSamplesPerFragment);
 }
 
 // A trun of four billion samples taking no bytes of its table.

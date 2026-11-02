@@ -1112,7 +1112,7 @@ bool Mp4Demuxer::OpenFragments(std::string* error) {
   if (result == LoadResult::kLoaded && fragment_duration_ == kNoTimestamp &&
       file_size_ > 0) {
     // The duration is where the last fragment ends: from the last one the
-    // index knows, or by reading them all.
+    // index knows, from the end of the file, or by reading them all.
     if (index_complete_) {
       int64_t offset = first_fragment_offset_;
       std::vector<int64_t> decode_times = scan_decode_times_;
@@ -1121,8 +1121,8 @@ bool Mp4Demuxer::OpenFragments(std::string* error) {
         decode_times = DecodeTimesAt(seek_points_.back().time);
       }
       result = Scan(&offset, &decode_times, kInfiniteTime, false);
-    } else {
-      result = ScanIndex(kInfiniteTime);
+    } else if (!ReadLastFragments()) {
+      result = aborted() ? LoadResult::kAborted : ScanIndex(kInfiniteTime);
     }
   }
   if (result == LoadResult::kAborted || result == LoadResult::kError) {
@@ -1275,6 +1275,86 @@ void Mp4Demuxer::ReadSidx() {
     index_complete_ = true;
     return;
   }
+}
+
+bool Mp4Demuxer::ReadLastFragments() {
+  // The tail of the file, read further back while it holds no moof: an
+  // mdat of a fragment of 4K video takes MBs. Each read is one request on
+  // http; reading every moof would be one per fragment.
+  constexpr int64_t kTailBytes = 1 << 20;
+  constexpr int64_t kMaxTailBytes = 16 << 20;
+  std::vector<uint8_t> tail;
+  int64_t start = file_size_;
+  for (int64_t want = kTailBytes; want <= kMaxTailBytes; want *= 4) {
+    const int64_t from = std::max(first_fragment_offset_, file_size_ - want);
+    if (from >= start) {
+      return false;
+    }
+    std::vector<uint8_t> more(static_cast<size_t>(start - from));
+    if (ReadFully(from, more.data(), more.size()) != LoadResult::kLoaded) {
+      return false;
+    }
+    tail.insert(tail.begin(), more.begin(), more.end());
+    start = from;
+    // A box at |at| that ends in the tail: its size, or 0.
+    auto box_size = [&tail](size_t at, uint64_t* header) -> uint64_t {
+      Reader reader(tail.data() + at, tail.size() - at);
+      uint64_t size = reader.U32();
+      reader.Skip(4);
+      *header = 8;
+      if (size == 1) {
+        size = reader.U64();
+        *header = 16;
+      } else if (size == 0) {
+        size = tail.size() - at;
+      }
+      return reader.ok() && size >= *header && size <= tail.size() - at ? size
+                                                                        : 0;
+    };
+    // Every moof in it. The bytes "moof" in the media data are not one: a
+    // moof's children fill it, the box after it ends in the file, and it
+    // lists samples of the tracks.
+    int64_t end = kNoTimestamp;
+    for (size_t at = tail.size() >= 8 ? tail.size() - 7 : 0; at-- > 0;) {
+      if (std::memcmp(tail.data() + at + 4, "moof", 4) != 0) {
+        continue;
+      }
+      uint64_t header;
+      const uint64_t size = box_size(at, &header);
+      if (size < header + 8 || size > kMaxMoofSize) {
+        continue;
+      }
+      uint64_t next_header;
+      if (at + size < tail.size() && box_size(at + size, &next_header) == 0) {
+        continue;
+      }
+      size_t filled = 0;
+      for (const Box& child :
+           Children(tail.data() + at + header, size - header)) {
+        filled += child.size;
+      }
+      if (filled != size - header) {
+        continue;
+      }
+      std::vector<int64_t> decode_times(tracks_.size(), 0);
+      MoofSummary summary;
+      ParseMoof(tail.data() + at, size, start + static_cast<int64_t>(at), false,
+                &decode_times, &summary);
+      if (summary.samples == 0) {
+        continue;
+      }
+      if (summary.relative) {
+        // Its times depend on every fragment before it.
+        return false;
+      }
+      end = std::max(end, summary.end);
+    }
+    if (end != kNoTimestamp) {
+      fragment_end_ = std::max(fragment_end_, end);
+      return true;
+    }
+  }
+  return false;
 }
 
 Mp4Demuxer::LoadResult Mp4Demuxer::ReadBoxHeader(int64_t offset,
@@ -1471,6 +1551,7 @@ bool Mp4Demuxer::ParseMoof(const uint8_t* data,
     }
     first_traf = false;
     int64_t dts = (*decode_times)[index];
+    bool relative = true;
     if (std::optional<Box> tfdt = Find(children, FourCC("tfdt"))) {
       Reader time(tfdt->payload, tfdt->payload_size);
       int version = time.U8();
@@ -1478,8 +1559,10 @@ bool Mp4Demuxer::ParseMoof(const uint8_t* data,
       uint64_t decode_time = version == 1 ? time.U64() : time.U32();
       if (time.ok()) {
         dts = static_cast<int64_t>(std::min<uint64_t>(decode_time, kMaxTicks));
+        relative = false;
       }
     }
+    summary->relative = summary->relative || relative;
     const size_t first_sample = track.samples.size();
     uint64_t position = base;
     for (const Box& trun : children) {
