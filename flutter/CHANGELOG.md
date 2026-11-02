@@ -43,6 +43,8 @@
 * `LycheeVideo` no longer rebuilds five times a second while playing:
   `LycheePlayer` notifies only when its value changes, and
   `LycheePlayerValue` now compares by value.
+* Windows: software-decoded video in Flutter no longer holds up drawing
+  while its frames upload.
 
 ## 1.0.0-beta.5
 

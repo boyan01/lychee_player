@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <utility>
 
 namespace lychee_flutter {
 
@@ -18,6 +19,9 @@ constexpr int64_t kMicrosPerSecond = 1000000;
 constexpr int64_t kMonitorCheckInterval = kMicrosPerSecond;
 // Longest wait for an upload to reach the GPU.
 constexpr ULONGLONG kUploadTimeoutMs = 100;
+// Without a fence: how long WaitForGpu() polls between yields before it
+// sleeps instead.
+constexpr ULONGLONG kUploadSpinMs = 2;
 
 // The DXGI output that drives |monitor|, or null.
 ComPtr<IDXGIOutput> FindOutput(IDXGIFactory1* factory, HMONITOR monitor) {
@@ -51,16 +55,6 @@ int64_t RefreshInterval(HMONITOR monitor) {
   return kMicrosPerSecond / 60;
 }
 
-// What a frame shows: the same pixels come back from acquire_frame() until
-// the player has a newer frame.
-const void* FrameContents(lychee_frame* frame) {
-  if (lychee_frame_get_type(frame) == LYCHEE_FRAME_D3D11_TEXTURE) {
-    return lychee_frame_get_native_handle(frame);
-  }
-  int32_t stride = 0;
-  return lychee_frame_get_data(frame, &stride);
-}
-
 }  // namespace
 
 LycheeTexture::LycheeTexture(flutter::TextureRegistrar* registrar,
@@ -74,11 +68,21 @@ LycheeTexture::LycheeTexture(flutter::TextureRegistrar* registrar,
                                nullptr, &context_)) ||
       FAILED(device_->CreateQuery(&query, &completion_))) {
     device_.Reset();
+    context_.Reset();
     texture_ = std::make_unique<flutter::TextureVariant>(
         flutter::PixelBufferTexture([this](size_t width, size_t height) {
           return CopyPixelBuffer(width, height);
         }));
     return;
+  }
+  Microsoft::WRL::ComPtr<ID3D11Device5> device5;
+  if (SUCCEEDED(device_.As(&device5)) && SUCCEEDED(context_.As(&context4_)) &&
+      SUCCEEDED(device5->CreateFence(0, D3D11_FENCE_FLAG_NONE,
+                                     IID_PPV_ARGS(&fence_)))) {
+    fence_event_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+  }
+  if (!fence_event_) {
+    fence_.Reset();
   }
   texture_ = std::make_unique<flutter::TextureVariant>(
       flutter::GpuSurfaceTexture(kFlutterDesktopGpuSurfaceTypeDxgiSharedHandle,
@@ -92,6 +96,12 @@ LycheeTexture::~LycheeTexture() {
   Dispose();
   if (shown_frame_) {
     lychee_frame_release(shown_frame_);
+  }
+  if (prepared_frame_) {
+    lychee_frame_release(prepared_frame_);
+  }
+  if (fence_event_) {
+    CloseHandle(fence_event_);
   }
 }
 
@@ -111,10 +121,18 @@ void LycheeTexture::SetPlayer(lychee_player* player) {
     video_device.handle = adapter_.Get();
     lychee_player_set_video_device(player, &video_device);
   }
+  lychee_frame* prepared = nullptr;
   {
     // VsyncLoop() and AcquireFrame() use the player only under the lock.
     std::lock_guard<std::mutex> lock(mutex_);
     player_ = player;
+    ++generation_;
+    // Not shown after the switch.
+    prepared = std::exchange(prepared_frame_, nullptr);
+    prepared_texture_.Reset();
+  }
+  if (prepared) {
+    lychee_frame_release(prepared);
   }
   player_set_.notify_all();
   // Redraw, so that nothing shows; thread-safe.
@@ -155,6 +173,10 @@ void LycheeTexture::Retire() {
 // rates, as on macOS.
 void LycheeTexture::VsyncLoop() {
   SetThreadDescription(GetCurrentThread(), L"lychee-vsync");
+  // Late wakeups miss vblanks, and software decoding keeps every core
+  // busy: display priority, as Android's URGENT_DISPLAY (Chromium's
+  // kDisplayCritical is ABOVE_NORMAL on Windows too).
+  SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
   ComPtr<IDXGIFactory1> factory;
   ComPtr<IDXGIOutput> output;
   HMONITOR monitor = nullptr;
@@ -195,16 +217,51 @@ void LycheeTexture::VsyncLoop() {
     const int64_t display_time = lychee_now_us() + interval;
     next_display_time_ = display_time;
     bool has_new_frame;
+    lychee_frame* frame = nullptr;
+    uint64_t generation = 0;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       // Called every vsync, drawn or not: the player estimates the
       // display's refresh interval from these calls.
       has_new_frame =
           player_ && lychee_player_has_new_frame(player_, display_time) != 0;
+      // Once Flutter has taken the last one: a frame it would never show
+      // would count as rendered.
+      if (has_new_frame && device_ && !frame_pending_) {
+        frame = lychee_player_acquire_frame(player_, display_time);
+        generation = generation_;
+      }
+    }
+    if (frame) {
+      PrepareFrame(frame, generation);
     }
     if (has_new_frame && !frame_pending_.exchange(true)) {
       registrar_->MarkTextureFrameAvailable(texture_id_);
     }
+  }
+}
+
+void LycheeTexture::PrepareFrame(lychee_frame* frame, uint64_t generation) {
+  ComPtr<ID3D11Texture2D> texture;
+  switch (lychee_frame_get_type(frame)) {
+    case LYCHEE_FRAME_D3D11_TEXTURE:
+      texture =
+          static_cast<ID3D11Texture2D*>(lychee_frame_get_native_handle(frame));
+      break;
+    case LYCHEE_FRAME_CPU_BGRA:
+      texture = Upload(frame);
+      break;
+  }
+  if (texture) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (generation == generation_) {
+      std::swap(frame, prepared_frame_);
+      prepared_texture_ = std::move(texture);
+    }
+  }
+  // The one it replaced, or itself if it is not shown.
+  if (frame) {
+    lychee_frame_release(frame);
   }
 }
 
@@ -261,8 +318,16 @@ const FlutterDesktopPixelBuffer* LycheeTexture::CopyPixelBuffer(size_t,
 const FlutterDesktopGpuSurfaceDescriptor* LycheeTexture::CopyGpuSurface(
     size_t,
     size_t) {
-  bool has_player = false;
-  lychee_frame* frame = AcquireFrame(&has_player);
+  frame_pending_ = false;
+  bool has_player;
+  lychee_frame* frame;
+  ComPtr<ID3D11Texture2D> texture;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    has_player = player_ != nullptr;
+    frame = std::exchange(prepared_frame_, nullptr);
+    texture = std::move(prepared_texture_);
+  }
   if (!has_player && shown_frame_) {
     // The player was unset: show nothing rather than its last frame.
     lychee_frame_release(shown_frame_);
@@ -272,23 +337,9 @@ const FlutterDesktopGpuSurfaceDescriptor* LycheeTexture::CopyGpuSurface(
   if (!frame) {
     return shown_texture_ ? &descriptor_ : nullptr;
   }
-  if (shown_frame_ && FrameContents(frame) == FrameContents(shown_frame_)) {
-    lychee_frame_release(frame);
-    return &descriptor_;
-  }
-  ComPtr<ID3D11Texture2D> texture;
-  switch (lychee_frame_get_type(frame)) {
-    case LYCHEE_FRAME_D3D11_TEXTURE:
-      texture = static_cast<ID3D11Texture2D*>(
-          lychee_frame_get_native_handle(frame));
-      break;
-    case LYCHEE_FRAME_CPU_BGRA:
-      texture = Upload(frame);
-      break;
-  }
   ComPtr<IDXGIResource> resource;
   HANDLE handle = nullptr;
-  if (!texture || FAILED(texture.As(&resource)) ||
+  if (FAILED(texture.As(&resource)) ||
       FAILED(resource->GetSharedHandle(&handle)) || !handle) {
     lychee_frame_release(frame);
     return shown_texture_ ? &descriptor_ : nullptr;
@@ -318,35 +369,80 @@ ComPtr<ID3D11Texture2D> LycheeTexture::Upload(lychee_frame* frame) {
   if (!data) {
     return nullptr;
   }
+  const UINT width = static_cast<UINT>(lychee_frame_get_width(frame));
+  const UINT height = static_cast<UINT>(lychee_frame_get_height(frame));
+  // Reused in turn, so the one Flutter shows is never written: Flutter
+  // takes at most one prepared frame per vsync, and draws from one only
+  // until the next replaces it.
+  ComPtr<ID3D11Texture2D>& texture = uploads_[next_upload_];
   D3D11_TEXTURE2D_DESC desc = {};
-  desc.Width = static_cast<UINT>(lychee_frame_get_width(frame));
-  desc.Height = static_cast<UINT>(lychee_frame_get_height(frame));
-  desc.MipLevels = desc.ArraySize = 1;
-  // ANGLE opens shared textures only in its surface format.
-  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-  desc.SampleDesc.Count = 1;
-  desc.Usage = D3D11_USAGE_DEFAULT;
-  desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-  desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
-  const D3D11_SUBRESOURCE_DATA pixels = {data, static_cast<UINT>(stride), 0};
-  ComPtr<ID3D11Texture2D> texture;
-  if (FAILED(device_->CreateTexture2D(&desc, &pixels, &texture))) {
+  if (texture) {
+    texture->GetDesc(&desc);
+  }
+  if (!texture || desc.Width != width || desc.Height != height) {
+    texture.Reset();
+    desc = {};
+    desc.Width = width;
+    desc.Height = height;
+    desc.MipLevels = desc.ArraySize = 1;
+    // ANGLE opens shared textures only in its surface format.
+    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
+    if (FAILED(device_->CreateTexture2D(&desc, nullptr, &texture))) {
+      return nullptr;
+    }
+  }
+  context_->UpdateSubresource(texture.Get(), 0, nullptr, data,
+                              static_cast<UINT>(stride), 0);
+  // Another device reads it: wait until the copy has reached the GPU.
+  if (!WaitForGpu()) {
     return nullptr;
   }
-  // Another device reads it: wait until the copy has reached the GPU.
+  next_upload_ = (next_upload_ + 1) % uploads_.size();
+  return texture;
+}
+
+bool LycheeTexture::WaitForGpu() {
+  const ULONGLONG deadline = GetTickCount64() + kUploadTimeoutMs;
+  if (fence_) {
+    const uint64_t value = ++fence_value_;
+    if (SUCCEEDED(context4_->Signal(fence_.Get(), value))) {
+      context_->Flush();
+      // An event left set by a wait that timed out wakes a later wait
+      // early: check the fence after each.
+      while (fence_->GetCompletedValue() < value) {
+        const ULONGLONG now = GetTickCount64();
+        if (now >= deadline ||
+            FAILED(fence_->SetEventOnCompletion(value, fence_event_))) {
+          break;
+        }
+        WaitForSingleObject(fence_event_, static_cast<DWORD>(deadline - now));
+      }
+      return fence_->GetCompletedValue() >= value &&
+             SUCCEEDED(device_->GetDeviceRemovedReason());
+    }
+  }
   context_->End(completion_.Get());
   context_->Flush();
-  const ULONGLONG deadline = GetTickCount64() + kUploadTimeoutMs;
+  const ULONGLONG began = GetTickCount64();
   HRESULT status;
   while ((status = context_->GetData(completion_.Get(), nullptr, 0,
                                      D3D11_ASYNC_GETDATA_DONOTFLUSH)) ==
          S_FALSE) {
-    if (GetTickCount64() >= deadline) {
-      return nullptr;
+    const ULONGLONG now = GetTickCount64();
+    if (now >= deadline) {
+      return false;
     }
-    std::this_thread::yield();
+    if (now - began < kUploadSpinMs) {
+      std::this_thread::yield();
+    } else {
+      Sleep(1);
+    }
   }
-  return SUCCEEDED(status) ? texture : nullptr;
+  return SUCCEEDED(status);
 }
 
 }  // namespace lychee_flutter
