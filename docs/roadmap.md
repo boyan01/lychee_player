@@ -42,13 +42,7 @@ building on top of them.
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays
    slower still).
-4. **PGS in the Flutter example's window on macOS**: the plugin's default
-   core (no FFmpeg) had no bitmap subtitle decoder, so `sub_pgs.mkv`
-   showed no pictures. With its own PGS decoder the Dart side gets both
-   pictures at their times (2026-11-02), but the screen was locked and
-   the window drew nothing. Done when a window screenshot at 3.7 s shows
-   the white box at the top.
-5. **iOS audio after the background**: on the iPhone 17 (2026-10-29)
+4. **iOS audio after the background**: on the iPhone 17 (2026-10-29)
    sound and hardware video came back after the Home Screen, but that
    run's audio device never failed to start, so the renderer's retry of
    a refused start (`'what'`, `audio device started on retry`) is seen
