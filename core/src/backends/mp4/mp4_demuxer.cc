@@ -549,7 +549,7 @@ bool Mp4Demuxer::Open(std::unique_ptr<DataSource> source,
       int64_t start = kInfiniteTime;
       for (const Track& track : tracks_) {
         if (!track.samples.empty()) {
-          start = std::min(start, track.samples.front().pts);
+          start = std::min(start, track.samples.front().pts());
         }
       }
       // Audio priming (an edit list that skips the encoder delay) starts
@@ -836,58 +836,60 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
       chunk_offsets.push_back(static_cast<int64_t>(co64.U64()));
     }
   }
-  std::vector<uint32_t> sizes;
+  // Sample sizes: a fixed size, or a table of 32, 16, 8 or 4-bit ones.
+  size_t count = 0;
+  uint32_t fixed = 0;
+  int field = 32;
+  Reader sizes(nullptr, 0);
   if (Reader stsz = entries_of(FourCC("stsz"), 12); stsz.remaining()) {
     stsz.Skip(4);
-    uint32_t fixed = stsz.U32();
-    uint32_t count = stsz.U32();
+    fixed = stsz.U32();
+    count = stsz.U32();
     if (fixed) {
       // No table backs the count: bound it by the bytes it claims, or a few
       // bytes of a file ask for gigabytes.
       if (count > sample_budget_ ||
           (file_size_ > 0 &&
            uint64_t{count} * fixed > static_cast<uint64_t>(file_size_))) {
-        LOGW("track %zu: %u samples of %u bytes do not fit; skipped",
+        LOGW("track %zu: %zu samples of %u bytes do not fit; skipped",
              tracks_.size(), count, fixed);
         return false;
       }
-      sizes.assign(count, fixed);
     } else {
-      for (uint32_t i = 0; i < count && stsz.ok(); ++i) {
-        sizes.push_back(stsz.U32());
-      }
+      count = std::min(count, stsz.remaining() / 4);
     }
+    sizes = stsz;
   } else if (Reader stz2 = entries_of(FourCC("stz2"), 12); stz2.remaining()) {
     stz2.Skip(7);
-    int field = stz2.U8();
-    uint32_t count = stz2.U32();
+    field = stz2.U8();
+    count = stz2.U32();
     // Field sizes are 4, 8 or 16 bits. Another (0 reads no bytes, so the
     // reader never runs out) would let the count alone fill memory.
     if ((field != 4 && field != 8 && field != 16) ||
-        uint64_t{count} * field > uint64_t{stz2.remaining()} * 8) {
-      LOGW("track %zu: bad stz2 (%d-bit, %u samples); skipped", tracks_.size(),
+        uint64_t{count} * static_cast<uint64_t>(field) >
+            uint64_t{stz2.remaining()} * 8) {
+      LOGW("track %zu: bad stz2 (%d-bit, %zu samples); skipped", tracks_.size(),
            field, count);
       return false;
     }
-    for (uint32_t i = 0; i < count && stz2.ok(); ++i) {
-      if (field == 4) {
-        uint8_t pair = stz2.U8();
-        sizes.push_back(pair >> 4);
-        if (++i < count) {
-          sizes.push_back(pair & 0xf);
-        }
-      } else {
-        sizes.push_back(static_cast<uint32_t>(stz2.Bits(field / 8)));
-      }
-    }
+    sizes = stz2;
   }
-  const size_t count = sizes.size();
   if (count > sample_budget_) {
     LOGW("track %zu: too many samples (%zu); skipped", tracks_.size(), count);
     return false;
   }
   sample_budget_ -= count;
   track.samples.resize(count);
+  for (size_t i = 0; i < count; ++i) {
+    uint32_t size = fixed;
+    if (!fixed && field == 4) {
+      // Two to a byte, the first in the high bits.
+      size = i % 2 == 0 ? *sizes.current() >> 4 : sizes.U8() & 0xf;
+    } else if (!fixed) {
+      size = static_cast<uint32_t>(sizes.Bits(field / 8));
+    }
+    track.samples[i].size = std::min<uint32_t>(size, INT32_MAX);
+  }
 
   Reader stsc = entries_of(FourCC("stsc"), 8);
   stsc.Skip(4);
@@ -911,8 +913,7 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
       uint64_t offset = static_cast<uint64_t>(chunk_offsets[chunk]);
       for (uint32_t i = 0; i < chunk_runs[run].second && sample < count; ++i) {
         track.samples[sample].offset = offset;
-        track.samples[sample].size = sizes[sample];
-        offset += sizes[sample];
+        offset += track.samples[sample].size;
         ++sample;
       }
     }
@@ -943,26 +944,27 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
     track.samples[sample].duration = 0;
   }
   track.moov_decode_time = ClampTicks(dts);
-  std::vector<int32_t> composition(track.samples.size(), 0);
+  // Composition offsets, in ticks until MakeSample() below.
   if (Reader ctts = entries_of(FourCC("ctts"), 8); ctts.remaining()) {
     ctts.Skip(4);
     uint32_t offsets = ctts.U32();
     sample = 0;
-    for (uint32_t i = 0; i < offsets && ctts.ok() && sample < composition.size(); ++i) {
+    for (uint32_t i = 0;
+         i < offsets && ctts.ok() && sample < track.samples.size(); ++i) {
       uint32_t run = ctts.U32();
       // Signed in version 1, and in practice in version 0 too.
       auto offset = static_cast<int32_t>(ctts.U32());
-      for (uint32_t j = 0; j < run && sample < composition.size(); ++j) {
-        composition[sample++] = offset;
+      for (uint32_t j = 0; j < run && sample < track.samples.size(); ++j) {
+        track.samples[sample++].pts_offset = offset;
       }
     }
   }
-  for (int32_t offset : composition) {
-    track.dts_shift = std::max<int64_t>(track.dts_shift, -int64_t{offset});
+  for (const Sample& s : track.samples) {
+    track.dts_shift =
+        std::max<int64_t>(track.dts_shift, -int64_t{s.pts_offset});
   }
-  bool all_sync = true;
   if (Reader stss = entries_of(FourCC("stss"), 8); stss.remaining()) {
-    all_sync = false;
+    track.all_sync = false;
     stss.Skip(4);
     uint32_t syncs = stss.U32();
     for (Sample& s : track.samples) {
@@ -975,10 +977,16 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
       }
     }
   }
-  for (size_t i = 0; i < track.samples.size(); ++i) {
-    Sample& s = track.samples[i];
-    s = MakeSample(track, s.offset, s.size, all_sync || s.sync, s.dts,
-                   composition[i], s.duration);
+  for (Sample& s : track.samples) {
+    s = MakeSample(track, s.offset, s.size, track.all_sync || s.sync, s.dts,
+                   s.pts_offset, s.duration);
+  }
+  if (!fragmented_ && !track.all_sync && info.type == MediaType::kVideo) {
+    for (size_t i = 0; i < track.samples.size(); ++i) {
+      if (track.samples[i].sync) {
+        track.keyframes.push_back(static_cast<uint32_t>(i));
+      }
+    }
   }
   if (!ParseSubsamples(stbl->payload, stbl->payload_size, &track, 0)) {
     return false;
@@ -1015,13 +1023,16 @@ Mp4Demuxer::Sample Mp4Demuxer::MakeSample(const Track& track,
                                           int64_t duration) const {
   Sample sample{};
   sample.offset = offset;
-  sample.size = size;
+  sample.size = std::min<uint32_t>(size, INT32_MAX);
   sample.sync = sync;
-  sample.pts = Rescale(dts + composition - track.media_time, track.timescale) +
-               track.empty;
+  const int64_t pts =
+      Rescale(dts + composition - track.media_time, track.timescale) +
+      track.empty;
   sample.dts =
       Rescale(dts - track.dts_shift - track.media_time, track.timescale) +
       track.empty;
+  sample.pts_offset = static_cast<int32_t>(
+      std::clamp<int64_t>(pts - sample.dts, INT32_MIN, INT32_MAX));
   sample.duration = Rescale(duration, track.timescale);
   return sample;
 }
@@ -1083,7 +1094,7 @@ bool Mp4Demuxer::OpenFragments(std::string* error) {
     track.decode_time = track.moov_decode_time;
     scan_decode_times_.push_back(track.moov_decode_time);
     for (const Sample& sample : track.samples) {
-      moov_end = std::max(moov_end, sample.pts + sample.duration);
+      moov_end = std::max(moov_end, sample.pts() + sample.duration);
     }
   }
   scan_offset_ = first_fragment_offset_;
@@ -1099,8 +1110,9 @@ bool Mp4Demuxer::OpenFragments(std::string* error) {
     const std::vector<Sample>& samples = tracks_[seek_track_].moov_samples;
     auto sync = std::find_if(samples.begin(), samples.end(),
                              [](const Sample& s) { return s.sync; });
-    seek_points_.insert(seek_points_.begin(),
-                        {sync == samples.end() ? 0 : sync->pts, kMoovSamples});
+    seek_points_.insert(
+        seek_points_.begin(),
+        {sync == samples.end() ? 0 : sync->pts(), kMoovSamples});
   }
   LoadResult result =
       StartAt(moov_samples ? kMoovSamples : first_fragment_offset_, 0);
@@ -1636,10 +1648,10 @@ bool Mp4Demuxer::ParseMoof(const uint8_t* data,
         if (summary->start == kNoTimestamp || sample.dts < summary->start) {
           summary->start = sample.dts;
         }
-        summary->end = std::max(summary->end, sample.pts + sample.duration);
+        summary->end = std::max(summary->end, sample.pts() + sample.duration);
         if (sync && index == static_cast<size_t>(seek_track_) &&
             summary->sync_time == kNoTimestamp) {
-          summary->sync_time = sample.pts;
+          summary->sync_time = sample.pts();
         }
         if (store && track.enabled) {
           track.samples.push_back(sample);
@@ -1901,15 +1913,15 @@ bool Mp4Demuxer::SeekFragments(int64_t time) {
       if (!samples[j].sync) {
         continue;
       }
-      if (samples[j].pts <= time || keyframe == samples.size()) {
+      if (samples[j].pts() <= time || keyframe == samples.size()) {
         keyframe = j;
       }
-      if (samples[j].pts > time) {
+      if (samples[j].pts() > time) {
         break;
       }
     }
     const bool before =
-        keyframe < samples.size() && samples[keyframe].pts <= time;
+        keyframe < samples.size() && samples[keyframe].pts() <= time;
     if (before || point == 0 || !seek_track.enabled) {
       break;
     }
@@ -1918,7 +1930,7 @@ bool Mp4Demuxer::SeekFragments(int64_t time) {
   int64_t target = time;
   if (keyframe < seek_track.samples.size()) {
     seek_track.next = keyframe;
-    target = seek_track.samples[keyframe].pts;
+    target = seek_track.samples[keyframe].pts();
   } else {
     seek_track.skip_before = time;
   }
@@ -2011,7 +2023,7 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
         "input ended at %.3f s, before its duration of %.3f s "
         "(truncated file or lost connection)";
     if (sample.size > kMaxSampleSize) {
-      return Fail(sample.pts,
+      return Fail(sample.pts(),
                   "sample at %.3f s (of %.3f s) is too large: corrupt file",
                   "");
     }
@@ -2020,13 +2032,13 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
     if (file_size_ > 0 &&
         (sample.offset > static_cast<uint64_t>(file_size_) ||
          sample.size > static_cast<uint64_t>(file_size_) - sample.offset)) {
-      return Fail(sample.pts, kEnded, "");
+      return Fail(sample.pts(), kEnded, "");
     }
     std::shared_ptr<Buffer> buffer;
     try {
       buffer = std::make_shared<Buffer>(sample.size);
     } catch (const std::bad_alloc&) {
-      return Fail(sample.pts,
+      return Fail(sample.pts(),
                   "out of memory for the sample at %.3f s (of %.3f s)", "");
     }
     size_t filled = 0;
@@ -2038,12 +2050,13 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
         return DemuxerReadResult::kAborted;
       }
       if (n <= 0) {
-        return Fail(sample.pts, kEnded, n < 0 ? source_->error().c_str() : "");
+        return Fail(sample.pts(), kEnded,
+                    n < 0 ? source_->error().c_str() : "");
       }
       filled += static_cast<size_t>(n);
     }
     packet->stream_index = index;
-    packet->pts = sample.pts;
+    packet->pts = sample.pts();
     packet->dts = sample.dts;
     packet->duration = sample.duration;
     packet->keyframe = sample.sync;
@@ -2152,22 +2165,27 @@ bool Mp4Demuxer::Seek(int64_t time) {
       continue;
     }
     const std::vector<Sample>& samples = tracks_[i].samples;
+    // The last keyframe at or before |time|, else the first: keyframes
+    // are shown in decode order, so a binary search finds it.
     size_t keyframe = samples.size();
-    for (size_t j = 0; j < samples.size(); ++j) {
-      if (!samples[j].sync) {
-        continue;
-      }
-      if (samples[j].pts <= time || keyframe == samples.size()) {
-        keyframe = j;
-      }
-      if (samples[j].pts > time) {
-        break;
-      }
+    if (tracks_[i].all_sync) {
+      auto after = std::partition_point(
+          samples.begin(), samples.end(),
+          [time](const Sample& s) { return s.pts() <= time; });
+      keyframe = after == samples.begin()
+                     ? 0
+                     : static_cast<size_t>(after - samples.begin()) - 1;
+    } else if (const std::vector<uint32_t>& keyframes = tracks_[i].keyframes;
+               !keyframes.empty()) {
+      auto after = std::partition_point(
+          keyframes.begin(), keyframes.end(),
+          [&](uint32_t j) { return samples[j].pts() <= time; });
+      keyframe = after == keyframes.begin() ? keyframes.front() : *(after - 1);
     }
     tracks_[i].next = keyframe;
     if (target == kNoTimestamp && tracks_[i].enabled &&
         keyframe < samples.size()) {
-      target = samples[keyframe].pts;
+      target = samples[keyframe].pts();
     }
   }
   if (target == kNoTimestamp) {

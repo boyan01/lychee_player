@@ -50,20 +50,29 @@ class Mp4Demuxer : public Demuxer {
   }
 
  private:
+  // 32 bytes: a film's sample tables hold millions.
   struct Sample {
     uint64_t offset;
-    uint32_t size;
-    bool sync;
     // Microseconds on the presentation timeline (edit list applied).
     int64_t dts;
-    int64_t pts;
     int64_t duration;
+    // pts - dts. Clamped: offsets of half an hour are a broken table.
+    int32_t pts_offset;
+    // Clamped too; a sample of more than kMaxSampleSize is never read.
+    uint32_t size : 31;
+    uint32_t sync : 1;
+
+    int64_t pts() const { return dts + pts_offset; }
   };
   struct Track {
     // All of the track's samples, or in fragmented files those of the
     // fragments read since the last one was consumed.
     std::vector<Sample> samples;
     size_t next = 0;
+    // A plain file's video track: its sync samples for seeks, unless all
+    // samples are (no stss).
+    std::vector<uint32_t> keyframes;
+    bool all_sync = true;
     bool enabled = true;
     MediaType type = MediaType::kUnknown;
     // wvtt becomes WebVTT; stpp becomes normalized text/picture cues.
