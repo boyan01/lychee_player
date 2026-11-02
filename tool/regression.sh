@@ -1812,8 +1812,12 @@ realtime=1 seq_ expect http-hls-live "^seekable=0$" "<=0 event: state (error|buf
 # audio they share goes on without repeating what was read.
 if [ "$own_ts" = 1 ]; then
   serve --live /hls/live.m3u8 /hls/index.m3u8 --live /hls_low/live.m3u8 /hls_low/index.m3u8
+  # Where it ends is timing (a loaded machine ends late, as CI's did at
+  # 12.123 s with every frame pulled); a timeline that skips, repeats or
+  # goes back fails the frame count or the order.
   realtime=1 seq_ expect http-hls-live-variants "select video 2 at [0-9.]+s: accepted" "video size 640x360" \
-    "<=0 event: state error" "summary: state=ended position=12\.0[0-9]{2}s .*pulled=3(5[5-9]|60) .*backward_jumps=0 " -- \
+    "<=0 event: state error" "summary: state=ended .*pulled=3(5[5-9]|60) .*backward_jumps=0 " \
+    "~summary: state=ended position=12\.0[0-9]{2}s " -- \
     --select video:2@4 "http://127.0.0.1:$port/hls/live_master.m3u8"
   serve --live /hls_alt/video/live.m3u8 /hls_alt/video/index.m3u8 \
     --live /hls_alt/fre/live.m3u8 /hls_alt/fre/index.m3u8 --live /hls_alt/eng/live.m3u8 /hls_alt/eng/index.m3u8
