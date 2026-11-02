@@ -82,5 +82,34 @@ TEST(PacketHistory, DropsOldestKeyframeIntervalPastTheLimit) {
   EXPECT_EQ(history.bytes(), 0u);
 }
 
+// Test registration allocates before main, as the existing TESTs do.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(PacketHistory, FollowsThePositionOverManyKeyframeIntervals) {
+  // Keyframes every 4 packets, the position 6 packets behind the read, and
+  // a limit of 10 packets: the oldest interval goes whenever it is passed.
+  PacketHistory history(100, false);
+  for (int64_t pts = 0; pts < 1000; ++pts) {
+    const int64_t position = pts - 6;
+    history.Push(MakePacket(pts, pts % 4 == 0), position);
+    int64_t start = position < 0 ? 0 : position / 4 * 4;
+    while ((pts - start + 1) * 10 > 100) {
+      start += 4;
+    }
+    if (history.packets().front()->pts != start ||
+        history.bytes() != static_cast<size_t>(pts - start + 1) * 10) {
+      EXPECT_EQ(history.packets().front()->pts, start);
+      EXPECT_EQ(history.bytes(), static_cast<size_t>(pts - start + 1) * 10);
+      return;
+    }
+  }
+  // After a clear, the first keyframe starts again.
+  history.Clear();
+  history.Push(MakePacket(1001, false), 1001);
+  history.Push(MakePacket(1004, true), 1005);
+  history.Push(MakePacket(1005, false), 1005);
+  history.Push(MakePacket(1008, true), 1009);
+  EXPECT_TRUE(Times(history) == (std::vector<int64_t>{1008}));
+}
+
 }  // namespace
 }  // namespace lychee

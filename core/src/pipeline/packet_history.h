@@ -43,6 +43,12 @@ class PacketHistory {
   const bool every_packet_starts_;
   std::deque<std::shared_ptr<EncodedPacket>> packets_;
   size_t bytes_ = 0;
+  // Packets ever pushed and kept, numbered from 0: the number of the
+  // oldest, and those of the keyframes kept, oldest first. Push() runs
+  // per packet, and a scan for the next keyframe would cost a GOP each
+  // time. Unused when |every_packet_starts_|.
+  uint64_t front_number_ = 0;
+  std::deque<uint64_t> starts_;
 };
 
 }  // namespace lychee
