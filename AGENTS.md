@@ -331,7 +331,8 @@ decides how much of it a change needs):
   and without (the `url`, `hw` and `snapshot` intent extras; `docs/development.md`,
   "Checking frames by pixels", and its `--matrix bt601` for hardware
   frames on the emulator); `tool/android_check.sh` does that for both
-  files and also runs the core's unit tests on the device.
+  files and also runs the core's unit tests on the device, and the
+  av-sync clips through the FFmpeg-free CLI (MediaCodec's audio timing).
   `tool/android_extension_check.sh` additionally consumes both published
   AARs with R8, checks both frame paths and the loader's failure cases;
   CI's `android` job runs it. The Flutter plugin takes its frame driver from

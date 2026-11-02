@@ -8,7 +8,12 @@
 # 1. The core's unit tests, cross-built with the NDK for the device's ABI
 #    into build-android-ABI (FFmpeg from third_party/ffmpeg/android-ABI)
 #    and run from adb shell in /data/local/tmp/lychee-check.
-# 2. The SDK's example (sdk/android/example, already built with
+# 2. Audio timing without FFmpeg, as the base AAR decodes (MediaCodec):
+#    lychee_cli, cross-built into build-android-noff-ABI, plays the
+#    onset clips of tool/regression.sh's av-sync cases on the virtual
+#    clock, from the start and after a seek, and their tone must start
+#    at 1 s.
+# 3. The SDK's example (sdk/android/example, already built with
 #    `sdk/android/gradlew -p sdk/android :example:assembleDebug`) plays
 #    h264_aac.mp4 and rotated.mp4 from MEDIA_DIR (default
 #    /tmp/lychee-media, from MEDIA_ONLY=1 tool/regression.sh) through
@@ -40,7 +45,8 @@ port=8765
 die() { echo "android_check.sh: $*" >&2; exit 1; }
 [ -d "$ndk" ] || die "no NDK; set ANDROID_NDK_HOME"
 [ -f "$apk" ] || die "no $apk; run sdk/android/gradlew -p sdk/android :example:assembleDebug"
-for f in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8; do
+onsets="onset_opus.webm onset_opus.mp4 onset_mp3.mp4 onset_aac.m4a"
+for f in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8 $onsets; do
   [ -f "$media/$f" ] || die "no $media/$f; run MEDIA_ONLY=1 tool/regression.sh"
 done
 
@@ -72,7 +78,34 @@ if [ "${LYCHEE_SKIP_UNIT:-0}" != 1 ]; then
     { cat "$build/unittests.txt"; die "unit tests failed"; }
   tail -1 "$build/unittests.txt"
   adb shell "rm -rf $dir"
+fi
 
+if [ "${LYCHEE_SKIP_AUDIO:-0}" != 1 ]; then
+  echo "== audio timing without FFmpeg ($abi)"
+  cli="$root/build-android-noff-$abi"
+  cmake -S "$root" -B "$cli" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
+    -DANDROID_ABI="$abi" -DANDROID_PLATFORM=26 -DANDROID_STL=c++_shared \
+    -DBUILD_SHARED_LIBS=ON -DLYCHEE_WITH_FFMPEG=OFF -DLYCHEE_BUILD_TESTS=OFF >/dev/null
+  cmake --build "$cli" --target lychee_cli >/dev/null
+  adb shell "rm -rf $dir && mkdir -p $dir"
+  clips=()
+  for f in $onsets; do clips+=("$media/$f"); done
+  adb push "$cli/examples/cli/lychee_cli" "$cli/core/liblychee.so" \
+    "$(ls "$ndk"/toolchains/llvm/prebuilt/*/sysroot/usr/lib/"$triple"/libc++_shared.so | head -1)" \
+    "${clips[@]}" "$dir/" >/dev/null 2>&1
+  for args in onset_opus.webm onset_mp3.mp4 onset_aac.m4a \
+    "--seek 0.98 --seek-after 0.1 onset_opus.mp4" \
+    "--seek 0.98 --seek-after 0.1 onset_mp3.mp4"; do
+    out="$(adb shell "cd $dir && LD_LIBRARY_PATH=. timeout 60 ./lychee_cli --virtual-time --volume 1 $args" 2>&1)" || true
+    summary="$(grep '^summary:' <<<"$out" || true)"
+    if ! grep -qE "state=ended .*audio_onset=(0\.99[89]|1\.00[0-2])" <<<"$summary"; then
+      echo "$out" | tail -5
+      die "audio onset off for $args"
+    fi
+    echo "$args: $(grep -oE 'audio_onset=[0-9.]+s' <<<"$summary")"
+  done
+  adb shell "rm -rf $dir"
 fi
 
 echo "== example"
@@ -181,4 +214,4 @@ for file in "${cases[@]}"; do
   done
 done
 [ "$failed" = 0 ] || die "snapshots failed"
-echo "ok: unit tests and the example's snapshots on $abi"
+echo "ok: unit tests, audio timing and the example's snapshots on $abi"

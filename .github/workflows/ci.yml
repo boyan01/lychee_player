@@ -309,7 +309,8 @@ jobs:
   android:
     # The SDK (the AAR with its FFmpeg, as release.yml builds it) and its
     # example, then on an x86_64 emulator tool/android_check.sh: the core's
-    # unit tests cross-built with the NDK, and snapshots of the example
+    # unit tests cross-built with the NDK, the FFmpeg-free CLI's audio
+    # timing (MediaCodec), and snapshots of the example
     # playing in software and through MediaCodec, checked by pixels.
     needs: changes
     if: needs.changes.outputs.core == 'true' || needs.changes.outputs.android == 'true'
