@@ -84,6 +84,11 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
   Renderers never call back into the player.
 - A seek interrupts the read in flight (`Demuxer::Interrupt`) and parks the
   read thread while the control thread seeks the demuxer.
+- Audio sinks start and stop on the control thread without the player's
+  lock (`AudioRenderer::UpdateSink`): `AudioOutputUnitStart`/`Stop` and
+  AAudio's state changes block, and frame pulls and API calls wait on that
+  lock. The control thread alone replaces renderers, so it reaches them
+  without the lock.
 - A seek bumps a **generation**. Packets and frames carry the generation they
   belong to; anything from an older generation is dropped, and a decoder is
   flushed when it first sees a newer one.

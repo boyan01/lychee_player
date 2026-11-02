@@ -126,19 +126,24 @@ void AudioRenderer::StopDecoding() {
 
 void AudioRenderer::Retire() {
   SetPlaying(false);
+  // Stops the sink now if it has no fade-out to play.
+  UpdateSink(NowMicros());
   StopDecoding();
 }
 
 bool AudioRenderer::SinkStopped() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return !sink_running_;
+  return !sink_running_ && !sink_started_;
 }
 
 void AudioRenderer::FadeOutForStop() {
   SetPlaying(false);
   const auto give_up = std::chrono::steady_clock::now() + kStopFadeTimeout;
-  while (!SinkStopped() && std::chrono::steady_clock::now() < give_up) {
-    StopSinkAfterFadeOut(NowMicros());
+  for (;;) {
+    UpdateSink(NowMicros());
+    if (SinkStopped() || std::chrono::steady_clock::now() >= give_up) {
+      return;
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 }
@@ -148,6 +153,8 @@ void AudioRenderer::Stop() {
   if (sink_) {
     sink_->Stop();
   }
+  std::lock_guard<std::mutex> lock(mutex_);
+  sink_started_ = false;
 }
 
 void AudioRenderer::DecodeLoop() {
@@ -449,61 +456,73 @@ void AudioRenderer::Flush(uint64_t generation, int64_t start_time) {
 }
 
 void AudioRenderer::SetPlaying(bool playing) {
-  bool start = false;
-  bool stop = false;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (playing_ == playing) {
-      return;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (playing_ == playing) {
+    return;
+  }
+  playing_ = playing;
+  const int64_t now = NowMicros();
+  if (playing) {
+    // The device gets kDeviceTimeout from here, or a stalled one is
+    // pulled for from here on.
+    device_pull_time_ = now;
+    if (stalled_playout_time_ != kNoTimestamp) {
+      stalled_playout_time_ = now;
     }
-    playing_ = playing;
-    const int64_t now = NowMicros();
-    if (playing) {
-      // The device gets kDeviceTimeout from here, or a stalled one is
-      // pulled for from here on.
-      device_pull_time_ = now;
-      if (stalled_playout_time_ != kNoTimestamp) {
-        stalled_playout_time_ = now;
-      }
-      fade_in_frames_ = 0;
-      stop_sink_at_ = kNoTimestamp;
-      start = !sink_running_;
-      sink_running_ = true;
+    fade_in_frames_ = 0;
+    stop_sink_at_ = kNoTimestamp;
+    sink_running_ = true;
+  } else {
+    FadeOutLocked();
+    if (fade_out_offset_ < fade_out_frames_ && sink_started_ &&
+        !sink_start_failed_) {
+      // The device plays the fade-out; UpdateSink() stops it then.
+      stop_sink_at_ = now + kFadeOutTimeout;
     } else {
-      FadeOutLocked();
-      if (fade_out_offset_ < fade_out_frames_ && !sink_start_failed_) {
-        // StopSinkAfterFadeOut() stops it.
-        stop_sink_at_ = now + kFadeOutTimeout;
-      } else {
-        stop = sink_running_;
-        sink_running_ = false;
-        sink_start_failed_ = false;
-      }
+      sink_running_ = false;
     }
-  }
-  if (start && !StartSink()) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    sink_start_failed_ = sink_running_;
-    sink_start_retry_at_ = NowMicros() + kSinkStartRetry;
-  }
-  if (stop) {
-    sink_->Stop();
   }
 }
 
-void AudioRenderer::StopSinkAfterFadeOut(int64_t now) {
+void AudioRenderer::UpdateSink(int64_t now) {
+  bool start = false;
+  bool stop = false;
+  bool retry = false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (playing_ || !sink_running_ || stop_sink_at_ == kNoTimestamp ||
-        now < stop_sink_at_) {
-      return;
+    // Paused, and the device has played the fade-out, or never took it.
+    if (!playing_ && sink_running_ && stop_sink_at_ != kNoTimestamp &&
+        now >= stop_sink_at_) {
+      sink_running_ = false;
+      stop_sink_at_ = kNoTimestamp;
+      fade_out_offset_ = fade_out_frames_;
     }
-    sink_running_ = false;
-    sink_start_failed_ = false;
-    stop_sink_at_ = kNoTimestamp;
-    fade_out_offset_ = fade_out_frames_;
+    if (sink_running_) {
+      start =
+          !sink_started_ || (sink_start_failed_ && now >= sink_start_retry_at_);
+    } else {
+      stop = sink_started_;
+    }
+    retry = sink_start_failed_;
   }
-  sink_->Stop();
+  // One thread at a time calls this, so nothing changed the sink's state
+  // meanwhile.
+  if (start) {
+    const bool started = StartSink();
+    std::lock_guard<std::mutex> lock(mutex_);
+    sink_started_ = true;
+    sink_start_failed_ = !started;
+    if (!started) {
+      sink_start_retry_at_ = now + kSinkStartRetry;
+    } else if (retry) {
+      LOGI("audio device started on retry");
+    }
+  } else if (stop) {
+    sink_->Stop();
+    std::lock_guard<std::mutex> lock(mutex_);
+    sink_started_ = false;
+    sink_start_failed_ = false;
+  }
 }
 
 int AudioRenderer::FadeFrames() const {
@@ -550,27 +569,7 @@ bool AudioRenderer::StartSink() {
   return sink_->Start();
 }
 
-void AudioRenderer::RetrySinkStart(int64_t now) {
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!sink_start_failed_ || now < sink_start_retry_at_) {
-      return;
-    }
-  }
-  // The control thread alone starts and stops the sink, so nothing
-  // changed meanwhile.
-  const bool started = StartSink();
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (started) {
-    LOGI("audio device started on retry");
-    sink_start_failed_ = false;
-  } else {
-    sink_start_retry_at_ = now + kSinkStartRetry;
-  }
-}
-
 void AudioRenderer::PullForStalledDevice(int64_t now) {
-  RetrySinkStart(now);
   int64_t playout_time;
   int frames;
   {

@@ -23,6 +23,9 @@
 
 * Live audio no longer breaks up after a pause in the sender's audio or a
   change in its delay when Android, Apple or Windows decoders decode it.
+* Video no longer stutters while the audio device starts or stops:
+  pausing, resuming, seeking and switching tracks no longer hold up
+  frames or other player calls.
 
 ## 1.0.0-beta.5
 

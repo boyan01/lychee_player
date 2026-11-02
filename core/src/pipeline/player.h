@@ -347,7 +347,10 @@ class Player {
   void ProcessSeek(int64_t target, bool loop, bool resync, int64_t loops,
                    bool tracks_changed);
   void FinishSeekLocked();
+  // The state machine, once per control thread iteration, around
+  // UpdateStateLocked().
   void UpdateState();
+  void UpdateStateLocked();
   PlayerStats StatsLocked() const;
   // Logs the stats every kStatsLogInterval while playing: live input at
   // kInfo, other input at kDebug.
@@ -410,9 +413,12 @@ class Player {
   std::atomic<int64_t> video_bytes_read_{0};
   std::atomic<int64_t> audio_bytes_read_{0};
   std::atomic<int64_t> download_rate_{-1};
+  // Replaced by the control thread alone, under |mutex_|, which other
+  // threads read them under.
   VideoRenderer::Ptr video_renderer_;
   std::unique_ptr<AudioRenderer> audio_renderer_;
-  // Renderers a track switch replaced, playing their fade-out.
+  // Renderers a track switch replaced, playing their fade-out. Control
+  // thread only, and StopPipeline()'s once it has joined it.
   std::vector<std::unique_ptr<AudioRenderer>> retired_audio_;
   // One per subtitle stream that has a decoder, from Prepare() until
   // StopPipeline(): every subtitle stream is read, so a track switched on

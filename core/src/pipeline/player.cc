@@ -1457,7 +1457,6 @@ void Player::ChangeTracks(const TrackRequest& request) {
       if (old->SinkStopped()) {
         old->Stop();
       } else {
-        std::lock_guard<std::mutex> lock(mutex_);
         retired_audio_.push_back(std::move(old));
       }
       old.reset();
@@ -1866,17 +1865,29 @@ void Player::FinishSeekLocked() {
 }
 
 void Player::UpdateState() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  CheckVideoRendererLocked();
+  // The control thread alone replaces the renderers (StopPipeline() only
+  // once it has joined it), so it uses them here without |mutex_|, before
+  // and after the state machine: these calls can block in the platform
+  // (a sink starting or stopping, MediaCodec taking back the frames that
+  // expire), and every caller waiting for |mutex_| would wait with them.
   if (video_renderer_) {
     video_renderer_->ExpireFramesWhileHidden(NowMicros());
   }
   if (audio_renderer_) {
     audio_renderer_->PullForStalledDevice(NowMicros());
-    audio_renderer_->StopSinkAfterFadeOut(NowMicros());
+  }
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    UpdateStateLocked();
+  }
+  // Starts or stops the sinks as the state machine, a seek or a track
+  // change decided.
+  const int64_t now = NowMicros();
+  if (audio_renderer_) {
+    audio_renderer_->UpdateSink(now);
   }
   for (auto it = retired_audio_.begin(); it != retired_audio_.end();) {
-    (*it)->StopSinkAfterFadeOut(NowMicros());
+    (*it)->UpdateSink(now);
     if ((*it)->SinkStopped()) {
       (*it)->Stop();
       it = retired_audio_.erase(it);
@@ -1884,6 +1895,10 @@ void Player::UpdateState() {
       ++it;
     }
   }
+}
+
+void Player::UpdateStateLocked() {
+  CheckVideoRendererLocked();
   if (state_ != PlayerState::kError) {
     if (video_renderer_ && video_renderer_->HasError()) {
       FailLocked(std::string("video decoding failed (") +
