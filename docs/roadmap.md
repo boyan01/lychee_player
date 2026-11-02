@@ -42,7 +42,13 @@ building on top of them.
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays
    slower still).
-4. **iOS audio after the background**: on the iPhone 17 (2026-10-29)
+4. **PGS in the Flutter example's window on macOS**: the plugin's default
+   core (no FFmpeg) had no bitmap subtitle decoder, so `sub_pgs.mkv`
+   showed no pictures. With its own PGS decoder the Dart side gets both
+   pictures at their times (2026-11-02), but the screen was locked and
+   the window drew nothing. Done when a window screenshot at 3.7 s shows
+   the white box at the top.
+5. **iOS audio after the background**: on the iPhone 17 (2026-10-29)
    sound and hardware video came back after the Home Screen, but that
    run's audio device never failed to start, so the renderer's retry of
    a refused start (`'what'`, `audio device started on retry`) is seen
@@ -81,11 +87,6 @@ building on top of them.
   the device. Done when a `tool/regression.sh` case that reproduces it
   (a connection dropped mid-read, or a seek over HTTP right after a
   rebuild) shows no corrupt packet, or the cause is found elsewhere.
-- **Picture subtitles do not show in the Flutter example on macOS**
-  (2026-11-02): `sub_pgs.mkv` at 3.7 s, inside its 3.0-4.5 s cue, has a
-  white box at the top in FFmpeg's frame and in the Swift example, but
-  none in the Flutter example's window, before the day's changes too.
-  Done when the Flutter example draws it there.
 
 ## Performance
 
@@ -192,7 +193,11 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    event and an acquire call for its bytes at the clock's time (like
    subtitles), in every binding; worth it once a caller needs it (HLS
    ad markers, live captions' ID3).
-2. **Android**: VP8 hardware decoding needs another phone: the Xiaomi 14
+2. **Bitmap subtitles**: DVB and VobSub still need FFmpeg, and the own
+   MPEG-TS demuxer ignores PGS streams (Blu-ray's M2TS, stream type
+   0x90). Done when `subtitle-dvb` and `subtitle-vobsub` pass with
+   `NO_FFMPEG=1`, and an M2TS with PGS shows its pictures.
+3. **Android**: VP8 hardware decoding needs another phone: the Xiaomi 14
    exposes only the software VP8 path, so it cannot close that hardware check.
    Opus seeks lose 80 ms: Android's decoder discards SeekPreRoll after
    a flush, and the demuxer seeks to the target rather than that much

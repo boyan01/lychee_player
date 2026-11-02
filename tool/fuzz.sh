@@ -28,7 +28,7 @@ set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 build="$root/build-fuzz"
-all_targets=(mp4 matroska mpegts hls_playlist hls subtitle_file)
+all_targets=(mp4 matroska mpegts hls_playlist hls subtitle_file pgs)
 read -r -a targets <<<"${FUZZ_TARGET:-${all_targets[*]}}"
 for target in "${targets[@]}"; do
   case " ${all_targets[*]} " in *" $target "*) ;; *)
@@ -288,6 +288,15 @@ seeds_subtitle_file() {
   if command -v iconv >/dev/null; then
     { printf '\xFF\xFE'; iconv -f UTF-8 -t UTF-16LE "$media/subs.srt"; } >"$dir/utf16.srt"
   fi
+}
+
+# PGS: tool/make_pgs.py's stream with a .sup file's headers, and as
+# Matroska carries it, without them.
+seeds_pgs() {
+  local dir="$seeds/pgs"
+  mkdir -p "$dir"
+  [ -f "$dir/subs.sup" ] || python3 -I "$root/tool/make_pgs.py" "$dir/subs.sup" || exit 1
+  seed pgs subs.pgs -i "$dir/subs.sup" -map 0 -c copy -f data
 }
 
 if command -v ffmpeg >/dev/null; then

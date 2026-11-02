@@ -33,7 +33,7 @@ SubtitleRenderer::~SubtitleRenderer() = default;
 
 bool SubtitleRenderer::Initialize(const SubtitleConfig& config,
                                   std::string* error) {
-  decoder_ = CreateSubtitleDecoder();
+  decoder_ = CreateSubtitleDecoder(config);
   if (!decoder_) {
     *error = "no subtitle decoder in this build";
     return false;

@@ -175,8 +175,6 @@ LYCHEE_LIB_DIR=$F/lychee_noffmpeg.xcframework/$S \
 xcrun simctl spawn booted rust/target/aarch64-apple-ios-sim/debug/deps/play-HASH
 ```
 
-Without FFmpeg, `subtitle_pictures` fails: PGS needs FFmpeg's decoder.
-
 For Android, link the AAR's libraries (`jni/ABI` in
 `sdk/android/build/repo/.../lychee-VERSION.aar`) with the NDK's clang as
 the linker; an app loads `liblychee.so` with them (`System.loadLibrary`,

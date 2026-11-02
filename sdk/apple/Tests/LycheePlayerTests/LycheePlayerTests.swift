@@ -12,7 +12,7 @@ final class LycheePlayerTests: XCTestCase {
   }
 
   // `swift test --traits NoFFmpeg` runs the core without FFmpeg, which has
-  // no PGS bitmap decoder and reads no bare MP3 files.
+  // reads no bare MP3 files.
   private func skipWithoutFFmpeg(_ what: String) throws {
     #if NoFFmpeg
     throw XCTSkip("\(what) needs the FFmpeg core")
@@ -143,7 +143,6 @@ final class LycheePlayerTests: XCTestCase {
   }
 
   func testSubtitlePictures() throws {
-    try skipWithoutFFmpeg("PGS")
     // A PGS box at 660,900, 600x80 on a 1920x1080 canvas, from 1 s.
     let player = LycheePlayer()
     player.volume = 0
@@ -237,7 +236,6 @@ final class LycheePlayerTests: XCTestCase {
   // The view's pictures follow subtitle events, not only new frames: turned
   // off while paused, they go at once. The app's onEvent still gets them.
   func testViewClearsSubtitleWhilePaused() throws {
-    try skipWithoutFFmpeg("PGS")
     let player = LycheePlayer()
     player.volume = 0
     let view = LycheePlayerView(frame: CGRect(x: 0, y: 0, width: 960, height: 540))

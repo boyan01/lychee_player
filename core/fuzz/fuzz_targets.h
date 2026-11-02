@@ -22,6 +22,7 @@
 #include "backends/mp2t/ts_reader.h"
 #include "backends/mp4/mp4_demuxer.h"
 #include "backends/mp4/mp4_subtitle.h"
+#include "media/pgs_subtitle_decoder.h"
 #include "media/subtitle_file.h"
 #include "media/text_subtitle_decoder.h"
 
@@ -133,6 +134,24 @@ inline void FuzzSubtitleFile(const uint8_t* data, size_t size) {
   std::string format;
   ParseSubtitleFile(std::string_view(reinterpret_cast<const char*>(data), size),
                     "", &cues, &format);
+}
+
+// PGS subtitle packets: the input as one packet, then again after a flush
+// as two, split in the middle (segments and objects across packets).
+inline void FuzzPgsSubtitle(const uint8_t* data, size_t size) {
+  PgsSubtitleDecoder decoder;
+  std::vector<SubtitleCue> cues;
+  auto feed = [&](size_t from, size_t to, int64_t pts) {
+    EncodedPacket packet;
+    packet.pts = pts;
+    packet.duration = 1000000;
+    packet.buffer = PacketBuffer::Copy(data + from, to - from);
+    decoder.Decode(packet, &cues);
+  };
+  feed(0, size, 0);
+  decoder.Flush();
+  feed(0, size / 2, 1000000);
+  feed(size / 2, size, 1000000);
 }
 
 // The HLS demuxer over an input of resources separated by

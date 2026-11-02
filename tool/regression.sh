@@ -880,8 +880,8 @@ selected() {
 # Without FFmpeg: MP4, Matroska, WebM, MPEG-TS and HLS, with text/PNG subtitles.
 plays_without_ffmpeg() {
   case "$1" in
-    # Encoded PGS/DVB/VobSub need FFmpeg; IMSC PNG uses the shared reader.
-    subtitle-pgs | subtitle-dvb | subtitle-vobsub) return 1 ;;
+    # DVB and VobSub need FFmpeg; IMSC PNG uses the shared reader.
+    subtitle-dvb | subtitle-vobsub) return 1 ;;
     # Windows uses the Store AV1 extension; Apple needs newer hardware.
     av1-software | av1-mp4-software) [ "$windows" = 1 ] || return 1 ;;
   esac

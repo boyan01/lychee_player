@@ -26,6 +26,7 @@
 #include "media/probing_demuxer.h"
 #if !defined(LYCHEE_WITH_FFMPEG)
 #include "backends/apple/at_audio_decoder.h"
+#include "media/pgs_subtitle_decoder.h"
 #include "media/text_subtitle_decoder.h"
 #endif
 #elif defined(__ANDROID__)
@@ -36,6 +37,7 @@
 #include "media/probing_demuxer.h"
 #if !defined(LYCHEE_WITH_FFMPEG)
 #include "backends/android/media_codec_audio_decoder.h"
+#include "media/pgs_subtitle_decoder.h"
 #include "media/text_subtitle_decoder.h"
 #endif
 #elif defined(_WIN32)
@@ -46,6 +48,7 @@
 #include "media/probing_demuxer.h"
 #if !defined(LYCHEE_WITH_FFMPEG)
 #include "backends/media_foundation/mf_audio_decoder.h"
+#include "media/pgs_subtitle_decoder.h"
 #include "media/text_subtitle_decoder.h"
 #endif
 #elif defined(__linux__)
@@ -304,7 +307,8 @@ int AudioCodecSupported(AudioCodec codec) {
   return result;
 }
 
-std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder() {
+std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder(
+    [[maybe_unused]] const SubtitleConfig& config) {
 #if defined(LYCHEE_WITH_FFMPEG)
   return std::make_unique<FFmpegSubtitleDecoder>();
 #elif defined(__APPLE__) || defined(_WIN32) || defined(__ANDROID__)
@@ -313,6 +317,9 @@ std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder() {
     return backend->subtitle();
   }
 #endif
+  if (!config.normalized && config.codec_name == "hdmv_pgs_subtitle") {
+    return std::make_unique<PgsSubtitleDecoder>();
+  }
   return std::make_unique<TextSubtitleDecoder>();
 #else
   return nullptr;

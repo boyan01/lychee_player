@@ -84,7 +84,7 @@ aspect ratio and rotation (`fit` changes the scaling).
 | `dispose()` | Required: releases the native player. |
 
 Subtitles: text arrives in `value.subtitle` for your app to draw over the
-video. Bitmap subtitles (PGS, DVB, VobSub) arrive in
+video. Bitmap subtitles (PGS; DVB and VobSub with FFmpeg) arrive in
 `value.subtitlePictures`, and `LycheeVideo` draws them itself.
 
 ### Players your native code creates

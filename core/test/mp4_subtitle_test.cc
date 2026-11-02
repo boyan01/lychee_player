@@ -158,10 +158,10 @@ TEST(Mp4Subtitle, ImageProfileRegionsAndPremultipliedPng) {
   const std::vector<uint8_t> expected = {255, 0, 0,   255, 0, 128, 0, 128,
                                          0,   0, 255, 255, 0, 0,   0, 0};
   EXPECT_TRUE(bitmap.rgba == expected);
-  auto decoder = CreateSubtitleDecoder();
   SubtitleConfig config;
   config.codec_name = "ttml";
   config.normalized = true;
+  auto decoder = CreateSubtitleDecoder(config);
   std::string error;
   EXPECT_TRUE(decoder && decoder->Initialize(config, &error));
   if (!decoder) return;

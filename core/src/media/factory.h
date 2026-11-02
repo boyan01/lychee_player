@@ -61,8 +61,10 @@ void UseNullAudioSinkForTesting();
 
 std::unique_ptr<FrameConverter> CreateFrameConverter();
 
-// Null if this build has no subtitle decoder.
-std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder();
+// A decoder for |config|'s codec, to be initialized with it; null if this
+// build has no subtitle decoder.
+std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder(
+    const SubtitleConfig& config);
 
 // OpenDataSource(), or null with |error| set in a build that reads no
 // files or URLs of its own (Linux without FFmpeg).

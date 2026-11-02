@@ -23,6 +23,7 @@ TEST(Fuzz, Regressions) {
       {"mp4", FuzzMp4Demuxer},   {"matroska", FuzzMatroskaDemuxer},
       {"mpegts", FuzzTsDemuxer}, {"hls_playlist", FuzzHlsPlaylist},
       {"hls", FuzzHlsDemuxer},   {"subtitle_file", FuzzSubtitleFile},
+      {"pgs", FuzzPgsSubtitle},
   };
   int inputs = 0;
   for (const auto& dir :

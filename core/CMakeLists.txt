@@ -40,6 +40,7 @@ set(LYCHEE_SOURCES
   src/media/cpu_frame_converter.cc
   src/media/factory.cc
   src/media/null_audio_sink.cc
+  src/media/pgs_subtitle_decoder.cc
   src/media/subtitle_decoder.cc
   src/media/subtitle_file.cc
   src/media/text_subtitle_decoder.cc
