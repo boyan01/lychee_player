@@ -8,6 +8,9 @@
 
 #include "test.h"
 
+// Test registration allocates before main, as all TEST declarations do.
+// NOLINTBEGIN(bugprone-throwing-static-initialization)
+
 namespace lychee {
 namespace {
 
@@ -450,6 +453,51 @@ TEST(MatroskaDemuxer, SeeksScanningClusters) {
   EXPECT_EQ(ReadAll(&demuxer).packets.size(), 6u);
 }
 
+// Counts the reads of a file in memory.
+class CountingSource : public MemorySource {
+ public:
+  CountingSource(Bytes data, int* reads)
+      : MemorySource(std::move(data)), reads_(reads) {}
+  int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
+    ++*reads_;
+    return MemorySource::Read(offset, data, size);
+  }
+
+ private:
+  int* reads_;
+};
+
+TEST(MatroskaDemuxer, SeeksBisectingClusters) {
+  // 1000 clusters of 20 ms, 20 KB each, without Cues. Each frame's data
+  // holds a cluster ID and a Timestamp of 0 too, which is not a cluster.
+  constexpr int kClusters = 1000;
+  Bytes clusters;
+  for (int i = 0; i < kClusters; ++i) {
+    Bytes data = Filled(20000, static_cast<uint8_t>(i % 251));
+    const Bytes fake = {0x1F, 0x43, 0xB6, 0x75, 0x88, 0xE7, 0x81, 0x00};
+    std::copy(fake.begin(), fake.end(), data.begin() + 100);
+    const Bytes cluster =
+        Cluster(static_cast<uint64_t>(i) * 20, Simple(1, 0, true, data));
+    clusters.insert(clusters.end(), cluster.begin(), cluster.end());
+  }
+  int reads = 0;
+  MatroskaDemuxer demuxer;
+  std::string error;
+  EXPECT_TRUE(demuxer.Open(std::make_unique<CountingSource>(
+                               File(VideoTrack(1, "V_VP9"), clusters), &reads),
+                           &error));
+  for (int64_t time : {15010000, 1000, 19990000, 3000000}) {
+    reads = 0;
+    EXPECT_TRUE(demuxer.Seek(time));
+    // Walking the clusters from the start took one read for every three.
+    EXPECT_TRUE(reads < 100);
+    EncodedPacket packet;
+    EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kOk);
+    EXPECT_EQ(packet.pts, time / 20000 * 20000);
+    EXPECT_EQ(packet.buffer->data()[0], time / 20000 % 251);
+  }
+}
+
 TEST(MatroskaDemuxer, DtsOfReorderedFrames) {
   // H.264 in decode order I P B B P; Matroska stores only the pts.
   const Bytes file =
@@ -617,3 +665,5 @@ TEST(MatroskaDemuxer, EnabledStreams) {
 
 }  // namespace
 }  // namespace lychee
+
+// NOLINTEND(bugprone-throwing-static-initialization)

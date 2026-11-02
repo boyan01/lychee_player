@@ -29,6 +29,10 @@
 * Software-decoded video handed out as CPU frames (Linux, Windows with
   CPU frames, `hw: false`) converts several times faster: 4K HDR no
   longer plays at a few frames per second.
+* Builds without FFmpeg (Android's base AAR): fragmented MP4 without an
+  index opens without reading every fragment, MP4 and Matroska without
+  cues seek in a few reads, and poorly interleaved MP4 plays over HTTP
+  without a new request for each switch between audio and video.
 
 ## 1.0.0-beta.5
 

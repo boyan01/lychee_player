@@ -17,8 +17,8 @@ namespace lychee {
 // and subtitle tracks; codec configuration is passed through as the
 // container stores it (avcC, hvcC, av1C, OpusHead, the AudioSpecificConfig,
 // FLAC's metadata blocks), with VP9's in the CodecPrivate and Colour
-// elements. Seeks use the Cues, or an index of clusters it builds by
-// skipping from one cluster header to the next when there are none.
+// elements. Seeks use the Cues, or when there are none bisect the file on
+// cluster headers.
 class MatroskaDemuxer : public Demuxer {
  public:
   MatroskaDemuxer();
@@ -73,11 +73,11 @@ class MatroskaDemuxer : public Demuxer {
     uint64_t track;
     int64_t position;  // Absolute offset of the cluster.
   };
-  struct ClusterEntry {
-    int64_t position;
-    int64_t time;  // Microseconds.
-    // Where the next top-level element starts; -1 at the end.
-    int64_t next;
+  struct ClusterHead {
+    int64_t position = -1;
+    int64_t time = 0;  // Microseconds.
+    // Where the element after it starts; -1 if its size is unknown.
+    int64_t end = -1;
   };
   struct Pending {
     EncodedPacket packet;
@@ -109,19 +109,34 @@ class MatroskaDemuxer : public Demuxer {
   void ReadElementAt(int64_t position);
   // Cues are read at the first seek: playback from the start needs none.
   void LoadCues();
-  // Extends clusters_ up to the first cluster after |time|, or the end.
-  void IndexClustersUpTo(int64_t time);
+  // The cluster at |position| if one starts there whose time is in
+  // [|min_time|, |max_time|]: kOk, else kInvalid; kError on errors.
+  Status ReadClusterHead(int64_t position,
+                         int64_t min_time,
+                         int64_t max_time,
+                         ClusterHead* cluster);
+  // The first such cluster in [|from|, |to|): kOk, kEnd if there is none.
+  Status FindCluster(int64_t from,
+                     int64_t to,
+                     int64_t min_time,
+                     int64_t max_time,
+                     ClusterHead* cluster);
+  // The position of the last cluster at or before |time| (the first if
+  // none is), by bisecting the file: a few reads, where walking the
+  // clusters from the start takes one per cluster. -1 if interrupted.
+  int64_t BisectClusters(int64_t time);
 
   // Reads elements until a packet is pending or the input ends.
   DemuxerReadResult ParseNext();
-  // Queues the frames of a Block or SimpleBlock: the first |size| bytes
-  // of |bytes|, which has kPacketPadding zero bytes more.
+  // Queues the frames of a Block or SimpleBlock: |size| bytes of |bytes|
+  // from |offset|, followed by kPacketPadding zero bytes.
   void ParseBlock(const std::shared_ptr<std::vector<uint8_t>>& bytes,
                   size_t size,
                   bool simple,
                   bool reference,
                   int64_t duration_ticks,
-                  int64_t discard_padding = 0);
+                  int64_t discard_padding = 0,
+                  size_t offset = 0);
   // Sets the dts of unresolved packets that can be resolved now; all of
   // them at the end of the input.
   void ResolveDts(bool all);
@@ -153,9 +168,8 @@ class MatroskaDemuxer : public Demuxer {
   bool tags_read_ = false;
   bool attachments_read_ = false;
   std::vector<CuePoint> cues_;
-  // Clusters seen while reading or indexing, by position.
-  std::vector<ClusterEntry> clusters_;
-  bool clusters_complete_ = false;
+  // The tracks cues_ has points for.
+  std::vector<uint64_t> cue_tracks_;
 
   // The read position: the next element, and the cluster it is in.
   int64_t position_ = 0;

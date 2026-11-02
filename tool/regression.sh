@@ -1079,10 +1079,11 @@ par check seek-backward 1 1.000 -- --seek 1 --seek-after 5 "$media/hevc10.mp4"
 par check seek-near-end 1 11.900 -- --seek 11.9 --seek-after 1 "$media/h264_aac.mp4"
 par check seek-past-end 1 - -- --seek 30 --seek-after 1 "$media/offset.ts"
 par check seek-vp9      $vp9_hw 7.500 -- --seek 7.5 --seek-after 2 "$media/vp9_opus.webm"
-# Matroska seeks through the Cues, by scanning the clusters without them,
+# Matroska seeks through the Cues, by bisecting on clusters without them,
 # and in clusters of unknown size.
 par check seek-mkv      1 7.500 -- --seek 7.5 --seek-after 2 "$media/h264_aac.mkv"
 par check seek-mkv-no-cues 1 1.000 -- --seek 1 --seek-after 5 "$media/mkv_no_cues.mkv"
+par check seek-mkv-no-cues-ahead 1 7.500 -- --seek 7.5 --seek-after 1 "$media/mkv_no_cues.mkv"
 par check seek-mkv-unknown-sizes 1 7.500 -- --seek 7.5 --seek-after 2 "$media/mkv_unknown_sizes.mkv"
 # MPEG-TS seeks to the keyframe before the target (8.33 s apart here) and
 # lands on the target frame (10 s offset + start 1.377 s + 7.5 s): by

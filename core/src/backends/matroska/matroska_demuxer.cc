@@ -104,7 +104,9 @@ constexpr size_t kMaxHeaderSize = 16 << 20;
 constexpr size_t kMaxCuesSize = 64 << 20;
 constexpr size_t kMaxAttachmentsSize = 64 << 20;
 constexpr size_t kMaxCuePoints = 1 << 22;
-constexpr size_t kMaxClusters = 1 << 22;
+// A cluster seek bisects down to this many bytes, then reads on from the
+// cluster before them.
+constexpr int64_t kBisectStop = 1 << 20;
 constexpr size_t kMaxStreams = 256;
 // One block: an 8K intra frame is a few MB. A larger size is a corrupt
 // file, and allocating it could take the process down.
@@ -1124,6 +1126,7 @@ void MatroskaDemuxer::ParseAttachments(const std::vector<uint8_t>& body) {
 
 void MatroskaDemuxer::ParseCues(const std::vector<uint8_t>& body) {
   cues_.clear();
+  cue_tracks_.clear();
   for (const Child& point : Children(body.data(), body.size())) {
     if (point.id != kCuePoint) {
       continue;
@@ -1160,6 +1163,10 @@ void MatroskaDemuxer::ParseCues(const std::vector<uint8_t>& body) {
         continue;
       }
       cues_.push_back({ToMicros(time), track, absolute});
+      if (std::find(cue_tracks_.begin(), cue_tracks_.end(), track) ==
+          cue_tracks_.end()) {
+        cue_tracks_.push_back(track);
+      }
     }
   }
   std::stable_sort(
@@ -1185,68 +1192,128 @@ void MatroskaDemuxer::LoadCues() {
   }
   cues_loaded_ = true;
   if (status != Status::kOk) {
-    LOGW("cues at %lld not read; seeks scan the clusters",
+    LOGW("cues at %lld not read; seeks bisect the clusters",
          static_cast<long long>(cues_position_));
     return;
   }
   ParseCues(body);
 }
 
-void MatroskaDemuxer::IndexClustersUpTo(int64_t time) {
-  if (clusters_complete_ ||
-      (!clusters_.empty() && clusters_.back().time > time)) {
-    return;
+MatroskaDemuxer::Status MatroskaDemuxer::ReadClusterHead(int64_t position,
+                                                         int64_t min_time,
+                                                         int64_t max_time,
+                                                         ClusterHead* cluster) {
+  Element element;
+  Status status = ReadElementHeader(position, &element);
+  if (status != Status::kOk) {
+    return status == Status::kError ? status : Status::kInvalid;
   }
-  int64_t position = clusters_.empty() ? first_cluster_ : clusters_.back().next;
-  while (position >= 0 && clusters_.size() < kMaxClusters) {
+  const int64_t limit = segment_end_ >= 0 ? segment_end_ : file_size_;
+  if (element.id != kCluster || (element.size >= 0 && element.end() > limit)) {
+    return Status::kInvalid;
+  }
+  // Its Timestamp comes first.
+  uint8_t head[32];
+  const int64_t got = ReadAt(element.body, head, sizeof(head));
+  if (got < 0) {
+    return Status::kError;
+  }
+  std::vector<Child> children = Children(head, static_cast<size_t>(got));
+  if (children.empty() || children[0].id != kTimestamp) {
+    return Status::kInvalid;
+  }
+  cluster->position = position;
+  cluster->time = ToMicros(static_cast<int64_t>(
+      std::min<uint64_t>(UInt(children[0]), uint64_t{1} << 52)));
+  cluster->end = element.end();
+  return cluster->time >= min_time && cluster->time <= max_time
+             ? Status::kOk
+             : Status::kInvalid;
+}
+
+MatroskaDemuxer::Status MatroskaDemuxer::FindCluster(int64_t from,
+                                                     int64_t to,
+                                                     int64_t min_time,
+                                                     int64_t max_time,
+                                                     ClusterHead* cluster) {
+  // The cluster ID in block data, which would pass for one, also needs a
+  // valid header, a Timestamp first, and a time between its neighbors'.
+  std::vector<uint8_t> window(kCacheSize);
+  while (from < to) {
     if (aborted_ || interrupted_) {
-      return;
+      return Status::kError;
     }
-    Element element;
-    if ((segment_end_ >= 0 && position >= segment_end_) ||
-        ReadElementHeader(position, &element) != Status::kOk) {
+    const size_t want =
+        static_cast<size_t>(std::min<int64_t>(to - from + 3, kCacheSize));
+    const int64_t got = ReadAt(from, window.data(), want);
+    if (got < 0) {
+      return Status::kError;
+    }
+    if (got < 4) {
       break;
     }
-    if (element.id != kCluster) {
-      if (element.size < 0) {
-        break;
+    for (int64_t i = 0; i + 4 <= got && from + i < to; ++i) {
+      if (window[i] != 0x1F || window[i + 1] != 0x43 || window[i + 2] != 0xB6 ||
+          window[i + 3] != 0x75) {
+        continue;
       }
-      position = element.end();
-      continue;
-    }
-    uint8_t head[32];
-    int64_t got = ReadAt(element.body, head, sizeof(head));
-    std::vector<Child> children =
-        Children(head, got > 0 ? static_cast<size_t>(got) : 0);
-    if (children.empty() || children[0].id != kTimestamp) {
-      break;
-    }
-    ClusterEntry entry = {
-        position, ToMicros(static_cast<int64_t>(UInt(children[0]))), -1};
-    if (element.size >= 0) {
-      entry.next = element.end();
-    } else {
-      // A cluster of unknown size (live recordings) ends where an element
-      // that cannot be in it starts: walk its children.
-      Element child;
-      int64_t at = element.body;
-      Status status;
-      while ((status = ReadElementHeader(at, &child)) == Status::kOk &&
-             !IsTopLevel(child.id) && child.size >= 0) {
-        if (aborted_ || interrupted_) {
-          return;
-        }
-        at = child.end();
+      Status status = ReadClusterHead(from + i, min_time, max_time, cluster);
+      if (status != Status::kInvalid) {
+        return status;
       }
-      entry.next = status == Status::kOk && IsTopLevel(child.id) ? at : -1;
     }
-    clusters_.push_back(entry);
-    if (entry.time > time) {
-      return;
-    }
-    position = entry.next;
+    from += got - 3;
   }
-  clusters_complete_ = true;
+  return Status::kEnd;
+}
+
+int64_t MatroskaDemuxer::BisectClusters(int64_t time) {
+  // The clusters' times go up through the file. |low| is a cluster at or
+  // before |time|; any cluster at or after |high| is after it, and before
+  // |high_time|.
+  ClusterHead low;
+  Status status = ReadClusterHead(first_cluster_, INT64_MIN, INT64_MAX, &low);
+  if (status != Status::kOk) {
+    return status == Status::kError ? -1 : first_cluster_;
+  }
+  int64_t high = segment_end_ >= 0 ? segment_end_ : file_size_;
+  int64_t high_time = INT64_MAX;
+  while (high - low.position > kBisectStop) {
+    const int64_t middle = low.position + (high - low.position) / 2;
+    ClusterHead found;
+    status = FindCluster(middle, high, low.time, high_time, &found);
+    if (status == Status::kError) {
+      return -1;
+    }
+    if (status != Status::kOk) {
+      high = middle;
+    } else if (found.time <= time) {
+      low = found;
+    } else {
+      high = found.position;
+      high_time = found.time;
+    }
+  }
+  // Then on, cluster by cluster: at the end of one of known size, or the
+  // next cluster header in one of unknown size (live recordings).
+  for (;;) {
+    ClusterHead next;
+    status = Status::kInvalid;
+    if (low.end >= 0 && low.end < high) {
+      status = ReadClusterHead(low.end, low.time, high_time, &next);
+    }
+    if (status == Status::kInvalid) {
+      status = FindCluster(low.end >= 0 ? low.end : low.position + 1, high,
+                           low.time, high_time, &next);
+    }
+    if (status == Status::kError) {
+      return -1;
+    }
+    if (status != Status::kOk || next.time > time) {
+      return low.position;
+    }
+    low = next;
+  }
 }
 
 int64_t MatroskaDemuxer::ToMicros(int64_t ticks) const {
@@ -1495,11 +1562,15 @@ DemuxerReadResult MatroskaDemuxer::ParseNext() {
           }
         }
         if (block) {
-          auto copy = std::make_shared<std::vector<uint8_t>>(
-              block->data, block->data + block->size);
-          copy->resize(block->size + kPacketPadding, 0);
-          ParseBlock(copy, block->size, false, reference, duration,
-                     discard_padding);
+          // The frames are read in place, as a SimpleBlock's: what follows
+          // the Block in the group was parsed above, and becomes padding.
+          const auto offset = static_cast<size_t>(block->data - bytes->data());
+          const size_t end = offset + block->size;
+          bytes->resize(std::max(bytes->size(), end + kPacketPadding));
+          std::fill(bytes->begin() + static_cast<ptrdiff_t>(end), bytes->end(),
+                    0);
+          ParseBlock(bytes, block->size, false, reference, duration,
+                     discard_padding, offset);
         }
       }
     }
@@ -1516,8 +1587,9 @@ void MatroskaDemuxer::ParseBlock(
     bool simple,
     bool reference,
     int64_t duration_ticks,
-    int64_t discard_padding) {
-  const uint8_t* data = bytes->data();
+    int64_t discard_padding,
+    size_t offset) {
+  const uint8_t* data = bytes->data() + offset;
   size_t pos = 0;
   uint64_t number = 0;
   if (!ReadVint(data, size, &pos, false, &number) || size - pos < 3) {
@@ -1670,7 +1742,8 @@ void MatroskaDemuxer::ParseBlock(
     packet.duration = frame_duration;
     packet.keyframe = keyframe;
     if (track->stripped_header.empty() && sizes.size() == 1) {
-      packet.buffer = std::make_shared<BlockBuffer>(bytes, pos, sizes[0]);
+      packet.buffer =
+          std::make_shared<BlockBuffer>(bytes, offset + pos, sizes[0]);
     } else {
       std::vector<uint8_t> frame = track->stripped_header;
       frame.insert(frame.end(), data + pos, data + pos + sizes[i]);
@@ -1742,10 +1815,8 @@ bool MatroskaDemuxer::Seek(int64_t time) {
   uint64_t cue_track = 0;
   int best = -1;
   for (const Track& track : tracks_) {
-    bool has_cues = std::any_of(
-        cues_.begin(), cues_.end(),
-        [&](const CuePoint& cue) { return cue.track == track.number; });
-    if (!has_cues) {
+    if (std::find(cue_tracks_.begin(), cue_tracks_.end(), track.number) ==
+        cue_tracks_.end()) {
       continue;
     }
     int score = (track.enabled ? 2 : 0) +
@@ -1757,18 +1828,22 @@ bool MatroskaDemuxer::Seek(int64_t time) {
   }
   int64_t target = first_cluster_;
   if (best >= 0) {
-    for (const CuePoint& cue : cues_) {
-      if (cue.track == cue_track && cue.time <= time) {
-        target = cue.position;
+    // The track's last cue at or before |time|.
+    auto after = std::partition_point(
+        cues_.begin(), cues_.end(),
+        [time](const CuePoint& cue) { return cue.time <= time; });
+    while (after != cues_.begin()) {
+      --after;
+      if (after->track == cue_track) {
+        target = after->position;
+        break;
       }
     }
   } else {
-    IndexClustersUpTo(time);
-    for (const ClusterEntry& cluster : clusters_) {
-      if (cluster.time <= time) {
-        target = cluster.position;
-      }
-    }
+    target = BisectClusters(time);
+  }
+  if (target < 0) {
+    return false;
   }
   // Reading the Cues or indexing was cut short: the target may be far
   // before |time|, and the caller asked for the seek to end.
