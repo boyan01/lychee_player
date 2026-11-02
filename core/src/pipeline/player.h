@@ -438,6 +438,9 @@ class Player {
   // thread. Lock order: display_mutex_ before the renderer's.
   mutable std::mutex display_mutex_;
   VideoRenderer* video_for_display_ = nullptr;
+  // Held by AcquireFrame() alone, before |display_mutex_|, across the
+  // frame's VideoFrame::present, which it runs without the display lock.
+  std::mutex present_mutex_;
 
   // Written under |mutex_| while the read thread is parked or not started;
   // the read thread reads them without the lock.

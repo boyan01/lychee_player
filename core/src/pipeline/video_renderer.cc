@@ -553,7 +553,9 @@ bool VideoRenderer::HasNewFrame(int64_t display_time) {
   return result;
 }
 
-std::shared_ptr<VideoFrame> VideoRenderer::Acquire(int64_t display_time) {
+std::shared_ptr<VideoFrame> VideoRenderer::Acquire(
+    int64_t display_time,
+    std::function<void(int64_t)>* present) {
   std::shared_ptr<VideoFrame> result;
   bool freed;
   {
@@ -568,10 +570,9 @@ std::shared_ptr<VideoFrame> VideoRenderer::Acquire(int64_t display_time) {
         // About the last 16 frames.
         average_offset_ += (offset - average_offset_) / 16;
       }
-      if (frame->present) {
-        frame->present(display_time);
-        frame->present = nullptr;
-      }
+      // Once, by whoever takes it here.
+      *present = std::move(frame->present);
+      frame->present = nullptr;
       current_ = std::move(frame);
       current_stale_ = false;
       shown_width_ = current_->width;

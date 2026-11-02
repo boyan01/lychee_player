@@ -3,9 +3,10 @@
 #include "pipeline/player.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cctype>
 #include <chrono>
+#include <cmath>
+#include <functional>
 
 #include "base/log.h"
 #include "base/thread_name.h"
@@ -1022,9 +1023,22 @@ bool Player::HasNewFrame(int64_t display_time) const {
 }
 
 std::shared_ptr<VideoFrame> Player::AcquireFrame(int64_t display_time) {
-  std::lock_guard<std::mutex> lock(display_mutex_);
-  return video_for_display_ ? video_for_display_->Acquire(display_time)
-                            : nullptr;
+  // Pulls from several threads present in the order they took frames.
+  std::lock_guard<std::mutex> present_lock(present_mutex_);
+  std::function<void(int64_t)> present;
+  std::shared_ptr<VideoFrame> frame;
+  {
+    std::lock_guard<std::mutex> lock(display_mutex_);
+    if (video_for_display_) {
+      frame = video_for_display_->Acquire(display_time, &present);
+    }
+  }
+  // Outside the display lock, which the control thread takes under
+  // |mutex_|. The present holds what it releases.
+  if (present) {
+    present(display_time);
+  }
+  return frame;
 }
 
 int64_t Player::UnloopedPts(int64_t pts) const {

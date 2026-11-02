@@ -4,6 +4,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -116,7 +117,11 @@ class VideoRenderer {
   void ExpireFramesWhileHidden(int64_t now);
 
   bool HasNewFrame(int64_t display_time);
-  std::shared_ptr<VideoFrame> Acquire(int64_t display_time);
+  // |present| receives the VideoFrame::present of a frame handed out for
+  // the first time, for the caller to run with |display_time| once it holds
+  // no lock: MediaCodec's release waits on the codec. Empty otherwise.
+  std::shared_ptr<VideoFrame> Acquire(int64_t display_time,
+                                      std::function<void(int64_t)>* present);
 
   const char* decoder_name() const;
   bool is_hardware() const;

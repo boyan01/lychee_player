@@ -42,9 +42,11 @@ struct VideoFrame {
   // kCVPixelBuffer, kD3D11Texture, kDmabuf.
   void* native_handle = nullptr;
 
-  // Called once, under the renderer's lock, when the frame is first handed
-  // out for |display_time| (lychee_now_us() timebase). For decoders that
-  // present by releasing output buffers (kAndroidSurface).
+  // Called once when the frame is first handed out for |display_time|
+  // (lychee_now_us() timebase), on the thread that pulled it, holding none
+  // of the pipeline's locks; a flush or the decoder's end may have come
+  // first. For decoders that present by releasing output buffers
+  // (kAndroidSurface).
   std::function<void(int64_t display_time)> present;
 
   // Keeps |data| / |native_handle| alive.
