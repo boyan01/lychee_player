@@ -31,6 +31,8 @@
 #include <d3d11.h>
 #include <dxgi.h>
 #include <wrl/client.h>
+#elif defined(__ANDROID__)
+#include <dlfcn.h>
 #endif
 
 namespace {
@@ -1076,7 +1078,33 @@ class LiveFeed {
 
 }  // namespace
 
+#if defined(__ANDROID__)
+namespace {
+
+// MediaCodec (Codec2) hands back output through binder callbacks, which
+// need a binder thread pool in the process. Apps have one; a program run
+// from adb shell gets one only from what starts it, such as AAudio, so
+// with the null audio sink a codec never returned output. Looked up at
+// run time: libbinder_ndk exports it from API 29, the CLI targets 26.
+void StartBinderThreadPool() {
+  void* library = dlopen("libbinder_ndk.so", RTLD_NOW);
+  if (!library) {
+    return;
+  }
+  using StartThreadPool = void (*)();
+  if (auto start = reinterpret_cast<StartThreadPool>(
+          dlsym(library, "ABinderProcess_startThreadPool"))) {
+    start();
+  }
+}
+
+}  // namespace
+#endif
+
 int main(int argc, char** argv) {
+#if defined(__ANDROID__)
+  StartBinderThreadPool();
+#endif
   Options options;
   if (!ParseOptions(argc, argv, &options)) {
     fprintf(

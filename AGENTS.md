@@ -245,8 +245,8 @@ The layers, lowest first:
      -DANDROID_STL=c++_shared -DBUILD_SHARED_LIBS=ON
      -DLYCHEE_FFMPEG_ROOT=third_party/ffmpeg/android-x86_64`) and runs
      from `adb shell` in `/data/local/tmp` beside its libraries
-     (`LD_LIBRARY_PATH=.`); `--android-surface` decodes through
-     MediaCodec, in real time only.
+     (`LD_LIBRARY_PATH=.`); `--android-surface` decodes video through
+     MediaCodec.
    - Windows: `examples/glfw` (D3D11 textures), through the
      `flutter-remote-test` skill. `--seconds N` and `--key SEC:NAME`
      (`docs/development.md`) run it unattended on every desktop platform.

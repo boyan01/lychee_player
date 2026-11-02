@@ -75,13 +75,6 @@ building on top of them.
   unregisters. What the PC's state was before the reboot is unknown.
   If it comes back, compare the bare app on the same boot before
   touching the plugin.
-- **`lychee_cli` on Android with `NullAudioSink`** (2026-11-02, Pixel_10
-  emulator, FFmpeg-free build): with `--virtual-time` or `--null-audio`,
-  AAC and Opus files stay in `loading` with all their audio queued; the
-  MediaCodec decoder opens and the decode thread waits. With AAudio they
-  play. So `audio_onset` and `--audio-dump` cannot be read there. Done
-  when the `av-sync-*` cases pass through the NDK-built CLI on the
-  emulator.
 
 ## Performance
 
