@@ -1,11 +1,14 @@
 #ifndef LYCHEE_BACKENDS_WINDOWS_D3D11_VIDEO_PROCESSOR_H_
 #define LYCHEE_BACKENDS_WINDOWS_D3D11_VIDEO_PROCESSOR_H_
 
-#include <d3d11_1.h>
+#include <d3d11_4.h>
 #include <dxgi1_4.h>
 #include <wrl/client.h>
 
+#include <cstdint>
+#include <map>
 #include <memory>
+#include <utility>
 
 #include "media/stream_info.h"
 #include "media/video_frame.h"
@@ -17,12 +20,22 @@ namespace lychee {
 DXGI_COLOR_SPACE_TYPE DxgiColorSpace(const ColorInfo& color, int height);
 
 // Turns decoded NV12 / P010 textures into shared BGRA or PQ/BT.2020 R10
-// frames: a new texture per frame, so a texture another device has opened is
-// never written again. Runs on the decoder's device, on the decode thread.
+// frames. Output textures come from a pool: a texture is written again
+// only once its frame is released, nobody else holds a reference to it,
+// and long enough has passed for draws another device submitted from it
+// before the release to be done (lychee.h tells callers as much). Runs on
+// the decoder's device, on the decode thread; frames may be released on
+// any thread, and outlive the processor.
 //
 // Ported from flutter-airplay's native/backends/windows/windows_gpu.h.
 class D3D11VideoProcessor {
  public:
+  D3D11VideoProcessor();
+  ~D3D11VideoProcessor();
+  D3D11VideoProcessor(const D3D11VideoProcessor&) = delete;
+  D3D11VideoProcessor& operator=(const D3D11VideoProcessor&) = delete;
+  D3D11VideoProcessor& operator=(D3D11VideoProcessor&& other) noexcept;
+
   // |texture| is a decoder output, |slice| its array index; the picture is
   // its top-left |width| x |height| in |color_space|. Null if the GPU
   // cannot convert it. By default output is SDR BT.709. HDR (PQ, which NVIDIA's
@@ -42,7 +55,17 @@ class D3D11VideoProcessor {
   std::shared_ptr<VideoFrame> Download(const VideoFrame& frame);
 
  private:
+  // A texture the processor writes, with the views that write it.
+  struct Output;
+  // Output textures of one size and format, idle until reused.
+  struct OutputPool;
+  struct HandleCloser {
+    void operator()(void* handle) const;
+  };
+
   bool SetUp(ID3D11Device* device);
+  // An idle output texture for |desc| from the pool, or a new one.
+  std::unique_ptr<Output> TakeOutput(const D3D11_TEXTURE2D_DESC& desc);
   // Converts |texture|'s |slice| into |output| from |input_space| to
   // |output_space|; the video processor matches |format| and the sizes.
   bool Blt(ID3D11Texture2D* texture,
@@ -50,13 +73,13 @@ class D3D11VideoProcessor {
            DXGI_FORMAT format,
            UINT input_width,
            UINT input_height,
-           ID3D11Texture2D* output,
+           Output* output,
            UINT output_width,
            UINT output_height,
            DXGI_COLOR_SPACE_TYPE input_space,
            DXGI_COLOR_SPACE_TYPE output_space);
   // Converts |hdr_|, PQ or HLG / BT.2020, to SDR or native PQ output.
-  bool ConvertHdr(ID3D11Texture2D* output,
+  bool ConvertHdr(Output* output,
                   UINT width,
                   UINT height,
                   bool hlg,
@@ -70,9 +93,21 @@ class D3D11VideoProcessor {
   Microsoft::WRL::ComPtr<ID3D11VideoContext> video_context_;
   // Windows 8.1 and later: DXGI color spaces, which can say PQ and HLG.
   Microsoft::WRL::ComPtr<ID3D11VideoContext1> video_context1_;
+  // Finish() waits on |fence_| where the device has fences (Windows 10
+  // 1703 and later, WDDM 2.0 drivers), else polls |completion_|.
   Microsoft::WRL::ComPtr<ID3D11Query> completion_;
+  Microsoft::WRL::ComPtr<ID3D11DeviceContext4> context4_;
+  Microsoft::WRL::ComPtr<ID3D11Fence> fence_;
+  std::unique_ptr<void, HandleCloser> fence_event_;
+  uint64_t fence_value_ = 0;
   Microsoft::WRL::ComPtr<ID3D11VideoProcessorEnumerator> enumerator_;
   Microsoft::WRL::ComPtr<ID3D11VideoProcessor> processor_;
+  // Input views of decoder textures, by texture and array slice, for
+  // |enumerator_|. Decoders cycle through a fixed set of textures.
+  std::map<std::pair<ID3D11Texture2D*, UINT>,
+           Microsoft::WRL::ComPtr<ID3D11VideoProcessorInputView>>
+      input_views_;
+  std::shared_ptr<OutputPool> pool_;
   // What |processor_| was created for.
   DXGI_FORMAT input_format_ = DXGI_FORMAT_UNKNOWN;
   DXGI_FORMAT output_format_ = DXGI_FORMAT_UNKNOWN;
@@ -82,7 +117,7 @@ class D3D11VideoProcessor {
   UINT output_height_ = 0;
   // HDR: the video processor's RGB output, still in PQ or HLG, and the
   // shaders that read it. Created on the first HDR frame.
-  Microsoft::WRL::ComPtr<ID3D11Texture2D> hdr_;
+  std::unique_ptr<Output> hdr_;
   Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> hdr_view_;
   Microsoft::WRL::ComPtr<ID3D11VertexShader> vertex_shader_;
   Microsoft::WRL::ComPtr<ID3D11PixelShader> pq_shader_;

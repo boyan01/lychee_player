@@ -4,7 +4,11 @@
 
 #include <d3dcompiler.h>
 
+#include <algorithm>
+#include <atomic>
 #include <cstring>
+#include <deque>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -19,6 +23,24 @@ using Microsoft::WRL::ComPtr;
 
 // Longest wait for the GPU to finish a conversion.
 constexpr int64_t kCompletionTimeout = 100 * kMicrosPerMilli;
+// Without a fence: how long Finish() polls the GPU between yields before
+// it sleeps instead (a Sleep(1) may take a whole 15.6 ms timer tick). A
+// conversion usually takes about a millisecond.
+constexpr int64_t kCompletionSpin = 2 * kMicrosPerMilli;
+// How long an output texture whose frame was handed out stays untouched
+// after its release before it is written again. The caller releases a
+// frame once it has submitted its last draw from it, which its device may
+// run a few frames later (DXGI queues up to three by default): 100 ms
+// covers that at refresh rates down to 30 Hz. Frames never handed out (the
+// renderer drops them, or Download() read them) are reused at once: after
+// a seek the decoder runs through hundreds a second.
+constexpr int64_t kReuseDelay = 100 * kMicrosPerMilli;
+// Output textures idle this long are more than the decoder needs; they are
+// freed rather than kept.
+constexpr int64_t kIdleLimit = kMicrosPerSecond;
+// Decoders cycle through a fixed set of textures (FFmpeg's pool of array
+// slices); more than this many input views means they changed.
+constexpr size_t kMaxInputViews = 64;
 
 // PQ into SDR close to how swscale does it for software-decoded frames
 // (FFmpegVideoDecoder::ConvertToCpu), so a stream looks about the same
@@ -159,6 +181,12 @@ bool IsHlg(DXGI_COLOR_SPACE_TYPE color_space) {
          color_space == DXGI_COLOR_SPACE_YCBCR_FULL_GHLG_TOPLEFT_P2020;
 }
 
+// |object|'s reference count.
+ULONG References(IUnknown* object) {
+  object->AddRef();
+  return object->Release();
+}
+
 ComPtr<ID3DBlob> CompileShader(const char* entry, const char* target) {
   ComPtr<ID3DBlob> code;
   ComPtr<ID3DBlob> errors;
@@ -198,18 +226,133 @@ DXGI_COLOR_SPACE_TYPE DxgiColorSpace(const ColorInfo& color, int height) {
               : DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P601;
 }
 
+struct D3D11VideoProcessor::Output {
+  ComPtr<ID3D11Texture2D> texture;
+  // The video processor output view, for |enumerator|.
+  ComPtr<ID3D11VideoProcessorEnumerator> enumerator;
+  ComPtr<ID3D11VideoProcessorOutputView> view;
+  // For the HDR shader.
+  ComPtr<ID3D11RenderTargetView> target;
+  // |texture|'s reference count when its frame went out: more when it
+  // comes back means a caller still holds it.
+  ULONG references = 0;
+  // When it may be written again (MonotonicMicros()).
+  int64_t reusable = 0;
+  // Whether its frame was handed out (VideoFrame::present).
+  std::atomic<bool> shown{false};
+};
+
+struct D3D11VideoProcessor::OutputPool {
+  std::mutex mutex;
+  // What the idle textures are; a texture of another size or format is
+  // freed on its return.
+  UINT width = 0;
+  UINT height = 0;
+  DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+  // Soonest reusable first.
+  std::deque<std::unique_ptr<Output>> idle;
+
+  void Return(std::unique_ptr<Output> output) {
+    D3D11_TEXTURE2D_DESC desc = {};
+    output->texture->GetDesc(&desc);
+    std::lock_guard<std::mutex> lock(mutex);
+    if (desc.Width == width && desc.Height == height && desc.Format == format) {
+      output->reusable = MonotonicMicros() + (output->shown ? kReuseDelay : 0);
+      // Kept in order of |reusable|.
+      auto it = idle.end();
+      while (it != idle.begin() && (*(it - 1))->reusable > output->reusable) {
+        --it;
+      }
+      idle.insert(it, std::move(output));
+    }
+  }
+};
+
+void D3D11VideoProcessor::HandleCloser::operator()(void* handle) const {
+  CloseHandle(handle);
+}
+
+D3D11VideoProcessor::D3D11VideoProcessor() = default;
+D3D11VideoProcessor::~D3D11VideoProcessor() = default;
+D3D11VideoProcessor& D3D11VideoProcessor::operator=(
+    D3D11VideoProcessor&& other) noexcept = default;
+
 bool D3D11VideoProcessor::SetUp(ID3D11Device* device) {
   if (device == device_.Get()) {
     return video_device_ && video_context_ && completion_;
   }
+  // Frames out on the old device keep its pool until they are released.
   *this = D3D11VideoProcessor();
   device_ = device;
   device_->GetImmediateContext(&context_);
+  pool_ = std::make_shared<OutputPool>();
   D3D11_QUERY_DESC query = {D3D11_QUERY_EVENT, 0};
   context_.As(&video_context1_);
+  ComPtr<ID3D11Device5> device5;
+  if (SUCCEEDED(device_.As(&device5)) && SUCCEEDED(context_.As(&context4_)) &&
+      SUCCEEDED(device5->CreateFence(0, D3D11_FENCE_FLAG_NONE,
+                                     IID_PPV_ARGS(&fence_)))) {
+    fence_event_.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
+  }
+  if (!fence_event_) {
+    fence_.Reset();
+  }
   return SUCCEEDED(device_.As(&video_device_)) &&
          SUCCEEDED(context_.As(&video_context_)) &&
          SUCCEEDED(device_->CreateQuery(&query, &completion_));
+}
+
+std::unique_ptr<D3D11VideoProcessor::Output> D3D11VideoProcessor::TakeOutput(
+    const D3D11_TEXTURE2D_DESC& desc) {
+  std::unique_ptr<Output> reused;
+  // Freed after the lock.
+  std::vector<std::unique_ptr<Output>> unused;
+  {
+    std::lock_guard<std::mutex> lock(pool_->mutex);
+    if (desc.Width != pool_->width || desc.Height != pool_->height ||
+        desc.Format != pool_->format) {
+      for (auto& output : pool_->idle) {
+        unused.push_back(std::move(output));
+      }
+      pool_->idle.clear();
+      pool_->width = desc.Width;
+      pool_->height = desc.Height;
+      pool_->format = desc.Format;
+    }
+    const int64_t now = MonotonicMicros();
+    auto& idle = pool_->idle;
+    // More than the decoder needs (left from a seek, say): freed.
+    while (!idle.empty() && now - idle.front()->reusable >= kIdleLimit) {
+      unused.push_back(std::move(idle.front()));
+      idle.pop_front();
+    }
+    // The last to become reusable, so the ones in use stay few and the
+    // rest go stale.
+    auto ready = std::find_if(idle.begin(), idle.end(), [now](const auto& o) {
+      return o->reusable > now;
+    });
+    while (ready != idle.begin() && !reused) {
+      --ready;
+      std::unique_ptr<Output> output = std::move(*ready);
+      ready = idle.erase(ready);
+      if (References(output->texture.Get()) == output->references) {
+        reused = std::move(output);
+      } else {
+        // A caller kept a reference after releasing the frame (lychee.h
+        // allows it): never written again.
+        unused.push_back(std::move(output));
+      }
+    }
+  }
+  if (reused) {
+    return reused;
+  }
+  auto output = std::make_unique<Output>();
+  if (FAILED(device_->CreateTexture2D(&desc, nullptr, &output->texture))) {
+    return nullptr;
+  }
+  LOGD("new %ux%u output texture", desc.Width, desc.Height);
+  return output;
 }
 
 std::shared_ptr<VideoFrame> D3D11VideoProcessor::Convert(
@@ -256,36 +399,38 @@ std::shared_ptr<VideoFrame> D3D11VideoProcessor::Convert(
   target.Usage = D3D11_USAGE_DEFAULT;
   target.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
   target.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
-  ComPtr<ID3D11Texture2D> output;
-  if (FAILED(device_->CreateTexture2D(&target, nullptr, &output))) {
+  std::unique_ptr<Output> output = TakeOutput(target);
+  if (!output) {
     return nullptr;
   }
 
   if (pq && hdr_output) {
     // No intermediate or transfer conversion: keep the decoded HDR signal.
     if (!Blt(texture, slice, source.Format, source.Width, source.Height,
-             output.Get(), output_width, output_height, color_space,
+             output.get(), output_width, output_height, color_space,
              DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020)) {
       return nullptr;
     }
   } else if (pq || hlg) {
     D3D11_TEXTURE2D_DESC desc = {};
     if (hdr_) {
-      hdr_->GetDesc(&desc);
+      hdr_->texture->GetDesc(&desc);
     }
     if (!hdr_ || desc.Width != output_width || desc.Height != output_height) {
-      hdr_.Reset();
+      hdr_.reset();
       hdr_view_.Reset();
       desc = target;
       // 10 bits of signal, as P010 carries them.
       desc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
       desc.MiscFlags = 0;
-      if (FAILED(device_->CreateTexture2D(&desc, nullptr, &hdr_)) ||
-          FAILED(device_->CreateShaderResourceView(hdr_.Get(), nullptr,
+      auto hdr = std::make_unique<Output>();
+      if (FAILED(device_->CreateTexture2D(&desc, nullptr, &hdr->texture)) ||
+          FAILED(device_->CreateShaderResourceView(hdr->texture.Get(), nullptr,
                                                    &hdr_view_))) {
-        hdr_.Reset();
+        hdr_view_.Reset();
         return nullptr;
       }
+      hdr_ = std::move(hdr);
     }
     const DXGI_COLOR_SPACE_TYPE input_space =
         hlg ? DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_TOPLEFT_P2020 : color_space;
@@ -293,14 +438,14 @@ std::shared_ptr<VideoFrame> D3D11VideoProcessor::Convert(
         hlg ? DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P2020
             : DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
     if (!Blt(texture, slice, source.Format, source.Width, source.Height,
-             hdr_.Get(), output_width, output_height, input_space,
+             hdr_.get(), output_width, output_height, input_space,
              output_space) ||
-        !ConvertHdr(output.Get(), output_width, output_height, hlg,
+        !ConvertHdr(output.get(), output_width, output_height, hlg,
                     hdr_output)) {
       return nullptr;
     }
   } else if (!Blt(texture, slice, source.Format, source.Width, source.Height,
-                  output.Get(), output_width, output_height, color_space,
+                  output.get(), output_width, output_height, color_space,
                   DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709)) {
     return nullptr;
   }
@@ -313,9 +458,17 @@ std::shared_ptr<VideoFrame> D3D11VideoProcessor::Convert(
                               : VideoFrameStorage::kD3D11Texture;
   frame->width = width;
   frame->height = height;
-  frame->native_handle = output.Get();
-  frame->owner = std::shared_ptr<ID3D11Texture2D>(
-      output.Detach(), [](ID3D11Texture2D* texture) { texture->Release(); });
+  frame->native_handle = output->texture.Get();
+  output->references = References(output->texture.Get());
+  output->shown = false;
+  // The frame keeps |output| until it is released.
+  frame->present = [shown = &output->shown](int64_t) { *shown = true; };
+  // Back to the pool once the last copy of the frame is gone, on whatever
+  // thread releases it.
+  frame->owner = std::shared_ptr<void>(
+      frame->native_handle, [pool = pool_, output = output.release()](void*) {
+        pool->Return(std::unique_ptr<Output>(output));
+      });
   return frame;
 }
 
@@ -324,19 +477,20 @@ bool D3D11VideoProcessor::Blt(ID3D11Texture2D* texture,
                               DXGI_FORMAT format,
                               UINT input_width,
                               UINT input_height,
-                              ID3D11Texture2D* output,
+                              Output* output,
                               UINT output_width,
                               UINT output_height,
                               DXGI_COLOR_SPACE_TYPE input_space,
                               DXGI_COLOR_SPACE_TYPE output_space) {
   D3D11_TEXTURE2D_DESC output_texture_desc = {};
-  output->GetDesc(&output_texture_desc);
+  output->texture->GetDesc(&output_texture_desc);
   if (!processor_ || format != input_format_ ||
       output_texture_desc.Format != output_format_ ||
       input_width != input_width_ || input_height != input_height_ ||
       output_width != output_width_ || output_height != output_height_) {
     processor_.Reset();
     enumerator_.Reset();
+    input_views_.clear();
     D3D11_VIDEO_PROCESSOR_CONTENT_DESC content = {};
     content.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
     content.InputFrameRate = content.OutputFrameRate = {60, 1};
@@ -370,18 +524,33 @@ bool D3D11VideoProcessor::Blt(ID3D11Texture2D* texture,
     output_height_ = output_height;
   }
 
-  D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC input_desc = {};
-  input_desc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
-  input_desc.Texture2D.ArraySlice = slice;
-  D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC output_desc = {};
-  output_desc.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
-  ComPtr<ID3D11VideoProcessorInputView> input_view;
-  ComPtr<ID3D11VideoProcessorOutputView> output_view;
-  if (FAILED(video_device_->CreateVideoProcessorInputView(
-          texture, enumerator_.Get(), &input_desc, &input_view)) ||
-      FAILED(video_device_->CreateVideoProcessorOutputView(
-          output, enumerator_.Get(), &output_desc, &output_view))) {
-    return false;
+  const auto key = std::make_pair(texture, slice);
+  auto input_view = input_views_.find(key);
+  if (input_view == input_views_.end()) {
+    if (input_views_.size() >= kMaxInputViews) {
+      input_views_.clear();
+    }
+    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC input_desc = {};
+    input_desc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
+    input_desc.Texture2D.ArraySlice = slice;
+    ComPtr<ID3D11VideoProcessorInputView> view;
+    if (FAILED(video_device_->CreateVideoProcessorInputView(
+            texture, enumerator_.Get(), &input_desc, &view))) {
+      return false;
+    }
+    input_view = input_views_.emplace(key, std::move(view)).first;
+  }
+  if (!output->view || output->enumerator != enumerator_) {
+    output->view.Reset();
+    output->enumerator = enumerator_;
+    D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC output_desc = {};
+    output_desc.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
+    if (FAILED(video_device_->CreateVideoProcessorOutputView(
+            output->texture.Get(), enumerator_.Get(), &output_desc,
+            &output->view))) {
+      output->enumerator.Reset();
+      return false;
+    }
   }
 
   const RECT rect = {0, 0, static_cast<LONG>(output_width),
@@ -422,12 +591,12 @@ bool D3D11VideoProcessor::Blt(ID3D11Texture2D* texture,
       processor, D3D11_VIDEO_PROCESSOR_ALPHA_FILL_MODE_OPAQUE, 0);
   D3D11_VIDEO_PROCESSOR_STREAM stream = {};
   stream.Enable = TRUE;
-  stream.pInputSurface = input_view.Get();
+  stream.pInputSurface = input_view->second.Get();
   return SUCCEEDED(video_context_->VideoProcessorBlt(
-      processor, output_view.Get(), 0, 1, &stream));
+      processor, output->view.Get(), 0, 1, &stream));
 }
 
-bool D3D11VideoProcessor::ConvertHdr(ID3D11Texture2D* output,
+bool D3D11VideoProcessor::ConvertHdr(Output* output,
                                      UINT width,
                                      UINT height,
                                      bool hlg,
@@ -458,15 +627,16 @@ bool D3D11VideoProcessor::ConvertHdr(ID3D11Texture2D* output,
       return false;
     }
   }
-  ComPtr<ID3D11RenderTargetView> target;
-  if (FAILED(device_->CreateRenderTargetView(output, nullptr, &target))) {
+  if (!output->target &&
+      FAILED(device_->CreateRenderTargetView(output->texture.Get(), nullptr,
+                                             &output->target))) {
     return false;
   }
   // The device is the decoder's own; nothing else draws with it, so the
   // state is set without saving what was there.
   const D3D11_VIEWPORT viewport = {
       0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1};
-  ID3D11RenderTargetView* targets[] = {target.Get()};
+  ID3D11RenderTargetView* targets[] = {output->target.Get()};
   ID3D11ShaderResourceView* views[] = {hdr_view_.Get()};
   context_->OMSetRenderTargets(1, targets, nullptr);
   context_->RSSetViewports(1, &viewport);
@@ -488,19 +658,50 @@ bool D3D11VideoProcessor::ConvertHdr(ID3D11Texture2D* output,
 
 bool D3D11VideoProcessor::Finish() {
   // Flush only submits the work: wait for it before another device reads
-  // the shared texture, but never indefinitely.
+  // the shared texture, but never indefinitely, and without spinning: the
+  // decode thread shares the CPU with the caller's.
+  const int64_t deadline = MonotonicMicros() + kCompletionTimeout;
+  if (fence_) {
+    const uint64_t value = ++fence_value_;
+    if (SUCCEEDED(context4_->Signal(fence_.Get(), value))) {
+      context_->Flush();
+      // The event is reset only by a wait: one that timed out leaves it to
+      // wake a later wait early, so the fence is checked after each.
+      while (fence_->GetCompletedValue() < value) {
+        const int64_t left = deadline - MonotonicMicros();
+        if (left <= 0) {
+          LOGW("video processor timed out");
+          return false;
+        }
+        if (FAILED(fence_->SetEventOnCompletion(value, fence_event_.get()))) {
+          break;
+        }
+        WaitForSingleObject(fence_event_.get(),
+                            static_cast<DWORD>(left / kMicrosPerMilli + 1));
+      }
+      if (fence_->GetCompletedValue() >= value) {
+        // A removed device reports every value reached.
+        return SUCCEEDED(device_->GetDeviceRemovedReason());
+      }
+    }
+  }
   context_->End(completion_.Get());
   context_->Flush();
-  const int64_t deadline = MonotonicMicros() + kCompletionTimeout;
+  const int64_t began = MonotonicMicros();
   HRESULT status;
   while ((status = context_->GetData(completion_.Get(), nullptr, 0,
                                      D3D11_ASYNC_GETDATA_DONOTFLUSH)) ==
          S_FALSE) {
-    if (MonotonicMicros() >= deadline) {
+    const int64_t now = MonotonicMicros();
+    if (now >= deadline) {
       LOGW("video processor timed out");
       return false;
     }
-    std::this_thread::yield();
+    if (now - began < kCompletionSpin) {
+      std::this_thread::yield();
+    } else {
+      Sleep(1);
+    }
   }
   return SUCCEEDED(status);
 }

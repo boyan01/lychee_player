@@ -99,8 +99,13 @@ typedef enum lychee_frame_type {
   // Windows: the native handle is an ID3D11Texture2D* in
   // DXGI_FORMAT_B8G8R8A8_UNORM, created with D3D11_RESOURCE_MISC_SHARED on
   // the LYCHEE_VIDEO_DEVICE_D3D11_ADAPTER video device, so other devices
-  // can open it through IDXGIResource::GetSharedHandle(). Every frame has
-  // its own texture, never written after it is handed out.
+  // can open it through IDXGIResource::GetSharedHandle(). A texture is
+  // not written while a frame holding it is unreleased or anything still
+  // holds a reference to it. Once both are gone the player may reuse it
+  // for a later frame, after at least 100 ms, so draws submitted before
+  // the release have finished. Keep the frame (not just a texture opened
+  // from its handle) for as long as you draw from it. Opening the handle
+  // once and caching what OpenSharedResource returns is fine.
   LYCHEE_FRAME_D3D11_TEXTURE = 1 << 4,
   // Linux: the native handle is a const lychee_dmabuf* describing YUV
   // planes in DRM PRIME buffers (e.g. VAAPI surfaces), for import with

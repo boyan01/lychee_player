@@ -359,6 +359,7 @@ class Renderer {
     if (frame_) lychee_frame_release(frame_);
     frame_ = nullptr;
     view_.Reset();
+    opened_.clear();
     upload_.Reset();
     target_.Reset();
     width_ = height_ = 0;
@@ -429,20 +430,25 @@ class Renderer {
     ComPtr<ID3D11Texture2D> texture;
     switch (lychee_frame_get_type(frame)) {
       case LYCHEE_FRAME_D3D11_TEXTURE: {
-        // Made by the player's own device: open it on ours.
+        // Made by the player's own device: open it on ours, once per
+        // texture, since the player reuses its textures.
         auto* shared = static_cast<ID3D11Texture2D*>(
             lychee_frame_get_native_handle(frame));
         ComPtr<IDXGIResource> resource;
         HANDLE handle = nullptr;
+        const Opened* opened = nullptr;
         if (FAILED(shared->QueryInterface(IID_PPV_ARGS(&resource))) ||
             FAILED(resource->GetSharedHandle(&handle)) ||
-            FAILED(
-                device_->OpenSharedResource(handle, IID_PPV_ARGS(&texture)))) {
+            !(opened = Open(handle))) {
           lychee_frame_release(frame);
           return;
         }
         ++d3d11_frames_;
-        break;
+        D3D11_TEXTURE2D_DESC desc = {};
+        opened->texture->GetDesc(&desc);
+        view_ = opened->view;
+        Showing(frame, desc);
+        return;
       }
       case LYCHEE_FRAME_CPU_BGRA:
         texture = Upload(frame);
@@ -460,6 +466,45 @@ class Renderer {
     texture->GetDesc(&desc);
     view_.Reset();
     device_->CreateShaderResourceView(texture.Get(), nullptr, &view_);
+    Showing(frame, desc);
+  }
+
+  // A texture the player shared, opened on our device, and its view.
+  struct Opened {
+    HANDLE handle = nullptr;
+    ComPtr<ID3D11Texture2D> texture;
+    ComPtr<ID3D11ShaderResourceView> view;
+  };
+
+  // |handle|'s texture on our device, opened on first use. Holding it keeps
+  // the handle from naming another texture. Null on failure.
+  const Opened* Open(HANDLE handle) {
+    // More than the player keeps in flight; older ones are dropped.
+    constexpr size_t kMaxOpened = 16;
+    for (size_t i = 0; i < opened_.size(); ++i) {
+      if (opened_[i].handle == handle) {
+        // Most recent last.
+        std::rotate(opened_.begin() + static_cast<ptrdiff_t>(i),
+                    opened_.begin() + static_cast<ptrdiff_t>(i) + 1,
+                    opened_.end());
+        return &opened_.back();
+      }
+    }
+    Opened opened;
+    opened.handle = handle;
+    if (FAILED(device_->OpenSharedResource(handle,
+                                           IID_PPV_ARGS(&opened.texture))) ||
+        FAILED(device_->CreateShaderResourceView(opened.texture.Get(), nullptr,
+                                                 &opened.view))) {
+      return nullptr;
+    }
+    if (opened_.size() >= kMaxOpened) opened_.erase(opened_.begin());
+    opened_.push_back(std::move(opened));
+    return &opened_.back();
+  }
+
+  // |frame|, in a texture described by |desc|, is now on screen.
+  void Showing(lychee_frame* frame, const D3D11_TEXTURE2D_DESC& desc) {
     // Textures can be larger than the picture they hold.
     uv_scale_[0] = static_cast<float>(lychee_frame_get_width(frame)) /
                    static_cast<float>(desc.Width);
@@ -531,6 +576,7 @@ class Renderer {
   int64_t pts_ = 0;
   std::vector<std::string> snapshots_;
   ComPtr<ID3D11ShaderResourceView> view_;
+  std::vector<Opened> opened_;
   float uv_scale_[2] = {1, 1};
   int64_t d3d11_frames_ = 0;
   int64_t cpu_frames_ = 0;

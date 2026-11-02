@@ -5,6 +5,10 @@
 * `LycheeVideo`, and `LycheePlayerView` on Apple and Android, now draw
   text subtitles too. If your app draws `subtitle` itself, pass
   `subtitleStyle: null` (Apple: `subtitleStyle = nil`).
+* Windows: `LYCHEE_FRAME_D3D11_TEXTURE` textures are reused for later
+  frames, from 100 ms after the frame holding one is released. Keep the
+  `lychee_frame` until you have drawn from it, not only a texture opened
+  from its shared handle; the Flutter plugin already does.
 
 ### New
 
