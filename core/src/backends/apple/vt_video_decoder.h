@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "media/annexb.h"
@@ -81,7 +82,10 @@ class VTVideoDecoder : public VideoDecoder {
   static bool ParseVp9Keyframe(const uint8_t* data,
                                size_t size,
                                Vp9Format* format);
-  bool DecodeSample(const EncodedPacket& packet, const OutputCallback& output);
+  // Decodes |block| (taken over; may be null) as |packet|'s sample.
+  bool DecodeSample(const EncodedPacket& packet,
+                    CMBlockBufferRef block,
+                    const OutputCallback& output);
   // (Re)creates the session for |parameter_sets_|.
   bool CreateSession();
   void DestroySession();
@@ -121,8 +125,8 @@ class VTVideoDecoder : public VideoDecoder {
   bool decoded_ = false;
   // After bad data: packets are dropped up to the next keyframe.
   bool await_keyframe_ = false;
-  std::vector<uint8_t> annexb_;
-  std::vector<uint8_t> sample_;
+  // The NAL units of the packet being decoded.
+  std::vector<std::pair<const uint8_t*, size_t>> nals_;
 };
 
 }  // namespace lychee

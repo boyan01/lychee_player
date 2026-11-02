@@ -5,6 +5,7 @@
 #include <TargetConditionals.h>
 
 #include <algorithm>
+#include <cstring>
 #include <mutex>
 
 #include "backends/apple/pixel_buffer.h"
@@ -44,16 +45,106 @@ CFMutableDictionaryRef CreateDictionary() {
 }
 
 // Length of the start code at |data[i]|, or 0.
-size_t StartCodeAt(const std::vector<uint8_t>& data, size_t i) {
-  if (i + 3 <= data.size() && data[i] == 0 && data[i + 1] == 0) {
+size_t StartCodeAt(const uint8_t* data, size_t size, size_t i) {
+  if (i + 3 <= size && data[i] == 0 && data[i + 1] == 0) {
     if (data[i + 2] == 1) {
       return 3;
     }
-    if (i + 4 <= data.size() && data[i + 2] == 0 && data[i + 3] == 1) {
+    if (i + 4 <= size && data[i + 2] == 0 && data[i + 3] == 1) {
       return 4;
     }
   }
   return 0;
+}
+
+// Appends the NAL units of the sample |data| to |nals|, without their
+// length prefix of |length_size| bytes, or without start codes and the
+// zero bytes before them for Annex B (|length_size| 0). Empty ones are
+// left out. False if a length runs past the end.
+bool SplitNals(const uint8_t* data,
+               size_t size,
+               int length_size,
+               std::vector<std::pair<const uint8_t*, size_t>>* nals) {
+  if (length_size > 0) {
+    const size_t prefix = static_cast<size_t>(length_size);
+    size_t pos = 0;
+    while (pos + prefix <= size) {
+      size_t length = 0;
+      for (size_t i = 0; i < prefix; ++i) {
+        length = (length << 8) | data[pos + i];
+      }
+      pos += prefix;
+      if (length > size - pos) {
+        return false;
+      }
+      if (length > 0) {
+        nals->emplace_back(data + pos, length);
+      }
+      pos += length;
+    }
+    return pos == size;
+  }
+  size_t i = 0;
+  size_t start_code = 0;
+  while (i < size && !(start_code = StartCodeAt(data, size, i))) {
+    ++i;
+  }
+  while (i < size) {
+    const size_t begin = i + start_code;
+    size_t end = begin;
+    while (end < size && !(start_code = StartCodeAt(data, size, end))) {
+      ++end;
+    }
+    i = end;
+    size_t last = end;
+    while (last > begin && data[last - 1] == 0) {
+      --last;
+    }
+    if (last > begin) {
+      nals->emplace_back(data + begin, last - begin);
+    }
+  }
+  return true;
+}
+
+// A block buffer over |buffer|'s bytes that keeps |buffer| alive, since
+// VideoToolbox may hold the sample past the decode call when it decodes
+// asynchronously. VideoToolbox only reads it, so the packet stays as it
+// was for others holding it (the read thread's history). Null on failure.
+CMBlockBufferRef WrapPacketBuffer(
+    const std::shared_ptr<const PacketBuffer>& buffer) {
+  using Owner = std::shared_ptr<const PacketBuffer>;
+  CMBlockBufferCustomBlockSource source = {};
+  source.version = kCMBlockBufferCustomBlockSourceVersion;
+  source.FreeBlock = [](void* owner, void*, size_t) {
+    delete static_cast<Owner*>(owner);
+  };
+  source.refCon = new Owner(buffer);
+  CMBlockBufferRef block = nullptr;
+  // Whether CoreMedia frees the block when this fails is not documented:
+  // a leak in a call that does not fail beats a double free.
+  CMBlockBufferCreateWithMemoryBlock(
+      nullptr, const_cast<uint8_t*>(buffer->data()), buffer->size(), nullptr,
+      &source, 0, buffer->size(), 0, &block);
+  return block;
+}
+
+// A block buffer of |size| bytes for the caller to fill, or null.
+CMBlockBufferRef CreateBlock(size_t size, uint8_t** data) {
+  CMBlockBufferRef block = nullptr;
+  char* bytes = nullptr;
+  if (CMBlockBufferCreateWithMemoryBlock(
+          nullptr, nullptr, size, nullptr, nullptr, 0, size,
+          kCMBlockBufferAssureMemoryNowFlag, &block) != noErr) {
+    return nullptr;
+  }
+  if (CMBlockBufferGetDataPointer(block, 0, nullptr, nullptr, &bytes) !=
+      noErr) {
+    CFRelease(block);
+    return nullptr;
+  }
+  *data = reinterpret_cast<uint8_t*>(bytes);
+  return block;
 }
 
 // VP9 is not registered with VideoToolbox until an app asks.
@@ -485,51 +576,32 @@ bool VTVideoDecoder::Decode(const EncodedPacket& packet,
         return false;
       }
     }
-    sample_.assign(packet.buffer->data(),
-                   packet.buffer->data() + packet.buffer->size());
-    return DecodeSample(packet, output);
+    if (!session_ || packet.buffer->size() == 0) {
+      return true;
+    }
+    return DecodeSample(packet, WrapPacketBuffer(packet.buffer), output);
   }
 
-  // Rewrite the sample with four-byte NAL lengths, taking parameter sets
-  // out: they belong in the format description.
-  annexb_.clear();
-  if (!converter_.Convert(packet.buffer->data(), packet.buffer->size(), false,
-                          &annexb_)) {
+  // The sample goes to VideoToolbox with four-byte NAL lengths and
+  // without parameter sets: they belong in the format description.
+  nals_.clear();
+  if (!SplitNals(packet.buffer->data(), packet.buffer->size(),
+                 converter_.length_size(), &nals_)) {
     LOGW("%s: malformed sample", name());
     return ++consecutive_errors_ < kMaxConsecutiveErrors;
   }
-  sample_.clear();
+  auto is_parameter_set = [hevc = converter_.hevc()](const uint8_t* nal) {
+    const int type = hevc ? (nal[0] >> 1) & 0x3f : nal[0] & 0x1f;
+    return hevc ? type >= 32 && type <= 34 : type == 7 || type == 8;
+  };
   std::vector<std::vector<uint8_t>> in_band;
-  size_t i = 0;
-  size_t start_code = 0;
-  while (i < annexb_.size() && !(start_code = StartCodeAt(annexb_, i))) {
-    ++i;
-  }
-  while (i < annexb_.size()) {
-    size_t begin = i + start_code;
-    size_t end = begin;
-    while (end < annexb_.size() && !(start_code = StartCodeAt(annexb_, end))) {
-      ++end;
+  size_t sample_size = 0;
+  for (const auto& [nal, size] : nals_) {
+    if (is_parameter_set(nal)) {
+      in_band.emplace_back(nal, nal + size);
+    } else {
+      sample_size += 4 + size;
     }
-    i = end;
-    size_t last = end;
-    while (last > begin && annexb_[last - 1] == 0) {
-      --last;
-    }
-    if (last == begin) {
-      continue;
-    }
-    std::vector<uint8_t> nal(annexb_.begin() + begin, annexb_.begin() + last);
-    int type = converter_.NalType(nal);
-    if (converter_.hevc() ? type >= 32 && type <= 34 : type == 7 || type == 8) {
-      in_band.push_back(std::move(nal));
-      continue;
-    }
-    uint32_t length = static_cast<uint32_t>(nal.size());
-    for (int shift = 24; shift >= 0; shift -= 8) {
-      sample_.push_back(static_cast<uint8_t>(length >> shift));
-    }
-    sample_.insert(sample_.end(), nal.begin(), nal.end());
   }
 
   if (!in_band.empty()) {
@@ -576,7 +648,29 @@ bool VTVideoDecoder::Decode(const EncodedPacket& packet,
       // Without a format the sets are incomplete; the rest follow.
     }
   }
-  return DecodeSample(packet, output);
+  if (!session_ || sample_size == 0) {
+    return true;
+  }
+  if (converter_.length_size() == 4 && sample_size == packet.buffer->size()) {
+    // Four-byte lengths and nothing taken out (most MP4 and Matroska):
+    // the packet as it is.
+    return DecodeSample(packet, WrapPacketBuffer(packet.buffer), output);
+  }
+  uint8_t* data = nullptr;
+  CMBlockBufferRef block = CreateBlock(sample_size, &data);
+  if (block) {
+    for (const auto& [nal, size] : nals_) {
+      if (is_parameter_set(nal)) {
+        continue;
+      }
+      for (int shift = 24; shift >= 0; shift -= 8) {
+        *data++ = static_cast<uint8_t>(size >> shift);
+      }
+      std::memcpy(data, nal, size);
+      data += size;
+    }
+  }
+  return DecodeSample(packet, block, output);
 }
 
 // static
@@ -638,25 +732,16 @@ bool VTVideoDecoder::ParseVp9Keyframe(const uint8_t* data,
 }
 
 bool VTVideoDecoder::DecodeSample(const EncodedPacket& packet,
+                                  CMBlockBufferRef block,
                                   const OutputCallback& output) {
-  if (!session_ || sample_.empty()) {
-    return true;
-  }
-
-  CMBlockBufferRef block = nullptr;
-  OSStatus status = CMBlockBufferCreateWithMemoryBlock(
-      nullptr, nullptr, sample_.size(), nullptr, nullptr, 0, sample_.size(),
-      kCMBlockBufferAssureMemoryNowFlag, &block);
-  if (status == noErr) {
-    status = CMBlockBufferReplaceDataBytes(sample_.data(), block, 0,
-                                           sample_.size());
-  }
+  OSStatus status =
+      block ? noErr : OSStatus{kCMBlockBufferBlockAllocationFailedErr};
   CMSampleBufferRef sample = nullptr;
   if (status == noErr) {
     CMSampleTimingInfo timing = {ToCMTime(packet.duration > 0 ? packet.duration
                                                               : kNoTimestamp),
                                  ToCMTime(packet.pts), ToCMTime(packet.dts)};
-    size_t size = sample_.size();
+    size_t size = CMBlockBufferGetDataLength(block);
     status = CMSampleBufferCreateReady(nullptr, block, format_, 1, 1, &timing,
                                        1, &size, &sample);
   }

@@ -34,6 +34,8 @@ class AnnexBConverter {
   // NAL unit type of |nal| (first byte(s) of a NAL unit).
   int NalType(const std::vector<uint8_t>& nal) const;
   bool hevc() const { return hevc_; }
+  // Bytes of the NAL length prefix of samples; 0 if they are Annex B.
+  int length_size() const { return length_size_; }
 
   // Appends |nal| to |out| behind a four-byte start code.
   static void AppendNal(const uint8_t* nal, size_t size,
