@@ -42,6 +42,10 @@ constexpr auto kIdleControlPoll = std::chrono::milliseconds(100);
 constexpr int64_t kMaxLoopTrim = 100 * kMicrosPerMilli;
 // Playback logs its stats this often.
 constexpr int64_t kStatsLogInterval = 5 * kMicrosPerSecond;
+// Input that cannot seek never goes back, so its subtitle cues are
+// dropped once they ended this long before the subtitle time playing:
+// enough for a later, larger subtitle delay to still find them.
+constexpr int64_t kUnseekableSubtitleHistory = 60 * kMicrosPerSecond;
 
 long long Millis(int64_t micros) {
   return static_cast<long long>(micros / kMicrosPerMilli);
@@ -1694,6 +1698,18 @@ void Player::ReadPacket() {
   } else if (auto it = subtitle_renderers_.find(packet->stream_index);
              it != subtitle_renderers_.end()) {
     it->second->Decode(*packet);
+    int64_t ended_by = kNoTimestamp;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (!media_info_.seekable) {
+        const int64_t now = clock_.Now();
+        ended_by = now - LoopOffsetLocked(now) - subtitle_delay_ -
+                   kUnseekableSubtitleHistory;
+      }
+    }
+    if (ended_by != kNoTimestamp) {
+      it->second->DropEndedBy(ended_by);
+    }
   }
   if (live_demuxer_) {
     live_demuxer_->PacketDelivered();

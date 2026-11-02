@@ -53,6 +53,8 @@
   instead of a new TLS handshake for each.
 * Apple: seeking in MPEG-TS, Matroska and MP4 over HTTP downloads much
   less (about a third as much for a large TS file) and finishes sooner.
+* Live HLS with subtitles no longer uses more memory the longer it plays:
+  subtitles that ended over a minute ago are let go.
 
 ## 1.0.0-beta.5
 

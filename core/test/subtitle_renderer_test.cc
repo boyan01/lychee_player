@@ -118,6 +118,22 @@ TEST(SubtitleRenderer, DropsPicturesFurthestFromTheLatest) {
   EXPECT_TRUE(renderer.ImagesKeyAt(4500000) != 0u);
 }
 
+// Test registration allocates before main, as the existing TESTs do.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(SubtitleRenderer, DroppedPicturesLeaveRoomForNewOnes) {
+  SubtitleRenderer renderer;
+  // 8 MB each, 32 MB in all: at the limit, not over it.
+  for (int i = 0; i < 4; ++i) {
+    renderer.AddCue(BitmapCue(i * kSecond, (i + 1) * kSecond, 2048, 1024));
+  }
+  renderer.DropEndedBy(10 * kSecond);
+  EXPECT_EQ(renderer.ImagesKeyAt(kSecond / 2), 0u);
+  for (int i = 20; i < 24; ++i) {
+    renderer.AddCue(BitmapCue(i * kSecond, (i + 1) * kSecond, 2048, 1024));
+  }
+  EXPECT_TRUE(renderer.ImagesKeyAt(20500000) != 0u);
+}
+
 TEST(AssToPlainText, StripsFieldsAndMarkup) {
   EXPECT_EQ(AssToPlainText("Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,"
                            "0,,{\\b1}Bold{\\b0} and, plain\\Nnext line"),
@@ -188,6 +204,50 @@ TEST(SubtitleRenderer, LooksUpManyCuesAddedInAnyOrder) {
         failures++;
         break;
       }
+    }
+  }
+}
+
+// Test registration allocates before main, as the existing TESTs do.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(SubtitleRenderer, DropsCuesEndedAsLiveInputPlays) {
+  // Cues arrive in start order, as from a live stream, while playback
+  // follows a few seconds behind, dropping what ended before it.
+  std::mt19937 random(11);  // NOLINT(bugprone-random-generator-seed)
+  SubtitleRenderer renderer;
+  std::vector<SubtitleCue> cues;
+  int64_t start = 0;
+  int failures = 0;
+  for (int i = 0; i < 400 && failures == 0; ++i) {
+    start += static_cast<int64_t>(random() % 3000) * kMicrosPerMilli;
+    int64_t end = start + static_cast<int64_t>(random() % 6000) * 1000;
+    if (random() % 8 == 0) {
+      end = kNoTimestamp;
+    } else if (random() % 40 == 0) {
+      end = start + 30 * kSecond;
+    }
+    SubtitleCue cue{start, end,
+                    random() % 10 == 0 ? "" : "cue " + std::to_string(i)};
+    renderer.AddCue(cue);
+    cues.push_back(cue);
+    const int64_t playing = start - 5 * kSecond;
+    renderer.DropEndedBy(playing);
+    for (int j = 0; j < 5; ++j) {
+      const int64_t time =
+          playing + static_cast<int64_t>(random() % 8000) * 1000;
+      const std::string expected = ReferenceTextAt(cues, time);
+      if (renderer.TextAt(time) != expected) {
+        EXPECT_EQ(renderer.TextAt(time), expected);
+        failures++;
+        break;
+      }
+    }
+  }
+  // Long before the time dropped by, what showed is gone.
+  for (const SubtitleCue& cue : cues) {
+    if (!ReferenceTextAt(cues, cue.start).empty()) {
+      EXPECT_EQ(renderer.TextAt(cue.start), "");
+      break;
     }
   }
 }

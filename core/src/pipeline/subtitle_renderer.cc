@@ -109,6 +109,27 @@ void SubtitleRenderer::AddCue(SubtitleCue cue) {
   }
 }
 
+void SubtitleRenderer::DropEndedBy(int64_t time) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  UpdateIndexLocked();
+  // Every cue before this one has ended by |time|.
+  const auto ended =
+      std::upper_bound(max_ends_.begin(), max_ends_.end(), time) -
+      max_ends_.begin();
+  if (ended == 0) {
+    return;
+  }
+  for (auto it = cues_.begin(); it != cues_.begin() + ended; ++it) {
+    bitmap_bytes_ -= BitmapBytes(*it);
+  }
+  cues_.erase(cues_.begin(), cues_.begin() + ended);
+  // A cue's end depends only on the cues after it, and the latest ends
+  // left are past |time|, so none of them was a dropped cue's.
+  ends_.erase(ends_.begin(), ends_.begin() + ended);
+  max_ends_.erase(max_ends_.begin(), max_ends_.begin() + ended);
+  index_from_ = cues_.size();
+}
+
 void SubtitleRenderer::LimitBitmapsLocked(int64_t latest_start) {
   while (bitmap_bytes_ > kMaxBitmapBytes) {
     auto furthest = cues_.end();

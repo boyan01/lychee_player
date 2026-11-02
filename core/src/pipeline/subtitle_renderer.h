@@ -36,7 +36,9 @@ struct SubtitleImages {
 // so it runs on the read thread as packets arrive. Cues are kept across seeks,
 // since a seek may land after the packet of a cue still on screen; cues read
 // again are ignored. Bitmap cues are dropped, the furthest from the latest
-// first, once they hold more than kMaxBitmapBytes.
+// first, once they hold more than kMaxBitmapBytes. Input that cannot seek
+// drops the cues it has played (DropEndedBy()), or a long live stream
+// would keep every one.
 class SubtitleRenderer {
  public:
   static constexpr size_t kMaxBitmapBytes = 32 << 20;
@@ -53,6 +55,9 @@ class SubtitleRenderer {
   void Flush();
 
   void AddCue(SubtitleCue cue);
+  // Drops the cues before the first one still showing at |time|: lookups
+  // at |time| and later find the same cues.
+  void DropEndedBy(int64_t time);
   // Text of the cues showing at |media_time|, in start order, one per line;
   // empty if none.
   std::string TextAt(int64_t media_time) const;
