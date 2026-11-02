@@ -21,6 +21,19 @@ namespace {
 // The request pauses with this much buffered ahead of the reader, and
 // resumes below half of it.
 constexpr size_t kMaxAhead = 16 << 20;
+// After the reader jumps, the request asks for this many bytes, then for
+// twice as many from their end each time the reader is past half of
+// them, and for the rest once that reaches kMaxAhead. Demuxers probing
+// (an index at the end, an MPEG-TS seek's bisection) leave after a
+// little; an open-ended request has as much more on its way as the link
+// carries until the cancel, which pausing it does not stop (TCP buffers
+// megabytes), so a seek in a large MPEG-TS file over a fast LAN fetched
+// three times the data. 2 MB holds what a probe reads (up to the next
+// keyframe), so probes take no extra round trip; 256 KB made seeks
+// slower over a high-latency link. The request at the open is
+// open-ended: most readers (HLS segments, progressive playback) go on
+// from there.
+constexpr int64_t kFirstRange = 2 << 20;
 // Bytes kept behind the reader, for demuxers that step back a little.
 constexpr size_t kKeepBehind = 1 << 20;
 // A read this far ahead of the data waits for it instead of starting a
@@ -100,6 +113,11 @@ struct HttpState : std::enable_shared_from_this<HttpState> {
   size_t head = 0;
   // Bytes still to drop from the response: the server ignored the range.
   int64_t discard = 0;
+  // Where the request started and how many bytes it asked for, 0 for all
+  // the rest; and how many the next one from the end asks for.
+  int64_t request_start = 0;
+  int64_t range = 0;
+  int64_t next_range = 0;
   int64_t size = -1;
   bool complete = false;
   // A 4xx status: retrying will not help.
@@ -145,22 +163,44 @@ struct HttpState : std::enable_shared_from_this<HttpState> {
 
   int64_t end() const { return offset + static_cast<int64_t>(data.size() - head); }
 
-  // Replaces the request with one from |from|. Under |mutex|.
-  void Restart(int64_t from) {
+  // Whether the request got all it asked for, short of the end of the
+  // resource: the next one continues from there.
+  bool RangeDone() const {
+    return complete && error.empty() && range > 0 && discard == 0 &&
+           end() == request_start + range && (size < 0 || end() < size);
+  }
+
+  // Replaces the request with one from |from| that asks for |first|
+  // bytes (0: all the rest). Under |mutex|.
+  void Restart(int64_t from, int64_t first) {
     [task cancel];
     offset = from;
     data.clear();
     head = 0;
+    next_range = first;
+    Request(from);
+  }
+
+  // Asks for the next range from the end, keeping what is buffered.
+  void Continue() { Request(end()); }
+
+  void Request(int64_t from) {
     discard = 0;
     complete = false;
     refused = false;
     suspended = false;
     error.clear();
+    request_start = from;
+    range = next_range < static_cast<int64_t>(kMaxAhead) ? next_range : 0;
+    next_range = range * 2;
     NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:url];
     request.timeoutInterval = kIdleTimeout;
     // From 0 too, as FFmpeg does: a 206 says the server takes ranges.
-    [request setValue:[NSString stringWithFormat:@"bytes=%lld-", from]
-        forHTTPHeaderField:@"Range"];
+    NSString* bytes = range > 0
+                          ? [NSString stringWithFormat:@"bytes=%lld-%lld", from,
+                                                       from + range - 1]
+                          : [NSString stringWithFormat:@"bytes=%lld-", from];
+    [request setValue:bytes forHTTPHeaderField:@"Range"];
     task = session->Start(request, weak_from_this());
     BeginSpan();
     [task resume];
@@ -233,7 +273,8 @@ struct HttpState : std::enable_shared_from_this<HttpState> {
     }
   } else {
     // The whole resource, whatever was asked for.
-    state->discard = state->offset;
+    state->discard = state->request_start;
+    state->range = 0;
     if (length >= 0) {
       state->size = length;
     }
@@ -316,7 +357,7 @@ std::unique_ptr<DataSource> HttpDataSource::Open(
     state->url = nsurl;
     state->session = session ? std::move(session) : CreateHttpSession();
     std::lock_guard<std::mutex> lock(state->mutex);
-    state->Restart(0);
+    state->Restart(0, 0);
     return std::unique_ptr<DataSource>(new HttpDataSource(state));
   }
 }
@@ -345,6 +386,7 @@ int64_t HttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
         size_t start = state.head + static_cast<size_t>(offset - state.offset);
         size_t n = std::min(size, state.data.size() - start);
         memcpy(data, state.data.data() + start, n);
+        const size_t left = state.data.size() - start - n;
         // Drop what is well behind the reader.
         size_t keep_from = start + n > kKeepBehind ? start + n - kKeepBehind : 0;
         if (keep_from > state.head) {
@@ -356,12 +398,19 @@ int64_t HttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
             state.head = 0;
           }
         }
-        if (state.suspended && state.data.size() - start - n < kMaxAhead / 2) {
+        if (state.suspended && left < kMaxAhead / 2) {
           state.Resume();
+        } else if (state.RangeDone() &&
+                   left < static_cast<size_t>(state.range / 2)) {
+          state.Continue();
         }
         return static_cast<int64_t>(n);
       }
       if (offset >= state.offset && offset <= end + kSkipAhead) {
+        if (state.RangeDone()) {
+          state.Continue();
+          continue;
+        }
         if (!state.complete) {
           if (state.suspended) {
             state.Resume();
@@ -392,12 +441,12 @@ int64_t HttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
                   [&state] { return state.interrupted; })) {
             return -1;
           }
-          state.Restart(offset);
+          state.Restart(offset, 0);
           continue;
         }
       }
       LOGI("range request from %lld", static_cast<long long>(offset));
-      state.Restart(offset);
+      state.Restart(offset, kFirstRange);
     }
   }
 }

@@ -1574,7 +1574,12 @@ seq_ check http-frag-seek 1 6.200 -- --seek 6.2 --seek-after 1 "http://127.0.0.1
 # on, on the real clock, after the open and before the seek.
 refuse=(--refuse-after-requests 3)
 refuse_realtime=0
-if [ "$windows" = 1 ]; then
+if [ "$(uname)" = Darwin ]; then
+  # Apple's client asks for 2 MB after a jump, then 4 and 8 MB as the
+  # read goes on: the way back from the end takes three requests to the
+  # end of this 9 MB file.
+  refuse=(--refuse-after-requests 5)
+elif [ "$windows" = 1 ]; then
   refuse=(--refuse-after-seconds 2)
   refuse_realtime=1
 fi

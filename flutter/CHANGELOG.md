@@ -47,6 +47,8 @@
   while its frames upload.
 * Windows: HLS reuses its HTTP connection for playlists and segments
   instead of a new TLS handshake for each.
+* Apple: seeking in MPEG-TS, Matroska and MP4 over HTTP downloads much
+  less (about a third as much for a large TS file) and finishes sooner.
 
 ## 1.0.0-beta.5
 
