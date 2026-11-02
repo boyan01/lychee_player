@@ -93,7 +93,7 @@ TEST(SubtitleFile, Utf16) {
     big += '\0';
     big += c;
   }
-  for (uint16_t unit : {0x4f60, 0x597d, 0xd83d, 0xde00}) {
+  for (int unit : {0x4f60, 0x597d, 0xd83d, 0xde00}) {
     little += static_cast<char>(unit & 0xff);
     little += static_cast<char>(unit >> 8);
     big += static_cast<char>(unit >> 8);
