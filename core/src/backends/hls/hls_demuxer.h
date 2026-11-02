@@ -119,7 +119,7 @@ class HlsDemuxer : public Demuxer {
 
     // The last map read.
     std::string map_id;
-    std::vector<uint8_t> map_data;
+    std::shared_ptr<const std::vector<uint8_t>> map_data;
     // The open segment: MPEG-TS through reader (from source), or fMP4
     // through mp4 (from memory). Its stream index -> media_info_ stream,
     // or -1; microseconds added to its timestamps.
@@ -170,19 +170,23 @@ class HlsDemuxer : public Demuxer {
   // OpenSegment() for a subtitle rendition.
   bool OpenWebVtt(Rendition* r, std::string* error);
   void CloseSegment(Rendition* r);
-  // Reads |length| bytes (-1: all) of |url| from |offset| (-1: 0), and
-  // the source's transfer_rate() into |rate| if given.
+  // Appends |length| bytes (-1: all) of |url| from |offset| (-1: 0) to
+  // |data|, and the source's transfer_rate() into |rate| if given.
   bool Fetch(const std::string& url,
              int64_t offset,
              int64_t length,
              std::vector<uint8_t>* data,
              std::string* error,
              int64_t* rate = nullptr);
-  // Decrypts |data| in place with |key|; the IV defaults to |sequence|.
+  // Decrypts |data| from |from| on with |key|; the IV defaults to
+  // |sequence|.
   bool Decrypt(const HlsKey& key,
                int64_t sequence,
                std::vector<uint8_t>* data,
+               size_t from,
                std::string* error);
+  // Loads the segment's map into r->map_data unless it is the last read.
+  bool LoadMap(Rendition* r, const Segment& segment, std::string* error);
   // The segment's bytes in memory, after its map: encrypted or fMP4.
   bool LoadSegment(Rendition* r,
                    const Segment& segment,

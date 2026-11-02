@@ -557,15 +557,21 @@ bool HlsDemuxer::Fetch(const std::string& url,
   const int64_t begin = std::max<int64_t>(offset, 0);
   const int64_t limit =
       length >= 0 ? std::min(length, kMaxSegmentBytes) : kMaxSegmentBytes;
-  data->clear();
+  const size_t base = data->size();
+  // What there is to read: once known (a range now, else the response's
+  // length after the first read), the vector is made that large once.
+  int64_t total = limit;
+  if (length >= 0) {
+    data->reserve(base + static_cast<size_t>(total));
+  }
+  int64_t got = 0;
   bool ok = true;
-  while (static_cast<int64_t>(data->size()) < limit) {
+  while (got < total) {
     const size_t old = data->size();
-    const size_t want = static_cast<size_t>(
-        std::min<int64_t>(limit - static_cast<int64_t>(old), 256 << 10));
+    const size_t want =
+        static_cast<size_t>(std::min<int64_t>(total - got, 256 << 10));
     data->resize(old + want);
-    const int64_t n = source->Read(begin + static_cast<int64_t>(old),
-                                   data->data() + old, want);
+    const int64_t n = source->Read(begin + got, data->data() + old, want);
     data->resize(old + static_cast<size_t>(std::max<int64_t>(n, 0)));
     if (n < 0) {
       *error = url + ": " + source->error();
@@ -575,12 +581,17 @@ bool HlsDemuxer::Fetch(const std::string& url,
     if (n == 0) {
       break;
     }
+    if (got == 0 && length < 0 && source->size() > begin) {
+      total = std::min(source->size() - begin, limit);
+      data->reserve(base + static_cast<size_t>(total));
+    }
+    got += n;
   }
-  if (ok && length < 0 && static_cast<int64_t>(data->size()) >= limit) {
+  if (ok && length < 0 && got >= limit) {
     *error = url + ": segment too large";
     ok = false;
   }
-  if (ok && length >= 0 && static_cast<int64_t>(data->size()) < length) {
+  if (ok && length >= 0 && got < length) {
     *error = url + ": byte range past the end";
     ok = false;
   }
@@ -594,6 +605,7 @@ bool HlsDemuxer::Fetch(const std::string& url,
 bool HlsDemuxer::Decrypt(const HlsKey& key,
                          int64_t sequence,
                          std::vector<uint8_t>* data,
+                         size_t from,
                          std::string* error) {
   auto known = keys_.find(key.url);
   if (known == keys_.end()) {
@@ -612,18 +624,26 @@ bool HlsDemuxer::Decrypt(const HlsKey& key,
   }
   uint8_t iv[16];
   HlsIv(key, sequence, iv);
-#if defined(__APPLE__)
+  const uint8_t* cipher = data->data() + from;
+  const size_t size = data->size() - from;
+#if defined(__APPLE__) || defined(_WIN32)
+  // Into a buffer of its own (CBC in place is not documented to work
+  // everywhere), after a copy of the bytes before |from|.
   std::vector<uint8_t> plain(data->size());
+  std::copy(data->begin(), data->begin() + static_cast<ptrdiff_t>(from),
+            plain.begin());
+#endif
+#if defined(__APPLE__)
   size_t moved = 0;
   const CCCryptorStatus status =
       CCCrypt(kCCDecrypt, kCCAlgorithmAES, kCCOptionPKCS7Padding,
-              known->second.data(), known->second.size(), iv, data->data(),
-              data->size(), plain.data(), plain.size(), &moved);
+              known->second.data(), known->second.size(), iv, cipher, size,
+              plain.data() + from, size, &moved);
   if (status != kCCSuccess) {
     *error = "AES-128 decryption failed (" + std::to_string(status) + ")";
     return false;
   }
-  plain.resize(moved);
+  plain.resize(from + moved);
   *data = std::move(plain);
   return true;
 #elif defined(_WIN32)
@@ -632,7 +652,6 @@ bool HlsDemuxer::Decrypt(const HlsKey& key,
   NTSTATUS status =
       BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_AES_ALGORITHM, nullptr, 0);
   ULONG moved = 0;
-  std::vector<uint8_t> plain(data->size());
   if (BCRYPT_SUCCESS(status)) {
     status = BCryptSetProperty(
         algorithm, BCRYPT_CHAINING_MODE,
@@ -645,10 +664,10 @@ bool HlsDemuxer::Decrypt(const HlsKey& key,
         static_cast<ULONG>(known->second.size()), 0);
   }
   if (BCRYPT_SUCCESS(status)) {
-    status = BCryptDecrypt(
-        handle, data->data(), static_cast<ULONG>(data->size()), nullptr, iv,
-        sizeof(iv), plain.data(), static_cast<ULONG>(plain.size()), &moved,
-        BCRYPT_BLOCK_PADDING);
+    status = BCryptDecrypt(handle, const_cast<PUCHAR>(cipher),
+                           static_cast<ULONG>(size), nullptr, iv, sizeof(iv),
+                           plain.data() + from, static_cast<ULONG>(size),
+                           &moved, BCRYPT_BLOCK_PADDING);
   }
   if (handle) {
     BCryptDestroyKey(handle);
@@ -662,16 +681,51 @@ bool HlsDemuxer::Decrypt(const HlsKey& key,
     *error = std::string("AES-128 decryption failed (") + code + ")";
     return false;
   }
-  plain.resize(moved);
+  plain.resize(from + moved);
   *data = std::move(plain);
   return true;
 #elif defined(__ANDROID__)
-  return DecryptAes128(known->second.data(), iv, data, error);
+  (void)cipher;
+  (void)size;
+  if (from == 0) {
+    return DecryptAes128(known->second.data(), iv, data, error);
+  }
+  std::vector<uint8_t> media(data->begin() + static_cast<ptrdiff_t>(from),
+                             data->end());
+  if (!DecryptAes128(known->second.data(), iv, &media, error)) {
+    return false;
+  }
+  data->resize(from);
+  data->insert(data->end(), media.begin(), media.end());
+  return true;
 #else
   (void)data;
+  (void)cipher;
+  (void)size;
   *error = "AES-128 HLS needs FFmpeg here";
   return false;
 #endif
+}
+
+bool HlsDemuxer::LoadMap(Rendition* r,
+                         const Segment& segment,
+                         std::string* error) {
+  const HlsMap& map = segment.map;
+  const std::string id = map.url + "@" + std::to_string(map.offset) + "+" +
+                         std::to_string(map.length);
+  if (id == r->map_id) {
+    return true;
+  }
+  r->map_id.clear();
+  auto data = std::make_shared<std::vector<uint8_t>>();
+  if (!Fetch(map.url, map.offset, map.length, data.get(), error) ||
+      (map.key.method == HlsKey::Method::kAes128 &&
+       !Decrypt(map.key, segment.sequence, data.get(), 0, error))) {
+    return false;
+  }
+  r->map_data = std::move(data);
+  r->map_id = id;
+  return true;
 }
 
 bool HlsDemuxer::LoadSegment(Rendition* r,
@@ -680,32 +734,22 @@ bool HlsDemuxer::LoadSegment(Rendition* r,
                              std::string* error) {
   data->clear();
   if (segment.initialization) {
-    const HlsMap& map = segment.map;
-    const std::string id = map.url + "@" + std::to_string(map.offset) + "+" +
-                           std::to_string(map.length);
-    if (id != r->map_id) {
-      r->map_id.clear();
-      if (!Fetch(map.url, map.offset, map.length, &r->map_data, error) ||
-          (map.key.method == HlsKey::Method::kAes128 &&
-           !Decrypt(map.key, segment.sequence, &r->map_data, error))) {
-        return false;
-      }
-      r->map_id = id;
+    if (!LoadMap(r, segment, error)) {
+      return false;
     }
-    *data = r->map_data;
+    data->assign(r->map_data->begin(), r->map_data->end());
   }
-  std::vector<uint8_t> media;
+  // The media appended behind the map, and decrypted there.
+  const size_t from = data->size();
   int64_t rate = -1;
-  if (!Fetch(segment.url, segment.offset, segment.length, &media, error,
-             &rate) ||
+  if (!Fetch(segment.url, segment.offset, segment.length, data, error, &rate) ||
       (segment.key.method == HlsKey::Method::kAes128 &&
-       !Decrypt(segment.key, segment.sequence, &media, error))) {
+       !Decrypt(segment.key, segment.sequence, data, from, error))) {
     return false;
   }
   if (r == renditions_[0].get()) {
-    Measure(rate, static_cast<int64_t>(media.size()));
+    Measure(rate, static_cast<int64_t>(data->size() - from));
   }
-  data->insert(data->end(), media.begin(), media.end());
   return true;
 }
 
