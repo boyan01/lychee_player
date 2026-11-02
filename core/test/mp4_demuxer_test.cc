@@ -292,6 +292,101 @@ TEST(Mp4Demuxer, FragmentDurationFromTheEnd) {
   EXPECT_EQ(times.size(), size_t{kFragments - 20} * kSamplesPerFragment);
 }
 
+// A plain MP4 of two video tracks, each one chunk of |samples| samples of
+// |size| bytes, one track's after the other's: the worst interleaving.
+// Each sample's bytes are its number in its track plus 100 for the
+// second, mod 251.
+Bytes NonInterleavedFile(int samples, uint32_t size) {
+  Bytes entry = Append(Zeros(24), Fields({{64, 2}, {48, 2}}));
+  entry = Append(entry, Zeros(50));
+  auto trak = [&](uint32_t id, uint64_t chunk) {
+    Bytes sizes = Fields({{0, 4}, {0, 4}, {static_cast<uint64_t>(samples), 4}});
+    for (int i = 0; i < samples; ++i) {
+      sizes = Append(sizes, Fields({{size, 4}}));
+    }
+    Bytes stbl = Box(
+        "stbl", {Box("stsd", {Fields({{0, 4}, {1, 4}}), Box("avc1", {entry})}),
+                 Box("stts", {Fields({{0, 4},
+                                      {1, 4},
+                                      {static_cast<uint64_t>(samples), 4},
+                                      {kSampleMs, 4}})}),
+                 Box("stsc", {Fields({{0, 4},
+                                      {1, 4},
+                                      {1, 4},
+                                      {static_cast<uint64_t>(samples), 4},
+                                      {1, 4}})}),
+                 Box("stsz", {sizes}),
+                 Box("stco", {Fields({{0, 4}, {1, 4}, {chunk, 4}})})});
+    return Box(
+        "trak",
+        {Box("tkhd", {Fields({{3, 4}, {0, 8}, {id, 4}}), Zeros(68)}),
+         Box("mdia",
+             {Box("mdhd", {Fields({{0, 12}, {kTimescale, 4}, {0, 8}})}),
+              Box("hdlr", {Zeros(8), Bytes{'v', 'i', 'd', 'e'}, Zeros(12)}),
+              Box("minf", {stbl})})});
+  };
+  const Bytes ftyp = Box("ftyp", {Bytes{'i', 's', 'o', 'm'}, Zeros(4)});
+  auto moov = [&](uint64_t data) {
+    return Box(
+        "moov",
+        {Box("mvhd", {Fields({{0, 12}, {kTimescale, 4}}), Zeros(84)}),
+         trak(1, data), trak(2, data + static_cast<uint64_t>(samples) * size)});
+  };
+  // The media data starts after the moov and the mdat's header.
+  const uint64_t data = ftyp.size() + moov(0).size() + 8;
+  Bytes media;
+  for (int track = 0; track < 2; ++track) {
+    for (int i = 0; i < samples; ++i) {
+      media.insert(media.end(), size,
+                   static_cast<uint8_t>((track * 100 + i) % 251));
+    }
+  }
+  return Append(Append(ftyp, moov(data)), Box("mdat", {media}));
+}
+
+// Tracks farther apart than an http source keeps: each is read in runs of
+// samples, not with a request per switch between them.
+TEST(Mp4Demuxer, ReadsFarApartTracksInRuns) {
+  constexpr int kSamples = 100;
+  int reads = 0;
+  int requests = 0;
+  auto demuxer = std::make_unique<Mp4Demuxer>();
+  std::string error;
+  EXPECT_TRUE(
+      demuxer->Open(std::make_unique<CountingSource>(
+                        NonInterleavedFile(kSamples, 20000), &reads, &requests),
+                    &error));
+  EXPECT_EQ(demuxer->media_info().streams.size(), 2u);
+  requests = 0;
+  EncodedPacket packet;
+  int packets[2] = {0, 0};
+  bool bytes_ok = true;
+  while (demuxer->Read(&packet) == DemuxerReadResult::kOk) {
+    const int track = packet.stream_index;
+    const int i = packets[track]++;
+    bytes_ok = bytes_ok && packet.buffer->size() == 20000 &&
+               packet.buffer->data()[0] == (track * 100 + i) % 251 &&
+               packet.buffer->data()[19999] == (track * 100 + i) % 251;
+  }
+  EXPECT_EQ(packets[0], kSamples);
+  EXPECT_EQ(packets[1], kSamples);
+  EXPECT_TRUE(bytes_ok);
+  // A switch to each track, and its first sample before.
+  EXPECT_TRUE(requests <= 4);
+  // And after a seek.
+  requests = 0;
+  EXPECT_TRUE(demuxer->Seek(5000000));
+  packets[0] = packets[1] = 50;
+  while (demuxer->Read(&packet) == DemuxerReadResult::kOk) {
+    const int track = packet.stream_index;
+    const int i = packets[track]++;
+    bytes_ok = bytes_ok && packet.buffer->data()[0] == (track * 100 + i) % 251;
+  }
+  EXPECT_TRUE(bytes_ok);
+  EXPECT_EQ(packets[0] + packets[1], 2 * kSamples);
+  EXPECT_TRUE(requests <= 4);
+}
+
 // A trun of four billion samples taking no bytes of its table.
 TEST(Mp4Demuxer, HugeDefaultSampleCount) {
   Bytes file = FragmentedFile(1, 0, true);

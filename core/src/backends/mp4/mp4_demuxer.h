@@ -73,6 +73,10 @@ class Mp4Demuxer : public Demuxer {
     // samples are (no stss).
     std::vector<uint32_t> keyframes;
     bool all_sync = true;
+    // Bytes of the file from |run_offset|: the track's samples there, read
+    // in one go when they are far from where the last read ended.
+    std::vector<uint8_t> run;
+    uint64_t run_offset = 0;
     bool enabled = true;
     MediaType type = MediaType::kUnknown;
     // wvtt becomes WebVTT; stpp becomes normalized text/picture cues.
@@ -182,6 +186,10 @@ class Mp4Demuxer : public Demuxer {
   bool SeekFragments(int64_t time);
   // |size| bytes at |offset|: kLoaded, kEnd if the data ends first.
   LoadResult ReadFully(int64_t offset, uint8_t* data, size_t size);
+  // Copies the sample |track.samples[track.next]| into |data| from the
+  // track's run of samples, reading the run first if the sample is far
+  // from where the last read ended. False if it is read as usual instead.
+  bool ReadFromRun(Track* track, uint8_t* data);
   DemuxerReadResult Fail(int64_t at, const char* reason, const char* detail);
   bool aborted() const { return aborted_ || interrupted_; }
 
@@ -235,6 +243,9 @@ class Mp4Demuxer : public Demuxer {
   // thousands).
   int64_t fragment_end_ = kNoTimestamp;
   size_t scanned_samples_ = 0;
+
+  // Where the last read of the media source ended, -1 before one.
+  int64_t read_end_ = -1;
 
   std::atomic<bool> aborted_{false};
   std::atomic<bool> interrupted_{false};

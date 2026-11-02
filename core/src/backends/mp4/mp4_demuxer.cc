@@ -581,6 +581,7 @@ Mp4Demuxer::LoadResult Mp4Demuxer::ReadFully(int64_t offset,
       return LoadResult::kEnd;
     }
     filled += static_cast<size_t>(n);
+    read_end_ = offset + static_cast<int64_t>(filled);
   }
   return LoadResult::kLoaded;
 }
@@ -1951,6 +1952,11 @@ void Mp4Demuxer::SetEnabledStreams(const std::vector<int>& stream_indices) {
       tracks_[index].enabled = true;
     }
   }
+  for (Track& track : tracks_) {
+    if (!track.enabled) {
+      track.run = {};
+    }
+  }
   std::erase_if(subtitle_packets_, [this](const EncodedPacket& packet) {
     return !tracks_[packet.stream_index].enabled;
   });
@@ -1966,6 +1972,60 @@ DemuxerReadResult Mp4Demuxer::Fail(int64_t at,
   error_ = message;
   LOGE("%s%s%s", message, *detail ? ": " : "", detail);
   return DemuxerReadResult::kError;
+}
+
+bool Mp4Demuxer::ReadFromRun(Track* track, uint8_t* data) {
+  // The bytes an http source keeps around the end of the last read: the
+  // platforms' keep 1 MB behind it and skip up to 512 KB ahead. A read
+  // outside them starts a new request, and a file whose tracks lie farther
+  // apart than that (poorly interleaved: muxed in large chunks per track,
+  // or not at all) would start one for every switch between tracks.
+  constexpr int64_t kNearBehind = 1 << 20;
+  constexpr int64_t kNearAhead = 512 << 10;
+  // At most this much of a track is read ahead into memory.
+  constexpr uint64_t kMaxRun = 4 << 20;
+  const Sample& sample = track->samples[track->next];
+  auto in_run = [track](const Sample& s) {
+    return !track->run.empty() && s.offset >= track->run_offset &&
+           s.offset - track->run_offset <= track->run.size() &&
+           s.size <= track->run.size() - (s.offset - track->run_offset);
+  };
+  if (!in_run(sample)) {
+    track->run.clear();
+    track->run.shrink_to_fit();
+    const auto offset = static_cast<int64_t>(sample.offset);
+    if (read_end_ < 0 || (offset >= read_end_ - kNearBehind &&
+                          offset <= read_end_ + kNearAhead)) {
+      return false;
+    }
+    // The samples that follow it in the file, up to kMaxRun.
+    uint64_t end = sample.offset + sample.size;
+    for (size_t i = track->next + 1; i < track->samples.size(); ++i) {
+      const Sample& next = track->samples[i];
+      if (next.offset != end || end + next.size - sample.offset > kMaxRun) {
+        break;
+      }
+      end += next.size;
+    }
+    if (end - sample.offset <= sample.size) {
+      return false;  // A single sample: read as usual.
+    }
+    try {
+      track->run.resize(end - sample.offset);
+    } catch (const std::bad_alloc&) {
+      return false;
+    }
+    track->run_offset = sample.offset;
+    if (ReadFully(offset, track->run.data(), track->run.size()) !=
+        LoadResult::kLoaded) {
+      // Read as usual, which says what went wrong.
+      track->run.clear();
+      return false;
+    }
+  }
+  std::memcpy(data, track->run.data() + (sample.offset - track->run_offset),
+              sample.size);
+  return true;
 }
 
 DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
@@ -2041,7 +2101,7 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
       return Fail(sample.pts(),
                   "out of memory for the sample at %.3f s (of %.3f s)", "");
     }
-    size_t filled = 0;
+    size_t filled = ReadFromRun(&track, buffer->writable()) ? sample.size : 0;
     while (filled < sample.size) {
       int64_t n =
           source_->Read(static_cast<int64_t>(sample.offset + filled),
@@ -2054,6 +2114,7 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
                     n < 0 ? source_->error().c_str() : "");
       }
       filled += static_cast<size_t>(n);
+      read_end_ = static_cast<int64_t>(sample.offset + filled);
     }
     packet->stream_index = index;
     packet->pts = sample.pts();
