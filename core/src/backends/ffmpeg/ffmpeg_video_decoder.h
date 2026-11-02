@@ -53,6 +53,7 @@ class FFmpegVideoDecoder : public VideoDecoder {
   void ReceiveFrames(const OutputCallback& output);
   std::shared_ptr<VideoFrame> CreateFrame(AVFrame* frame);
   std::shared_ptr<VideoFrame> ConvertToCpu(AVFrame* frame);
+  AVFrame* Download(const AVFrame* frame);
 
   const bool hardware_;
 #if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
@@ -76,6 +77,10 @@ class FFmpegVideoDecoder : public VideoDecoder {
   SwsContext* sws_context_ = nullptr;
   // The pixels of the frames ConvertToCpu() makes.
   BufferPool cpu_pool_;
+  // The last hardware frame downloaded, whose buffers the next one of the
+  // same size and |download_format_| reuses.
+  ScopedAVFrame download_;
+  AVPixelFormat download_format_ = AV_PIX_FMT_NONE;
   bool logged_output_format_ = false;
   int consecutive_errors_ = 0;
   std::atomic<bool> hardware_output_;

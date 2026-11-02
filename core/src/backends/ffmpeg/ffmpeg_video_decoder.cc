@@ -444,16 +444,40 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::CreateFrame(AVFrame* frame) {
   return result;
 }
 
+AVFrame* FFmpegVideoDecoder::Download(const AVFrame* frame) {
+  if (!download_) {
+    download_.reset(av_frame_alloc());
+    if (!download_) {
+      return nullptr;
+    }
+  }
+  const auto* frames =
+      reinterpret_cast<const AVHWFramesContext*>(frame->hw_frames_ctx->data);
+  if (download_->width != frame->width || download_->height != frame->height ||
+      download_format_ != frames->sw_format) {
+    // av_hwframe_transfer_data() allocates new buffers for an empty frame,
+    // and copies into those of one that has them.
+    av_frame_unref(download_.get());
+    download_format_ = frames->sw_format;
+  } else {
+    // What av_frame_copy_props() would add to rather than replace.
+    av_frame_side_data_free(&download_->side_data, &download_->nb_side_data);
+    av_dict_free(&download_->metadata);
+  }
+  if (av_hwframe_transfer_data(download_.get(), frame, 0) < 0) {
+    LOGE("av_hwframe_transfer_data failed");
+    av_frame_unref(download_.get());
+    return nullptr;
+  }
+  av_frame_copy_props(download_.get(), frame);
+  return download_.get();
+}
+
 std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
   if (frame->hw_frames_ctx) {
     // A hardware frame we cannot wrap; download it first.
-    ScopedAVFrame downloaded(av_frame_alloc());
-    if (av_hwframe_transfer_data(downloaded.get(), frame, 0) < 0) {
-      LOGE("av_hwframe_transfer_data failed");
-      return nullptr;
-    }
-    av_frame_copy_props(downloaded.get(), frame);
-    return ConvertToCpu(downloaded.get());
+    AVFrame* downloaded = Download(frame);
+    return downloaded ? ConvertToCpu(downloaded) : nullptr;
   }
   if (!sws_context_) {
     sws_context_ = sws_alloc_context();
