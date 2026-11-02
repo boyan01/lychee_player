@@ -91,6 +91,99 @@ std::shared_ptr<const PacketBuffer> ToAnnexB(const AnnexBConverter& converter,
 
 }  // namespace
 
+// An fMP4 segment as Mp4Demuxer reads it: the map from memory, then the
+// media from |source| (|length| bytes from |begin|, or to its end), kept
+// in memory as it arrives. A fragment's tracks lie one after another in
+// its mdat while the demuxer reads their samples by time, which straight
+// from http would be a range request each. Its size is unknown, so that
+// the demuxer looks for no index at the end, which would wait for all of
+// it before the first packet.
+class SegmentStream : public DataSource {
+ public:
+  SegmentStream(std::shared_ptr<const std::vector<uint8_t>> map,
+                DataSource* source,
+                int64_t begin,
+                int64_t length)
+      : map_(std::move(map)), source_(source), begin_(begin), length_(length) {}
+
+  int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
+    const int64_t head = map_ ? static_cast<int64_t>(map_->size()) : 0;
+    if (offset < 0 || size == 0) {
+      return 0;
+    }
+    if (offset < head) {
+      const size_t n = std::min(size, static_cast<size_t>(head - offset));
+      memcpy(data, map_->data() + offset, n);
+      return static_cast<int64_t>(n);
+    }
+    const int64_t at = offset - head;
+    while (at >= bytes() && !ended_) {
+      if (!Fill()) {
+        return -1;
+      }
+    }
+    if (at >= bytes()) {
+      return 0;
+    }
+    const size_t n = std::min(size, static_cast<size_t>(bytes() - at));
+    memcpy(data, media_.data() + at, n);
+    return static_cast<int64_t>(n);
+  }
+  int64_t size() const override { return -1; }
+  std::string url() const override { return source_->url(); }
+  void Interrupt() override { source_->Interrupt(); }
+  void ClearInterrupt() override { source_->ClearInterrupt(); }
+  bool interrupted() const override { return source_->interrupted(); }
+  std::string error() const override {
+    return error_.empty() ? source_->error() : error_;
+  }
+  int64_t transfer_rate() const override { return source_->transfer_rate(); }
+
+  // The media bytes read.
+  int64_t bytes() const { return static_cast<int64_t>(media_.size()); }
+
+ private:
+  // Reads on from the source. False on errors.
+  bool Fill() {
+    const int64_t limit =
+        length_ >= 0 ? std::min(length_, kMaxSegmentBytes) : kMaxSegmentBytes;
+    const size_t old = media_.size();
+    if (static_cast<int64_t>(old) >= limit) {
+      ended_ = true;
+      if (length_ < 0 || length_ > kMaxSegmentBytes) {
+        error_ = "segment too large";
+        return false;
+      }
+      return true;
+    }
+    const size_t want = static_cast<size_t>(
+        std::min<int64_t>(limit - static_cast<int64_t>(old), 256 << 10));
+    media_.resize(old + want);
+    const int64_t n = source_->Read(begin_ + static_cast<int64_t>(old),
+                                    media_.data() + old, want);
+    media_.resize(old + static_cast<size_t>(std::max<int64_t>(n, 0)));
+    if (n < 0) {
+      return false;
+    }
+    const int64_t total = length_ >= 0 ? length_ : source_->size() - begin_;
+    if (n == 0) {
+      ended_ = true;
+    } else if (old == 0 && total > 0) {
+      // All of it in one allocation once its size is known.
+      media_.reserve(static_cast<size_t>(std::min(total, limit)));
+    }
+    return true;
+  }
+
+  const std::shared_ptr<const std::vector<uint8_t>> map_;
+  DataSource* const source_;
+  const int64_t begin_;
+  const int64_t length_;
+  std::vector<uint8_t> media_;
+  bool ended_ = false;
+  std::string error_;
+};
+
 HlsDemuxer::HlsDemuxer() = default;
 
 HlsDemuxer::~HlsDemuxer() {
@@ -893,8 +986,8 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
   std::vector<std::pair<StreamInfo, int64_t>> streams;
   std::unique_ptr<TsReader> reader;
   std::unique_ptr<Mp4Demuxer> mp4;
-  const bool whole =
-      segment.initialization || segment.key.method == HlsKey::Method::kAes128;
+  // Encrypted segments are decrypted whole, in memory; the others stream.
+  const bool whole = segment.key.method == HlsKey::Method::kAes128;
   std::unique_ptr<DataSource> source;
   if (whole) {
     std::vector<uint8_t> data;
@@ -903,26 +996,44 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
     }
     source = CreateMemoryDataSource(std::move(data));
   } else {
+    if (segment.initialization && !LoadMap(r, segment, error)) {
+      return false;
+    }
     source = opener_(segment.url, error);
     if (!source) {
       return false;
     }
   }
-  if (segment.initialization) {
+  if (segment.initialization && whole) {
     mp4 = std::make_unique<Mp4Demuxer>();
     if (!mp4->Open(std::move(source), error, segment.url, opener_)) {
       *error = segment.url + ": " + *error;
       return false;
-    }
-    for (const StreamInfo& info : mp4->media_info().streams) {
-      streams.emplace_back(info, mp4->media_info().start_time);
     }
   } else {
     {
       std::lock_guard<std::mutex> lock(mutex_);
       r->source = std::move(source);
     }
+    r->streamed = !whole;
     Track(r->source.get());
+  }
+  if (segment.initialization && !whole) {
+    auto input = std::make_unique<SegmentStream>(
+        r->map_data, r->source.get(), std::max<int64_t>(segment.offset, 0),
+        segment.length);
+    r->stream = input.get();
+    mp4 = std::make_unique<Mp4Demuxer>();
+    if (!mp4->Open(std::move(input), error, segment.url, opener_)) {
+      *error = segment.url + ": " + *error;
+      return false;
+    }
+  }
+  if (mp4) {
+    for (const StreamInfo& info : mp4->media_info().streams) {
+      streams.emplace_back(info, mp4->media_info().start_time);
+    }
+  } else {
     reader = std::make_unique<TsReader>(r->source.get());
     const int64_t begin = !whole && segment.offset >= 0 ? segment.offset : 0;
     reader->SetRange(
@@ -1036,6 +1147,8 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
 void HlsDemuxer::CloseSegment(Rendition* r) {
   r->reader.reset();
   r->mp4.reset();
+  r->stream = nullptr;
+  r->streamed = false;
   r->text_open = false;
   r->text.clear();
   std::lock_guard<std::mutex> lock(mutex_);
@@ -1211,7 +1324,7 @@ DemuxerReadResult HlsDemuxer::ReadFrom(Rendition* r, EncodedPacket* packet) {
       }
     }
     Track(r->source.get());
-    int64_t offset;
+    int64_t offset = 0;
     DemuxerReadResult result = DemuxerReadResult::kEndOfStream;
     if (r->text_open) {
       if (!r->text.empty()) {
@@ -1232,8 +1345,9 @@ DemuxerReadResult HlsDemuxer::ReadFrom(Rendition* r, EncodedPacket* packet) {
       return result;
     }
     if (result != DemuxerReadResult::kOk) {
-      if (r == renditions_[0].get() && r->reader && r->source) {
-        Measure(r->source->transfer_rate(), r->source->size());
+      if (r == renditions_[0].get() && r->streamed && r->source) {
+        Measure(r->source->transfer_rate(),
+                r->stream ? r->stream->bytes() : r->source->size());
       }
       CloseSegment(r);
       ++r->current;

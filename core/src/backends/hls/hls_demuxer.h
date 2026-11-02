@@ -22,6 +22,8 @@
 
 namespace lychee {
 
+class SegmentStream;
+
 // HTTP Live Streaming (RFC 8216) with MPEG-TS or fragmented MP4
 // (EXT-X-MAP) segments, for builds without FFmpeg. A master playlist
 // plays one variant (PickHlsVariant) and lists the others it can decode
@@ -120,12 +122,15 @@ class HlsDemuxer : public Demuxer {
     // The last map read.
     std::string map_id;
     std::shared_ptr<const std::vector<uint8_t>> map_data;
-    // The open segment: MPEG-TS through reader (from source), or fMP4
-    // through mp4 (from memory). Its stream index -> media_info_ stream,
-    // or -1; microseconds added to its timestamps.
+    // The open segment: MPEG-TS through reader, or fMP4 through mp4 (from
+    // stream, the map and source's media). source is the network's
+    // (streamed), or the segment in memory (decrypted). Its stream index
+    // -> media_info_ stream, or -1; microseconds added to its timestamps.
     std::unique_ptr<DataSource> source;
+    bool streamed = false;
     std::unique_ptr<TsReader> reader;
     std::unique_ptr<Mp4Demuxer> mp4;
+    SegmentStream* stream = nullptr;
     std::vector<int> stream_map;
     int64_t offset = 0;
     // fMP4 video for a stream described without its configuration (another
