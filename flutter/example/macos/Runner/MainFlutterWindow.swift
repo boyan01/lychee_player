@@ -24,6 +24,12 @@ class MainFlutterWindow: NSWindow {
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
 
+    // An unattended run (--seconds) floats above other windows without
+    // taking focus: Flutter draws nothing in a window that is covered.
+    if arguments.contains("--seconds") {
+      self.level = .floating
+    }
+
     RegisterGeneratedPlugins(registry: flutterViewController)
     registerHostTextureCheck(flutterViewController.registrar(forPlugin: "HostTextureCheck"))
 
