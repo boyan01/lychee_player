@@ -969,12 +969,14 @@ for onset in opus.webm mp3.mp4 aac.m4a; do
   par expect "av-sync-${onset%%.*}" "summary: state=ended .*audio_onset=(0\.99[89]|1\.00[0-2])" -- \
     --volume 1 "$media/onset_$onset"
 done
-# A seek reads Opus from 80 ms before the target, the seek preroll that
-# Android's decoder drops after a flush (an MP4 seek lands on the sample
-# at the target; the decoders here drop nothing): the audio before the
+# A seek reads from before the target what the decoder needs to output
+# it after a flush: MP3's bit reservoir (silence for 40 to 70 ms without
+# it), Opus's seek preroll (Android drops 80 ms). The audio before the
 # target is cut, so the tone still starts at 1 s.
-par expect av-sync-seek-opus "summary: state=ended .*audio_onset=(0\.99[89]|1\.00[0-2])" -- \
-  --volume 1 --seek 0.98 --seek-after 0.1 "$media/onset_opus.mp4"
+for onset in opus.mp4 mp3.mp4; do
+  par expect "av-sync-seek-${onset%%.*}" "summary: state=ended .*audio_onset=(0\.99[89]|1\.00[0-2])" -- \
+    --volume 1 --seek 0.98 --seek-after 0.1 "$media/onset_$onset"
+done
 # MP3 in MPEG-TS, which has nowhere to say the encoder's delay (MP3 files
 # say it in their LAME header, MP4 in an edit list): 1105 samples late.
 par expect mp3-ts "summary: state=ended .*audio_onset=1\.02[2-4]" -- --volume 1 "$media/onset_mp3.ts"

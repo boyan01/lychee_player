@@ -46,7 +46,24 @@ constexpr int64_t kStatsLogInterval = 5 * kMicrosPerSecond;
 // dropped once they ended this long before the subtitle time playing:
 // enough for a later, larger subtitle delay to still find them.
 constexpr int64_t kUnseekableSubtitleHistory = 60 * kMicrosPerSecond;
-constexpr int64_t kOpusSeekPreroll = 80 * kMicrosPerMilli;
+
+// How far before a seek target an audio decoder must start to output the
+// target, after a flush. Opus: 80 ms to converge (RFC 7845's seek
+// preroll; Android's decoder drops that much). MP3: a frame's data may
+// start up to 511 bytes back in earlier frames (the bit reservoir), and
+// each overlaps the one before; until then decoders output silence (40
+// to 70 ms of it at 64 kbit/s). 250 ms covers MPEG-1 at 32 kbit/s, the
+// lowest bitrate, where 511 bytes span six frames.
+int64_t SeekPreroll(AudioCodec codec) {
+  switch (codec) {
+    case AudioCodec::kOpus:
+      return 80 * kMicrosPerMilli;
+    case AudioCodec::kMP3:
+      return 250 * kMicrosPerMilli;
+    default:
+      return 0;
+  }
+}
 
 long long Millis(int64_t micros) {
   return static_cast<long long>(micros / kMicrosPerMilli);
@@ -1830,16 +1847,15 @@ void Player::ProcessSeek(int64_t target,
   // by as much.
   const int64_t media_target = file_target + (loops ? loops * loop_length_ : 0);
   LOGI("%s to %lld us", loop ? "loop" : "seek", static_cast<long long>(target));
-  // An Opus decoder needs 80 ms before the target to converge after a
-  // flush, and Android's drops that much (RFC 7845's seek preroll; as
-  // Chromium's FFmpegDemuxer, the read starts that much early). The audio
-  // renderer cuts what comes before the target.
+  // The read starts the audio's preroll early (as Chromium's FFmpegDemuxer
+  // does for Opus); the audio renderer cuts what comes before the target.
   int64_t demux_target = file_target;
   if (audio_stream_ >= 0 &&
-      static_cast<size_t>(audio_stream_) < media_info_.streams.size() &&
-      media_info_.streams[audio_stream_].audio.codec == AudioCodec::kOpus) {
-    demux_target =
-        std::max(media_info_.start_time, file_target - kOpusSeekPreroll);
+      static_cast<size_t>(audio_stream_) < media_info_.streams.size()) {
+    demux_target = std::max(
+        media_info_.start_time,
+        file_target -
+            SeekPreroll(media_info_.streams[audio_stream_].audio.codec));
   }
   const bool user_seek = !loop && !resync && !tracks_changed;
   if (!media_info_.seekable) {
