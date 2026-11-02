@@ -65,6 +65,11 @@ endif()
 target_include_directories(lychee_unittests PRIVATE ../src)
 target_link_libraries(lychee_unittests PRIVATE lychee)
 target_compile_features(lychee_unittests PRIVATE cxx_std_20)
+if(MSVC)
+  # As for the library: the tests' text literals are UTF-8, not the system
+  # code page (936 on a Chinese Windows warns and misreads them).
+  target_compile_options(lychee_unittests PRIVATE /utf-8)
+endif()
 add_test(NAME lychee_unittests COMMAND lychee_unittests)
 
 # The FFmpeg-free MP4, MPEG-TS and HLS demuxers, built on Apple only.
