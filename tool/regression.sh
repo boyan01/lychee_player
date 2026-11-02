@@ -1510,8 +1510,27 @@ seq_ check http          1 - -- "$url"
 seq_ expect http-seekable "^seekable=1$" -- --seconds 1 "$url"
 seq_ expect http-subtitle-file "event: subtitle [0-9]+ added" "subtitle at [01]\.[0-9]{3}s: Hello world$" -- \
   --seconds 2 --add-subtitle "http://127.0.0.1:$port/subs.srt" "$url"
-serve --drop-at 3000000
+# Each server drops one connection. At 20 MB/s, the first request's
+# read-ahead (Apple's source reads far ahead of the reader) is abandoned
+# before it gets there; unlimited, it spent the drop and nothing
+# reconnected.
+serve --drop-at 3000000 --rate 20000
 seq_ check http-reconnect 1 - -- "$url"
+# A reconnect, and a seek right after a decoder rebuild, read on from the
+# byte asked for: no decoder gets a bad packet. (FFmpeg logs "Packet
+# corrupt" and "Invalid NAL unit size" when a seek interrupts a read in
+# flight, as an iPhone showed; the demuxer drops that packet.) The drop,
+# mid-packet, is past the seek's target (about 1.4 MB in), so the read
+# after the seek reaches it whichever request it falls in.
+bad_packets="<=0 (malformed sample|decode failed|avcodec_(send_packet|receive_frame)|ProcessInput|decoding failed)"
+serve --drop-at 5000037 --rate 20000
+seq_ expect http-reconnect-seek "[Rr]econnect(ing)? at" "$bad_packets" \
+  "summary: state=ended .*backward_jumps=0 .*first_pts_after_seek=2\.000s" -- \
+  --seek 2 --seek-after 0.5 "http://127.0.0.1:$port/faststart.mp4"
+serve
+seq_ expect http-rebuild-seek "video rebuilt" "$bad_packets" \
+  "summary: state=ended .*backward_jumps=0 .*first_pts_after_seek=7\.000s" -- \
+  --rebuild-decoder-after 2 --seek 7 --seek-after 2.05 "$url"
 # A server without range requests: FFmpeg cannot seek, so the seek is
 # ignored, not reported, and playback goes on from where it was to the end.
 # (The FFmpeg-free source reads from the start and discards up to the
@@ -1557,7 +1576,7 @@ if [ "${NO_FFMPEG:-0}" != 1 ]; then
     "summary: state=ended position=12\.000s .*pulled=3(5[5-9]|6[0-9]) .*backward_jumps=0 " -- \
     --rebuild-decoder-after 2 "$url"
 fi
-serve --drop-at 3000000
+serve --drop-at 3000000 --rate 20000
 seq_ check http-mkv-reconnect 1 - -- "http://127.0.0.1:$port/h264_aac.mkv"
 # Fragmented over http: the moofs read one by one (frag_scan has no
 # index, so opening reads them all), and a seek through mfra, which is

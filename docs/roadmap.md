@@ -75,18 +75,6 @@ building on top of them.
   unregisters. What the PC's state was before the reboot is unknown.
   If it comes back, compare the bare app on the same boot before
   touching the plugin.
-- **HTTP reconnects can deliver corrupt packets** (iPhone 17,
-  2026-10-29, `ios-recovery-console.log`): after "reconnecting at N in
-  0 s after: The network connection was lost", FFmpeg's MP4 demuxer
-  reported "Packet corrupt" and H.264 "Invalid NAL unit size (18686 >
-  3659)", which suggests the reconnected range did not resume at the
-  byte asked for. But a later run (2026-10-29, foreground test) showed
-  the same "Packet corrupt" and "Invalid NAL unit size (32474 > 4001)"
-  right after a decoder rebuild's seek with no reconnect logged, so the
-  cause may be the seek's new range request instead. Not reproduced off
-  the device. Done when a `tool/regression.sh` case that reproduces it
-  (a connection dropped mid-read, or a seek over HTTP right after a
-  rebuild) shows no corrupt packet, or the cause is found elsewhere.
 
 ## Performance
 

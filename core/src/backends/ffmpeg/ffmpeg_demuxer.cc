@@ -538,6 +538,10 @@ int FFmpegDemuxer::ReadNext(EncodedPacket* packet) {
     if (ret == AVERROR(EAGAIN)) {
       continue;
     }
+    // A read the interrupt cut short leaves FFmpeg a packet without its
+    // end, which demuxers flag and log ("Packet corrupt", and from the
+    // stream's parser "Invalid NAL unit size"): it goes here, unseen by
+    // the decoders.
     if (aborted_ || interrupted_) {
       av_packet_unref(av_packet_);
       return AVERROR_EXIT;
