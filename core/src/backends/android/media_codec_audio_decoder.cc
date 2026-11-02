@@ -383,9 +383,13 @@ bool MediaCodecAudioDecoder::DrainOutput(const OutputCallback& output) {
           anchor_pts_ += (expected - frames) * kMicrosPerSecond / rate_;
         }
       }
-    } else {
+    } else if (frames_out_ > 0) {
+      // Opus's anchor is set at its first input, from what the decoder
+      // trims; that output keeps its packet's timestamp, so it cannot set
+      // the timestamps' drift (API 33 and 34 then moved Opus 6.5 ms late).
+      // Its input timestamps were rebased by opus_input_offset_.
       anchor_pts_ +=
-          timestamps_.Follow(info.presentationTimeUs,
+          timestamps_.Follow(info.presentationTimeUs + opus_input_offset_,
                              anchor_pts_ + frames_out_ * kMicrosPerSecond /
                                                output_format_.sample_rate);
     }
