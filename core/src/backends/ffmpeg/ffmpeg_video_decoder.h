@@ -81,6 +81,9 @@ class FFmpegVideoDecoder : public VideoDecoder {
   // same size and |download_format_| reuses.
   ScopedAVFrame download_;
   AVPixelFormat download_format_ = AV_PIX_FMT_NONE;
+  // The 16-bit result of converting HDR frames, kept while their size
+  // stays.
+  ScopedAVFrame hdr_frame_;
   bool logged_output_format_ = false;
   int consecutive_errors_ = 0;
   std::atomic<bool> hardware_output_;

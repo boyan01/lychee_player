@@ -2,6 +2,8 @@
 
 #include "backends/ffmpeg/ffmpeg_video_decoder.h"
 
+#include <utility>
+
 #include "base/log.h"
 
 #if defined(__APPLE__)
@@ -20,7 +22,6 @@
 
 extern "C" {
 #include <libavutil/imgutils.h>
-#include <libavutil/intreadwrite.h>
 #include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
 #if defined(_WIN32)
@@ -173,6 +174,45 @@ std::shared_ptr<VideoFrame> WrapDmabuf(const AVFrame* frame) {
   return result;
 }
 #endif
+
+// A 16-bit component to 8 bits, rounded: (v + 128) / 257, in arithmetic
+// that stays in 32 bits so it vectorizes. (v + 128) * 0xff01 fits for
+// every 16-bit v, and 0xff01 / 2^24 is 1 / 257 to within 2^-40, too little
+// to change any quotient's floor (checked for all 65536 values).
+inline uint8_t To8Bit(uint32_t v) {
+  return static_cast<uint8_t>(((v + 128) * 0xff01u) >> 24);
+}
+
+// |source|, planar GBRA at 16 bits in the host's byte order, into packed
+// RGBA, or BGRA if |bgra|, at |target|. One pass over each row with every
+// plane, so the compiler vectorizes it (interleaving stores).
+void Quantize(const AVFrame* source, bool bgra, uint8_t* target, int stride) {
+  // In locals: the byte stores could alias |source|'s fields, which would
+  // be read again for each pixel.
+  const int width = source->width;
+  const int height = source->height;
+  for (int y = 0; y < height; ++y) {
+    auto row = [source, y](int plane) {
+      return reinterpret_cast<const uint16_t*>(source->data[plane] +
+                                               static_cast<size_t>(y) *
+                                                   source->linesize[plane]);
+    };
+    const uint16_t* r = row(2);
+    const uint16_t* g = row(0);
+    const uint16_t* b = row(1);
+    const uint16_t* a = row(3);
+    if (bgra) {
+      std::swap(r, b);
+    }
+    uint8_t* out = target + static_cast<size_t>(y) * stride;
+    for (int x = 0; x < width; ++x, out += 4) {
+      out[0] = To8Bit(r[x]);
+      out[1] = To8Bit(g[x]);
+      out[2] = To8Bit(b[x]);
+      out[3] = To8Bit(a[x]);
+    }
+  }
+}
 
 }  // namespace
 
@@ -481,6 +521,12 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
   }
   if (!sws_context_) {
     sws_context_ = sws_alloc_context();
+    if (!sws_context_) {
+      return nullptr;
+    }
+    // swscale converts on one thread unless told otherwise, and a 4K HDR
+    // frame then takes longer than its decoding; 0 is a thread per core.
+    sws_context_->threads = 0;
   }
   const int stride = FFALIGN(frame->width * 4, 64);
   std::shared_ptr<uint8_t> data =
@@ -490,65 +536,64 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
   }
 
   ScopedAVFrame output(av_frame_alloc());
+  if (!output) {
+    return nullptr;
+  }
   output->format = cpu_storage_ == VideoFrameStorage::kCpuRgba
                        ? AV_PIX_FMT_RGBA
                        : AV_PIX_FMT_BGRA;
   output->width = frame->width;
   output->height = frame->height;
-  output->color_range = AVCOL_RANGE_JPEG;
+  output->data[0] = data.get();
+  output->linesize[0] = stride;
+  AVFrame* converted = output.get();
   const bool hdr = frame->color_trc == AVCOL_TRC_SMPTE2084 ||
                    frame->color_trc == AVCOL_TRC_ARIB_STD_B67;
   if (hdr) {
-    // HDR into 8-bit SDR instead of passing PQ or HLG code values through.
-    // With its default intent (relative colorimetric) swscale keeps
-    // absolute luminance, 203 nits as white, and clips above it;
-    // D3D11VideoProcessor's PQ shader does the same.
-    output->color_primaries = AVCOL_PRI_BT709;
-    output->color_trc = AVCOL_TRC_BT709;
     // swscale's 8-bit RGB path changes chromatic HDR colors, even without
     // scaling. Keep the color conversion at 16 bits and quantize only its
     // final SDR result. Planar GBR(A) also retains alpha; the caller still
     // receives the same 8-bit frame type.
-    output->format = AV_PIX_FMT_GBRAP16LE;
-    if (av_frame_get_buffer(output.get(), 64) < 0) {
-      return nullptr;
+    if (!hdr_frame_ || hdr_frame_->width != frame->width ||
+        hdr_frame_->height != frame->height) {
+      hdr_frame_.reset(av_frame_alloc());
+      if (!hdr_frame_) {
+        return nullptr;
+      }
+      hdr_frame_->format = AV_PIX_FMT_GBRAP16;
+      hdr_frame_->width = frame->width;
+      hdr_frame_->height = frame->height;
+      if (av_frame_get_buffer(hdr_frame_.get(), 64) < 0) {
+        hdr_frame_.reset();
+        return nullptr;
+      }
     }
+    converted = hdr_frame_.get();
+    // HDR into 8-bit SDR instead of passing PQ or HLG code values through.
+    // With its default intent (relative colorimetric) swscale keeps
+    // absolute luminance, 203 nits as white, and clips above it;
+    // D3D11VideoProcessor's PQ shader does the same.
+    converted->color_primaries = AVCOL_PRI_BT709;
+    converted->color_trc = AVCOL_TRC_BT709;
   } else {
-    output->color_primaries = frame->color_primaries;
-    output->color_trc = frame->color_trc;
-    output->data[0] = data.get();
-    output->linesize[0] = stride;
+    converted->color_primaries = frame->color_primaries;
+    converted->color_trc = frame->color_trc;
   }
+  converted->color_range = AVCOL_RANGE_JPEG;
   if (frame->colorspace == AVCOL_SPC_UNSPECIFIED) {
     // swscale reads an unspecified matrix as BT.601; untagged HD is BT.709
     // by the library's convention, as on the D3D11 and dmabuf paths.
     frame->colorspace =
         frame->height > 576 ? AVCOL_SPC_BT709 : AVCOL_SPC_SMPTE170M;
   }
-  int ret = sws_scale_frame(sws_context_, output.get(), frame);
+  int ret = sws_scale_frame(sws_context_, converted, frame);
   if (ret < 0) {
     LOGE("sws_scale_frame: %s", AVErrorString(ret).c_str());
     return nullptr;
   }
   if (hdr) {
-    constexpr int kPlanes[] = {2, 0, 1, 3};  // Planar GBR(A) to RGB(A).
-    for (int y = 0; y < frame->height; ++y) {
-      uint8_t* target = data.get() + static_cast<size_t>(y) * stride;
-      for (int channel = 0; channel < 4; ++channel) {
-        const int component =
-            cpu_storage_ == VideoFrameStorage::kCpuBgra && channel < 3
-                ? 2 - channel
-                : channel;
-        const int plane = kPlanes[component];
-        const uint8_t* source =
-            output->data[plane] +
-            static_cast<size_t>(y) * output->linesize[plane];
-        for (int x = 0; x < frame->width; ++x) {
-          target[x * 4 + channel] = static_cast<uint8_t>(
-              (AV_RL16(source + static_cast<size_t>(x) * 2) + 128) / 257);
-        }
-      }
-    }
+    Quantize(converted, cpu_storage_ == VideoFrameStorage::kCpuBgra, data.get(),
+             stride);
   }
 
   auto result = std::make_shared<VideoFrame>();

@@ -26,6 +26,9 @@
 * Video no longer stutters while the audio device starts or stops:
   pausing, resuming, seeking and switching tracks no longer hold up
   frames or other player calls.
+* Software-decoded video handed out as CPU frames (Linux, Windows with
+  CPU frames, `hw: false`) converts several times faster: 4K HDR no
+  longer plays at a few frames per second.
 
 ## 1.0.0-beta.5
 
