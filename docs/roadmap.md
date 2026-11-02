@@ -34,7 +34,10 @@ building on top of them.
    back to D3D11VA at open) waits on the user: the PC has the free "from
    Device Manufacturer" package, which neither winget nor the HK Store
    offers again (only the paid 9NMZLZ57R3T7), so it was not uninstalled.
-   Also audible output.
+   Also audible output. FFmpeg's D3D11VA decoding has not run since
+   output textures are pooled (2026-11-02): Media Foundation takes every
+   file the examples play; it needs a stream MF refuses and D3D11VA
+   decodes, checked with `lychee_glfw --snapshot` and `frame_check.py`.
 3. **Linux**: VAAPI on AMD, hardware decoding on arm64, and audio
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays
@@ -78,6 +81,54 @@ building on top of them.
   the device. Done when a `tool/regression.sh` case that reproduces it
   (a connection dropped mid-read, or a seek over HTTP right after a
   rebuild) shows no corrupt packet, or the cause is found elsewhere.
+- **Picture subtitles do not show in the Flutter example on macOS**
+  (2026-11-02): `sub_pgs.mkv` at 3.7 s, inside its 3.0-4.5 s cue, has a
+  white box at the top in FFmpeg's frame and in the Swift example, but
+  none in the Flutter example's window, before the day's changes too.
+  Done when the Flutter example draws it there.
+
+## Performance
+
+What the review of 2026-11-02 found and left, by expected gain.
+
+1. **Linux VAAPI frames** (waiting on the user to boot the dual-boot
+   Ubuntu at 192.168.31.212 and log in): `WrapDmabuf` maps every frame
+   (`av_hwframe_map`, new dmabuf fds), and the Flutter plugin and
+   `examples/glfw` create and destroy two EGLImages per frame. Cache
+   them by the fds' `st_dev`/`st_ino`, offset, pitch, modifier, fourcc
+   and size, cleared on a size or format change and holding no more than
+   the decoder's surface pool. Done when both pass `frame_check.py` there
+   on iHD and the raster time per frame drops.
+2. **Flutter on Apple converts every frame to BGRA**: Flutter 3.47.8's
+   Darwin external textures decode 420v/420f as BT.601 whatever the
+   buffer's tags, so HD would come out wrong as NV12. Done when the
+   engine reads the tags (or the plugin converts in a shader of its own)
+   and the plugin hands 8-bit SDR over as NV12, checked by
+   `frame_check.py` on `h264_bt601.mp4` and an HD file.
+3. **Android software frames** are copied into the window, ~33 MB a
+   frame at 4K. Done when the core hands out a buffer the compositor
+   takes (AHardwareBuffer with ASurfaceControl, or a YV12 window),
+   checked by pixels.
+4. **Bounded ranges after a jump** on Windows and Android: the Apple HTTP
+   source asks for 2 MB after a far read, growing to 16 MB on sequential
+   reads, since a paused open-ended request still fills the TCP window
+   (a seek in a 90 MB TS: 93 MB downloaded instead of 295). The Windows
+   and Android sources still ask open-ended. Done when they do the same
+   with the same measurement.
+5. **HLS**: prefetching the next segment does nothing with the Android
+   and FFmpeg data sources, which connect on their first read; AES-128
+   segments are still decrypted whole before their first packet
+   (streaming CBC needs a chained cipher on CommonCrypto, BCrypt and
+   javax.crypto); only one segment is fetched ahead.
+6. **Demuxers**: a fragmented MP4 whose last moof has no `tfdt` (Smooth
+   Streaming) still reads every fragment at open; bisecting a Matroska
+   file without cues scans up to a cluster per step, tens of MB per seek
+   with 4K clusters (SimpleBlock times or PrevSize would narrow it).
+7. **Locks**: `Player::SetVideoSurface` still calls
+   `AMediaCodec_setOutputSurface` under the player's and the renderer's
+   locks; D3D11 output textures wait 100 ms after their frame's release
+   before reuse, where a keyed mutex or shared fence through the ABI
+   would be exact.
 
 ## Features
 
