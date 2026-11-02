@@ -31,6 +31,34 @@ TEST(PacketQueue, PopsInOrderAndTracksSize) {
   EXPECT_EQ(queue.duration(), 2000);
 }
 
+// Test registration allocates before main, as the existing TESTs do.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(PacketQueue, NotifiesWhenAPopCrossesTheLowWater) {
+  PacketQueue queue;
+  int notified = 0;
+  queue.SetLowWater(2500, [&notified] { notified++; });
+  for (int64_t dts = 0; dts < 5000; dts += 1000) {
+    queue.Push(MakePacket(dts, 10));
+  }
+  PacketQueue::Entry entry;
+  // 5000 -> 4000 -> 3000: still above.
+  EXPECT_TRUE(queue.Pop(&entry));
+  EXPECT_TRUE(queue.Pop(&entry));
+  EXPECT_EQ(notified, 0);
+  // -> 2000: crossed, once.
+  EXPECT_TRUE(queue.Pop(&entry));
+  EXPECT_EQ(notified, 1);
+  EXPECT_TRUE(queue.Pop(&entry));
+  EXPECT_EQ(notified, 1);
+  // Refilled above it, then drained below again.
+  for (int64_t dts = 5000; dts < 8000; dts += 1000) {
+    queue.Push(MakePacket(dts, 10));
+  }
+  EXPECT_TRUE(queue.Pop(&entry));
+  EXPECT_TRUE(queue.Pop(&entry));
+  EXPECT_EQ(notified, 2);
+}
+
 TEST(PacketQueue, PaddingIsZero) {
   auto packet = MakePacket(0, 5);
   const uint8_t* end = packet->buffer->data() + packet->size();

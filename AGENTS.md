@@ -81,7 +81,10 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
   stalled network read blocks nothing else), one decode thread per renderer, the CoreAudio render thread, and whatever
   thread the caller pulls frames on.
 - Lock order is player → renderer → clock, and audio renderer → clock.
-  Renderers never call back into the player.
+  Renderers never call back into the player; a decode thread only wakes
+  the read thread (`PacketQueue::SetLowWater`), taking the player's lock
+  with no other lock held, so nothing may wait for a decode thread while
+  holding the player's lock.
 - A seek interrupts the read in flight (`Demuxer::Interrupt`) and parks the
   read thread while the control thread seeks the demuxer.
 - Audio sinks start and stop on the control thread without the player's

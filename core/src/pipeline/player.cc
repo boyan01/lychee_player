@@ -22,6 +22,20 @@ namespace {
 constexpr int64_t kMinQueuedDuration = 3 * kMicrosPerSecond;
 // ...unless the queues already hold this many bytes.
 constexpr size_t kMaxQueuedBytes = size_t{64} * 1024 * 1024;
+// The read thread refills queues that hold enough at most this often, in
+// batches; one drained below kReadWakeDuration wakes it at once (media
+// plays faster than real time on the virtual clock), and so do seeks and
+// track changes.
+constexpr auto kReadPoll = std::chrono::milliseconds(100);
+constexpr int64_t kReadWakeDuration =
+    kMinQueuedDuration - 500 * kMicrosPerMilli;
+// The control thread runs the state machine this often, to notice what
+// the renderers and the clock do (preroll, the end, starving, subtitle
+// cues, a device's fade-out). Paused or ended with nothing in flight
+// (IdleLocked()), only a failing decoder or a size change after a paused
+// seek is left to notice; calls that need it notify it.
+constexpr auto kControlPoll = std::chrono::milliseconds(10);
+constexpr auto kIdleControlPoll = std::chrono::milliseconds(100);
 // A loop trims at most this much from the container's start and end where
 // the tracks start later or end sooner: codec priming and padding (AAC's
 // 1024 samples, Opus's pre-skip, a duration rounded up), not content.
@@ -65,7 +79,20 @@ thread_local const Player* t_control_thread_player = nullptr;
 }  // namespace
 
 Player::Player(const PlayerConfig& config)
-    : config_(config), video_device_(config.video_device) {}
+    : config_(config), video_device_(config.video_device) {
+  // On a decode thread, which holds no lock then; it takes |mutex_|, so no
+  // thread may wait for a decode thread while it holds that. Taking it
+  // means the read thread has either yet to check the queues or is
+  // waiting, so the notification is not lost.
+  auto wake_read_thread = [this] {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+    }
+    condition_.notify_all();
+  };
+  video_queue_.SetLowWater(kReadWakeDuration, wake_read_thread);
+  audio_queue_.SetLowWater(kReadWakeDuration, wake_read_thread);
+}
 
 Player::~Player() {
   std::lock_guard<std::mutex> open_lock(open_mutex_);
@@ -408,8 +435,9 @@ void Player::SetVideoDevice(VideoDevice device) {
     video_device_ = std::move(device);
     video_decoder_losses_ = 0;
     // No more frames from the old device; the control thread replaces the
-    // renderer.
+    // renderer, from the request this makes.
     PublishVideoLocked();
+    CheckVideoRendererLocked();
   }
   condition_.notify_all();
 }
@@ -1205,10 +1233,12 @@ void Player::Run(const std::string& url) {
     UpdateState();
     DispatchEvents();
     std::unique_lock<std::mutex> lock(mutex_);
-    condition_.wait_for(lock, std::chrono::milliseconds(10), [this] {
-      return quit_ || seek_pending_ || track_request_.pending() ||
-             live_change_.pending();
-    });
+    // Events from calls (play, pause, subtitles) go out at once.
+    condition_.wait_for(
+        lock, IdleLocked() ? kIdleControlPoll : kControlPoll, [this] {
+          return quit_ || seek_pending_ || track_request_.pending() ||
+                 live_change_.pending() || !events_.empty();
+        });
   }
   read_thread_.join();
 }
@@ -1219,9 +1249,12 @@ void Player::ReadLoop() {
     {
       std::unique_lock<std::mutex> lock(mutex_);
       reading_ = false;
-      condition_.notify_all();
-      // Queue levels change without a notification, so poll.
-      condition_.wait_for(lock, std::chrono::milliseconds(10),
+      // The control thread waits for that to seek or change tracks.
+      if (seeking_) {
+        condition_.notify_all();
+      }
+      // Queues above kReadWakeDuration drain without a notification.
+      condition_.wait_for(lock, kReadPoll,
                           [this] { return quit_ || ShouldReadLocked(); });
       if (quit_) {
         return;
@@ -1233,6 +1266,19 @@ void Player::ReadLoop() {
     }
     ReadPacket();
   }
+}
+
+bool Player::IdleLocked() const {
+  if (live_ || clock_running_ || prerolling_ || seek_in_progress_) {
+    return false;
+  }
+  if (state_ != PlayerState::kReady && state_ != PlayerState::kEnded &&
+      state_ != PlayerState::kError) {
+    return false;
+  }
+  // A pause's fade-out still playing, or a replaced renderer's.
+  return retired_audio_.empty() &&
+         (!audio_renderer_ || audio_renderer_->SinkStopped());
 }
 
 bool Player::ShouldReadLocked() const {

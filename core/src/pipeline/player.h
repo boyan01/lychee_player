@@ -313,6 +313,8 @@ class Player {
   // A new video renderer is needed: its decoder was lost, or the device
   // changed.
   void CheckVideoRendererLocked();
+  // Nothing can change but what calls notify the control thread of.
+  bool IdleLocked() const;
   bool ShouldReadLocked() const;
   bool NeedMoreData() const;
   void ReadPacket();

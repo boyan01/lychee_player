@@ -2,6 +2,11 @@
 
 namespace lychee {
 
+void PacketQueue::SetLowWater(int64_t duration, std::function<void()> notify) {
+  low_water_ = duration;
+  low_water_notify_ = std::move(notify);
+}
+
 void PacketQueue::Push(std::shared_ptr<EncodedPacket> packet) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -12,16 +17,25 @@ void PacketQueue::Push(std::shared_ptr<EncodedPacket> packet) {
 }
 
 bool PacketQueue::Pop(Entry* entry) {
-  std::unique_lock<std::mutex> lock(mutex_);
-  consumer_busy_ = false;
-  condition_.wait(lock, [this] { return aborted_ || !entries_.empty(); });
-  if (aborted_) {
-    return false;
+  bool low = false;
+  {
+    std::unique_lock<std::mutex> lock(mutex_);
+    consumer_busy_ = false;
+    condition_.wait(lock, [this] { return aborted_ || !entries_.empty(); });
+    if (aborted_) {
+      return false;
+    }
+    const int64_t before = low_water_notify_ ? DurationLocked() : 0;
+    *entry = std::move(entries_.front());
+    entries_.pop_front();
+    bytes_ -= entry->packet->size();
+    consumer_busy_ = true;
+    low = low_water_notify_ && before >= low_water_ &&
+          DurationLocked() < low_water_;
   }
-  *entry = std::move(entries_.front());
-  entries_.pop_front();
-  bytes_ -= entry->packet->size();
-  consumer_busy_ = true;
+  if (low) {
+    low_water_notify_();
+  }
   return true;
 }
 
@@ -66,6 +80,10 @@ size_t PacketQueue::bytes() const {
 
 int64_t PacketQueue::duration() const {
   std::lock_guard<std::mutex> lock(mutex_);
+  return DurationLocked();
+}
+
+int64_t PacketQueue::DurationLocked() const {
   if (entries_.empty()) {
     return 0;
   }

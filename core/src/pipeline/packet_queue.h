@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 
@@ -20,6 +21,11 @@ class PacketQueue {
     std::shared_ptr<EncodedPacket> packet;
     uint64_t generation = 0;
   };
+
+  // Before any other call: |notify| runs when a Pop() takes duration()
+  // below |duration|, on the popping thread, holding none of the queue's
+  // locks, so the producer can wait for that rather than poll.
+  void SetLowWater(int64_t duration, std::function<void()> notify);
 
   void Push(std::shared_ptr<EncodedPacket> packet);
 
@@ -44,6 +50,10 @@ class PacketQueue {
 
  private:
   static int64_t Timestamp(const EncodedPacket& packet);
+  int64_t DurationLocked() const;
+
+  int64_t low_water_ = 0;
+  std::function<void()> low_water_notify_;
 
   mutable std::mutex mutex_;
   std::condition_variable condition_;
