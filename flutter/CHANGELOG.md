@@ -36,6 +36,9 @@
 * HLS: fragmented MP4 segments play as they download, byte-range
   playlists no longer make a request per segment, and on Apple and
   Windows the next segment downloads while the current one plays.
+* `LycheeVideo` no longer rebuilds five times a second while playing:
+  `LycheePlayer` notifies only when its value changes, and
+  `LycheePlayerValue` now compares by value.
 
 ## 1.0.0-beta.5
 

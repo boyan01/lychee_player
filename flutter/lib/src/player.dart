@@ -126,6 +126,47 @@ class LycheePlayerValue {
   /// The cover picture as the media stores it, usually JPEG or PNG (for
   /// [Image.memory]); null if it has none.
   final Uint8List? artwork;
+
+  // By value, so the player notifies its listeners only when something
+  // changed. Lists compare element by element; tracks and pictures are
+  // then the same objects unless the player read them again.
+  @override
+  bool operator ==(Object other) =>
+      other is LycheePlayerValue &&
+      state == other.state &&
+      playing == other.playing &&
+      position == other.position &&
+      duration == other.duration &&
+      buffered == other.buffered &&
+      videoSize == other.videoSize &&
+      rotation == other.rotation &&
+      error == other.error &&
+      rate == other.rate &&
+      looping == other.looping &&
+      seekable == other.seekable &&
+      listEquals(tracks, other.tracks) &&
+      subtitle == other.subtitle &&
+      listEquals(subtitlePictures, other.subtitlePictures) &&
+      listEquals(artwork, other.artwork);
+
+  @override
+  int get hashCode => Object.hash(
+      state,
+      playing,
+      position,
+      duration,
+      buffered,
+      videoSize,
+      rotation,
+      error,
+      rate,
+      looping,
+      seekable,
+      Object.hashAll(tracks),
+      subtitle,
+      subtitlePictures == null ? null : Object.hashAll(subtitlePictures!),
+      // Not the bytes: they can be megabytes.
+      artwork?.length);
 }
 
 /// A subtitle picture and where it goes on the video, in pixels of its

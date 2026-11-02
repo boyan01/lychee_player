@@ -56,17 +56,17 @@ class LycheeVideo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<LycheePlayerValue>(
-      valueListenable: player,
-      builder: (context, value, _) {
-        final size = value.videoSize;
+    return _Drawn(
+      player,
+      (context, drawn) {
+        final size = drawn.size;
         if (size == null || size.isEmpty) {
           return const SizedBox.shrink();
         }
-        final turns = value.rotation ~/ 90;
+        final turns = drawn.rotation ~/ 90;
         final rotated = turns.isOdd ? size.flipped : size;
-        final pictures = value.subtitlePictures;
-        final text = pictures == null ? value.subtitle : null;
+        final pictures = drawn.pictures;
+        final text = pictures == null ? drawn.subtitle : null;
         final style = subtitleStyle;
         return ClipRect(
           child: FittedBox(
@@ -99,8 +99,72 @@ class LycheeVideo extends StatelessWidget {
   }
 }
 
+// What LycheeVideo draws of the player's value.
+typedef _DrawnValue = ({
+  Size? size,
+  int rotation,
+  String? subtitle,
+  List<LycheeSubtitlePicture>? pictures,
+});
+
+_DrawnValue _drawnOf(LycheePlayerValue value) => (
+      size: value.videoSize,
+      rotation: value.rotation,
+      subtitle: value.subtitle,
+      pictures: value.subtitlePictures,
+    );
+
+// Builds when what LycheeVideo draws changes, not on every change of the
+// player's value (its position moves several times a second).
+class _Drawn extends StatefulWidget {
+  const _Drawn(this.player, this.builder);
+
+  final LycheePlayer player;
+  final Widget Function(BuildContext context, _DrawnValue drawn) builder;
+
+  @override
+  State<_Drawn> createState() => _DrawnState();
+}
+
+class _DrawnState extends State<_Drawn> {
+  late _DrawnValue _drawn = _drawnOf(widget.player.value);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.player.addListener(_onChanged);
+  }
+
+  @override
+  void didUpdateWidget(_Drawn oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.player != widget.player) {
+      oldWidget.player.removeListener(_onChanged);
+      widget.player.addListener(_onChanged);
+      _drawn = _drawnOf(widget.player.value);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.player.removeListener(_onChanged);
+    super.dispose();
+  }
+
+  void _onChanged() {
+    final drawn = _drawnOf(widget.player.value);
+    // Records compare field by field; the pictures list by identity.
+    if (drawn != _drawn) {
+      setState(() => _drawn = drawn);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _drawn);
+}
+
 // Laid out in pixels of the video, which the FittedBox above scales.
-class _SubtitleText extends StatelessWidget {
+class _SubtitleText extends StatefulWidget {
   const _SubtitleText(this.text, this.style, this.video);
 
   final String text;
@@ -108,16 +172,63 @@ class _SubtitleText extends StatelessWidget {
   final Size video;
 
   @override
-  Widget build(BuildContext context) {
-    final fontSize = style.fontSize * video.height;
-    final fill = style.textStyle.copyWith(
+  State<_SubtitleText> createState() => _SubtitleTextState();
+}
+
+class _SubtitleTextState extends State<_SubtitleText> {
+  // Kept while the style and the video's height stay the same: a Paint has
+  // no ==, so a new one each build would lay the text out and paint it
+  // again even when it did not change.
+  late TextStyle _fill;
+  TextStyle? _under;
+
+  @override
+  void initState() {
+    super.initState();
+    _makeStyles();
+  }
+
+  @override
+  void didUpdateWidget(_SubtitleText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.style != widget.style ||
+        oldWidget.video.height != widget.video.height) {
+      _makeStyles();
+    }
+  }
+
+  void _makeStyles() {
+    final style = widget.style;
+    final fontSize = style.fontSize * widget.video.height;
+    _fill = style.textStyle.copyWith(
       fontSize: fontSize,
       decoration: TextDecoration.none,
     );
     final outline = style.outlineColor;
     final background = style.backgroundColor;
+    if (outline != null) {
+      _under = _fill.copyWith(
+        foreground: Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeJoin = StrokeJoin.round
+          ..strokeWidth = style.outlineWidth * fontSize
+          ..color = outline,
+        backgroundColor: background,
+      );
+    } else if (background != null) {
+      _under = _fill.copyWith(backgroundColor: background);
+    } else {
+      _under = null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final style = widget.style;
+    final video = widget.video;
+    final under = _under;
     Widget line(TextStyle textStyle) =>
-        Text(text, textAlign: style.textAlign, style: textStyle);
+        Text(widget.text, textAlign: style.textAlign, style: textStyle);
     return Positioned(
       left: video.width * 0.05,
       right: video.width * 0.05,
@@ -128,18 +239,8 @@ class _SubtitleText extends StatelessWidget {
         child: Stack(
           alignment: Alignment.bottomCenter,
           children: [
-            if (outline != null)
-              line(fill.copyWith(
-                foreground: Paint()
-                  ..style = PaintingStyle.stroke
-                  ..strokeJoin = StrokeJoin.round
-                  ..strokeWidth = style.outlineWidth * fontSize
-                  ..color = outline,
-                backgroundColor: background,
-              ))
-            else if (background != null)
-              line(fill.copyWith(backgroundColor: background)),
-            line(fill),
+            if (under != null) line(under),
+            line(_fill),
           ],
         ),
       ),
