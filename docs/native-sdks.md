@@ -208,20 +208,28 @@ if player.has_new_frame(display_time) {
 ```
 
 `Player` is `Send + Sync`; a `Frame` is `Send` and may outlive the player.
-The desktop window example displays CPU frames on macOS, Windows and Linux
-(X11). Resize the window to fit the video; Escape closes it. It uses
+The `play` example displays CPU frames on macOS, Windows and Linux
+(X11). Resize the window to fit the video. Space pauses or resumes, left and
+right seek by five seconds, up and down change volume by 10%, M toggles mute,
+and Escape closes the window. Right-click at a horizontal position in the
+window to seek to that percentage of the media. Seeking requires seekable
+input; percentage seeking also requires a known duration. It uses
 nearest-neighbor scaling rather than a GPU renderer. `--seconds N` closes it
 after N seconds for unattended runs:
 
 ```sh
-cd rust && cargo run --example window -- /tmp/lychee-media/h264_aac.mp4
+cd rust && cargo run --example play -- /tmp/lychee-media/h264_aac.mp4
 ```
 
-The headless example can save a frame as PPM:
+Pass a second argument to save a frame at two seconds as PPM:
 
 ```sh
 cd rust && cargo run --example play -- /tmp/lychee-media/h264_aac.mp4 /tmp/frame.ppm
 ```
+
+For unattended checks, repeat `--key SEC:NAME` before the URL. Names are
+`UP`, `DOWN`, `LEFT`, `RIGHT`, `SPACE`, `M`, and `CLICK=PERCENT` (right-click
+at a percentage of the window width). Times are seconds after opening.
 
 ## C ABI
 
