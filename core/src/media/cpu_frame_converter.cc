@@ -1,7 +1,6 @@
 #include "media/cpu_frame_converter.h"
 
 #include <cstring>
-#include <vector>
 
 namespace lychee {
 
@@ -30,11 +29,14 @@ std::shared_ptr<VideoFrame> CpuFrameConverter::Convert(
     return nullptr;
   }
   const int stride = frame->width * 4;
-  auto pixels = std::make_shared<std::vector<uint8_t>>(
-      static_cast<size_t>(stride) * frame->height);
+  std::shared_ptr<uint8_t> pixels =
+      pool_.Get(static_cast<size_t>(stride) * frame->height);
+  if (!pixels) {
+    return nullptr;
+  }
   for (int y = 0; y < frame->height; ++y) {
     const uint8_t* source = frame->data + static_cast<size_t>(y) * frame->stride;
-    uint8_t* destination = pixels->data() + static_cast<size_t>(y) * stride;
+    uint8_t* destination = pixels.get() + static_cast<size_t>(y) * stride;
     // A pixel at a time, not a byte: a quarter of the memory accesses where
     // nothing vectorizes this (debug and ThreadSanitizer builds).
     for (int x = 0; x < frame->width; ++x) {
@@ -49,7 +51,7 @@ std::shared_ptr<VideoFrame> CpuFrameConverter::Convert(
   }
   auto result = std::make_shared<VideoFrame>(*frame);
   result->storage = target;
-  result->data = pixels->data();
+  result->data = pixels.get();
   result->stride = stride;
   result->owner = std::move(pixels);
   return result;

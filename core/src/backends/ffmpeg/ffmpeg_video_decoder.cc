@@ -174,11 +174,6 @@ std::shared_ptr<VideoFrame> WrapDmabuf(const AVFrame* frame) {
 }
 #endif
 
-struct CpuFrameData {
-  uint8_t* data = nullptr;
-  ~CpuFrameData() { av_free(data); }
-};
-
 }  // namespace
 
 FFmpegVideoDecoder::FFmpegVideoDecoder(bool hardware,
@@ -463,11 +458,10 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
   if (!sws_context_) {
     sws_context_ = sws_alloc_context();
   }
-  auto data = std::make_shared<CpuFrameData>();
-  int stride = FFALIGN(frame->width * 4, 64);
-  data->data = static_cast<uint8_t*>(av_malloc(
-      static_cast<size_t>(stride) * static_cast<size_t>(frame->height)));
-  if (!data->data) {
+  const int stride = FFALIGN(frame->width * 4, 64);
+  std::shared_ptr<uint8_t> data =
+      cpu_pool_.Get(static_cast<size_t>(stride) * frame->height);
+  if (!data) {
     return nullptr;
   }
 
@@ -498,7 +492,7 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
   } else {
     output->color_primaries = frame->color_primaries;
     output->color_trc = frame->color_trc;
-    output->data[0] = data->data;
+    output->data[0] = data.get();
     output->linesize[0] = stride;
   }
   if (frame->colorspace == AVCOL_SPC_UNSPECIFIED) {
@@ -515,7 +509,7 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
   if (hdr) {
     constexpr int kPlanes[] = {2, 0, 1, 3};  // Planar GBR(A) to RGB(A).
     for (int y = 0; y < frame->height; ++y) {
-      uint8_t* target = data->data + static_cast<size_t>(y) * stride;
+      uint8_t* target = data.get() + static_cast<size_t>(y) * stride;
       for (int channel = 0; channel < 4; ++channel) {
         const int component =
             cpu_storage_ == VideoFrameStorage::kCpuBgra && channel < 3
@@ -537,7 +531,7 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
   result->storage = cpu_storage_;
   result->width = frame->width;
   result->height = frame->height;
-  result->data = data->data;
+  result->data = data.get();
   result->stride = stride;
   result->owner = std::move(data);
   return result;

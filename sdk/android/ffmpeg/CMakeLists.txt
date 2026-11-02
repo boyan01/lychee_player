@@ -10,7 +10,8 @@ add_library(lychee_ffmpeg SHARED
   ${core_root}/src/backends/ffmpeg/ffmpeg_video_decoder.cc
   ${core_root}/src/backends/ffmpeg/ffmpeg_audio_decoder.cc
   ${core_root}/src/backends/ffmpeg/ffmpeg_subtitle_decoder.cc
-  ${core_root}/src/backends/ffmpeg/cleartext_redirect.cc)
+  ${core_root}/src/backends/ffmpeg/cleartext_redirect.cc
+  ${core_root}/src/media/buffer_pool.cc)
 target_compile_features(lychee_ffmpeg PRIVATE cxx_std_20)
 target_include_directories(lychee_ffmpeg PRIVATE ${core_root}/src ${core_root}/include)
 target_include_directories(lychee_ffmpeg SYSTEM PRIVATE "${ffmpeg_root}/include")

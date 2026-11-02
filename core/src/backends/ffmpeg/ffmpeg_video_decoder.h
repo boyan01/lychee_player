@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "backends/ffmpeg/ffmpeg_common.h"
+#include "media/buffer_pool.h"
 #include "media/video_decoder.h"
 #include "media/video_device.h"
 
@@ -73,6 +74,8 @@ class FFmpegVideoDecoder : public VideoDecoder {
   ScopedAVFrame frame_;
   ScopedAVPacket av_packet_;
   SwsContext* sws_context_ = nullptr;
+  // The pixels of the frames ConvertToCpu() makes.
+  BufferPool cpu_pool_;
   bool logged_output_format_ = false;
   int consecutive_errors_ = 0;
   std::atomic<bool> hardware_output_;

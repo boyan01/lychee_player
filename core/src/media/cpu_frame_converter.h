@@ -1,6 +1,7 @@
 #ifndef LYCHEE_MEDIA_CPU_FRAME_CONVERTER_H_
 #define LYCHEE_MEDIA_CPU_FRAME_CONVERTER_H_
 
+#include "media/buffer_pool.h"
 #include "media/frame_converter.h"
 
 namespace lychee {
@@ -12,6 +13,9 @@ class CpuFrameConverter : public FrameConverter {
  public:
   std::shared_ptr<VideoFrame> Convert(const std::shared_ptr<VideoFrame>& frame,
                                       uint32_t accepted) override;
+
+ private:
+  BufferPool pool_;
 };
 
 }  // namespace lychee

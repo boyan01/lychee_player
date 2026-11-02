@@ -35,6 +35,7 @@ set(LYCHEE_SOURCES
   src/base/log.cc
   src/base/time.cc
   src/media/annexb.cc
+  src/media/buffer_pool.cc
   src/media/codec.cc
   src/media/cpu_frame_converter.cc
   src/media/factory.cc
