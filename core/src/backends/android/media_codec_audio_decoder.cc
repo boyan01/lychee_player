@@ -373,6 +373,16 @@ bool MediaCodecAudioDecoder::DrainOutput(const OutputCallback& output) {
     if (anchor_pts_ == kNoTimestamp) {
       anchor_pts_ = info.presentationTimeUs;
       frames_out_ = 0;
+      if (config_.codec == AudioCodec::kMP3 && rate_ > 0) {
+        // C2SoftMP3 drops the decoder's delay (529 samples) from the first
+        // output after a start or flush and keeps the packet's timestamp,
+        // which counts it, as AudioToolbox does: the output is later than
+        // that by what the packet lacks.
+        const int expected = rate_ < 32000 ? 576 : 1152;
+        if (frames < expected) {
+          anchor_pts_ += (expected - frames) * kMicrosPerSecond / rate_;
+        }
+      }
     } else {
       anchor_pts_ +=
           timestamps_.Follow(info.presentationTimeUs,

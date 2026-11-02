@@ -61,6 +61,7 @@
 * Live HLS with subtitles no longer uses more memory the longer it plays:
   subtitles that ended over a minute ago are let go.
 * Android: Opus audio no longer starts up to 80 ms late after a seek.
+* Android: MP3 audio no longer plays 11 ms ahead of the video.
 
 ## 1.0.0-beta.5
 
