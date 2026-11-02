@@ -96,6 +96,7 @@ bool TsDemuxer::Open(std::unique_ptr<DataSource> source, std::string* error) {
   for (const TsStream& stream : reader_->streams()) {
     media_info_.streams.push_back(stream.info);
     if (stream.first_pts != kNoTimestamp &&
+        stream.info.type != MediaType::kSubtitle &&
         (start == kNoTimestamp || stream.first_pts < start)) {
       start = stream.first_pts;
     }
@@ -472,7 +473,7 @@ DemuxerReadResult TsDemuxer::Read(EncodedPacket* packet) {
         continue;
       }
       need_keyframe_[index] = false;
-    } else if (audio_from_ != kNoTimestamp &&
+    } else if (type == MediaType::kAudio && audio_from_ != kNoTimestamp &&
                packet->pts + packet->duration <= audio_from_) {
       continue;
     }

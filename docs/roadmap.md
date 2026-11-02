@@ -174,10 +174,8 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    event and an acquire call for its bytes at the clock's time (like
    subtitles), in every binding; worth it once a caller needs it (HLS
    ad markers, live captions' ID3).
-2. **Bitmap subtitles**: DVB and VobSub still need FFmpeg, and the own
-   MPEG-TS demuxer ignores PGS streams (Blu-ray's M2TS, stream type
-   0x90). Done when `subtitle-dvb` and `subtitle-vobsub` pass with
-   `NO_FFMPEG=1`, and an M2TS with PGS shows its pictures.
+2. **Bitmap subtitles**: DVB and VobSub still need FFmpeg. Done when
+   `subtitle-dvb` and `subtitle-vobsub` pass with `NO_FFMPEG=1`.
 3. **Android**: VP8 hardware decoding needs another phone: the Xiaomi 14
    exposes only the software VP8 path, so it cannot close that hardware check.
 4. **Windows**: Media Foundation's Opus MFT after a flush is unchecked:

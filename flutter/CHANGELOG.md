@@ -26,9 +26,10 @@
   nothing while the pictures on screen are still `unlessId`, so it can be
   called every frame; `LycheePlayerView` no longer copies picture
   subtitles every frame.
-* PGS (Blu-ray) bitmap subtitles in Matroska show without FFmpeg, the
-  default on Android, iOS, macOS and Windows; before, only builds with
-  `LYCHEE_WITH_FFMPEG=ON` showed them. DVB and VobSub still need FFmpeg.
+* PGS (Blu-ray) bitmap subtitles in Matroska and M2TS show without
+  FFmpeg, the default on Android, iOS, macOS and Windows; before, only
+  builds with `LYCHEE_WITH_FFMPEG=ON` showed them. DVB and VobSub still
+  need FFmpeg.
 
 ### Fixed
 

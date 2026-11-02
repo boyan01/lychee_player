@@ -77,6 +77,11 @@ void Describe(int stream_type, const TsStreamEntry& entry, StreamInfo* info) {
               : entry.ac3 ? AudioCodec::kAC3
                           : AudioCodec::kUnknown;
       break;
+    case 0x90:
+      // Blu-ray's PGS (M2TS): a segment, or a display set, per PES packet.
+      info->type = MediaType::kSubtitle;
+      info->subtitle.codec_name = "hdmv_pgs_subtitle";
+      break;
     default:
       break;
   }
@@ -283,7 +288,9 @@ bool TsReader::Probe(int64_t max_bytes, std::string* error) {
   for (;;) {
     bool done = parser_.has_program() && !streams_.empty();
     for (const TsStream& stream : streams_) {
-      done &= stream.configured && stream.first_pts != kNoTimestamp;
+      // A subtitle's first picture may come minutes in.
+      done &= stream.info.type == MediaType::kSubtitle ||
+              (stream.configured && stream.first_pts != kNoTimestamp);
     }
     if (done || eof_ || read_position_ - begin_ >= max_bytes) {
       break;
@@ -381,16 +388,20 @@ void TsReader::Join(int index,
   }
   TsTimeline& timeline = *timeline_;
   StreamState& state = states_[index];
+  // Subtitles come seconds or minutes apart, which would look like
+  // timestamps starting over: they take the run where they are read.
+  const bool sparse = streams_[index].info.type == MediaType::kSubtitle;
   int64_t ticks;
-  if (state.run < 0) {
+  if (state.run < 0 || sparse) {
     state.run = static_cast<int>(RunAt(timeline, pes.offset));
     TsRun& run = timeline[state.run];
-    if (run.start == kNoTimestamp) {
+    if (run.start == kNoTimestamp && !sparse) {
       run.start = TicksToMicros(raw);
     }
     ticks = Nearest(raw, reference_ != kNoTimestamp
                              ? reference_ - MicrosToTicks(run.shift)
-                             : MicrosToTicks(run.start));
+                         : run.start != kNoTimestamp ? MicrosToTicks(run.start)
+                                                     : raw);
   } else {
     ticks = Nearest(raw, state.last_ticks);
     const int64_t step = TicksToMicros(ticks - state.last_ticks);
@@ -797,7 +808,9 @@ void TsReader::Emit(int index, EncodedPacket packet, int64_t offset) {
     state.pending.valid = false;
     queue_.push_back({std::move(previous), state.pending.offset});
   }
-  if (packet.duration > 0) {
+  // A subtitle's next packet is not when it ends: the next display set
+  // ends it.
+  if (packet.duration > 0 || stream.info.type == MediaType::kSubtitle) {
     queue_.push_back({std::move(packet), offset});
     return;
   }

@@ -372,6 +372,10 @@ for codec in pgs:copy dvb:dvbsub vobsub:dvdsub; do
   gen "sub_${codec%%:*}.mkv" -fix_sub_duration -i "$media/subs.sup" -i "$media/h264_aac.mp4" -map 1 -map 0 -t 7 \
     -c:v copy -c:a copy -c:s "${codec#*:}" -disposition:s:0 default
 done
+# Blu-ray's M2TS: PGS as stream type 0x90, a segment per PES packet. (In
+# M2TS FFmpeg writes AAC as stream type 6 without a descriptor, which
+# Blu-ray never carries; so no audio.)
+gen sub_pgs.m2ts -i "$media/sub_pgs.mkv" -map 0:v -map 0:s -c copy -f mpegts -mpegts_m2ts_mode 1
 # Tracks 0 video, 1-2 audio (eng, fre), 3-4 subtitles (eng, fre).
 gen tracks.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=880:sample_rate=48000 \
   -i "$media/subs.srt" -i "$media/subs_fre.srt" -map 0:v -map 0:a -map 1:a -map 2 -map 3 -t 8 \
@@ -890,7 +894,7 @@ plays_without_ffmpeg() {
   for arg in "$@"; do
     [[ "$arg" == "$media"/* ]] || continue
     case "$arg" in
-      *.mp4 | *.m4a | *.mkv | *.webm | *.ts | *.m3u8) ;;
+      *.mp4 | *.m4a | *.mkv | *.webm | *.ts | *.m2ts | *.m3u8) ;;
       *) return 1 ;;
     esac
     # VideoToolbox decodes VP9 only in hardware.
@@ -1411,6 +1415,14 @@ for kind in pgs dvb vobsub; do
     "subtitle at 2\.[5-6][0-9]{2}s: \(none\)" "subtitle images: 1 \| 200x60 at 860,100 opaque=100% rgb=19[0-3]," \
     "summary: state=ended" -- "$media/sub_$kind.mkv"
 done
+# The same pictures from M2TS (TS has no default track), and the second
+# at once after a seek into it.
+par expect subtitle-pgs-m2ts "track 1: subtitle hdmv_pgs_subtitle " \
+  "subtitle images: 1 \| 600x80 at 660,900 opaque=100% rgb=21[0-4],21[0-4],21[0-4]$" \
+  "subtitle at 2\.[5-6][0-9]{2}s: \(none\)" "summary: state=ended" -- --select subtitle:1@0.1 "$media/sub_pgs.m2ts"
+par expect subtitle-pgs-m2ts-seek "seek -> 3\.500s" \
+  "subtitle images: 1 \| 200x60 at 860,100 opaque=100% rgb=19[0-3]," "subtitle at 4\.[5-6][0-9]{2}s: \(none\)" \
+  "summary: state=ended" -- --select subtitle:1@0.1 --seek 3.5 --seek-after 2.7 "$media/sub_pgs.m2ts"
 par expect subtitle-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line" -- --seek 3.5 --seek-after 0.5 "$media/sub_srt.mkv"
 par expect subtitle-mov-text-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line \| with break$" "<=0 Hello world" -- \
   --seek 3.5 --seek-after 0.5 "$media/sub_mov_text.mp4"
