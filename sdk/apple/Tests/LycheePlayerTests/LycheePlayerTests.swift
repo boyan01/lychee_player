@@ -163,6 +163,9 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(subtitle?.pictures.first?.rect, CGRect(x: 330, y: 450, width: 300, height: 40))
     XCTAssertEqual(subtitle?.pictures.first?.image.width, 600)
     XCTAssertEqual(player.subtitlePictures(width: 960, height: 540)?.id, subtitle?.id)
+    let unchanged = player.subtitlePictures(width: 960, height: 540, unlessId: subtitle?.id)
+    XCTAssertEqual(unchanged?.id, subtitle?.id)
+    XCTAssertEqual(unchanged?.pictures.count, 0)
   }
 
   func testIMSCImagePicturesWithoutAnFFmpegSubtitleCodec() throws {

@@ -297,12 +297,19 @@ public final class LycheePlayer {
 
   /// The subtitle pictures on screen now on a `width` x `height` canvas
   /// (0 x 0: the video's size before rotation); nil if there are none.
-  /// Cheap while ``SubtitlePictures/id`` stays the same.
-  public func subtitlePictures(width: Int = 0, height: Int = 0) -> SubtitlePictures? {
+  /// Each call copies the pictures into new images, unless their
+  /// ``SubtitlePictures/id`` is `unlessId`: then it returns that id with
+  /// no pictures. Pass the id of the pictures you show to call it cheaply
+  /// for every frame.
+  public func subtitlePictures(
+    width: Int = 0, height: Int = 0, unlessId: Int64? = nil
+  ) -> SubtitlePictures? {
     guard let subtitle = lychee_player_acquire_subtitle(handle, 0, Int32(width), Int32(height)) else {
       return nil
     }
     defer { lychee_subtitle_release(subtitle) }
+    let id = lychee_subtitle_get_id(subtitle)
+    if id == unlessId { return SubtitlePictures(id: id, pictures: []) }
     let space = CGColorSpace(name: CGColorSpace.sRGB)!
     let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
     let pictures = (0..<lychee_subtitle_get_image_count(subtitle)).compactMap {
@@ -324,7 +331,7 @@ public final class LycheePlayer {
         x: Int(image.x), y: Int(image.y), width: Int(image.width), height: Int(image.height))
       return (cgImage, rect)
     }
-    return SubtitlePictures(id: lychee_subtitle_get_id(subtitle), pictures: pictures)
+    return SubtitlePictures(id: id, pictures: pictures)
   }
 
   /// The container tag `key` ("title", "artist", ...; case-insensitive).

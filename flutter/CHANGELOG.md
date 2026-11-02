@@ -22,6 +22,10 @@
   (`lychee_player_set_subtitle_delay()` in C).
 * Style the text subtitles the views draw with `subtitleStyle`: font,
   size, color, outline, background and margin.
+* Apple: `LycheePlayer.subtitlePictures(width:height:unlessId:)` copies
+  nothing while the pictures on screen are still `unlessId`, so it can be
+  called every frame; `LycheePlayerView` no longer copies picture
+  subtitles every frame.
 
 ### Fixed
 

@@ -59,6 +59,7 @@ public final class LycheePlayerView: LycheePlatformView {
       oldValue?.onEventForView = nil
       // An already prepared player may send no event and no video frame.
       clear()
+      updateVideoGeometry()
       player?.onEventForView = { [weak self] event in self?.handle(event) }
       restart()
     }
@@ -82,6 +83,9 @@ public final class LycheePlayerView: LycheePlatformView {
   /// media's timeline, or nil when none is: for checking what the view
   /// shows against the media.
   public private(set) var shownFramePts: Int64?
+  // The player's, read on the events that change them rather than per
+  // frame, which would take the player's lock each time.
+  private var videoSize: CGSize?
   private var rotation = 0
   private var shownHeadroom: CGFloat = 0
 
@@ -158,9 +162,10 @@ public final class LycheePlayerView: LycheePlatformView {
       // the end keep the last frame.
       clear()
     case .mediaInfo, .tracksChanged, .videoSizeChanged:
+      updateVideoGeometry()
       // No video (an audio file, the video track turned off): no frame
       // will replace the last one.
-      if player?.videoSize == nil { clear() }
+      if videoSize == nil { clear() }
       layoutSubtitleText()
     default:
       break
@@ -190,12 +195,17 @@ public final class LycheePlayerView: LycheePlatformView {
     shownFrame = frame
     shownFramePts = driver?.lastFramePts
     setHDR(hdrHeadroom(frame))
-    if let rotation = player?.rotation, rotation != self.rotation {
-      self.rotation = rotation
-      layoutVideoLayer()
-    }
-    showSubtitle(player?.subtitlePictures(width: Int(canvasSize.width), height: Int(canvasSize.height)))
+    showSubtitle(player?.subtitlePictures(
+      width: Int(canvasSize.width), height: Int(canvasSize.height), unlessId: subtitleId))
     CATransaction.commit()
+  }
+
+  private func updateVideoGeometry() {
+    videoSize = player?.videoSize
+    let rotation = player?.rotation ?? 0
+    guard rotation != self.rotation else { return }
+    self.rotation = rotation
+    layoutVideoLayer()
   }
 
   // How far above SDR white the frame's contents can go, as a multiple of
@@ -234,7 +244,7 @@ public final class LycheePlayerView: LycheePlatformView {
 
   // The video's display size after rotation.
   private var canvasSize: CGSize {
-    guard let size = player?.videoSize else { return .zero }
+    guard let size = videoSize else { return .zero }
     return rotation % 180 != 0 ? CGSize(width: size.height, height: size.width) : size
   }
 
