@@ -291,6 +291,10 @@ int AudioRendererAlgorithm::RunWsolaAndFill(AudioBus* dest,
     search_block_ =
         AudioBus(channels_, num_candidate_blocks_ + (ola_window_size_ - 1));
     target_block_ = AudioBus(channels_, ola_window_size_);
+    search_scratch_.energy_target_block.resize(channels_);
+    search_scratch_.energy_candidate_blocks.resize(
+        static_cast<size_t>(channels_) * num_candidate_blocks_);
+    search_scratch_.dot_product.resize(channels_);
   }
 
   int rendered_frames = 0;
@@ -494,8 +498,8 @@ void AudioRendererAlgorithm::GetOptimalBlock() {
 
     // |optimal_index| is in frames and it is relative to the beginning of the
     // |search_block_|.
-    optimal_index =
-        wsola::OptimalIndex(search_block_, target_block_, exclude_interval);
+    optimal_index = wsola::OptimalIndex(search_block_, target_block_,
+                                        exclude_interval, &search_scratch_);
 
     // Translate |index| w.r.t. the beginning of the queue and extract the
     // optimal block.
@@ -620,18 +624,18 @@ int DecimatedSearch(int decimation,
                     const AudioBus& target_block,
                     const AudioBus& search_segment,
                     const float* energy_target_block,
-                    const float* energy_candidate_blocks) {
+                    const float* energy_candidate_blocks,
+                    float* dot_prod) {
   const int channels = search_segment.channels();
   const int block_size = target_block.frames();
   const int num_candidate_blocks = search_segment.frames() - (block_size - 1);
-  std::vector<float> dot_prod(channels);
   float similarity[3];  // Three elements for cubic interpolation.
 
   int n = 0;
   MultiChannelDotProduct(target_block, 0, search_segment, n, block_size,
-                         dot_prod.data());
+                         dot_prod);
   similarity[0] = MultiChannelSimilarityMeasure(
-      dot_prod.data(), energy_target_block,
+      dot_prod, energy_target_block,
       &energy_candidate_blocks[static_cast<size_t>(n) * channels], channels);
 
   // Set the starting point as optimal point.
@@ -644,9 +648,9 @@ int DecimatedSearch(int decimation,
   }
 
   MultiChannelDotProduct(target_block, 0, search_segment, n, block_size,
-                         dot_prod.data());
+                         dot_prod);
   similarity[1] = MultiChannelSimilarityMeasure(
-      dot_prod.data(), energy_target_block,
+      dot_prod, energy_target_block,
       &energy_candidate_blocks[static_cast<size_t>(n) * channels], channels);
 
   n += decimation;
@@ -658,9 +662,9 @@ int DecimatedSearch(int decimation,
 
   for (; n < num_candidate_blocks; n += decimation) {
     MultiChannelDotProduct(target_block, 0, search_segment, n, block_size,
-                           dot_prod.data());
+                           dot_prod);
     similarity[2] = MultiChannelSimilarityMeasure(
-        dot_prod.data(), energy_target_block,
+        dot_prod, energy_target_block,
         &energy_candidate_blocks[static_cast<size_t>(n) * channels], channels);
 
     if ((similarity[1] > similarity[0] && similarity[1] >= similarity[2]) ||
@@ -707,10 +711,10 @@ int FullSearch(int low_limit,
                const AudioBus& target_block,
                const AudioBus& search_block,
                const float* energy_target_block,
-               const float* energy_candidate_blocks) {
+               const float* energy_candidate_blocks,
+               float* dot_prod) {
   const int channels = search_block.channels();
   const int block_size = target_block.frames();
-  std::vector<float> dot_prod(channels);
 
   float best_similarity = std::numeric_limits<float>::lowest();
   int optimal_index = 0;
@@ -720,9 +724,9 @@ int FullSearch(int low_limit,
       continue;
     }
     MultiChannelDotProduct(target_block, 0, search_block, n, block_size,
-                           dot_prod.data());
+                           dot_prod);
     const float similarity = MultiChannelSimilarityMeasure(
-        dot_prod.data(), energy_target_block,
+        dot_prod, energy_target_block,
         &energy_candidate_blocks[static_cast<size_t>(n) * channels], channels);
     if (similarity > best_similarity) {
       best_similarity = similarity;
@@ -734,7 +738,8 @@ int FullSearch(int low_limit,
 
 int OptimalIndex(const AudioBus& search_block,
                  const AudioBus& target_block,
-                 Interval exclude_interval) {
+                 Interval exclude_interval,
+                 SearchScratch* scratch) {
   const int channels = search_block.channels();
   const int target_size = target_block.frames();
   const int num_candidate_blocks = search_block.frames() - (target_size - 1);
@@ -747,9 +752,14 @@ int OptimalIndex(const AudioBus& search_block,
   // heuristically based on experiments.
   constexpr int kSearchDecimation = 5;
 
-  std::vector<float> energy_target_block(channels);
-  std::vector<float> energy_candidate_blocks(static_cast<size_t>(channels) *
-                                             num_candidate_blocks);
+  // Sized once: the blocks keep their sizes.
+  std::vector<float>& energy_target_block = scratch->energy_target_block;
+  std::vector<float>& energy_candidate_blocks =
+      scratch->energy_candidate_blocks;
+  energy_target_block.resize(static_cast<size_t>(channels));
+  energy_candidate_blocks.resize(static_cast<size_t>(channels) *
+                                 num_candidate_blocks);
+  scratch->dot_product.resize(static_cast<size_t>(channels));
 
   // Energy of all candid frames.
   MultiChannelMovingBlockEnergies(search_block, target_size,
@@ -761,14 +771,16 @@ int OptimalIndex(const AudioBus& search_block,
 
   const int optimal_index = DecimatedSearch(
       kSearchDecimation, exclude_interval, target_block, search_block,
-      energy_target_block.data(), energy_candidate_blocks.data());
+      energy_target_block.data(), energy_candidate_blocks.data(),
+      scratch->dot_product.data());
 
   const int lim_low = std::max(0, optimal_index - kSearchDecimation);
   const int lim_high =
       std::min(num_candidate_blocks - 1, optimal_index + kSearchDecimation);
   return FullSearch(lim_low, lim_high, exclude_interval, target_block,
                     search_block, energy_target_block.data(),
-                    energy_candidate_blocks.data());
+                    energy_candidate_blocks.data(),
+                    scratch->dot_product.data());
 }
 
 void GetPeriodicHanningWindow(std::vector<float>* window) {

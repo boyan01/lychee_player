@@ -58,6 +58,18 @@ class AudioBus {
 // audio, hence pitch and harmonics, are preserved.
 //
 // Not thread-safe.
+namespace wsola {
+
+// Not in Chromium: OptimalIndex()'s working memory, kept between calls so
+// a search on the real-time audio thread does not allocate.
+struct SearchScratch {
+  std::vector<float> energy_target_block;
+  std::vector<float> energy_candidate_blocks;
+  std::vector<float> dot_product;
+};
+
+}  // namespace wsola
+
 class AudioRendererAlgorithm {
  public:
   enum class FillBufferMode { kPassthrough, kWSOLA };
@@ -188,6 +200,7 @@ class AudioRendererAlgorithm {
   AudioBus optimal_block_;
   AudioBus search_block_;
   AudioBus target_block_;
+  wsola::SearchScratch search_scratch_;
 
   FillBufferMode last_mode_ = FillBufferMode::kPassthrough;
   double last_playback_rate_ = 1.0;
@@ -221,29 +234,32 @@ void QuadraticInterpolation(const float* y_values,
                             float* extremum_value);
 
 // Searches every |decimation|-th candidate block, refining local maxima by
-// quadratic interpolation.
+// quadratic interpolation. |dot_product| holds a value per channel.
 int DecimatedSearch(int decimation,
                     Interval exclude_interval,
                     const AudioBus& target_block,
                     const AudioBus& search_segment,
                     const float* energy_target_block,
-                    const float* energy_candidate_blocks);
+                    const float* energy_candidate_blocks,
+                    float* dot_product);
 
 // Searches candidates [low_limit, high_limit] of |search_block| for the one
-// most similar to |target_block|.
+// most similar to |target_block|. |dot_product| holds a value per channel.
 int FullSearch(int low_limit,
                int high_limit,
                Interval exclude_interval,
                const AudioBus& target_block,
                const AudioBus& search_block,
                const float* energy_target_block,
-               const float* energy_candidate_blocks);
+               const float* energy_candidate_blocks,
+               float* dot_product);
 
 // Index within |search_block| of the block most similar to |target_block|,
 // outside |exclude_interval|.
 int OptimalIndex(const AudioBus& search_block,
                  const AudioBus& target_block,
-                 Interval exclude_interval);
+                 Interval exclude_interval,
+                 SearchScratch* scratch);
 
 // The first window.size() samples of a window.size() + 1 Hann window: perfect
 // reconstruction for overlap-and-add.

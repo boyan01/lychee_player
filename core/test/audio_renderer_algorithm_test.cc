@@ -196,9 +196,10 @@ TEST(Wsola, OptimalIndexFindsCopiedBlock) {
     target.channel(0)[n] = signal(0.033, 0.013, n);
     search.channel(0)[612 + n] = target.channel(0)[n];
   }
-  EXPECT_EQ(wsola::OptimalIndex(search, target, {-1000, -900}), 612);
+  wsola::SearchScratch scratch;
+  EXPECT_EQ(wsola::OptimalIndex(search, target, {-1000, -900}, &scratch), 612);
   // Excluded, it must pick something else.
-  EXPECT_TRUE(wsola::OptimalIndex(search, target, {600, 620}) != 612);
+  EXPECT_TRUE(wsola::OptimalIndex(search, target, {600, 620}, &scratch) != 612);
 }
 
 }  // namespace

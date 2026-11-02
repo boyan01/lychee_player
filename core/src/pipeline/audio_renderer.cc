@@ -86,7 +86,12 @@ bool AudioRenderer::Initialize(const AudioConfig& config,
   }
   format_ = sink_->format();
   algorithm_.Initialize(format_.channels, format_.sample_rate);
-  render_bus_ = AudioBus(format_.channels, 0);
+  // Room for any device period (CoreAudio's at most 4096 frames, AAudio's
+  // and WASAPI's 10 to 40 ms) and for PullForStalledDevice()'s pulls, so
+  // the real-time thread does not allocate; Render() grows it past that.
+  render_bus_ =
+      AudioBus(format_.channels, std::max(4096, format_.sample_rate / 10));
+  fade_out_ = AudioBus(format_.channels, FadeFrames());
   for (auto& decoder : CreateAudioDecoders()) {
     std::string decoder_error;
     if (decoder->Initialize(config, format_, &decoder_error)) {
