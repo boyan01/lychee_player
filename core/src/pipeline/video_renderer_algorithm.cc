@@ -263,11 +263,12 @@ void VideoRendererAlgorithm::EnqueueFrame(std::shared_ptr<VideoFrame> frame) {
 
   // Start time now and an estimated end time, so the effective frame count
   // is roughly right before the next Render().
-  std::vector<int64_t> media_timestamps(1, timestamp);
+  std::vector<int64_t>& media_timestamps = media_timestamps_;
+  media_timestamps.assign(1, timestamp);
   if (!frame_duration_calculator_.Count() && metadata_frame_duration > 0) {
     media_timestamps.push_back(timestamp + metadata_frame_duration);
   }
-  std::vector<int64_t> wall_clock_times;
+  std::vector<int64_t>& wall_clock_times = wall_clock_times_;
   wall_clock_time_cb_(media_timestamps, &wall_clock_times);
   ready_frame.start_time = wall_clock_times[0];
   if (frame_duration_calculator_.Count()) {
@@ -309,8 +310,8 @@ void VideoRendererAlgorithm::AccountForMissedIntervals(
 }
 
 void VideoRendererAlgorithm::UpdateFrameStatistics() {
-  std::vector<int64_t> media_timestamps;
-  media_timestamps.reserve(frame_queue_.size() + 1);
+  std::vector<int64_t>& media_timestamps = media_timestamps_;
+  media_timestamps.clear();
   for (const auto& ready_frame : frame_queue_) {
     media_timestamps.push_back(ready_frame.frame->pts);
   }
@@ -322,7 +323,7 @@ void VideoRendererAlgorithm::UpdateFrameStatistics() {
     media_timestamps.push_back(last.pts + last.duration);
   }
 
-  std::vector<int64_t> wall_clock_times;
+  std::vector<int64_t>& wall_clock_times = wall_clock_times_;
   was_time_moving_ = wall_clock_time_cb_(media_timestamps, &wall_clock_times);
 
   // All frames but the last: their end is the next frame's start. A frame
@@ -416,7 +417,8 @@ int VideoRendererAlgorithm::FindBestFrameByCoverage(int64_t deadline_min,
                                                     int* second_best) const {
   int best_frame_by_coverage = -1;
   int64_t best_coverage = 0;
-  std::vector<int64_t> coverage(frame_queue_.size(), 0);
+  std::vector<int64_t>& coverage = coverage_;
+  coverage.assign(frame_queue_.size(), 0);
   for (size_t i = 0; i < frame_queue_.size(); ++i) {
     const ReadyFrame& frame = frame_queue_[i];
     if (frame.start_time > deadline_max) {

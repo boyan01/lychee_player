@@ -33,7 +33,7 @@ class VideoRendererAlgorithm {
  public:
   // Converts media timestamps to wall clock (display timebase) times.
   // Returns false if the media clock is not running; the times are then
-  // estimates.
+  // estimates. |wall| holds an earlier call's times: replace them.
   using WallClockTimeCB = std::function<bool(const std::vector<int64_t>& media,
                                              std::vector<int64_t>* wall)>;
 
@@ -153,6 +153,11 @@ class VideoRendererAlgorithm {
   uint64_t cadence_frame_counter_ = 0;
   bool was_time_moving_ = false;
   size_t effective_frames_queued_ = 0;
+  // Not in Chromium: scratch for the wall clock times and the coverage of
+  // each frame, kept so that Render(), once per vsync, does not allocate.
+  std::vector<int64_t> media_timestamps_;
+  std::vector<int64_t> wall_clock_times_;
+  mutable std::vector<int64_t> coverage_;
 };
 
 }  // namespace lychee
