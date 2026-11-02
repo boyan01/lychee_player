@@ -538,7 +538,10 @@ class HttpDataSource : public DataSource {
       connection_ = nullptr;
     }
     // Disconnecting first, so closing does not drain the rest of the
-    // response for reuse.
+    // response for reuse. A response read to its end went back to
+    // HttpURLConnection's pool when its last byte was read, and
+    // disconnecting no longer closes its socket: HLS segments share one
+    // keep-alive connection.
     if (connection) {
       env->CallVoidMethod(connection, jni_.disconnect);
       env->ExceptionClear();
