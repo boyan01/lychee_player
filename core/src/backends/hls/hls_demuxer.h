@@ -137,6 +137,18 @@ class HlsDemuxer : public Demuxer {
     // variant): its samples become Annex B with the parameter sets.
     int annexb_stream = -1;
     AnnexBConverter annexb;
+    // Once most of the open segment arrived: measured (the first variant)
+    // and the next one's request made.
+    bool ahead = false;
+    bool measured = false;
+    // That request: the source of the segment with this URL and number,
+    // opened while the one before is read, so that its first bytes come
+    // without waiting for a new request at the segment's end. The next
+    // byte range of the same resource reads on in the open segment's
+    // source instead.
+    std::unique_ptr<DataSource> prefetch;
+    std::string prefetch_url;
+    int64_t prefetch_sequence = -1;
     // A WebVTT segment: its cues, as packets of the rendition's stream.
     bool text_open = false;
     std::deque<EncodedPacket> text;
@@ -174,15 +186,18 @@ class HlsDemuxer : public Demuxer {
   bool OpenSegment(Rendition* r, std::string* error);
   // OpenSegment() for a subtitle rendition.
   bool OpenWebVtt(Rendition* r, std::string* error);
-  void CloseSegment(Rendition* r);
+  // Also drops r->prefetch unless |keep_prefetch|.
+  void CloseSegment(Rendition* r, bool keep_prefetch = false);
   // Appends |length| bytes (-1: all) of |url| from |offset| (-1: 0) to
-  // |data|, and the source's transfer_rate() into |rate| if given.
+  // |data|, and the source's transfer_rate() into |rate| if given. Reads
+  // |source| if given, else opens |url|.
   bool Fetch(const std::string& url,
              int64_t offset,
              int64_t length,
              std::vector<uint8_t>* data,
              std::string* error,
-             int64_t* rate = nullptr);
+             int64_t* rate = nullptr,
+             std::unique_ptr<DataSource> source = nullptr);
   // Decrypts |data| from |from| on with |key|; the IV defaults to
   // |sequence|.
   bool Decrypt(const HlsKey& key,
@@ -197,11 +212,22 @@ class HlsDemuxer : public Demuxer {
                    const Segment& segment,
                    std::vector<uint8_t>* data,
                    std::string* error);
-  // Takes a segment's transfer rate (bit/s) into the estimate.
-  void Measure(int64_t rate, int64_t bytes);
+  // Takes a segment's transfer rate (bit/s) into the estimate, unless
+  // too few bytes measure it (false).
+  bool Measure(int64_t rate, int64_t bytes);
+  // The rung of ladder_ the estimate affords r (the first variant), or
+  // rung_ while it has nothing to move between.
+  size_t AffordedRung(const Rendition& r) const;
   // Before the first variant opens its next segment: moves it to the
   // variant the estimate affords, if another.
   void Adapt(Rendition* r);
+  // Once most of r's open segment arrived: measures it and requests the
+  // next one (r->prefetch), unless a variant switch comes first. Not
+  // before Open() returns, which leaves it to a later read.
+  void Prefetch(Rendition* r);
+  // r->prefetch if it is |segment|'s; dropped otherwise.
+  std::unique_ptr<DataSource> TakePrefetch(Rendition* r,
+                                           const Segment& segment);
   // Live: reloads r's playlist until a segment follows r->current.
   DemuxerReadResult WaitForSegments(Rendition* r);
   // The next packet of r's enabled streams.
@@ -217,6 +243,8 @@ class HlsDemuxer : public Demuxer {
   int64_t Now() const;
 
   Opener opener_ = CreateSharedOpener();
+  // Open() has returned: the variants to adapt between are known.
+  bool started_ = false;
   bool refuse_subtitles_ = false;
   Clock clock_;
   std::mutex mutex_;

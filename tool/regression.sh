@@ -1604,6 +1604,19 @@ seq_ check http-hls-seek 1 8.433 -- --seek 7 --seek-after 2 "http://127.0.0.1:$p
 seq_ check http-hls-fmp4 1 7.033 -- --seek 7 --seek-after 2 "http://127.0.0.1:$port/hls_fmp4/index.m3u8"
 seq_ check http-hls-aes 1 8.433 -- --seek 7 --seek-after 2 "http://127.0.0.1:$port/hls_aes/ts.m3u8"
 seq_ check http-hls-aes-fmp4 1 7.033 -- --seek 7 --seek-after 2 "http://127.0.0.1:$port/hls_aes/fmp4.m3u8"
+# Each segment's request is made while the last quarter of the one before
+# is read (whole ones, decrypted, once read), so that it overlaps that
+# rather than waiting at the boundary. Behind a server with 300 ms of
+# latency per request, the reads then wait for fewer of them.
+if [ "$own_ts" = 1 ]; then
+  serve --latency 0.3 --rate 4000
+  for v in hls/index hls_fmp4/index hls_aes/ts; do
+    seq_ expect "http-hls-prefetch-${v%%/*}" "segment 5 requested ahead" \
+      "summary: state=ended position=12\.000s .*backward_jumps=0 " -- --verbose \
+      "http://127.0.0.1:$port/$v.m3u8"
+  done
+  serve
+fi
 # Audio renditions (EXT-X-MEDIA) are audio tracks, the DEFAULT=YES one
 # selected; read alongside the variant, the French one's tone sounds where
 # its timestamps put it (its first packet 1.400 s, AAC priming 21.3 ms,
@@ -1629,6 +1642,13 @@ hls_variant="video size (640x360|1920x1080)"
 [ "$own_ts" = 1 ] && hls_variant="variant 1 of 3: .* 1920x1080"
 seq_ expect http-hls-master "$hls_variant" "summary: state=ended position=12\.000s" -- \
   "http://127.0.0.1:$port/hls/master.m3u8"
+# Byte ranges one after another in one resource are read on in the
+# source of the first, which reads ahead across them: not a request each.
+if [ "$own_ts" = 1 ]; then
+  serve --refuse-after-requests 4
+  seq_ check http-hls-range 1 - -- "http://127.0.0.1:$port/hls_range/index.m3u8"
+  serve
+fi
 # A playlist the own demuxer refuses goes to FFmpeg's.
 if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
   seq_ expect http-hls-fallback "hls: no HLS variant .*; the fallback opens it" "video size 1920x1080" \

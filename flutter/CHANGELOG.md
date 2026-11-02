@@ -33,6 +33,9 @@
   index opens without reading every fragment, MP4 and Matroska without
   cues seek in a few reads, and poorly interleaved MP4 plays over HTTP
   without a new request for each switch between audio and video.
+* HLS: fragmented MP4 segments play as they download, byte-range
+  playlists no longer make a request per segment, and on Apple and
+  Windows the next segment downloads while the current one plays.
 
 ## 1.0.0-beta.5
 

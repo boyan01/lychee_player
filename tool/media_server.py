@@ -14,6 +14,8 @@ Used by tool/regression.sh to test network behaviour:
   --refuse-after-seconds S   requests S seconds after the first one fail
                        with 403
   --no-ranges          ignore Range headers: every response is the whole file
+  --latency SECONDS    wait this long before answering each file request,
+                       as a distant server's round trips do
   --redirect FROM TO   answer requests for path FROM with a 302 to path TO
   --live PATH VOD      answer requests for path PATH with a live HLS
                        playlist made from the VOD playlist at path VOD (in
@@ -108,6 +110,8 @@ def make_handler(root, args, state):
                 if refused:
                     self.send_error(403)
                     return
+            if args.latency:
+                time.sleep(args.latency)
             size = os.path.getsize(path)
             start, end = 0, size - 1
             match = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range", ""))
@@ -245,6 +249,7 @@ def main():
     parser.add_argument("--refuse-after-requests", type=int)
     parser.add_argument("--refuse-after-seconds", type=float)
     parser.add_argument("--no-ranges", action="store_true")
+    parser.add_argument("--latency", type=float, default=0)
     parser.add_argument("--redirect", nargs=2, metavar=("FROM", "TO"))
     parser.add_argument("--live", nargs=2, action="append", metavar=("PATH", "VOD"))
     parser.add_argument("--verbose", action="store_true")

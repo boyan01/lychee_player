@@ -97,14 +97,20 @@ std::shared_ptr<const PacketBuffer> ToAnnexB(const AnnexBConverter& converter,
 // its mdat while the demuxer reads their samples by time, which straight
 // from http would be a range request each. Its size is unknown, so that
 // the demuxer looks for no index at the end, which would wait for all of
-// it before the first packet.
+// it before the first packet. |most_read| runs once with three quarters
+// of the media read (all of it, if its size is unknown).
 class SegmentStream : public DataSource {
  public:
   SegmentStream(std::shared_ptr<const std::vector<uint8_t>> map,
                 DataSource* source,
                 int64_t begin,
-                int64_t length)
-      : map_(std::move(map)), source_(source), begin_(begin), length_(length) {}
+                int64_t length,
+                std::function<void()> most_read)
+      : map_(std::move(map)),
+        source_(source),
+        begin_(begin),
+        length_(length),
+        most_read_(std::move(most_read)) {}
 
   int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
     const int64_t head = map_ ? static_cast<int64_t>(map_->size()) : 0;
@@ -139,8 +145,11 @@ class SegmentStream : public DataSource {
   }
   int64_t transfer_rate() const override { return source_->transfer_rate(); }
 
-  // The media bytes read.
+  // The media bytes read, and whether that is three quarters of them.
   int64_t bytes() const { return static_cast<int64_t>(media_.size()); }
+  bool most_read() const {
+    return ended_ || (total_ > 0 && bytes() >= total_ - total_ / 4);
+  }
 
  private:
   // Reads on from the source. False on errors.
@@ -165,12 +174,17 @@ class SegmentStream : public DataSource {
     if (n < 0) {
       return false;
     }
-    const int64_t total = length_ >= 0 ? length_ : source_->size() - begin_;
+    total_ = length_ >= 0 ? length_ : source_->size() - begin_;
     if (n == 0) {
       ended_ = true;
-    } else if (old == 0 && total > 0) {
+    } else if (old == 0 && total_ > 0) {
       // All of it in one allocation once its size is known.
-      media_.reserve(static_cast<size_t>(std::min(total, limit)));
+      media_.reserve(static_cast<size_t>(std::min(total_, limit)));
+    }
+    if (most_read_ && most_read()) {
+      std::function<void()> most_read = std::move(most_read_);
+      most_read_ = nullptr;
+      most_read();
     }
     return true;
   }
@@ -179,6 +193,8 @@ class SegmentStream : public DataSource {
   DataSource* const source_;
   const int64_t begin_;
   const int64_t length_;
+  std::function<void()> most_read_;
+  int64_t total_ = -1;
   std::vector<uint8_t> media_;
   bool ended_ = false;
   std::string error_;
@@ -402,6 +418,7 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
   enabled_.assign(media_info_.streams.size(), true);
   need_keyframe_.assign(media_info_.streams.size(), true);
   delivered_.assign(media_info_.streams.size(), kNoTimestamp);
+  started_ = true;
   return true;
 }
 
@@ -641,10 +658,13 @@ bool HlsDemuxer::Fetch(const std::string& url,
                        int64_t length,
                        std::vector<uint8_t>* data,
                        std::string* error,
-                       int64_t* rate) {
-  std::unique_ptr<DataSource> source = opener_(url, error);
+                       int64_t* rate,
+                       std::unique_ptr<DataSource> source) {
   if (!source) {
-    return false;
+    source = opener_(url, error);
+    if (!source) {
+      return false;
+    }
   }
   Track(source.get());
   const int64_t begin = std::max<int64_t>(offset, 0);
@@ -835,7 +855,8 @@ bool HlsDemuxer::LoadSegment(Rendition* r,
   // The media appended behind the map, and decrypted there.
   const size_t from = data->size();
   int64_t rate = -1;
-  if (!Fetch(segment.url, segment.offset, segment.length, data, error, &rate) ||
+  if (!Fetch(segment.url, segment.offset, segment.length, data, error, &rate,
+             TakePrefetch(r, segment)) ||
       (segment.key.method == HlsKey::Method::kAes128 &&
        !Decrypt(segment.key, segment.sequence, data, from, error))) {
     return false;
@@ -846,18 +867,19 @@ bool HlsDemuxer::LoadSegment(Rendition* r,
   return true;
 }
 
-void HlsDemuxer::Measure(int64_t rate, int64_t bytes) {
+bool HlsDemuxer::Measure(int64_t rate, int64_t bytes) {
   if (rate <= 0 || bytes < kMinMeasuredBytes) {
-    return;
+    return false;
   }
   // Halfway to each new segment's: follows a change within a few.
   estimate_ = estimate_ > 0 ? (estimate_ + rate) / 2 : rate;
+  return true;
 }
 
-void HlsDemuxer::Adapt(Rendition* r) {
-  if (ladder_.size() < 2 || estimate_ <= 0 || r->video < 0 ||
-      !enabled_[r->video] || r->current >= r->segments.size()) {
-    return;
+size_t HlsDemuxer::AffordedRung(const Rendition& r) const {
+  if (ladder_.size() < 2 || estimate_ <= 0 || r.video < 0 ||
+      !enabled_[r.video]) {
+    return rung_;
   }
   size_t want = 0;
   for (size_t i = 1; i < ladder_.size(); ++i) {
@@ -865,6 +887,14 @@ void HlsDemuxer::Adapt(Rendition* r) {
       want = i;
     }
   }
+  return want;
+}
+
+void HlsDemuxer::Adapt(Rendition* r) {
+  if (r->current >= r->segments.size()) {
+    return;
+  }
+  const size_t want = AffordedRung(*r);
   if (want == rung_) {
     return;
   }
@@ -999,11 +1029,16 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
     if (segment.initialization && !LoadMap(r, segment, error)) {
       return false;
     }
-    source = opener_(segment.url, error);
+    source = TakePrefetch(r, segment);
     if (!source) {
-      return false;
+      source = opener_(segment.url, error);
+      if (!source) {
+        return false;
+      }
     }
   }
+  r->ahead = false;
+  r->measured = false;
   if (segment.initialization && whole) {
     mp4 = std::make_unique<Mp4Demuxer>();
     if (!mp4->Open(std::move(source), error, segment.url, opener_)) {
@@ -1021,7 +1056,11 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
   if (segment.initialization && !whole) {
     auto input = std::make_unique<SegmentStream>(
         r->map_data, r->source.get(), std::max<int64_t>(segment.offset, 0),
-        segment.length);
+        segment.length, [this, r] {
+          if (!r->ahead) {
+            Prefetch(r);
+          }
+        });
     r->stream = input.get();
     mp4 = std::make_unique<Mp4Demuxer>();
     if (!mp4->Open(std::move(input), error, segment.url, opener_)) {
@@ -1144,18 +1183,69 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
   return true;
 }
 
-void HlsDemuxer::CloseSegment(Rendition* r) {
+void HlsDemuxer::CloseSegment(Rendition* r, bool keep_prefetch) {
   r->reader.reset();
   r->mp4.reset();
   r->stream = nullptr;
   r->streamed = false;
   r->text_open = false;
   r->text.clear();
+  if (!keep_prefetch) {
+    r->prefetch.reset();
+  }
   std::lock_guard<std::mutex> lock(mutex_);
   if (active_ == r->source.get()) {
     active_ = nullptr;
   }
   r->source.reset();
+}
+
+void HlsDemuxer::Prefetch(Rendition* r) {
+  if (r == renditions_[0].get() && r->streamed && r->source && !r->measured) {
+    r->measured = Measure(r->source->transfer_rate(),
+                          r->stream ? r->stream->bytes() : r->source->size());
+    if (!r->measured && started_ && ladder_.size() >= 2 &&
+        r->source->transfer_rate() > 0) {
+      r->ahead = true;
+      return;  // Measured at its end, which may change the variant.
+    }
+  }
+  if (!started_) {
+    return;
+  }
+  r->ahead = true;
+  if (r->only == MediaType::kSubtitle || r->current + 1 >= r->segments.size() ||
+      (r == renditions_[0].get() && AffordedRung(*r) != rung_)) {
+    return;
+  }
+  const Segment& segment = r->segments[r->current];
+  const Segment& next = r->segments[r->current + 1];
+  if (next.url == segment.url && next.offset >= 0 && segment.offset >= 0) {
+    return;  // Read on in this one's source (ReadFrom()).
+  }
+  // A source starts its request at the resource's start: one for a range
+  // further in would download what comes before.
+  if (next.offset > 0 || next.key.method == HlsKey::Method::kOther) {
+    return;
+  }
+  std::string error;
+  r->prefetch = opener_(next.url, &error);
+  if (!r->prefetch) {
+    return;  // The open at the segment's start says why.
+  }
+  r->prefetch_url = next.url;
+  r->prefetch_sequence = next.sequence;
+  LOGD("segment %lld requested ahead", static_cast<long long>(next.sequence));
+}
+
+std::unique_ptr<DataSource> HlsDemuxer::TakePrefetch(Rendition* r,
+                                                     const Segment& segment) {
+  std::unique_ptr<DataSource> source = std::move(r->prefetch);
+  if (source && (r->prefetch_url != segment.url ||
+                 r->prefetch_sequence != segment.sequence)) {
+    source.reset();
+  }
+  return source;
 }
 
 DemuxerReadResult HlsDemuxer::WaitForSegments(Rendition* r) {
@@ -1334,6 +1424,25 @@ DemuxerReadResult HlsDemuxer::ReadFrom(Rendition* r, EncodedPacket* packet) {
       }
     } else {
       result = r->mp4 ? r->mp4->Read(packet) : r->reader->Read(packet, &offset);
+      if (result == DemuxerReadResult::kOk && !r->ahead) {
+        // Most of a segment has arrived once its last quarter is read:
+        // the next one's request then overlaps the rest. (fMP4's stream
+        // also tells while it reads.) Whole segments arrived before their
+        // first packet.
+        bool most = !r->streamed;
+        if (r->stream) {
+          most = r->stream->most_read();
+        } else if (r->streamed) {
+          const Segment& segment = r->segments[r->current];
+          const int64_t begin = std::max<int64_t>(segment.offset, 0);
+          const int64_t size =
+              segment.length >= 0 ? segment.length : r->source->size() - begin;
+          most = size > 0 && offset - begin >= size - size / 4;
+        }
+        if (most) {
+          Prefetch(r);
+        }
+      }
     }
     if (result == DemuxerReadResult::kError) {
       if (Failed()) {
@@ -1345,11 +1454,33 @@ DemuxerReadResult HlsDemuxer::ReadFrom(Rendition* r, EncodedPacket* packet) {
       return result;
     }
     if (result != DemuxerReadResult::kOk) {
-      if (r == renditions_[0].get() && r->streamed && r->source) {
+      if (r == renditions_[0].get() && r->streamed && r->source &&
+          !r->measured) {
         Measure(r->source->transfer_rate(),
                 r->stream ? r->stream->bytes() : r->source->size());
       }
-      CloseSegment(r);
+      // The next byte range of the same resource follows in its source,
+      // which may have read it ahead already.
+      const Segment& segment = r->segments[r->current];
+      if (r->streamed && r->source && !r->text_open &&
+          r->current + 1 < r->segments.size()) {
+        const Segment& next = r->segments[r->current + 1];
+        if (next.url == segment.url && next.offset >= 0 &&
+            segment.offset >= 0 &&
+            !(r == renditions_[0].get() && AffordedRung(*r) != rung_)) {
+          r->reader.reset();
+          r->mp4.reset();
+          r->stream = nullptr;
+          std::lock_guard<std::mutex> lock(mutex_);
+          if (active_ == r->source.get()) {
+            active_ = nullptr;
+          }
+          r->prefetch = std::move(r->source);
+          r->prefetch_url = next.url;
+          r->prefetch_sequence = next.sequence;
+        }
+      }
+      CloseSegment(r, true);
       ++r->current;
       continue;
     }
