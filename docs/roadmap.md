@@ -109,22 +109,16 @@ What the review of 2026-11-02 found and left, by expected gain.
    frame at 4K. Done when the core hands out a buffer the compositor
    takes (AHardwareBuffer with ASurfaceControl, or a YV12 window),
    checked by pixels.
-4. **Bounded ranges after a jump** on Windows and Android: the Apple HTTP
-   source asks for 2 MB after a far read, growing to 16 MB on sequential
-   reads, since a paused open-ended request still fills the TCP window
-   (a seek in a 90 MB TS: 93 MB downloaded instead of 295). The Windows
-   and Android sources still ask open-ended. Done when they do the same
-   with the same measurement.
-5. **HLS**: prefetching the next segment does nothing with the Android
+4. **HLS**: prefetching the next segment does nothing with the Android
    and FFmpeg data sources, which connect on their first read; AES-128
    segments are still decrypted whole before their first packet
    (streaming CBC needs a chained cipher on CommonCrypto, BCrypt and
    javax.crypto); only one segment is fetched ahead.
-6. **Demuxers**: a fragmented MP4 whose last moof has no `tfdt` (Smooth
+5. **Demuxers**: a fragmented MP4 whose last moof has no `tfdt` (Smooth
    Streaming) still reads every fragment at open; bisecting a Matroska
    file without cues scans up to a cluster per step, tens of MB per seek
    with 4K clusters (SimpleBlock times or PrevSize would narrow it).
-7. **Locks**: `Player::SetVideoSurface` still calls
+6. **Locks**: `Player::SetVideoSurface` still calls
    `AMediaCodec_setOutputSurface` under the player's and the renderer's
    locks; D3D11 output textures wait 100 ms after their frame's release
    before reuse, where a keyed mutex or shared fence through the ABI

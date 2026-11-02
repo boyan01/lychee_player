@@ -19,6 +19,15 @@ namespace lychee {
 
 namespace {
 
+// After the reader jumps, the request asks for this many bytes, then for
+// twice as many from their end each time the reader gets there, and for
+// the rest once that reaches kOpenRange. Probes (an index at the end, an
+// MPEG-TS seek's bisection) leave after a little, and an open-ended
+// request has as much more on its way as the TCP window holds; Apple's
+// HttpDataSource (http_data_source.mm) explains the sizes. The open and
+// a retry ask for the rest.
+constexpr int64_t kFirstRange = 2 << 20;
+constexpr int64_t kOpenRange = 16 << 20;
 // Bytes kept behind the reader, for demuxers that step back a little.
 constexpr size_t kKeepBehind = 1 << 20;
 // A read this far ahead of the data reads on instead of starting a new
@@ -179,11 +188,13 @@ class HttpDataSource : public DataSource {
       if (offset >= offset_ && offset < end()) {
         return CopyOut(offset, data, size);
       }
-      if (!stream_ || offset < offset_ || offset > end() + kSkipAhead) {
-        if (stream_) {
+      const bool jump = offset < offset_ || offset > end() + kSkipAhead;
+      if (!stream_ || jump) {
+        if (jump) {
           LOGI("range request from %lld", static_cast<long long>(offset));
         }
-        if (!Connect(env, offset) && !WaitToRetry(offset)) {
+        if (!Connect(env, offset, jump ? kFirstRange : 0) &&
+            !WaitToRetry(offset)) {
           return -1;
         }
         continue;
@@ -195,6 +206,12 @@ class HttpDataSource : public DataSource {
         continue;
       }
       Disconnect(env);
+      if (n == 0 && RangeDone()) {
+        if (!Request(env, end()) && !WaitToRetry(offset)) {
+          return -1;
+        }
+        continue;
+      }
       if (n == 0) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (size_ < 0 || end() >= size_) {
@@ -321,15 +338,32 @@ class HttpDataSource : public DataSource {
                                 [this] { return interrupted_; });
   }
 
-  // Replaces the request with one from |from|. False with error_ set if it
-  // gave no stream.
-  bool Connect(JNIEnv* env, int64_t from) {
-    Disconnect(env);
-    LocalFrame frame(env);
+  // Whether the response held all the request asked for, short of the
+  // end of the resource: the next one continues from there.
+  bool RangeDone() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return range_ > 0 && discard_ == 0 && end() == request_start_ + range_ &&
+           (size_ < 0 || end() < size_);
+  }
+
+  // Replaces the request with one from |from| that asks for |first| bytes
+  // (0: all the rest). False with error_ set if it gave no stream.
+  bool Connect(JNIEnv* env, int64_t from, int64_t first) {
     offset_ = from;
     data_.clear();
     head_ = 0;
+    next_range_ = first;
+    return Request(env, from);
+  }
+
+  // Asks for the next range from |from|, keeping what is buffered.
+  bool Request(JNIEnv* env, int64_t from) {
+    Disconnect(env);
+    LocalFrame frame(env);
     discard_ = 0;
+    request_start_ = from;
+    range_ = next_range_ < kOpenRange ? next_range_ : 0;
+    next_range_ = range_ * 2;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       error_.clear();
@@ -373,7 +407,8 @@ class HttpDataSource : public DataSource {
       env->CallVoidMethod(connection, jni_.set_connect_timeout, kTimeoutMs);
       env->CallVoidMethod(connection, jni_.set_read_timeout, kTimeoutMs);
       // From 0 too, as FFmpeg does: a 206 says the server takes ranges.
-      std::string range = "bytes=" + std::to_string(from) + "-";
+      std::string range = "bytes=" + std::to_string(from) + "-" +
+                          (range_ > 0 ? std::to_string(from + range_ - 1) : "");
       env->CallVoidMethod(connection, jni_.set_request_property,
                           env->NewStringUTF("Range"),
                           env->NewStringUTF(range.c_str()));
@@ -446,6 +481,7 @@ class HttpDataSource : public DataSource {
     } else {
       // The whole resource, whatever was asked for.
       discard_ = from;
+      range_ = 0;
       total = env->CallLongMethod(connection, jni_.get_content_length);
       env->ExceptionClear();
     }
@@ -567,6 +603,11 @@ class HttpDataSource : public DataSource {
   size_t head_ = 0;
   // Bytes still to drop from the response: the server ignored the range.
   int64_t discard_ = 0;
+  // Where the request started and how many bytes it asked for, 0 for all
+  // the rest; and how many the next one from the end asks for.
+  int64_t request_start_ = 0;
+  int64_t range_ = 0;
+  int64_t next_range_ = 0;
 
   mutable std::mutex mutex_;
   std::condition_variable condition_;

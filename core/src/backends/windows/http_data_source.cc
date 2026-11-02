@@ -22,6 +22,7 @@ namespace {
 
 // As Apple's HttpDataSource (http_data_source.mm), which explains them.
 constexpr size_t kMaxAhead = 16 << 20;
+constexpr int64_t kFirstRange = 2 << 20;
 constexpr size_t kKeepBehind = 1 << 20;
 constexpr int64_t kSkipAhead = 512 << 10;
 constexpr int kMaxRetries = 3;
@@ -151,6 +152,9 @@ struct WinHttpState {
   std::vector<uint8_t> data;
   size_t head = 0;
   int64_t discard = 0;
+  int64_t request_start = 0;
+  int64_t range = 0;
+  int64_t next_range = 0;
   int64_t size = -1;
   bool complete = false;
   bool refused = false;
@@ -169,15 +173,34 @@ struct WinHttpState {
   }
   size_t ahead() const { return data.size() - head; }
 
-  // Replaces the request with one from |from|. Under |mutex|.
-  void Restart(int64_t from) {
+  // Whether the request got all it asked for, short of the end of the
+  // resource: the next one continues from there.
+  bool RangeDone() const {
+    return complete && error.empty() && range > 0 && discard == 0 &&
+           end() == request_start + range && (size < 0 || end() < size);
+  }
+
+  // Replaces the request with one from |from| that asks for |first|
+  // bytes (0: all the rest). Under |mutex|.
+  void Restart(int64_t from, int64_t first) {
     offset = from;
     data.clear();
     head = 0;
+    next_range = first;
+    Request(from);
+  }
+
+  // Asks for the next range from the end, keeping what is buffered.
+  void Continue() { Request(end()); }
+
+  void Request(int64_t from) {
     discard = 0;
     complete = false;
     refused = false;
     error.clear();
+    request_start = from;
+    range = next_range < static_cast<int64_t>(kMaxAhead) ? next_range : 0;
+    next_range = range * 2;
     ++generation;
     if (request) {
       WinHttpCloseHandle(request);
@@ -198,8 +221,9 @@ struct WinHttpState {
       }
       served = generation;
       // From 0 too, as FFmpeg does: a 206 says the server takes ranges.
-      const std::wstring range =
-          L"Range: bytes=" + std::to_wstring(offset) + L"-";
+      const std::wstring header =
+          L"Range: bytes=" + std::to_wstring(request_start) + L"-" +
+          (range > 0 ? std::to_wstring(request_start + range - 1) : L"");
       const int64_t began = MonotonicMicros();
       lock.unlock();
       HINTERNET opened = WinHttpOpenRequest(
@@ -207,7 +231,7 @@ struct WinHttpState {
           WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
       const bool sent =
           opened &&
-          WinHttpSendRequest(opened, range.c_str(), static_cast<DWORD>(-1),
+          WinHttpSendRequest(opened, header.c_str(), static_cast<DWORD>(-1),
                              WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
           WinHttpReceiveResponse(opened, nullptr);
       const DWORD failure = sent ? 0 : GetLastError();
@@ -266,17 +290,20 @@ struct WinHttpState {
                  std::wstring::npos;
     if (status == 206) {
       // Content-Range: bytes first-last/total
-      const std::wstring range = Header(response, WINHTTP_QUERY_CONTENT_RANGE);
-      const size_t slash = range.find(L'/');
+      const std::wstring content_range =
+          Header(response, WINHTTP_QUERY_CONTENT_RANGE);
+      const size_t slash = content_range.find(L'/');
       if (slash != std::wstring::npos) {
-        const int64_t total = _wcstoi64(range.c_str() + slash + 1, nullptr, 10);
+        const int64_t total =
+            _wcstoi64(content_range.c_str() + slash + 1, nullptr, 10);
         if (total > 0) {
           size = total;
         }
       }
     } else {
       // The whole resource, whatever was asked for.
-      discard = offset;
+      discard = request_start;
+      range = 0;
       const std::wstring content_length =
           Header(response, WINHTTP_QUERY_CONTENT_LENGTH);
       if (!content_length.empty()) {
@@ -365,7 +392,7 @@ std::unique_ptr<DataSource> WinHttpDataSource::Open(
       new WinHttpDataSource(std::move(state)));
   {
     std::lock_guard<std::mutex> lock(source->state_->mutex);
-    source->state_->Restart(0);
+    source->state_->Restart(0, 0);
   }
   source->thread_ = std::thread(&WinHttpState::Run, source->state_.get());
   return source;
@@ -406,6 +433,7 @@ int64_t WinHttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
           state.head + static_cast<size_t>(offset - state.offset);
       const size_t n = std::min(size, state.data.size() - start);
       memcpy(data, state.data.data() + start, n);
+      const size_t left = state.data.size() - start - n;
       // Drop what is well behind the reader.
       const size_t keep_from =
           start + n > kKeepBehind ? start + n - kKeepBehind : 0;
@@ -419,11 +447,19 @@ int64_t WinHttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
           state.head = 0;
         }
       }
-      // The thread may be waiting for room.
-      state.condition.notify_all();
+      if (state.RangeDone() && left < static_cast<size_t>(state.range / 2)) {
+        state.Continue();
+      } else {
+        // The thread may be waiting for room.
+        state.condition.notify_all();
+      }
       return static_cast<int64_t>(n);
     }
     if (offset >= state.offset && offset <= end + kSkipAhead) {
+      if (state.RangeDone()) {
+        state.Continue();
+        continue;
+      }
       if (!state.complete) {
         state.condition.wait(lock);
         continue;
@@ -450,12 +486,12 @@ int64_t WinHttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
                                      [&state] { return state.interrupted; })) {
           return -1;
         }
-        state.Restart(offset);
+        state.Restart(offset, 0);
         continue;
       }
     }
     LOGI("range request from %lld", static_cast<long long>(offset));
-    state.Restart(offset);
+    state.Restart(offset, kFirstRange);
   }
 }
 
