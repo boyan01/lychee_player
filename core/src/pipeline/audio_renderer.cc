@@ -141,10 +141,19 @@ void AudioRenderer::FadeOutForStop() {
   const auto give_up = std::chrono::steady_clock::now() + kStopFadeTimeout;
   for (;;) {
     UpdateSink(NowMicros());
-    if (SinkStopped() || std::chrono::steady_clock::now() >= give_up) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    const auto now = std::chrono::steady_clock::now();
+    if ((!sink_running_ && !sink_started_) || now >= give_up) {
       return;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    // Render() notifies after each pull, and sets when the device will
+    // have played the fade-out once it has taken it all.
+    auto until = give_up;
+    if (stop_sink_at_ != kNoTimestamp) {
+      until = std::min(until, now + std::chrono::microseconds(std::max<int64_t>(
+                                        stop_sink_at_ - NowMicros(), 0)));
+    }
+    condition_.wait_until(lock, until);
   }
 }
 
