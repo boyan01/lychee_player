@@ -70,6 +70,8 @@ class SubtitleRenderer {
  private:
   // The cues showing at |media_time|, in start order.
   std::vector<const SubtitleCue*> ShowingLocked(int64_t media_time) const;
+  // Brings |ends_| and |max_ends_| up to date from |index_from_| on.
+  void UpdateIndexLocked() const;
   void LimitBitmapsLocked(int64_t latest_start);
 
   std::unique_ptr<SubtitleDecoder> decoder_;
@@ -78,6 +80,15 @@ class SubtitleRenderer {
   mutable std::mutex mutex_;
   // Sorted by start time.
   std::vector<SubtitleCue> cues_;
+  // Per cue: when it ends (an open-ended one at the next later start), and
+  // the latest end of the cues up to it that show anything. The cues that
+  // can show at a time start at the first whose latest end is past it, so
+  // a lookup need not scan every cue before it: the control thread looks
+  // one up every few milliseconds, and a subtitle file holds thousands.
+  // Valid before |index_from_|; AddCue() moves that back.
+  mutable std::vector<int64_t> ends_;
+  mutable std::vector<int64_t> max_ends_;
+  mutable size_t index_from_ = 0;
   size_t bitmap_bytes_ = 0;
   // The last ImagesAt() result and what it was made for.
   std::shared_ptr<const SubtitleImages> images_;

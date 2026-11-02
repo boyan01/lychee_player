@@ -88,6 +88,21 @@ void SubtitleRenderer::AddCue(SubtitleCue cue) {
   }
   const int64_t start = cue.start;
   bitmap_bytes_ += BitmapBytes(cue);
+  // The open-ended cues of the latest start before it now end at it.
+  size_t changed = static_cast<size_t>(
+      std::lower_bound(
+          cues_.begin(), cues_.end(), start,
+          [](const SubtitleCue& c, int64_t time) { return c.start < time; }) -
+      cues_.begin());
+  if (changed > 0) {
+    const int64_t previous = cues_[changed - 1].start;
+    changed = static_cast<size_t>(
+        std::lower_bound(
+            cues_.begin(), cues_.end(), previous,
+            [](const SubtitleCue& c, int64_t time) { return c.start < time; }) -
+        cues_.begin());
+  }
+  index_from_ = std::min(index_from_, changed);
   cues_.insert(it, std::move(cue));
   if (bitmap_bytes_ > kMaxBitmapBytes) {
     LimitBitmapsLocked(start);
@@ -114,26 +129,55 @@ void SubtitleRenderer::LimitBitmapsLocked(int64_t latest_start) {
   }
 }
 
+void SubtitleRenderer::UpdateIndexLocked() const {
+  const size_t count = cues_.size();
+  if (index_from_ >= count && ends_.size() == count) {
+    return;
+  }
+  ends_.resize(count);
+  max_ends_.resize(count);
+  // Open-ended: until the next cue that starts later.
+  int64_t next_start = kInfiniteTime;
+  for (size_t i = count; i-- > index_from_;) {
+    if (i + 1 < count && cues_[i + 1].start != cues_[i].start) {
+      next_start = cues_[i + 1].start;
+    }
+    ends_[i] = cues_[i].end != kNoTimestamp ? cues_[i].end : next_start;
+  }
+  for (size_t i = index_from_; i < count; ++i) {
+    const SubtitleCue& cue = cues_[i];
+    // A cue that shows nothing only ends the open-ended ones before it.
+    // One emptied later (LimitBitmapsLocked()) still counts, which only
+    // makes lookups start earlier.
+    const int64_t end =
+        cue.text.empty() && !cue.bitmaps ? kNoTimestamp : ends_[i];
+    max_ends_[i] = i > 0 ? std::max(max_ends_[i - 1], end) : end;
+  }
+  index_from_ = count;
+}
+
 std::vector<const SubtitleCue*> SubtitleRenderer::ShowingLocked(
     int64_t media_time) const {
+  UpdateIndexLocked();
   std::vector<const SubtitleCue*> showing;
-  auto end = std::upper_bound(
-      cues_.begin(), cues_.end(), media_time,
-      [](int64_t time, const SubtitleCue& c) { return time < c.start; });
-  for (auto it = cues_.begin(); it != end; ++it) {
-    if (it->text.empty() && !it->bitmaps) {
+  const size_t end = static_cast<size_t>(
+      std::upper_bound(
+          cues_.begin(), cues_.end(), media_time,
+          [](int64_t time, const SubtitleCue& c) { return time < c.start; }) -
+      cues_.begin());
+  // Every cue before this one has ended by |media_time|.
+  const size_t first = static_cast<size_t>(
+      std::upper_bound(max_ends_.begin(),
+                       max_ends_.begin() + static_cast<ptrdiff_t>(end),
+                       media_time) -
+      max_ends_.begin());
+  for (size_t i = first; i < end; ++i) {
+    const SubtitleCue& cue = cues_[i];
+    if (cue.text.empty() && !cue.bitmaps) {
       continue;
     }
-    int64_t cue_end = it->end;
-    if (cue_end == kNoTimestamp) {
-      // Open-ended: until the next cue that starts later.
-      auto next = std::upper_bound(
-          it, cues_.end(), it->start,
-          [](int64_t start, const SubtitleCue& c) { return start < c.start; });
-      cue_end = next != cues_.end() ? next->start : kInfiniteTime;
-    }
-    if (media_time < cue_end) {
-      showing.push_back(&*it);
+    if (media_time < ends_[i]) {
+      showing.push_back(&cue);
     }
   }
   return showing;

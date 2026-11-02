@@ -1,5 +1,10 @@
 #include "pipeline/subtitle_renderer.h"
 
+#include <algorithm>
+#include <random>
+#include <string>
+#include <vector>
+
 #include "test.h"
 
 namespace lychee {
@@ -122,6 +127,69 @@ TEST(AssToPlainText, StripsFieldsAndMarkup) {
             "Hello world");
   EXPECT_EQ(AssToPlainText("0,0,Default,,0,0,0,,a\\hb\\n"), "a b");
   EXPECT_EQ(AssToPlainText("no fields"), "");
+}
+
+// The text showing at |time| by the rules, from every cue.
+std::string ReferenceTextAt(std::vector<SubtitleCue> cues, int64_t time) {
+  std::stable_sort(cues.begin(), cues.end(),
+                   [](const SubtitleCue& a, const SubtitleCue& b) {
+                     return a.start < b.start;
+                   });
+  std::string text;
+  for (const SubtitleCue& cue : cues) {
+    if (cue.start > time || cue.text.empty()) {
+      continue;
+    }
+    int64_t end = cue.end;
+    if (end == kNoTimestamp) {
+      end = kInfiniteTime;
+      for (const SubtitleCue& next : cues) {
+        if (next.start > cue.start) {
+          end = next.start;
+          break;
+        }
+      }
+    }
+    if (time < end) {
+      text += (text.empty() ? "" : "\n") + cue.text;
+    }
+  }
+  return text;
+}
+
+// Test registration allocates before main, as the existing TESTs do.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(SubtitleRenderer, LooksUpManyCuesAddedInAnyOrder) {
+  // Short and long cues, overlapping, some open-ended or empty, added out
+  // of order with lookups in between, as cues read again after seeks.
+  // A fixed seed, so a failure repeats.
+  std::mt19937 random(7);  // NOLINT(bugprone-random-generator-seed)
+  SubtitleRenderer renderer;
+  std::vector<SubtitleCue> cues;
+  int failures = 0;
+  for (int i = 0; i < 400 && failures == 0; ++i) {
+    const int64_t start =
+        static_cast<int64_t>(random() % 2000) * kMicrosPerMilli * 50;
+    int64_t end = start + static_cast<int64_t>(random() % 6000) * 1000;
+    if (random() % 8 == 0) {
+      end = kNoTimestamp;
+    } else if (random() % 40 == 0) {
+      end = start + 300 * kSecond;
+    }
+    SubtitleCue cue{start, end,
+                    random() % 10 == 0 ? "" : "cue " + std::to_string(i)};
+    renderer.AddCue(cue);
+    cues.push_back(cue);
+    for (int j = 0; j < 20; ++j) {
+      const int64_t time = static_cast<int64_t>(random() % 101000) * 1000;
+      const std::string expected = ReferenceTextAt(cues, time);
+      if (renderer.TextAt(time) != expected) {
+        EXPECT_EQ(renderer.TextAt(time), expected);
+        failures++;
+        break;
+      }
+    }
+  }
 }
 
 }  // namespace
