@@ -100,6 +100,36 @@ std::wstring FinalUrl(HINTERNET request) {
 
 }  // namespace
 
+struct WinHttpSession {
+  HINTERNET handle = nullptr;
+
+  ~WinHttpSession() {
+    if (handle) {
+      WinHttpCloseHandle(handle);
+    }
+  }
+};
+
+std::shared_ptr<WinHttpSession> CreateWinHttpSession() {
+  auto session = std::make_shared<WinHttpSession>();
+  // The system's proxy settings, auto-configured ones included (Windows
+  // 8.1 and later; WinHTTP's own setting before).
+  session->handle =
+      WinHttpOpen(L"lychee", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  if (!session->handle) {
+    session->handle =
+        WinHttpOpen(L"lychee", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                    WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  }
+  if (!session->handle) {
+    return nullptr;
+  }
+  WinHttpSetTimeouts(session->handle, kIdleTimeoutMs, kIdleTimeoutMs,
+                     kIdleTimeoutMs, kIdleTimeoutMs);
+  return session;
+}
+
 struct WinHttpState {
   std::mutex mutex;
   std::condition_variable condition;
@@ -107,7 +137,8 @@ struct WinHttpState {
   std::wstring url;
   std::wstring path;
   bool secure = false;
-  HINTERNET session = nullptr;
+  std::shared_ptr<WinHttpSession> session;
+  // The server, within |session|; it opens no socket itself.
   HINTERNET connection = nullptr;
   // The thread's request once it has a response; whoever closes it nulls
   // it. Closing it aborts a WinHttpReadData() blocked on it.
@@ -299,8 +330,10 @@ struct WinHttpState {
   }
 };
 
-std::unique_ptr<DataSource> WinHttpDataSource::Open(const std::string& url,
-                                                    std::string* error) {
+std::unique_ptr<DataSource> WinHttpDataSource::Open(
+    const std::string& url,
+    std::string* error,
+    std::shared_ptr<WinHttpSession> session) {
   auto state = std::make_unique<WinHttpState>();
   state->url = Widen(url);
   URL_COMPONENTS parts = {};
@@ -319,27 +352,13 @@ std::unique_ptr<DataSource> WinHttpDataSource::Open(const std::string& url,
     state->path = L"/";
   }
   state->secure = parts.nScheme == INTERNET_SCHEME_HTTPS;
-  // The system's proxy settings, auto-configured ones included (Windows
-  // 8.1 and later; WinHTTP's own setting before).
-  state->session =
-      WinHttpOpen(L"lychee", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-  if (!state->session) {
-    state->session =
-        WinHttpOpen(L"lychee", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                    WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-  }
+  state->session = session ? std::move(session) : CreateWinHttpSession();
   if (state->session) {
-    WinHttpSetTimeouts(state->session, kIdleTimeoutMs, kIdleTimeoutMs,
-                       kIdleTimeoutMs, kIdleTimeoutMs);
     state->connection =
-        WinHttpConnect(state->session, host.c_str(), parts.nPort, 0);
+        WinHttpConnect(state->session->handle, host.c_str(), parts.nPort, 0);
   }
   if (!state->connection) {
     *error = ErrorString(GetLastError());
-    if (state->session) {
-      WinHttpCloseHandle(state->session);
-    }
     return nullptr;
   }
   std::unique_ptr<WinHttpDataSource> source(
@@ -367,8 +386,8 @@ WinHttpDataSource::~WinHttpDataSource() {
   }
   // A request still being sent finishes or times out first.
   thread_.join();
+  // Before the session, which |state_| may hold the last reference to.
   WinHttpCloseHandle(state_->connection);
-  WinHttpCloseHandle(state_->session);
 }
 
 int64_t WinHttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {

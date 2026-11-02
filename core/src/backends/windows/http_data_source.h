@@ -11,6 +11,12 @@ namespace lychee {
 
 struct WinHttpState;
 
+// A WinHTTP session: sources opened on one share its proxy settings and
+// its pool of kept-alive connections.
+struct WinHttpSession;
+// Null if WinHTTP cannot start a session; sources then make their own.
+std::shared_ptr<WinHttpSession> CreateWinHttpSession();
+
 // http(s) through WinHTTP (Schannel, the system's proxy settings), as
 // Apple's HttpDataSource does it with NSURLSession: a thread streams one
 // request from the offset read into a buffer, a few MB ahead of the
@@ -18,9 +24,11 @@ struct WinHttpState;
 class WinHttpDataSource : public DataSource {
  public:
   // Starts the request; errors (no such host, HTTP 404) surface on the
-  // first Read().
-  static std::unique_ptr<DataSource> Open(const std::string& url,
-                                          std::string* error);
+  // first Read(). Without |session|, the source has a session of its own.
+  static std::unique_ptr<DataSource> Open(
+      const std::string& url,
+      std::string* error,
+      std::shared_ptr<WinHttpSession> session = nullptr);
   ~WinHttpDataSource() override;
 
   int64_t Read(int64_t offset, uint8_t* data, size_t size) override;

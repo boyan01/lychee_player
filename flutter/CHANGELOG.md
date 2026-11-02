@@ -45,6 +45,8 @@
   `LycheePlayerValue` now compares by value.
 * Windows: software-decoded video in Flutter no longer holds up drawing
   while its frames upload.
+* Windows: HLS reuses its HTTP connection for playlists and segments
+  instead of a new TLS handshake for each.
 
 ## 1.0.0-beta.5
 

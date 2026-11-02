@@ -135,6 +135,14 @@ DataSourceOpener CreateSharedOpener() {
     }
     return OpenDataSource(url, error);
   };
+#elif defined(_WIN32)
+  std::shared_ptr<WinHttpSession> session = CreateWinHttpSession();
+  return [session](const std::string& url, std::string* error) {
+    if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
+      return WinHttpDataSource::Open(url, error, session);
+    }
+    return OpenDataSource(url, error);
+  };
 #else
   return OpenDataSource;
 #endif

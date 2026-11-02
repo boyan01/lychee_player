@@ -64,9 +64,10 @@ using DataSourceOpener =
     std::function<std::unique_ptr<DataSource>(const std::string& url,
                                               std::string* error)>;
 // OpenDataSource, but the http(s) sources it opens share connections:
-// on Apple platforms one NSURLSession, so that the playlists and
-// segments of an HLS stream reuse kept-alive connections instead of a
-// new TCP and TLS handshake each. Elsewhere OpenDataSource itself.
+// one NSURLSession on Apple platforms, one WinHTTP session on Windows,
+// so that the playlists and segments of an HLS stream reuse kept-alive
+// connections instead of a new TCP and TLS handshake each. Elsewhere
+// OpenDataSource itself.
 DataSourceOpener CreateSharedOpener();
 
 // Bytes in memory (tests, the fuzzer).
