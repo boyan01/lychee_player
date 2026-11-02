@@ -16,6 +16,7 @@ std::vector<SubtitleCue> Parse(std::string_view data, std::string* format) {
   return cues;
 }
 
+// NOLINTBEGIN(bugprone-throwing-static-initialization)
 TEST(SubtitleFile, SubRip) {
   std::string format;
   const auto cues = Parse(
@@ -163,6 +164,7 @@ TEST(SubtitleFile, RejectsOtherData) {
                                  &cues, &format));
   EXPECT_TRUE(format.empty());
 }
+// NOLINTEND(bugprone-throwing-static-initialization)
 
 }  // namespace
 }  // namespace lychee

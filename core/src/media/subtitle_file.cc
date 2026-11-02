@@ -165,9 +165,7 @@ const char* GuessLegacyEncoding(std::string_view data) {
 // surrogate becomes U+FFFD). Without one, |encoding| if not empty, else
 // UTF-8 when the data is that, else the legacy encoding it looks like.
 std::string ToUtf8(std::string_view data, const std::string& encoding) {
-  const auto byte = [&data](size_t i) {
-    return static_cast<uint8_t>(data[i]);
-  };
+  const auto byte = [&data](size_t i) { return static_cast<uint8_t>(data[i]); };
   if (data.size() >= 3 && byte(0) == 0xef && byte(1) == 0xbb &&
       byte(2) == 0xbf) {
     return ReplaceInvalidUtf8(data.substr(3));
@@ -256,7 +254,8 @@ int64_t ParseTime(std::string_view line, size_t* pos) {
   for (;;) {
     const size_t start = i;
     int64_t value = 0;
-    while (i < line.size() && std::isdigit(static_cast<unsigned char>(line[i])) &&
+    while (i < line.size() &&
+           std::isdigit(static_cast<unsigned char>(line[i])) &&
            i - start < 10) {
       value = value * 10 + (line[i] - '0');
       ++i;
@@ -339,8 +338,7 @@ void ParseTimedBlocks(const std::vector<std::string_view>& lines,
       }
       payload += lines[i + 1];
     }
-    AddCue(start, end, TextSubtitleDecoder::ToPlainText(codec, payload),
-           cues);
+    AddCue(start, end, TextSubtitleDecoder::ToPlainText(codec, payload), cues);
   }
 }
 

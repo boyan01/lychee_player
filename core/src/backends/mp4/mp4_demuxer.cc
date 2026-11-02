@@ -882,14 +882,14 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
   sample_budget_ -= count;
   track.samples.resize(count);
   for (size_t i = 0; i < count; ++i) {
-    uint32_t size = fixed;
+    uint32_t sample_size = fixed;
     if (!fixed && field == 4) {
       // Two to a byte, the first in the high bits.
-      size = i % 2 == 0 ? *sizes.current() >> 4 : sizes.U8() & 0xf;
+      sample_size = i % 2 == 0 ? *sizes.current() >> 4 : sizes.U8() & 0xf;
     } else if (!fixed) {
-      size = static_cast<uint32_t>(sizes.Bits(field / 8));
+      sample_size = static_cast<uint32_t>(sizes.Bits(field / 8));
     }
-    track.samples[i].size = std::min<uint32_t>(size, INT32_MAX);
+    track.samples[i].size = std::min<uint32_t>(sample_size, INT32_MAX);
   }
 
   Reader stsc = entries_of(FourCC("stsc"), 8);

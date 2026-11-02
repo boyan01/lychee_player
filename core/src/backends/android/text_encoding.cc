@@ -41,8 +41,8 @@ bool ConvertToUtf8(std::string_view data,
   }
   // Not GetStringUTFChars: Java's modified UTF-8 splits characters past
   // U+FFFF into surrogates.
-  auto encoded = static_cast<jbyteArray>(
-      env->CallObjectMethod(decoded, get_bytes, utf8));
+  auto encoded =
+      static_cast<jbyteArray>(env->CallObjectMethod(decoded, get_bytes, utf8));
   if (!encoded || env->ExceptionCheck()) {
     TakeException(env);
     return false;
