@@ -75,6 +75,13 @@ building on top of them.
   unregisters. What the PC's state was before the reboot is unknown.
   If it comes back, compare the bare app on the same boot before
   touching the plugin.
+- **`lychee_cli` on Android with `NullAudioSink`** (2026-11-02, Pixel_10
+  emulator, FFmpeg-free build): with `--virtual-time` or `--null-audio`,
+  AAC and Opus files stay in `loading` with all their audio queued; the
+  MediaCodec decoder opens and the decode thread waits. With AAudio they
+  play. So `audio_onset` and `--audio-dump` cannot be read there. Done
+  when the `av-sync-*` cases pass through the NDK-built CLI on the
+  emulator.
 
 ## Performance
 
@@ -187,11 +194,11 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    `NO_FFMPEG=1`, and an M2TS with PGS shows its pictures.
 3. **Android**: VP8 hardware decoding needs another phone: the Xiaomi 14
    exposes only the software VP8 path, so it cannot close that hardware check.
-   Opus seeks lose 80 ms: Android's decoder discards SeekPreRoll after
-   a flush, and the demuxer seeks to the target rather than that much
-   before it (Chromium seeks back by it). Media Foundation's Opus MFT
-   after a flush is unchecked: `MFAudioDecoder` corrects the first
-   output's time only when less than one packet is missing.
+4. **Windows**: Media Foundation's Opus MFT after a flush is unchecked:
+   `MFAudioDecoder` corrects the first output's time only when less than
+   one packet is missing. Seeks now read Opus from 80 ms early, which
+   covers a decoder that drops the seek preroll as Android's does.
+
 ## Distribution and infrastructure
 
 1. **1.0.0**, once the beta has been used. Before it, and only then, a

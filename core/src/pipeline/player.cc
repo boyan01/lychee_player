@@ -46,6 +46,7 @@ constexpr int64_t kStatsLogInterval = 5 * kMicrosPerSecond;
 // dropped once they ended this long before the subtitle time playing:
 // enough for a later, larger subtitle delay to still find them.
 constexpr int64_t kUnseekableSubtitleHistory = 60 * kMicrosPerSecond;
+constexpr int64_t kOpusSeekPreroll = 80 * kMicrosPerMilli;
 
 long long Millis(int64_t micros) {
   return static_cast<long long>(micros / kMicrosPerMilli);
@@ -1829,6 +1830,17 @@ void Player::ProcessSeek(int64_t target,
   // by as much.
   const int64_t media_target = file_target + (loops ? loops * loop_length_ : 0);
   LOGI("%s to %lld us", loop ? "loop" : "seek", static_cast<long long>(target));
+  // An Opus decoder needs 80 ms before the target to converge after a
+  // flush, and Android's drops that much (RFC 7845's seek preroll; as
+  // Chromium's FFmpegDemuxer, the read starts that much early). The audio
+  // renderer cuts what comes before the target.
+  int64_t demux_target = file_target;
+  if (audio_stream_ >= 0 &&
+      static_cast<size_t>(audio_stream_) < media_info_.streams.size() &&
+      media_info_.streams[audio_stream_].audio.codec == AudioCodec::kOpus) {
+    demux_target =
+        std::max(media_info_.start_time, file_target - kOpusSeekPreroll);
+  }
   const bool user_seek = !loop && !resync && !tracks_changed;
   if (!media_info_.seekable) {
     // A user seek queued before the open finished cannot be checked until
@@ -1842,8 +1854,8 @@ void Player::ProcessSeek(int64_t target,
     }
     // A resync goes on from where the input is. The seek fails without
     // reading; it only clears the interrupt that stopped the read.
-    demuxer_->Seek(file_target);
-  } else if (!demuxer_->Seek(file_target)) {
+    demuxer_->Seek(demux_target);
+  } else if (!demuxer_->Seek(demux_target)) {
     std::lock_guard<std::mutex> lock(mutex_);
     seek_in_progress_ = false;
     current_seek_reported_ = false;
