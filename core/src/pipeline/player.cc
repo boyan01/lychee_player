@@ -184,6 +184,7 @@ void Player::StopPipeline() {
     loop_start_ = loop_length_ = 0;
     spans_.clear();
     loop_end_ = kNoTimestamp;
+    PublishLoopMapLocked();
     track_request_ = TrackRequest();
     input_error_.clear();
     error_.clear();
@@ -1045,22 +1046,32 @@ int64_t Player::UnloopedPts(int64_t pts) const {
   if (pts == kNoTimestamp) {
     return pts;
   }
-  std::lock_guard<std::mutex> lock(mutex_);
-  return pts - LoopOffsetLocked(pts);
+  std::lock_guard<std::mutex> lock(loop_mutex_);
+  return pts - loop_map_.Offset(pts);
 }
 
-int64_t Player::LoopOffsetLocked(int64_t media_time) const {
-  if (loops_ == 0) {
+int64_t Player::LoopMap::Offset(int64_t media_time) const {
+  if (loops == 0) {
     return 0;
   }
   // Still the last pass when it ends there.
-  if (loop_end_ != kNoTimestamp) {
-    media_time = std::min(media_time, loop_end_ - 1);
+  if (end != kNoTimestamp) {
+    media_time = std::min(media_time, end - 1);
   }
-  // Pass 0 runs from the file's start to |loop_start_| + |loop_length_|.
+  // Pass 0 runs from the file's start to |start| + |length|.
   const int64_t pass =
-      std::clamp<int64_t>((media_time - loop_start_) / loop_length_, 0, loops_);
-  return pass * loop_length_;
+      std::clamp<int64_t>((media_time - start) / length, 0, loops);
+  return pass * length;
+}
+
+int64_t Player::LoopOffsetLocked(int64_t media_time) const {
+  return LoopMap{loops_, loop_start_, loop_length_, loop_end_}.Offset(
+      media_time);
+}
+
+void Player::PublishLoopMapLocked() {
+  std::lock_guard<std::mutex> lock(loop_mutex_);
+  loop_map_ = {loops_, loop_start_, loop_length_, loop_end_};
 }
 
 void Player::ApplyLoopEndLocked() {
@@ -1077,6 +1088,7 @@ void Player::ApplyLoopEndLocked() {
     }
   }
   loop_end_ = end;
+  PublishLoopMapLocked();
   if (video_renderer_) {
     video_renderer_->SetEndTime(end);
   }
@@ -1682,6 +1694,7 @@ bool Player::WrapLoop() {
   }
   std::lock_guard<std::mutex> lock(mutex_);
   loops_++;
+  PublishLoopMapLocked();
   video_last_pts_ = std::max(video_last_pts_, boundary);
   audio_last_pts_ = std::max(audio_last_pts_, boundary);
   LOGI("loop: reading pass %lld", static_cast<long long>(loops_));
@@ -1737,6 +1750,7 @@ void Player::SetLoopSpan() {
   std::lock_guard<std::mutex> lock(mutex_);
   loop_start_ = loop_start;
   loop_length_ = loop_end - loop_start;
+  PublishLoopMapLocked();
   if (loop_start != file_start || loop_end != file_end) {
     LOGI("loop: passes span %lld..%lld us of %lld..%lld",
          static_cast<long long>(loop_start), static_cast<long long>(loop_end),
@@ -1819,6 +1833,7 @@ void Player::ProcessSeek(int64_t target,
   input_error_.clear();
   loops_ = loops;
   loop_end_ = kNoTimestamp;
+  PublishLoopMapLocked();
   clock_.Reset(media_target);
   clock_running_ = false;
   if (audio_renderer_) {

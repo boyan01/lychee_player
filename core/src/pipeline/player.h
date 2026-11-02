@@ -324,9 +324,20 @@ class Player {
   // Read thread, at the first wrap: |loop_start_| and |loop_length_| from
   // |spans_|.
   void SetLoopSpan();
-  // Media time of the start of the pass playing at |media_time|, relative
-  // to the first pass.
+  // How passes after the first map onto the file's timeline: |loops_|,
+  // |loop_start_|, |loop_length_| and |loop_end_|.
+  struct LoopMap {
+    int64_t loops = 0;
+    int64_t start = 0;
+    int64_t length = 0;
+    int64_t end = kNoTimestamp;
+    // Media time of the start of the pass playing at |media_time|,
+    // relative to the first pass.
+    int64_t Offset(int64_t media_time) const;
+  };
   int64_t LoopOffsetLocked(int64_t media_time) const;
+  // Copies the loop fields into |loop_map_|, after any of them changed.
+  void PublishLoopMapLocked();
   // Looping off after the read thread wrapped past the pass playing: the
   // renderers end at that pass's end instead of playing the next.
   void ApplyLoopEndLocked();
@@ -510,6 +521,11 @@ class Player {
   // ApplyLoopEndLocked(): where playback ends instead of looping, or
   // kNoTimestamp.
   int64_t loop_end_ = kNoTimestamp;
+  // The loop fields for UnloopedPts(), which the caller's pull thread runs
+  // per frame: under a lock of their own, taken under |mutex_| or alone,
+  // so a frame pull never waits for |mutex_|.
+  mutable std::mutex loop_mutex_;
+  LoopMap loop_map_;
   TrackRequest track_request_;
   LiveChange live_change_;
   // The input stopped early (network failure, truncated file). Reported
