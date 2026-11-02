@@ -1612,10 +1612,14 @@ seq_ check http-hls-aes-fmp4 1 7.033 -- --seek 7 --seek-after 2 "http://127.0.0.
 # Each segment's request is made while the last quarter of the one before
 # is read (whole ones, decrypted, once read), so that it overlaps that
 # rather than waiting at the boundary. Behind a server with 300 ms of
-# latency per request, the reads then wait for fewer of them.
+# latency per request, the reads then wait for fewer of them. Linux's own
+# HLS has no AES-128: FFmpeg's plays that there, and requests nothing
+# ahead.
 if [ "$own_ts" = 1 ]; then
   serve --latency 0.3 --rate 4000
-  for v in hls/index hls_fmp4/index hls_aes/ts; do
+  prefetched=(hls/index hls_fmp4/index)
+  [ "$(uname)" = Linux ] || prefetched+=(hls_aes/ts)
+  for v in "${prefetched[@]}"; do
     seq_ expect "http-hls-prefetch-${v%%/*}" "segment 5 requested ahead" \
       "summary: state=ended position=12\.000s .*backward_jumps=0 " -- --verbose \
       "http://127.0.0.1:$port/$v.m3u8"
@@ -1649,8 +1653,11 @@ seq_ expect http-hls-master "$hls_variant" "summary: state=ended position=12\.00
   "http://127.0.0.1:$port/hls/master.m3u8"
 # Byte ranges one after another in one resource are read on in the
 # source of the first, which reads ahead across them: not a request each.
+# The first starts 4 MB in, a jump from the request at the open, so the
+# source asks for 2, 4 and 8 MB from there: with the playlist, five
+# requests, against seven for one per segment.
 if [ "$own_ts" = 1 ]; then
-  serve --refuse-after-requests 4
+  serve --refuse-after-requests 5
   seq_ check http-hls-range 1 - -- "http://127.0.0.1:$port/hls_range/index.m3u8"
   serve
 fi
