@@ -12,7 +12,9 @@ Used by tool/regression.sh to test network behaviour:
   --refuse-after-drop  after the drop, every request fails with 503
   --refuse-after-requests N  after N requests, every later one fails with 403
   --refuse-after-seconds S   requests S seconds after the first one fail
-                       with 403
+                       with 403, but for one that starts where an earlier
+                       one's range ended (a client reading on in bounded
+                       ranges): a jump fails, the read going on does not
   --no-ranges          ignore Range headers: every response is the whole file
   --latency SECONDS    wait this long before answering each file request,
                        as a distant server's round trips do
@@ -44,6 +46,8 @@ class State:
         self.dropped = False
         self.requests = 0
         self.first_request = None
+        # Where the ranges asked for so far end, per path.
+        self.range_ends = set()
         self.live_start = None
 
     def claim(self, attribute):
@@ -101,15 +105,6 @@ def make_handler(root, args, state):
                 if refused:
                     self.send_error(403)
                     return
-            if args.refuse_after_seconds is not None:
-                with state.lock:
-                    now = time.monotonic()
-                    if state.first_request is None:
-                        state.first_request = now
-                    refused = now - state.first_request > args.refuse_after_seconds
-                if refused:
-                    self.send_error(403)
-                    return
             if args.latency:
                 time.sleep(args.latency)
             size = os.path.getsize(path)
@@ -122,6 +117,18 @@ def make_handler(root, args, state):
                         end = min(int(match.group(2)), size - 1)
                 else:
                     start = max(size - int(match.group(2)), 0)
+            if args.refuse_after_seconds is not None:
+                with state.lock:
+                    now = time.monotonic()
+                    if state.first_request is None:
+                        state.first_request = now
+                    refused = (now - state.first_request > args.refuse_after_seconds
+                               and (path, start) not in state.range_ends)
+                    if not refused:
+                        state.range_ends.add((path, end + 1))
+                if refused:
+                    self.send_error(403)
+                    return
                 if start >= size:
                     self.send_response(416)
                     self.send_header("Content-Range", f"bytes */{size}")

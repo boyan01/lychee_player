@@ -1610,8 +1610,9 @@ seq_ check http-frag-seek 1 6.200 -- --seek 6.2 --seek-after 1 "http://127.0.0.1
 # failed seek cannot safely resume the demuxer's old read position. (A
 # seek to near the start may read what the last range still holds.)
 # WinHTTP downloads behind the probe's samples across the file, which
-# then take another one to three ranges: there requests fail from 2 s
-# on, on the real clock, after the open and before the seek.
+# then take another one to three ranges: there jumps fail from 2 s on,
+# on the real clock, after the open and before the seek, while the
+# bounded ranges that read on from where one ended still pass.
 refuse=(--refuse-after-requests 3)
 refuse_realtime=0
 if [ "$(uname)" = Darwin ]; then
