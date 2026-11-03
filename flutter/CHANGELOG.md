@@ -33,12 +33,11 @@
 
 ### Fixed
 
-* Damaged or crafted media no longer crashes the player, runs it out of
-  memory or hangs it: Matroska lacing on 32-bit Android (`armeabi-v7a`)
-  and long stripped headers, deeply nested MP4 metadata, fragmented MP4
-  missing a track's fragments, MPEG-TS audio repeating one timestamp,
-  HLS playlists with long URLs or thousands of variants, SubRip text
-  with many unclosed tags, picture subtitles all for one time.
+* Damaged or crafted files no longer crash the player, run it out of
+  memory or hang it: Matroska (on 32-bit Android, `armeabi-v7a`), MP4,
+  MPEG-TS, HLS playlists, SubRip and picture subtitles.
+* Live audio whose timestamps jump hours ahead no longer hangs the
+  player; it waits in silence while the video plays on.
 * Live audio no longer breaks up after a pause in the sender's audio or a
   change in its delay when Android, Apple or Windows decoders decode it.
 * Video no longer stutters while the audio device starts or stops:

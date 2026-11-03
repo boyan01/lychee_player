@@ -99,7 +99,9 @@ of `--select-after`'s), `--virtual-time` (play on a simulated clock, as fast
 as the media decodes, with audio to a null sink). `--live` pushes the
 file's packets into a live input when a sender would send them, with
 `--latency MS`, `--live-jitter MS`, `--live-stall SEC FOR`,
-`--live-flush SEC` and `--live-gap SEC FOR` to simulate the network.
+`--live-flush SEC`, `--live-gap SEC FOR`, `--live-audio-gap SEC FOR` and
+`--live-audio-jump SEC` (audio timestamps 16 hours ahead from SEC on) to
+simulate the network and the sender.
 `--add-subtitle URL` (repeatable) adds a subtitle file right after the
 open, in the encoding `--subtitle-encoding NAME` names (default: guessed);
 `--subtitle-delay SEC` shows subtitles SEC later (negative: earlier).

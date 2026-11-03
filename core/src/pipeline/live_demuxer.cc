@@ -2,6 +2,8 @@
 
 #include "pipeline/live_demuxer.h"
 
+#include <algorithm>
+
 #include "base/log.h"
 #include "base/time.h"
 
@@ -140,6 +142,10 @@ bool LiveDemuxer::Push(int index,
   if (!stream.has_codec) {
     return false;
   }
+  // Senders are other devices: within 285 years of zero, the timeline's
+  // offsets and the renderers' differences of these cannot overflow.
+  constexpr int64_t kMaxPts = int64_t{1} << 53;
+  pts = std::clamp(pts, -kMaxPts, kMaxPts);
   // Every arrival tells the timeline about transit, kept or not.
   const int64_t deadline = index == kVideoStream
                                ? timeline_.Video(pts, now)

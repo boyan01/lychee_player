@@ -391,11 +391,17 @@ int AudioRenderer::RenderLiveLocked(int frames, int64_t playout_time) {
         playout_time + static_cast<int64_t>(written) * kMicrosPerSecond / rate;
     const int64_t pts =
         buffer.pts + static_cast<int64_t>(live_offset_) * kMicrosPerSecond / rate;
+    // Frames from |from| to |to|, at most |limit|, computed in 64 bits
+    // first: a timestamp far off would overflow the product or the int.
+    auto frames_between = [rate](int64_t from, int64_t to, int limit) {
+      const int64_t micros = std::min<int64_t>(
+          to - from, static_cast<int64_t>(limit) * kMicrosPerSecond / rate + 1);
+      return static_cast<int>(
+          std::min<int64_t>(micros * rate / kMicrosPerSecond, limit));
+    };
     if (pts < due - kLiveLateTolerance) {
       // Too late to be heard in time.
-      const int too_late =
-          static_cast<int>((due - pts) * rate / kMicrosPerSecond);
-      const int skip = std::clamp(too_late, 1, available);
+      const int skip = std::max(frames_between(pts, due, available), 1);
       live_offset_ += skip;
       live_frames_ -= skip;
       late += skip;
@@ -404,9 +410,7 @@ int AudioRenderer::RenderLiveLocked(int frames, int64_t playout_time) {
     int count;
     if (pts - due > kMicrosPerSecond / rate) {
       // Not due yet: silence until it is.
-      count = std::min(
-          frames - written,
-          static_cast<int>((pts - due) * rate / kMicrosPerSecond));
+      count = frames_between(due, pts, frames - written);
       for (int k = 0; k < channels; ++k) {
         std::fill_n(render_bus_.channel(k) + written, count, 0.0f);
       }

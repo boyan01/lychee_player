@@ -1392,6 +1392,11 @@ par expect live-gap "$live_ok" "live video resumes" "summary: .*rendered=2[6-7][
 # audio follows the timestamps over the gap, and none of it plays late.
 par expect live-audio-gap "$live_ok" "summary: .*dropped=0 .*live_late=0\.0[0-4][0-9]s" -- \
   --live --live-audio-gap 4 1 "$media/live_h264.mp4"
+# Audio timestamps that jump 16 hours ahead (a sender's clock gone
+# wrong): the audio waits in silence, the video plays on, and the player
+# closes.
+par expect live-audio-jump "$live_ok" "summary: .*backward_jumps=0 .*live_silence=[1-9][0-9]*\.[0-9]{3}s" -- \
+  --live --live-audio-jump 3 "$media/live_h264.mp4"
 # New parameter sets in the stream, as when the sender rotates. The
 # decoder restarts, which can hold a frame a vsync longer.
 par expect live-resolution "$live_ok" "video size 1280x720" "video size 640x360" \
