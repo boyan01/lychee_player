@@ -24,6 +24,9 @@ constexpr int64_t kMaxStepBack = kMicrosPerSecond / 2;
 // Packets of other streams held back for the anchor's first frame in a
 // run found while reading, at most: muxers interleave streams closer.
 constexpr int64_t kMaxHold = 2 * kMicrosPerSecond;
+// And in bytes, for packets whose timestamps do not move on: 2 s of
+// audio, or of subtitles, is far less.
+constexpr size_t kMaxHoldBytes = size_t{4} << 20;
 // ADTS frames are at most 8191 bytes, MP3 frames less; more without one
 // is not either.
 constexpr size_t kMaxAdtsBuffer = size_t{64} * 1024;
@@ -334,6 +337,7 @@ void TsReader::Restart(int64_t offset, int64_t reference) {
     state.run_end = kNoTimestamp;
     state.left_end = kNoTimestamp;
     state.held.clear();
+    state.held_bytes = 0;
     state.end = kNoTimestamp;
     state.overlap_until = kNoTimestamp;
   }
@@ -469,6 +473,7 @@ void TsReader::Release(int index) {
   StreamState& state = states_[index];
   std::vector<Held> held = std::move(state.held);
   state.held.clear();
+  state.held_bytes = 0;
   const int64_t shift = (*timeline_)[state.run].shift;
   for (Held& packet : held) {
     packet.pes.data = packet.data.data();
@@ -636,11 +641,13 @@ void TsReader::OnPes(const PesPacket& pes) {
     held.data.assign(pes.data, pes.data + pes.size);
     held.pts = pts != kNoTimestamp ? pts - run.shift : kNoTimestamp;
     held.dts = dts != kNoTimestamp ? dts - run.shift : kNoTimestamp;
+    state.held_bytes += held.data.size();
     state.held.push_back(std::move(held));
     const int64_t first = state.held.front().dts;
     const int64_t last = state.held.back().dts;
-    if (first != kNoTimestamp && last != kNoTimestamp &&
-        last - first > kMaxHold) {
+    if ((first != kNoTimestamp && last != kNoTimestamp &&
+         last - first > kMaxHold) ||
+        state.held_bytes > kMaxHoldBytes) {
       // No anchor frame came: the run stays where it is.
       run.anchored = true;
       Release(index);

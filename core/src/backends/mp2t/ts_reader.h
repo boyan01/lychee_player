@@ -150,6 +150,7 @@ class TsReader : private TsParser::Client {
     // Other streams, while the run they went on in waits for the
     // anchor's first frame to place it.
     std::vector<Held> held;
+    size_t held_bytes = 0;
     // The latest end of a packet emitted since the restart; after a
     // non-anchor stream went on in the next run, where it ended in the
     // run before.

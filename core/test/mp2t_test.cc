@@ -763,6 +763,50 @@ TEST(TsReader, HoldsAudioUntilTheVideoPlacesARun) {
   EXPECT_NEAR(audio[63].pts, TsReader::TicksToMicros(903720 + 90000), 1);
 }
 
+TEST(TsReader, HoldsAudioOfOneTimeWithinBounds) {
+  // As above, but the second run starts with 5 MB of audio at one
+  // timestamp before its video: held until the dts moved on by 2 s, it
+  // waited for the video without a bound. Past the bound in bytes it
+  // goes out, and the run stays where the audio put it, as when no
+  // video comes in time.
+  TsWriter w;
+  for (int run = 0; run < 2; ++run) {
+    w.Pat(0x1000);
+    w.Pmt(0x1000, 0, {{0x1b, 0x100, {}}, {0x0f, 0x101, {}}});
+    if (run == 1) {
+      for (int i = 0; i < 640; ++i) {
+        w.Pes(0x101, 0xc0, 900000 - 27000, -1, Adts(3, 8000), false, true);
+      }
+    }
+    for (int i = 0; i < 30; ++i) {
+      const int64_t pts = 900000 + int64_t{i} * 3000;
+      w.Pes(0x101, 0xc0, pts, -1, Adts(3, 50), false, true);
+      w.Pes(0x100, 0xe0, pts, -1,
+            AccessUnit(i == 0 ? kSps360 : Bytes(), i == 0 ? 0x65 : 0x41, 300),
+            i == 0);
+    }
+  }
+  MemorySource source(w.out);
+  TsTimeline timeline(1);
+  TsReader reader(&source);
+  reader.JoinRuns(&timeline);
+  reader.SetRange(0, -1);
+  std::string error;
+  EXPECT_TRUE(reader.Probe(1 << 20, &error));
+  int video = 0;
+  EncodedPacket packet;
+  int64_t offset;
+  while (reader.Read(&packet, &offset) == DemuxerReadResult::kOk) {
+    video += packet.stream_index == 0;
+  }
+  EXPECT_EQ(video, 60);
+  EXPECT_EQ(timeline.size(), 2u);
+  if (timeline.size() == 2) {
+    // The video would have placed it one second on.
+    EXPECT_TRUE(timeline[1].shift > kMicrosPerSecond + 100000);
+  }
+}
+
 TEST(TsDemuxer, RefusesStreamsItWouldSkip) {
   // H.264, and next to it what TsReader does not take.
   auto stream = [](const TsWriter::Entry& other) {
