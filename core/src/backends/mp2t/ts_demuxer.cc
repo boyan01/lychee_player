@@ -203,15 +203,15 @@ bool TsDemuxer::FindRuns(int pid) {
     micros_per_byte_ = rates[rates.size() / 2];
   }
   for (size_t i = 0; i + 1 < samples.size(); ++i) {
-    Span span{};
+    Span across{};
     if (samples[i + 1].second < samples[i].second - kMaxStepBack) {
-      if (!LocateRun(pid, samples[i], samples[i + 1], &span) ||
-          !ReadAcross(pid, span, samples[i + 1])) {
+      if (!LocateRun(pid, samples[i], samples[i + 1], &across) ||
+          !ReadAcross(pid, across, samples[i + 1])) {
         return false;
       }
     } else if (JumpsAhead(samples[i], samples[i + 1]) &&
-               (!LocateJump(pid, samples[i], samples[i + 1], &span) ||
-                !ReadAcross(pid, span, samples[i + 1]))) {
+               (!LocateJump(pid, samples[i], samples[i + 1], &across) ||
+                !ReadAcross(pid, across, samples[i + 1]))) {
       return false;
     }
   }
