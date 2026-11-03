@@ -167,6 +167,30 @@ TEST(HlsPlaylist, PicksVariants) {
   EXPECT_EQ(PickHlsVariant(plain), -1);
 }
 
+// Test registration allocates before main, as the existing TESTs do.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(HlsPlaylist, BoundsCopiesOfLongUrls) {
+  // A key URI of 1 MB, which each of 200 short entries would copy.
+  std::string text = "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"" +
+                     std::string(1 << 20, 'k') + "\"\n";
+  for (int i = 0; i < 200; ++i) {
+    text += "#EXTINF:1,\ns.ts\n";
+  }
+  HlsPlaylist playlist;
+  std::string error;
+  EXPECT_TRUE(!ParseHlsPlaylist(text, "http://h/list.m3u8", &playlist, &error));
+  EXPECT_TRUE(error.find("too many bytes") != std::string::npos);
+
+  // Variants past the ones a player could switch between are dropped.
+  text = "#EXTM3U\n";
+  for (int i = 0; i < 1000; ++i) {
+    text += "#EXT-X-STREAM-INF:BANDWIDTH=" + std::to_string(i + 1) + "\nv" +
+            std::to_string(i) + ".m3u8\n";
+  }
+  EXPECT_TRUE(ParseHlsPlaylist(text, "http://h/list.m3u8", &playlist, &error));
+  EXPECT_EQ(playlist.variants.size(), 256u);
+}
+
 TEST(HlsPlaylist, Detects) {
   const char playlist[] = "#EXTM3U\n#EXT-X-VERSION:3\n";
   const char bom[] = "\xEF\xBB\xBF#EXTM3U\n";

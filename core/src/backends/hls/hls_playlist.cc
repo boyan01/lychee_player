@@ -16,6 +16,13 @@ constexpr size_t kMaxSegments = 200000;
 // Durations are clamped to this many seconds (194 days), so that the
 // microseconds of kMaxSegments of them add up without overflow.
 constexpr int64_t kMaxSeconds = int64_t{1} << 24;
+// Bytes of the URLs segments keep (their own, their key's and their
+// map's), at most. Each segment has a copy, so a long key URI, or a long
+// URL relative ones resolve against, adds up over many short entries;
+// 40000 segments with links of 1 KB come to 40 MB.
+constexpr size_t kMaxUrlBytes = size_t{128} << 20;
+// Variants kept from a master playlist; real ones list tens.
+constexpr size_t kMaxVariants = 256;
 
 bool StartsWith(const std::string& text, const char* prefix) {
   return text.compare(0, std::char_traits<char>::length(prefix), prefix) == 0;
@@ -335,6 +342,7 @@ bool ParseHlsPlaylist(const std::string& text,
   HlsKey key;
   bool initialization = false;
   HlsMap map;
+  size_t url_bytes = 0;
   size_t i = 0;
   while (i < text.size()) {
     size_t newline = text.find('\n', i);
@@ -432,7 +440,9 @@ bool ParseHlsPlaylist(const std::string& text,
       continue;  // Comments and tags this player does not use.
     } else if (pending_variant) {
       variant.url = ResolveUrl(base_url, line);
-      playlist->variants.push_back(variant);
+      if (playlist->variants.size() < kMaxVariants) {
+        playlist->variants.push_back(variant);
+      }
       pending_variant = false;
     } else {
       if (playlist->segments.size() >= kMaxSegments) {
@@ -448,6 +458,12 @@ bool ParseHlsPlaylist(const std::string& text,
       segment.key = key;
       segment.initialization = initialization;
       segment.map = map;
+      url_bytes += segment.url.size() + key.url.size() +
+                   (initialization ? map.url.size() + map.key.url.size() : 0);
+      if (url_bytes > kMaxUrlBytes) {
+        *error = "HLS playlist with too many bytes of URLs";
+        return false;
+      }
       if (range_length >= 0) {
         segment.length = range_length;
         segment.offset = range_offset;
