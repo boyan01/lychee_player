@@ -1749,6 +1749,7 @@ Mp4Demuxer::LoadResult Mp4Demuxer::FillFragments() {
   for (;;) {
     int64_t candidate = kInfiniteTime;
     bool starving = false;
+    size_t unread = 0;
     for (Track& track : tracks_) {
       if (!track.enabled) {
         continue;
@@ -1767,13 +1768,17 @@ Mp4Demuxer::LoadResult Mp4Demuxer::FillFragments() {
       }
       if (track.next < track.samples.size()) {
         candidate = std::min(candidate, track.samples[track.next].dts);
+        unread += track.samples.size() - track.next;
       } else {
         starving = true;
       }
     }
     // A track without a sample loaded may have one in the next fragment
-    // that comes first; not once the fragments loaded start later.
-    if (!starving || fragments_ended_ ||
+    // that comes first; not once the fragments loaded start later. Nor
+    // once the others have a moof's worth waiting: a track whose
+    // fragments never come, beside samples whose times do not move on,
+    // would have every fragment's samples loaded.
+    if (!starving || fragments_ended_ || unread >= kMaxFragmentSamples ||
         (candidate != kInfiniteTime && last_fragment_start_ != kNoTimestamp &&
          last_fragment_start_ > candidate)) {
       return LoadResult::kLoaded;

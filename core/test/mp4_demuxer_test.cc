@@ -459,6 +459,80 @@ TEST(Mp4Demuxer, MetadataNestedTooDeep) {
   }
 }
 
+// Counts the reads that start at |offset|.
+class OffsetCountingSource : public DataSource {
+ public:
+  OffsetCountingSource(Bytes bytes, int64_t offset, int* reads)
+      : source_(CreateMemoryDataSource(std::move(bytes))),
+        offset_(offset),
+        reads_(reads) {}
+  int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
+    if (offset == offset_) {
+      ++*reads_;
+    }
+    return source_->Read(offset, data, size);
+  }
+  int64_t size() const override { return source_->size(); }
+  std::string error() const override { return source_->error(); }
+
+ private:
+  std::unique_ptr<DataSource> source_;
+  const int64_t offset_;
+  int* reads_;
+};
+
+TEST(Mp4Demuxer, BoundsSamplesLoadedWaitingForAMissingTrack) {
+  // Two tracks, fragments for the first only, of samples that take no
+  // time: the second never has a sample, and the first's never move on
+  // from its first, so looking for the second's loaded every fragment's
+  // samples. Each moof lists 2^21 of them in runs of trex defaults (16
+  // bytes per 65536 samples).
+  auto trak = [](uint64_t id) {
+    Bytes entry = Append(Zeros(24), Fields({{64, 2}, {48, 2}}));
+    entry = Append(entry, Zeros(50));
+    Bytes stbl = Box(
+        "stbl", {Box("stsd", {Fields({{0, 4}, {1, 4}}), Box("avc1", {entry})}),
+                 Box("stts", {Zeros(8)}), Box("stsc", {Zeros(8)}),
+                 Box("stsz", {Zeros(12)}), Box("stco", {Zeros(8)})});
+    return Box(
+        "trak",
+        {Box("tkhd", {Fields({{3, 4}, {0, 8}, {id, 4}}), Zeros(68)}),
+         Box("mdia",
+             {Box("mdhd", {Fields({{0, 12}, {kTimescale, 4}, {0, 8}})}),
+              Box("hdlr", {Zeros(8), Bytes{'v', 'i', 'd', 'e'}, Zeros(12)}),
+              Box("minf", {stbl})})});
+  };
+  auto trex = [](uint64_t id) {
+    return Box(
+        "trex",
+        {Fields({{0, 4}, {id, 4}, {1, 4}, {0, 4}, {0, 4}, {0x10000, 4}})});
+  };
+  Bytes file = Append(
+      Box("ftyp", {Bytes{'i', 's', 'o', 'm'}, Zeros(4)}),
+      Box("moov", {Box("mvhd", {Fields({{0, 12}, {kTimescale, 4}}), Zeros(84)}),
+                   trak(1), trak(2), Box("mvex", {trex(1), trex(2)})}));
+  Bytes traf = Box("tfhd", {Fields({{0x20000, 4}, {1, 4}})});
+  for (int i = 0; i < 32; ++i) {
+    traf = Append(traf, Box("trun", {Fields({{0, 4}, {65536, 4}})}));
+  }
+  int64_t last_moof = 0;
+  for (int i = 0; i < 8; ++i) {
+    last_moof = static_cast<int64_t>(file.size());
+    file = Append(file, Box("moof", {Box("mfhd", {Fields({{0, 4}, {1, 4}})}),
+                                     Box("traf", {traf})}));
+  }
+  int reads = 0;
+  auto demuxer = std::make_unique<Mp4Demuxer>();
+  std::string error;
+  EXPECT_TRUE(demuxer->Open(
+      std::make_unique<OffsetCountingSource>(file, last_moof, &reads), &error));
+  EncodedPacket packet;
+  EXPECT_TRUE(demuxer->Read(&packet) == DemuxerReadResult::kOk);
+  // Indexing the fragments reads the last moof (its header, then the
+  // box), but loading samples stops before it.
+  EXPECT_TRUE(reads <= 2);
+}
+
 Bytes SubtitleFile(const char* codec,
                    const Bytes& payload,
                    const Bytes& subs = {}) {
