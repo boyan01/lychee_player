@@ -45,11 +45,21 @@ bool StartsWithTag(std::string_view text, size_t at, const char* name) {
 // override blocks ({\an8}) go; anything else in angle brackets is text.
 std::string SubRipToPlainText(std::string_view text) {
   std::string plain;
+  // Where the next '>' and '}' are: looked for again only once passed,
+  // so a text of many unclosed '<' is not searched to its end for each.
+  size_t next_angle = text.find('>');
+  size_t next_brace = text.find('}');
+  auto find = [text](char c, size_t from, size_t* next) {
+    if (*next != std::string_view::npos && *next < from) {
+      *next = text.find(c, from);
+    }
+    return *next;
+  };
   for (size_t i = 0; i < text.size(); ++i) {
     const char c = text[i];
     if (c == '<') {
       size_t name = i + 1 < text.size() && text[i + 1] == '/' ? i + 2 : i + 1;
-      size_t close = text.find('>', i);
+      size_t close = find('>', i, &next_angle);
       if (close != std::string_view::npos &&
           (StartsWithTag(text, name, "b") || StartsWithTag(text, name, "i") ||
            StartsWithTag(text, name, "u") || StartsWithTag(text, name, "s") ||
@@ -58,7 +68,7 @@ std::string SubRipToPlainText(std::string_view text) {
         continue;
       }
     } else if (c == '{' && i + 1 < text.size() && text[i + 1] == '\\') {
-      size_t close = text.find('}', i);
+      size_t close = find('}', i, &next_brace);
       if (close != std::string_view::npos) {
         i = close;
         continue;

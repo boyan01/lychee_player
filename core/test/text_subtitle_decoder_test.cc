@@ -19,6 +19,10 @@ TEST(TextSubtitleDecoder, SubRipMarkup) {
   EXPECT_EQ(Plain("subrip", "{\\an8}top"), std::string("top"));
   // Angle brackets that are not tags stay.
   EXPECT_EQ(Plain("subrip", "a <3 b <bold>"), std::string("a <3 b <bold>"));
+  // In time: each '<' searched as far as the '>' at the end took long.
+  const std::string open(1 << 20, '<');
+  EXPECT_EQ(Plain("subrip", open + "{\\" + open + "<b>x"),
+            open + "{\\" + open + "x");
 }
 
 TEST(TextSubtitleDecoder, WebVttMarkup) {
