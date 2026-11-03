@@ -33,6 +33,8 @@
 
 ### Fixed
 
+* Damaged or crafted media no longer crashes the player, runs it out of
+  memory or hangs it: Matroska with long stripped headers.
 * Live audio no longer breaks up after a pause in the sender's audio or a
   change in its delay when Android, Apple or Windows decoders decode it.
 * Video no longer stutters while the audio device starts or stops:

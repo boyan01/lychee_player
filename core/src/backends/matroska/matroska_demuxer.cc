@@ -108,6 +108,10 @@ constexpr size_t kMaxCuePoints = 1 << 22;
 // cluster before them.
 constexpr int64_t kBisectStop = 1 << 20;
 constexpr size_t kMaxStreams = 256;
+// Header stripping removes what every frame starts with: a start code or
+// a sync word, a few bytes. It goes back into each frame of a block, so
+// a long one would multiply the block's size by up to 256 frames.
+constexpr size_t kMaxStrippedHeader = 1 << 10;
 // One block: an 8K intra frame is a few MB. A larger size is a corrupt
 // file, and allocating it could take the process down.
 constexpr int64_t kMaxBlockSize = 64 << 20;
@@ -871,6 +875,12 @@ bool MatroskaDemuxer::ParseTrackEntry(const uint8_t* data, size_t size) {
             LOGW("track %llu: %s; skipped",
                  static_cast<unsigned long long>(number),
                  encoding_type != 0 ? "encrypted" : "compressed");
+            return false;
+          }
+          if (stripped_header.size() > kMaxStrippedHeader) {
+            LOGW("track %llu: stripped header of %zu bytes; skipped",
+                 static_cast<unsigned long long>(number),
+                 stripped_header.size());
             return false;
           }
         }

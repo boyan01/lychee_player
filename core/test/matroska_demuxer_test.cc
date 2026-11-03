@@ -350,10 +350,18 @@ TEST(MatroskaDemuxer, HeaderStripping) {
                          El(kContentCompSettings, {0xaa, 0xbb})}))));
   };
   // Track 2 is zlib-compressed, which this build cannot read: skipped.
+  // Track 3 strips a header too long to copy into every frame: skipped.
   const Bytes file = File(
       Cat({AudioTrack(1, "A_MPEG/L3",
                       Cat({encoding(3), UInt(kDefaultDuration, 26000000)})),
-           AudioTrack(2, "A_MPEG/L3", encoding(0))}),
+           AudioTrack(2, "A_MPEG/L3", encoding(0)),
+           AudioTrack(
+               3, "A_MPEG/L3",
+               El(kContentEncodings,
+                  El(kContentEncoding, El(kContentCompression,
+                                          Cat({UInt(kContentCompAlgo, 3),
+                                               El(kContentCompSettings,
+                                                  Filled(2048, 0xaa))})))))}),
       Cluster(0, Cat({Simple(1, 0, true, {1, 2}),
                       El(kSimpleBlock, Block(1, 26, 0x84, {1, 3, 4}))})));
   MatroskaDemuxer demuxer;
