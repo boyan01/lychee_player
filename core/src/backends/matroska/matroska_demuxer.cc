@@ -1634,27 +1634,33 @@ void MatroskaDemuxer::ParseBlock(
     }
     const size_t count = data[pos++] + 1u;
     size_t total = 0;
+    // Each frame must fit in what the block has left after the ones
+    // before it. Checked as each is added, since 255 frames of up to a
+    // block each add up past what a 32-bit size_t holds.
+    auto add = [&](uint64_t frame) {
+      if (frame > size - pos || total > size - pos - frame) {
+        return false;
+      }
+      sizes.push_back(static_cast<size_t>(frame));
+      total += static_cast<size_t>(frame);
+      return true;
+    };
     bool ok = true;
     if (lacing == 1) {
       for (size_t i = 0; i + 1 < count && ok; ++i) {
-        size_t frame = 0;
+        uint64_t frame = 0;
         uint8_t byte;
         do {
           ok = pos < size;
           byte = ok ? data[pos++] : 0;
           frame += byte;
         } while (ok && byte == 255);
-        sizes.push_back(frame);
-        total += frame;
+        ok = ok && add(frame);
       }
     } else if (lacing == 3 && count > 1) {
       uint64_t first = 0;
-      ok = ReadVint(data, size, &pos, false, &first);
-      int64_t frame = static_cast<int64_t>(std::min<uint64_t>(first, size));
-      if (ok) {
-        sizes.push_back(static_cast<size_t>(frame));
-        total += static_cast<size_t>(frame);
-      }
+      ok = ReadVint(data, size, &pos, false, &first) && add(first);
+      auto frame = static_cast<int64_t>(std::min<uint64_t>(first, size));
       for (size_t i = 1; i + 1 < count && ok; ++i) {
         uint64_t raw = 0;
         int length = 0;
@@ -1665,11 +1671,7 @@ void MatroskaDemuxer::ParseBlock(
         // Signed: the value less half its range.
         frame +=
             static_cast<int64_t>(raw) - ((int64_t{1} << (7 * length - 1)) - 1);
-        ok = frame >= 0 && frame <= static_cast<int64_t>(size);
-        if (ok) {
-          sizes.push_back(static_cast<size_t>(frame));
-          total += static_cast<size_t>(frame);
-        }
+        ok = frame >= 0 && add(static_cast<uint64_t>(frame));
       }
     }
     if (ok && lacing == 2) {

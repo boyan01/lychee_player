@@ -315,6 +315,35 @@ TEST(MatroskaDemuxer, Lacing) {
   EXPECT_EQ(read.packets[10].pts, 400000);
 }
 
+TEST(MatroskaDemuxer, LacingSizesAddingUpPastSizeT) {
+  // EBML lacing: 254 frames the size of all the data each, and a last
+  // frame of what is left. A 32-bit size_t wraps their sum, 254 * 16909321,
+  // to 238 bytes, which the data has: the check of the total passed, and
+  // copying the second frame read past the block.
+  constexpr uint32_t kData = 16909321;
+  Bytes lacing = {254, 0x08};
+  for (int shift = 24; shift >= 0; shift -= 8) {
+    lacing.push_back(static_cast<uint8_t>(kData >> shift));
+  }
+  for (int i = 1; i < 254; ++i) {
+    lacing.push_back(0xbf);  // A difference of 0.
+  }
+  const Bytes file = File(
+      AudioTrack(1, "A_OPUS", UInt(kDefaultDuration, 20000000)),
+      Cluster(0, Cat({El(kSimpleBlock, Block(1, 0, 0x80 | 0x06,
+                                             Cat({lacing, Filled(kData, 1)}))),
+                      Simple(1, 20, true, {9})})));
+  MatroskaDemuxer demuxer;
+  std::string error;
+  EXPECT_TRUE(Open(&demuxer, file, &error));
+  Packets read = ReadAll(&demuxer);
+  // The malformed block is skipped.
+  EXPECT_EQ(read.packets.size(), 1u);
+  if (!read.packets.empty()) {
+    EXPECT_EQ(read.packets[0].pts, 20000);
+  }
+}
+
 TEST(MatroskaDemuxer, BlockGroups) {
   // Keyframes are the blocks without a ReferenceBlock; BlockDuration is
   // the frame's duration.
