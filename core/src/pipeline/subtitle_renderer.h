@@ -36,7 +36,8 @@ struct SubtitleImages {
 // so it runs on the read thread as packets arrive. Cues are kept across seeks,
 // since a seek may land after the packet of a cue still on screen; cues read
 // again are ignored. Bitmap cues are dropped, the furthest from the latest
-// first, once they hold more than kMaxBitmapBytes. Input that cannot seek
+// first and then the latest's older than the newest, once they hold more
+// than kMaxBitmapBytes. Input that cannot seek
 // drops the cues it has played (DropEndedBy()), or a long live stream
 // would keep every one.
 class SubtitleRenderer {

@@ -38,7 +38,7 @@
   and long stripped headers, deeply nested MP4 metadata, fragmented MP4
   missing a track's fragments, MPEG-TS audio repeating one timestamp,
   HLS playlists with long URLs or thousands of variants, SubRip text
-  with many unclosed tags.
+  with many unclosed tags, picture subtitles all for one time.
 * Live audio no longer breaks up after a pause in the sender's audio or a
   change in its delay when Android, Apple or Windows decoders decode it.
 * Video no longer stutters while the audio device starts or stops:

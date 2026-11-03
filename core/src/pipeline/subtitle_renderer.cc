@@ -142,7 +142,19 @@ void SubtitleRenderer::LimitBitmapsLocked(int64_t latest_start) {
       }
     }
     if (furthest == cues_.end()) {
-      return;
+      // Only the latest start's are left. They show together, but input
+      // may give picture after picture for one time: the ones before the
+      // newest (added last) go too.
+      auto newest = cues_.end();
+      for (auto it = cues_.begin(); it != cues_.end(); ++it) {
+        if (it->bitmaps && it->start == latest_start) {
+          furthest = furthest == cues_.end() ? it : furthest;
+          newest = it;
+        }
+      }
+      if (furthest == newest) {
+        return;
+      }
     }
     bitmap_bytes_ -= BitmapBytes(*furthest);
     // An empty cue in its place still ends the open-ended one before it.

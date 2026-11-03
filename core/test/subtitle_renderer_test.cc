@@ -120,6 +120,23 @@ TEST(SubtitleRenderer, DropsPicturesFurthestFromTheLatest) {
 
 // Test registration allocates before main, as the existing TESTs do.
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(SubtitleRenderer, DropsPicturesOfTheLatestStartToo) {
+  SubtitleRenderer renderer;
+  // 8 MB each, all for one time and all different: the oldest go until
+  // they fit, and the newest stays.
+  for (int i = 0; i < 6; ++i) {
+    renderer.AddCue(BitmapCue(kSecond, 2 * kSecond, 2048, 1024 - i));
+  }
+  auto shown = renderer.ImagesAt(kSecond, 0, 0, 1920, 1080);
+  EXPECT_TRUE(shown != nullptr);
+  if (shown) {
+    EXPECT_EQ(shown->images.size(), 4u);
+    EXPECT_EQ(shown->images.back().height, 1019);
+  }
+}
+
+// Test registration allocates before main, as the existing TESTs do.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 TEST(SubtitleRenderer, DroppedPicturesLeaveRoomForNewOnes) {
   SubtitleRenderer renderer;
   // 8 MB each, 32 MB in all: at the limit, not over it.
