@@ -280,6 +280,10 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
     av_dict_set(&options, "reconnect_delay_total_max", "10", 0);
     // A connection that stays silent this long counts as dropped.
     av_dict_set(&options, "rw_timeout", "10000000", 0);
+    // What FFmpeg's demuxers open from network input stays on the network
+    // (MayOpenReference): no file protocol for an HLS segment or key.
+    av_dict_set(&options, "protocol_whitelist",
+                "http,https,tls,tcp,httpproxy,crypto,data", 0);
   }
 #if !defined(LYCHEE_FFMPEG_DATA_SOURCE)
   const int64_t began = MonotonicMicros();
@@ -931,6 +935,14 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
   }
   if ((flags & AVIO_FLAG_WRITE) || !ReadsThroughDataSource(target)) {
     return self->default_io_open_(s, pb, url, flags, options);
+  }
+  // Besides the input itself, what demuxers open is a reference (FFmpeg's
+  // HLS checks only a file's extension).
+  if (s->url && target != s->url && !MayOpenReference(s->url, target)) {
+    self->io_error_ =
+        "may not open from " + std::string(s->url) + ": " + target;
+    LOGE("%s", self->io_error_.c_str());
+    return AVERROR(EACCES);
   }
   std::string error;
   bool cleartext_refused = false;

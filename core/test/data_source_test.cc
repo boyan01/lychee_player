@@ -95,6 +95,33 @@ class GatedSource : public DataSource {
 };
 
 // NOLINTBEGIN(bugprone-throwing-static-initialization)
+TEST(DataSource, MayOpenReference) {
+  const std::string remote = "https://cdn.example/live/index.m3u8";
+  EXPECT_TRUE(MayOpenReference(remote, "https://other.example/s.ts"));
+  EXPECT_TRUE(MayOpenReference(remote, "http://cdn.example/s.ts"));
+  EXPECT_TRUE(!MayOpenReference(remote, "file:///etc/hosts"));
+  EXPECT_TRUE(!MayOpenReference(remote, "/etc/hosts"));
+  EXPECT_TRUE(!MayOpenReference(remote, "data:text/plain,x"));
+
+  const std::string local = "/Users/u/Downloads/movie.mp4";
+  EXPECT_TRUE(MayOpenReference(local, "/Users/u/Downloads/movie.png"));
+  EXPECT_TRUE(MayOpenReference(local, "file:///Users/u/a.png"));
+  EXPECT_TRUE(MayOpenReference(local, "C:/Users/u/a.png"));
+  EXPECT_TRUE(MayOpenReference(local, "https://cdn.example/a.png"));
+  // UNC paths, which Windows would log in to.
+  EXPECT_TRUE(!MayOpenReference(local, "//attacker.example/share/a.png"));
+  EXPECT_TRUE(!MayOpenReference(local, "\\\\attacker.example\\share\\a"));
+  EXPECT_TRUE(!MayOpenReference(local, "/\\attacker.example/share/a.png"));
+  EXPECT_TRUE(!MayOpenReference(local, "file:////attacker.example/s/a.ts"));
+  EXPECT_TRUE(!MayOpenReference(local, "\\\\?\\UNC\\attacker\\s\\a"));
+  EXPECT_TRUE(!MayOpenReference(local, "\\\\.\\pipe\\p"));
+  // Media on a share may use that share, under any spelling of its host.
+  const std::string share = "//NAS/media/show/index.m3u8";
+  EXPECT_TRUE(MayOpenReference(share, "//nas/media/show/s.ts"));
+  EXPECT_TRUE(MayOpenReference("\\\\nas\\media\\a.mp4", "//NAS/media/a.png"));
+  EXPECT_TRUE(!MayOpenReference(share, "//attacker.example/media/s.ts"));
+}
+
 TEST(PrefetchingDataSource, ReadsAheadThenPassesOn) {
   auto gated = std::make_unique<GatedSource>(300000);
   GatedSource* inner = gated.get();

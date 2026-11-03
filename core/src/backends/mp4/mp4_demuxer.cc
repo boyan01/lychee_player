@@ -1480,11 +1480,7 @@ bool Mp4Demuxer::ReadSubtitleResource(std::string_view uri,
   if (base.empty()) base = base_url_;
   if (base.empty() || uri.empty() || uri.size() > 4096) return false;
   const std::string url = ResolveUrl(base, std::string(uri));
-  const auto http = [](const std::string& value) {
-    return value.starts_with("http://") || value.starts_with("https://");
-  };
-  // A remote subtitle cannot cause reads from local files.
-  if (http(base) && !http(url)) return false;
+  if (!MayOpenReference(base, url)) return false;
   std::string why;
   auto source = opener_(url, &why);
   if (!source) return false;

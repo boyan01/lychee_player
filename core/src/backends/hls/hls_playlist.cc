@@ -5,6 +5,7 @@
 #include <map>
 
 #include "base/time.h"
+#include "media/data_source.h"
 
 namespace lychee {
 
@@ -343,6 +344,14 @@ bool ParseHlsPlaylist(const std::string& text,
   bool initialization = false;
   HlsMap map;
   size_t url_bytes = 0;
+  // A URL the playlist may not make the player open fails all of it.
+  auto refused = [&](const std::string& url) {
+    if (url.empty() || MayOpenReference(base_url, url)) {
+      return false;
+    }
+    *error = "HLS playlist refers to a URL it may not open: " + url;
+    return true;
+  };
   size_t i = 0;
   while (i < text.size()) {
     size_t newline = text.find('\n', i);
@@ -396,6 +405,9 @@ bool ParseHlsPlaylist(const std::string& text,
       auto uri = attributes.find("URI");
       if (uri != attributes.end()) {
         rendition.url = ResolveUrl(base_url, uri->second);
+        if (refused(rendition.url)) {
+          return false;
+        }
       }
       playlist->renditions.push_back(std::move(rendition));
       playlist->master = true;
@@ -422,11 +434,19 @@ bool ParseHlsPlaylist(const std::string& text,
           at == std::string::npos ? -1 : ParseInteger(range.substr(at + 1));
     } else if (StartsWith(line, "#EXT-X-KEY:")) {
       key = ParseKey(line.substr(11), base_url);
+      // Only AES-128 keys are fetched (SAMPLE-AES ones are skd:// and the
+      // like, for a DRM system).
+      if (key.method == HlsKey::Method::kAes128 && refused(key.url)) {
+        return false;
+      }
     } else if (StartsWith(line, "#EXT-X-MAP:")) {
       auto attributes = ParseAttributes(line.substr(11));
       initialization = true;
       map = HlsMap();
       map.url = ResolveUrl(base_url, attributes["URI"]);
+      if (refused(map.url)) {
+        return false;
+      }
       map.key = key;
       auto range = attributes.find("BYTERANGE");
       if (range != attributes.end()) {
@@ -440,6 +460,9 @@ bool ParseHlsPlaylist(const std::string& text,
       continue;  // Comments and tags this player does not use.
     } else if (pending_variant) {
       variant.url = ResolveUrl(base_url, line);
+      if (refused(variant.url)) {
+        return false;
+      }
       if (playlist->variants.size() < kMaxVariants) {
         playlist->variants.push_back(variant);
       }
@@ -451,6 +474,9 @@ bool ParseHlsPlaylist(const std::string& text,
       }
       HlsSegment segment;
       segment.url = ResolveUrl(base_url, line);
+      if (refused(segment.url)) {
+        return false;
+      }
       segment.duration = std::max<int64_t>(duration, 0);
       segment.sequence = playlist->media_sequence +
                          static_cast<int64_t>(playlist->segments.size());

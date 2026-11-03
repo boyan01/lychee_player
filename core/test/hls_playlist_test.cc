@@ -191,6 +191,35 @@ TEST(HlsPlaylist, BoundsCopiesOfLongUrls) {
   EXPECT_EQ(playlist.variants.size(), 256u);
 }
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(HlsPlaylist, RefusesReferencesItMayNotOpen) {
+  HlsPlaylist playlist;
+  std::string error;
+  const std::string remote = "https://cdn.example/live/index.m3u8";
+  for (const char* entry :
+       {"#EXTINF:4,\nfile:///etc/hosts\n",
+        "#EXT-X-KEY:METHOD=AES-128,URI=\"file:///etc/hosts\"\n#EXTINF:4,\n"
+        "s.ts\n",
+        "#EXT-X-MAP:URI=\"file:///tmp/init.mp4\"\n#EXTINF:4,\ns.ts\n",
+        "#EXT-X-STREAM-INF:BANDWIDTH=1\nfile:///tmp/v.m3u8\n",
+        "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",URI=\"file:///tmp/"
+        "a.m3u8\"\n"}) {
+    error.clear();
+    EXPECT_TRUE(!ParseHlsPlaylist(std::string("#EXTM3U\n") + entry, remote,
+                                  &playlist, &error));
+    EXPECT_TRUE(error.find("may not open") != std::string::npos);
+  }
+  // A local playlist may not reach another machine's share either.
+  EXPECT_TRUE(!ParseHlsPlaylist(
+      "#EXTM3U\n#EXTINF:4,\nfile:////attacker.example/share/s.ts\n",
+      "/Users/u/Downloads/index.m3u8", &playlist, &error));
+  EXPECT_TRUE(ParseHlsPlaylist(
+      "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"k.bin\"\n#EXTINF:4,\n"
+      "s.ts\n#EXTINF:4,\nhttps://other.example/t.ts\n",
+      remote, &playlist, &error));
+  EXPECT_EQ(playlist.segments.size(), 2u);
+}
+
 TEST(HlsPlaylist, Detects) {
   const char playlist[] = "#EXTM3U\n#EXT-X-VERSION:3\n";
   const char bom[] = "\xEF\xBB\xBF#EXTM3U\n";

@@ -1,11 +1,13 @@
 #ifndef LYCHEE_MEDIA_DATA_SOURCE_H_
 #define LYCHEE_MEDIA_DATA_SOURCE_H_
 
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace lychee {
@@ -65,6 +67,45 @@ class DataSource {
 // with |error| set if it cannot be opened.
 std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
                                            std::string* error);
+
+// Whether media read from |base| may make the player open |url|, a
+// reference it resolved (an HLS segment, key or variant, an IMSC
+// image): media from the network reaches only the network, and no media
+// reaches a Windows UNC path (//host/share) on a host other than its
+// own, which Windows would log in to with the user's credentials. The
+// caller's own URLs are not references. Inline, as the Android FFmpeg
+// extension compiles no data_source.cc.
+inline bool MayOpenReference(const std::string& base, const std::string& url) {
+  const auto http = [](std::string_view value) {
+    return value.starts_with("http://") || value.starts_with("https://");
+  };
+  if (http(url)) {
+    return true;
+  }
+  if (http(base)) {
+    return false;
+  }
+  // The host of the UNC path a local URL opens (OpenDataSource drops
+  // file://), lowercase, or empty for another path.
+  const auto unc_host = [](std::string_view path) {
+    if (path.starts_with("file://")) {
+      path.remove_prefix(7);
+    }
+    const auto separator = [](char c) { return c == '/' || c == '\\'; };
+    if (path.size() < 3 || !separator(path[0]) || !separator(path[1])) {
+      return std::string();
+    }
+    path.remove_prefix(2);
+    std::string host(path.substr(0, path.find_first_of("/\\")));
+    for (char& c : host) {
+      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return host;
+  };
+  const std::string host = unc_host(url);
+  // \\?\ and \\.\ are device paths, whatever follows them.
+  return host.empty() || (host != "?" && host != "." && host == unc_host(base));
+}
 
 using DataSourceOpener =
     std::function<std::unique_ptr<DataSource>(const std::string& url,

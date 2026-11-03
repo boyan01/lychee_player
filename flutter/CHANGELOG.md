@@ -36,6 +36,11 @@
 * Damaged or crafted files no longer crash the player, run it out of
   memory or hang it: Matroska (on 32-bit Android, `armeabi-v7a`), MP4,
   MPEG-TS, HLS playlists, SubRip and picture subtitles.
+* Media can no longer make the player open what its source may not
+  reach: an HLS stream from the network refuses local files as segments,
+  keys or playlists, and on Windows no HLS playlist or IMSC subtitle
+  opens a share (`//host/share`) on another machine, which would send it
+  the user's Windows login.
 * Live audio whose timestamps jump hours ahead no longer hangs the
   player; it waits in silence while the video plays on.
 * Live audio no longer breaks up after a pause in the sender's audio or a
