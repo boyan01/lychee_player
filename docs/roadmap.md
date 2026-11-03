@@ -70,6 +70,12 @@ building on top of them.
   unregisters. What the PC's state was before the reboot is unknown.
   If it comes back, compare the bare app on the same boot before
   touching the plugin.
+- **MPEG-TS of identical short clips joined**: runs that start over at
+  the same timestamp within 256 KB of each other are taken for one
+  (`TsDemuxer::AddRun` matches by offset and start time), so 12 MB of a
+  2-frame clip repeated opens with a duration of 66 ms (found
+  2026-11-03). Done when such a file's duration and seeks cover every
+  run, as a regression case shows.
 
 ## Performance
 

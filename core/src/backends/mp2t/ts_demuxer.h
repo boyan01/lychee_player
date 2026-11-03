@@ -65,27 +65,31 @@ class TsDemuxer : public Demuxer {
   // Adds the runs that samples of |pid|'s timestamps across the input
   // show. False if the source failed.
   bool FindRuns(int pid);
-  // Finds and adds the run that starts between |before| and |after|
-  // (offset, PTS as read), where timestamps went back; then looks for
-  // another one up to |after|.
+  // Bytes to read across for where a run starts: from before |low| to
+  // past |high|, |last| a PTS before it.
+  struct Span {
+    int64_t low;
+    int64_t high;
+    int64_t last;
+  };
+  // Narrows down where a run starts between |before| and |after|
+  // (offset, PTS as read), where timestamps went back. False if the
+  // source failed.
   bool LocateRun(int pid,
                  std::pair<int64_t, int64_t> before,
-                 std::pair<int64_t, int64_t> after);
+                 std::pair<int64_t, int64_t> after,
+                 Span* span);
   // The same where timestamps went ahead by much more than the bytes
   // between them play for (JumpsAhead()).
   bool LocateJump(int pid,
                   std::pair<int64_t, int64_t> before,
-                  std::pair<int64_t, int64_t> after);
+                  std::pair<int64_t, int64_t> after,
+                  Span* span);
   bool JumpsAhead(std::pair<int64_t, int64_t> before,
                   std::pair<int64_t, int64_t> after) const;
-  // Reads from before |low| to past |high| for where |pid|'s run starts
-  // over, |last| a PTS before it, and adds the run; then LocateRun() or
-  // LocateJump() up to |after|.
-  bool ReadAcross(int pid,
-                  int64_t low,
-                  int64_t high,
-                  int64_t last,
-                  std::pair<int64_t, int64_t> after);
+  // Reads across |span| for where |pid|'s run starts over and adds the
+  // run; then the next ones up to |after|.
+  bool ReadAcross(int pid, Span span, std::pair<int64_t, int64_t> after);
   // A run starting at |offset| with |start|, the run before it having
   // ended at |end| (both as read), unless the timeline has it already;
   // timeline_[read_in], where the timestamps moved from, is not it.
