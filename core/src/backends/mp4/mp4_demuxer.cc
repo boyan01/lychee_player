@@ -1038,9 +1038,16 @@ Mp4Demuxer::Sample Mp4Demuxer::MakeSample(const Track& track,
   return sample;
 }
 
-void Mp4Demuxer::ParseMetadata(const uint8_t* data, size_t size) {
+void Mp4Demuxer::ParseMetadata(const uint8_t* data, size_t size, int depth) {
+  // Files nest one meta in udta; a meta in a meta is already odd, and
+  // each level takes only 8 bytes of a moov of up to 256 MB, so going
+  // down without a limit could run out of stack.
+  constexpr int kMaxDepth = 4;
   for (const Box& box : Children(data, size)) {
     if (box.type == FourCC("meta")) {
+      if (depth >= kMaxDepth) {
+        continue;
+      }
       // A full box in MP4, a plain one in QuickTime.
       // Its first child is hdlr: after version and flags in a full box.
       Reader probe(box.payload, box.payload_size);
@@ -1048,7 +1055,7 @@ void Mp4Demuxer::ParseMetadata(const uint8_t* data, size_t size) {
       bool full = probe.U32() == FourCC("hdlr");
       size_t skip = full ? 4 : 0;
       if (box.payload_size > skip) {
-        ParseMetadata(box.payload + skip, box.payload_size - skip);
+        ParseMetadata(box.payload + skip, box.payload_size - skip, depth + 1);
       }
       continue;
     }

@@ -410,6 +410,55 @@ TEST(Mp4Demuxer, HugeDefaultSampleCount) {
   EXPECT_TRUE(times.size() < 100u);
 }
 
+TEST(Mp4Demuxer, MetadataNestedTooDeep) {
+  // udta holding a million metas, one in another, around an ilst: each
+  // level was a recursion, which ran out of stack.
+  constexpr size_t kLevels = 1 << 20;
+  const Bytes ilst =
+      Box("ilst", {Box("\251nam", {Box("data", {Zeros(8), AsBytes("deep")})})});
+  auto with_udta = [&ilst](size_t levels) {
+    Bytes file = FragmentedFile(1, 0, true);
+    const uint8_t kMoov[] = {'m', 'o', 'o', 'v'};
+    auto at = std::search(file.begin(), file.end(), std::begin(kMoov),
+                          std::end(kMoov)) -
+              4;
+    const size_t moov = static_cast<size_t>(at - file.begin());
+    uint32_t moov_size = 0;
+    for (int i = 0; i < 4; ++i) {
+      moov_size = (moov_size << 8) | file[moov + i];
+    }
+    Bytes udta;
+    const size_t udta_size = 8 + 8 * levels + ilst.size();
+    Put(&udta, udta_size, 4);
+    udta.insert(udta.end(), {'u', 'd', 't', 'a'});
+    for (size_t i = 0; i < levels; ++i) {
+      Put(&udta, udta_size - 8 * (i + 1), 4);
+      udta.insert(udta.end(), {'m', 'e', 't', 'a'});
+    }
+    udta = Append(udta, ilst);
+    file.insert(file.begin() + static_cast<ptrdiff_t>(moov + moov_size),
+                udta.begin(), udta.end());
+    moov_size += static_cast<uint32_t>(udta.size());
+    for (int i = 0; i < 4; ++i) {
+      file[moov + i] = static_cast<uint8_t>(moov_size >> (24 - 8 * i));
+    }
+    return file;
+  };
+  std::string error;
+  // One meta, as files have it: read.
+  auto shallow = OpenBytes(with_udta(1), &error);
+  EXPECT_TRUE(shallow != nullptr);
+  if (shallow) {
+    EXPECT_EQ(shallow->media_info().metadata.size(), 1u);
+  }
+  // A million: the file opens, without them.
+  auto deep = OpenBytes(with_udta(kLevels), &error);
+  EXPECT_TRUE(deep != nullptr);
+  if (deep) {
+    EXPECT_TRUE(deep->media_info().metadata.empty());
+  }
+}
+
 Bytes SubtitleFile(const char* codec,
                    const Bytes& payload,
                    const Bytes& subs = {}) {

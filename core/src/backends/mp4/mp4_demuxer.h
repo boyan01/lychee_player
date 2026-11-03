@@ -127,7 +127,7 @@ class Mp4Demuxer : public Demuxer {
   // |data| is a moov box's payload.
   bool ParseMoov(const uint8_t* data, size_t size, std::string* error);
   bool ParseTrack(const uint8_t* data, size_t size, int64_t movie_timescale);
-  void ParseMetadata(const uint8_t* data, size_t size);
+  void ParseMetadata(const uint8_t* data, size_t size, int depth = 0);
   Sample MakeSample(const Track& track,
                     uint64_t offset,
                     uint32_t size,
