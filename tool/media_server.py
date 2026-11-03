@@ -110,7 +110,8 @@ def make_handler(root, args, state):
             size = os.path.getsize(path)
             start, end = 0, size - 1
             match = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range", ""))
-            if match and (match.group(1) or match.group(2)) and not args.no_ranges:
+            ranged = bool(match and (match.group(1) or match.group(2)) and not args.no_ranges)
+            if ranged:
                 if match.group(1):
                     start = int(match.group(1))
                     if match.group(2):
@@ -129,6 +130,7 @@ def make_handler(root, args, state):
                 if refused:
                     self.send_error(403)
                     return
+            if ranged:
                 if start >= size:
                     self.send_response(416)
                     self.send_header("Content-Range", f"bytes */{size}")
