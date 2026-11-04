@@ -31,6 +31,58 @@ size_t AdtsHeaderSize(const uint8_t* data, size_t size) {
   return header < size ? header : 0;
 }
 
+// The channels of the program config element in an AudioSpecificConfig
+// whose channelConfiguration is 0 (ISO/IEC 14496-3 1.6.2.1 and 4.4.1.1),
+// or 0 if it has none or is too short.
+int AacPceChannels(const std::vector<uint8_t>& asc) {
+  size_t bit = 0;
+  bool overrun = false;
+  auto read = [&](int bits) -> int {
+    int value = 0;
+    for (int i = 0; i < bits; ++i, ++bit) {
+      if (bit / 8 >= asc.size()) {
+        overrun = true;
+        return 0;
+      }
+      value = (value << 1) | ((asc[bit / 8] >> (7 - bit % 8)) & 1);
+    }
+    return value;
+  };
+  int object = read(5);
+  if (object == 31) {
+    object = 32 + read(6);
+  }
+  if (read(4) == 15) {
+    read(24);
+  }
+  // A GASpecificConfig carries the element; other object types have none.
+  if (read(4) != 0 || object < 1 || object > 7 || object == 5) {
+    return 0;
+  }
+  read(1);        // frameLengthFlag
+  if (read(1)) {  // dependsOnCoreCoder
+    read(14);
+  }
+  read(1);   // extensionFlag
+  read(10);  // element_instance_tag, object_type, sampling_frequency_index
+  const int front = read(4);
+  const int side = read(4);
+  const int back = read(4);
+  const int lfe = read(2);
+  int channels = lfe;
+  read(7);  // num_assoc_data_elements, num_valid_cc_elements
+  for (int i = 0; i < 3; ++i) {
+    if (read(1)) {  // mono, stereo and matrix mixdowns
+      read(i == 2 ? 3 : 4);
+    }
+  }
+  for (int i = 0; i < front + side + back; ++i) {
+    channels += read(1) ? 2 : 1;  // is_cpe
+    read(4);
+  }
+  return overrun ? 0 : channels;
+}
+
 // The input subtype for |codec|, or GUID_NULL.
 GUID Subtype(AudioCodec codec) {
   switch (codec) {
@@ -197,6 +249,15 @@ bool MFAudioDecoder::Initialize(const AudioConfig& config,
 bool MFAudioDecoder::Open(const std::vector<uint8_t>& extradata,
                           std::string* error) {
   const bool aac = config_.codec == AudioCodec::kAAC;
+  if (aac && AacPceChannels(extradata) > 2) {
+    // More than two channels given by a program config element: Windows'
+    // AAC decoder reads out of bounds on its first output and crashes the
+    // process (MSAudDecMFT CAACDec::CheckModeChange, Windows 11 26100,
+    // 2026-11-04; FATE's 8-channel al22_chCfg0PCE_44.mp4). It decodes a
+    // mono one (al04_44.mp4).
+    *error = "mediafoundation: multichannel AAC program config element";
+    return false;
+  }
   const GUID subtype = Subtype(config_.codec);
   decoder_ = CreateDecoder(config_.codec);
   if (!decoder_) {

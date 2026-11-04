@@ -7,6 +7,9 @@
   keyframes without FFmpeg (the plugin's default on Windows). On Windows
   they showed a still picture until the first keyframe listed, up to
   30 s in, and seeks could lose hardware decoding.
+* Windows: multichannel AAC whose channel layout is given by a program
+  config element no longer crashes the app in builds without FFmpeg; its
+  audio is skipped instead.
 
 ## 1.0.0-beta.6
 
