@@ -1578,7 +1578,7 @@ DemuxerReadResult MatroskaDemuxer::ParseNext() {
           const size_t end = offset + block->size;
           bytes->resize(std::max(bytes->size(), end + kPacketPadding));
           std::fill(bytes->begin() + static_cast<ptrdiff_t>(end), bytes->end(),
-                    0);
+                    uint8_t{0});
           ParseBlock(bytes, block->size, false, reference, duration,
                      discard_padding, offset);
         }
