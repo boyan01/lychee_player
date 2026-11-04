@@ -76,6 +76,16 @@ building on top of them.
   2-frame clip repeated opens with a duration of 66 ms (found
   2026-11-03). Done when such a file's duration and seeks cover every
   run, as a regression case shows.
+- **Raw elementary streams through FFmpeg** (`.h264`, `.hevc`, `.vvc`
+  from the FATE suite, Windows, 2026-11-04): they open with no duration,
+  decode nothing through Media Foundation, and a seek ends playback with
+  "seek failed" instead of being ignored. Done when such a file plays and
+  an unseekable seek leaves it playing.
+- **Seen once in the 2026-11-04 Windows sweep, unchecked**: FATE's
+  `cover_art.flac` ends at 0.186 s with FFmpeg's "invalid residual";
+  Chromium's `bear-1280x720-av_frag.mp4` ends early without FFmpeg and
+  with "audio decoding failed" with it. Done when each is explained or
+  plays to its end.
 
 ## Performance
 
@@ -189,6 +199,13 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    `MFAudioDecoder` corrects the first output's time only when less than
    one packet is missing. Seeks now read Opus from 80 ms early, which
    covers a decoder that drops the seek preroll as Android's does.
+5. **Windows**: Media Foundation opens some video it then never decodes,
+   so playback runs to the end with `decoded=0` and no error: VP9 4:2:2
+   and 4:4:4 (with alpha too), HEVC RExt 12-bit and 4:4:4 RGB
+   (ProcessInput 0xc00d3e8c), AV1 4:4:4 (FATE suite, Windows 11 26100,
+   2026-11-04). Done when `MFVideoDecoder` refuses such configurations at
+   open (profile, chroma, bit depth) or fails on the first rejected
+   input, so the track reports an error.
 
 ## Distribution and infrastructure
 
