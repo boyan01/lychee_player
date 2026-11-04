@@ -84,6 +84,8 @@ class MFVideoDecoder : public VideoDecoder {
   bool provides_samples_ = false;
   bool logged_output_ = false;
   int consecutive_errors_ = 0;
+  // The decoder has had no parameter sets since it started or flushed.
+  bool needs_parameter_sets_ = true;
   std::vector<uint8_t> annexb_;
 };
 

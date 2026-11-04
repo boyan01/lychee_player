@@ -183,6 +183,13 @@ gen offset.ts -i "$media/h264_aac.mp4" -c copy -output_ts_offset 10 -f mpegts
 # A keyframe a second, as broadcasts have (h264_aac.mp4 has one).
 gen keyframes.ts -i "$media/h264_aac.mp4" -c:v libx264 -preset veryfast -g 30 -c:a copy -f mpegts
 gen hevc10.ts -i "$media/hevc10.mp4" -c copy -f mpegts
+# An MP4 whose sync sample table leaves out its first three keyframes
+# (seen in the wild): decoding must still start at the first sample.
+gen keyframes.mp4 -i "$media/h264_aac.mp4" -t 4 -c:v libx264 -preset veryfast -g 30 \
+  -sc_threshold 0 -c:a copy
+[ -f "$media/stss_late.mp4" ] ||
+  python3 -I "$root/tool/mp4_stss_case.py" "$media/keyframes.mp4" "$media/stss_late.mp4" 3 ||
+  { rm -f "$media/stss_late.mp4"; exit 1; }
 # AC-3 (the own demuxer) and LATM AAC (FFmpeg's demuxer) in TS.
 gen ac3.ts -i "$media/h264_aac.mp4" -t 4 -c:v copy -c:a ac3 -f mpegts
 # Louder than the Dolby decoder's dialog-normalized downmix, so the
@@ -930,6 +937,8 @@ par() { run_case par "$@"; }
 seq_() { run_case seq "$@"; }
 
 par check h264          1 - -- "$media/h264_aac.mp4"
+# Every frame from the start, not only from the first keyframe stss lists.
+par expect stss-late "summary: state=ended .* decoded=120 " -- "$media/stss_late.mp4"
 par check hevc10        1 - -- "$media/hevc10.mp4"
 # VideoToolbox's VP9 hangs on the Intel Mac these run on: the player
 # gives up on it after 4 s and decodes in software.

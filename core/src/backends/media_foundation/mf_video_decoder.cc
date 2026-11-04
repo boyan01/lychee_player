@@ -312,6 +312,7 @@ bool MFVideoDecoder::Decode(const EncodedPacket& packet,
     decoder_->ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0);
     const bool ok = Drain(output);
     decoder_->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
+    needs_parameter_sets_ = true;
     return ok && !DeviceLost();
   }
   if (!packet.buffer) {
@@ -322,12 +323,18 @@ bool MFVideoDecoder::Decode(const EncodedPacket& packet,
   if (config_.codec == VideoCodec::kH264 ||
       config_.codec == VideoCodec::kHEVC) {
     // Annex B, with parameter sets again at every keyframe: a flush
-    // forgets them. VP9 frames and AV1 OBUs already have their wire format.
+    // forgets them. Also before the first sample after a start or flush,
+    // keyframe or not: some MP4s' sync sample tables (stss) leave out the
+    // first keyframes, and without parameter sets the decoder decodes
+    // nothing up to the first sample they list. VP9 frames and AV1 OBUs
+    // already have their wire format.
     annexb_.clear();
-    if (!converter_.Convert(data, size, packet.keyframe, &annexb_)) {
+    if (!converter_.Convert(
+            data, size, packet.keyframe || needs_parameter_sets_, &annexb_)) {
       LOGW("%s: malformed sample", name());
       return ++consecutive_errors_ < kMaxConsecutiveErrors;
     }
+    needs_parameter_sets_ = false;
     data = annexb_.data();
     size = annexb_.size();
   }
@@ -569,6 +576,7 @@ bool MFVideoDecoder::DeviceLost() {
 void MFVideoDecoder::Flush() {
   decoder_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
   consecutive_errors_ = 0;
+  needs_parameter_sets_ = true;
 }
 
 }  // namespace lychee

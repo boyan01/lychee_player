@@ -1,3 +1,11 @@
+## Unreleased
+
+### Fixed
+
+* Windows: H.264 and HEVC MP4s whose keyframe index leaves out the first
+  keyframes no longer show a still picture until the first keyframe it
+  lists, which could be 30 s in.
+
 ## 1.0.0-beta.6
 
 ### Breaking
