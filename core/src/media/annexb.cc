@@ -141,6 +141,102 @@ int AnnexBConverter::NalType(const std::vector<uint8_t>& nal) const {
   return hevc_ ? (nal[0] >> 1) & 0x3f : nal[0] & 0x1f;
 }
 
+AnnexBConverter::Picture AnnexBConverter::Classify(const uint8_t* data,
+                                                   size_t size) const {
+  if (length_size_ == 0) {
+    return Picture::kUnknown;
+  }
+  size_t pos = 0;
+  while (pos + length_size_ <= size) {
+    const size_t length = ReadBigEndian(data + pos, length_size_);
+    pos += length_size_;
+    if (length > size - pos) {
+      return Picture::kUnknown;
+    }
+    const Picture picture = ClassifyNal(data + pos, length, hevc_);
+    if (picture != Picture::kUnknown) {
+      return picture;
+    }
+    pos += length;
+  }
+  return Picture::kUnknown;
+}
+
+// static
+AnnexBConverter::Picture AnnexBConverter::ClassifyNal(const uint8_t* nal,
+                                                      size_t size,
+                                                      bool hevc) {
+  if (size == 0) {
+    return Picture::kUnknown;
+  }
+  if (hevc) {
+    // ITU-T H.265 table 7-1: 0-9 are trailing and leading pictures,
+    // 16-23 IRAP (BLA, IDR, CRA, and reserved IRAP types).
+    const int type = (nal[0] >> 1) & 0x3f;
+    if (type >= 16 && type <= 23) {
+      return Picture::kKeyframe;
+    }
+    return type <= 9 ? Picture::kInter : Picture::kUnknown;
+  }
+  const int type = nal[0] & 0x1f;
+  if (type == 5) {
+    return Picture::kKeyframe;
+  }
+  if (type != 1 && type != 2) {
+    return Picture::kUnknown;
+  }
+  // The slice header starts first_mb_in_slice, slice_type (both ue(v);
+  // ITU-T H.264 7.3.3), with emulation prevention bytes left out.
+  size_t byte = 1;
+  int bit = 7;
+  int zeros = 0;
+  auto next_bit = [&]() -> int {
+    if (byte >= size) {
+      return -1;
+    }
+    if (bit == 7 && zeros >= 2 && nal[byte] == 3) {
+      zeros = 0;
+      if (++byte >= size) {
+        return -1;
+      }
+    }
+    const int value = (nal[byte] >> bit) & 1;
+    if (bit-- == 0) {
+      zeros = nal[byte] == 0 ? zeros + 1 : 0;
+      bit = 7;
+      byte++;
+    }
+    return value;
+  };
+  auto ue = [&]() -> int64_t {
+    int leading = 0;
+    for (int b = next_bit(); b != 1; b = next_bit()) {
+      if (b < 0 || ++leading > 31) {
+        return -1;
+      }
+    }
+    int64_t value = 0;
+    for (int i = 0; i < leading; ++i) {
+      const int b = next_bit();
+      if (b < 0) {
+        return -1;
+      }
+      value = (value << 1) | b;
+    }
+    return (int64_t{1} << leading) - 1 + value;
+  };
+  if (ue() < 0) {
+    return Picture::kUnknown;
+  }
+  const int64_t slice_type = ue();
+  if (slice_type < 0 || slice_type > 9) {
+    return Picture::kUnknown;
+  }
+  // 2 and 7 are I, 4 and 9 SI.
+  return slice_type % 5 == 2 || slice_type % 5 == 4 ? Picture::kIntra
+                                                    : Picture::kInter;
+}
+
 // static
 void AnnexBConverter::AppendNal(const uint8_t* nal,
                                 size_t size,

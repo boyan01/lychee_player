@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "media/annexb.h"
 #include "media/data_source.h"
 #include "media/demuxer.h"
 
@@ -73,6 +74,13 @@ class Mp4Demuxer : public Demuxer {
     // samples are (no stss).
     std::vector<uint32_t> keyframes;
     bool all_sync = true;
+    // H.264 and HEVC in length-prefixed NAL units: their samples are
+    // classified by their first slice, since some files' stss lists P
+    // frames and leaves out IDR frames. Once it got one wrong, seeks
+    // check the samples rather than stss.
+    AnnexBConverter nal;
+    bool classify = false;
+    bool sync_wrong = false;
     // Bytes of the file from |run_offset|: the track's samples there, read
     // in one go when they are far from where the last read ended.
     std::vector<uint8_t> run;
@@ -190,6 +198,16 @@ class Mp4Demuxer : public Demuxer {
   // track's run of samples, reading the run first if the sample is far
   // from where the last read ended. False if it is read as usual instead.
   bool ReadFromRun(Track* track, uint8_t* data);
+  // Whether decoding can start at |track.samples[index]|, a picture of
+  // the given kind: the stream's word over the container's, which an
+  // H.264 I slice without IDR keeps. Corrects the sample's flag.
+  bool IsKeyframe(Track* track, size_t index, AnnexBConverter::Picture picture);
+  // The kind of picture |track.samples[index]| is, from its first NAL
+  // units' headers alone.
+  AnnexBConverter::Picture Probe(const Track& track, size_t index);
+  // Seeks: the keyframe to start at for |time| when stss gets them
+  // wrong, by the samples' slices; |fallback| if none is found.
+  size_t KeyframeBySlices(Track* track, int64_t time, size_t fallback);
   DemuxerReadResult Fail(int64_t at, const char* reason, const char* detail);
   bool aborted() const { return aborted_ || interrupted_; }
 

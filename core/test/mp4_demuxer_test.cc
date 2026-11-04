@@ -387,6 +387,113 @@ TEST(Mp4Demuxer, ReadsFarApartTracksInRuns) {
   EXPECT_TRUE(requests <= 4);
 }
 
+// One H.264 track of 100 ms samples: IDR slices at |idr|, P slices
+// elsewhere, and an stss listing |sync| (1-based sample numbers).
+Bytes H264File(int samples,
+               const std::vector<int>& idr,
+               const std::vector<uint32_t>& sync) {
+  // avcC with 4-byte lengths, one SPS and one PPS.
+  const Bytes avcc = {1,    0x64, 0, 0x1f, 0xff, 0xe1, 0,   2,
+                      0x67, 0xaa, 1, 0,    2,    0x68, 0xbb};
+  Bytes entry = Append(Zeros(24), Fields({{64, 2}, {48, 2}}));
+  entry = Append(Append(entry, Zeros(50)), Box("avcC", {avcc}));
+  constexpr uint32_t kSize = 6;
+  Bytes sizes = Fields({{0, 4}, {0, 4}, {static_cast<uint64_t>(samples), 4}});
+  for (int i = 0; i < samples; ++i) {
+    sizes = Append(sizes, Fields({{kSize, 4}}));
+  }
+  Bytes stss = Fields({{0, 4}, {sync.size(), 4}});
+  for (uint32_t number : sync) {
+    stss = Append(stss, Fields({{number, 4}}));
+  }
+  auto moov = [&](uint64_t chunk) {
+    Bytes stbl = Box(
+        "stbl", {Box("stsd", {Fields({{0, 4}, {1, 4}}), Box("avc1", {entry})}),
+                 Box("stts", {Fields({{0, 4},
+                                      {1, 4},
+                                      {static_cast<uint64_t>(samples), 4},
+                                      {kSampleMs, 4}})}),
+                 Box("stsc", {Fields({{0, 4},
+                                      {1, 4},
+                                      {1, 4},
+                                      {static_cast<uint64_t>(samples), 4},
+                                      {1, 4}})}),
+                 Box("stsz", {sizes}), Box("stss", {stss}),
+                 Box("stco", {Fields({{0, 4}, {1, 4}, {chunk, 4}})})});
+    return Box(
+        "moov",
+        {Box("mvhd", {Fields({{0, 12}, {kTimescale, 4}}), Zeros(84)}),
+         Box("trak",
+             {Box("tkhd", {Fields({{3, 4}, {0, 8}, {1, 4}}), Zeros(68)}),
+              Box("mdia",
+                  {Box("mdhd", {Fields({{0, 12}, {kTimescale, 4}, {0, 8}})}),
+                   Box("hdlr",
+                       {Zeros(8), Bytes{'v', 'i', 'd', 'e'}, Zeros(12)}),
+                   Box("minf", {stbl})})})});
+  };
+  const Bytes ftyp = Box("ftyp", {Bytes{'i', 's', 'o', 'm'}, Zeros(4)});
+  const uint64_t data = ftyp.size() + moov(0).size() + 8;
+  Bytes media;
+  for (int i = 0; i < samples; ++i) {
+    const bool key = std::find(idr.begin(), idr.end(), i) != idr.end();
+    // first_mb_in_slice 0, slice_type 7 (I) or 5 (P).
+    media = Append(media, key ? Bytes{0, 0, 0, 2, 0x65, 0x88}
+                              : Bytes{0, 0, 0, 2, 0x41, 0x98});
+  }
+  return Append(Append(ftyp, moov(data)), Box("mdat", {media}));
+}
+
+// Some muxers write an stss that lists P frames and leaves out the IDR
+// frames: the slices decide, for reads and for seeks.
+TEST(Mp4Demuxer, KeyframesBySlicesWhereStssIsWrong) {
+  const Bytes file = H264File(12, {0, 6}, {2, 8});
+  std::string error;
+  auto demuxer = OpenBytes(file, &error);
+  EXPECT_TRUE(demuxer != nullptr);
+  if (!demuxer) {
+    return;
+  }
+  // A seek before any read: stss's sample 2 is a P frame, so the
+  // samples are checked back from 450 ms, to the IDR at 0.
+  EncodedPacket packet;
+  EXPECT_TRUE(demuxer->Seek(450000));
+  EXPECT_TRUE(demuxer->Read(&packet) == DemuxerReadResult::kOk);
+  EXPECT_EQ(packet.pts, 0);
+  EXPECT_TRUE(packet.keyframe);
+  std::vector<int64_t> keyframes = {0};
+  while (demuxer->Read(&packet) == DemuxerReadResult::kOk) {
+    if (packet.keyframe) {
+      keyframes.push_back(packet.pts / 1000);
+    }
+  }
+  EXPECT_TRUE(keyframes == std::vector<int64_t>({0, 600}));
+  EXPECT_TRUE(demuxer->Seek(950000));
+  EXPECT_TRUE(demuxer->Read(&packet) == DemuxerReadResult::kOk);
+  EXPECT_EQ(packet.pts, 600000);
+  EXPECT_TRUE(packet.keyframe);
+
+  // Before the first sample read, the same from a fresh open.
+  demuxer = OpenBytes(file, &error);
+  EXPECT_TRUE(demuxer->Seek(950000));
+  EXPECT_TRUE(demuxer->Read(&packet) == DemuxerReadResult::kOk);
+  EXPECT_EQ(packet.pts, 600000);
+}
+
+// A correct stss is used as is.
+TEST(Mp4Demuxer, KeyframesFromStss) {
+  std::string error;
+  auto demuxer = OpenBytes(H264File(12, {0, 6}, {1, 7}), &error);
+  EXPECT_TRUE(demuxer != nullptr);
+  if (!demuxer) {
+    return;
+  }
+  EncodedPacket packet;
+  EXPECT_TRUE(demuxer->Seek(950000));
+  EXPECT_TRUE(demuxer->Read(&packet) == DemuxerReadResult::kOk);
+  EXPECT_EQ(packet.pts, 600000);
+  EXPECT_TRUE(packet.keyframe);
+}
+
 // A trun of four billion samples taking no bytes of its table.
 TEST(Mp4Demuxer, HugeDefaultSampleCount) {
   Bytes file = FragmentedFile(1, 0, true);

@@ -2,9 +2,11 @@
 
 ### Fixed
 
-* Windows: H.264 and HEVC MP4s whose keyframe index leaves out the first
-  keyframes no longer show a still picture until the first keyframe it
-  lists, which could be 30 s in.
+* H.264 and HEVC MP4s whose keyframe index is wrong (it lists P frames
+  or leaves out keyframes) now play from the start and seek to real
+  keyframes without FFmpeg (the plugin's default on Windows). On Windows
+  they showed a still picture until the first keyframe listed, up to
+  30 s in, and seeks could lose hardware decoding.
 
 ## 1.0.0-beta.6
 

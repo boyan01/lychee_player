@@ -4,6 +4,9 @@
 
 #include "test.h"
 
+// Test registration allocates before main, as all TEST declarations do.
+// NOLINTBEGIN(bugprone-throwing-static-initialization)
+
 namespace lychee {
 namespace {
 
@@ -86,5 +89,53 @@ TEST(AnnexBConverter, RejectsOtherCodecs) {
   EXPECT_TRUE(!converter.Initialize(config));
 }
 
+using Picture = AnnexBConverter::Picture;
+
+TEST(AnnexBConverter, ClassifiesH264Pictures) {
+  AnnexBConverter converter;
+  EXPECT_TRUE(converter.Initialize(H264(kAvcC)));
+  // An SEI, then an IDR slice.
+  const std::vector<uint8_t> idr = {0, 0, 0, 2, 0x06, 0x05,
+                                    0, 0, 0, 2, 0x65, 0x88};
+  EXPECT_TRUE(converter.Classify(idr.data(), idr.size()) == Picture::kKeyframe);
+  // Non-IDR slices: first_mb_in_slice 0, then slice_type 7 (I), 0 (P)
+  // and 1 (B).
+  const std::vector<uint8_t> intra = {0, 0, 0, 2, 0x41, 0x88};
+  EXPECT_TRUE(converter.Classify(intra.data(), intra.size()) ==
+              Picture::kIntra);
+  const std::vector<uint8_t> p = {0, 0, 0, 2, 0x41, 0xc0};
+  EXPECT_TRUE(converter.Classify(p.data(), p.size()) == Picture::kInter);
+  const std::vector<uint8_t> b = {0, 0, 0, 2, 0x01, 0xa0};
+  EXPECT_TRUE(converter.Classify(b.data(), b.size()) == Picture::kInter);
+  // No slice, and a slice header cut short.
+  const std::vector<uint8_t> sei = {0, 0, 0, 2, 0x06, 0x05};
+  EXPECT_TRUE(converter.Classify(sei.data(), sei.size()) == Picture::kUnknown);
+  const std::vector<uint8_t> cut = {0, 0, 0, 2, 0x41, 0x00};
+  EXPECT_TRUE(converter.Classify(cut.data(), cut.size()) == Picture::kUnknown);
+}
+
+TEST(AnnexBConverter, ClassifiesAcrossEmulationPrevention) {
+  // first_mb_in_slice with 23 leading zero bits: its RBSP starts
+  // 00 00 01, written 00 00 03 01. Then slice_type 2 (I).
+  const uint8_t slice[] = {0x41, 0, 0, 3, 1, 0xff, 0xff, 0xfe, 0xe0};
+  EXPECT_TRUE(AnnexBConverter::ClassifyNal(slice, sizeof(slice), false) ==
+              Picture::kIntra);
+}
+
+TEST(AnnexBConverter, ClassifiesHevcPictures) {
+  // IDR_W_RADL and CRA are IRAP; TRAIL_R is not; VPS and SEI are no
+  // slices.
+  const uint8_t idr[] = {0x26, 0x01};
+  const uint8_t cra[] = {0x2a, 0x01};
+  const uint8_t trail[] = {0x02, 0x01};
+  const uint8_t vps[] = {0x40, 0x01};
+  EXPECT_TRUE(AnnexBConverter::ClassifyNal(idr, 2, true) == Picture::kKeyframe);
+  EXPECT_TRUE(AnnexBConverter::ClassifyNal(cra, 2, true) == Picture::kKeyframe);
+  EXPECT_TRUE(AnnexBConverter::ClassifyNal(trail, 2, true) == Picture::kInter);
+  EXPECT_TRUE(AnnexBConverter::ClassifyNal(vps, 2, true) == Picture::kUnknown);
+}
+
 }  // namespace
 }  // namespace lychee
+
+// NOLINTEND(bugprone-throwing-static-initialization)

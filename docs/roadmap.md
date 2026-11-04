@@ -77,17 +77,6 @@ building on top of them.
   2026-11-03). Done when such a file's duration and seeks cover every
   run, as a regression case shows.
 
-- **MP4 sync sample tables that list non-keyframes**: some files'
-  `stss` names samples that are not keyframes (`good_words.mp4` on the
-  Windows PC: entries 173, 302, 690 among real I frames at 1, 151, 301),
-  and the core's MP4 demuxer seeks to them. Media Foundation then starts
-  decoding at a P or B frame; on the PC this ended in "video processor
-  timed out", a lost decoder and, the second time, software decoding
-  (found 2026-11-04). FFmpeg's demuxer is not affected. Done when a
-  seek in such a file starts at a real keyframe (check the sample's NAL
-  types, or fall back to the previous listed one that is), as a
-  regression case with a doctored `stss` shows.
-
 ## Performance
 
 What the review of 2026-11-02 found and left, by expected gain.

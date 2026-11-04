@@ -1010,6 +1010,9 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
     // FFmpeg reads tkhd's enabled flag as the default disposition.
     media_info_.default_subtitle_stream = info.index;
   }
+  if (info.type == MediaType::kVideo && track.nal.Initialize(info.video)) {
+    track.classify = track.nal.length_size() > 0;
+  }
   media_info_.streams.push_back(std::move(info));
   tracks_.push_back(std::move(track));
   return true;
@@ -2128,7 +2131,11 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
     packet->pts = sample.pts();
     packet->dts = sample.dts;
     packet->duration = sample.duration;
-    packet->keyframe = sample.sync;
+    packet->keyframe =
+        track.classify
+            ? IsKeyframe(&track, track.next,
+                         track.nal.Classify(buffer->data(), sample.size))
+            : sample.sync;
     packet->end_of_stream = false;
     packet->boundary = false;
     packet->buffer = std::move(buffer);
@@ -2217,6 +2224,97 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
   }
 }
 
+bool Mp4Demuxer::IsKeyframe(Track* track,
+                            size_t index,
+                            AnnexBConverter::Picture picture) {
+  // As Chromium's media/formats/mp4/mp4_stream_parser.cc, the stream's
+  // word over the container's: some muxers write stss (or flag every
+  // sample) without looking at the pictures.
+  Sample& sample = track->samples[index];
+  bool keyframe = sample.sync;
+  if (picture == AnnexBConverter::Picture::kKeyframe) {
+    keyframe = true;
+  } else if (picture == AnnexBConverter::Picture::kInter) {
+    keyframe = false;
+  }
+  if (keyframe != static_cast<bool>(sample.sync)) {
+    if (!track->sync_wrong) {
+      LOGW(
+          "the video sample at %.3f s is %sa keyframe, though the file "
+          "says otherwise: going by its slices",
+          static_cast<double>(sample.pts()) / kMicrosPerSecond,
+          keyframe ? "" : "not ");
+    }
+    track->sync_wrong = true;
+    sample.sync = keyframe;
+  }
+  return keyframe;
+}
+
+AnnexBConverter::Picture Mp4Demuxer::Probe(const Track& track, size_t index) {
+  using Picture = AnnexBConverter::Picture;
+  const Sample& sample = track.samples[index];
+  const auto length_size = static_cast<size_t>(track.nal.length_size());
+  // A NAL unit's header and the start of a slice header.
+  constexpr size_t kHead = 8;
+  uint64_t pos = 0;
+  // Delimiters, parameter sets and SEI may come first.
+  for (int unit = 0; unit < 16 && pos + length_size < sample.size; ++unit) {
+    uint8_t head[4 + kHead];
+    const auto want = static_cast<size_t>(
+        std::min<uint64_t>(length_size + kHead, sample.size - pos));
+    if (ReadFully(static_cast<int64_t>(sample.offset + pos), head, want) !=
+        LoadResult::kLoaded) {
+      return Picture::kUnknown;
+    }
+    uint64_t length = 0;
+    for (size_t i = 0; i < length_size; ++i) {
+      length = (length << 8) | head[i];
+    }
+    if (length == 0 || length > sample.size - pos - length_size) {
+      return Picture::kUnknown;
+    }
+    const Picture picture = AnnexBConverter::ClassifyNal(
+        head + length_size,
+        static_cast<size_t>(std::min<uint64_t>(length, want - length_size)),
+        track.nal.hevc());
+    if (picture != Picture::kUnknown) {
+      return picture;
+    }
+    pos += length_size + length;
+  }
+  return Picture::kUnknown;
+}
+
+size_t Mp4Demuxer::KeyframeBySlices(Track* track,
+                                    int64_t time,
+                                    size_t fallback) {
+  using Picture = AnnexBConverter::Picture;
+  const std::vector<Sample>& samples = track->samples;
+  // Back in decode order from the last sample decoded by |time|, a read
+  // or two of a few bytes per sample, for up to a long GOP.
+  constexpr size_t kMaxProbes = 2048;
+  auto end = static_cast<size_t>(
+      std::partition_point(samples.begin(), samples.end(),
+                           [time](const Sample& s) { return s.dts <= time; }) -
+      samples.begin());
+  for (size_t probes = 0; end > 0 && probes < kMaxProbes; ++probes) {
+    const size_t j = --end;
+    if (samples[j].pts() > time) {
+      continue;
+    }
+    const Picture picture = Probe(*track, j);
+    if (aborted()) {
+      return fallback;
+    }
+    if (picture == Picture::kKeyframe || picture == Picture::kIntra) {
+      IsKeyframe(track, j, picture);
+      return j;
+    }
+  }
+  return end == 0 ? 0 : fallback;
+}
+
 bool Mp4Demuxer::Seek(int64_t time) {
   subtitle_packets_.clear();
   interrupted_ = false;
@@ -2233,7 +2331,8 @@ bool Mp4Demuxer::Seek(int64_t time) {
     if (media_info_.streams[i].type != MediaType::kVideo) {
       continue;
     }
-    const std::vector<Sample>& samples = tracks_[i].samples;
+    Track& track = tracks_[i];
+    const std::vector<Sample>& samples = track.samples;
     // The last keyframe at or before |time|, else the first: keyframes
     // are shown in decode order, so a binary search finds it.
     size_t keyframe = samples.size();
@@ -2251,7 +2350,17 @@ bool Mp4Demuxer::Seek(int64_t time) {
           [&](uint32_t j) { return samples[j].pts() <= time; });
       keyframe = after == keyframes.begin() ? keyframes.front() : *(after - 1);
     }
-    tracks_[i].next = keyframe;
+    if (track.classify && keyframe < samples.size()) {
+      // A P frame where stss says a keyframe is means the table is wrong
+      // (the sample is read next anyway); then the slices decide.
+      if (!track.sync_wrong) {
+        IsKeyframe(&track, keyframe, Probe(track, keyframe));
+      }
+      if (track.sync_wrong) {
+        keyframe = KeyframeBySlices(&track, time, keyframe);
+      }
+    }
+    track.next = keyframe;
     if (target == kNoTimestamp && tracks_[i].enabled &&
         keyframe < samples.size()) {
       target = samples[keyframe].pts();

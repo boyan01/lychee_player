@@ -33,6 +33,24 @@ class AnnexBConverter {
   }
   // NAL unit type of |nal| (first byte(s) of a NAL unit).
   int NalType(const std::vector<uint8_t>& nal) const;
+
+  // What a picture's first slice says about starting to decode at it.
+  enum class Picture {
+    // No slice, or one too short or malformed to tell.
+    kUnknown,
+    // IDR (H.264) or IRAP (HEVC): decoding can start here.
+    kKeyframe,
+    // An H.264 I slice without IDR: an open GOP may start here.
+    kIntra,
+    // P or B slices, or an HEVC picture that is not IRAP.
+    kInter,
+  };
+  // Classifies a sample as Convert() takes it. Annex B samples are
+  // kUnknown: only length-prefixed NAL units are walked.
+  Picture Classify(const uint8_t* data, size_t size) const;
+  // The same for the first |size| bytes of one NAL unit (its header and
+  // a few bytes after it); kUnknown for units that are not slices.
+  static Picture ClassifyNal(const uint8_t* nal, size_t size, bool hevc);
   bool hevc() const { return hevc_; }
   // Bytes of the NAL length prefix of samples; 0 if they are Annex B.
   int length_size() const { return length_size_; }
