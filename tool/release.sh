@@ -91,10 +91,14 @@ die() { echo "release.sh: $*" >&2; exit 1; }
 sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
 version() { sed -nE 's/^version: (.+)$/\1/p' "$pubspec"; }
 
-# download URL FILE SHA256
+# download URL FILE SHA256 [FALLBACK_URL]
 download() {
   [ -f "$2" ] && [ "$(sha256 "$2")" = "$3" ] && return 0
-  curl -fsSL --retry 3 -o "$2.part" "$1" || die "cannot download $1"
+  if ! curl -fsSL --connect-timeout 20 --retry 3 -o "$2.part" "$1"; then
+    [ -n "${4:-}" ] || die "cannot download $1"
+    echo "release.sh: cannot download $1, trying $4" >&2
+    curl -fsSL --retry 3 -o "$2.part" "$4" || die "cannot download $1 or $4"
+  fi
   [ "$(sha256 "$2.part")" = "$3" ] || die "$1 has SHA-256 $(sha256 "$2.part"), not $3"
   mv "$2.part" "$2"
 }
@@ -123,11 +127,24 @@ cmd_version() {
   rm "$pubspec.bak"
 }
 
+# The last release carries the same source tarballs (cmd_sources), byte
+# for byte, so it stands in when ffmpeg.org or VideoLAN is down. A
+# version no release has shipped yet still needs the upstream server.
+released_source() {
+  python3 -I -c '
+import json, sys
+m = json.load(open(sys.argv[1]))
+print("/".join([m["url"], m["tag"], sys.argv[2]]))
+' "$manifest" "$1"
+}
+
 cmd_sources() {
-  local dir="${1:?dir}"
+  local dir="${1:?dir}" f
   mkdir -p "$dir"
-  download "$ffmpeg_url" "$dir/ffmpeg-$ffmpeg_version.tar.xz" "$ffmpeg_sha256"
-  download "$dav1d_url" "$dir/dav1d-$dav1d_version.tar.xz" "$dav1d_sha256"
+  f="ffmpeg-$ffmpeg_version.tar.xz"
+  download "$ffmpeg_url" "$dir/$f" "$ffmpeg_sha256" "$(released_source "$f")"
+  f="dav1d-$dav1d_version.tar.xz"
+  download "$dav1d_url" "$dir/$f" "$dav1d_sha256" "$(released_source "$f")"
   cp "$root/tool/patches/ffmpeg-hls-subtitle-buffers.patch" \
     "$root/tool/patches/ffmpeg-hls-https-io-open.patch" "$dir/"
 }

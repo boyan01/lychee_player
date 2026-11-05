@@ -21,7 +21,9 @@ and pushes the commit `Release VERSION` and the tag
 the package on pub.dev, then both Android AARs on Maven Central.
 It runs no regression and builds no fresh app: CI has
 checked the commit, and `tool/release.sh check` is for changes to
-packaging (AGENTS.md). Each step is a `tool/release.sh` command and runs
+packaging (AGENTS.md). The FFmpeg and dav1d source tarballs come from
+ffmpeg.org and VideoLAN, or, when those are down, from the release
+`flutter/prebuilt.json` pins, which carries the same files. Each step is a `tool/release.sh` command and runs
 locally too:
 
 ```sh
