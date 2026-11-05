@@ -212,6 +212,38 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    2026-11-04). Done when `MFVideoDecoder` refuses such configurations at
    open (profile, chroma, bit depth) or fails on the first rejected
    input, so the track reports an error.
+6. **Audio-only containers** (on Apple, Windows and Android):
+   `ProbingDemuxer` knows only MP4, Matroska/WebM, MPEG-TS and HLS, so
+   without FFmpeg a plain `.mp3`, `.flac`, `.wav`, `.aac` (ADTS) or
+   `.ogg`/`.opus` file does not open, though every platform already
+   decodes those codecs. In that order: MP3 (ID3v2 skipped, frame sync,
+   Xing/VBRI or a byte-rate estimate for seeking), FLAC (STREAMINFO,
+   SEEKTABLE, frame sync), WAV (RIFF `fmt `/`data`, WAVE_FORMAT_EXTENSIBLE,
+   PCM and float), ADTS (reuse the TS demuxer's ADTS parsing) and Ogg
+   (pages to packets; Opus, Vorbis and FLAC mappings; granule bisection
+   for seeking). Each one is an own demuxer with a fuzz target. Done when
+   `NO_FFMPEG=1 tool/regression.sh` plays and seeks each of them on
+   macOS, Windows and Android (`tool/android_check.sh`).
+7. **ASF (WMV/WMA), Windows only**: no demuxer reads ASF, and neither
+   `MFVideoDecoder` nor `MFAudioDecoder` maps WMV or WMA. Use the system
+   for all of it (decided 2026-11-05): `IMFASFContentInfo`,
+   `IMFASFSplitter` and `IMFASFIndexer` (seeking) over the library's
+   `DataSource`, and Windows' own WMV (WMV1/2/3, WVC1) and WMA (v2, 9,
+   Pro, Lossless) MFTs, with the codec private data (`MF_MT_USER_DATA`,
+   the `WAVEFORMATEX` extra bytes). No own ASF parser and nothing on
+   other platforms, which have no system WMV decoder. The shipped FFmpeg
+   build has no `asf` demuxer or WMV/WMA decoders either, so Windows
+   routes ASF to this path with FFmpeg too, as it does TS and HLS. Done
+   when a WMV2/WMA2 file `tool/regression.sh` generates (Homebrew FFmpeg
+   encodes both) plays and seeks on Windows with and without
+   `NO_FFMPEG=1`, and a WMV3 or VC-1 file plays in `examples/glfw`.
+8. **Other legacy video containers**, after the above: FLV (H.264 and
+   AAC, which every platform decodes), AVI (RIFF with `idx1` and OpenDML
+   indexes; much of it is MPEG-4 Part 2, which the system decoders
+   barely cover, so it opens only where the codec does) and MPEG-PS
+   (`.mpg`, `.vob`; MPEG-2 video only where the platform decodes it).
+   Done when each plays and seeks with `NO_FFMPEG=1` on the platforms
+   that decode its common codecs.
 
 ## Distribution and infrastructure
 
