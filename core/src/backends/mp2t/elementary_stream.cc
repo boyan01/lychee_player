@@ -2,6 +2,8 @@
 
 #include <vector>
 
+#include "media/bit_reader.h"
+
 namespace lychee {
 
 namespace {
@@ -9,94 +11,15 @@ namespace {
 // An SPS is a few dozen bytes; more is never needed for the fields read.
 constexpr size_t kMaxSpsBytes = 4096;
 
-// Bits of an RBSP (emulation prevention bytes removed), MSB first. Reads
-// past the end yield zeros and clear ok().
-class BitReader {
- public:
-  BitReader(const uint8_t* data, size_t size) : data_(data), size_(size) {}
-
-  bool ok() const { return ok_; }
-
-  uint32_t Bits(int count) {
-    uint32_t value = 0;
-    for (int i = 0; i < count; ++i) {
-      if (position_ >= size_ * 8) {
-        ok_ = false;
-        return 0;
-      }
-      value =
-          (value << 1) | ((data_[position_ / 8] >> (7 - position_ % 8)) & 1);
-      ++position_;
-    }
-    return value;
-  }
-  bool Flag() { return Bits(1) != 0; }
-  void Skip(int count) {
-    for (; count > 32; count -= 32) {
-      Bits(32);
-    }
-    Bits(count);
-  }
-  // Exp-Golomb, ue(v). Values above 2^31 are malformed here.
-  uint32_t Ue() {
-    int zeros = 0;
-    while (!Flag()) {
-      if (!ok_ || ++zeros > 31) {
-        ok_ = false;
-        return 0;
-      }
-    }
-    return (1u << zeros) - 1 + Bits(zeros);
-  }
-  int32_t Se() {
-    uint32_t value = Ue();
-    return value & 1 ? static_cast<int32_t>((value + 1) / 2)
-                     : -static_cast<int32_t>(value / 2);
-  }
-
- private:
-  const uint8_t* data_;
-  size_t size_;
-  size_t position_ = 0;
-  bool ok_ = true;
-};
-
-// The NAL unit's payload without emulation prevention bytes (00 00 03).
-std::vector<uint8_t> Rbsp(const uint8_t* nal, size_t size) {
-  std::vector<uint8_t> rbsp;
-  rbsp.reserve(size < kMaxSpsBytes ? size : kMaxSpsBytes);
-  int zeros = 0;
-  for (size_t i = 0; i < size && rbsp.size() < kMaxSpsBytes; ++i) {
-    if (zeros >= 2 && nal[i] == 3) {
-      zeros = 0;
-      continue;
-    }
-    zeros = nal[i] == 0 ? zeros + 1 : 0;
-    rbsp.push_back(nal[i]);
-  }
-  return rbsp;
-}
-
 // Table E-1 of ITU-T H.264 (and H.265), aspect_ratio_idc 1 to 16.
 constexpr int kSampleAspectRatios[16][2] = {
     {1, 1},    {12, 11}, {10, 11}, {16, 11}, {40, 33}, {24, 11},
     {20, 11},  {32, 11}, {80, 33}, {18, 11}, {15, 11}, {64, 33},
     {160, 99}, {4, 3},   {3, 2},   {2, 1}};
 
-void SkipScalingList(BitReader* reader, int size) {
-  int last = 8;
-  int next = 8;
-  for (int i = 0; i < size && reader->ok(); ++i) {
-    if (next != 0) {
-      next = (last + reader->Se() + 256) % 256;
-    }
-    last = next == 0 ? last : next;
-  }
-}
-
 // ITU-T H.264 7.3.2.1.1, up to the VUI's colour description.
 bool ParseH264Sps(const uint8_t* nal, size_t size, AccessUnitInfo* info) {
-  std::vector<uint8_t> rbsp = Rbsp(nal + 1, size - 1);
+  std::vector<uint8_t> rbsp = Rbsp(nal + 1, size - 1, kMaxSpsBytes);
   BitReader reader(rbsp.data(), rbsp.size());
   const uint32_t profile = reader.Bits(8);
   reader.Skip(16);  // constraint flags, level_idc
@@ -131,7 +54,7 @@ bool ParseH264Sps(const uint8_t* nal, size_t size, AccessUnitInfo* info) {
         const int lists = chroma_format == 3 ? 12 : 8;
         for (int i = 0; i < lists; ++i) {
           if (reader.Flag()) {
-            SkipScalingList(&reader, i < 6 ? 16 : 64);
+            SkipH264ScalingList(&reader, i < 6 ? 16 : 64);
           }
         }
       }
@@ -236,7 +159,7 @@ bool ParseHevcSps(const uint8_t* nal, size_t size, AccessUnitInfo* info) {
   if (size < 3) {
     return false;
   }
-  std::vector<uint8_t> rbsp = Rbsp(nal + 2, size - 2);
+  std::vector<uint8_t> rbsp = Rbsp(nal + 2, size - 2, kMaxSpsBytes);
   BitReader reader(rbsp.data(), rbsp.size());
   reader.Skip(4);  // sps_video_parameter_set_id
   const uint32_t sub_layers = reader.Bits(3);
