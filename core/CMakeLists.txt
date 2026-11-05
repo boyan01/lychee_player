@@ -37,6 +37,7 @@ set(LYCHEE_SOURCES
   src/media/annexb.cc
   src/media/buffer_pool.cc
   src/media/codec.cc
+  src/media/decode_order_timestamps.cc
   src/media/cpu_frame_converter.cc
   src/media/factory.cc
   src/media/null_audio_sink.cc

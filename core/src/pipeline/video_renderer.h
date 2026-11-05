@@ -11,6 +11,7 @@
 #include <thread>
 #include <vector>
 
+#include "media/decode_order_timestamps.h"
 #include "media/frame_converter.h"
 #include "media/video_decoder.h"
 #include "media/video_device.h"
@@ -155,6 +156,10 @@ class VideoRenderer {
   void DecodeLoop();
   // Decodes |packet|, falling back to the next decoder if this one fails
   // before its first frame. |waited| accumulates time spent in OnFrame().
+  // Decodes the packets |timestamps_| releases for |packet|.
+  bool DecodeTimed(const std::shared_ptr<EncodedPacket>& packet,
+                   uint64_t generation,
+                   int64_t* waited);
   bool Decode(const std::shared_ptr<EncodedPacket>& packet,
               uint64_t generation,
               int64_t* waited);
@@ -182,6 +187,9 @@ class VideoRenderer {
   std::vector<std::unique_ptr<VideoDecoder>> candidates_;
   bool decoder_has_output_ = false;
   std::vector<std::shared_ptr<EncodedPacket>> unconfirmed_packets_;
+  // Decode thread only: display times for streams that have only decode
+  // times.
+  DecodeOrderTimestamps timestamps_;
   std::unique_ptr<FrameConverter> converter_;
   std::thread thread_;
   bool logged_unsupported_frame_ = false;

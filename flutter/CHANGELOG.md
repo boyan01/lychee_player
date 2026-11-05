@@ -2,6 +2,9 @@
 
 ### Fixed
 
+* H.264 MP4s with B-frames whose muxer left out their display times
+  (no `ctts` box) no longer jump back and forth between frames or drop a
+  frame every keyframe interval.
 * H.264 and HEVC MP4s whose keyframe index is wrong (it lists P frames
   or leaves out keyframes) now play from the start and seek to real
   keyframes without FFmpeg (the plugin's default on Windows). On Windows

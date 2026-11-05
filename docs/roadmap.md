@@ -81,6 +81,12 @@ building on top of them.
   decode nothing through Media Foundation, and a seek ends playback with
   "seek failed" instead of being ignored. Done when such a file plays and
   an unseekable seek leaves it playing.
+- **HEVC, and H.264 with POC type 1, without composition offsets**:
+  MP4s with B-frames and no `ctts` get display times from the pictures
+  (`DecodeOrderTimestamps`) only for H.264 with POC type 0 or 2; the
+  others keep decode times and jump back and forth like H.264 did. None
+  has been seen. Done when an HEVC `tool/mp4_ctts_case.py` file passes a
+  `frames` case.
 - **Seen once in the 2026-11-04 Windows sweep, unchecked**: FATE's
   `cover_art.flac` ends at 0.186 s with FFmpeg's "invalid residual";
   Chromium's `bear-1280x720-av_frag.mp4` ends early without FFmpeg and

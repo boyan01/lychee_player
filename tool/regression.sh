@@ -190,6 +190,11 @@ gen keyframes.mp4 -i "$media/h264_aac.mp4" -t 4 -c:v libx264 -preset veryfast -g
 [ -f "$media/stss_late.mp4" ] ||
   python3 -I "$root/tool/mp4_stss_case.py" "$media/keyframes.mp4" "$media/stss_late.mp4" 3 ||
   { rm -f "$media/stss_late.mp4"; exit 1; }
+# An MP4 with B-frames and no composition offsets (ctts), also seen in the
+# wild: the player has to work out display times from the pictures.
+[ -f "$media/no_ctts.mp4" ] ||
+  python3 -I "$root/tool/mp4_ctts_case.py" "$media/keyframes.mp4" "$media/no_ctts.mp4" ||
+  { rm -f "$media/no_ctts.mp4"; exit 1; }
 # AC-3 (the own demuxer) and LATM AAC (FFmpeg's demuxer) in TS.
 gen ac3.ts -i "$media/h264_aac.mp4" -t 4 -c:v copy -c:a ac3 -f mpegts
 # Louder than the Dolby decoder's dialog-normalized downmix, so the
@@ -785,7 +790,8 @@ expect() {
 # frames NAME MEDIA SEC... -- CLI_ARGS: plays MEDIA, writes the frame on
 # screen at each SEC (--frame-ppm, into $build/frames/NAME) and passes if
 # tool/frame_check.py finds each to be MEDIA's frame at its pts, by
-# pixels. self_test=1 also checks that wrong frames fail.
+# pixels (ref=FILE: FILE's frame instead). self_test=1 also checks that
+# wrong frames fail.
 frames() {
   local name="$1" file="$2"; shift 2
   local dir="$build/frames/$name" snapshots=() out status checked problems="" start=$SECONDS
@@ -800,7 +806,7 @@ frames() {
   [ "$status" = 0 ] || problems+=" exit=$status"
   grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
   checked="$(grep '^snapshot ' <<<"$out" |
-    python3 -I "$root/tool/frame_check.py" "$file" --log - ${self_test:+--self-test} 2>&1)" ||
+    python3 -I "$root/tool/frame_check.py" "${ref:-$file}" --log - ${self_test:+--self-test} 2>&1)" ||
     problems+=" pixels"
   if [ -z "$problems" ]; then
     echo "PASS $name ($((SECONDS - start))s)"
@@ -1077,6 +1083,10 @@ par frames frame-sd "$media/rendition_640x360.ts" 1 -- --seconds 1.1
 par frames frame-sd-sw "$media/rendition_640x360.ts" 1 -- --no-hw --cpu --seconds 1.1
 par frames frame-bt601 "$media/h264_bt601.mp4" 1 -- --seconds 1.1
 par frames frame-bt601-sw "$media/h264_bt601.mp4" 1 -- --no-hw --cpu --seconds 1.1
+# Display times from the pictures, also after a seek.
+ref="$media/keyframes.mp4" par frames frame-no-ctts "$media/no_ctts.mp4" 1 2.5 -- --seconds 2.6
+ref="$media/keyframes.mp4" par frames frame-no-ctts-sw "$media/no_ctts.mp4" 1 -- --no-hw --cpu --seconds 1.1
+ref="$media/keyframes.mp4" par frames frame-no-ctts-seek "$media/no_ctts.mp4" 0.5 -- --seek 2.2 --seconds 0.6
 if [ "$(uname)" = Darwin ]; then
   par frames frame-h264-native "$media/h264_aac.mp4" 1 -- --native --seconds 1.1
   par frames frame-hevc10-native "$media/hevc10.mp4" 1 -- --native --seconds 1.1

@@ -78,6 +78,7 @@ bool VideoRenderer::Initialize(const VideoConfig& config,
                                std::string* error) {
   queue_ = queue;
   config_ = config;
+  timestamps_.Initialize(config);
   device_ = device;
   candidates_ =
       CreateVideoDecoders(allow_hardware, accepted_storage_, device, surface,
@@ -191,6 +192,7 @@ void VideoRenderer::DecodeLoop() {
       decoder_generation = entry.generation;
       flush = false;
       unconfirmed_packets_.clear();
+      timestamps_.Reset();
     }
     uint64_t generation = entry.generation;
     // A loop: drain the frames of this pass, then start afresh.
@@ -209,7 +211,7 @@ void VideoRenderer::DecodeLoop() {
       condition_.wait(lock, [this] { return abandoned_; });
       simulated = true;
     }
-    bool ok = !simulated && Decode(entry.packet, generation, &waited);
+    bool ok = !simulated && DecodeTimed(entry.packet, generation, &waited);
     in_decoder_since_ = 0;
     const int64_t decode_time = MonotonicMicros() - decode_start - waited;
     std::lock_guard<std::mutex> lock(mutex_);
@@ -250,6 +252,22 @@ void VideoRenderer::DecodeLoop() {
   if (release) {
     delete this;
   }
+}
+
+bool VideoRenderer::DecodeTimed(const std::shared_ptr<EncodedPacket>& packet,
+                                uint64_t generation,
+                                int64_t* waited) {
+  if (packet->end_of_stream) {
+    timestamps_.Drain();
+  } else {
+    timestamps_.Push(packet);
+  }
+  while (std::shared_ptr<EncodedPacket> timed = timestamps_.Pop()) {
+    if (!Decode(timed, generation, waited)) {
+      return false;
+    }
+  }
+  return !packet->end_of_stream || Decode(packet, generation, waited);
 }
 
 bool VideoRenderer::Decode(const std::shared_ptr<EncodedPacket>& packet,
