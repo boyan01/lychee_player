@@ -4,6 +4,11 @@
 
 #include <utility>
 
+#include "backends/audio/adts_demuxer.h"
+#include "backends/audio/flac_demuxer.h"
+#include "backends/audio/mp3_demuxer.h"
+#include "backends/audio/ogg_demuxer.h"
+#include "backends/audio/wav_demuxer.h"
 #include "backends/hls/hls_demuxer.h"
 #include "backends/matroska/matroska_demuxer.h"
 #include "backends/mp2t/ts_demuxer.h"
@@ -136,6 +141,36 @@ bool ProbingDemuxer::Open(const std::string& url, std::string* error) {
     auto matroska = std::make_unique<MatroskaDemuxer>();
     MatroskaDemuxer* opening = matroska.get();
     Adopt(std::move(matroska));
+    return opening->Open(std::move(source), error);
+  }
+  if (Mp3Demuxer::Detect(head, filled)) {
+    auto demuxer = std::make_unique<Mp3Demuxer>();
+    Mp3Demuxer* opening = demuxer.get();
+    Adopt(std::move(demuxer));
+    return opening->Open(std::move(source), error);
+  }
+  if (FlacDemuxer::Detect(head, filled)) {
+    auto demuxer = std::make_unique<FlacDemuxer>();
+    FlacDemuxer* opening = demuxer.get();
+    Adopt(std::move(demuxer));
+    return opening->Open(std::move(source), error);
+  }
+  if (WavDemuxer::Detect(head, filled)) {
+    auto demuxer = std::make_unique<WavDemuxer>();
+    WavDemuxer* opening = demuxer.get();
+    Adopt(std::move(demuxer));
+    return opening->Open(std::move(source), error);
+  }
+  if (AdtsDemuxer::Detect(head, filled)) {
+    auto demuxer = std::make_unique<AdtsDemuxer>();
+    AdtsDemuxer* opening = demuxer.get();
+    Adopt(std::move(demuxer));
+    return opening->Open(std::move(source), error);
+  }
+  if (OggDemuxer::Detect(head, filled)) {
+    auto demuxer = std::make_unique<OggDemuxer>();
+    OggDemuxer* opening = demuxer.get();
+    Adopt(std::move(demuxer));
     return opening->Open(std::move(source), error);
   }
   // Everything else is MP4's to open or to name the error for.

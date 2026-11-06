@@ -13,6 +13,8 @@
 #    onset clips of tool/regression.sh's av-sync cases on the virtual
 #    clock, from the start and after a seek, and their tone must start
 #    at 1 s.
+#    Raw MP3, FLAC, PCM/float WAV, ADTS and Ogg play and seek too.
+#    LYCHEE_AUDIO_ONLY=1 runs the CLI checks without an APK.
 # 3. The SDK's example (sdk/android/example, already built with
 #    `sdk/android/gradlew -p sdk/android :example:assembleDebug`) plays
 #    h264_aac.mp4 and rotated.mp4 from MEDIA_DIR (default
@@ -39,14 +41,16 @@ sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 ndk="${ANDROID_NDK_HOME:-$(ls -d "$sdk"/ndk/* 2>/dev/null | sort -V | tail -1)}"
 apk="${LYCHEE_ANDROID_APK:-$root/sdk/android/example/build/outputs/apk/debug/example-debug.apk}"
 ffmpeg_extension="${LYCHEE_FFMPEG_EXTENSION:-0}"
+audio_only="${LYCHEE_AUDIO_ONLY:-0}"
 dir=/data/local/tmp/lychee-check
 port=8765
 
 die() { echo "android_check.sh: $*" >&2; exit 1; }
 [ -d "$ndk" ] || die "no NDK; set ANDROID_NDK_HOME"
-[ -f "$apk" ] || die "no $apk; run sdk/android/gradlew -p sdk/android :example:assembleDebug"
+[ "$audio_only" = 1 ] || [ -f "$apk" ] || die "no $apk; run sdk/android/gradlew -p sdk/android :example:assembleDebug"
 onsets="onset_opus.webm onset_opus.mp4 onset_mp3.mp4 onset_aac.m4a"
-for f in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8 $onsets; do
+audio_containers="audio_only.mp3 audio_vbr.mp3 audio_only.flac audio_pcm.wav audio_float.wav audio_only.aac audio_opus.ogg audio_vorbis.ogg audio_flac.ogg"
+for f in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8 $onsets $audio_containers; do
   [ -f "$media/$f" ] || die "no $media/$f; run MEDIA_ONLY=1 tool/regression.sh"
 done
 
@@ -58,11 +62,11 @@ case "$abi" in
   *) die "unsupported ABI $abi" ;;
 esac
 ffmpeg="$root/third_party/ffmpeg/android-$abi"
-[ -d "$ffmpeg/lib" ] || die "no $ffmpeg; run tool/build_ffmpeg.sh android-$abi"
+[ "$audio_only" = 1 ] || [ -d "$ffmpeg/lib" ] || die "no $ffmpeg; run tool/build_ffmpeg.sh android-$abi"
 
 build="$root/build-android-$abi"
 mkdir -p "$build"
-if [ "${LYCHEE_SKIP_UNIT:-0}" != 1 ]; then
+if [ "$audio_only" != 1 ] && [ "${LYCHEE_SKIP_UNIT:-0}" != 1 ]; then
   echo "== unit tests ($abi)"
   cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
@@ -90,7 +94,7 @@ if [ "${LYCHEE_SKIP_AUDIO:-0}" != 1 ]; then
   cmake --build "$cli" --target lychee_cli >/dev/null
   adb shell "rm -rf $dir && mkdir -p $dir"
   clips=()
-  for f in $onsets; do clips+=("$media/$f"); done
+  for f in $onsets $audio_containers; do clips+=("$media/$f"); done
   adb push "$cli/examples/cli/lychee_cli" "$cli/core/liblychee.so" \
     "$(ls "$ndk"/toolchains/llvm/prebuilt/*/sysroot/usr/lib/"$triple"/libc++_shared.so | head -1)" \
     "${clips[@]}" "$dir/" >/dev/null 2>&1
@@ -105,8 +109,27 @@ if [ "${LYCHEE_SKIP_AUDIO:-0}" != 1 ]; then
     fi
     echo "$args: $(grep -oE 'audio_onset=[0-9.]+s' <<<"$summary")"
   done
+  for file in $audio_containers; do
+    for mode in play seek; do
+      args=""
+      [ "$mode" != seek ] || args="--seek 3 --seek-after 1"
+      out="$(adb shell "cd $dir && LD_LIBRARY_PATH=. timeout 60 ./lychee_cli --virtual-time --volume 1 $args $file" 2>&1)" || {
+        echo "$out" | tail -10
+        die "$mode failed for $file"
+      }
+      summary="$(grep '^summary:' <<<"$out" || true)"
+      if ! grep -qE 'state=ended .*audio_onset=.*audio_output=[1-9][0-9]*Hz/' <<<"$summary" ||
+          { [ "$mode" = seek ] && { ! grep -q 'seeks=1 ' <<<"$summary" || ! grep -q 'event: seek completed at 3\.000s' <<<"$out"; }; }; then
+        echo "$out" | tail -10
+        die "missing audio or seek for $file ($mode)"
+      fi
+      echo "$file ($mode): $summary"
+    done
+  done
+
   adb shell "rm -rf $dir"
 fi
+[ "$audio_only" != 1 ] || exit 0
 
 echo "== example"
 python3 -I "$root/tool/serve_media.py" "$media" "$port" >"$build/server.log" 2>&1 &

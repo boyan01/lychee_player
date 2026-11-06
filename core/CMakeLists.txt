@@ -41,6 +41,8 @@ set(LYCHEE_SOURCES
   src/media/cpu_frame_converter.cc
   src/media/factory.cc
   src/media/null_audio_sink.cc
+  src/media/pcm_audio_decoder.cc
+  src/media/resampler.cc
   src/media/pgs_subtitle_decoder.cc
   src/media/subtitle_decoder.cc
   src/media/subtitle_file.cc
@@ -106,7 +108,6 @@ if(ANDROID)
     # subtitles.
     list(APPEND LYCHEE_SOURCES
       src/backends/android/media_codec_audio_decoder.cc
-      src/media/resampler.cc
     )
   endif()
 endif()
@@ -143,7 +144,6 @@ if(WIN32)
     # own resampler), text subtitles.
     list(APPEND LYCHEE_SOURCES
       src/backends/media_foundation/mf_audio_decoder.cc
-      src/media/resampler.cc
     )
   endif()
 endif()
@@ -210,6 +210,16 @@ if(APPLE)
   if(IOS)
     list(APPEND LYCHEE_SOURCES src/backends/apple/audio_session.mm)
   endif()
+endif()
+
+if(APPLE OR WIN32 OR ANDROID OR LYCHEE_WITH_FFMPEG)
+  list(APPEND LYCHEE_SOURCES
+    src/backends/audio/mp3_demuxer.cc
+    src/backends/audio/flac_demuxer.cc
+    src/backends/audio/wav_demuxer.cc
+    src/backends/audio/adts_demuxer.cc
+    src/backends/audio/ogg_demuxer.cc
+  )
 endif()
 
 add_library(lychee ${LYCHEE_SOURCES})

@@ -1,3 +1,11 @@
+## Unreleased
+
+### New
+
+* Play and seek standalone MP3, FLAC, PCM/float WAV, ADTS AAC and Ogg
+  Opus/FLAC without FFmpeg on Apple, Windows and Android. Android also
+  supports Ogg Vorbis; Apple and Windows need FFmpeg for Vorbis.
+
 ## 1.0.0-beta.7
 
 ### Fixed

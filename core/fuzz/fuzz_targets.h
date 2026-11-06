@@ -15,6 +15,11 @@
 #include <string_view>
 #include <vector>
 
+#include "backends/audio/adts_demuxer.h"
+#include "backends/audio/flac_demuxer.h"
+#include "backends/audio/mp3_demuxer.h"
+#include "backends/audio/ogg_demuxer.h"
+#include "backends/audio/wav_demuxer.h"
 #include "backends/hls/hls_demuxer.h"
 #include "backends/hls/hls_playlist.h"
 #include "backends/matroska/matroska_demuxer.h"
@@ -95,6 +100,80 @@ inline void FuzzMp4Demuxer(const uint8_t* data, size_t size) {
   if (demuxer.Open(fuzz::Memory(data, size), &error)) {
     fuzz::Play(&demuxer);
   }
+}
+
+inline void FuzzMp3Demuxer(const uint8_t* data, size_t size) {
+  Mp3Demuxer::Detect(data, size);
+  Mp3Demuxer demuxer;
+  std::string error;
+  if (demuxer.Open(fuzz::Memory(data, size), &error)) {
+    fuzz::Play(&demuxer);
+  }
+}
+
+inline void FuzzFlacDemuxer(const uint8_t* data, size_t size) {
+  FlacDemuxer::Detect(data, size);
+  FlacDemuxer demuxer;
+  std::string error;
+  if (demuxer.Open(fuzz::Memory(data, size), &error)) {
+    fuzz::Play(&demuxer);
+  }
+}
+
+inline void FuzzWavDemuxer(const uint8_t* data, size_t size) {
+  WavDemuxer::Detect(data, size);
+  WavDemuxer demuxer;
+  std::string error;
+  if (demuxer.Open(fuzz::Memory(data, size), &error)) {
+    fuzz::Play(&demuxer);
+  }
+}
+
+inline void FuzzAdtsDemuxer(const uint8_t* data, size_t size) {
+  AdtsDemuxer::Detect(data, size);
+  AdtsDemuxer demuxer;
+  std::string error;
+  if (demuxer.Open(fuzz::Memory(data, size), &error)) {
+    fuzz::Play(&demuxer);
+  }
+}
+
+inline void FuzzOggDemuxer(const uint8_t* data, size_t size) {
+  OggDemuxer::Detect(data, size);
+  const auto play = [](const uint8_t* bytes, size_t length) {
+    OggDemuxer demuxer;
+    std::string error;
+    if (demuxer.Open(fuzz::Memory(bytes, length), &error)) {
+      fuzz::Play(&demuxer);
+    }
+  };
+  play(data, size);
+  // Also repair page checksums after mutation, so the fuzzer reaches
+  // packet headers and continuation handling instead of stopping at CRC.
+  std::vector<uint8_t> repaired(data, data + size);
+  size_t at = 0;
+  while (repaired.size() - at >= 27 &&
+         std::memcmp(repaired.data() + at, "OggS", 4) == 0) {
+    size_t length = 27 + repaired[at + 26];
+    if (length > repaired.size() - at) break;
+    for (size_t i = 27; i < 27 + size_t{repaired[at + 26]}; ++i) {
+      length += repaired[at + i];
+    }
+    if (length > repaired.size() - at) break;
+    std::fill_n(repaired.data() + at + 22, 4, 0);
+    uint32_t crc = 0;
+    for (size_t i = at; i < at + length; ++i) {
+      crc ^= uint32_t{repaired[i]} << 24;
+      for (int bit = 0; bit < 8; ++bit) {
+        crc = (crc << 1) ^ ((crc & 0x80000000) ? 0x04c11db7 : 0);
+      }
+    }
+    for (int i = 0; i < 4; ++i) {
+      repaired[at + 22 + i] = static_cast<uint8_t>(crc >> (8 * i));
+    }
+    at += length;
+  }
+  if (at > 0) play(repaired.data(), repaired.size());
 }
 
 inline void FuzzMatroskaDemuxer(const uint8_t* data, size_t size) {

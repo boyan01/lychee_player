@@ -38,8 +38,8 @@ std::vector<uint8_t> AacCookie(const std::vector<uint8_t>& config) {
   AppendDescriptor(0x05, config, &specific);
   // objectTypeIndication 0x40 (MPEG-4 audio), streamType 5 (audio) with
   // the reserved bit, bufferSizeDB, maxBitrate, avgBitrate.
-  std::vector<uint8_t> decoder_config = {0x40, 0x15, 0, 0, 0, 0, 0, 0, 0,
-                                         0,    0,    0, 0};
+  std::vector<uint8_t> decoder_config = {0x40, 0x15, 0, 0, 0, 0, 0,
+                                         0,    0,    0, 0, 0, 0};
   decoder_config.insert(decoder_config.end(), specific.begin(), specific.end());
   std::vector<uint8_t> es = {0, 0, 0};  // ES_ID, flags.
   AppendDescriptor(0x04, decoder_config, &es);
@@ -320,7 +320,13 @@ bool ATAudioDecoder::Decode(const EncodedPacket& packet,
         expected = config_.sample_rate < 32000 ? 576 : 1152;
       }
       expected = rate > 0 ? expected * output_format_.sample_rate / rate : 0;
-      if (expected > frames && next_pts_ != kNoTimestamp) {
+      if (next_pts_ != kNoTimestamp && config_.codec == AudioCodec::kMP3 &&
+          rate > 0) {
+        // The converter's sample-rate filter also holds back a few frames
+        // in the first output. Those arrive later; only MP3's synthesis
+        // delay was discarded. Counting both shifts gapless loop seams.
+        next_pts_ += 529 * kMicrosPerSecond / rate;
+      } else if (expected > frames && next_pts_ != kNoTimestamp) {
         next_pts_ +=
             (expected - frames) * kMicrosPerSecond / output_format_.sample_rate;
       }

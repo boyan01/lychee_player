@@ -28,7 +28,7 @@ set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 build="$root/build-fuzz"
-all_targets=(mp4 matroska mpegts hls_playlist hls subtitle_file pgs)
+all_targets=(mp4 matroska mpegts hls_playlist hls subtitle_file pgs mp3 flac wav adts ogg)
 read -r -a targets <<<"${FUZZ_TARGET:-${all_targets[*]}}"
 for target in "${targets[@]}"; do
   case " ${all_targets[*]} " in *" $target "*) ;; *)
@@ -133,6 +133,30 @@ seeds_mp4() {
   cp "$media/hls_fmp4_images/aux.mp4" "$seeds/mp4/imsc_images.mp4"
   printf '%s' '<tt><body><p begin="1s" dur="2s">Hello &amp; IMSC</p></body></tt>' >"$seeds/mp4/imsc.xml"
 
+}
+
+seeds_mp3() {
+  seed mp3 cbr.mp3 -f lavfi -i sine=frequency=440:sample_rate=44100 -t 1 -c:a libmp3lame
+  seed mp3 vbr.mp3 -f lavfi -i sine=frequency=440:sample_rate=44100 -t 1 -c:a libmp3lame -q:a 3
+}
+
+seeds_flac() {
+  seed flac audio.flac -f lavfi -i sine=frequency=440:sample_rate=44100 -t 1 -c:a flac
+}
+
+seeds_wav() {
+  seed wav pcm.wav -f lavfi -i sine=frequency=440:sample_rate=44100 -t 1 -c:a pcm_s16le
+  seed wav float.wav -f lavfi -i sine=frequency=440:sample_rate=48000 -t 1 -ac 2 -c:a pcm_f32le
+}
+
+seeds_adts() {
+  seed adts audio.aac -f lavfi -i sine=frequency=440:sample_rate=44100 -t 1 -c:a aac -f adts
+}
+
+seeds_ogg() {
+  seed ogg opus.ogg -f lavfi -i sine=frequency=440:sample_rate=48000 -t 1 -c:a libopus
+  seed ogg vorbis.ogg -f lavfi -i sine=frequency=440:sample_rate=44100 -t 1 -ac 2 -c:a vorbis -strict -2
+  seed ogg flac.ogg -f lavfi -i sine=frequency=440:sample_rate=44100 -t 1 -c:a flac -f ogg
 }
 
 seeds_matroska() {

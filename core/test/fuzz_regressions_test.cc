@@ -23,7 +23,9 @@ TEST(Fuzz, Regressions) {
       {"mp4", FuzzMp4Demuxer},   {"matroska", FuzzMatroskaDemuxer},
       {"mpegts", FuzzTsDemuxer}, {"hls_playlist", FuzzHlsPlaylist},
       {"hls", FuzzHlsDemuxer},   {"subtitle_file", FuzzSubtitleFile},
-      {"pgs", FuzzPgsSubtitle},
+      {"pgs", FuzzPgsSubtitle},  {"mp3", FuzzMp3Demuxer},
+      {"flac", FuzzFlacDemuxer}, {"wav", FuzzWavDemuxer},
+      {"adts", FuzzAdtsDemuxer}, {"ogg", FuzzOggDemuxer},
   };
   int inputs = 0;
   for (const auto& dir :

@@ -174,6 +174,15 @@ gen rotated.mp4 -display_rotation 90 -i "$media/h264_aac.mp4" -c copy
 gen h264_bt601.mp4 -i "$media/h264_aac.mp4" -t 3 -c copy -colorspace smpte170m \
   -bsf:v h264_metadata=matrix_coefficients=6
 gen audio_only.mp3 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a libmp3lame
+# Standalone audio containers exercise the same system decoders as MP4/TS.
+gen audio_vbr.mp3 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a libmp3lame -q:a 3
+gen audio_only.flac -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a flac
+gen audio_pcm.wav -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -ac 2 -c:a pcm_s16le
+gen audio_float.wav -f lavfi -i sine=frequency=880:sample_rate=48000 -t 8 -ac 2 -c:a pcm_f32le
+gen audio_only.aac -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a aac -f adts
+gen audio_opus.ogg -f lavfi -i sine=frequency=880:sample_rate=48000 -t 8 -c:a libopus
+gen audio_vorbis.ogg -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -ac 2 -c:a vorbis -strict -2
+gen audio_flac.ogg -i "$media/audio_only.flac" -c copy -f ogg
 gen video_only.mp4 -f lavfi -i testsrc2=size=1280x720:rate=60 -t 8 -c:v libx264 -preset veryfast -pix_fmt yuv420p
 # Fewer pictures than VideoToolbox's asynchronous batch: end-of-stream
 # must complete and deliver the partial batch, including a reordered B-frame.
@@ -899,7 +908,8 @@ selected() {
 plays_without_ffmpeg() {
   case "$1" in
     # DVB and VobSub need FFmpeg; IMSC PNG uses the shared reader.
-    subtitle-dvb | subtitle-vobsub) return 1 ;;
+    subtitle-dvb | subtitle-vobsub | artwork-id3) return 1 ;;
+    audio-container-vorbis | seek-audio-container-vorbis) return 1 ;;
     # Windows uses the Store AV1 extension; Apple needs newer hardware.
     av1-software | av1-mp4-software) [ "$windows" = 1 ] || return 1 ;;
   esac
@@ -907,7 +917,8 @@ plays_without_ffmpeg() {
   for arg in "$@"; do
     [[ "$arg" == "$media"/* ]] || continue
     case "$arg" in
-      *.mp4 | *.m4a | *.mkv | *.webm | *.ts | *.m2ts | *.m3u8) ;;
+      *.mp4 | *.m4a | *.mkv | *.webm | *.ts | *.m2ts | *.m3u8 | \
+      *.mp3 | *.flac | *.wav | *.aac | *.ogg | *.opus) ;;
       *) return 1 ;;
     esac
     # VideoToolbox decodes VP9 only in hardware.
@@ -1004,6 +1015,16 @@ par check rotated       1 - -- "$media/rotated.mp4"
 # -display_rotation is counter-clockwise; the library reports clockwise.
 par expect rotation "track 0: video h264 1920x1080 rotation=270 " -- --seconds 1 "$media/rotated.mp4"
 par check audio-only    - - -- "$media/audio_only.mp3"
+for audio in mp3:audio_only.mp3 mp3-vbr:audio_vbr.mp3 flac:audio_only.flac \
+  pcm:audio_pcm.wav float:audio_float.wav adts:audio_only.aac \
+  opus:audio_opus.ogg vorbis:audio_vorbis.ogg ogg-flac:audio_flac.ogg; do
+  kind="${audio%%:*}" file="$media/${audio#*:}"
+  par expect "audio-container-$kind" "track 0: audio .*selected=1" \
+    "summary: state=ended .*audio_onset=" -- --volume 1 "$file"
+  par expect "seek-audio-container-$kind" "event: seek completed at 3\.000s" \
+    "summary: state=ended .*audio_onset=.*seeks=1 " -- \
+    --volume 1 --seek 3 --seek-after 1 "$file"
+done
 par check video-only    1 - -- "$media/video_only.mp4"
 par expect video-short "summary: state=ended position=0\.100s .*rendered=3 dropped=0 .*backward_jumps=0 .* decoded=3 " -- \
   "$media/short_video.mp4"

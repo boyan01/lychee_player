@@ -8,6 +8,7 @@
 #include "media/ffmpeg_extension.h"
 #endif
 #include "media/null_audio_sink.h"
+#include "media/pcm_audio_decoder.h"
 
 #if defined(LYCHEE_WITH_FFMPEG)
 #include "backends/ffmpeg/ffmpeg_audio_decoder.h"
@@ -228,6 +229,7 @@ std::shared_ptr<void> RetainVideoSurface([[maybe_unused]] void* surface) {
 
 std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders() {
   std::vector<std::unique_ptr<AudioDecoder>> decoders;
+  decoders.push_back(std::make_unique<PcmAudioDecoder>());
 #if defined(__APPLE__) && !defined(LYCHEE_WITH_FFMPEG)
   decoders.push_back(std::make_unique<ATAudioDecoder>());
 #elif defined(__ANDROID__) && !defined(LYCHEE_WITH_FFMPEG)

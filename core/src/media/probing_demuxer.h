@@ -15,8 +15,8 @@ namespace lychee {
 
 // Builds without FFmpeg have one demuxer per container. This one opens
 // the input, looks at its first bytes, and hands it to the demuxer for
-// what it finds: an HLS playlist, MPEG-TS, Matroska/WebM, and MP4 for
-// anything else, so unknown input fails with MP4's error.
+// what it finds: HLS, MPEG-TS, Matroska/WebM, standalone audio, and MP4
+// for anything else, so unknown input fails with MP4's error.
 //
 // With a fallback (FFmpeg's demuxer) only HLS and MPEG-TS go to the own
 // demuxers, which join timestamps that start over where FFmpeg does not.

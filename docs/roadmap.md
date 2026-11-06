@@ -212,18 +212,12 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    2026-11-04). Done when `MFVideoDecoder` refuses such configurations at
    open (profile, chroma, bit depth) or fails on the first rejected
    input, so the track reports an error.
-6. **Audio-only containers** (on Apple, Windows and Android):
-   `ProbingDemuxer` knows only MP4, Matroska/WebM, MPEG-TS and HLS, so
-   without FFmpeg a plain `.mp3`, `.flac`, `.wav`, `.aac` (ADTS) or
-   `.ogg`/`.opus` file does not open, though every platform already
-   decodes those codecs. In that order: MP3 (ID3v2 skipped, frame sync,
-   Xing/VBRI or a byte-rate estimate for seeking), FLAC (STREAMINFO,
-   SEEKTABLE, frame sync), WAV (RIFF `fmt `/`data`, WAVE_FORMAT_EXTENSIBLE,
-   PCM and float), ADTS (reuse the TS demuxer's ADTS parsing) and Ogg
-   (pages to packets; Opus, Vorbis and FLAC mappings; granule bisection
-   for seeking). Each one is an own demuxer with a fuzz target. Done when
-   `NO_FFMPEG=1 tool/regression.sh` plays and seeks each of them on
-   macOS, Windows and Android (`tool/android_check.sh`).
+6. **Standalone audio metadata and chaining**: the native MP3 reader
+   skips ID3v2 rather than exposing tags and cover art; the Ogg reader
+   handles one logical audio stream, not chained Ogg files. Done when
+   `artwork-id3` passes without FFmpeg and a chained Opus/Vorbis file
+   plays and seeks across its logical-stream boundary.
+
 7. **ASF (WMV/WMA), Windows only**: no demuxer reads ASF, and neither
    `MFVideoDecoder` nor `MFAudioDecoder` maps WMV or WMA. Use the system
    for all of it (decided 2026-11-05): `IMFASFContentInfo`,

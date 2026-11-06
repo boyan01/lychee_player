@@ -87,7 +87,7 @@ while IFS= read -r f; do
     core/include/lychee/lychee.h) mark core threads abi rust apple android flutter ;;
     core/src/pipeline/* | core/src/api/* | core/src/base/*) mark core threads ;;
     core/src/backends/mp4/* | core/src/backends/matroska/* | core/src/backends/mp2t/* | \
-      core/src/backends/hls/* | core/src/media/probing_demuxer.* | \
+      core/src/backends/hls/* | core/src/backends/audio/* | core/src/media/probing_demuxer.* | \
       core/src/media/text_subtitle_decoder.* | core/src/media/annexb.* | core/fuzz/* | tool/fuzz.sh)
       mark core parsers ;;
     core/src/backends/apple/*) mark core apple ;;

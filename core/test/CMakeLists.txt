@@ -60,10 +60,6 @@ if(ANDROID)
   target_compile_features(lychee_ffmpeg_mismatch PRIVATE cxx_std_20)
   add_dependencies(lychee_unittests lychee_ffmpeg_mismatch)
 endif()
-# Built into the library only without FFmpeg on Android and Windows.
-if(LYCHEE_WITH_FFMPEG OR NOT (ANDROID OR WIN32))
-  target_sources(lychee_unittests PRIVATE ../src/media/resampler.cc)
-endif()
 # The tests reach into the library's internals.
 target_include_directories(lychee_unittests PRIVATE ../src)
 target_link_libraries(lychee_unittests PRIVATE lychee)
@@ -74,6 +70,10 @@ if(MSVC)
   target_compile_options(lychee_unittests PRIVATE /utf-8)
 endif()
 add_test(NAME lychee_unittests COMMAND lychee_unittests)
+
+if(APPLE OR WIN32 OR ANDROID OR LYCHEE_WITH_FFMPEG)
+  target_sources(lychee_unittests PRIVATE audio_demuxer_test.cc)
+endif()
 
 # The FFmpeg-free MP4, MPEG-TS and HLS demuxers, built on Apple only.
 if(APPLE OR WIN32 OR ANDROID)

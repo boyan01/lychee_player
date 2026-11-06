@@ -18,6 +18,7 @@ core/                 C++ core, no UI toolkit dependency
     backends/ffmpeg/  FFmpeg demuxer and decoders (optional, LYCHEE_WITH_FFMPEG)
     backends/apple/   CoreAudio output, CVPixelBuffer conversion; without
                       FFmpeg also VideoToolbox/AudioToolbox decoders, HTTP
+    backends/audio/   MP3, FLAC, WAV, ADTS and Ogg demuxers
     backends/mp4/     MP4 demuxer and tx3g text for builds without FFmpeg
     backends/mp2t/    MPEG-TS demuxer: without FFmpeg, and with it on Apple
     backends/hls/     HLS demuxer (TS, fMP4): without FFmpeg, and with it
@@ -48,6 +49,13 @@ variants as video tracks), from files and http(s)
 URLs, with
 H.264/HEVC (VideoToolbox), AAC, ALAC, MP3, Opus, FLAC and AC-3
 (AudioToolbox) and tx3g subtitles;
+Standalone MP3, FLAC, PCM/float WAV, ADTS AAC and Ogg Opus/FLAC also
+play and seek without FFmpeg. Android additionally decodes Ogg Vorbis;
+Apple and Windows require FFmpeg for Vorbis. MP3 uses Xing/VBRI seek
+information (a byte-rate estimate when absent), FLAC its SEEKTABLE and
+frame timestamps, WAV sample offsets, ADTS a sparse frame index, and
+Ogg page granules. WAV supports compatible WAVE_FORMAT_EXTENSIBLE
+layouts. MP3 tags/artwork and chained Ogg are not yet exposed.
 `NO_FFMPEG=1 tool/regression.sh` tests it. On Windows it plays the same
 containers with H.264, HEVC, VP9 and AV1 (Media Foundation, on the GPU or
 the CPU), AAC,
@@ -163,7 +171,8 @@ keeps the original P010 planes and color metadata for native HDR callers.
 (`TSAN=1` for a ThreadSanitizer build, `ASAN=1` for AddressSanitizer and
 UndefinedBehaviorSanitizer, `COVERAGE=1` for a line coverage report).
 `tool/format.sh` runs clang-format on the lines a branch changed. `tool/fuzz.sh` fuzzes the
-FFmpeg-free parsers (MP4, Matroska, MPEG-TS, HLS) with libFuzzer under
+FFmpeg-free parsers (MP4, Matroska, MPEG-TS, HLS, MP3, FLAC, WAV, ADTS
+and Ogg) with libFuzzer under
 ASan and UBSan (`FUZZ_TARGET`, `FUZZ_SECONDS`, `JOBS`); on macOS it
 needs Homebrew's LLVM (`brew install llvm`, a development tool only),
 since Apple's clang has no libFuzzer runtime, and clang on Linux. Inputs

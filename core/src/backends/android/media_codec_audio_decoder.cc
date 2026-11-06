@@ -36,6 +36,8 @@ const char* Mime(AudioCodec codec) {
       return "audio/opus";
     case AudioCodec::kFLAC:
       return "audio/flac";
+    case AudioCodec::kVorbis:
+      return "audio/vorbis";
     case AudioCodec::kALAC:
       return "audio/alac";
     case AudioCodec::kAC3:
@@ -87,6 +89,33 @@ bool MediaCodecAudioDecoder::Initialize(const AudioConfig& config,
       csd_.insert(csd_.end(), extradata.begin(), extradata.end());
       break;
     }
+    case AudioCodec::kVorbis: {
+      // Xiph-laced identification/comment/setup headers. MediaCodec takes
+      // only identification and setup, in separate codec-specific buffers.
+      if (extradata.empty() || extradata[0] != 2) {
+        *error = "mediacodec: Vorbis without its headers";
+        return false;
+      }
+      size_t at = 1;
+      size_t sizes[2] = {};
+      for (size_t& size : sizes) {
+        for (;;) {
+          if (at >= extradata.size()) return false;
+          const uint8_t value = extradata[at++];
+          size += value;
+          if (size > extradata.size()) return false;
+          if (value != 255) break;
+        }
+      }
+      if (sizes[0] > extradata.size() - at ||
+          sizes[1] > extradata.size() - at - sizes[0])
+        return false;
+      csd_.assign(extradata.begin() + at, extradata.begin() + at + sizes[0]);
+      csd1_.assign(extradata.begin() + at + sizes[0] + sizes[1],
+                   extradata.end());
+      if (csd_.size() < 30 || csd1_.size() < 7) return false;
+      break;
+    }
     case AudioCodec::kALAC:
       // The ALACSpecificConfig, without the box header around it.
       if (extradata.size() < 24) {
@@ -129,6 +158,9 @@ bool MediaCodecAudioDecoder::CreateCodec(std::string* error) {
   AMediaFormat_setInt32(format, "pcm-encoding", kPcmFloat);
   if (!csd_.empty()) {
     AMediaFormat_setBuffer(format, "csd-0", csd_.data(), csd_.size());
+  }
+  if (!csd1_.empty()) {
+    AMediaFormat_setBuffer(format, "csd-1", csd1_.data(), csd1_.size());
   }
   if (config_.codec == AudioCodec::kOpus) {
     // The OpusHead's pre-skip, and the seek preroll, in nanoseconds.
@@ -247,6 +279,15 @@ bool MediaCodecAudioDecoder::Decode(const EncodedPacket& packet,
     // MediaCodec returns the packet timestamp unchanged after trimming.
     // Count from the first input plus the samples it actually discards.
     anchor_pts_ = pts + skip_us;
+  }
+  if (config_.codec == AudioCodec::kVorbis) {
+    // Android's Vorbis decoder reserves the final int32 for the valid
+    // samples on the final page. -1 leaves ordinary packets untrimmed.
+    std::vector<uint8_t> bytes(packet.buffer->data(),
+                               packet.buffer->data() + packet.size());
+    bytes.insert(bytes.end(), 4, 0xff);
+    return QueueInput(bytes.data(), bytes.size(), pts, 0, output) &&
+           DrainOutput(output);
   }
   return QueueInput(packet.buffer->data() + skip, packet.size() - skip,
                     pts - opus_input_offset_, 0, output) &&

@@ -21,6 +21,11 @@ add_compile_options(
 
 set(_src "${CMAKE_CURRENT_SOURCE_DIR}/../src")
 add_library(lychee_parsers STATIC
+  ${_src}/backends/audio/mp3_demuxer.cc
+  ${_src}/backends/audio/flac_demuxer.cc
+  ${_src}/backends/audio/wav_demuxer.cc
+  ${_src}/backends/audio/adts_demuxer.cc
+  ${_src}/backends/audio/ogg_demuxer.cc
   ${_src}/backends/hls/hls_demuxer.cc
   ${_src}/backends/hls/hls_playlist.cc
   ${_src}/backends/matroska/matroska_demuxer.cc
@@ -64,7 +69,9 @@ endif()
 # lychee_TARGET_fuzzer: the directory regressions/TARGET holds its inputs.
 foreach(_target mp4:FuzzMp4Demuxer matroska:FuzzMatroskaDemuxer mpegts:FuzzTsDemuxer
                 hls_playlist:FuzzHlsPlaylist hls:FuzzHlsDemuxer
-                subtitle_file:FuzzSubtitleFile pgs:FuzzPgsSubtitle)
+                subtitle_file:FuzzSubtitleFile pgs:FuzzPgsSubtitle
+                mp3:FuzzMp3Demuxer flac:FuzzFlacDemuxer wav:FuzzWavDemuxer
+                adts:FuzzAdtsDemuxer ogg:FuzzOggDemuxer)
   string(REPLACE ":" ";" _target "${_target}")
   list(GET _target 0 _name)
   list(GET _target 1 _function)

@@ -55,6 +55,7 @@ class MediaCodecAudioDecoder : public AudioDecoder {
   const char* mime_ = nullptr;
   // csd-0: the codec configuration in MediaCodec's format.
   std::vector<uint8_t> csd_;
+  std::vector<uint8_t> csd1_;
   AMediaCodec* codec_ = nullptr;
   std::string codec_name_;
   // Since the codec started or was flushed: MediaCodec may lose its
