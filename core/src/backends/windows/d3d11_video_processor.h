@@ -80,6 +80,14 @@ class D3D11VideoProcessor {
            UINT output_height,
            DXGI_COLOR_SPACE_TYPE input_space,
            DXGI_COLOR_SPACE_TYPE output_space);
+  // SDR NV12 with explicit centered bilinear chroma reconstruction.
+  bool ConvertNv12(ID3D11Texture2D* texture,
+                   UINT slice,
+                   const D3D11_TEXTURE2D_DESC& source,
+                   Output* output,
+                   UINT width,
+                   UINT height,
+                   DXGI_COLOR_SPACE_TYPE color_space);
   // Converts |hdr_|, PQ or HLG / BT.2020, to SDR or native PQ output.
   bool ConvertHdr(Output* output,
                   UINT width,
@@ -126,6 +134,13 @@ class D3D11VideoProcessor {
   Microsoft::WRL::ComPtr<ID3D11PixelShader> hlg_shader_;
   Microsoft::WRL::ComPtr<ID3D11PixelShader> hlg_pq_shader_;
   bool shader_failed_ = false;
+  bool nv12_shader_failed_ = false;
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> nv12_input_;
+  Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> nv12_luma_;
+  Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> nv12_chroma_;
+  Microsoft::WRL::ComPtr<ID3D11PixelShader> nv12_shader_;
+  Microsoft::WRL::ComPtr<ID3D11SamplerState> nv12_sampler_;
+  Microsoft::WRL::ComPtr<ID3D11Buffer> nv12_constants_;
   // Download(): reused while the size stays.
   Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_;
   std::shared_ptr<PixelPool> pixels_;

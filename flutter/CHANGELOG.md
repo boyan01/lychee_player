@@ -13,6 +13,8 @@
 
 ### Fixed
 
+* Windows: SDR video's colored edges no longer shift vertically during
+  playback or after a seek.
 * Android: affected H.264 decoders no longer stall for about four
   seconds and switch to software decoding on startup or seek.
 * Software-decoded SDR video with FFmpeg uses smoother color

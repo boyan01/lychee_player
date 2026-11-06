@@ -93,12 +93,6 @@ building on top of them.
   with "audio decoding failed" with it. Done when each is explained or
   plays to its end.
 
-- **Windows MPEG-4 Part 2 pixel difference**: the system decoder's
-  `mpeg4_pcm.avi` frame at 4.000 s scores 27.9 dB against FFmpeg (the
-  threshold is 28 dB; MAE 2.93, worst tile 12.4). Captures at that PTS
-  before and after a seek are byte-identical, and adjacent reference
-  frames score only 20.1/18.5 dB, so seek/PTS agree. Determine the
-  reconstruction/chroma difference without lowering the global threshold.
 - **Android TV MPEG-2 pixel difference**: Android TV's native example
   with `c2.android.mpeg2.decoder` displays and seeks MPEG-2/MP3, but two
   SurfaceView snapshots at 4.900/5.980 s score 25.1/25.2 dB after scaling

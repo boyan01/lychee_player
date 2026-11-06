@@ -174,6 +174,39 @@ float4 ps_hlg_pq(float4 position : SV_Position) : SV_Target {
 }
 )";
 
+// Sample each chroma texel at the center of its 2x2 luma block. Some
+// video processors instead reconstruct it one luma line below that point,
+// which shifts saturated edges even when no scaling is requested.
+constexpr char kNv12Shader[] = R"(
+Texture2D<float> luma : register(t0);
+Texture2D<float2> chroma : register(t1);
+SamplerState linear_clamp : register(s0);
+cbuffer Conversion : register(b0) {
+  float4 coefficients;
+  float4 levels;
+  float4 dimensions;
+};
+
+float4 ps_nv12(float4 position : SV_Position) : SV_Target {
+  float y = (luma.Load(int3(position.xy, 0)) - levels.x) * levels.y;
+  // Decoder padding is outside the visible image. Clamp to the center
+  // of the final visible UV texel before applying bilinear filtering.
+  float2 edge = (2.0 * ceil(dimensions.zw * 0.5) - 1.0) / dimensions.xy;
+  float2 coordinate = min(position.xy / dimensions.xy, edge);
+  float2 uv = (chroma.SampleLevel(linear_clamp, coordinate, 0) - levels.ww) * levels.z;
+  return float4(y + coefficients.x * uv.y,
+                y + coefficients.y * uv.x + coefficients.z * uv.y,
+                y + coefficients.w * uv.x, 1.0);
+}
+)";
+
+bool IsSdr601Or709(DXGI_COLOR_SPACE_TYPE color_space) {
+  return color_space == DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P601 ||
+         color_space == DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P601 ||
+         color_space == DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709 ||
+         color_space == DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P709;
+}
+
 bool IsPq(DXGI_COLOR_SPACE_TYPE color_space) {
   return color_space == DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020 ||
          color_space == DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_TOPLEFT_P2020;
@@ -190,13 +223,15 @@ ULONG References(IUnknown* object) {
   return object->Release();
 }
 
-ComPtr<ID3DBlob> CompileShader(const char* entry, const char* target) {
+ComPtr<ID3DBlob> CompileShader(const char* entry,
+                               const char* target,
+                               const char* source = kHdrShader) {
   ComPtr<ID3DBlob> code;
   ComPtr<ID3DBlob> errors;
-  if (FAILED(D3DCompile(kHdrShader, sizeof(kHdrShader) - 1, "hdr_conversion",
+  if (FAILED(D3DCompile(source, std::strlen(source), "frame_conversion",
                         nullptr, nullptr, entry, target,
                         D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors))) {
-    LOGE("cannot compile the HDR shader: %s",
+    LOGE("cannot compile the frame shader: %s",
          errors ? static_cast<const char*>(errors->GetBufferPointer()) : "?");
     return nullptr;
   }
@@ -416,7 +451,21 @@ std::shared_ptr<VideoFrame> D3D11VideoProcessor::Convert(
     return nullptr;
   }
 
-  if (pq && hdr_output) {
+  bool converted_nv12 = false;
+  if (source.Format == DXGI_FORMAT_NV12 && IsSdr601Or709(color_space) &&
+      !nv12_shader_failed_) {
+    converted_nv12 = ConvertNv12(texture, slice, source, output.get(),
+                                 output_width, output_height, color_space);
+    if (!converted_nv12) {
+      // Older drivers can expose NV12 only through the video processor.
+      // Keep that path available when plane shader views are unsupported.
+      nv12_shader_failed_ = true;
+      LOGW("NV12 shader conversion unavailable; using the video processor");
+    }
+  }
+  if (converted_nv12) {
+    // The shader already wrote the output.
+  } else if (pq && hdr_output) {
     // No intermediate or transfer conversion: keep the decoded HDR signal.
     if (!Blt(texture, slice, source.Format, source.Width, source.Height,
              output.get(), output_width, output_height, color_space,
@@ -596,8 +645,7 @@ bool D3D11VideoProcessor::Blt(ID3D11Texture2D* texture,
     D3D11_VIDEO_PROCESSOR_COLOR_SPACE output_color = {};
     video_context_->VideoProcessorSetStreamColorSpace(processor, 0,
                                                       &input_color);
-    video_context_->VideoProcessorSetOutputColorSpace(processor,
-                                                      &output_color);
+    video_context_->VideoProcessorSetOutputColorSpace(processor, &output_color);
   }
   video_context_->VideoProcessorSetOutputAlphaFillMode(
       processor, D3D11_VIDEO_PROCESSOR_ALPHA_FILL_MODE_OPAQUE, 0);
@@ -606,6 +654,107 @@ bool D3D11VideoProcessor::Blt(ID3D11Texture2D* texture,
   stream.pInputSurface = input_view->second.Get();
   return SUCCEEDED(video_context_->VideoProcessorBlt(
       processor, output->view.Get(), 0, 1, &stream));
+}
+
+bool D3D11VideoProcessor::ConvertNv12(ID3D11Texture2D* texture,
+                                      UINT slice,
+                                      const D3D11_TEXTURE2D_DESC& source,
+                                      Output* output,
+                                      UINT width,
+                                      UINT height,
+                                      DXGI_COLOR_SPACE_TYPE color_space) {
+  if (!nv12_shader_) {
+    const auto vertex = CompileShader("vs", "vs_4_0");
+    const auto pixel = CompileShader("ps_nv12", "ps_4_0", kNv12Shader);
+    D3D11_SAMPLER_DESC sampler = {};
+    sampler.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+    sampler.ComparisonFunc = D3D11_COMPARISON_NEVER;
+    sampler.MaxAnisotropy = 1;
+    sampler.AddressU = sampler.AddressV = sampler.AddressW =
+        D3D11_TEXTURE_ADDRESS_CLAMP;
+    D3D11_BUFFER_DESC constants = {};
+    constants.ByteWidth = 3 * 4 * sizeof(float);
+    constants.Usage = D3D11_USAGE_DEFAULT;
+    constants.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    if (!vertex || !pixel ||
+        FAILED(device_->CreateVertexShader(vertex->GetBufferPointer(),
+                                           vertex->GetBufferSize(), nullptr,
+                                           &vertex_shader_)) ||
+        FAILED(device_->CreatePixelShader(pixel->GetBufferPointer(),
+                                          pixel->GetBufferSize(), nullptr,
+                                          &nv12_shader_)) ||
+        FAILED(device_->CreateSamplerState(&sampler, &nv12_sampler_)) ||
+        FAILED(device_->CreateBuffer(&constants, nullptr, &nv12_constants_))) {
+      nv12_shader_.Reset();
+      return false;
+    }
+  }
+  D3D11_TEXTURE2D_DESC desc = {};
+  if (nv12_input_) nv12_input_->GetDesc(&desc);
+  if (!nv12_input_ || desc.Width != source.Width ||
+      desc.Height != source.Height) {
+    nv12_input_.Reset();
+    nv12_luma_.Reset();
+    nv12_chroma_.Reset();
+    desc = source;
+    desc.MipLevels = desc.ArraySize = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    desc.CPUAccessFlags = desc.MiscFlags = 0;
+    D3D11_SHADER_RESOURCE_VIEW_DESC view = {};
+    view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    view.Texture2D.MipLevels = 1;
+    view.Format = DXGI_FORMAT_R8_UNORM;
+    if (FAILED(device_->CreateTexture2D(&desc, nullptr, &nv12_input_)) ||
+        FAILED(device_->CreateShaderResourceView(nv12_input_.Get(), &view,
+                                                 &nv12_luma_)))
+      return false;
+    view.Format = DXGI_FORMAT_R8G8_UNORM;
+    if (FAILED(device_->CreateShaderResourceView(nv12_input_.Get(), &view,
+                                                 &nv12_chroma_)))
+      return false;
+  }
+  // Decoder arrays are commonly not shader-readable. One reusable texture
+  // exposes their Y and UV planes without a GPU-to-CPU transfer.
+  context_->CopySubresourceRegion(
+      nv12_input_.Get(), 0, 0, 0, 0, texture,
+      D3D11CalcSubresource(0, slice, source.MipLevels), nullptr);
+  const bool full = color_space == DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P601 ||
+                    color_space == DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P709;
+  const bool bt709 = color_space == DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P709 ||
+                     color_space == DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709;
+  const float constants[12] = {
+      bt709 ? 1.5748f : 1.402f,         bt709 ? -0.187324f : -0.344136f,
+      bt709 ? -0.468124f : -0.714136f,  bt709 ? 1.8556f : 1.772f,
+      full ? 0.f : 16.f / 255.f,        full ? 1.f : 255.f / 219.f,
+      full ? 1.f : 255.f / 224.f,       128.f / 255.f,
+      static_cast<float>(source.Width), static_cast<float>(source.Height),
+      static_cast<float>(width),        static_cast<float>(height)};
+  context_->UpdateSubresource(nv12_constants_.Get(), 0, nullptr, constants, 0,
+                              0);
+  if (!output->target && FAILED(device_->CreateRenderTargetView(
+                             output->texture.Get(), nullptr, &output->target)))
+    return false;
+  const D3D11_VIEWPORT viewport = {
+      0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1};
+  ID3D11RenderTargetView* targets[] = {output->target.Get()};
+  ID3D11ShaderResourceView* views[] = {nv12_luma_.Get(), nv12_chroma_.Get()};
+  ID3D11Buffer* buffers[] = {nv12_constants_.Get()};
+  ID3D11SamplerState* samplers[] = {nv12_sampler_.Get()};
+  context_->OMSetRenderTargets(1, targets, nullptr);
+  context_->RSSetViewports(1, &viewport);
+  context_->IASetInputLayout(nullptr);
+  context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  context_->VSSetShader(vertex_shader_.Get(), nullptr, 0);
+  context_->PSSetShader(nv12_shader_.Get(), nullptr, 0);
+  context_->PSSetShaderResources(0, 2, views);
+  context_->PSSetConstantBuffers(0, 1, buffers);
+  context_->PSSetSamplers(0, 1, samplers);
+  context_->Draw(3, 0);
+  ID3D11ShaderResourceView* no_views[] = {nullptr, nullptr};
+  context_->PSSetShaderResources(0, 2, no_views);
+  context_->OMSetRenderTargets(0, nullptr, nullptr);
+  return true;
 }
 
 bool D3D11VideoProcessor::ConvertHdr(Output* output,
