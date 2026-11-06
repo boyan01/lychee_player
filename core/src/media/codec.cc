@@ -32,6 +32,14 @@ const char* VideoCodecName(VideoCodec codec) {
       return "mpeg2";
     case VideoCodec::kMPEG4:
       return "mpeg4";
+    case VideoCodec::kWMV1:
+      return "wmv1";
+    case VideoCodec::kWMV2:
+      return "wmv2";
+    case VideoCodec::kWMV3:
+      return "wmv3";
+    case VideoCodec::kVC1:
+      return "vc1";
     case VideoCodec::kOther:
       return "other";
     case VideoCodec::kUnknown:
@@ -60,6 +68,12 @@ const char* AudioCodecName(AudioCodec codec) {
       return "eac3";
     case AudioCodec::kPCM:
       return "pcm";
+    case AudioCodec::kWMA2:
+      return "wmav2";
+    case AudioCodec::kWMAPro:
+      return "wmapro";
+    case AudioCodec::kWMALossless:
+      return "wmalossless";
     case AudioCodec::kOther:
       return "other";
     case AudioCodec::kUnknown:

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstring>
 
+#include "backends/media_foundation/mf_codec_private.h"
 #include "base/log.h"
 #include "base/time.h"
 
@@ -98,6 +99,12 @@ GUID Subtype(AudioCodec codec) {
       return MFAudioFormat_Opus;
     case AudioCodec::kAC3:
       return MFAudioFormat_Dolby_AC3;
+    case AudioCodec::kWMA2:
+      return MFAudioFormat_WMAudioV8;
+    case AudioCodec::kWMAPro:
+      return MFAudioFormat_WMAudioV9;
+    case AudioCodec::kWMALossless:
+      return MFAudioFormat_WMAudio_Lossless;
     default:
       return GUID_NULL;
   }
@@ -225,6 +232,11 @@ bool MFAudioDecoder::CanDecode(AudioCodec codec) {
 bool MFAudioDecoder::Initialize(const AudioConfig& config,
                                 const AudioOutputFormat& output_format,
                                 std::string* error) {
+  if (asf_only_ &&
+      !std::dynamic_pointer_cast<const MFCodecPrivate>(config.codec_private)) {
+    *error = "mediafoundation: not an ASF audio stream";
+    return false;
+  }
   output_format_ = output_format;
   config_ = config;
   if (Subtype(config.codec) == GUID_NULL || !StartMediaFoundation()) {
@@ -269,6 +281,16 @@ bool MFAudioDecoder::Open(const std::vector<uint8_t>& extradata,
   if (FAILED(MFCreateMediaType(&input))) {
     *error = "mediafoundation: MFCreateMediaType failed";
     return false;
+  }
+  // The ASF type carries WAVEFORMATEX fields as well as codec-private
+  // bytes. Reconstructing just rate/channels/user data loses WMA block
+  // alignment and average bytes per second.
+  if (const auto native = std::dynamic_pointer_cast<const MFCodecPrivate>(
+          config_.codec_private)) {
+    if (FAILED(native->type->CopyAllItems(input.Get()))) {
+      *error = "mediafoundation: cannot copy ASF audio configuration";
+      return false;
+    }
   }
   input->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
   input->SetGUID(MF_MT_SUBTYPE, subtype);

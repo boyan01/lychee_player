@@ -14,6 +14,10 @@ enum class VideoCodec {
   kAV1,
   kMPEG2,
   kMPEG4,
+  kWMV1,
+  kWMV2,
+  kWMV3,
+  kVC1,
   kOther,
 };
 
@@ -28,6 +32,9 @@ enum class AudioCodec {
   kAC3,
   kEAC3,
   kPCM,
+  kWMA2,
+  kWMAPro,
+  kWMALossless,
   kOther,
 };
 

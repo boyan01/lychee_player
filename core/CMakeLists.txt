@@ -117,6 +117,8 @@ if(WIN32)
   list(APPEND LYCHEE_SOURCES
     src/backends/media_foundation/mf_common.cc
     src/backends/media_foundation/mf_video_decoder.cc
+    src/backends/media_foundation/mf_audio_decoder.cc
+    src/backends/media_foundation/mf_asf_demuxer.cc
     src/backends/windows/subtitle_image.cc
     src/backends/windows/text_encoding.cc
     src/backends/windows/d3d11_video_processor.cc
@@ -138,14 +140,6 @@ if(WIN32)
     src/backends/mp4/mp4_subtitle.cc
     src/media/probing_demuxer.cc
   )
-  if(NOT LYCHEE_WITH_FFMPEG)
-    # Without FFmpeg: H.264 and HEVC in hardware or software, AAC, MP3,
-    # FLAC, ALAC and Opus through Media Foundation (rate conversion by our
-    # own resampler), text subtitles.
-    list(APPEND LYCHEE_SOURCES
-      src/backends/media_foundation/mf_audio_decoder.cc
-    )
-  endif()
 endif()
 
 if(UNIX AND NOT APPLE AND NOT ANDROID)
@@ -320,7 +314,7 @@ endif()
 
 if(WIN32)
   target_link_libraries(lychee PRIVATE
-    windowscodecs bcrypt ole32 avrt d3d11 d3dcompiler mfplat mfuuid winhttp wmcodecdspuuid)
+    windowscodecs bcrypt ole32 avrt d3d11 d3dcompiler mf mfplat mfuuid winhttp wmcodecdspuuid)
   # base/thread_name.h includes <windows.h>, whose min/max macros break
   # std::min and numeric_limits::max in the files that include it.
   target_compile_definitions(lychee PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

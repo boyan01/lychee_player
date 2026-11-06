@@ -183,6 +183,10 @@ gen audio_only.aac -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a aa
 gen audio_opus.ogg -f lavfi -i sine=frequency=880:sample_rate=48000 -t 8 -c:a libopus
 gen audio_vorbis.ogg -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -ac 2 -c:a vorbis -strict -2
 gen audio_flac.ogg -i "$media/audio_only.flac" -c copy -f ogg
+# Windows always uses the system ASF reader and WMV/WMA decoders, including
+# builds whose optional FFmpeg has none of these formats.
+gen wmv2_wma2.wmv -f lavfi -i testsrc2=size=320x240:rate=25 \
+  -f lavfi -i sine=frequency=440:sample_rate=44100 -t 8 -c:v wmv2 -g 25 -c:a wmav2
 gen video_only.mp4 -f lavfi -i testsrc2=size=1280x720:rate=60 -t 8 -c:v libx264 -preset veryfast -pix_fmt yuv420p
 # Fewer pictures than VideoToolbox's asynchronous batch: end-of-stream
 # must complete and deliver the partial batch, including a reordered B-frame.
@@ -919,6 +923,7 @@ plays_without_ffmpeg() {
     case "$arg" in
       *.mp4 | *.m4a | *.mkv | *.webm | *.ts | *.m2ts | *.m3u8 | \
       *.mp3 | *.flac | *.wav | *.aac | *.ogg | *.opus) ;;
+      *.wmv | *.asf) [ "$windows" = 1 ] || return 1 ;;
       *) return 1 ;;
     esac
     # VideoToolbox decodes VP9 only in hardware.
@@ -1025,6 +1030,15 @@ for audio in mp3:audio_only.mp3 mp3-vbr:audio_vbr.mp3 flac:audio_only.flac \
     "summary: state=ended .*audio_onset=.*seeks=1 " -- \
     --volume 1 --seek 3 --seek-after 1 "$file"
 done
+if [ "$windows" = 1 ]; then
+  par expect asf-wmv2 "track [0-9]+: video wmv2 .*selected=1" \
+    "track [0-9]+: audio wmav2 .*selected=1" \
+    "summary: state=ended .*rendered=[1-9][0-9]* .*audio_onset=" -- \
+    --volume 1 "$media/wmv2_wma2.wmv"
+  par expect seek-asf-wmv2 "event: seek completed at 3\.000s" "summary: state=ended .*seeks=1 " -- \
+    --volume 1 --seek 3 --seek-after 1 "$media/wmv2_wma2.wmv"
+fi
+
 par check video-only    1 - -- "$media/video_only.mp4"
 par expect video-short "summary: state=ended position=0\.100s .*rendered=3 dropped=0 .*backward_jumps=0 .* decoded=3 " -- \
   "$media/short_video.mp4"

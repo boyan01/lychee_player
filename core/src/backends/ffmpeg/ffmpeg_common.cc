@@ -40,6 +40,14 @@ VideoCodec VideoCodecFromAVCodecID(AVCodecID id) {
       return VideoCodec::kMPEG2;
     case AV_CODEC_ID_MPEG4:
       return VideoCodec::kMPEG4;
+    case AV_CODEC_ID_WMV1:
+      return VideoCodec::kWMV1;
+    case AV_CODEC_ID_WMV2:
+      return VideoCodec::kWMV2;
+    case AV_CODEC_ID_WMV3:
+      return VideoCodec::kWMV3;
+    case AV_CODEC_ID_VC1:
+      return VideoCodec::kVC1;
     case AV_CODEC_ID_NONE:
       return VideoCodec::kUnknown;
     default:
@@ -71,6 +79,12 @@ AudioCodec AudioCodecFromAVCodecID(AVCodecID id) {
     case AV_CODEC_ID_PCM_S32LE:
     case AV_CODEC_ID_PCM_F32LE:
       return AudioCodec::kPCM;
+    case AV_CODEC_ID_WMAV2:
+      return AudioCodec::kWMA2;
+    case AV_CODEC_ID_WMAPRO:
+      return AudioCodec::kWMAPro;
+    case AV_CODEC_ID_WMALOSSLESS:
+      return AudioCodec::kWMALossless;
     case AV_CODEC_ID_NONE:
       return AudioCodec::kUnknown;
     default:
@@ -94,6 +108,14 @@ AVCodecID AVCodecIDFromVideoCodec(VideoCodec codec) {
       return AV_CODEC_ID_MPEG2VIDEO;
     case VideoCodec::kMPEG4:
       return AV_CODEC_ID_MPEG4;
+    case VideoCodec::kWMV1:
+      return AV_CODEC_ID_WMV1;
+    case VideoCodec::kWMV2:
+      return AV_CODEC_ID_WMV2;
+    case VideoCodec::kWMV3:
+      return AV_CODEC_ID_WMV3;
+    case VideoCodec::kVC1:
+      return AV_CODEC_ID_VC1;
     case VideoCodec::kOther:
     case VideoCodec::kUnknown:
       break;
@@ -120,6 +142,12 @@ AVCodecID AVCodecIDFromAudioCodec(AudioCodec codec) {
     case AudioCodec::kEAC3:
       return AV_CODEC_ID_EAC3;
     case AudioCodec::kPCM:
+    case AudioCodec::kWMA2:
+      return AV_CODEC_ID_WMAV2;
+    case AudioCodec::kWMAPro:
+      return AV_CODEC_ID_WMAPRO;
+    case AudioCodec::kWMALossless:
+      return AV_CODEC_ID_WMALOSSLESS;
     case AudioCodec::kOther:
     case AudioCodec::kUnknown:
       break;

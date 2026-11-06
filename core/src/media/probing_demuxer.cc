@@ -2,6 +2,8 @@
 
 #include "media/probing_demuxer.h"
 
+#include <algorithm>
+#include <iterator>
 #include <utility>
 
 #include "backends/audio/adts_demuxer.h"
@@ -16,6 +18,9 @@
 #include "backends/mp4/mp4_demuxer.h"
 #include "base/log.h"
 #include "media/data_source.h"
+#if defined(_WIN32)
+#include "backends/media_foundation/mf_asf_demuxer.h"
+#endif
 
 namespace lychee {
 
@@ -134,6 +139,20 @@ bool ProbingDemuxer::Open(const std::string& url, std::string* error) {
     }
     return OpenFallback(nullptr, url, "mpegts: " + *error, error);
   }
+#if defined(_WIN32)
+  // The optional FFmpeg ships neither ASF nor WMV/WMA. The system reader
+  // and decoders own this path in both builds.
+  static constexpr uint8_t kAsfHeader[] = {0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66,
+                                           0xcf, 0x11, 0xa6, 0xd9, 0x00, 0xaa,
+                                           0x00, 0x62, 0xce, 0x6c};
+  if (filled >= sizeof(kAsfHeader) &&
+      std::equal(std::begin(kAsfHeader), std::end(kAsfHeader), head)) {
+    auto asf = std::make_unique<MFAsfDemuxer>(std::move(source));
+    MFAsfDemuxer* opening = asf.get();
+    Adopt(std::move(asf));
+    return opening->Open(url, error);
+  }
+#endif
   if (fallback_) {
     return OpenFallback(std::move(source), url, "", error);
   }

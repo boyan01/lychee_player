@@ -19,6 +19,7 @@ core/                 C++ core, no UI toolkit dependency
     backends/apple/   CoreAudio output, CVPixelBuffer conversion; without
                       FFmpeg also VideoToolbox/AudioToolbox decoders, HTTP
     backends/audio/   MP3, FLAC, WAV, ADTS and Ogg demuxers
+    backends/media_foundation/ Windows ASF reader and system MFT decoders
     backends/mp4/     MP4 demuxer and tx3g text for builds without FFmpeg
     backends/mp2t/    MPEG-TS demuxer: without FFmpeg, and with it on Apple
     backends/hls/     HLS demuxer (TS, fMP4): without FFmpeg, and with it
@@ -61,6 +62,10 @@ containers with H.264, HEVC, VP9 and AV1 (Media Foundation, on the GPU or
 the CPU), AAC,
 MP3, FLAC, ALAC, Opus and AC-3, and text subtitles; the Flutter plugin builds it so with
 `LYCHEE_WITH_FFMPEG=OFF` in the environment of `flutter build windows`.
+Windows ASF (WMV/WMA) uses Media Foundation's content info, splitter,
+indexer and system decoders in both builds. The optional shipped FFmpeg
+has no ASF or WMV/WMA support. Indexless input seeks by replaying from
+the beginning through the system splitter.
 HEVC, VP9 and AV1 require the corresponding Microsoft Store Video
 Extensions. Missing extensions leave that video track unavailable in
 FFmpeg-free builds; builds with FFmpeg keep their decoder fallback.

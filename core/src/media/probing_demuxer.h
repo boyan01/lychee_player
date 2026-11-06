@@ -15,11 +15,12 @@ namespace lychee {
 
 // Builds without FFmpeg have one demuxer per container. This one opens
 // the input, looks at its first bytes, and hands it to the demuxer for
-// what it finds: HLS, MPEG-TS, Matroska/WebM, standalone audio, and MP4
-// for anything else, so unknown input fails with MP4's error.
+// what it finds: HLS, MPEG-TS, Matroska/WebM, standalone audio, Windows
+// ASF, and MP4 for anything else, so unknown input fails with MP4's error.
 //
-// With a fallback (FFmpeg's demuxer) only HLS and MPEG-TS go to the own
-// demuxers, which join timestamps that start over where FFmpeg does not.
+// With a fallback (FFmpeg's demuxer), HLS, MPEG-TS and Windows ASF go to
+// their native demuxers. HLS and MPEG-TS join timestamps that start over
+// where FFmpeg does not; ASF uses Windows' own reader and decoder MFTs.
 // The fallback takes everything else, input that OpenDataSource cannot
 // read, and what the own demuxers fail to open or would play only in
 // part (TsDemuxer::set_refuse_skipped_streams(),

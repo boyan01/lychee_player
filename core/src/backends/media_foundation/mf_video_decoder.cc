@@ -8,6 +8,7 @@
 
 #include <algorithm>
 
+#include "backends/media_foundation/mf_codec_private.h"
 #include "base/log.h"
 
 namespace lychee {
@@ -56,6 +57,14 @@ GUID Subtype(VideoCodec codec) {
       return MFVideoFormat_VP90;
     case VideoCodec::kAV1:
       return MFVideoFormat_AV1;
+    case VideoCodec::kWMV1:
+      return MFVideoFormat_WMV1;
+    case VideoCodec::kWMV2:
+      return MFVideoFormat_WMV2;
+    case VideoCodec::kWMV3:
+      return MFVideoFormat_WMV3;
+    case VideoCodec::kVC1:
+      return MFVideoFormat_WVC1;
     default:
       return GUID_NULL;
   }
@@ -107,9 +116,11 @@ ColorInfo OutputColor(IMFMediaType* type, ColorInfo color) {
 
 MFVideoDecoder::MFVideoDecoder(uint32_t accepted_storage,
                                VideoDevice device,
-                               bool hardware)
+                               bool hardware,
+                               bool asf_only)
     : device_(std::move(device)),
       hardware_(hardware),
+      asf_only_(asf_only),
       output_textures_(
           device_.type == VideoDevice::Type::kD3D11Adapter &&
           (accepted_storage &
@@ -134,6 +145,11 @@ MFVideoDecoder::~MFVideoDecoder() {
 }
 
 bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
+  if (asf_only_ &&
+      !std::dynamic_pointer_cast<const MFCodecPrivate>(config.codec_private)) {
+    *error = "mediafoundation: not an ASF video stream";
+    return false;
+  }
   const GUID subtype = Subtype(config.codec);
   if (subtype == GUID_NULL) {
     *error = "mediafoundation: unsupported video codec";
@@ -189,6 +205,16 @@ bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
   if (FAILED(MFCreateMediaType(&input))) {
     *error = "mediafoundation: MFCreateMediaType failed";
     return false;
+  }
+  // ASF supplies the exact media type parsed by Windows, including
+  // sequence headers required by WMV/VC-1. Keep it independent of the
+  // demuxer so a decoder never mutates shared stream information.
+  if (const auto native = std::dynamic_pointer_cast<const MFCodecPrivate>(
+          config.codec_private)) {
+    if (FAILED(native->type->CopyAllItems(input.Get()))) {
+      *error = "mediafoundation: cannot copy ASF video configuration";
+      return false;
+    }
   }
   input->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
   input->SetGUID(MF_MT_SUBTYPE, subtype);

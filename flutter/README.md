@@ -11,6 +11,7 @@ frames as Flutter textures, without a copy where the platform allows.
 - MP4, Matroska/WebM, MPEG-TS and HLS (adaptive, AES-128, alternate audio
   and subtitles), MP3, FLAC, PCM/float WAV, ADTS and Ogg Opus/FLAC.
   Android also plays Ogg Vorbis; Apple and Windows need FFmpeg for Vorbis.
+  Windows plays ASF (WMV/WMA) through the system in both builds.
 - Accurate seeking, rate 0.25x to 4x with pitch kept, gapless looping,
   track selection.
 - Text and bitmap subtitles, metadata and cover art, HDR tone-mapped to
@@ -134,7 +135,8 @@ smaller and the system's decoders play MP4, Matroska/WebM, MPEG-TS,
 HLS and standalone audio (MP3, FLAC, PCM/float WAV, ADTS and Ogg
 Opus/FLAC; Android also plays Ogg Vorbis). Turn it on for other formats
 or codecs the system
-lacks. Linux always uses FFmpeg.
+lacks. Windows ASF (WMV/WMA) uses system decoders in both builds.
+Linux always uses FFmpeg.
 
 For one build, set the environment variable:
 

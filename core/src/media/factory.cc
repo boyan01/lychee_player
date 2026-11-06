@@ -44,11 +44,11 @@
 #elif defined(_WIN32)
 #include <unknwn.h>
 
+#include "backends/media_foundation/mf_audio_decoder.h"
 #include "backends/media_foundation/mf_video_decoder.h"
 #include "backends/windows/wasapi_sink.h"
 #include "media/probing_demuxer.h"
 #if !defined(LYCHEE_WITH_FFMPEG)
-#include "backends/media_foundation/mf_audio_decoder.h"
 #include "media/pgs_subtitle_decoder.h"
 #include "media/text_subtitle_decoder.h"
 #endif
@@ -64,6 +64,16 @@ namespace lychee {
 namespace {
 
 std::atomic<bool> g_null_audio_for_testing{false};
+
+#if defined(_WIN32)
+// Optional FFmpeg builds retain their existing decoders for non-ASF
+// streams. ASF configs carry the original system media type.
+#if defined(LYCHEE_WITH_FFMPEG)
+constexpr bool kAsfOnly = true;
+#else
+constexpr bool kAsfOnly = false;
+#endif
+#endif
 
 }  // namespace
 
@@ -162,12 +172,10 @@ std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
     decoders.push_back(
         std::make_unique<MFVideoDecoder>(accepted_storage, device, true));
   }
-#if !defined(LYCHEE_WITH_FFMPEG)
-  // Without FFmpeg, the same decoders on the CPU: no GPU, or one that lacks
-  // the codec or the profile.
-  decoders.push_back(
-      std::make_unique<MFVideoDecoder>(accepted_storage, device, false));
-#endif
+  // The system also decodes WMV in FFmpeg builds, whose optional FFmpeg
+  // does not ship these codecs. Keep its software MFT available.
+  decoders.push_back(std::make_unique<MFVideoDecoder>(accepted_storage, device,
+                                                      false, kAsfOnly));
 #endif
 #if defined(LYCHEE_WITH_FFMPEG)
   if (allow_hardware) {
@@ -238,8 +246,9 @@ std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders() {
     return decoders;
   }
   decoders.push_back(std::make_unique<MediaCodecAudioDecoder>());
-#elif defined(_WIN32) && !defined(LYCHEE_WITH_FFMPEG)
-  decoders.push_back(std::make_unique<MFAudioDecoder>());
+#endif
+#if defined(_WIN32)
+  decoders.push_back(std::make_unique<MFAudioDecoder>(kAsfOnly));
 #endif
 #if defined(LYCHEE_WITH_FFMPEG)
   decoders.push_back(std::make_unique<FFmpegAudioDecoder>());

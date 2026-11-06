@@ -218,19 +218,6 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    `artwork-id3` passes without FFmpeg and a chained Opus/Vorbis file
    plays and seeks across its logical-stream boundary.
 
-7. **ASF (WMV/WMA), Windows only**: no demuxer reads ASF, and neither
-   `MFVideoDecoder` nor `MFAudioDecoder` maps WMV or WMA. Use the system
-   for all of it (decided 2026-11-05): `IMFASFContentInfo`,
-   `IMFASFSplitter` and `IMFASFIndexer` (seeking) over the library's
-   `DataSource`, and Windows' own WMV (WMV1/2/3, WVC1) and WMA (v2, 9,
-   Pro, Lossless) MFTs, with the codec private data (`MF_MT_USER_DATA`,
-   the `WAVEFORMATEX` extra bytes). No own ASF parser and nothing on
-   other platforms, which have no system WMV decoder. The shipped FFmpeg
-   build has no `asf` demuxer or WMV/WMA decoders either, so Windows
-   routes ASF to this path with FFmpeg too, as it does TS and HLS. Done
-   when a WMV2/WMA2 file `tool/regression.sh` generates (Homebrew FFmpeg
-   encodes both) plays and seeks on Windows with and without
-   `NO_FFMPEG=1`, and a WMV3 or VC-1 file plays in `examples/glfw`.
 8. **Other legacy video containers**, after the above: FLV (H.264 and
    AAC, which every platform decodes), AVI (RIFF with `idx1` and OpenDML
    indexes; much of it is MPEG-4 Part 2, which the system decoders
