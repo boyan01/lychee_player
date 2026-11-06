@@ -14,11 +14,12 @@ Flutter plugin, a Swift package, an Android library and Rust crates.
 - **Hardware decoding** through VideoToolbox (macOS, iOS), MediaCodec
   (Android), Media Foundation and D3D11VA (Windows) and VAAPI (Linux),
   falling back to software when the hardware gives up.
-- **Formats**: MP4, Matroska/WebM, MPEG-TS, HLS, MP3, FLAC, PCM/float
-  WAV, ADTS and Ogg Opus/FLAC without FFmpeg on Apple, Windows and
-  Android. Android also plays Ogg Vorbis; Apple and Windows need FFmpeg
-  for Vorbis. Windows also plays ASF (WMV/WMA) through the system in
-  both builds. More formats use the optional LGPL FFmpeg backend.
+- **Formats**: MP4, Matroska/WebM, MPEG-TS, HLS, MP3, FLAC, WAV, ADTS
+  and Ogg without FFmpeg on Apple, Windows and Android; Windows also
+  reads ASF (WMV/WMA) through the system. FLV (H.264/AAC), AVI and
+  MPEG-PS also have native readers; AVI and MPEG-PS need a system decoder
+  for the file's codecs. Ogg Vorbis needs FFmpeg on Apple and Windows.
+  More codecs and containers use optional LGPL FFmpeg.
 - **HLS**: adaptive variants, fragmented MP4 segments, AES-128, alternate
   audio and subtitle renditions.
 - **Playback**: accurate seeking, rate from 0.25x to 4x with pitch kept,

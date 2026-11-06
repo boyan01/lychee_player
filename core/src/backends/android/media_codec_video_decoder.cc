@@ -237,6 +237,11 @@ bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
     case VideoCodec::kVP8:
     case VideoCodec::kVP9:
       break;
+    case VideoCodec::kMPEG2:
+    case VideoCodec::kMPEG4:
+      // Elementary sequence/VOL configuration goes to csd-0 unchanged.
+      av1c_ = config.extradata;
+      break;
     case VideoCodec::kAV1:
       // av1C, which MediaCodec takes as csd-0 (as MediaExtractor gives it),
       // if the container has one; the sequence header comes in band too.
@@ -245,7 +250,7 @@ bool MediaCodecVideoDecoder::Initialize(const VideoConfig& config,
       }
       break;
     default:
-      *error = "MediaCodec decodes only H.264, HEVC, VP8, VP9 and AV1 here";
+      *error = "MediaCodec: unsupported video codec";
       return false;
   }
   rotation_ = rotate_ ? config.rotation : 0;
@@ -266,6 +271,14 @@ bool MediaCodecVideoDecoder::CreateCodec(
   const char* mime = nullptr;
   std::vector<const char*> names;
   switch (codec_type_) {
+    case VideoCodec::kMPEG2:
+      mime = "video/mpeg2";
+      names = {"c2.android.mpeg2.decoder", "OMX.google.mpeg2.decoder"};
+      break;
+    case VideoCodec::kMPEG4:
+      mime = "video/mp4v-es";
+      names = {"c2.android.mpeg4.decoder", "OMX.google.mpeg4.decoder"};
+      break;
     case VideoCodec::kHEVC:
       mime = "video/hevc";
       names = {"c2.android.hevc.decoder", "OMX.google.hevc.decoder"};

@@ -13,8 +13,10 @@
 #    onset clips of tool/regression.sh's av-sync cases on the virtual
 #    clock, from the start and after a seek, and their tone must start
 #    at 1 s.
-#    Raw MP3, FLAC, PCM/float WAV, ADTS and Ogg play and seek too.
-#    LYCHEE_AUDIO_ONLY=1 runs the CLI checks without an APK.
+#    Raw MP3 (CBR/VBR), FLAC, PCM/float WAV, ADTS, and Ogg
+#    (Opus/Vorbis/FLAC) also play from the start and after a seek.
+#    The CLI also plays/seeks FLV, AVI and MPEG-PS through MediaCodec.
+#    LYCHEE_AUDIO_ONLY=1 runs the CLI checks only; no APK is needed.
 # 3. The SDK's example (sdk/android/example, already built with
 #    `sdk/android/gradlew -p sdk/android :example:assembleDebug`) plays
 #    h264_aac.mp4 and rotated.mp4 from MEDIA_DIR (default
@@ -50,7 +52,15 @@ die() { echo "android_check.sh: $*" >&2; exit 1; }
 [ "$audio_only" = 1 ] || [ -f "$apk" ] || die "no $apk; run sdk/android/gradlew -p sdk/android :example:assembleDebug"
 onsets="onset_opus.webm onset_opus.mp4 onset_mp3.mp4 onset_aac.m4a"
 audio_containers="audio_only.mp3 audio_vbr.mp3 audio_only.flac audio_pcm.wav audio_float.wav audio_only.aac audio_opus.ogg audio_vorbis.ogg audio_flac.ogg"
-for f in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8 $onsets $audio_containers; do
+legacy_containers="h264_aac.flv h264_mp3.avi mpeg4_pcm.avi"
+# Stock phone images omit MPEG-2; TV/device builds can expose it. Exercise
+# it explicitly there, without treating missing optional codecs as bugs.
+if [ "${NATIVE_MPEG2:-0}" = 1 ]; then
+  legacy_containers+=" mpeg2_mp3.mpg mpeg2_mp2.mpg mpeg2_ac3.vob"
+else
+  echo "SKIP MPEG-2: set NATIVE_MPEG2=1 on a device with that system decoder"
+fi
+for f in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8 $onsets $audio_containers $legacy_containers; do
   [ -f "$media/$f" ] || die "no $media/$f; run MEDIA_ONLY=1 tool/regression.sh"
 done
 
@@ -94,7 +104,7 @@ if [ "${LYCHEE_SKIP_AUDIO:-0}" != 1 ]; then
   cmake --build "$cli" --target lychee_cli >/dev/null
   adb shell "rm -rf $dir && mkdir -p $dir"
   clips=()
-  for f in $onsets $audio_containers; do clips+=("$media/$f"); done
+  for f in $onsets $audio_containers $legacy_containers; do clips+=("$media/$f"); done
   adb push "$cli/examples/cli/lychee_cli" "$cli/core/liblychee.so" \
     "$(ls "$ndk"/toolchains/llvm/prebuilt/*/sysroot/usr/lib/"$triple"/libc++_shared.so | head -1)" \
     "${clips[@]}" "$dir/" >/dev/null 2>&1
@@ -126,7 +136,27 @@ if [ "${LYCHEE_SKIP_AUDIO:-0}" != 1 ]; then
       echo "$file ($mode): $summary"
     done
   done
-
+  for file in $legacy_containers; do
+    for mode in play seek; do
+      args=""
+      [ "$mode" != seek ] || args="--seek 3 --seek-after 1"
+      out="$(adb shell "cd $dir && LD_LIBRARY_PATH=. timeout 60 ./lychee_cli --virtual-time --android-surface --volume 1 $args $file" 2>&1)" || {
+        echo "$out" | tail -15
+        die "$mode failed for $file"
+      }
+      summary="$(grep '^summary:' <<<"$out" || true)"
+      if ! grep -qE 'state=ended .*rendered=[1-9][0-9]* ' <<<"$summary" ||
+          { [ "$mode" = seek ] && { ! grep -q 'seeks=1 ' <<<"$summary" || ! grep -q 'event: seek completed at 3\.000s' <<<"$out"; }; }; then
+        echo "$out" | tail -15
+        die "missing video or seek for $file ($mode)"
+      fi
+      case "$file" in
+        *.flv | *.avi | mpeg2_mp3.mpg)
+          grep -q 'audio_onset=' <<<"$summary" || die "missing audio for $file ($mode)" ;;
+      esac
+      echo "$file ($mode): $summary"
+    done
+  done
   adb shell "rm -rf $dir"
 fi
 [ "$audio_only" != 1 ] || exit 0

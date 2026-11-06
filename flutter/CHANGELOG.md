@@ -5,6 +5,9 @@
 * Play and seek standalone MP3, FLAC, PCM/float WAV, ADTS AAC and Ogg
   Opus/FLAC without FFmpeg on Apple, Windows and Android. Android also
   supports Ogg Vorbis; Apple and Windows need FFmpeg for Vorbis.
+* Play and seek FLV H.264/AAC, AVI and MPEG-PS without FFmpeg. AVI and
+  MPEG-PS playback depends on the platform's installed codecs; MPEG-4
+  Part 2 AVI is supported on Windows and Android where available.
 * Windows: play and seek ASF (WMV/WMA) with system decoders, with or
   without the optional FFmpeg backend.
 

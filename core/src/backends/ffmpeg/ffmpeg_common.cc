@@ -61,6 +61,8 @@ AudioCodec AudioCodecFromAVCodecID(AVCodecID id) {
       return AudioCodec::kAAC;
     case AV_CODEC_ID_MP3:
       return AudioCodec::kMP3;
+    case AV_CODEC_ID_MP2:
+      return AudioCodec::kMP2;
     case AV_CODEC_ID_OPUS:
       return AudioCodec::kOpus;
     case AV_CODEC_ID_VORBIS:
@@ -129,6 +131,8 @@ AVCodecID AVCodecIDFromAudioCodec(AudioCodec codec) {
       return AV_CODEC_ID_AAC;
     case AudioCodec::kMP3:
       return AV_CODEC_ID_MP3;
+    case AudioCodec::kMP2:
+      return AV_CODEC_ID_MP2;
     case AudioCodec::kOpus:
       return AV_CODEC_ID_OPUS;
     case AudioCodec::kVorbis:

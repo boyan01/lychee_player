@@ -66,12 +66,13 @@ namespace {
 std::atomic<bool> g_null_audio_for_testing{false};
 
 #if defined(_WIN32)
-// Optional FFmpeg builds retain their existing decoders for non-ASF
-// streams. ASF configs carry the original system media type.
+// Optional FFmpeg builds retain their decoders for FFmpeg-demuxed
+// streams. Native AVI/PS configs have no private backend type; ASF
+// carries the original system media type.
 #if defined(LYCHEE_WITH_FFMPEG)
-constexpr bool kAsfOnly = true;
+constexpr bool kNativeOnly = true;
 #else
-constexpr bool kAsfOnly = false;
+constexpr bool kNativeOnly = false;
 #endif
 #endif
 
@@ -175,7 +176,7 @@ std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(
   // The system also decodes WMV in FFmpeg builds, whose optional FFmpeg
   // does not ship these codecs. Keep its software MFT available.
   decoders.push_back(std::make_unique<MFVideoDecoder>(accepted_storage, device,
-                                                      false, kAsfOnly));
+                                                      false, kNativeOnly));
 #endif
 #if defined(LYCHEE_WITH_FFMPEG)
   if (allow_hardware) {
@@ -248,7 +249,7 @@ std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecoders() {
   decoders.push_back(std::make_unique<MediaCodecAudioDecoder>());
 #endif
 #if defined(_WIN32)
-  decoders.push_back(std::make_unique<MFAudioDecoder>(kAsfOnly));
+  decoders.push_back(std::make_unique<MFAudioDecoder>(kNativeOnly));
 #endif
 #if defined(LYCHEE_WITH_FFMPEG)
   decoders.push_back(std::make_unique<FFmpegAudioDecoder>());

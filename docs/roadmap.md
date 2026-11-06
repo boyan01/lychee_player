@@ -93,6 +93,27 @@ building on top of them.
   with "audio decoding failed" with it. Done when each is explained or
   plays to its end.
 
+- **Windows MPEG-4 Part 2 pixel difference**: the system decoder's
+  `mpeg4_pcm.avi` frame at 4.000 s scores 27.9 dB against FFmpeg (the
+  threshold is 28 dB; MAE 2.93, worst tile 12.4). Captures at that PTS
+  before and after a seek are byte-identical, and adjacent reference
+  frames score only 20.1/18.5 dB, so seek/PTS agree. Determine the
+  reconstruction/chroma difference without lowering the global threshold.
+- **MPEG-2 conversion pixel differences**: Android TV's native example
+  with `c2.android.mpeg2.decoder` displays and seeks MPEG-2/MP3, but two
+  SurfaceView snapshots at 4.900/5.980 s score 25.1/25.2 dB after scaling
+  to 2501x1876 (BT.601; MAE 4.26/4.20). Reported output is limited-range
+  BT.601; BT.709 matches worse. The cause is not established. The Apple
+  FFmpeg software-conversion path also scores 27.8 dB on the MPG fixture,
+  while the native Apple and Windows frame paths pass. Keep these
+  conversion checks separate from native parser/seek checks; investigate
+  chroma reconstruction/scaling without lowering global thresholds.
+- **Android emulator H.264 AVI seek fallback**: Pixel_10's advertised
+  hardware decoder stalls after the resync seek and falls back to the
+  system software decoder after about four seconds. Playback and seek
+  then finish. Done when the hardware path recovers without the timeout,
+  or the configuration is refused before trying it.
+
 ## Performance
 
 What the review of 2026-11-02 found and left, by expected gain.
@@ -123,7 +144,13 @@ What the review of 2026-11-02 found and left, by expected gain.
    Streaming) still reads every fragment at open; bisecting a Matroska
    file without cues scans up to a cluster per step, tens of MB per seek
    with 4K clusters (SimpleBlock times or PrevSize would narrow it).
-6. **Locks**: `Player::SetVideoSurface` still calls
+6. **Legacy container startup**: FLV, AVI and MPEG-PS scan input at open
+   to build an index capped at one million packets. They keep payloads in
+   the source, but long files and HTTP inputs still pay for the scan.
+   Use container indexes where available, with lazy/sparse fallback.
+   Done when a long HTTP input starts without scanning to its end while
+   retaining accurate seeks and bounded memory.
+7. **Locks**: `Player::SetVideoSurface` still calls
    `AMediaCodec_setOutputSurface` under the player's and the renderer's
    locks; D3D11 output textures wait 100 ms after their frame's release
    before reuse, where a keyed mutex or shared fence through the ABI
@@ -217,14 +244,6 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    handles one logical audio stream, not chained Ogg files. Done when
    `artwork-id3` passes without FFmpeg and a chained Opus/Vorbis file
    plays and seeks across its logical-stream boundary.
-
-8. **Other legacy video containers**, after the above: FLV (H.264 and
-   AAC, which every platform decodes), AVI (RIFF with `idx1` and OpenDML
-   indexes; much of it is MPEG-4 Part 2, which the system decoders
-   barely cover, so it opens only where the codec does) and MPEG-PS
-   (`.mpg`, `.vob`; MPEG-2 video only where the platform decodes it).
-   Done when each plays and seeks with `NO_FFMPEG=1` on the platforms
-   that decode its common codecs.
 
 ## Distribution and infrastructure
 

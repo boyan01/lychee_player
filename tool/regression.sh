@@ -187,6 +187,16 @@ gen audio_flac.ogg -i "$media/audio_only.flac" -c copy -f ogg
 # builds whose optional FFmpeg has none of these formats.
 gen wmv2_wma2.wmv -f lavfi -i testsrc2=size=320x240:rate=25 \
   -f lavfi -i sine=frequency=440:sample_rate=44100 -t 8 -c:v wmv2 -g 25 -c:a wmav2
+gen mpeg2_mp3.mpg -f lavfi -i testsrc2=size=320x240:rate=25 \
+  -f lavfi -i sine=frequency=440:sample_rate=48000 -t 8 -c:v mpeg2video -g 25 -bf 2 -c:a libmp3lame -f mpeg
+gen mpeg2_mp2.mpg -f lavfi -i testsrc2=size=320x240:rate=25 \
+  -f lavfi -i sine=frequency=440:sample_rate=48000 -t 8 -c:v mpeg2video -g 25 -bf 2 -c:a mp2 -f mpeg
+gen mpeg2_ac3.vob -f lavfi -i testsrc2=size=320x240:rate=25 \
+  -f lavfi -i sine=frequency=440:sample_rate=48000 -t 8 -c:v mpeg2video -g 25 -bf 2 -af volume=4 -c:a ac3 -f vob
+gen h264_mp3.avi -i "$media/h264_aac.mp4" -t 8 -c:v libx264 -preset veryfast -g 30 -bf 0 -c:a libmp3lame -f avi
+gen mpeg4_pcm.avi -f lavfi -i testsrc2=size=320x240:rate=25 \
+  -f lavfi -i sine=frequency=440:sample_rate=44100 -t 8 -c:v mpeg4 -g 25 -bf 0 -c:a pcm_s16le -f avi
+gen h264_aac.flv -i "$media/h264_aac.mp4" -t 8 -c:v libx264 -preset veryfast -g 30 -bf 2 -c:a copy -f flv
 gen video_only.mp4 -f lavfi -i testsrc2=size=1280x720:rate=60 -t 8 -c:v libx264 -preset veryfast -pix_fmt yuv420p
 # Fewer pictures than VideoToolbox's asynchronous batch: end-of-stream
 # must complete and deliver the partial batch, including a reordered B-frame.
@@ -914,6 +924,7 @@ plays_without_ffmpeg() {
     # DVB and VobSub need FFmpeg; IMSC PNG uses the shared reader.
     subtitle-dvb | subtitle-vobsub | artwork-id3) return 1 ;;
     audio-container-vorbis | seek-audio-container-vorbis) return 1 ;;
+    avi-mpeg4 | seek-avi-mpeg4) [ "$windows" = 1 ] || return 1 ;;
     # Windows uses the Store AV1 extension; Apple needs newer hardware.
     av1-software | av1-mp4-software) [ "$windows" = 1 ] || return 1 ;;
   esac
@@ -922,7 +933,7 @@ plays_without_ffmpeg() {
     [[ "$arg" == "$media"/* ]] || continue
     case "$arg" in
       *.mp4 | *.m4a | *.mkv | *.webm | *.ts | *.m2ts | *.m3u8 | \
-      *.mp3 | *.flac | *.wav | *.aac | *.ogg | *.opus) ;;
+      *.mp3 | *.flac | *.wav | *.aac | *.ogg | *.opus | *.flv | *.avi | *.mpg | *.vob) ;;
       *.wmv | *.asf) [ "$windows" = 1 ] || return 1 ;;
       *) return 1 ;;
     esac
@@ -1038,7 +1049,31 @@ if [ "$windows" = 1 ]; then
   par expect seek-asf-wmv2 "event: seek completed at 3\.000s" "summary: state=ended .*seeks=1 " -- \
     --volume 1 --seek 3 --seek-after 1 "$media/wmv2_wma2.wmv"
 fi
-
+# Native MPEG-2 availability varies. A missing system decoder is an
+# explicit skip; parse and FFmpeg playback remain covered on every host.
+if [ "${NO_FFMPEG:-0}" != 1 ] || [ "$(uname)" = Darwin ] || [ "${NATIVE_MPEG2:-0}" = 1 ]; then
+  for ps in mp3:mpeg2_mp3.mpg mp2:mpeg2_mp2.mpg ac3:mpeg2_ac3.vob; do
+    name="${ps%%:*}" file="$media/${ps#*:}"
+    par expect "mpegps-$name" "summary: state=ended .*rendered=[1-9][0-9]* .*audio_onset=" -- \
+      --volume 1 "$file"
+    par expect "seek-mpegps-$name" "event: seek completed at 3\.000s" \
+      "summary: state=ended .*rendered=[1-9][0-9]* .*seeks=1 " -- \
+      --volume 1 --seek 3 --seek-after 1 "$file"
+  done
+fi
+for legacy in h264:h264_mp3.avi mpeg4:mpeg4_pcm.avi; do
+  name="${legacy%%:*}" file="$media/${legacy#*:}"
+  par expect "avi-$name" "summary: state=ended .*rendered=[1-9][0-9]* .*audio_onset=" -- \
+    --volume 1 "$file"
+  par expect "seek-avi-$name" "event: seek completed at 3\.000s" \
+    "summary: state=ended .*rendered=[1-9][0-9]* .*seeks=1 " -- \
+    --volume 1 --seek 3 --seek-after 1 "$file"
+done
+par expect flv-h264 "summary: state=ended .*rendered=[1-9][0-9]* .*audio_onset=" -- \
+  --volume 1 "$media/h264_aac.flv"
+par expect seek-flv-h264 "event: seek completed at 3\.000s" \
+  "summary: state=ended .*rendered=[1-9][0-9]* .*seeks=1 " -- \
+  --volume 1 --seek 3 --seek-after 1 "$media/h264_aac.flv"
 par check video-only    1 - -- "$media/video_only.mp4"
 par expect video-short "summary: state=ended position=0\.100s .*rendered=3 dropped=0 .*backward_jumps=0 .* decoded=3 " -- \
   "$media/short_video.mp4"
@@ -1098,6 +1133,13 @@ fi
 # colors differently from swscale, which the reference uses). The test
 # media has no color tags, so these also check the library's convention:
 # BT.709 above 576 lines, BT.601 at or below.
+par frames frame-flv "$media/h264_aac.flv" 1.5 3.5 -- --seconds 3.6
+par frames frame-avi "$media/h264_mp3.avi" 1.5 3.5 -- --seconds 3.6
+# This case checks the native MPEG-2 frame path. The optional FFmpeg
+# converter's separate color/chroma difference is tracked in the roadmap.
+if [ "${NO_FFMPEG:-0}" = 1 ] && { [ "$(uname)" = Darwin ] || [ "${NATIVE_MPEG2:-0}" = 1 ]; }; then
+  par frames frame-mpegps "$media/mpeg2_mp2.mpg" 1.5 3.5 -- --seconds 3.6
+fi
 par frames frame-h264 "$media/h264_aac.mp4" 0.5 1.5 -- --seconds 1.6
 par frames frame-h264-cpu "$media/h264_aac.mp4" 1 -- --cpu --seconds 1.1
 par frames frame-h264-sw "$media/h264_aac.mp4" 1 -- --no-hw --cpu --seconds 1.1

@@ -42,8 +42,8 @@ set(LYCHEE_SOURCES
   src/media/factory.cc
   src/media/null_audio_sink.cc
   src/media/pcm_audio_decoder.cc
-  src/media/resampler.cc
   src/media/pgs_subtitle_decoder.cc
+  src/media/resampler.cc
   src/media/subtitle_decoder.cc
   src/media/subtitle_file.cc
   src/media/text_subtitle_decoder.cc
@@ -206,6 +206,8 @@ if(APPLE)
   endif()
 endif()
 
+# Audio container parsing is independent of platform decoding and remains
+# available to parser tests in FFmpeg builds too.
 if(APPLE OR WIN32 OR ANDROID OR LYCHEE_WITH_FFMPEG)
   list(APPEND LYCHEE_SOURCES
     src/backends/audio/mp3_demuxer.cc
@@ -213,6 +215,9 @@ if(APPLE OR WIN32 OR ANDROID OR LYCHEE_WITH_FFMPEG)
     src/backends/audio/wav_demuxer.cc
     src/backends/audio/adts_demuxer.cc
     src/backends/audio/ogg_demuxer.cc
+    src/backends/flv/flv_demuxer.cc
+    src/backends/avi/avi_demuxer.cc
+    src/backends/mpegps/ps_demuxer.cc
   )
 endif()
 

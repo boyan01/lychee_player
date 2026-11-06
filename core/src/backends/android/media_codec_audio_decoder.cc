@@ -32,6 +32,8 @@ const char* Mime(AudioCodec codec) {
       return "audio/mp4a-latm";
     case AudioCodec::kMP3:
       return "audio/mpeg";
+    case AudioCodec::kMP2:
+      return "audio/mpeg-L2";
     case AudioCodec::kOpus:
       return "audio/opus";
     case AudioCodec::kFLAC:

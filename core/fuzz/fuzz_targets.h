@@ -20,6 +20,8 @@
 #include "backends/audio/mp3_demuxer.h"
 #include "backends/audio/ogg_demuxer.h"
 #include "backends/audio/wav_demuxer.h"
+#include "backends/avi/avi_demuxer.h"
+#include "backends/flv/flv_demuxer.h"
 #include "backends/hls/hls_demuxer.h"
 #include "backends/hls/hls_playlist.h"
 #include "backends/matroska/matroska_demuxer.h"
@@ -27,6 +29,7 @@
 #include "backends/mp2t/ts_reader.h"
 #include "backends/mp4/mp4_demuxer.h"
 #include "backends/mp4/mp4_subtitle.h"
+#include "backends/mpegps/ps_demuxer.h"
 #include "media/pgs_subtitle_decoder.h"
 #include "media/subtitle_file.h"
 #include "media/text_subtitle_decoder.h"
@@ -174,6 +177,33 @@ inline void FuzzOggDemuxer(const uint8_t* data, size_t size) {
     at += length;
   }
   if (at > 0) play(repaired.data(), repaired.size());
+}
+
+inline void FuzzFlvDemuxer(const uint8_t* data, size_t size) {
+  FlvDemuxer::Detect(data, size);
+  FlvDemuxer demuxer;
+  std::string error;
+  if (demuxer.Open(fuzz::Memory(data, size), &error)) {
+    fuzz::Play(&demuxer);
+  }
+}
+
+inline void FuzzAviDemuxer(const uint8_t* data, size_t size) {
+  AviDemuxer::Detect(data, size);
+  AviDemuxer demuxer;
+  std::string error;
+  if (demuxer.Open(fuzz::Memory(data, size), &error)) {
+    fuzz::Play(&demuxer);
+  }
+}
+
+inline void FuzzPsDemuxer(const uint8_t* data, size_t size) {
+  PsDemuxer::Detect(data, size);
+  PsDemuxer demuxer;
+  std::string error;
+  if (demuxer.Open(fuzz::Memory(data, size), &error)) {
+    fuzz::Play(&demuxer);
+  }
 }
 
 inline void FuzzMatroskaDemuxer(const uint8_t* data, size_t size) {

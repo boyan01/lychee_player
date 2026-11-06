@@ -9,9 +9,10 @@ frames as Flutter textures, without a copy where the platform allows.
 - Hardware decoding: MediaCodec, VideoToolbox, Media Foundation and
   D3D11VA, VAAPI; software when the hardware gives up.
 - MP4, Matroska/WebM, MPEG-TS and HLS (adaptive, AES-128, alternate audio
-  and subtitles), MP3, FLAC, PCM/float WAV, ADTS and Ogg Opus/FLAC.
-  Android also plays Ogg Vorbis; Apple and Windows need FFmpeg for Vorbis.
-  Windows plays ASF (WMV/WMA) through the system in both builds.
+  and subtitles), MP3, FLAC, PCM/float WAV, ADTS and Ogg. Windows also
+  plays ASF (WMV/WMA). FLV H.264/AAC, AVI and MPEG-PS have native
+  readers too; AVI and MPEG-PS depend on installed system codecs.
+  Ogg Vorbis needs FFmpeg on Apple and Windows.
 - Accurate seeking, rate 0.25x to 4x with pitch kept, gapless looping,
   track selection.
 - Text and bitmap subtitles, metadata and cover art, HDR tone-mapped to
@@ -133,10 +134,11 @@ does.
 FFmpeg is off by default on Android, iOS, macOS and Windows: the app is
 smaller and the system's decoders play MP4, Matroska/WebM, MPEG-TS,
 HLS and standalone audio (MP3, FLAC, PCM/float WAV, ADTS and Ogg
-Opus/FLAC; Android also plays Ogg Vorbis). Turn it on for other formats
-or codecs the system
-lacks. Windows ASF (WMV/WMA) uses system decoders in both builds.
-Linux always uses FFmpeg.
+Opus/FLAC; Android also plays Ogg Vorbis). Windows ASF uses system
+decoders in both modes. FLV H.264/AAC also plays without FFmpeg; AVI and
+MPEG-PS need system support for their video and audio codecs. Turn
+FFmpeg on for other formats or codecs the system
+lacks. Linux always uses FFmpeg.
 
 For one build, set the environment variable:
 

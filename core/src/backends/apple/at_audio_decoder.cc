@@ -122,6 +122,7 @@ bool ATAudioDecoder::Initialize(const AudioConfig& config,
     case AudioCodec::kOpus:
     case AudioCodec::kFLAC:
     case AudioCodec::kMP3:
+    case AudioCodec::kMP2:
     case AudioCodec::kAC3:
       break;
     default:
@@ -160,6 +161,10 @@ bool ATAudioDecoder::CreateConverter(const std::vector<uint8_t>& extradata) {
         LOGE("FLAC without its STREAMINFO");
         return false;
       }
+      break;
+    case AudioCodec::kMP2:
+      input.mFormatID = kAudioFormatMPEGLayer2;
+      input.mFramesPerPacket = 1152;
       break;
     case AudioCodec::kMP3:
       // No configuration: each frame has a header. MPEG-2 and 2.5 frames

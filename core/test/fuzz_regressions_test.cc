@@ -26,6 +26,8 @@ TEST(Fuzz, Regressions) {
       {"pgs", FuzzPgsSubtitle},  {"mp3", FuzzMp3Demuxer},
       {"flac", FuzzFlacDemuxer}, {"wav", FuzzWavDemuxer},
       {"adts", FuzzAdtsDemuxer}, {"ogg", FuzzOggDemuxer},
+      {"flv", FuzzFlvDemuxer},   {"avi", FuzzAviDemuxer},
+      {"mpegps", FuzzPsDemuxer},
   };
   int inputs = 0;
   for (const auto& dir :

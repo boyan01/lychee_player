@@ -71,8 +71,9 @@ if(MSVC)
 endif()
 add_test(NAME lychee_unittests COMMAND lychee_unittests)
 
+# The standalone audio parsers use only DataSource and portable configs.
 if(APPLE OR WIN32 OR ANDROID OR LYCHEE_WITH_FFMPEG)
-  target_sources(lychee_unittests PRIVATE audio_demuxer_test.cc)
+  target_sources(lychee_unittests PRIVATE audio_demuxer_test.cc legacy_demuxer_test.cc)
 endif()
 
 # The FFmpeg-free MP4, MPEG-TS and HLS demuxers, built on Apple only.

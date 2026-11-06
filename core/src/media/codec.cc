@@ -54,6 +54,8 @@ const char* AudioCodecName(AudioCodec codec) {
       return "aac";
     case AudioCodec::kMP3:
       return "mp3";
+    case AudioCodec::kMP2:
+      return "mp2";
     case AudioCodec::kOpus:
       return "opus";
     case AudioCodec::kVorbis:

@@ -25,6 +25,7 @@ enum class AudioCodec {
   kUnknown,
   kAAC,
   kMP3,
+  kMP2,
   kOpus,
   kVorbis,
   kFLAC,

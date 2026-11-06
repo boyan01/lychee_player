@@ -11,11 +11,14 @@
 #include "backends/audio/mp3_demuxer.h"
 #include "backends/audio/ogg_demuxer.h"
 #include "backends/audio/wav_demuxer.h"
+#include "backends/avi/avi_demuxer.h"
+#include "backends/flv/flv_demuxer.h"
 #include "backends/hls/hls_demuxer.h"
 #include "backends/matroska/matroska_demuxer.h"
 #include "backends/mp2t/ts_demuxer.h"
 #include "backends/mp2t/ts_reader.h"
 #include "backends/mp4/mp4_demuxer.h"
+#include "backends/mpegps/ps_demuxer.h"
 #include "base/log.h"
 #include "media/data_source.h"
 #if defined(_WIN32)
@@ -153,6 +156,24 @@ bool ProbingDemuxer::Open(const std::string& url, std::string* error) {
     return opening->Open(url, error);
   }
 #endif
+  // The shipped FFmpeg omits AVI and MPEG-PS too. Native readers must
+  // stay available when the optional backend is enabled.
+  if (AviDemuxer::Detect(head, filled)) {
+    auto avi = std::make_unique<AviDemuxer>();
+    AviDemuxer* opening = avi.get();
+    Adopt(std::move(avi));
+    const bool opened = opening->Open(std::move(source), error);
+    if (opened || !fallback_) return opened;
+    return OpenFallback(nullptr, url, "avi: " + *error, error);
+  }
+  if (PsDemuxer::Detect(head, filled)) {
+    auto ps = std::make_unique<PsDemuxer>();
+    PsDemuxer* opening = ps.get();
+    Adopt(std::move(ps));
+    const bool opened = opening->Open(std::move(source), error);
+    if (opened || !fallback_) return opened;
+    return OpenFallback(nullptr, url, "ps: " + *error, error);
+  }
   if (fallback_) {
     return OpenFallback(std::move(source), url, "", error);
   }
@@ -192,6 +213,13 @@ bool ProbingDemuxer::Open(const std::string& url, std::string* error) {
     Adopt(std::move(demuxer));
     return opening->Open(std::move(source), error);
   }
+  if (FlvDemuxer::Detect(head, filled)) {
+    auto flv = std::make_unique<FlvDemuxer>();
+    FlvDemuxer* opening = flv.get();
+    Adopt(std::move(flv));
+    return opening->Open(std::move(source), error);
+  }
+
   // Everything else is MP4's to open or to name the error for.
   auto mp4 = std::make_unique<Mp4Demuxer>();
   Mp4Demuxer* opening = mp4.get();

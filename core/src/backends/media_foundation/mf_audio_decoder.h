@@ -19,10 +19,10 @@ namespace lychee {
 // and holds back its end.
 class MFAudioDecoder : public AudioDecoder {
  public:
-  // With FFmpeg, accept only ASF media types so other formats retain
-  // their existing decoder order.
-  explicit MFAudioDecoder(bool asf_only = false)
-      : asf_only_(asf_only) {}
+  // With FFmpeg, accept native demuxer configs (including ASF media
+  // types) while FFmpeg-demuxed streams retain their decoder order.
+  explicit MFAudioDecoder(bool native_only = false)
+      : native_only_(native_only) {}
   ~MFAudioDecoder() override = default;
 
   // Windows has a decoder for |codec|. It creates one: not per packet.
@@ -55,7 +55,7 @@ class MFAudioDecoder : public AudioDecoder {
   // Interleaved float frames at the sink's rate, out.
   void EmitFrames(std::vector<float> samples, const OutputCallback& output);
 
-  const bool asf_only_;
+  const bool native_only_;
   AudioConfig config_;
   AudioOutputFormat output_format_;
   Microsoft::WRL::ComPtr<IMFTransform> decoder_;

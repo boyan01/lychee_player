@@ -19,6 +19,9 @@ core/                 C++ core, no UI toolkit dependency
     backends/apple/   CoreAudio output, CVPixelBuffer conversion; without
                       FFmpeg also VideoToolbox/AudioToolbox decoders, HTTP
     backends/audio/   MP3, FLAC, WAV, ADTS and Ogg demuxers
+    backends/flv/     FLV (H.264/AAC) demuxer
+    backends/avi/     AVI/OpenDML demuxer
+    backends/mpegps/  MPEG-PS demuxer (MPEG-2; MP2/MP3/DVD AC-3)
     backends/media_foundation/ Windows ASF reader and system MFT decoders
     backends/mp4/     MP4 demuxer and tx3g text for builds without FFmpeg
     backends/mp2t/    MPEG-TS demuxer: without FFmpeg, and with it on Apple
@@ -55,9 +58,27 @@ play and seek without FFmpeg. Android additionally decodes Ogg Vorbis;
 Apple and Windows require FFmpeg for Vorbis. MP3 uses Xing/VBRI seek
 information (a byte-rate estimate when absent), FLAC its SEEKTABLE and
 frame timestamps, WAV sample offsets, ADTS a sparse frame index, and
-Ogg page granules. WAV supports compatible WAVE_FORMAT_EXTENSIBLE
-layouts. MP3 tags/artwork and chained Ogg are not yet exposed.
-`NO_FFMPEG=1 tool/regression.sh` tests it. On Windows it plays the same
+Ogg page granules. WAV accepts PCM and IEEE float, including compatible
+WAVE_FORMAT_EXTENSIBLE layouts.
+FLV H.264/AAC and AVI H.264/MP3/PCM play without FFmpeg on all three
+platform families. MPEG-4 Part 2 AVI uses Windows or Android system
+decoders where available; the tested Mac's VideoToolbox rejects it.
+MPEG-PS reads MPEG-2 video and MP2, MP3 or DVD AC-3 audio. Apple and
+Windows decode these when the system codecs are installed. Android phone
+images can omit MPEG-2 entirely; the Android TV image tested exposes
+MPEG-2 and MP3, but no MP2 or AC-3 decoder. Unsupported tracks are disabled.
+AVI and PS keep native readers with optional FFmpeg enabled, since the
+shipped FFmpeg omits these demuxers and legacy codecs. Windows keeps
+system decoder candidates for their native configs in that mode.
+PS currently selects the first audio stream and needs a finite input.
+FLV, AVI and PS scan headers/packets at open to build an index capped at
+one million packets; payloads stay in the source. Long or HTTP inputs
+can therefore take longer to open.
+`NO_FFMPEG=1 tool/regression.sh` tests it. Set `NATIVE_MPEG2=1` on Windows
+with a system MPEG-2 decoder to include its optional cases. Android's
+`ANDROID_SERIAL=... LYCHEE_AUDIO_ONLY=1 tool/android_check.sh` runs the
+CLI audio/legacy-container matrix without an APK; set `NATIVE_MPEG2=1`
+on a TV/device that exposes that decoder. On Windows it plays the same
 containers with H.264, HEVC, VP9 and AV1 (Media Foundation, on the GPU or
 the CPU), AAC,
 MP3, FLAC, ALAC, Opus and AC-3, and text subtitles; the Flutter plugin builds it so with
@@ -177,7 +198,7 @@ keeps the original P010 planes and color metadata for native HDR callers.
 UndefinedBehaviorSanitizer, `COVERAGE=1` for a line coverage report).
 `tool/format.sh` runs clang-format on the lines a branch changed. `tool/fuzz.sh` fuzzes the
 FFmpeg-free parsers (MP4, Matroska, MPEG-TS, HLS, MP3, FLAC, WAV, ADTS
-and Ogg) with libFuzzer under
+and Ogg, FLV, AVI and MPEG-PS) with libFuzzer under
 ASan and UBSan (`FUZZ_TARGET`, `FUZZ_SECONDS`, `JOBS`); on macOS it
 needs Homebrew's LLVM (`brew install llvm`, a development tool only),
 since Apple's clang has no libFuzzer runtime, and clang on Linux. Inputs

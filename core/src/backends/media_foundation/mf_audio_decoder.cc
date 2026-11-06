@@ -91,6 +91,8 @@ GUID Subtype(AudioCodec codec) {
       return MFAudioFormat_AAC;
     case AudioCodec::kMP3:
       return MFAudioFormat_MP3;
+    case AudioCodec::kMP2:
+      return MFAudioFormat_MPEG;
     case AudioCodec::kFLAC:
       return MFAudioFormat_FLAC;
     case AudioCodec::kALAC:
@@ -232,9 +234,9 @@ bool MFAudioDecoder::CanDecode(AudioCodec codec) {
 bool MFAudioDecoder::Initialize(const AudioConfig& config,
                                 const AudioOutputFormat& output_format,
                                 std::string* error) {
-  if (asf_only_ &&
+  if (native_only_ && config.codec_private &&
       !std::dynamic_pointer_cast<const MFCodecPrivate>(config.codec_private)) {
-    *error = "mediafoundation: not an ASF audio stream";
+    *error = "mediafoundation: not a native audio stream";
     return false;
   }
   output_format_ = output_format;

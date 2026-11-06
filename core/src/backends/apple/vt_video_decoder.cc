@@ -229,6 +229,19 @@ const char* VTVideoDecoder::name() const {
 }
 
 bool VTVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
+  if (config.codec == VideoCodec::kMPEG2 ||
+      config.codec == VideoCodec::kMPEG4) {
+    config_ = config;
+    codec_type_ = config.codec == VideoCodec::kMPEG2
+                      ? kCMVideoCodecType_MPEG2Video
+                      : kCMVideoCodecType_MPEG4Video;
+    if (!CreateSession()) {
+      *error =
+          "videotoolbox: this system has no decoder for " + config.codec_name;
+      return false;
+    }
+    return true;
+  }
   if (config.codec == VideoCodec::kVP9 || config.codec == VideoCodec::kAV1) {
     config_ = config;
     const std::vector<uint8_t>& extradata = config.extradata;
@@ -297,6 +310,17 @@ bool VTVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
 }
 
 CMVideoFormatDescriptionRef VTVideoDecoder::CreateFormat() const {
+  if (codec_type_ == kCMVideoCodecType_MPEG2Video ||
+      codec_type_ == kCMVideoCodecType_MPEG4Video) {
+    CFMutableDictionaryRef extensions = CreateDictionary();
+    SetColor(extensions, config_.color);
+    CMVideoFormatDescriptionRef format = nullptr;
+    const OSStatus status =
+        CMVideoFormatDescriptionCreate(nullptr, codec_type_, config_.width,
+                                       config_.height, extensions, &format);
+    CFRelease(extensions);
+    return status == noErr ? format : nullptr;
+  }
   if (codec_type_ != 0) {
     // The sample description's configuration box, as in MP4.
     std::vector<uint8_t> box;

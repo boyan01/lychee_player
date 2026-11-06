@@ -31,7 +31,7 @@ class MFVideoDecoder : public VideoDecoder {
   MFVideoDecoder(uint32_t accepted_storage,
                  VideoDevice device,
                  bool hardware,
-                 bool asf_only = false);
+                 bool native_only = false);
   ~MFVideoDecoder() override;
 
   // Windows has a decoder for |codec| (HEVC, VP9 and AV1 with their Store
@@ -59,7 +59,7 @@ class MFVideoDecoder : public VideoDecoder {
 
   const VideoDevice device_;
   const bool hardware_;
-  const bool asf_only_;
+  const bool native_only_;
   // Frames go out as textures only if someone can open them.
   const bool output_textures_;
   const bool output_hdr_;

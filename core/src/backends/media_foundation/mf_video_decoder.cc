@@ -65,6 +65,10 @@ GUID Subtype(VideoCodec codec) {
       return MFVideoFormat_WMV3;
     case VideoCodec::kVC1:
       return MFVideoFormat_WVC1;
+    case VideoCodec::kMPEG2:
+      return MFVideoFormat_MPEG2;
+    case VideoCodec::kMPEG4:
+      return MFVideoFormat_MP4V;
     default:
       return GUID_NULL;
   }
@@ -117,10 +121,10 @@ ColorInfo OutputColor(IMFMediaType* type, ColorInfo color) {
 MFVideoDecoder::MFVideoDecoder(uint32_t accepted_storage,
                                VideoDevice device,
                                bool hardware,
-                               bool asf_only)
+                               bool native_only)
     : device_(std::move(device)),
       hardware_(hardware),
-      asf_only_(asf_only),
+      native_only_(native_only),
       output_textures_(
           device_.type == VideoDevice::Type::kD3D11Adapter &&
           (accepted_storage &
@@ -145,9 +149,9 @@ MFVideoDecoder::~MFVideoDecoder() {
 }
 
 bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
-  if (asf_only_ &&
+  if (native_only_ && config.codec_private &&
       !std::dynamic_pointer_cast<const MFCodecPrivate>(config.codec_private)) {
-    *error = "mediafoundation: not an ASF video stream";
+    *error = "mediafoundation: not a native video stream";
     return false;
   }
   const GUID subtype = Subtype(config.codec);
@@ -215,6 +219,11 @@ bool MFVideoDecoder::Initialize(const VideoConfig& config, std::string* error) {
       *error = "mediafoundation: cannot copy ASF video configuration";
       return false;
     }
+  } else if (!nal_units && !config.extradata.empty()) {
+    input->SetBlob(
+        config.codec == VideoCodec::kMPEG2 ? MF_MT_MPEG_SEQUENCE_HEADER
+                                           : MF_MT_USER_DATA,
+        config.extradata.data(), static_cast<UINT32>(config.extradata.size()));
   }
   input->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
   input->SetGUID(MF_MT_SUBTYPE, subtype);
