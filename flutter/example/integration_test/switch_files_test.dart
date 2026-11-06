@@ -11,11 +11,13 @@
 // `flutter test` reinstalls the app, so serve the media instead
 // (tool/serve_media.py) and pass LYCHEE_MEDIA=http://10.0.2.2:8765.
 
-import 'dart:ffi';
+import 'dart:ffi' hide Size;
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:ffi/ffi.dart';
+import 'package:file_selector_platform_interface/file_selector_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,21 +68,34 @@ Future<List<String>> _threadNames() async {
 
 List<String> _windowsThreadNames() {
   final kernel32 = DynamicLibrary.open('kernel32.dll');
-  final snapshot = kernel32.lookupFunction<IntPtr Function(Uint32, Uint32),
-      int Function(int, int)>('CreateToolhelp32Snapshot');
-  final first = kernel32.lookupFunction<Int32 Function(IntPtr, Pointer<Uint32>),
-      int Function(int, Pointer<Uint32>)>('Thread32First');
-  final next = kernel32.lookupFunction<Int32 Function(IntPtr, Pointer<Uint32>),
-      int Function(int, Pointer<Uint32>)>('Thread32Next');
-  final openThread = kernel32.lookupFunction<
-      IntPtr Function(Uint32, Int32, Uint32),
-      int Function(int, int, int)>('OpenThread');
-  final description = kernel32.lookupFunction<
-      Int32 Function(IntPtr, Pointer<Pointer<Utf16>>),
-      int Function(int, Pointer<Pointer<Utf16>>)>('GetThreadDescription');
-  final localFree =
-      kernel32.lookupFunction<IntPtr Function(Pointer), int Function(Pointer)>(
-          'LocalFree');
+  final snapshot = kernel32
+      .lookupFunction<IntPtr Function(Uint32, Uint32), int Function(int, int)>(
+        'CreateToolhelp32Snapshot',
+      );
+  final first = kernel32
+      .lookupFunction<
+        Int32 Function(IntPtr, Pointer<Uint32>),
+        int Function(int, Pointer<Uint32>)
+      >('Thread32First');
+  final next = kernel32
+      .lookupFunction<
+        Int32 Function(IntPtr, Pointer<Uint32>),
+        int Function(int, Pointer<Uint32>)
+      >('Thread32Next');
+  final openThread = kernel32
+      .lookupFunction<
+        IntPtr Function(Uint32, Int32, Uint32),
+        int Function(int, int, int)
+      >('OpenThread');
+  final description = kernel32
+      .lookupFunction<
+        Int32 Function(IntPtr, Pointer<Pointer<Utf16>>),
+        int Function(int, Pointer<Pointer<Utf16>>)
+      >('GetThreadDescription');
+  final localFree = kernel32
+      .lookupFunction<IntPtr Function(Pointer), int Function(Pointer)>(
+        'LocalFree',
+      );
   final closeHandle = kernel32
       .lookupFunction<Int32 Function(IntPtr), int Function(int)>('CloseHandle');
 
@@ -130,6 +145,15 @@ Future<Map<String, int>> _countThreads() async {
   };
 }
 
+final class _TestFileSelector extends FileSelectorPlatform {
+  @override
+  Future<XFile?> openFile({
+    OpenFileDialogOptions options = const OpenFileDialogOptions(),
+  }) async {
+    return XFile.fileSystem(path: _media[0]);
+  }
+}
+
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   // macOS reports a fully covered window as hidden, and Flutter then stops
@@ -152,7 +176,12 @@ void main() {
       await tester.pump();
     }
 
-    await open(_media[0]);
+    // Exercise the migrated file selector without opening an OS dialog.
+    final selector = FileSelectorPlatform.instance;
+    FileSelectorPlatform.instance = _TestFileSelector();
+    addTearDown(() => FileSelectorPlatform.instance = selector);
+    await tester.tap(find.byTooltip('Choose a file'));
+    await tester.pump();
     await wait(const Duration(milliseconds: 1500));
     final before = await _countThreads();
     final rssBefore = ProcessInfo.currentRss;
@@ -160,8 +189,7 @@ void main() {
     for (var i = 0; i < 10; i++) {
       await open(_media[i % _media.length]);
       await wait(const Duration(milliseconds: 1500));
-      // The status line ends with the state name, "error: <message>".
-      expect(find.textContaining('   error'), findsNothing);
+      expect(find.text('Playback failed'), findsNothing);
     }
 
     // Two opens in a row, so the second starts before the first has created
@@ -173,6 +201,45 @@ void main() {
     button.onPressed!();
     await tester.pump();
     await wait(const Duration(seconds: 3));
+
+    // Exercise the same callback desktop_drop invokes after a native drop.
+    final target = tester.widget<DropTarget>(find.byType(DropTarget));
+    await target.onDrop(
+      DropDetails(
+        items: [
+          DropFileItem.fromPath(_media[1], isPromised: true),
+          DropFileItem.fromPath(_media[0]),
+        ],
+        operation: DropOperation.copy,
+        localPosition: Offset.zero,
+        globalPosition: Offset.zero,
+      ),
+    );
+    await wait(const Duration(seconds: 2));
+    final retained = tester
+        .widget<TextField>(find.byType(TextField))
+        .controller!
+        .text;
+    expect(retained, isNot(_media[1]));
+    expect(await File(retained).length(), await File(_media[1]).length());
+    expect(find.text('Opening the first dropped file.'), findsOneWidget);
+    expect(find.text('Playing'), findsOneWidget);
+    expect(
+      tester
+          .widget<LycheeVideo>(find.byType(LycheeVideo))
+          .player
+          .getStats()
+          .framesRendered,
+      greaterThan(0),
+    );
+    expect(find.text('Playback failed'), findsNothing);
+
+    // The controls must also fit a phone-sized window while media is open.
+    await tester.binding.setSurfaceSize(const Size(320, 568));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    await tester.binding.setSurfaceSize(null);
+    await tester.pump();
 
     final threads = await _countThreads();
     final rssGrowth = (ProcessInfo.currentRss - rssBefore) >> 20;
@@ -227,26 +294,24 @@ void main() {
     expect((await _countThreads())['lychee'], 0);
   });
 
-  testWidgets(
-    'a host texture switches between players the app owns',
-    (tester) async {
-      // macos/Runner/MainFlutterWindow.swift: two players in one
-      // LycheeHostTexture, each destroyed right after the switch away from
-      // it. Widths of what the texture handed out: 1 is its blank buffer.
-      const channel = MethodChannel('lychee_player_example/host_texture');
-      final report = (await channel.invokeMapMethod<String, int>(
-        'check',
-        _media[0],
-      ))!;
-      expect(report, {
-        'none': 0,
-        'first': 1920,
-        'second': 1920,
-        'cleared': 1,
-        'clearedAgain': 0,
-      });
-      expect((await _countThreads())['lychee'], 0);
-    },
-    skip: !Platform.isMacOS,
-  );
+  testWidgets('a host texture switches between players the app owns', (
+    tester,
+  ) async {
+    // macos/Runner/MainFlutterWindow.swift: two players in one
+    // LycheeHostTexture, each destroyed right after the switch away from
+    // it. Widths of what the texture handed out: 1 is its blank buffer.
+    const channel = MethodChannel('lychee_player_example/host_texture');
+    final report = (await channel.invokeMapMethod<String, int>(
+      'check',
+      _media[0],
+    ))!;
+    expect(report, {
+      'none': 0,
+      'first': 1920,
+      'second': 1920,
+      'cleared': 1,
+      'clearedAgain': 0,
+    });
+    expect((await _countThreads())['lychee'], 0);
+  }, skip: !Platform.isMacOS);
 }

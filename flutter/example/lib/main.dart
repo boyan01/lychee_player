@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitType;
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -43,7 +44,19 @@ class ExampleApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'lychee_player',
-      theme: ThemeData(colorSchemeSeed: Colors.deepOrange),
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xfff28d73),
+          brightness: Brightness.dark,
+          surface: const Color(0xff191b20),
+        ),
+        scaffoldBackgroundColor: const Color(0xff111318),
+        inputDecorationTheme: const InputDecorationTheme(
+          filled: true,
+          border: OutlineInputBorder(),
+        ),
+      ),
       home: PlayerPage(url: url, seconds: seconds, subtitle: subtitle),
     );
   }
@@ -63,6 +76,16 @@ class PlayerPage extends StatefulWidget {
 class _PlayerPageState extends State<PlayerPage> {
   late final _url = TextEditingController(text: widget.url);
   LycheePlayer? _player;
+  String? _source;
+  String? _openError;
+  var _dragging = false;
+  var _openRequest = 0;
+  Timer? _quitTimer;
+  final _retainedFiles = <Directory>[];
+
+  bool get _desktop =>
+      Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+
   // The runner's host texture test (LYCHEE_HOST_TEXTURE_TEST), shown in a
   // corner while the runner swaps the players behind it.
   int? _hostTexture;
@@ -81,7 +104,10 @@ class _PlayerPageState extends State<PlayerPage> {
     }
     final seconds = widget.seconds;
     if (seconds != null) {
-      Timer(Duration(microseconds: (seconds * 1e6).round()), _quit);
+      _quitTimer = Timer(
+        Duration(microseconds: (seconds * 1e6).round()),
+        _quit,
+      );
     }
     if ((Platform.isLinux || Platform.isWindows) &&
         Platform.environment.containsKey('LYCHEE_HOST_TEXTURE_TEST')) {
@@ -90,9 +116,8 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Future<void> _startHostTexture() async {
-    final id = await const MethodChannel(
-      'lychee_example/host_texture',
-    ).invokeMethod<int>('start');
+    final id = await const MethodChannel('lychee_example/host_texture')
+        .invokeMethod<int>('start');
     if (mounted) setState(() => _hostTexture = id);
   }
 
@@ -101,7 +126,8 @@ class _PlayerPageState extends State<PlayerPage> {
     if (player != null) {
       final stats = player.getStats();
       final position = player.value.position.inMicroseconds / 1e6;
-      final summary = 'summary: decoder=${stats.videoDecoder} '
+      final summary =
+          'summary: decoder=${stats.videoDecoder} '
           'hw=${stats.hardwareDecoding ? 1 : 0} '
           'rendered=${stats.framesRendered} dropped=${stats.framesDropped} '
           'position=${position.toStringAsFixed(3)} '
@@ -124,32 +150,126 @@ class _PlayerPageState extends State<PlayerPage> {
     ServicesBinding.instance.exitApplication(AppExitType.required);
   }
 
-  Future<void> _open() async {
-    final player = await LycheePlayer.create();
-    if (!mounted) {
-      player.dispose();
-      return;
+  Future<void> _open({int? request}) async {
+    final source = _url.text.trim();
+    if (source.isEmpty) return;
+    request ??= ++_openRequest;
+    setState(() => _openError = null);
+    try {
+      final player = await LycheePlayer.create();
+      // A newer request may finish first. Never replace it with an older one.
+      if (!mounted || request != _openRequest) {
+        player.dispose();
+        return;
+      }
+      player.open(source);
+      player.play();
+      final previous = _player;
+      setState(() {
+        _player = player;
+        _source = source;
+      });
+      previous?.dispose();
+    } catch (error) {
+      if (mounted && request == _openRequest) {
+        setState(() => _openError = 'Could not open media: $error');
+      }
     }
-    player.open(_url.text.trim());
-    player.play();
-    // Dispose whatever is current now, not before the await: two opens in
-    // flight would otherwise both replace the same player and leak one.
-    final previous = _player;
-    setState(() => _player = player);
-    previous?.dispose();
   }
 
-  Future<void> _pick() async {
-    final file = await openFile();
-    if (file == null || !mounted) return;
-    _url.text = file.path;
-    await _open();
+  Future<void> _drop(DropDetails details) async {
+    setState(() => _dragging = false);
+    // A drop may carry several representations. Only consume file items.
+    final files = details.items.whereType<DropFileItem>().toList();
+    if (files.isEmpty) return;
+    final request = ++_openRequest;
+    try {
+      final file = files.first;
+      final path = await _localPath(file.file, copy: file.isPromised);
+      if (!mounted || request != _openRequest) return;
+      _url.text = path;
+      if (files.length > 1) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Opening the first dropped file.')),
+        );
+      }
+      await _open(request: request);
+    } catch (error) {
+      if (mounted && request == _openRequest) {
+        setState(() => _openError = 'Could not read dropped file: $error');
+      }
+    }
+  }
+
+  // Provider references and promised files can expire when onDrop returns.
+  // Stream them to a local file before returning; never buffer a video in RAM.
+  Future<String> _localPath(XFile file, {bool copy = false}) async {
+    if (!copy && file is FileSystemXFile) return file.path;
+    final directory = await Directory.systemTemp.createTemp('lychee-example-');
+    try {
+      var name = (await file.name() ?? 'media').split(RegExp(r'[/\\]')).last;
+      if (name.isEmpty || name == '.' || name == '..') name = 'media';
+      final local = File('${directory.path}/$name');
+      await file.openRead().cast<List<int>>().pipe(local.openWrite());
+      if (!mounted) throw StateError('Player page closed during file transfer');
+      // Keep copied media and subtitles for this page's lifetime: the core
+      // reads them asynchronously, including after seeks and loops.
+      _retainedFiles.add(directory);
+      return local.path;
+    } catch (_) {
+      await _removeTemporaryDirectory(directory);
+      rethrow;
+    }
+  }
+
+  Future<void> _pick({LycheePlayer? subtitlePlayer}) async {
+    try {
+      final file = await openFile(
+        acceptedTypeGroups: subtitlePlayer == null
+            ? const []
+            : const [
+                XTypeGroup(
+                  label: 'Subtitles',
+                  extensions: ['srt', 'vtt', 'ass', 'ssa'],
+                ),
+              ],
+      );
+      if (file == null || !mounted) return;
+      final request = subtitlePlayer == null ? ++_openRequest : null;
+      final path = await _localPath(file);
+      if (!mounted) return;
+      if (subtitlePlayer != null) {
+        if (identical(subtitlePlayer, _player)) {
+          await _addSubtitle(context, subtitlePlayer, path);
+        }
+      } else if (request == _openRequest) {
+        _url.text = path;
+        await _open(request: request);
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _openError = 'Could not read selected file: $error');
+      }
+    }
+  }
+
+  Future<void> _removeTemporaryDirectory(Directory directory) async {
+    try {
+      await directory.delete(recursive: true);
+    } on FileSystemException catch (error) {
+      // Windows can still hold an open file during asynchronous teardown.
+      debugPrint('Could not remove temporary media: $error');
+    }
   }
 
   @override
   void dispose() {
+    _quitTimer?.cancel();
     _player?.dispose();
     _url.dispose();
+    for (final directory in _retainedFiles) {
+      unawaited(_removeTemporaryDirectory(directory));
+    }
     super.dispose();
   }
 
@@ -158,62 +278,252 @@ class _PlayerPageState extends State<PlayerPage> {
     final player = _player;
     return Scaffold(
       body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(8),
-              child: Row(
+        child: DropTarget(
+          enabled: _desktop,
+          acceptedKinds: const {DropItemKind.file},
+          onEnter: (_) => setState(() => _dragging = true),
+          onLeave: () => setState(() => _dragging = false),
+          onDrop: _drop,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Column(
                 children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _url,
-                      decoration: const InputDecoration(
-                        hintText: 'File path or URL',
-                        isDense: true,
+                  _sourceBar(),
+                  if (_openError case final error?)
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(
+                        error,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
-                      onSubmitted: (_) => _open(),
+                    ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: ColoredBox(
+                          color: Colors.black,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (player == null)
+                                _EmptyPlayer(desktop: _desktop, onPick: _pick)
+                              else
+                                Center(child: _Picture(player)),
+                              if (_hostTexture case final id?)
+                                Positioned(
+                                  right: 8,
+                                  bottom: 8,
+                                  width: 320,
+                                  height: 180,
+                                  child: Texture(textureId: id),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Choose a file',
-                    icon: const Icon(Icons.folder_open),
-                    onPressed: _pick,
-                  ),
-                  FilledButton(onPressed: _open, child: const Text('Open')),
+                  if (player != null)
+                    // Keep the video visible even in a short desktop window.
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.sizeOf(context).height * .45,
+                      ),
+                      child: SingleChildScrollView(
+                        child: _Controls(
+                          player,
+                          _source!,
+                          onAddSubtitle: () => _pick(subtitlePlayer: player),
+                          key: ObjectKey(player),
+                        ),
+                      ),
+                    )
+                  else
+                    const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
+                        'Local files · Network streams · External subtitles',
+                      ),
+                    ),
                 ],
               ),
-            ),
-            Expanded(
-              child: ColoredBox(
-                color: Colors.black,
-                child: Stack(
-                  children: [
-                    const SizedBox.expand(),
-                    if (player != null) Center(child: _Picture(player)),
-                    if (_hostTexture case final id?)
-                      Positioned(
-                        right: 8,
-                        bottom: 8,
-                        width: 320,
-                        height: 180,
-                        child: Texture(textureId: id),
+              if (_dragging)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Container(
+                      margin: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primaryContainer
+                            .withValues(alpha: .94),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.primary,
+                          width: 2,
+                        ),
                       ),
+                      child: const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.file_download_outlined, size: 48),
+                            SizedBox(height: 16),
+                            Text(
+                              'Release to play',
+                              style: TextStyle(fontSize: 24),
+                            ),
+                            SizedBox(height: 8),
+                            Text('Open a media file in this window'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sourceBar() {
+    final field = TextField(
+      controller: _url,
+      decoration: const InputDecoration(
+        hintText: 'File path or URL',
+        prefixIcon: Icon(Icons.link),
+        isDense: true,
+      ),
+      onSubmitted: (_) => _open(),
+    );
+    final buttons = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: 'Choose a file',
+          icon: const Icon(Icons.folder_open_outlined),
+          onPressed: _pick,
+        ),
+        const SizedBox(width: 8),
+        FilledButton(onPressed: _open, child: const Text('Open')),
+      ],
+    );
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Lychee Player',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              if (constraints.maxWidth < 440) ...[
+                field,
+                const SizedBox(height: 8),
+                Align(alignment: Alignment.centerRight, child: buttons),
+              ] else
+                Row(
+                  children: [
+                    Expanded(child: field),
+                    const SizedBox(width: 12),
+                    buttons,
                   ],
                 ),
-              ),
-            ),
-            if (player != null) _Controls(player),
-          ],
-        ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-class _Controls extends StatelessWidget {
-  const _Controls(this.player);
+class _EmptyPlayer extends StatelessWidget {
+  const _EmptyPlayer({required this.desktop, required this.onPick});
+
+  final bool desktop;
+  final VoidCallback onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (constraints.maxHeight > 220) ...[
+                  Icon(
+                    Icons.play_circle_outline,
+                    size: 64,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(height: 20),
+                ],
+                Text(
+                  desktop ? 'Drop a file to play' : 'Choose something to play',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Video, audio, or a stream URL above.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
+                  onPressed: onPick,
+                  icon: const Icon(Icons.folder_open_outlined),
+                  label: const Text('Choose a file'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _Controls extends StatefulWidget {
+  const _Controls(
+    this.player,
+    this.source, {
+    required this.onAddSubtitle,
+    super.key,
+  });
 
   final LycheePlayer player;
+  final String source;
+  final VoidCallback onAddSubtitle;
+
+  @override
+  State<_Controls> createState() => _ControlsState();
+}
+
+class _ControlsState extends State<_Controls> {
+  double? _scrubbing;
+  bool _details = false;
+
+  LycheePlayer get player => widget.player;
+
+  void _skip(LycheePlayerValue value, int seconds) {
+    final end = value.duration?.inMilliseconds ?? 0;
+    final target = (value.position.inMilliseconds + seconds * 1000).clamp(
+      0,
+      end,
+    );
+    player.seek(Duration(milliseconds: target));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -222,52 +532,130 @@ class _Controls extends StatelessWidget {
       builder: (context, value, _) {
         final duration = value.duration ?? Duration.zero;
         final max = duration.inMilliseconds.toDouble();
-        final position = value.position.inMilliseconds.toDouble().clamp(
+        final position =
+            (_scrubbing ?? value.position.inMilliseconds.toDouble()).clamp(
               0.0,
               max,
             );
         final playing = value.playing && value.state != LycheePlayerState.ended;
+        final uri = Uri.tryParse(widget.source);
+        final name = uri != null && uri.pathSegments.isNotEmpty
+            ? uri.pathSegments.last
+            : widget.source.split(RegExp(r'[/\\]')).last;
+        final status = switch (value.state) {
+          LycheePlayerState.ready => playing ? 'Playing' : 'Paused',
+          LycheePlayerState.loading => 'Opening…',
+          LycheePlayerState.buffering => 'Buffering…',
+          LycheePlayerState.ended => 'Ended',
+          LycheePlayerState.error => 'Playback failed',
+          LycheePlayerState.idle => 'Ready',
+        };
         return Padding(
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  IconButton(
-                    icon: Icon(playing ? Icons.pause : Icons.play_arrow),
-                    onPressed: playing ? player.pause : player.play,
+                  Expanded(
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
                   ),
-                  Text(_format(value.position)),
+                  const SizedBox(width: 12),
+                  Text(
+                    status,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
+              if (value.error case final error?)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    error,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              Row(
+                children: [
+                  Text(_format(Duration(milliseconds: position.round()))),
                   Expanded(
                     child: Slider(
                       value: max > 0 ? position : 0,
                       max: max > 0 ? max : 1,
                       onChanged: max > 0 && value.seekable
-                          ? (v) =>
-                              player.seek(Duration(milliseconds: v.round()))
+                          ? (v) => setState(() => _scrubbing = v)
+                          : null,
+                      onChangeEnd: max > 0 && value.seekable
+                          ? (v) {
+                              player.seek(Duration(milliseconds: v.round()));
+                              setState(() => _scrubbing = null);
+                            }
                           : null,
                     ),
                   ),
-                  Text(_format(duration)),
+                  Text(value.duration == null ? '--:--' : _format(duration)),
                 ],
               ),
-              Row(
+              Wrap(
+                spacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  TextButton(
-                    onPressed: () => player.setRate(_nextRate(value.rate)),
-                    child: Text('${value.rate}x'),
+                  IconButton.filled(
+                    tooltip: playing ? 'Pause' : 'Play',
+                    icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+                    onPressed: playing ? player.pause : player.play,
                   ),
                   IconButton(
-                    tooltip: 'Loop',
-                    icon: Icon(value.looping ? Icons.repeat_on : Icons.repeat),
+                    tooltip: 'Back 10 seconds',
+                    icon: const Icon(Icons.replay_10),
+                    onPressed: value.seekable && max > 0
+                        ? () => _skip(value, -10)
+                        : null,
+                  ),
+                  IconButton(
+                    tooltip: 'Forward 10 seconds',
+                    icon: const Icon(Icons.forward_10),
+                    onPressed: value.seekable && max > 0
+                        ? () => _skip(value, 10)
+                        : null,
+                  ),
+                  TextButton(
+                    onPressed: () => player.setRate(_nextRate(value.rate)),
+                    child: Text('${value.rate}×'),
+                  ),
+                  IconButton(
+                    tooltip: value.looping ? 'Turn loop off' : 'Turn loop on',
+                    isSelected: value.looping,
+                    icon: const Icon(Icons.repeat),
                     onPressed: () => player.setLooping(!value.looping),
                   ),
-                  if (value.tracks.length > 2) _TrackMenu(player, value.tracks),
-                  Expanded(
-                      child: _Stats(player, value, key: ObjectKey(player))),
+                  _TrackMenu(
+                    player,
+                    value.tracks,
+                    onAddSubtitle: widget.onAddSubtitle,
+                  ),
+                  IconButton(
+                    tooltip: 'Playback details',
+                    isSelected: _details,
+                    icon: const Icon(Icons.info_outline),
+                    onPressed: () => setState(() => _details = !_details),
+                  ),
                 ],
               ),
+              if (_details)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: _Stats(player, value, key: ObjectKey(player)),
+                ),
             ],
           ),
         );
@@ -300,9 +688,11 @@ class _Picture extends StatelessWidget {
       valueListenable: player,
       builder: (context, value, video) {
         final artwork = value.artwork;
-        return value.videoSize == null && artwork != null
-            ? Image.memory(artwork, gaplessPlayback: true)
-            : video!;
+        if (value.videoSize != null) return video!;
+        if (artwork != null) {
+          return Image.memory(artwork, gaplessPlayback: true);
+        }
+        return const Icon(Icons.graphic_eq, size: 80, color: Colors.white38);
       },
       child: LycheeVideo(player),
     );
@@ -311,34 +701,41 @@ class _Picture extends StatelessWidget {
 
 /// Adds a subtitle file to what [player] plays, saying so if it is not one.
 Future<void> _addSubtitle(
-    BuildContext context, LycheePlayer player, String url) async {
+  BuildContext context,
+  LycheePlayer player,
+  String url,
+) async {
   final added = await player.addSubtitle(url);
   if (!added && context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Not added: $url')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Not added: $url')));
   }
 }
 
 /// Audio and subtitle tracks, and adding a subtitle file.
 class _TrackMenu extends StatelessWidget {
-  const _TrackMenu(this.player, this.tracks);
+  const _TrackMenu(this.player, this.tracks, {required this.onAddSubtitle});
 
   final LycheePlayer player;
   final List<LycheeTrack> tracks;
+  final VoidCallback onAddSubtitle;
 
   @override
   Widget build(BuildContext context) {
-    final choices =
-        tracks.where((t) => t.type != LycheeTrackType.video).toList();
+    final choices = tracks
+        .where((t) => t.type != LycheeTrackType.video)
+        .toList();
     // Values are track indices; -1 turns subtitles off, -2 adds a file.
     return PopupMenuButton<int>(
       tooltip: 'Tracks',
       icon: const Icon(Icons.subtitles),
       onSelected: (index) => switch (index) {
         -1 => player.selectTrack(LycheeTrackType.subtitle, null),
-        -2 => _pickSubtitle(context),
-        _ => player.selectTrack(tracks[index].type, index),
+        -2 => onAddSubtitle(),
+        _ => player.selectTrack(
+          tracks.firstWhere((track) => track.index == index).type,
+          index,
+        ),
       },
       itemBuilder: (context) => [
         for (final track in choices)
@@ -351,18 +748,6 @@ class _TrackMenu extends StatelessWidget {
         const PopupMenuItem(value: -2, child: Text('Add subtitle file…')),
       ],
     );
-  }
-
-  Future<void> _pickSubtitle(BuildContext context) async {
-    final file = await openFile(
-      acceptedTypeGroups: const [
-        XTypeGroup(
-            label: 'Subtitles', extensions: ['srt', 'vtt', 'ass', 'ssa']),
-      ],
-    );
-    if (file != null && context.mounted) {
-      await _addSubtitle(context, player, file.path);
-    }
   }
 
   static String _label(LycheeTrack track) {

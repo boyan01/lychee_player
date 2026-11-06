@@ -2,6 +2,10 @@
 
 ### New
 
+* Example: drop a file into the desktop window to play it. The refreshed
+  player adapts to narrow windows and keeps playback details in a separate
+  panel.
+
 * Play and seek standalone MP3, FLAC, PCM/float WAV, ADTS AAC and Ogg
   Opus/FLAC without FFmpeg on Apple, Windows and Android. Android also
   supports Ogg Vorbis; Apple and Windows need FFmpeg for Vorbis.

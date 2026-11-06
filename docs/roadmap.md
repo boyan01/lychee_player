@@ -59,6 +59,13 @@ building on top of them.
 
 ## Known defects
 
+- **Flutter example macOS profile linker warning** (2026-11-06): after
+  adding `desktop_drop` 0.9.2 and the `cross_file` 0.4 file-selector
+  migration, Xcode's linker warns that an address "points before section"
+  and "the target atom is ambiguous". The app builds and plays; the input
+  object causing the warning is unknown. Done when it is identified and
+  a profile link completes without this diagnostic.
+
 - **The Flutter example crashed on quitting on Windows**: after
   `--seconds N` it calls `exitApplication(AppExitType.required)`, and
   every run on 2026-10-28 between 11:07 and 12:22 ended with 0xC000041D
@@ -233,6 +240,12 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    plays and seeks across its logical-stream boundary.
 
 ## Distribution and infrastructure
+
+- **Flutter example file selection**: `desktop_drop` 0.9.2 needs
+  `cross_file` 0.4, while the published `file_selector` still needs 0.3.
+  The example pins all file-selector packages to the matching migration
+  in flutter/packages#13147. Done when that migration is published and the
+  example uses pub.dev versions with no Git pins or platform overrides.
 
 1. **1.0.0**, once the beta has been used. Before it, and only then, a
    fresh app on `lychee_player` from pub.dev on every platform plays a
