@@ -11,6 +11,11 @@
 * Windows: play and seek ASF (WMV/WMA) with system decoders, with or
   without the optional FFmpeg backend.
 
+### Fixed
+
+* Software-decoded SDR video with FFmpeg uses smoother color
+  interpolation, avoiding jagged color boundaries in low-resolution video.
+
 ## 1.0.0-beta.7
 
 ### Fixed

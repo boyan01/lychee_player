@@ -99,14 +99,11 @@ building on top of them.
   before and after a seek are byte-identical, and adjacent reference
   frames score only 20.1/18.5 dB, so seek/PTS agree. Determine the
   reconstruction/chroma difference without lowering the global threshold.
-- **MPEG-2 conversion pixel differences**: Android TV's native example
+- **Android TV MPEG-2 pixel difference**: Android TV's native example
   with `c2.android.mpeg2.decoder` displays and seeks MPEG-2/MP3, but two
   SurfaceView snapshots at 4.900/5.980 s score 25.1/25.2 dB after scaling
   to 2501x1876 (BT.601; MAE 4.26/4.20). Reported output is limited-range
-  BT.601; BT.709 matches worse. The cause is not established. The Apple
-  FFmpeg software-conversion path also scores 27.8 dB on the MPG fixture,
-  while the native Apple and Windows frame paths pass. Keep these
-  conversion checks separate from native parser/seek checks; investigate
+  BT.601; BT.709 matches worse. The cause is not established. Investigate
   chroma reconstruction/scaling without lowering global thresholds.
 - **Android emulator H.264 AVI seek fallback**: Pixel_10's advertised
   hardware decoder stalls after the resync seek and falls back to the

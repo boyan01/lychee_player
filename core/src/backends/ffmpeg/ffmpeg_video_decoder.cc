@@ -549,6 +549,12 @@ std::shared_ptr<VideoFrame> FFmpegVideoDecoder::ConvertToCpu(AVFrame* frame) {
   AVFrame* converted = output.get();
   const bool hdr = frame->color_trc == AVCOL_TRC_SMPTE2084 ||
                    frame->color_trc == AVCOL_TRC_ARIB_STD_B67;
+  // The default same-size RGB shortcut can replicate subsampled chroma
+  // instead of interpolating it. Use full horizontal chroma interpolation
+  // for SDR, including low-resolution MPEG-2 with sharp color edges.
+  // HDR retains the existing high-precision conversion path and its flags.
+  sws_context_->flags =
+      hdr ? SWS_BICUBIC : SWS_BILINEAR | SWS_ACCURATE_RND | SWS_FULL_CHR_H_INT;
   if (hdr) {
     // swscale's 8-bit RGB path changes chromatic HDR colors, even without
     // scaling. Keep the color conversion at 16 bits and quantize only its

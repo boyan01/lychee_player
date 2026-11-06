@@ -1135,9 +1135,8 @@ fi
 # BT.709 above 576 lines, BT.601 at or below.
 par frames frame-flv "$media/h264_aac.flv" 1.5 3.5 -- --seconds 3.6
 par frames frame-avi "$media/h264_mp3.avi" 1.5 3.5 -- --seconds 3.6
-# This case checks the native MPEG-2 frame path. The optional FFmpeg
-# converter's separate color/chroma difference is tracked in the roadmap.
-if [ "${NO_FFMPEG:-0}" = 1 ] && { [ "$(uname)" = Darwin ] || [ "${NATIVE_MPEG2:-0}" = 1 ]; }; then
+# Both native and FFmpeg software conversion preserve MPEG-2 chroma.
+if [ "${NO_FFMPEG:-0}" != 1 ] || [ "$(uname)" = Darwin ] || [ "${NATIVE_MPEG2:-0}" = 1 ]; then
   par frames frame-mpegps "$media/mpeg2_mp2.mpg" 1.5 3.5 -- --seconds 3.6
 fi
 par frames frame-h264 "$media/h264_aac.mp4" 0.5 1.5 -- --seconds 1.6
