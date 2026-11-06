@@ -18,6 +18,9 @@ writes FILE.diff.ppm (the absolute difference, four times brighter).
                                             YCbCr matrix
   frame_check.py MEDIA ... --bilinear        native RGB, then a texture's
                                             bilinear sampling at pixel centers
+  frame_check.py MEDIA ... --android-compositor BUFFER.json
+                                            sRGB screen capture, with measured
+                                            YUV allocation/crop/dataspace
   frame_check.py MEDIA FILE --pts US [--video X,Y,W,H] --self-test
                                             also checks that wrong frames
                                             made from FILE fail (written
@@ -107,29 +110,29 @@ def write_ppm(path, image):
         file.write(image.pixels)
 
 
-def resize_bilinear(image, width, height):
+def resize_bilinear(image, width, height, inset=(0, 0)):
     """A clamp-to-edge texture sampler, without a downscaling low-pass.
 
     swscale's bilinear filter widens its kernel when downscaling. GPU
     textures without mipmaps instead read only the four source pixels
     around each output pixel center, even for a large reduction.
     """
-    if (width, height) == (image.width, image.height):
+    if (width, height) == (image.width, image.height) and inset == (0, 0):
         return image
 
-    def axis(source, target):
+    def axis(source, target, border):
         samples = []
         for at in range(target):
             position = max(0, min(source - 1,
-                                  (at + 0.5) * source / target - 0.5))
+                                  border + (at + 0.5) * (source - 2 * border) / target - 0.5))
             first = int(position)
             samples.append((first, min(first + 1, source - 1), position - first))
         return samples
 
-    columns = axis(image.width, width)
+    columns = axis(image.width, width, inset[0])
     pixels = image.pixels
     result = bytearray()
-    for top, bottom, fy in axis(image.height, height):
+    for top, bottom, fy in axis(image.height, height, inset[1]):
         for left, right, fx in columns:
             tl, tr = ((top * image.width + left) * 3,
                       (top * image.width + right) * 3)
@@ -142,6 +145,57 @@ def resize_bilinear(image, width, height):
                          pixels[br + channel] * fx)
                 result.append(round(upper * (1 - fy) + lower * fy))
     return Image(width, height, bytes(result))
+
+
+def android_compositor_geometry(metadata, width, height):
+    """Buffer geometry must come from SurfaceFlinger, never a fitted image.
+
+    Own implementation of the YUV420 crop rule in GLConsumer.cpp at
+    https://android.googlesource.com/platform/frameworks/native/+/32615136ae12dfbbb47366522fc2320a0bbdafd5/libs/gui/GLConsumer.cpp
+    A filtered, cropped axis loses one source texel at either end to avoid
+    sampling padded chroma. An uncropped axis must remain unchanged.
+    """
+    if metadata.get("output_dataspace") != "V0_SRGB":
+        raise ValueError("Android compositor capture requires output_dataspace V0_SRGB")
+    if metadata.get("pixel_format") != "yuv420":
+        raise ValueError("Android compositor mode requires pixel_format yuv420")
+    buffer = metadata.get("buffer_size", [])
+    crop = metadata.get("crop", [])
+    if len(buffer) != 2 or len(crop) != 4 or any(
+            type(value) is not int for value in (*buffer, *crop)):
+        raise ValueError("Android metadata needs integer buffer_size [W,H] and crop [X,Y,W,H]")
+    bw, bh = buffer
+    x, y, cw, ch = crop
+    if min(bw, bh, cw, ch) <= 0 or min(x, y) < 0 or x + cw > bw or y + ch > bh:
+        raise ValueError("Android crop lies outside its allocated buffer")
+    if (cw, ch) != (width, height):
+        raise ValueError("Android crop size must match the decoded video")
+    if (cw <= 2 and cw < bw) or (ch <= 2 and ch < bh):
+        raise ValueError("Android cropped axis is too small for filtered YUV")
+    if metadata.get("dataspace") not in ("V0_BT601_525", "V0_BT601_625", "V0_BT709"):
+        raise ValueError("unsupported Android SDR dataspace")
+    return (1 if cw < bw else 0, 1 if ch < bh else 0)
+
+
+def bt709_to_srgb(value):
+    """SMPTE 170M/BT.709 encoded RGB to sRGB, in the same RGB primaries.
+
+    Android's SDR YUV dataspaces use TRANSFER_SMPTE_170M (BT.709's curve):
+    https://android.googlesource.com/platform/frameworks/base/+/57946e2bb738/core/java/android/hardware/DataSpace.java
+    Compositor screen captures encode the display's sRGB output. PixelCopy
+    of the producer Surface is a different path, with its own crop bug.
+    """
+    encoded = value / 255
+    linear = encoded / 4.5 if encoded < 0.081 else ((encoded + 0.099) / 1.099) ** (1 / 0.45)
+    return round(255 * (12.92 * linear if linear <= 0.0031308 else
+                        1.055 * linear ** (1 / 2.4) - 0.055))
+
+
+def android_compositor_reference(image, width, height, metadata):
+    inset = android_compositor_geometry(metadata, image.width, image.height)
+    sampled = resize_bilinear(image, width, height, inset)
+    transfer = bytes(bt709_to_srgb(value) for value in range(256))
+    return Image(width, height, sampled.pixels.translate(transfer))
 
 
 @functools.lru_cache
@@ -180,13 +234,13 @@ def library_matrix(info):
     return "bt709" if info["height"] > 576 else "bt601"
 
 
-def decode(media, pts, width, height, matrix, bilinear=False):
+def decode(media, pts, width, height, matrix, bilinear=False, android_compositor=None):
     """The frame at |pts| (microseconds, the stream's own timeline),
     upright and scaled to width x height, and its pts as decoded."""
     info = probe(media)
     hdr = info["transfer"] in ("smpte2084", "arib-std-b67")
     output_width, output_height = width, height
-    if bilinear:
+    if bilinear or android_compositor is not None:
         width, height = ((info["height"], info["width"]) if info["quarter_turn"]
                          else (info["width"], info["height"]))
     # full_chroma_int selects a different swscale HDR conversion path that
@@ -227,7 +281,12 @@ def decode(media, pts, width, height, matrix, bilinear=False):
             words.byteswap()
         pixels = bytes((value + 128) // 257 for value in words)
     reference = Image(width, height, pixels)
-    if bilinear:
+    if android_compositor is not None:
+        if hdr or info["quarter_turn"]:
+            raise ValueError("Android compositor mode currently requires upright SDR video")
+        reference = android_compositor_reference(reference, output_width, output_height,
+                                                 android_compositor)
+    elif bilinear:
         reference = resize_bilinear(reference, output_width, output_height)
     return reference, round(float(found[1]) * 1e6)
 
@@ -260,7 +319,7 @@ def compare(shown, reference):
     return psnr, mae, worst, worst_at, diff
 
 
-def evaluate(media, path, pts, video, matrix=None, bilinear=False):
+def evaluate(media, path, pts, video, matrix=None, bilinear=False, android_compositor=None):
     """Compares the snapshot at |path| with the frame at |pts|: the
     problems found (none when it passes), the numbers, and the absolute
     difference with its size, or None before a comparison."""
@@ -284,8 +343,10 @@ def evaluate(media, path, pts, video, matrix=None, bilinear=False):
                     f"{upright[0]}x{upright[1]}"], "", None
 
     problems = []
+    if android_compositor is not None and matrix is None:
+        matrix = "bt709" if android_compositor.get("dataspace") == "V0_BT709" else "bt601"
     reference, ref_pts = decode(media, pts, w, h,
-                                matrix or library_matrix(info), bilinear)
+                                matrix or library_matrix(info), bilinear, android_compositor)
     if abs(ref_pts - pts) > 1000:
         problems.append(f"no frame at pts {pts} (next is {ref_pts})")
     region = shown if video is None else shown.crop(x, y, w, h)
@@ -309,13 +370,13 @@ def evaluate(media, path, pts, video, matrix=None, bilinear=False):
     return problems, numbers, Image(w, h, diff)
 
 
-def check(media, path, pts, video, matrix=None, bilinear=False):
+def check(media, path, pts, video, matrix=None, bilinear=False, android_compositor=None):
     """Prints PASS or FAIL for the snapshot at |path|, writing the
     difference next to it on FAIL. Returns whether it passed."""
     name = os.path.basename(path)
     try:
         problems, numbers, diff = evaluate(media, path, pts, video, matrix,
-                                           bilinear)
+                                           bilinear, android_compositor)
     except (OSError, RuntimeError, ValueError) as error:
         print(f"FAIL {name}: {error}")
         return False
@@ -415,7 +476,17 @@ def main():
         help="YCbCr matrix of the reference instead of the library's (an\n"
              "ffmpeg name, e.g. bt601): for a compositor that ignores the\n"
              "frame's, as the Android emulator's does")
+    parser.add_argument(
+        "--android-compositor", metavar="METADATA.json",
+        help="compare an sRGB compositor screenshot using measured YUV buffer_size,\n"
+             "crop and dataspace metadata; not a PixelCopy Surface snapshot")
     args = parser.parse_args()
+    metadata = None
+    if args.android_compositor:
+        with open(args.android_compositor) as source:
+            metadata = json.load(source)
+        if args.self_test:
+            parser.error("use explicit compositor negative captures instead of --self-test")
 
     jobs = []
     ok = True
@@ -448,7 +519,7 @@ def main():
                            args.bilinear) and ok
         else:
             ok = check(args.media, path, pts, video, args.matrix,
-                       args.bilinear) and ok
+                       args.bilinear, metadata) and ok
     return 0 if ok else 1
 
 

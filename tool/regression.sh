@@ -668,6 +668,7 @@ failures=0
 # before comparing the player's colored HDR frames with that reference.
 if [ "${NO_FFMPEG:-0}" != 1 ]; then
   python3 -I "$root/tool/frame_check_test.py" || exit 1
+  python3 -I "$root/tool/android_compositor_check_test.py" || exit 1
 fi
 
 # Unit tests first: they pinpoint a failure the playback cases only show.

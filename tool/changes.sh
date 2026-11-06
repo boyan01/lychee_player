@@ -99,7 +99,8 @@ while IFS= read -r f; do
     core/src/backends/ffmpeg/*) mark core apple windows linux ;;
     core/src/media/factory.cc) mark core parsers apple android windows linux ;;
     tool/abi_check.py) mark abi ;;
-    tool/android_check.sh | tool/android_extension_check.sh) mark android ;;
+    tool/android_check.sh | tool/android_extension_check.sh | \
+      tool/android_compositor_check.py | tool/android_compositor_check_test.py) mark android ;;
     tool/maven_central.py | tool/maven_central_test.py) mark packaging ;;
     flutter/android/consumer-rules.pro) mark packaging flutter android ;;
     core/* | CMakeLists.txt | examples/cli/* | tool/regression.sh | tool/*.py) mark core ;;

@@ -93,12 +93,13 @@ building on top of them.
   with "audio decoding failed" with it. Done when each is explained or
   plays to its end.
 
-- **Android TV MPEG-2 pixel difference**: Android TV's native example
-  with `c2.android.mpeg2.decoder` displays and seeks MPEG-2/MP3, but two
-  SurfaceView snapshots at 4.900/5.980 s score 25.1/25.2 dB after scaling
-  to 2501x1876 (BT.601; MAE 4.26/4.20). Reported output is limited-range
-  BT.601; BT.709 matches worse. The cause is not established. Investigate
-  chroma reconstruction/scaling without lowering global thresholds.
+- **Android Surface snapshots**: `LycheePlayerView.snapshot()` uses
+  PixelCopy, whose padded-YUV Surface readback applies a crop/scale that
+  differs from the screen compositor. Actual MPEG-2 output and compositor
+  captures pass the measured-geometry/sRGB checks; producer Surface
+  snapshots still inherit the platform limitation. Done when a public-API
+  snapshot path preserves the displayed pixels for padded YUV without a
+  fitted crop correction.
 
 ## Performance
 

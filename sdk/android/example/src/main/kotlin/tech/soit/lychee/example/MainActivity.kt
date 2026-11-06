@@ -12,6 +12,7 @@
 // "soak" (seconds) and "soak_url" repeat two seeks and a file switch.
 // "seek" ("SEC:TARGET,...") seeks at SEC seconds after the start.
 // "seconds" stops the activity after that many seconds and logs summary:.
+// "snapshot_pause" keeps playback paused after a capture for compositor screenshots.
 // "recreate" (seconds) recreates the activity once to check pending captures.
 // "subtitle" (a URL) adds that subtitle file to the media, in the
 // "subtitle_encoding" extra's encoding (default: guessed); "subtitle_delay"
@@ -194,7 +195,23 @@ class MainActivity : Activity() {
                                 "snapshot ${file.path} pts=$pts size=${bitmap.width}x${bitmap.height}" +
                                     " video=0,0,${bitmap.width},${bitmap.height}")
                         }
-                        player.play()
+                        if (intent.getBooleanExtra("snapshot_pause", false)) {
+                            val location = IntArray(2)
+                            video.getLocationOnScreen(location)
+                            val size = player.videoSize
+                            if (size != null) {
+                                val sideways = player.rotation == 90 || player.rotation == 270
+                                val sourceWidth = if (sideways) size.height else size.width
+                                val sourceHeight = if (sideways) size.width else size.height
+                                val width = minOf(video.width, (video.height.toLong() * sourceWidth / sourceHeight).toInt())
+                                val height = minOf(video.height, (video.width.toLong() * sourceHeight / sourceWidth).toInt())
+                                val x = location[0] + (video.width - width) / 2
+                                val y = location[1] + (video.height - height) / 2
+                                Log.i("lychee-example", "compositor pts=$pts video=$x,$y,$width,$height")
+                            }
+                        } else {
+                            player.play()
+                        }
                     }
                 }, 300)
             }, (seconds * 1000).toLong())

@@ -261,7 +261,7 @@ adb logcat -d -s lychee-example:I | grep -o 'snapshot .*' |
   python3 -I tool/frame_check.py rotated.mp4 --log - --bilinear --matrix bt601
 ```
 
-The emulator's compositor converts MediaCodec's YUV surfaces with BT.601
+The API 34 phone emulator used for these checks converts YUV with BT.601
 whatever their dataspace, for both hardware and system software decoding.
 HD fails there by its matrix alone; `--matrix bt601` checks the rest
 (frame, pts, rotation, scale). Omit it on a phone, which shows whether
@@ -274,6 +274,29 @@ large reductions: the API 34 emulator's 320x180 H.264 snapshots give
 27.2-27.5 dB against the low-pass reference and over 35 dB against the
 texture sampler (2026-10-29). Both modes keep the same thresholds and
 reject the wrong PTS, matrix, rotation and scale.
+
+For padded YUV buffers on Android TV, `PixelCopy` of the producer Surface
+has a separate crop/readback behavior and is not a reliable measurement of
+what the screen drew. Use the real compositor capture for SDR video:
+
+```sh
+# Build/install the native example first; serve the same generated media.
+python3 -I tool/android_compositor_check.py --device emulator-5556 \
+  --url http://127.0.0.1:8765/mpeg2_mp3.mpg \
+  --media /tmp/lychee-media/mpeg2_mp3.mpg --seek 4.4,5.48 \
+  --out /tmp/lychee-compositor
+```
+
+The example's optional `snapshot_pause` intent holds each frame and logs
+its PTS and screen bounds. The script reads the same SurfaceFlinger layer's
+allocated buffer, source crop and dataspace, verifies sRGB in the screenshot
+PNG, and saves the original capture and metadata. The checker's explicit
+`--android-compositor METADATA.json` mode follows Android's defined YUV crop
+and BT.709/SMPTE 170M-to-sRGB transfer. It accepts unrotated SDR YUV420 only;
+ambiguous layers and unsupported metadata fail rather than trying alternate
+references. The default checker and all pixel thresholds are unchanged.
+`LycheePlayerView.snapshot()` still uses PixelCopy; this compositor harness
+does not change or repair Android's Surface readback implementation.
 
 The reference follows the library's conventions: a stream without a color
 matrix is BT.709 above 576 lines and BT.601 below, and HDR is tone-mapped
