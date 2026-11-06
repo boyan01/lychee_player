@@ -63,6 +63,41 @@ TEST(AnnexBConverter, PassesAnnexBThrough) {
   EXPECT_TRUE(out == sample);
 }
 
+TEST(AnnexBConverter, NormalizesMixedAnnexBStartCodesWhenRequested) {
+  AnnexBConverter converter;
+  EXPECT_TRUE(converter.Initialize(H264({})));
+  // AVI can keep SPS/PPS behind four-byte codes and put the IDR behind
+  // a three-byte code. Both are valid Annex B, but Goldfish's H.264
+  // decoder stops producing frames when started at this midstream IDR.
+  const std::vector<uint8_t> sample = {0, 0, 0,    1,    0x67, 0xaa, 0, 0,
+                                       0, 1, 0x68, 0xbb, 0,    0,    1, 0x65,
+                                       0, 0, 3,    1,    0xcc, 0,    0};
+  const std::vector<uint8_t> expected = {
+      0xee, 0, 0, 0, 1,    0x67, 0xaa, 0, 0, 0,    1, 0x68, 0xbb,
+      0,    0, 0, 1, 0x65, 0,    0,    3, 1, 0xcc, 0, 0};
+  std::vector<uint8_t> out = {0xee};
+  EXPECT_TRUE(
+      converter.Convert(sample.data(), sample.size(), true, &out, true));
+  EXPECT_TRUE(out == expected);
+  // The opt-in leaves consumers that take either representation alone.
+  out.clear();
+  EXPECT_TRUE(converter.Convert(sample.data(), sample.size(), true, &out));
+  EXPECT_TRUE(out == sample);
+}
+TEST(AnnexBConverter, NormalizesHevcAnnexBWithoutChangingPayload) {
+  VideoConfig config;
+  config.codec = VideoCodec::kHEVC;
+  AnnexBConverter converter;
+  EXPECT_TRUE(converter.Initialize(config));
+  const std::vector<uint8_t> sample = {0, 0, 1, 0x40, 1, 0xaa, 0,
+                                       0, 0, 1, 0x26, 1, 0xbb};
+  const std::vector<uint8_t> expected = {0, 0, 0, 1, 0x40, 1, 0xaa,
+                                         0, 0, 0, 1, 0x26, 1, 0xbb};
+  std::vector<uint8_t> out;
+  EXPECT_TRUE(
+      converter.Convert(sample.data(), sample.size(), false, &out, true));
+  EXPECT_TRUE(out == expected);
+}
 TEST(AnnexBConverter, ParsesHvcC) {
   std::vector<uint8_t> hvcc(23, 0);
   hvcc[0] = 1;

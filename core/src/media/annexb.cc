@@ -248,15 +248,35 @@ void AnnexBConverter::AppendNal(const uint8_t* nal,
 bool AnnexBConverter::Convert(const uint8_t* data,
                               size_t size,
                               bool keyframe,
-                              std::vector<uint8_t>* out) const {
+                              std::vector<uint8_t>* out,
+                              bool four_byte_start_codes) const {
   if (keyframe) {
     for (const auto& nal : parameter_sets_) {
       AppendNal(nal.data(), nal.size(), out);
     }
   }
   if (length_size_ == 0) {
-    out->insert(out->end(), data, data + size);
-    return true;
+    if (!four_byte_start_codes) {
+      out->insert(out->end(), data, data + size);
+      return true;
+    }
+    size_t begin = size;
+    for (size_t i = 0; i < size;) {
+      const size_t length = StartCodeAt(data, size, i);
+      if (!length) {
+        ++i;
+        continue;
+      }
+      if (begin < i) {
+        AppendNal(data + begin, i - begin, out);
+      }
+      begin = i + length;
+      i = begin;
+    }
+    if (begin < size) {
+      AppendNal(data + begin, size - begin, out);
+    }
+    return size == 0 || begin < size;
   }
   size_t pos = 0;
   while (pos + length_size_ <= size) {

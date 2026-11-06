@@ -13,6 +13,8 @@
 
 ### Fixed
 
+* Android: affected H.264 decoders no longer stall for about four
+  seconds and switch to software decoding on startup or seek.
 * Software-decoded SDR video with FFmpeg uses smoother color
   interpolation, avoiding jagged color boundaries in low-resolution video.
 

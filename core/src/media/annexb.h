@@ -12,7 +12,7 @@ namespace lychee {
 // Turns H.264 and HEVC samples as containers store them (length-prefixed
 // NAL units, parameter sets in avcC / hvcC; ISO/IEC 14496-15) into the
 // Annex B byte stream platform decoders take (MediaCodec, Media
-// Foundation). Samples that already are Annex B (MPEG-TS) pass through.
+// Foundation). By default, existing Annex B samples pass through.
 class AnnexBConverter {
  public:
   // False if |config| is not H.264 or HEVC, or its extradata is malformed.
@@ -20,11 +20,14 @@ class AnnexBConverter {
 
   // Appends |data| as Annex B to |out|, preceded by the parameter sets if
   // |keyframe|: MP4 keeps them out of band, and a decoder needs them again
-  // after every flush. False if a NAL length runs past the end.
+  // after every flush. False if a NAL length runs past the end. With
+  // |four_byte_start_codes|, existing Annex B start codes are normalized
+  // too, for decoders that reject otherwise valid mixed 3/4-byte codes.
   bool Convert(const uint8_t* data,
                size_t size,
                bool keyframe,
-               std::vector<uint8_t>* out) const;
+               std::vector<uint8_t>* out,
+               bool four_byte_start_codes = false) const;
 
   // The parameter sets from the extradata, each NAL unit without a start
   // code: VPS, SPS, PPS (HEVC) or SPS, PPS (H.264), in that order.

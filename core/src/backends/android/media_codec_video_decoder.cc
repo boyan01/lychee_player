@@ -498,8 +498,12 @@ bool MediaCodecVideoDecoder::Decode(const EncodedPacket& packet,
   const bool annexb =
       codec_type_ == VideoCodec::kH264 || codec_type_ == VideoCodec::kHEVC;
   annexb_.clear();
+  // Both start-code widths are valid Annex B. Goldfish's H.264 decoder
+  // nevertheless stops returning frames for SPS/PPS followed by a
+  // three-byte IDR code at a seek. Match the four-byte codes produced
+  // for length-prefixed input; the NAL payloads stay untouched.
   if (annexb && !converter_.Convert(packet.buffer->data(), packet.size(),
-                                    packet.keyframe, &annexb_)) {
+                                    packet.keyframe, &annexb_, true)) {
     LOGW("skipping a malformed packet at %lld",
          static_cast<long long>(packet.pts));
     return true;

@@ -105,11 +105,6 @@ building on top of them.
   to 2501x1876 (BT.601; MAE 4.26/4.20). Reported output is limited-range
   BT.601; BT.709 matches worse. The cause is not established. Investigate
   chroma reconstruction/scaling without lowering global thresholds.
-- **Android emulator H.264 AVI seek fallback**: Pixel_10's advertised
-  hardware decoder stalls after the resync seek and falls back to the
-  system software decoder after about four seconds. Playback and seek
-  then finish. Done when the hardware path recovers without the timeout,
-  or the configuration is refused before trying it.
 
 ## Performance
 

@@ -137,6 +137,7 @@ if [ "${LYCHEE_SKIP_AUDIO:-0}" != 1 ]; then
     done
   done
   for file in $legacy_containers; do
+    play_hardware=0
     for mode in play seek; do
       args=""
       [ "$mode" != seek ] || args="--seek 3 --seek-after 1"
@@ -149,6 +150,21 @@ if [ "${LYCHEE_SKIP_AUDIO:-0}" != 1 ]; then
           { [ "$mode" = seek ] && { ! grep -q 'seeks=1 ' <<<"$summary" || ! grep -q 'event: seek completed at 3\.000s' <<<"$out"; }; }; then
         echo "$out" | tail -15
         die "missing video or seek for $file ($mode)"
+      fi
+      if [ "$file" = h264_mp3.avi ]; then
+        if [ "$mode" = play ]; then
+          if grep -q ' hw=1 ' <<<"$summary"; then play_hardware=1; fi
+        else
+          # A decoder may eventually recover via the four-second watchdog.
+          # That still fails this regression: Annex B seeks must not stall.
+          seek_ms="$(sed -nE 's/.* seek_ms=([0-9.]+).*/\1/p' <<<"$summary")"
+          if [ -z "$seek_ms" ] ||
+              ! awk -v ms="$seek_ms" 'BEGIN { exit !(ms >= 0 && ms < 1500) }' ||
+              { [ "$play_hardware" = 1 ] && ! grep -q ' hw=1 ' <<<"$summary"; }; then
+            echo "$out" | tail -15
+            die "slow AVI seek or unexpected hardware fallback ($seek_ms ms)"
+          fi
+        fi
       fi
       case "$file" in
         *.flv | *.avi | mpeg2_mp3.mpg)
