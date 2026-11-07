@@ -18,6 +18,59 @@ bool Mp3Demuxer::Find(int64_t* offset, AdtsHeader* header) {
   }
   return false;
 }
+void Mp3Demuxer::ReadArtwork(const uint8_t* tag, int64_t end) {
+  // ID3v2.3/v2.4 APIC frames. Ignore unsupported transformations and
+  // malformed metadata without preventing the audio from playing.
+  const int version = tag[3];
+  if ((version != 3 && version != 4) || (tag[5] & 0xc0)) return;
+  int64_t at = 10;
+  bool front = false;
+  for (int frames = 0; frames < 1024 && at + 10 <= end; ++frames) {
+    uint8_t header[10];
+    if (!Exact(at, header, sizeof(header))) return;
+    if (header[0] == 0) return;
+    if (version == 4 &&
+        ((header[4] | header[5] | header[6] | header[7]) & 0x80))
+      return;
+    const uint32_t size = version == 4
+                              ? (uint32_t(header[4]) << 21) |
+                                    (uint32_t(header[5]) << 14) |
+                                    (uint32_t(header[6]) << 7) | header[7]
+                              : BE32(header + 4);
+    at += 10;
+    if (size > static_cast<uint64_t>(end - at)) return;
+    if (memcmp(header, "APIC", 4) == 0 && size > 4 && size <= 8 * 1024 * 1024 &&
+        header[9] == 0) {
+      std::vector<uint8_t> data(size);
+      if (!Exact(at, data.data(), data.size())) return;
+      const uint8_t encoding = data[0];
+      if (encoding > 3) return;
+      size_t pos = 1;
+      while (pos < data.size() && data[pos] != 0)
+        ++pos;
+      if (pos + 2 >= data.size()) return;
+      ++pos;
+      const bool is_front = data[pos++] == 3;
+      if (encoding == 1 || encoding == 2) {
+        while (pos + 1 < data.size() && (data[pos] || data[pos + 1]))
+          pos += 2;
+        if (pos + 1 >= data.size()) return;
+        pos += 2;
+      } else {
+        while (pos < data.size() && data[pos])
+          ++pos;
+        if (pos == data.size()) return;
+        ++pos;
+      }
+      if (pos < data.size() && (!media_info_.artwork || (is_front && !front))) {
+        media_info_.artwork = std::make_shared<const std::vector<uint8_t>>(
+            data.begin() + pos, data.end());
+        front = is_front;
+      }
+    }
+    at += size;
+  }
+}
 bool Mp3Demuxer::Parse() {
   uint8_t tag[10];
   if (!Exact(0, tag, sizeof(tag))) return false;
@@ -25,6 +78,7 @@ bool Mp3Demuxer::Parse() {
     if ((tag[6] | tag[7] | tag[8] | tag[9]) & 0x80) return false;
     first_ = 10 + (int64_t(tag[6]) << 21) + (int64_t(tag[7]) << 14) +
              (int64_t(tag[8]) << 7) + tag[9];
+    ReadArtwork(tag, first_);
     if (tag[3] == 4 && (tag[5] & 0x10)) first_ += 10;
   }
   AdtsHeader header;

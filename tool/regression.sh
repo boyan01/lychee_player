@@ -1557,6 +1557,7 @@ par expect subtitle-file-missing "event: subtitle [0-9]+ failed" "event: subtitl
   "$media/h264_aac.mp4"
 par expect metadata "metadata: title=Lychee Test artist=Lychee Artist album=Lychee Album" "summary: state=ended" -- \
   "$media/meta.mp4"
+par expect artwork-id3-native "artwork: [0-9]+ bytes jpeg" "summary: state=ended" -- "$media/artwork.mp3"
 par expect artwork-id3 "metadata: title=Lychee Cover" "artwork: [0-9]+ bytes jpeg" "<=0 track 1" \
   "summary: state=ended" -- "$media/artwork.mp3"
 par expect artwork-mp4 "artwork: [0-9]+ bytes png" "summary: state=ended" -- "$media/artwork.m4a"

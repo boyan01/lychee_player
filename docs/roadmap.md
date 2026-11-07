@@ -59,6 +59,12 @@ building on top of them.
 
 ## Known defects
 
+- **macOS MP3 fuzz run leak report** (2026-11-07): `FUZZ_TARGET=mp3
+  tool/fuzz.sh` completed 116,883 inputs without a crash artifact, but
+  LeakSanitizer reported 995 bytes allocated by the sanitizer's symbolizer
+  while libFuzzer printed coverage. Determine whether the toolchain leak
+  is reproducible and make the run exit cleanly without hiding player leaks.
+
 - **Flutter example macOS profile linker warning** (2026-11-06): after
   adding `desktop_drop` 0.9.2 and the `cross_file` 0.4 file-selector
   migration, Xcode's linker warns that an address "points before section"
@@ -234,7 +240,8 @@ H.264, HEVC, VP8, VP9 and AV1), each reading http(s) through the system (WinHTTP
    open (profile, chroma, bit depth) or fails on the first rejected
    input, so the track reports an error.
 6. **Standalone audio metadata and chaining**: the native MP3 reader
-   skips ID3v2 rather than exposing tags and cover art; the Ogg reader
+   reads ordinary ID3v2.3/v2.4 APIC cover frames, but skips ID3 tags,
+   extended headers, unsynchronized or transformed frames, and ID3v2.2 pictures; the Ogg reader
    handles one logical audio stream, not chained Ogg files. Done when
    `artwork-id3` passes without FFmpeg and a chained Opus/Vorbis file
    plays and seeks across its logical-stream boundary.

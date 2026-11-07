@@ -144,6 +144,37 @@ TEST(Audio, Mp3Id3AndXingRestart) {
   Mp3Demuxer invalid;
   EXPECT_TRUE(!invalid.Open(CreateMemoryDataSource(file), &error));
 }
+TEST(Audio, Mp3ArtworkAndMalformedFrames) {
+  for (const uint8_t version : {3, 4}) {
+    Bytes tag = {'I', 'D', '3', version, 0, 0, 0, 0, 0, 0};
+    const auto picture = [&](uint8_t type, uint8_t value) {
+      Bytes body = {0,   'i', 'm', 'a', 'g',  'e', '/',
+                    'p', 'n', 'g', 0,   type, 0,   value};
+      Four(&tag, "APIC");
+      tag.insert(tag.end(), {0, 0, 0, static_cast<uint8_t>(body.size()), 0, 0});
+      Append(&tag, body);
+    };
+    picture(4, 11);
+    picture(3, 22);
+    tag[9] = static_cast<uint8_t>(tag.size() - 10);
+    Bytes frame(417, 0);
+    frame[0] = 0xff;
+    frame[1] = 0xfb;
+    frame[2] = 0x90;
+    Append(&tag, frame);
+    std::string error;
+    Mp3Demuxer d;
+    EXPECT_TRUE(d.Open(CreateMemoryDataSource(tag), &error));
+    EXPECT_TRUE(d.media_info().artwork != nullptr);
+    EXPECT_EQ(d.media_info().artwork->at(0), 22);
+
+    // A frame that claims bytes beyond the tag is ignored, not read from audio.
+    tag[17] = 127;
+    Mp3Demuxer malformed;
+    EXPECT_TRUE(malformed.Open(CreateMemoryDataSource(tag), &error));
+    EXPECT_TRUE(malformed.media_info().artwork == nullptr);
+  }
+}
 TEST(Audio, Mp3GaplessEncoderDelayAndPadding) {
   Bytes frame(417, 0);
   frame[0] = 0xff;

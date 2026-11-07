@@ -7,7 +7,8 @@
   panel.
 
 * Play and seek standalone MP3, FLAC, PCM/float WAV, ADTS AAC and Ogg
-  Opus/FLAC without FFmpeg on Apple, Windows and Android. Android also
+  Opus/FLAC without FFmpeg on Apple, Windows and Android. MP3 files can
+  also display common embedded ID3 cover pictures. Android also
   supports Ogg Vorbis; Apple and Windows need FFmpeg for Vorbis.
 * Play and seek FLV H.264/AAC, AVI and MPEG-PS without FFmpeg. AVI and
   MPEG-PS playback depends on the platform's installed codecs; MPEG-4

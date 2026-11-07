@@ -17,6 +17,7 @@ class Mp3Demuxer : public AudioFileDemuxer {
 
  private:
   bool Find(int64_t* offset, AdtsHeader* header);
+  void ReadArtwork(const uint8_t* tag, int64_t end);
   int64_t first_ = 0;
   int64_t audio_start_ = 0;
   int64_t position_ = 0;
