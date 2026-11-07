@@ -69,12 +69,6 @@ building on top of them.
   while libFuzzer printed coverage. Determine whether the toolchain leak
   is reproducible and make the run exit cleanly without hiding player leaks.
 
-- **CLI output interleaves across threads** (2026-11-07, CI's macOS
-  runner): `http-slow` failed once because `event: state ended` was
-  printed into the middle of the `summary:` line, so its pattern missed
-  the line. Done when the CLI writes each line whole (one lock for
-  events, logs and the summary).
-
 - **Flutter example macOS profile linker warning** (2026-11-06): after
   adding `desktop_drop` 0.9.2 and the `cross_file` 0.4 file-selector
   migration, Xcode's linker warns that an address "points before section"

@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cinttypes>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -36,6 +37,34 @@
 #endif
 
 namespace {
+
+// printf() into |out|.
+#if defined(__GNUC__)
+__attribute__((format(printf, 2, 3)))
+#endif
+void Appendf(std::string* out, const char* format, ...) {
+  va_list args;
+  va_start(args, format);
+  va_list copy;
+  va_copy(copy, args);
+  const int size = vsnprintf(nullptr, 0, format, copy);
+  va_end(copy);
+  if (size > 0) {
+    const size_t old = out->size();
+    out->resize(old + static_cast<size_t>(size) + 1);
+    vsnprintf(&(*out)[old], static_cast<size_t>(size) + 1, format, args);
+    out->resize(old + static_cast<size_t>(size));
+  }
+  va_end(args);
+}
+
+// The library's log lines go to stdout with the CLI's own, each in one
+// write, so neither lands in the middle of the other's line (stderr is
+// unbuffered and stdout is flushed whenever its buffer fills).
+void LogToStdout(void*, int32_t, const char* message) {
+  fprintf(stdout, "%s\n", message);
+  fflush(stdout);
+}
 
 // --frame-ppm SEC:FILE: the frame on screen at SEC seconds of the run.
 struct FrameSnapshot {
@@ -1146,6 +1175,7 @@ int main(int argc, char** argv) {
     return 2;
   }
 
+  lychee_set_log_callback(LogToStdout, nullptr);
   if (options.virtual_time) {
     lychee_testing_enable_virtual_time();
   }
@@ -1788,56 +1818,67 @@ int main(int argc, char** argv) {
   lychee_stats stats = {};
   stats.struct_size = sizeof(stats);
   lychee_player_get_stats(player, &stats);
-  printf("summary: state=%s position=%.3fs decoder=%s hw=%d pulled=%" PRId64
-         " rendered=%" PRId64 " dropped=%" PRId64 " glitches=%" PRId64
-         " backward_jumps=%" PRId64 " frame_type=%d rate=%.2f"
-         " max_drift=%.1fms loops=%" PRId64 " stalls=%" PRId64,
-         StateName(lychee_player_get_state(player)),
-         lychee_player_get_position(player) / 1e6, stats.video_decoder,
-         stats.hardware_decoding, frames_pulled, stats.frames_rendered,
-         stats.frames_dropped, glitches, backward_jumps, frame_type,
-         lychee_player_get_rate(player), max_drift / 1e3, loops, stalls);
+  // One write: other threads print events and log lines meanwhile, and
+  // a line built from several writes could take one in its middle.
+  std::string summary;
+  Appendf(&summary,
+          "summary: state=%s position=%.3fs decoder=%s hw=%d pulled=%" PRId64
+          " rendered=%" PRId64 " dropped=%" PRId64 " glitches=%" PRId64
+          " backward_jumps=%" PRId64
+          " frame_type=%d rate=%.2f"
+          " max_drift=%.1fms loops=%" PRId64 " stalls=%" PRId64,
+          StateName(lychee_player_get_state(player)),
+          lychee_player_get_position(player) / 1e6, stats.video_decoder,
+          stats.hardware_decoding, frames_pulled, stats.frames_rendered,
+          stats.frames_dropped, glitches, backward_jumps, frame_type,
+          lychee_player_get_rate(player), max_drift / 1e3, loops, stalls);
   if (seek_issued && first_pts_after_seek != INT64_MIN) {
-    printf(" first_pts_after_seek=%.3fs", first_pts_after_seek / 1e6);
+    Appendf(&summary, " first_pts_after_seek=%.3fs",
+            first_pts_after_seek / 1e6);
   }
   if (live) {
-    printf(" live_vbuf=%.3fs live_abuf=%.3fs live_packets_dropped=%" PRId64
-           " live_late=%.3fs live_silence=%.3fs live_behind=%.3fs"
-           " audio_decoder=%s",
-           live_vbuf / 1e6, live_abuf / 1e6, stats.live_video_packets_dropped,
-           stats.live_audio_late_us / 1e6, stats.live_audio_silence_us / 1e6,
-           stats.live_audio_behind_us / 1e6, stats.audio_decoder);
+    Appendf(&summary,
+            " live_vbuf=%.3fs live_abuf=%.3fs live_packets_dropped=%" PRId64
+            " live_late=%.3fs live_silence=%.3fs live_behind=%.3fs"
+            " audio_decoder=%s",
+            live_vbuf / 1e6, live_abuf / 1e6, stats.live_video_packets_dropped,
+            stats.live_audio_late_us / 1e6, stats.live_audio_silence_us / 1e6,
+            stats.live_audio_behind_us / 1e6, stats.audio_decoder);
   }
   if (audio_onset != INT64_MIN) {
-    printf(" audio_onset=%.4fs", audio_onset / 1e6);
+    Appendf(&summary, " audio_onset=%.4fs", audio_onset / 1e6);
   }
   // Last: cases match the fields above in order.
   if (options.soak_every > 0) {
-    printf(" soak_actions=%" PRId64, soak_actions);
+    Appendf(&summary, " soak_actions=%" PRId64, soak_actions);
   }
   if (open_ms >= 0) {
-    printf(" open_ms=%.1f", open_ms);
+    Appendf(&summary, " open_ms=%.1f", open_ms);
   }
   if (seek_ms >= 0) {
-    printf(" seek_ms=%.1f", seek_ms);
+    Appendf(&summary, " seek_ms=%.1f", seek_ms);
   }
-  printf(" wall=%.3fs",
-         std::chrono::duration<double>(wall_now() - wall_open).count());
+  Appendf(&summary, " wall=%.3fs",
+          std::chrono::duration<double>(wall_now() - wall_open).count());
   // The library's own playback counts.
-  printf(" decoded=%" PRId64 " startup=%.3fs rebuffers=%" PRId64
-         " rebuffer=%.3fs seeks=%" PRId64 " last_seek=%.3fs read_video=%" PRId64
-         "kB read_audio=%" PRId64 "kB download=%" PRId64
-         "kbit/s video_offset=%.1fms audio_output=%dHz/%dch"
-         " audio_latency=%.1fms variant=%" PRId64 "kbit/s",
-         stats.frames_decoded, stats.startup_time_us / 1e6,
-         stats.rebuffer_count, stats.rebuffer_time_us / 1e6, stats.seek_count,
-         stats.last_seek_time_us / 1e6, stats.video_bytes_read / 1000,
-         stats.audio_bytes_read / 1000,
-         stats.download_rate_bps < 0 ? -1 : stats.download_rate_bps / 1000,
-         stats.video_offset_us / 1e3, stats.audio_output_sample_rate,
-         stats.audio_output_channels, stats.audio_output_latency_us / 1e3,
-         stats.variant_bandwidth_bps / 1000);
-  printf("\n");
+  Appendf(&summary,
+          " decoded=%" PRId64 " startup=%.3fs rebuffers=%" PRId64
+          " rebuffer=%.3fs seeks=%" PRId64
+          " last_seek=%.3fs read_video=%" PRId64 "kB read_audio=%" PRId64
+          "kB download=%" PRId64
+          "kbit/s video_offset=%.1fms audio_output=%dHz/%dch"
+          " audio_latency=%.1fms variant=%" PRId64 "kbit/s",
+          stats.frames_decoded, stats.startup_time_us / 1e6,
+          stats.rebuffer_count, stats.rebuffer_time_us / 1e6, stats.seek_count,
+          stats.last_seek_time_us / 1e6, stats.video_bytes_read / 1000,
+          stats.audio_bytes_read / 1000,
+          stats.download_rate_bps < 0 ? -1 : stats.download_rate_bps / 1000,
+          stats.video_offset_us / 1e3, stats.audio_output_sample_rate,
+          stats.audio_output_channels, stats.audio_output_latency_us / 1e3,
+          stats.variant_bandwidth_bps / 1000);
+  summary += '\n';
+  fputs(summary.c_str(), stdout);
+  fflush(stdout);
   if (center_pixel[0] >= 0) {
     printf("center pixel: %d,%d,%d\n", center_pixel[0], center_pixel[1],
            center_pixel[2]);
