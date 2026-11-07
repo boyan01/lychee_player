@@ -1452,7 +1452,9 @@ if [ "$windows" = 1 ] && [ "${NO_FFMPEG:-0}" = 1 ]; then
     "summary: state=ready .*hw=0 .*rendered=(28[7-9]|29[0-9]|300) dropped=([0-9]|1[0-3]) .*backward_jumps=0 .*stalls=0" -- \
     --no-hw --live --live-stall 4 0.5 "$media/live_hevc.mp4"
 fi
-par expect live-latency "$live_ok" "summary: .*dropped=0 .*live_vbuf=0\.(2[5-9]|30)[0-9]s" -- \
+# This one checks the latency set; live-h264 holds drops at zero. A
+# hosted runner drops a few frames here (6 of 25 CI runs, 2026-11-07).
+par expect live-latency "$live_ok" "summary: .*dropped=[0-3] .*live_vbuf=0\.(2[5-9]|30)[0-9]s" -- \
   --live --latency 300 "$media/live_h264.mp4"
 # The new decoder starts at the next keyframe: the packets before it count
 # as dropped. A software decoder has nothing to recover and is not rebuilt.
