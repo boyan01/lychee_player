@@ -290,7 +290,8 @@ int64_t ParseTime(std::string_view line, size_t* pos) {
   const int64_t hours = count == 3 ? fields[0] : 0;
   const int64_t minutes = fields[count - 2];
   const int64_t seconds = fields[count - 1];
-  if (minutes >= 60 || seconds >= 60) {
+  // Ten digits of hours would overflow the microseconds.
+  if (hours >= 1000000 || minutes >= 60 || seconds >= 60) {
     return -1;
   }
   *pos = i;
