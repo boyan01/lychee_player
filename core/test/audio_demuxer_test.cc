@@ -145,7 +145,7 @@ TEST(Audio, Mp3Id3AndXingRestart) {
   EXPECT_TRUE(!invalid.Open(CreateMemoryDataSource(file), &error));
 }
 TEST(Audio, Mp3ArtworkAndMalformedFrames) {
-  for (const uint8_t version : {3, 4}) {
+  for (const uint8_t version : {uint8_t{3}, uint8_t{4}}) {
     Bytes tag = {'I', 'D', '3', version, 0, 0, 0, 0, 0, 0};
     const auto picture = [&](uint8_t type, uint8_t value) {
       Bytes body = {0,   'i', 'm', 'a', 'g',  'e', '/',
