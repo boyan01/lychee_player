@@ -47,8 +47,10 @@ common=(
   --enable-demuxer=mov,matroska,mpegts,hls,flv,ogg,mp3,aac,ac3,eac3,flac,wav,srt,webvtt,ass
   --enable-protocol=file,data,http,https,httpproxy,tcp,tls,crypto
   # Hardware decoders come first; these are the fallback.
-  --enable-decoder=h264,hevc,vp8,vp9,av1
-  --enable-decoder=aac,aac_latm,mp3float,opus,vorbis,flac,alac,ac3,eac3,'pcm_*'
+  # MPEG-2 and MPEG-4 Part 2 come from the native AVI and MPEG-PS readers,
+  # where no system decoder takes them.
+  --enable-decoder=h264,hevc,vp8,vp9,av1,mpeg2video,mpeg4
+  --enable-decoder=aac,aac_latm,mp3float,mp2float,opus,vorbis,flac,alac,ac3,eac3,'pcm_*'
   --enable-decoder=subrip,srt,webvtt,movtext,ass,ssa,text,pgssub,dvbsub,dvdsub
   --enable-parser=h264,hevc,vp8,vp9,av1,aac,aac_latm,mpegaudio,opus,vorbis,flac,ac3
   --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb

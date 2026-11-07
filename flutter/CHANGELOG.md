@@ -10,9 +10,9 @@
   Opus/FLAC without FFmpeg on Apple, Windows and Android. MP3 files can
   also display common embedded ID3 cover pictures. Android also
   supports Ogg Vorbis; Apple and Windows need FFmpeg for Vorbis.
-* Play and seek FLV H.264/AAC, AVI and MPEG-PS without FFmpeg. AVI and
-  MPEG-PS playback depends on the platform's installed codecs; MPEG-4
-  Part 2 AVI is supported on Windows and Android where available.
+* Play and seek FLV H.264/AAC, AVI and MPEG-PS, also without FFmpeg.
+  With the FFmpeg backend, MPEG-2, MPEG-4 Part 2 and MP2 play on every
+  platform; without it they depend on the platform's installed codecs.
 * Windows: play and seek ASF (WMV/WMA) with system decoders, with or
   without the optional FFmpeg backend.
 
