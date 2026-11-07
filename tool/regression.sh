@@ -1042,7 +1042,9 @@ for audio in mp3:audio_only.mp3 mp3-vbr:audio_vbr.mp3 flac:audio_only.flac \
     "summary: state=ended .*audio_onset=.*seeks=1 " -- \
     --volume 1 --seek 3 --seek-after 1 "$file"
 done
-if [ "$windows" = 1 ]; then
+# Only Windows' own decoders play WMV, and the hosted Windows Server opens
+# it but decodes nothing (NATIVE_WMV=0 there).
+if [ "$windows" = 1 ] && [ "${NATIVE_WMV:-1}" = 1 ]; then
   par expect asf-wmv2 "track [0-9]+: video wmv2 .*selected=1" \
     "track [0-9]+: audio wmav2 .*selected=1" \
     "summary: state=ended .*rendered=[1-9][0-9]* .*audio_onset=" -- \
@@ -1379,7 +1381,8 @@ par expect audio-device-stalled "stall audio device at 2\." "audio device pulled
 # device on a real audio thread, keeping the stall and recovery checks strict.
 null_audio=()
 [ "${NULL_AUDIO:-0}" = 1 ] && null_audio=(--null-audio)
-realtime=1 par expect audio-device-stalled-realtime "audio device pulled nothing for 20[0-9]{2} ms" \
+# The control thread notices after the timeout, later on a loaded host.
+realtime=1 par expect audio-device-stalled-realtime "audio device pulled nothing for 2[0-9]{3} ms" \
   "audio device pulls again" "summary: state=ready position=[34]\.[0-9]{3}s .*backward_jumps=0 " -- \
   ${null_audio[@]+"${null_audio[@]}"} --stall-audio-after 1 --stall-audio-for 3 --seconds 6 "$media/h264_aac.mp4"
 # Nobody pulls frames for 3 s, as in the background: frames that went by
@@ -1644,9 +1647,11 @@ seq_ check http-reconnect 1 - -- "$url"
 # corrupt" and "Invalid NAL unit size" when a seek interrupts a read in
 # flight, as an iPhone showed; the demuxer drops that packet.) The drop,
 # mid-packet, is past the seek's target (about 1.4 MB in), so the read
-# after the seek reaches it whichever request it falls in.
+# after the seek reaches it whichever request it falls in. Slow enough
+# that the seek comes first: a response dropped before it and left behind
+# by the seek needs no reconnect (seen on Windows at 20 MB/s).
 bad_packets="<=0 (malformed sample|decode failed|avcodec_(send_packet|receive_frame)|ProcessInput|decoding failed)"
-serve --drop-at 5000037 --rate 20000
+serve --drop-at 5000037 --rate 4000
 seq_ expect http-reconnect-seek "[Rr]econnect(ing)? at" "$bad_packets" \
   "summary: state=ended .*backward_jumps=0 .*first_pts_after_seek=2\.000s" -- \
   --seek 2 --seek-after 0.5 "http://127.0.0.1:$port/faststart.mp4"

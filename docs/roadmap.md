@@ -38,6 +38,10 @@ building on top of them.
    output textures are pooled (2026-11-02): Media Foundation takes every
    file the examples play; it needs a stream MF refuses and D3D11VA
    decodes, checked with `lychee_glfw --snapshot` and `frame_check.py`.
+   ASF/WMV has no decoder but the system's, and on CI's Windows Server
+   it opens and decodes nothing (`video decoding failed`), so CI skips
+   `asf-wmv2` (`NATIVE_WMV=0`); it played on Windows 11 Pro (2026-11-07).
+   Windows N and Server users get that same error.
 3. **Linux**: VAAPI on AMD, hardware decoding on arm64, and audio
    on a real sound card (WSLg's `RDPSink` runs 0.3-0.4% slow, so video
    holds a frame every ~3 s to follow it; an arm64 VMware VM's card plays
