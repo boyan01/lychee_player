@@ -82,7 +82,8 @@ inline void SkipH264ScalingList(BitReader* reader, int size) {
   int next = 8;
   for (int i = 0; i < size && reader->ok(); ++i) {
     if (next != 0) {
-      next = (last + reader->Se() + 256) % 256;
+      // A hostile stream's delta can be near INT_MAX: reduce it first.
+      next = (last + reader->Se() % 256 + 256) % 256;
     }
     last = next == 0 ? last : next;
   }
