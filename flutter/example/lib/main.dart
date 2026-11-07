@@ -75,6 +75,7 @@ class PlayerPage extends StatefulWidget {
 
 class _PlayerPageState extends State<PlayerPage> {
   late final _url = TextEditingController(text: widget.url);
+  final _playerFocus = FocusNode(debugLabel: 'Player shortcuts');
   LycheePlayer? _player;
   String? _source;
   String? _openError;
@@ -170,6 +171,7 @@ class _PlayerPageState extends State<PlayerPage> {
         _source = source;
       });
       previous?.dispose();
+      _playerFocus.requestFocus();
     } catch (error) {
       if (mounted && request == _openRequest) {
         setState(() => _openError = 'Could not open media: $error');
@@ -267,124 +269,174 @@ class _PlayerPageState extends State<PlayerPage> {
     _quitTimer?.cancel();
     _player?.dispose();
     _url.dispose();
+    _playerFocus.dispose();
     for (final directory in _retainedFiles) {
       unawaited(_removeTemporaryDirectory(directory));
     }
     super.dispose();
   }
 
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    final player = _player;
+    if (!_desktop ||
+        player == null ||
+        (event is! KeyDownEvent && event is! KeyRepeatEvent)) {
+      return KeyEventResult.ignored;
+    }
+    final keyboard = HardwareKeyboard.instance;
+    if (keyboard.isControlPressed ||
+        keyboard.isAltPressed ||
+        keyboard.isMetaPressed ||
+        keyboard.isShiftPressed) {
+      return KeyEventResult.ignored;
+    }
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    if (focusContext?.findAncestorWidgetOfExactType<EditableText>() != null) {
+      return KeyEventResult.ignored;
+    }
+    final value = player.value;
+    if (event.logicalKey == LogicalKeyboardKey.space && event is KeyDownEvent) {
+      if (value.playing && value.state != LycheePlayerState.ended) {
+        player.pause();
+      } else {
+        player.play();
+      }
+      return KeyEventResult.handled;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
+        event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      final duration = value.duration;
+      if (!value.seekable || duration == null || duration <= Duration.zero) {
+        return KeyEventResult.ignored;
+      }
+      final delta = event.logicalKey == LogicalKeyboardKey.arrowLeft ? -5 : 5;
+      final target = (value.position.inMilliseconds + delta * 1000).clamp(
+        0,
+        duration.inMilliseconds,
+      );
+      player.seek(Duration(milliseconds: target));
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   @override
   Widget build(BuildContext context) {
     final player = _player;
-    return Scaffold(
-      body: SafeArea(
-        child: DropTarget(
-          enabled: _desktop,
-          acceptedKinds: const {DropItemKind.file},
-          onEnter: (_) => setState(() => _dragging = true),
-          onLeave: () => setState(() => _dragging = false),
-          onDrop: _drop,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Column(
-                children: [
-                  _sourceBar(),
-                  if (_openError case final error?)
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Text(
-                        error,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
+    return Focus(
+      focusNode: _playerFocus,
+      autofocus: true,
+      onKeyEvent: _onKey,
+      child: Scaffold(
+        body: SafeArea(
+          child: DropTarget(
+            enabled: _desktop,
+            acceptedKinds: const {DropItemKind.file},
+            onEnter: (_) => setState(() => _dragging = true),
+            onLeave: () => setState(() => _dragging = false),
+            onDrop: _drop,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Column(
+                  children: [
+                    _sourceBar(),
+                    if (_openError case final error?)
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(
+                          error,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: ColoredBox(
+                            color: Colors.black,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                if (player == null)
+                                  _EmptyPlayer(desktop: _desktop, onPick: _pick)
+                                else
+                                  Center(child: _Picture(player)),
+                                if (_hostTexture case final id?)
+                                  Positioned(
+                                    right: 8,
+                                    bottom: 8,
+                                    width: 320,
+                                    height: 180,
+                                    child: Texture(textureId: id),
+                                  ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: ColoredBox(
-                          color: Colors.black,
-                          child: Stack(
-                            fit: StackFit.expand,
+                    if (player != null)
+                      // Keep the video visible even in a short desktop window.
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: MediaQuery.sizeOf(context).height * .45,
+                        ),
+                        child: SingleChildScrollView(
+                          child: _Controls(
+                            player,
+                            _source!,
+                            onAddSubtitle: () => _pick(subtitlePlayer: player),
+                            key: ObjectKey(player),
+                          ),
+                        ),
+                      )
+                    else
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text(
+                          'Local files · Network streams · External subtitles',
+                        ),
+                      ),
+                  ],
+                ),
+                if (_dragging)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Container(
+                        margin: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primaryContainer
+                              .withValues(alpha: .94),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.primary,
+                            width: 2,
+                          ),
+                        ),
+                        child: const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (player == null)
-                                _EmptyPlayer(desktop: _desktop, onPick: _pick)
-                              else
-                                Center(child: _Picture(player)),
-                              if (_hostTexture case final id?)
-                                Positioned(
-                                  right: 8,
-                                  bottom: 8,
-                                  width: 320,
-                                  height: 180,
-                                  child: Texture(textureId: id),
-                                ),
+                              Icon(Icons.file_download_outlined, size: 48),
+                              SizedBox(height: 16),
+                              Text(
+                                'Release to play',
+                                style: TextStyle(fontSize: 24),
+                              ),
+                              SizedBox(height: 8),
+                              Text('Open a media file in this window'),
                             ],
                           ),
                         ),
                       ),
                     ),
                   ),
-                  if (player != null)
-                    // Keep the video visible even in a short desktop window.
-                    ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxHeight: MediaQuery.sizeOf(context).height * .45,
-                      ),
-                      child: SingleChildScrollView(
-                        child: _Controls(
-                          player,
-                          _source!,
-                          onAddSubtitle: () => _pick(subtitlePlayer: player),
-                          key: ObjectKey(player),
-                        ),
-                      ),
-                    )
-                  else
-                    const Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Text(
-                        'Local files · Network streams · External subtitles',
-                      ),
-                    ),
-                ],
-              ),
-              if (_dragging)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: Container(
-                      margin: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primaryContainer
-                            .withValues(alpha: .94),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.primary,
-                          width: 2,
-                        ),
-                      ),
-                      child: const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.file_download_outlined, size: 48),
-                            SizedBox(height: 16),
-                            Text(
-                              'Release to play',
-                              style: TextStyle(fontSize: 24),
-                            ),
-                            SizedBox(height: 8),
-                            Text('Open a media file in this window'),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

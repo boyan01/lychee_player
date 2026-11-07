@@ -8,6 +8,8 @@ this checkout's Flutter plugin.
 - On macOS, Windows and Linux, drop a file anywhere in the window to play it.
   A drop replaces the current media. When several files are dropped, the
   first file opens. Folder and text drops are not accepted.
+- On desktop, press Space to play or pause and Left/Right to seek five
+  seconds. Shortcuts do not interrupt typing in the path field.
 - Seek with the timeline or the ten-second buttons. Change speed, toggle
   looping, and select audio or subtitle tracks from the controls.
 - Add an external subtitle from **Tracks → Add subtitle file…**, even when

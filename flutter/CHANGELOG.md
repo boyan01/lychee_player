@@ -4,7 +4,7 @@
 
 * Example: drop a file into the desktop window to play it. The refreshed
   player adapts to narrow windows and keeps playback details in a separate
-  panel.
+  panel. Use Space to play or pause and Left/Right to seek five seconds.
 
 * Play and seek standalone MP3, FLAC, PCM/float WAV, ADTS AAC and Ogg
   Opus/FLAC without FFmpeg on Apple, Windows and Android. MP3 files can
