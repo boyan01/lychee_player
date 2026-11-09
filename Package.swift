@@ -19,15 +19,15 @@ import Foundation
 import PackageDescription
 
 let release = (
-  url: "https://github.com/boyan01/lychee_player/releases/download/v1.0.0",
+  url: "https://github.com/boyan01/lychee_player/releases/download/v1.0.1",
   checksums: [
-    "lychee": "f086fc3a8859da1292df3661cacce35151f182c7eb1105404704bdee7f9ab313",
-    "libavformat": "1c014c08e5e173a6d3f6eb11d296953a89f66d1beeb8531f872c6948eabd2c80",
-    "libavcodec": "684a56cda1ad74905ed8885d69a5f71b0c462175599426ea785abe7132493a57",
-    "libswresample": "cc2592db9af55160cc118ef8b724dea9919d5e8b67952d0192e468dbd55aeb89",
-    "libswscale": "35d9dbe43abf43556c7e80553ed51d3be04b0f5d22e04cada825dc52afaa44b2",
-    "libavutil": "9864a2c755fd799aad900a6974ed5bf20e1a67f3589ecb7dbf16e82d0eab5e41",
-    "lychee_noffmpeg": "ae5caad8d6bb0eeab65d00e2b613bb54438bdc223a7bf970acbba12142def037",
+    "lychee": "01c8b7eaa2649ae6d6190ce446f92d4b0a7eb3602d1d34601461be7acb27040f",
+    "libavformat": "928da2f969668ee58f895503426dd8d2992c062a271cac54dd7dfb5c19398e6c",
+    "libavcodec": "b896db44d182d0552d9ec395b34fab998e602f1c098c9a80fb7cb2e236547d1e",
+    "libswresample": "02153f8782c5464c4287e0e9c454baaa28d4a25ac5a243562dd2305c84eb9d2a",
+    "libswscale": "a441fbb131375e7d91a55918474852d7e869fef8a0db33a807209ef69194a780",
+    "libavutil": "d7216760acfa3d362976084009455d414b445c2de72e918b8c968bfb12b10294",
+    "lychee_noffmpeg": "146d37f36894f877d98fce3c81274d306db5f51eeca23d0186406de1860161d1",
   ]
 )
 
