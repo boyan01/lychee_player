@@ -243,6 +243,17 @@ public final class LycheePlayer {
     return lines
   }
 
+  /// Replaces what is open with `url`, the same content from elsewhere
+  /// (another quality, a mirror, a fresh URL), where playback is if
+  /// `keepPosition`, else from the start. Until the new media is ready the
+  /// state is ``State/buffering``, and the position, duration, video size
+  /// and the frame on screen stay; play/pause, volume, rate, looping and
+  /// added subtitle files are kept. Media that cannot seek plays from its
+  /// start.
+  public func switchSource(_ url: String, keepPosition: Bool = true) {
+    lychee_player_switch_source(handle, url, keepPosition ? 1 : 0)
+  }
+
   /// Stops what is open and goes back to ``State/idle``, releasing decoders,
   /// the audio output and the input. The player, its event handler, volume,
   /// rate, looping and play/pause stay for the next ``open(_:)``.

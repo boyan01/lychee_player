@@ -124,6 +124,10 @@ struct Options {
   double close_after = -1;
   // Seek right after the open, while loading: where playback starts.
   double start_at = -1;
+  // Switch to |switch_url| (the same content) at the position this many
+  // seconds after playback starts.
+  std::string switch_url;
+  double switch_after = -1;
   // Soak: every |soak_every| seconds of playback, seek to a random
   // position, twice, then open the other of |url| and |soak_url|.
   double soak_every = -1;
@@ -370,6 +374,12 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       if (!v || !url) return false;
       options->reopen_after = atof(v);
       options->reopen_url = url;
+    } else if (arg == "--switch-after") {
+      const char* v = value();
+      const char* url = value();
+      if (!v || !url) return false;
+      options->switch_after = strtod(v, nullptr);
+      options->switch_url = url;
     } else if (arg == "--start") {
       const char* v = value();
       if (!v) return false;
@@ -1325,7 +1335,8 @@ int main(int argc, char** argv) {
         "--android-surface] "
         "[--rate R [--rate-after "
         "SEC]] [--loop [--loop-off-after SEC]] "
-        "[--open-after SEC URL] [--close-after SEC] [--start SEC] [--soak SEC "
+        "[--open-after SEC URL] [--close-after SEC] [--start SEC] "
+        "[--switch-after SEC URL] [--soak SEC "
         "URL] [--select "
         "TYPE:INDEX[@SEC]]... "
         "[--select-after SEC] [--variant INDEX@SEC]... "
@@ -1473,6 +1484,14 @@ int main(int argc, char** argv) {
   bool reopened = false;
   // --close-after: when the player was closed, 0 before.
   int64_t closed_at = 0;
+  // --switch-after: the position at the switch (INT64_MIN before, and
+  // once reported), the frames pulled since with an earlier pts, and the
+  // times the position was reported earlier.
+  bool switched = false;
+  int64_t switch_position = INT64_MIN;
+  int64_t switch_first_pts = INT64_MIN;
+  int64_t switch_early_frames = 0;
+  int64_t switch_position_dips = 0;
   if (options.reopen_after == 0) {
     printf("open -> %s\n", options.reopen_url.c_str());
     Open(player, options, options.reopen_url);
@@ -1486,6 +1505,32 @@ int main(int argc, char** argv) {
                                                 options.vsync_jitter);
   const int64_t start = lychee_now_us();
   int64_t next_vsync = start;
+  // A call that stops a pipeline (a switch, a close) fades its audio out
+  // and waits for the device to play that. Virtual time stands still while
+  // this thread is in it, so it runs at the real rate meanwhile, as at the
+  // destroy below, and the vsyncs go on from where it got to.
+  const auto stopping = [&](auto&& call) {
+    if (!options.virtual_time) {
+      return call();
+    }
+    std::atomic<bool> done{false};
+    const int64_t from = lychee_now_us();
+    const auto real_from = std::chrono::steady_clock::now();
+    std::thread clock([&done, from, real_from] {
+      while (!done.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        lychee_testing_set_time(
+            from + std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::steady_clock::now() - real_from)
+                       .count());
+      }
+    });
+    const auto result = call();
+    done = true;
+    clock.join();
+    next_vsync = lychee_now_us();
+    return result;
+  };
   int64_t next_report = start + 1000000;
   int64_t last_pts = INT64_MIN;
   int64_t backward_jumps = 0;
@@ -1679,6 +1724,10 @@ int main(int argc, char** argv) {
           center_pixel[0] = p[bgra ? 2 : 0];
           center_pixel[1] = p[1];
           center_pixel[2] = p[bgra ? 0 : 2];
+        }
+        if (switch_position != INT64_MIN) {
+          if (switch_first_pts == INT64_MIN) switch_first_pts = pts;
+          if (pts < switch_position) switch_early_frames++;
         }
         // The first discontinuity after a seek is the seek landing.
         bool discontinuity =
@@ -1976,9 +2025,35 @@ int main(int argc, char** argv) {
       continue;
     }
 
+    if (!switched && options.switch_after >= 0 && ready_wall != 0 &&
+        now - ready_wall >= static_cast<int64_t>(options.switch_after * 1e6)) {
+      switched = true;
+      switch_position = position;
+      printf("switch at %.3fs -> %s: result=%d state=%s\n", position / 1e6,
+             options.switch_url.c_str(), stopping([&] {
+               return lychee_player_switch_source(
+                   player, options.switch_url.c_str(), 1);
+             }),
+             StateName(lychee_player_get_state(player)));
+    } else if (switch_position != INT64_MIN) {
+      if (lychee_player_get_position(player) < switch_position) {
+        switch_position_dips++;
+      }
+      if (state == LYCHEE_STATE_READY) {
+        printf(
+            "switch from %.3fs: ready at %.3fs, first_pts=%.3fs "
+            "early_frames=%" PRId64 " position_dips=%" PRId64 "\n",
+            switch_position / 1e6, position / 1e6, switch_first_pts / 1e6,
+            switch_early_frames, switch_position_dips);
+        switch_position = INT64_MIN;
+        drift_wall = now;
+        drift_position = position;
+      }
+    }
     if (options.close_after >= 0 && closed_at == 0 && ready_wall != 0 &&
         now - ready_wall >= static_cast<int64_t>(options.close_after * 1e6)) {
-      const int32_t result = lychee_player_close(player);
+      const int32_t result =
+          stopping([&] { return lychee_player_close(player); });
       closed_at = now;
       lychee_frame* frame = lychee_player_acquire_frame(player, display_time);
       printf("close at %.3fs: result=%d state=%s position=%.3fs frame=%d\n",

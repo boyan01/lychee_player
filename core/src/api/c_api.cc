@@ -290,6 +290,12 @@ int32_t lychee_player_close(lychee_player* player) {
   return player->player->Close() ? 0 : -1;
 }
 
+int32_t lychee_player_switch_source(lychee_player* player,
+                                    const char* url,
+                                    int32_t keep_position) {
+  return url && player->player->SwitchSource(url, keep_position != 0) ? 0 : -1;
+}
+
 int32_t lychee_player_open_live(lychee_player* player,
                                 const lychee_live_config* config) {
   int64_t latency = kDefaultLiveLatency;

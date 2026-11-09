@@ -1327,6 +1327,7 @@ par audio audio-gain-peak "$media/h264_aac.mp4" --threshold 0.02 --min-peak 0.45
 # Down to silence and back without a click; pulled during the fade.
 par audio audio-fade "$media/h264_aac.mp4" --expect-gap 300 -- --seconds 3.5 \
   --fade 1:0:500 --fade 2.2:1:300 --audio-samples 0.5:256 --audio-samples 1.3:1024
+par audio audio-switch "$media/h264_aac.mp4" -- --seconds 4 --switch-after 1 "$media/h264_aac.mkv"
 # Looping: back to the start without ENDED or BUFFERING, and without
 # stopping: a frame held too long at the jump is a glitch.
 par expect loop "summary: state=ready" "loops=2" "summary:.*backward_jumps=0 " "summary:.*glitches=0 " \
@@ -1346,6 +1347,13 @@ par expect start "first frame: pts=5\.500s position=5\.5" "seek completed at 5\.
   "summary: state=ended .*backward_jumps=0 .*audio_onset=5\.5[0-9]*s" -- --volume 1 --start 5.5 "$media/h264_aac.mp4"
 par expect start-past-end "seek completed at 12\.000s" "summary: state=ended position=12\.000s .*pulled=0 " -- \
   --start 50 "$media/h264_aac.mp4"
+# A source switch to the same content in another container: buffering
+# rather than idle or loading, the position never going back, and no
+# frame from before the one on screen.
+par expect switch "switch at 2\.[0-9]+s -> .*result=0 state=buffering" \
+  "switch from 2\.[0-9]+s: ready at .* early_frames=0 position_dips=0" "<=1 event: state loading" \
+  "<=0 event: state (idle|error)" "summary: state=ended position=12\.023s .*backward_jumps=0 " -- \
+  --switch-after 2 "$media/h264_aac.mkv" "$media/h264_aac.mp4"
 # Closing: idle at once, with no frame handed out, then the same player
 # opens again.
 par expect close "close at 2\.[0-9]+s: result=0 state=idle position=0\.000s frame=0" \

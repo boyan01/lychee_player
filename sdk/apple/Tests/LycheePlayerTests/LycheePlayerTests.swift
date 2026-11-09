@@ -117,6 +117,30 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(player.volume, 0.5)
   }
 
+  func testSwitchSourceKeepsPositionAndSize() throws {
+    let other = "/tmp/lychee-media/h264_aac.mkv"
+    try XCTSkipUnless(FileManager.default.fileExists(atPath: other), "run tool/regression.sh first")
+    let player = LycheePlayer()
+    player.volume = 0
+    var ready = expectation(description: "ready")
+    player.onEvent = { event in
+      if case .stateChanged(.ready) = event { ready.fulfill() }
+    }
+    player.open(url, start: 3)
+    player.play()
+    wait(for: [ready], timeout: 10)
+    let position = player.position
+    ready = expectation(description: "ready again")
+    player.switchSource(other)
+    XCTAssertEqual(player.state, .buffering)
+    XCTAssertGreaterThanOrEqual(player.position, position)
+    XCTAssertEqual(player.videoSize, CGSize(width: 1920, height: 1080))
+    XCTAssertEqual(player.duration, 12)
+    wait(for: [ready], timeout: 10)
+    XCTAssertGreaterThanOrEqual(player.position, position)
+    XCTAssertTrue(player.isPlaying)
+  }
+
   func testOpensAtStartPosition() {
     let player = LycheePlayer()
     player.volume = 0

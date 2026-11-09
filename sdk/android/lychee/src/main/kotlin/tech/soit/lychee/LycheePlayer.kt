@@ -212,6 +212,20 @@ class LycheePlayer @JvmOverloads constructor(
     }
 
     /**
+     * Replaces what is open with [url], the same content from elsewhere
+     * (another quality, a mirror, a fresh URL), where playback is if
+     * [keepPosition], else from the start. Until the new media is ready the
+     * state is [State.BUFFERING], and the position, duration, video size
+     * and the frame on screen stay; play/pause, volume, rate, looping and
+     * added subtitle files are kept. Media that cannot seek plays from its
+     * start.
+     */
+    @JvmOverloads
+    fun switchSource(url: String, keepPosition: Boolean = true) {
+        nativeSwitchSource(handle(), url.toByteArray(), keepPosition)
+    }
+
+    /**
      * Stops what is open and goes back to [State.IDLE], releasing decoders,
      * the audio output and the input; the player, its listeners, volume,
      * rate, looping and play/pause stay for the next [open]. Unlike
@@ -590,6 +604,7 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeDestroy(handle: Long, sink: Long)
         @JvmStatic private external fun nativeOpen(handle: Long, url: ByteArray, headers: ByteArray): Int
         @JvmStatic private external fun nativeClose(handle: Long): Int
+        @JvmStatic private external fun nativeSwitchSource(handle: Long, url: ByteArray, keepPosition: Boolean): Int
         @JvmStatic private external fun nativePlay(handle: Long)
         @JvmStatic private external fun nativePause(handle: Long)
         @JvmStatic private external fun nativeRebuildVideoDecoder(handle: Long)

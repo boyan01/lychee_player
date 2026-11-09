@@ -268,7 +268,9 @@ void Player::StopPipeline() {
     variants_.clear();
     selected_variant_ = -1;
     video_last_pts_ = audio_last_pts_ = kNoTimestamp;
-    video_width_ = video_height_ = 0;
+    video_width_ = video_height_ = video_rotation_ = 0;
+    switch_seek_ = false;
+    continue_shown_ = kNoTimestamp;
     subtitle_text_.clear();
     subtitle_images_key_ = 0;
     video_decoder_losses_ = 0;
@@ -358,6 +360,68 @@ bool Player::Close() {
   t_control_thread_player = this;
   DispatchEvents();
   t_control_thread_player = control_thread_player;
+  return true;
+}
+
+bool Player::SwitchSource(const std::string& url, bool keep_position) {
+  if (url.empty() || OnControlThread()) {
+    return false;
+  }
+  std::lock_guard<std::mutex> open_lock(open_mutex_);
+  bool keep;
+  int64_t position = 0;
+  int64_t shown_end = kNoTimestamp;
+  int64_t duration;
+  int width;
+  int height;
+  int rotation;
+  std::map<int, ExternalSubtitle> subtitles;
+  int subtitle_stream;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    keep = !live_ && state_ != PlayerState::kIdle;
+    if (keep_position && keep) {
+      position = PositionLocked();
+      if (video_renderer_ && !seek_pending_ && !seek_in_progress_) {
+        const int64_t end = video_renderer_->shown_end();
+        if (end != kNoTimestamp) {
+          shown_end = end - LoopOffsetLocked(end) - media_info_.start_time;
+        }
+      }
+    }
+    duration = media_info_.duration;
+    width = video_width_;
+    height = video_height_;
+    rotation = video_rotation_;
+    // The same content: subtitle files added for it still apply.
+    subtitles.swap(external_subtitles_);
+    subtitle_stream = subtitle_stream_;
+  }
+  StopPipeline();
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (keep) {
+    LOGI("switching source at %lld ms to %s", Millis(position), url.c_str());
+    external_subtitles_ = std::move(subtitles);
+    if (external_subtitles_.count(subtitle_stream)) {
+      subtitle_stream_ = subtitle_stream;
+    }
+    // What the caller shows stays until the new input reports its own.
+    media_info_.duration = duration;
+    video_width_ = width;
+    video_height_ = height;
+    video_rotation_ = rotation;
+    if (position > 0) {
+      seek_pending_ = true;
+      seek_target_ = position;
+      switch_seek_ = true;
+      continue_shown_ = shown_end;
+    }
+    SetStateLocked(PlayerState::kBuffering);
+  } else {
+    SetStateLocked(PlayerState::kLoading);
+  }
+  demuxer_ = CreateDemuxer();
+  thread_ = std::thread(&Player::Run, this, url);
   return true;
 }
 
@@ -488,6 +552,7 @@ void Player::Seek(int64_t position) {
     seek_pending_ = true;
     seek_target_ = position;
     report_seek_ = true;
+    switch_seek_ = false;
     seek_request_time_ = MonotonicMicros();
     loop_seek_pending_ = false;
     // Do not wait for a read stalled on the network. Not during Prepare():
@@ -930,6 +995,10 @@ bool Player::looping() const {
 
 int64_t Player::position() const {
   std::lock_guard<std::mutex> lock(mutex_);
+  return PositionLocked();
+}
+
+int64_t Player::PositionLocked() const {
   if (seek_pending_ || seek_in_progress_) {
     return seek_target_;
   }
@@ -999,7 +1068,9 @@ int64_t Player::buffered_position() const {
 
 bool Player::video_size(int* width, int* height) const {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (!video_renderer_) {
+  // Not whether there is a renderer: a source switch keeps the size of
+  // the video on screen while the new input loads.
+  if (video_width_ <= 0 || video_height_ <= 0) {
     return false;
   }
   *width = video_width_;
@@ -1009,10 +1080,7 @@ bool Player::video_size(int* width, int* height) const {
 
 int Player::video_rotation() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (!video_renderer_) {
-    return 0;
-  }
-  return media_info_.streams[video_stream_].video.rotation;
+  return video_rotation_;
 }
 
 std::string Player::error() const {
@@ -1434,6 +1502,12 @@ void Player::Run(const std::string& url) {
           if (media_info_.duration != kNoTimestamp) {
             seek_target_ = std::min(seek_target_, media_info_.duration);
           }
+          // A source switch goes on from the frame on screen. Input that
+          // cannot seek ignores it as any seek, and starts where it starts.
+          if (switch_seek_) {
+            switch_seek_ = false;
+            resync = media_info_.seekable;
+          }
         } else if (!seek_in_progress_) {
           // A track change resumes where playback is.
           resync = true;
@@ -1617,6 +1691,10 @@ bool Player::Prepare(const std::string& url, std::string* error) {
   std::map<int, std::unique_ptr<SubtitleRenderer>> subtitles;
   if (video_index >= 0 && config_.video_frame_types != 0) {
     video = CreateVideoRenderer(info.streams[video_index]);
+    // Set before this thread started, by SwitchSource().
+    if (video && continue_shown_ != kNoTimestamp) {
+      video->ContinueFrom(info.start_time + continue_shown_);
+    }
   }
   if (info.default_audio_stream >= 0) {
     audio = CreateAudioRenderer(info.streams[info.default_audio_stream]);
@@ -1680,8 +1758,11 @@ bool Player::Prepare(const std::string& url, std::string* error) {
     const VideoConfig& config = info.streams[video_stream_].video;
     video_width_ = config.display_width();
     video_height_ = config.height;
+    video_rotation_ = config.rotation;
     PostEventLocked(PlayerEvent::kVideoSizeChanged, video_width_,
                     video_height_);
+  } else {
+    video_width_ = video_height_ = video_rotation_ = 0;
   }
   return true;
 }
@@ -1741,8 +1822,9 @@ void Player::ChangeTracks(const TrackRequest& request) {
       const VideoConfig& config = media_info_.streams[video_stream_].video;
       video_width_ = config.display_width();
       video_height_ = config.height;
+      video_rotation_ = config.rotation;
     } else {
-      video_width_ = video_height_ = 0;
+      video_width_ = video_height_ = video_rotation_ = 0;
     }
     if (request.video != kUnchanged || video_width_ != width ||
         video_height_ != height) {

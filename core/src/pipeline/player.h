@@ -145,6 +145,10 @@ class Player {
   // anything was open, hands kStateChanged (idle) to the callback on this
   // thread before it returns. False on the control thread.
   bool Close();
+  // Replaces what is open with |url|, the same content from elsewhere,
+  // at the position playing if |keep_position| (lychee_player_switch_source()).
+  // Opens |url| like Open() if nothing is open or the input is live.
+  bool SwitchSource(const std::string& url, bool keep_position);
   // Stops whatever is open and starts a live input presenting packets
   // |latency| after they arrive (lychee_player_open_live()).
   bool OpenLive(int64_t latency);
@@ -270,6 +274,7 @@ class Player {
   // True, and logs why, on this player's control thread: Open() there
   // would join the thread it runs on.
   bool OnControlThread() const;
+  int64_t PositionLocked() const;
   struct Event {
     PlayerEvent type;
     int64_t arg0;
@@ -594,6 +599,11 @@ class Player {
   VideoDevice video_device_;
   // RetainVideoSurface() of the last SetVideoSurface().
   std::shared_ptr<void> video_surface_;
+  // SwitchSource(): the pending seek goes on from the frame that was on
+  // screen, which ends at |continue_shown_| (relative to the start of the
+  // media, kNoTimestamp if unknown), instead of showing frames again.
+  bool switch_seek_ = false;
+  int64_t continue_shown_ = kNoTimestamp;
   // Video decoders lost since the last open or device change. The first is
   // replaced by hardware decoding again (a GPU reset passes), later ones by
   // software decoding. A hung decoder counts as two.
@@ -607,9 +617,11 @@ class Player {
   int selected_variant_ = -1;
   int64_t max_bitrate_ = 0;
   int64_t video_last_pts_ = kNoTimestamp;
-  // Display size last reported by kVideoSizeChanged.
+  // Display size last reported by kVideoSizeChanged, and the rotation of
+  // that video; 0 without video. Kept through SwitchSource().
   int video_width_ = 0;
   int video_height_ = 0;
+  int video_rotation_ = 0;
   int64_t audio_last_pts_ = kNoTimestamp;
   // Subtitle text last reported by kSubtitleChanged.
   std::string subtitle_text_;

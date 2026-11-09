@@ -7,9 +7,10 @@
 // - All lychee_player_* functions are thread-safe.
 // - Callbacks are invoked on internal threads. They must return quickly and
 //   must not call lychee_player_destroy(). From an event callback,
-//   lychee_player_open(), lychee_player_open_live() and
-//   lychee_player_close() return -1: they stop the thread the callback
-//   runs on, so call them from another one.
+//   lychee_player_open(), lychee_player_open_live(),
+//   lychee_player_switch_source() and lychee_player_close() return -1:
+//   they stop the thread the callback runs on, so call them from another
+//   one.
 //
 // Time values are in microseconds unless stated otherwise.
 
@@ -87,7 +88,8 @@ extern "C" {
 //    LYCHEE_EVENT_VARIANT_CHANGED); live HLS windows
 //    (lychee_player_get_seekable_range(), lychee_player_get_live_edge()).
 // 23: lychee_player_close().
-#define LYCHEE_API_VERSION 23
+// 24: lychee_player_switch_source().
+#define LYCHEE_API_VERSION 24
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -624,6 +626,26 @@ lychee_player_open_with_options(lychee_player* player,
 // callback on the calling thread before this returns. Returns 0, or -1
 // from an event callback.
 LYCHEE_EXPORT int32_t lychee_player_close(lychee_player* player);
+
+// API version 24. Replaces what is open with |url|, the same content from
+// elsewhere (another quality, a mirror, a fresh URL for one that expired),
+// at the position playing if |keep_position| is non-zero, else from the
+// start. Until the new input is ready the state is LYCHEE_STATE_BUFFERING
+// (no IDLE or LOADING), the position stays where it was, the duration and
+// lychee_player_get_video_size() keep their values, and no frame is handed
+// out, so the frame on the caller's screen stays there; the new input's
+// first frame is none it already showed. Then LYCHEE_EVENT_MEDIA_INFO and
+// LYCHEE_EVENT_VIDEO_SIZE_CHANGED come as after an open, and the state
+// becomes READY (no LYCHEE_EVENT_SEEK_COMPLETED). Play/pause, volume, rate,
+// looping, the subtitle delay and the subtitle files
+// lychee_player_add_subtitle() added are kept; the tracks are the new
+// input's defaults. Input that cannot seek plays from its start. Works
+// from LYCHEE_STATE_ERROR too. With nothing open, or a live input, it opens
+// |url| as lychee_player_open() does. Returns 0 if accepted, -1 from an
+// event callback.
+LYCHEE_EXPORT int32_t lychee_player_switch_source(lychee_player* player,
+                                                  const char* url,
+                                                  int32_t keep_position);
 
 // Stops what is open, like lychee_player_open(), and starts a live input:
 // packets pushed with lychee_player_push_live_packet() play as they

@@ -625,6 +625,23 @@ impl Player {
         )
     }
 
+    /// Replaces what is open with `url`, the same content from elsewhere
+    /// (another quality, a mirror, a fresh URL), where playback is if
+    /// `keep_position`, else from the start. Until the new input is ready
+    /// the state is [`State::Buffering`], and the position, duration, video
+    /// size and the caller's last frame stay; play/pause, volume, rate,
+    /// looping and added subtitle files are kept. Input that cannot seek
+    /// plays from its start. Fails inside the event callback.
+    pub fn switch_source(&self, url: &str, keep_position: bool) -> Result<()> {
+        let url = CString::new(url).map_err(|_| Error("URL contains NUL"))?;
+        check(
+            unsafe {
+                sys::lychee_player_switch_source(self.raw(), url.as_ptr(), keep_position as i32)
+            },
+            "switch rejected",
+        )
+    }
+
     /// Stops what is open and goes back to [`State::Idle`], releasing the
     /// decoders, the audio output and the input. The player, its event
     /// callback, volume, rate, looping and play/pause stay for the next

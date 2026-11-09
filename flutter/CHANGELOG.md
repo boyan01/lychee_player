@@ -36,6 +36,10 @@
 * `LycheePlayer.open(url, start: ...)` starts playback at a position:
   nothing before it is shown or heard, and the position reports it from
   the start. `seek` called while loading does the same.
+* `LycheePlayer.switchSource(url)` switches to the same content from
+  another URL (another quality, a mirror, a fresh URL) where playback is:
+  the frame on screen, the position, play/pause and added subtitle files
+  stay until the new source plays on, with no black frame or jump to 0.
 
 ### Fixed
 

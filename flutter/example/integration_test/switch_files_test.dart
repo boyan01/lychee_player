@@ -286,6 +286,18 @@ void main() {
     player.open(_media[0]);
     await waitFor(player, LycheePlayerState.ready);
     expect(player.value.tracks, isNotEmpty);
+
+    // The same content elsewhere: buffering, with the size (so the texture
+    // stays drawn) and the position kept.
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    final position = player.value.position;
+    player.switchSource('$_mediaDir/h264_aac.mkv');
+    expect(player.value.state, LycheePlayerState.buffering);
+    expect(player.value.videoSize, isNotNull);
+    expect(player.value.position, greaterThanOrEqualTo(position));
+    await waitFor(player, LycheePlayerState.ready);
+    expect(player.value.position, greaterThanOrEqualTo(position));
+    expect((await _countThreads())['lychee'], before['lychee']! + 4);
   });
 
   testWidgets('disposeAll destroys players a hot restart left', (tester) async {

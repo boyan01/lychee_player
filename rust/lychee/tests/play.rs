@@ -147,7 +147,9 @@ fn plays_seeks_and_ends() {
 fn close_goes_idle_and_opens_again() {
     let (player, events) = open();
     player.play();
-    wait_for(&player, &events, |e| *e == Event::StateChanged(State::Ready));
+    wait_for(&player, &events, |e| {
+        *e == Event::StateChanged(State::Ready)
+    });
     player.close().unwrap();
     assert_eq!(player.state(), State::Idle);
     assert_eq!(player.duration(), None);
@@ -160,8 +162,38 @@ fn close_goes_idle_and_opens_again() {
     );
     assert!(player.acquire_frame(lychee::now_us()).is_none());
     player.open(&media("h264_aac.mp4")).unwrap();
-    wait_for(&player, &events, |e| *e == Event::StateChanged(State::Ready));
+    wait_for(&player, &events, |e| {
+        *e == Event::StateChanged(State::Ready)
+    });
     assert!(player.is_playing());
+}
+
+#[test]
+fn switch_source_keeps_the_position() {
+    let (player, events) = open();
+    player.play();
+    wait_for(&player, &events, |e| {
+        *e == Event::StateChanged(State::Ready)
+    });
+    pull(&player, &events, Duration::from_millis(500), |_| false);
+    let position = player.position();
+    player.switch_source(&media("h264_aac.mkv"), true).unwrap();
+    assert_eq!(player.state(), State::Buffering);
+    assert!(player.position() >= position, "{:?}", player.position());
+    assert_eq!(player.video_size(), Some((1920, 1080)));
+    assert!(player.is_playing());
+    wait_for(&player, &events, |e| {
+        *e == Event::StateChanged(State::Ready)
+    });
+    assert!(player.position() >= position, "{:?}", player.position());
+    assert!(
+        player
+            .tracks()
+            .iter()
+            .any(|t| t.kind == TrackType::Video && t.selected),
+        "{:?}",
+        player.tracks()
+    );
 }
 
 #[test]
@@ -297,7 +329,10 @@ fn subtitle_file() {
     let track = player.tracks().into_iter().find(|t| t.id == id).unwrap();
     assert!(track.external && track.selected);
     assert_eq!(track.kind, TrackType::Subtitle);
-    assert_eq!((track.codec.as_str(), track.language.as_str()), ("subrip", "en"));
+    assert_eq!(
+        (track.codec.as_str(), track.language.as_str()),
+        ("subrip", "en")
+    );
     // Its first cue, 1 s to 2.5 s.
     wait_for(&player, &events, |e| {
         *e == Event::SubtitleChanged { pictures: false }
@@ -308,14 +343,20 @@ fn subtitle_file() {
         .add_subtitle(&media("subs_gbk.srt"), None, None, Some("GBK"))
         .unwrap();
     wait_for(&player, &events, |e| {
-        *e == Event::SubtitleAdded { id: gbk, added: true }
+        *e == Event::SubtitleAdded {
+            id: gbk,
+            added: true,
+        }
     });
     assert_eq!(player.subtitle(0).as_deref(), Some("你好，世界"));
     let missing = player
         .add_subtitle(&media("missing.srt"), None, None, None)
         .unwrap();
     wait_for(&player, &events, |e| {
-        *e == Event::SubtitleAdded { id: missing, added: false }
+        *e == Event::SubtitleAdded {
+            id: missing,
+            added: false,
+        }
     });
 }
 

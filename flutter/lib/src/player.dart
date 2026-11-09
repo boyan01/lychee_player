@@ -500,6 +500,36 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     _refresh();
   }
 
+  /// Replaces what is open with [url], the same content from elsewhere
+  /// (another quality, a mirror, a fresh URL for one that expired), where
+  /// playback is if [keepPosition], else from the start. Until the new
+  /// media is ready the state is [LycheePlayerState.buffering], and the
+  /// position, duration, video size and the frame on screen stay; play/pause,
+  /// volume, rate, looping, the subtitle delay and subtitle files from
+  /// [addSubtitle] are kept. Media that cannot seek plays from its start.
+  /// Opens [url] as [open] does if nothing is open, or with a core older
+  /// than API 24.
+  void switchSource(String url, {bool keepPosition = true}) {
+    final switchSource = native.playerSwitchSource;
+    if (_disposed) {
+      return;
+    }
+    if (switchSource == null) {
+      open(url);
+      return;
+    }
+    // The tracks and artwork stay until the new media reports its own; the
+    // subtitle on screen comes again from its event.
+    _subtitle = null;
+    _hasPictures = false;
+    _setPictures(0, null);
+    _finishAddingSubtitles();
+    final nativeUrl = url.toNativeUtf8();
+    switchSource(_player, nativeUrl.cast(), keepPosition ? 1 : 0);
+    malloc.free(nativeUrl);
+    _refresh();
+  }
+
   /// Stops what is open and goes back to [LycheePlayerState.idle]: decoders,
   /// the audio output and the input (its network connections) are released.
   /// The player and its [textureId] stay, as do volume, rate, looping and
