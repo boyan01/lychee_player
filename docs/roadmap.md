@@ -276,8 +276,11 @@ reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
    HEVC); ContentProtection; one audio Representation per AdaptationSet
    plays (its highest bandwidth), audio does not adapt. Each is done when
    a regression case plays it.
-9. **Thumbnails** (#10): a frame at a given time, decoded apart from
-   playback, for seek previews without sprite sheets.
+9. **Thumbnails** (#10), done but for Android's MediaCodec path: without
+   FFmpeg its frames come back through a YUV `ImageReader`
+   (`SurfaceFrameReader`), which no emulator or device has run yet. Done
+   when `tool/android_check.sh` (or the SDK example) gets a thumbnail of
+   `h264_aac.mp4` and `rotated.mp4` that `tool/frame_check.py` passes.
 ## FFmpeg-free builds
 
 The goal is FFmpeg-free builds on Apple platforms, Windows and Android;

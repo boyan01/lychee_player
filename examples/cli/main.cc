@@ -183,6 +183,17 @@ struct Options {
   double subtitle_delay = 0;
   // Frames to write as they would be shown (tool/frame_check.py), by time.
   std::vector<FrameSnapshot> snapshots;
+  // --thumbnail SEC:FILE: instead of playing, thumbnails of these
+  // positions (lychee_thumbnailer), fitted to --thumbnail-size; exact
+  // ones with --thumbnail-exact. --thumbnail-cancel-after and
+  // --thumbnail-destroy-after SEC cancel or destroy the thumbnailer from
+  // another thread that many seconds after the first request.
+  std::vector<FrameSnapshot> thumbnails;
+  int thumbnail_width = 0;
+  int thumbnail_height = 0;
+  bool thumbnail_exact = false;
+  double thumbnail_cancel_after = -1;
+  double thumbnail_destroy_after = -1;
   // Seconds after playback starts to make the video decoder fail as after a
   // GPU reset, or hang as in a driver that never returns (testing.h), in
   // order.
@@ -604,6 +615,34 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       if (colon == std::string::npos || colon + 1 == spec.size()) return false;
       options->snapshots.push_back(
           {atof(spec.substr(0, colon).c_str()), spec.substr(colon + 1)});
+    } else if (arg == "--thumbnail") {
+      const char* v = value();
+      if (!v) return false;
+      std::string spec = v;
+      size_t colon = spec.find(':');
+      if (colon == std::string::npos || colon + 1 == spec.size()) return false;
+      options->thumbnails.push_back(
+          {strtod(spec.substr(0, colon).c_str(), nullptr),
+           spec.substr(colon + 1)});
+    } else if (arg == "--thumbnail-size") {
+      // WxH.
+      const char* v = value();
+      if (!v) return false;
+      char* end = nullptr;
+      options->thumbnail_width = static_cast<int>(strtol(v, &end, 10));
+      if (*end != 'x') return false;
+      options->thumbnail_height = static_cast<int>(strtol(end + 1, &end, 10));
+      if (*end != '\0') return false;
+    } else if (arg == "--thumbnail-exact") {
+      options->thumbnail_exact = true;
+    } else if (arg == "--thumbnail-cancel-after") {
+      const char* v = value();
+      if (!v) return false;
+      options->thumbnail_cancel_after = strtod(v, nullptr);
+    } else if (arg == "--thumbnail-destroy-after") {
+      const char* v = value();
+      if (!v) return false;
+      options->thumbnail_destroy_after = strtod(v, nullptr);
     } else if (arg == "--audio-dump") {
       const char* v = value();
       if (!v) return false;
@@ -1162,6 +1201,99 @@ void WriteFramePpm(lychee_player* player,
          lychee_frame_get_pts(frame), image.width, image.height);
 }
 
+// Writes a thumbnail (LYCHEE_FRAME_CPU_RGBA, upright) as WriteFramePpm()
+// writes frames, and says when it was asked for.
+void WriteThumbnail(lychee_frame* frame, const FrameSnapshot& thumbnail) {
+  if (!frame) {
+    printf("thumbnail at %.3fs: none\n", thumbnail.at);
+    return;
+  }
+  RgbImage image;
+  int32_t stride = 0;
+  const uint8_t* data = lychee_frame_get_data(frame, &stride);
+  if (lychee_frame_get_type(frame) != LYCHEE_FRAME_CPU_RGBA || !data) {
+    printf("thumbnail at %.3fs: frame type %d\n", thumbnail.at,
+           lychee_frame_get_type(frame));
+    lychee_frame_release(frame);
+    return;
+  }
+  CopyRgb(data, stride, lychee_frame_get_width(frame),
+          lychee_frame_get_height(frame), false, &image);
+  printf("thumbnail at %.3fs: pts=%.3fs size=%dx%d\n", thumbnail.at,
+         lychee_frame_get_pts(frame) / 1e6, image.width, image.height);
+  FILE* file = fopen(thumbnail.path.c_str(), "wb");
+  if (file) {
+    fprintf(file, "P6\n%d %d\n255\n", image.width, image.height);
+    fwrite(image.pixels.data(), 1, image.pixels.size(), file);
+    fclose(file);
+    // The whole picture is the video's rectangle, scaled.
+    printf("snapshot %s pts=%" PRId64 " size=%dx%d video=0,0,%d,%d\n",
+           thumbnail.path.c_str(), lychee_frame_get_pts(frame), image.width,
+           image.height, image.width, image.height);
+  } else {
+    printf("snapshot %s failed: cannot write\n", thumbnail.path.c_str());
+  }
+  lychee_frame_release(frame);
+}
+
+// --thumbnail: thumbnails instead of playback, one after another. With
+// --thumbnail-destroy-after only the first: no call may start once the
+// thumbnailer is being destroyed.
+int RunThumbnails(const Options& options) {
+  lychee_open_options open_options = {sizeof(open_options),
+                                      options.headers.c_str()};
+  lychee_thumbnailer* thumbnailer = lychee_thumbnailer_create(
+      options.url.c_str(), &open_options, options.thumbnail_width,
+      options.thumbnail_height);
+  if (!thumbnailer) {
+    printf("error: cannot create a thumbnailer\n");
+    return 1;
+  }
+  const auto start = std::chrono::steady_clock::now();
+  auto elapsed_ms = [&start] {
+    return std::chrono::duration<double, std::milli>(
+               std::chrono::steady_clock::now() - start)
+        .count();
+  };
+  const bool destroy = options.thumbnail_destroy_after >= 0;
+  std::thread interrupter;
+  if (destroy || options.thumbnail_cancel_after >= 0) {
+    interrupter = std::thread([&] {
+      std::this_thread::sleep_for(std::chrono::duration<double>(
+          destroy ? options.thumbnail_destroy_after
+                  : options.thumbnail_cancel_after));
+      const double before = elapsed_ms();
+      if (destroy) {
+        lychee_thumbnailer_destroy(thumbnailer);
+      } else {
+        lychee_thumbnailer_cancel(thumbnailer);
+      }
+      printf("thumbnailer %s in %.0f ms\n", destroy ? "destroyed" : "cancelled",
+             elapsed_ms() - before);
+      fflush(stdout);
+    });
+  }
+  for (const FrameSnapshot& thumbnail : options.thumbnails) {
+    const double before = elapsed_ms();
+    lychee_frame* frame = lychee_thumbnailer_get(
+        thumbnailer, static_cast<int64_t>(thumbnail.at * 1e6),
+        options.thumbnail_exact ? 1 : 0);
+    printf("thumbnail at %.3fs took %.0f ms\n", thumbnail.at,
+           elapsed_ms() - before);
+    WriteThumbnail(frame, thumbnail);
+    if (destroy) {
+      break;
+    }
+  }
+  if (interrupter.joinable()) {
+    interrupter.join();
+  }
+  if (!destroy) {
+    lychee_thumbnailer_destroy(thumbnailer);
+  }
+  return 0;
+}
+
 void PrintSubtitleImages(lychee_player* player, const std::string& ppm) {
   lychee_subtitle* subtitle = lychee_player_acquire_subtitle(player, 0, 0, 0);
   if (!subtitle) {
@@ -1440,7 +1572,9 @@ int main(int argc, char** argv) {
         "[--subtitle-keep-selection] [--header 'NAME: VALUE']... "
         "[--audio URL]... [--next-audio URL]... "
         "[--subtitle-delay SEC] [--subtitle-ppm FILE] [--frame-ppm "
-        "SEC:FILE]... [--virtual-time] "
+        "SEC:FILE]... [--thumbnail SEC:FILE]... [--thumbnail-size WxH] "
+        "[--thumbnail-exact] [--thumbnail-cancel-after SEC] "
+        "[--thumbnail-destroy-after SEC] [--virtual-time] "
         "[--null-audio] [--verbose] [--audio-dump FILE] [--pause SEC FOR] "
         "<file or url>\n",
         argv[0]);
@@ -1448,6 +1582,12 @@ int main(int argc, char** argv) {
   }
 
   lychee_set_log_callback(LogToStdout, nullptr);
+  if (!options.thumbnails.empty()) {
+    if (options.verbose) {
+      lychee_set_log_level(LYCHEE_LOG_DEBUG);
+    }
+    return RunThumbnails(options);
+  }
   if (options.virtual_time) {
     lychee_testing_enable_virtual_time();
   }

@@ -7,8 +7,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use lychee::{
-    Config, ErrorKind, Event, FrameType, OpenOptions, Player, State, SubtitleOptions, TrackRole,
-    TrackType,
+    Config, ErrorKind, Event, FrameType, OpenOptions, Player, State, SubtitleOptions, Thumbnailer,
+    TrackRole, TrackType,
 };
 
 fn media(name: &str) -> String {
@@ -489,4 +489,23 @@ fn error_kinds() {
     wait_for(&player, &events, |event| matches!(event, Event::Error));
     assert_eq!(player.error_kind(), Some(ErrorKind::File));
     assert!(player.error().unwrap().contains("missing.mp4"));
+}
+
+#[test]
+fn thumbnails() {
+    // Keyframes every second; the input stays open between requests.
+    let thumbnailer = Thumbnailer::new(&media("keyframes.mp4"), &[], 320, 320).unwrap();
+    let frame = thumbnailer.get(Duration::from_millis(2500), false).unwrap();
+    assert_eq!(frame.kind(), Some(FrameType::CpuRgba));
+    assert_eq!((frame.width(), frame.height()), (320, 180));
+    assert_eq!(frame.pts_us(), 2_000_000);
+    let (data, stride) = frame.data().unwrap();
+    assert_eq!(data.len(), stride * 180);
+    let exact = thumbnailer.get(Duration::from_millis(2500), true).unwrap();
+    assert_eq!(exact.pts_us(), 2_500_000);
+    // Frames outlive the thumbnailer.
+    drop(thumbnailer);
+    assert_eq!(frame.width(), 320);
+    let missing = Thumbnailer::new(&media("missing.mp4"), &[], 0, 0).unwrap();
+    assert!(missing.get(Duration::ZERO, false).is_none());
 }

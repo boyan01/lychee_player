@@ -64,9 +64,9 @@ enum LycheeErrorKind {
   const LycheeErrorKind(this.value);
   final int value;
 
-  static LycheeErrorKind fromValue(int value) => values.firstWhere(
-      (kind) => kind.value == value,
-      orElse: () => LycheeErrorKind.other);
+  static LycheeErrorKind fromValue(int value) =>
+      values.firstWhere((kind) => kind.value == value,
+          orElse: () => LycheeErrorKind.other);
 }
 
 /// What a track is for, as the container says. Matches lychee_track_role.
@@ -562,7 +562,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     if (_disposed) {
       return;
     }
-    final lines = _headerLines(headers);
+    final lines = native.headerLines(headers);
     final openWithOptions = native.playerOpenWithOptions;
     if (lines.isNotEmpty && openWithOptions == null) {
       throw UnsupportedError('HTTP headers need lychee API 21');
@@ -572,7 +572,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     final nativeUrl = url.toNativeUtf8();
     final opened = openWithOptions == null
         ? native.playerOpen(_player, nativeUrl.cast()) == 0
-        : _withOpenOptions(
+        : native.withOpenOptions(
                 lines,
                 audioUrls,
                 (options) =>
@@ -608,7 +608,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       open(url, headers: headers, audioUrls: audioUrls);
       return;
     }
-    final lines = _headerLines(headers);
+    final lines = native.headerLines(headers);
     _checkAudioUrls(audioUrls);
     // The tracks and artwork stay until the new media reports its own; the
     // subtitle on screen comes again from its event.
@@ -617,7 +617,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     _setPictures(0, null);
     _finishAddingSubtitles();
     final nativeUrl = url.toNativeUtf8();
-    _withOpenOptions(
+    native.withOpenOptions(
         lines,
         audioUrls,
         (options) => switchSource(
@@ -649,51 +649,18 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       setNext(_player, nullptr, nullptr);
       return;
     }
-    final lines = _headerLines(headers);
+    final lines = native.headerLines(headers);
     _checkAudioUrls(audioUrls);
     final nativeUrl = url.toNativeUtf8();
-    _withOpenOptions(lines, audioUrls,
+    native.withOpenOptions(lines, audioUrls,
         (options) => setNext(_player, nativeUrl.cast(), options));
     malloc.free(nativeUrl);
   }
 
   /// Throws if [audioUrls] are given to a core older than API 29.
   static void _checkAudioUrls(List<String>? audioUrls) {
-    if (audioUrls != null &&
-        audioUrls.isNotEmpty &&
-        native.apiVersion() < 27) {
+    if (audioUrls != null && audioUrls.isNotEmpty && native.apiVersion() < 29) {
       throw UnsupportedError('separate audio needs lychee API 29');
-    }
-  }
-
-  /// Calls [call] with lychee_open_options holding the header [lines] and
-  /// [audioUrls] (null for neither), freed after it returns.
-  static int _withOpenOptions(String lines, List<String>? audioUrls,
-      int Function(Pointer<native.LycheeOpenOptions>) call) {
-    final audio = audioUrls ?? const <String>[];
-    if (lines.isEmpty && audio.isEmpty) {
-      return call(nullptr);
-    }
-    final options = calloc<native.LycheeOpenOptions>();
-    final nativeHeaders = lines.toNativeUtf8();
-    final nativeAudio = calloc<Pointer<Char>>(audio.length);
-    for (var i = 0; i < audio.length; i++) {
-      nativeAudio[i] = audio[i].toNativeUtf8().cast();
-    }
-    options.ref
-      ..structSize = sizeOf<native.LycheeOpenOptions>()
-      ..headers = nativeHeaders.cast()
-      ..audioUrlCount = audio.length
-      ..audioUrls = nativeAudio;
-    try {
-      return call(options);
-    } finally {
-      for (var i = 0; i < audio.length; i++) {
-        malloc.free(nativeAudio[i]);
-      }
-      calloc.free(nativeAudio);
-      malloc.free(nativeHeaders);
-      calloc.free(options);
     }
   }
 
@@ -727,20 +694,6 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     _setPictures(0, null);
     _artwork = null;
     _finishAddingSubtitles();
-  }
-
-  /// [headers] as the "Name: value" lines the C API takes.
-  static String _headerLines(Map<String, String>? headers) {
-    final lines = StringBuffer();
-    headers?.forEach((name, value) {
-      if (name.isEmpty ||
-          name.contains(RegExp('[\r\n:]')) ||
-          value.contains(RegExp('[\r\n]'))) {
-        throw ArgumentError.value(name, 'headers', 'malformed HTTP header');
-      }
-      lines.write('$name: $value\r\n');
-    });
-    return lines.toString();
   }
 
   void play() {
@@ -904,7 +857,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       String? encoding,
       bool select = true,
       Map<String, String>? headers}) {
-    final lines = _headerLines(headers);
+    final lines = native.headerLines(headers);
     final addWithOptions = native.playerAddSubtitleWithOptions;
     if ((lines.isNotEmpty || !select) && addWithOptions == null) {
       throw UnsupportedError('subtitle options need lychee API 21');

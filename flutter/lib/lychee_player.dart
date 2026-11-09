@@ -14,4 +14,5 @@ export 'src/player.dart'
         LycheeTrackRole,
         LycheeTrackType,
         LycheeVariant;
+export 'src/thumbnailer.dart' show LycheeThumbnailer;
 export 'src/video_view.dart' show LycheeSubtitleStyle, LycheeVideo;

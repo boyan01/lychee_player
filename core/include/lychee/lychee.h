@@ -98,11 +98,13 @@ extern "C" {
 //    URIs on Android.
 // 29: lychee_open_options.audio_url_count and audio_urls: separate audio
 //    inputs.
-#define LYCHEE_API_VERSION 29
+// 30: thumbnails apart from playback: lychee_thumbnailer.
+#define LYCHEE_API_VERSION 30
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
 typedef struct lychee_subtitle lychee_subtitle;
+typedef struct lychee_thumbnailer lychee_thumbnailer;
 
 // Video frame types. Also used as a bitmask in lychee_config to declare which
 // types the caller can consume; the library converts frames as needed. The
@@ -1141,6 +1143,53 @@ LYCHEE_EXPORT const uint8_t* lychee_frame_get_data(const lychee_frame* frame,
 // (see lychee_frame_type). Not retained: retain it yourself if it must
 // outlive the frame.
 LYCHEE_EXPORT void* lychee_frame_get_native_handle(const lychee_frame* frame);
+
+// API version 30. Thumbnails: pictures of a file or URL at given positions
+// (seek bar previews), decoded apart from any player with a demuxer and a
+// video decoder of their own. The input opens with the first request and
+// stays open for the next; HLS reads its variant of the least bandwidth.
+// A thumbnail is a LYCHEE_FRAME_CPU_RGBA frame, upright (the video's
+// rotation and sample aspect ratio applied) and scaled down to fit the
+// maximum size keeping its aspect ratio, never enlarged. Its pts is on the
+// media's timeline, as lychee_frame_get_pts() of a player's frame.
+//
+// All functions are thread-safe. Calls of lychee_thumbnailer_get() run one
+// at a time.
+
+// |options| (NULL: none) as lychee_player_open_with_options() takes them;
+// their audio URLs are not read. |max_width|, |max_height|: 0 for no limit.
+// Opens nothing yet. Returns NULL if |url| is NULL or the headers are not
+// "Name: value" lines.
+LYCHEE_EXPORT lychee_thumbnailer* lychee_thumbnailer_create(
+    const char* url,
+    const lychee_open_options* options,
+    int32_t max_width,
+    int32_t max_height);
+
+// Blocking, so call it off the UI thread: the picture at |position_us| (a
+// position, as lychee_player_seek() takes it). With |exact| 0, the
+// keyframe at or before it, which takes one seek and little decoding;
+// otherwise the frame showing at the position, decoded from that keyframe
+// on. Returns NULL if
+// the input cannot be opened, has no video, cannot seek there (input that
+// cannot seek gives only its first request a picture), cannot be decoded,
+// or lychee_thumbnailer_cancel() interrupted it; the log says why.
+// Release the frame with lychee_frame_release().
+LYCHEE_EXPORT lychee_frame* lychee_thumbnailer_get(
+    lychee_thumbnailer* thumbnailer,
+    int64_t position_us,
+    int32_t exact);
+
+// Makes the lychee_thumbnailer_get() calls in progress, and those waiting
+// for them, return NULL promptly, a stalled network read too, for a
+// thumbnail nobody wants any more. Later calls work as before, opening the
+// input again.
+LYCHEE_EXPORT void lychee_thumbnailer_cancel(lychee_thumbnailer* thumbnailer);
+
+// Cancels as lychee_thumbnailer_cancel() does, and returns once the
+// lychee_thumbnailer_get() calls in progress have returned; none may start
+// after it. Frames already returned stay valid.
+LYCHEE_EXPORT void lychee_thumbnailer_destroy(lychee_thumbnailer* thumbnailer);
 
 #ifdef __cplusplus
 }  // extern "C"

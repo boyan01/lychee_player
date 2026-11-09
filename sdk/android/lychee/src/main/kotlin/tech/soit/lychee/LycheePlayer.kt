@@ -785,7 +785,7 @@ class LycheePlayer @JvmOverloads constructor(
             Array(urls.size) { urls[it].toByteArray() }
 
         /** [headers] as the "Name: value" lines the C API takes, or null if one would start another header. */
-        private fun headerLines(headers: Map<String, String>): String? {
+        internal fun headerLines(headers: Map<String, String>): String? {
             val lines = StringBuilder()
             for ((name, value) in headers) {
                 if (name.isEmpty() || name.any { it == '\r' || it == '\n' || it == ':' } ||

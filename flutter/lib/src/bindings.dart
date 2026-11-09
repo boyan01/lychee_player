@@ -3,6 +3,8 @@
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:ffi/ffi.dart';
+
 final DynamicLibrary _library = () {
   if (Platform.isMacOS || Platform.isIOS) {
     // The core's own framework, which the plugin links: with Swift Package
@@ -272,6 +274,51 @@ final int Function(Pointer<Void>, Pointer<Char>, Pointer<LycheeOpenOptions>)?
                 Pointer<LycheeOpenOptions>)>('lychee_player_open_with_options')
         : null;
 
+/// [headers] as the "Name: value" lines the C API takes.
+String headerLines(Map<String, String>? headers) {
+  final lines = StringBuffer();
+  headers?.forEach((name, value) {
+    if (name.isEmpty ||
+        name.contains(RegExp('[\r\n:]')) ||
+        value.contains(RegExp('[\r\n]'))) {
+      throw ArgumentError.value(name, 'headers', 'malformed HTTP header');
+    }
+    lines.write('$name: $value\r\n');
+  });
+  return lines.toString();
+}
+
+/// Calls [call] with lychee_open_options holding the header [lines] and
+/// [audioUrls] (null for neither), freed after it returns.
+T withOpenOptions<T>(String lines, List<String>? audioUrls,
+    T Function(Pointer<LycheeOpenOptions>) call) {
+  final audio = audioUrls ?? const <String>[];
+  if (lines.isEmpty && audio.isEmpty) {
+    return call(nullptr);
+  }
+  final options = calloc<LycheeOpenOptions>();
+  final nativeHeaders = lines.toNativeUtf8();
+  final nativeAudio = calloc<Pointer<Char>>(audio.length);
+  for (var i = 0; i < audio.length; i++) {
+    nativeAudio[i] = audio[i].toNativeUtf8().cast();
+  }
+  options.ref
+    ..structSize = sizeOf<LycheeOpenOptions>()
+    ..headers = nativeHeaders.cast()
+    ..audioUrlCount = audio.length
+    ..audioUrls = nativeAudio;
+  try {
+    return call(options);
+  } finally {
+    for (var i = 0; i < audio.length; i++) {
+      malloc.free(nativeAudio[i]);
+    }
+    calloc.free(nativeAudio);
+    malloc.free(nativeHeaders);
+    calloc.free(options);
+  }
+}
+
 /// Null with a core older than API 23.
 final int Function(Pointer<Void>)? playerClose =
     _library.providesSymbol('lychee_player_close')
@@ -369,12 +416,13 @@ final playerGetError = _library.lookupFunction<
     Int32 Function(Pointer<Void>, Pointer<Char>, Int32),
     int Function(Pointer<Void>, Pointer<Char>, int)>('lychee_player_get_error');
 
-/// Null with a core older than API 27.
+/// Null with a core older than API 30.
 final int Function(Pointer<Void>, Pointer<Int32>)? playerGetErrorCode =
     _library.providesSymbol('lychee_player_get_error_code')
-        ? _library.lookupFunction<Int32 Function(Pointer<Void>, Pointer<Int32>),
-                int Function(Pointer<Void>, Pointer<Int32>)>(
-            'lychee_player_get_error_code')
+        ? _library.lookupFunction<
+            Int32 Function(Pointer<Void>, Pointer<Int32>),
+            int Function(
+                Pointer<Void>, Pointer<Int32>)>('lychee_player_get_error_code')
         : null;
 
 final playerGetStats = _library.lookupFunction<
@@ -554,3 +602,41 @@ final subtitleGetImage = _library.lookupFunction<
     Int32 Function(Pointer<Void>, Int32, Pointer<LycheeSubtitleImage>),
     int Function(Pointer<Void>, int,
         Pointer<LycheeSubtitleImage>)>('lychee_subtitle_get_image');
+
+final frameRelease = _library.lookupFunction<Void Function(Pointer<Void>),
+    void Function(Pointer<Void>)>('lychee_frame_release');
+
+final frameGetType = _library.lookupFunction<Int32 Function(Pointer<Void>),
+    int Function(Pointer<Void>)>('lychee_frame_get_type');
+
+final frameGetWidth = _library.lookupFunction<Int32 Function(Pointer<Void>),
+    int Function(Pointer<Void>)>('lychee_frame_get_width');
+
+final frameGetHeight = _library.lookupFunction<Int32 Function(Pointer<Void>),
+    int Function(Pointer<Void>)>('lychee_frame_get_height');
+
+final frameGetData = _library.lookupFunction<
+    Pointer<Uint8> Function(Pointer<Void>, Pointer<Int32>),
+    Pointer<Uint8> Function(
+        Pointer<Void>, Pointer<Int32>)>('lychee_frame_get_data');
+
+/// Null with a core older than API 30.
+final Pointer<Void> Function(
+        Pointer<Char>, Pointer<LycheeOpenOptions>, int, int)?
+    thumbnailerCreate = _library.providesSymbol('lychee_thumbnailer_create')
+        ? _library.lookupFunction<
+            Pointer<Void> Function(
+                Pointer<Char>, Pointer<LycheeOpenOptions>, Int32, Int32),
+            Pointer<Void> Function(Pointer<Char>, Pointer<LycheeOpenOptions>,
+                int, int)>('lychee_thumbnailer_create')
+        : null;
+
+final thumbnailerGet = _library.lookupFunction<
+    Pointer<Void> Function(Pointer<Void>, Int64, Int32),
+    Pointer<Void> Function(Pointer<Void>, int, int)>('lychee_thumbnailer_get');
+
+final thumbnailerCancel = _library.lookupFunction<Void Function(Pointer<Void>),
+    void Function(Pointer<Void>)>('lychee_thumbnailer_cancel');
+
+final thumbnailerDestroy = _library.lookupFunction<Void Function(Pointer<Void>),
+    void Function(Pointer<Void>)>('lychee_thumbnailer_destroy');

@@ -160,6 +160,13 @@ a staging copy) and prints `snapshot FILE pts=US size=WxH`.
 With `--d3d11-hdr`, the dump retains PQ samples normalized to bytes;
 it is a data check, not an SDR preview. The CLI also prints the texture
 format and the center pixel's raw 10-bit RGB values.
+`--thumbnail SEC:FILE` (repeatable) plays nothing and instead writes the
+thumbnail at each position (`lychee_thumbnailer`), fitted to
+`--thumbnail-size WxH`, the frame showing there with `--thumbnail-exact`,
+and prints a `snapshot` line for `tool/frame_check.py` with the picture
+as the video rectangle. `--thumbnail-cancel-after SEC` and
+`--thumbnail-destroy-after SEC` cancel or destroy the thumbnailer from
+another thread while a request runs.
 
 
 With GLFW installed (`brew install glfw`) the build also produces

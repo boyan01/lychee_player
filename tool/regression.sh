@@ -944,6 +944,58 @@ frames() {
   fi
 }
 
+# thumbs NAME MEDIA SEC... -- CLI_ARGS: thumbnails of MEDIA at each SEC
+# (--thumbnail, into $build/thumbs/NAME, fitted to 320x320 unless CLI_ARGS
+# say otherwise), which pass if tool/frame_check.py finds each to be
+# MEDIA's frame at its pts and, unless --thumbnail-exact, that pts is the
+# keyframe at or before SEC (ref=FILE: FILE's frames instead).
+thumbs() {
+  local name="$1" file="$2"; shift 2
+  local dir="$build/thumbs/$name" secs=() thumbnails=() out status checked problems="" start=$SECONDS
+  mkdir -p "$dir"
+  while [ "$1" != -- ]; do secs+=("$1"); thumbnails+=(--thumbnail "$1:$dir/$1.ppm"); shift; done
+  shift
+  out="$("$cli" --thumbnail-size 320x320 "$@" "${thumbnails[@]}" "$file" 2>&1)"
+  status=$?
+  out="${out//$'\r'/}"
+  [ "$status" = 0 ] || problems+=" exit=$status"
+  grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
+  local sec
+  for sec in "${secs[@]}"; do
+    grep -q "^snapshot $dir/$sec.ppm pts=" <<<"$out" || problems+=" missing:$sec"
+  done
+  checked="$(grep '^snapshot ' <<<"$out" |
+    python3 -I "$root/tool/frame_check.py" "${ref:-$file}" --log - 2>&1)" ||
+    problems+=" pixels"
+  if [[ " $* " != *" --thumbnail-exact "* ]]; then
+    # Each pts against ffprobe's keyframes, positions from the start time.
+    checked+=$'\n'"$(grep '^thumbnail at .*: pts=' <<<"$out" | python3 -I -c '
+import json, re, subprocess, sys
+probe = json.loads(subprocess.run(
+    ["ffprobe", "-v", "error", "-select_streams", "v:0", "-skip_frame", "nokey",
+     "-show_entries", "frame=pts_time:format=start_time", "-of", "json", sys.argv[1]],
+    capture_output=True, check=True).stdout)
+start = float(probe["format"].get("start_time", 0))
+keys = sorted(float(f["pts_time"]) for f in probe["frames"] if "pts_time" in f)
+ok = True
+for line in sys.stdin:
+    at, pts = map(float, re.match(r"thumbnail at ([0-9.]+)s: pts=([0-9.]+)s", line).groups())
+    want = max([k for k in keys if k <= start + at + 1e-6] or keys[:1])
+    if abs(pts - want) > 0.002:
+        print(f"thumbnail at {at:.3f}s: pts {pts:.3f}s, the keyframe is {want:.3f}s")
+        ok = False
+sys.exit(0 if ok else 1)' "${ref:-$file}" 2>&1)" || problems+=" keyframe"
+  fi
+  if [ -z "$problems" ]; then
+    echo "PASS $name ($((SECONDS - start))s)"
+  else
+    echo "FAIL $name ($((SECONDS - start))s):$problems"
+    grep -E '^(thumbnail|error)' <<<"$out" | sed 's/^/     /'
+    sed 's/^/     /' <<<"$checked"
+    print_reports "$out"
+  fi
+}
+
 # audio NAME MEDIA [CHECK_ARGS]... -- CLI_ARGS: plays MEDIA with the volume
 # up, records what the silent device output (--audio-dump, into
 # $build/audio/NAME.wav) and passes if tool/audio_check.py finds no click
@@ -1279,6 +1331,13 @@ par frames frame-sd-sw "$media/rendition_640x360.ts" 1 -- --no-hw --cpu --second
 par frames frame-bt601 "$media/h264_bt601.mp4" 1 -- --seconds 1.1
 par frames frame-bt601-sw "$media/h264_bt601.mp4" 1 -- --no-hw --cpu --seconds 1.1
 # Display times from the pictures, also after a seek.
+# Thumbnails (lychee_thumbnailer): the keyframe at or before a position,
+# or (exact) the frame showing there, upright and scaled, with the same
+# demuxer kept open across requests.
+par thumbs thumbnail-mp4 "$media/keyframes.mp4" 0.2 2.5 3.9 1.5 --
+par thumbs thumbnail-exact "$media/keyframes.mp4" 1.5 2.5 0.5 -- --thumbnail-exact
+par thumbs thumbnail-rotated "$media/rotated.mp4" 1 9 --
+par thumbs thumbnail-mkv "$media/h264_aac.mkv" 1 9 --
 ref="$media/keyframes.mp4" par frames frame-no-ctts "$media/no_ctts.mp4" 1 2.5 -- --seconds 2.6
 ref="$media/keyframes.mp4" par frames frame-no-ctts-sw "$media/no_ctts.mp4" 1 -- --no-hw --cpu --seconds 1.1
 ref="$media/keyframes.mp4" par frames frame-no-ctts-seek "$media/no_ctts.mp4" 0.5 -- --seek 2.2 --seconds 0.6
@@ -1905,6 +1964,10 @@ seq_ expect next-wait "waiting for the next item to open" "event: item changed, 
   --next "http://127.0.0.1:$port/loop.mp4" "$media/loop.mp4"
 serve
 seq_ check http          1 - -- "$url"
+seq_ thumbs thumbnail-http "$url" 9 1 --
+# HLS: the variant of the least bandwidth.
+ref="http://127.0.0.1:$port/hls_low/index.m3u8" seq_ thumbs thumbnail-hls \
+  "http://127.0.0.1:$port/hls/master.m3u8" 3 7 --
 # lychee_player_is_seekable(), known with the media info.
 seq_ expect http-seekable "^seekable=1$" -- --seconds 1 "$url"
 seq_ expect http-subtitle-file "event: subtitle [0-9]+ added" "subtitle at [01]\.[0-9]{3}s: Hello world$" -- \
@@ -2368,6 +2431,20 @@ realtime=1 seq_ expect http-slow "state=ended" "<=2 event: state buffering" \
 serve --stall-at 3000000 --stall-for 10
 realtime=1 seq_ expect http-stall-seek "seek took [0-9]{1,3}\." "first_pts_after_seek=0.500s" \
   "summary: state=ended" -- --seek 0.5 --seek-after 1 "$url"
+# Destroying a thumbnailer interrupts the read that stalls in the first
+# keyframe (the open has read the moov before it).
+serve --stall-at 30000 --stall-for 10
+realtime=1 seq_ expect thumbnail-destroy-stalled "decoder [a-z]" "thumbnail at 1\.000s: none" \
+  "thumbnail at 1\.000s took 1[0-9]{3} ms" "thumbnailer destroyed in [0-9]{1,3} ms" "<=0 ^snapshot" -- \
+  --thumbnail "1:$build/thumbnail-stalled.ppm" --thumbnail-destroy-after 1 "$url"
+# Cancelling does the same, and the next request opens the input again
+# (only the first response stalls).
+serve --stall-at 30000 --stall-for 10
+realtime=1 seq_ expect thumbnail-cancel-stalled "thumbnail at 1\.000s: none" \
+  "thumbnail at 1\.000s took 1[0-9]{3} ms" "thumbnailer cancelled in [0-9]{1,3} ms" \
+  "thumbnail at 2\.000s: pts=0\.000s size=1920x1080" -- \
+  --thumbnail "1:$build/thumbnail-cancelled.ppm" --thumbnail "2:$build/thumbnail-after-cancel.ppm" \
+  --thumbnail-cancel-after 1 "$url"
 wait_cases
 stop_server
 

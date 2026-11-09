@@ -23,6 +23,7 @@
 #include "media/null_audio_sink.h"
 #include "pipeline/audio_renderer.h"
 #include "pipeline/player.h"
+#include "pipeline/thumbnailer.h"
 
 using lychee::MediaType;
 using lychee::Player;
@@ -44,6 +45,10 @@ struct lychee_frame {
   std::shared_ptr<VideoFrame> frame;
   // On the file's timeline (Player::UnloopedPts()).
   int64_t pts;
+};
+
+struct lychee_thumbnailer : lychee::Thumbnailer {
+  using Thumbnailer::Thumbnailer;
 };
 
 static_assert(static_cast<int>(lychee::VideoDevice::Type::kD3D11Adapter) ==
@@ -798,6 +803,46 @@ const uint8_t* lychee_frame_get_data(const lychee_frame* frame,
 
 void* lychee_frame_get_native_handle(const lychee_frame* frame) {
   return frame->frame->native_handle;
+}
+
+lychee_thumbnailer* lychee_thumbnailer_create(
+    const char* url,
+    const lychee_open_options* options,
+    int32_t max_width,
+    int32_t max_height) {
+  std::string headers;
+  // Separate audio inputs play no part in a picture.
+  std::vector<std::string> audio;
+  if (!url || !ReadOpenOptions(options, &headers, &audio)) {
+    return nullptr;
+  }
+  return new lychee_thumbnailer(url, std::move(headers), max_width, max_height);
+}
+
+namespace {
+
+lychee_frame* WrapThumbnail(std::shared_ptr<VideoFrame> frame) {
+  if (!frame) {
+    return nullptr;
+  }
+  const int64_t pts = frame->pts;
+  return new lychee_frame{std::move(frame), pts};
+}
+
+}  // namespace
+
+lychee_frame* lychee_thumbnailer_get(lychee_thumbnailer* thumbnailer,
+                                     int64_t position_us,
+                                     int32_t exact) {
+  return WrapThumbnail(thumbnailer->Get(position_us, exact != 0));
+}
+
+void lychee_thumbnailer_cancel(lychee_thumbnailer* thumbnailer) {
+  thumbnailer->Cancel();
+}
+
+void lychee_thumbnailer_destroy(lychee_thumbnailer* thumbnailer) {
+  delete thumbnailer;
 }
 
 void lychee_testing_enable_virtual_time(void) {

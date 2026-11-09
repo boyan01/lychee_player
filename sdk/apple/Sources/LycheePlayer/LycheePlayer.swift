@@ -274,7 +274,7 @@ public final class LycheePlayer {
 
   /// `headers` as the "Name: value" lines the C API takes, or nil if one
   /// would start another header.
-  private static func headerLines(_ headers: [String: String]) -> String? {
+  static func headerLines(_ headers: [String: String]) -> String? {
     var lines = ""
     for (name, value) in headers {
       if name.isEmpty || name.contains(where: { $0.isNewline || $0 == ":" })
@@ -333,7 +333,7 @@ public final class LycheePlayer {
 
   /// Calls `body` with lychee_open_options holding the header `lines` and
   /// `audioURLs`.
-  private static func withOpenOptions<T>(
+  static func withOpenOptions<T>(
     _ lines: String, _ audioURLs: [String],
     _ body: (UnsafePointer<lychee_open_options>) -> T
   ) -> T {

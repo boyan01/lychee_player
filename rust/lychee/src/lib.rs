@@ -1434,6 +1434,77 @@ impl fmt::Debug for Subtitle {
     }
 }
 
+/// Pictures of a file or URL at given positions, for seek bar previews,
+/// decoded apart from any player with a demuxer and decoder of its own.
+/// The input opens with the first [`Thumbnailer::get`] and stays open for
+/// the next. Thread-safe; requests run one at a time.
+pub struct Thumbnailer {
+    raw: NonNull<sys::lychee_thumbnailer>,
+}
+
+// The C ABI is thread-safe.
+unsafe impl Send for Thumbnailer {}
+unsafe impl Sync for Thumbnailer {}
+
+impl Thumbnailer {
+    /// Thumbnails of `url`, whose http(s) requests carry `headers` as for
+    /// [`Player::open_with_headers`], fitted to `max_width` x
+    /// `max_height` (0: no limit) keeping their aspect ratio, never
+    /// enlarged. Opens nothing yet.
+    pub fn new(
+        url: &str,
+        headers: &[(&str, &str)],
+        max_width: u32,
+        max_height: u32,
+    ) -> Result<Thumbnailer> {
+        let url = CString::new(url).map_err(|_| Error("URL contains NUL"))?;
+        let native = NativeOpenOptions::new(&OpenOptions {
+            headers,
+            ..Default::default()
+        })?;
+        let options = native.raw();
+        let raw = unsafe {
+            sys::lychee_thumbnailer_create(
+                url.as_ptr(),
+                &options,
+                max_width.min(i32::MAX as u32) as i32,
+                max_height.min(i32::MAX as u32) as i32,
+            )
+        };
+        NonNull::new(raw)
+            .map(|raw| Thumbnailer { raw })
+            .ok_or(Error("thumbnailer rejected"))
+    }
+
+    /// Blocking: the picture at `position`, a [`FrameType::CpuRgba`] frame,
+    /// upright. Without `exact`, the keyframe at or before it (quick);
+    /// with it, the frame showing there. `None` if the input cannot be
+    /// opened, has no video, cannot seek there or be decoded (the log says
+    /// why).
+    pub fn get(&self, position: Duration, exact: bool) -> Option<Frame> {
+        let raw = unsafe {
+            sys::lychee_thumbnailer_get(
+                self.raw.as_ptr(),
+                position.as_micros().min(i64::MAX as u128) as i64,
+                exact as i32,
+            )
+        };
+        NonNull::new(raw).map(|raw| Frame { raw })
+    }
+}
+
+impl Drop for Thumbnailer {
+    fn drop(&mut self) {
+        unsafe { sys::lychee_thumbnailer_destroy(self.raw.as_ptr()) }
+    }
+}
+
+impl fmt::Debug for Thumbnailer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Thumbnailer").finish_non_exhaustive()
+    }
+}
+
 pub struct Frame {
     raw: NonNull<sys::lychee_frame>,
 }

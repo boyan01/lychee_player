@@ -967,4 +967,69 @@ JNIEXPORT void JNICALL Java_tech_soit_lychee_LycheeFrameDriver_nativeDestroy(
   delete FromHandle(handle);
 }
 
+// LycheeThumbnailer.
+
+JNIEXPORT jlong JNICALL
+Java_tech_soit_lychee_LycheeThumbnailer_nativeCreate(JNIEnv* env,
+                                                     jclass,
+                                                     jbyteArray url,
+                                                     jbyteArray headers,
+                                                     jint max_width,
+                                                     jint max_height) {
+  const std::string headers_text = FromBytes(env, headers);
+  lychee_open_options options = {};
+  options.struct_size = sizeof(options);
+  options.headers = headers_text.c_str();
+  return reinterpret_cast<jlong>(lychee_thumbnailer_create(
+      FromBytes(env, url).c_str(), &options, max_width, max_height));
+}
+
+// Fills |size| with the width and height, and returns the pixels, rows of
+// width * 4 bytes (RGBA).
+JNIEXPORT jbyteArray JNICALL
+Java_tech_soit_lychee_LycheeThumbnailer_nativeGet(JNIEnv* env,
+                                                  jclass,
+                                                  jlong handle,
+                                                  jlong position_us,
+                                                  jboolean exact,
+                                                  jintArray size) {
+  lychee_frame* frame =
+      lychee_thumbnailer_get(reinterpret_cast<lychee_thumbnailer*>(handle),
+                             position_us, exact ? 1 : 0);
+  if (!frame) {
+    return nullptr;
+  }
+  int32_t stride = 0;
+  const uint8_t* data = lychee_frame_get_data(frame, &stride);
+  const jint values[] = {lychee_frame_get_width(frame),
+                         lychee_frame_get_height(frame)};
+  jbyteArray pixels = nullptr;
+  if (data) {
+    env->SetIntArrayRegion(size, 0, 2, values);
+    const size_t row = static_cast<size_t>(values[0]) * 4;
+    std::vector<char> packed(row * values[1]);
+    for (jint y = 0; y < values[1]; ++y) {
+      std::memcpy(packed.data() + row * y,
+                  data + static_cast<size_t>(stride) * y, row);
+    }
+    pixels = ToBytes(env, packed.data(), packed.size());
+  }
+  lychee_frame_release(frame);
+  return pixels;
+}
+
+JNIEXPORT void JNICALL
+Java_tech_soit_lychee_LycheeThumbnailer_nativeCancel(JNIEnv*,
+                                                     jclass,
+                                                     jlong handle) {
+  lychee_thumbnailer_cancel(reinterpret_cast<lychee_thumbnailer*>(handle));
+}
+
+JNIEXPORT void JNICALL
+Java_tech_soit_lychee_LycheeThumbnailer_nativeDestroy(JNIEnv*,
+                                                      jclass,
+                                                      jlong handle) {
+  lychee_thumbnailer_destroy(reinterpret_cast<lychee_thumbnailer*>(handle));
+}
+
 }  // extern "C"

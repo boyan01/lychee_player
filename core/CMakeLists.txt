@@ -41,6 +41,7 @@ set(LYCHEE_SOURCES
   src/media/cpu_frame_converter.cc
   src/media/factory.cc
   src/media/merging_demuxer.cc
+  src/media/frame_scaler.cc
   src/media/null_audio_sink.cc
   src/media/pcm_audio_decoder.cc
   src/media/pgs_subtitle_decoder.cc
@@ -60,6 +61,7 @@ set(LYCHEE_SOURCES
   src/pipeline/player.cc
   src/pipeline/subtitle_renderer.cc
   src/pipeline/frame_rate_estimator.cc
+  src/pipeline/thumbnailer.cc
   src/pipeline/video_cadence_estimator.cc
   src/pipeline/video_renderer.cc
   src/pipeline/video_renderer_algorithm.cc
@@ -91,6 +93,7 @@ if(ANDROID)
     src/backends/android/http_data_source.cc
     src/backends/android/jvm.cc
     src/backends/android/media_codec_video_decoder.cc
+    src/backends/android/surface_frame_reader.cc
     # Its SPS parser finds size changes for MediaCodec.
     src/backends/mp2t/elementary_stream.cc
     src/media/data_source.cc

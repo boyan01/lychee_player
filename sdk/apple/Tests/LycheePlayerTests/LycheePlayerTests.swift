@@ -252,6 +252,19 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(player.artwork?.prefix(4), Data([0x89, 0x50, 0x4e, 0x47]), "PNG")
   }
 
+  func testThumbnails() throws {
+    // Keyframes every second; the input stays open between requests.
+    let thumbnailer = try XCTUnwrap(
+      LycheeThumbnailer(url: "/tmp/lychee-media/rotated.mp4", maxWidth: 320, maxHeight: 320))
+    let image = try XCTUnwrap(thumbnailer.image(at: 1))
+    // Upright: the 1920x1080 picture turned a quarter.
+    XCTAssertEqual(image.width, 180)
+    XCTAssertEqual(image.height, 320)
+    XCTAssertNotNil(thumbnailer.image(at: 9, exact: true))
+    XCTAssertNil(LycheeThumbnailer(url: url, headers: ["X-Bad": "a\nb"]))
+    XCTAssertNil(LycheeThumbnailer(url: "/tmp/lychee-media/missing.mp4")?.image(at: 0))
+  }
+
   func testSubtitlePictures() throws {
     // A PGS box at 660,900, 600x80 on a 1920x1080 canvas, from 1 s.
     let player = LycheePlayer()

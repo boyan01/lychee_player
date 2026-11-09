@@ -74,6 +74,11 @@
 * `LycheePlayerStats.videoFrameRate` and `videoColorTransfer` give the
   video's frame rate (from the container, or measured from the frames)
   and its transfer function (16 for HDR10/PQ, 18 for HLG).
+* `LycheeThumbnailer.create(url, headers:, maxSize:)` and
+  `thumbnailAt(position)` give seek bar previews for media without sprite
+  sheets: the keyframe at or before a position (or, with `exact: true`,
+  the frame showing there) as a `ui.Image`, decoded in the background
+  apart from playback.
 
 ### Fixed
 
