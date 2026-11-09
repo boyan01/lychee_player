@@ -46,6 +46,7 @@ enum class PlayerEvent {
   kSubtitleChanged = 8,
   kSubtitleAdded = 9,
   kVariantChanged = 10,
+  kItemChanged = 11,
 };
 
 struct PlayerConfig {
@@ -149,6 +150,10 @@ class Player {
   // at the position playing if |keep_position| (lychee_player_switch_source()).
   // Opens |url| like Open() if nothing is open or the input is live.
   bool SwitchSource(const std::string& url, bool keep_position);
+  // Opens |url| in the background to play when what is open ends, without
+  // a gap where the tracks match (lychee_player_set_next()); empty clears
+  // it. Open(), OpenLive() and Close() clear it; SwitchSource() keeps it.
+  bool SetNext(const std::string& url);
   // Stops whatever is open and starts a live input presenting packets
   // |latency| after they arrive (lychee_player_open_live()).
   bool OpenLive(int64_t latency);
@@ -316,6 +321,9 @@ class Player {
     // Seek back to the clock's position even if no track changes: a
     // cancelled request already interrupted the read.
     bool resync = false;
+    // The streams belong to a new item: its video starts afresh rather than
+    // after the frame on screen.
+    bool new_item = false;
     bool tracks_changed() const {
       return video != kUnchanged || audio != kUnchanged;
     }
@@ -376,18 +384,55 @@ class Player {
   // Read thread, at the first wrap: |loop_start_| and |loop_length_| from
   // |spans_|.
   void SetLoopSpan();
-  // How passes after the first map onto the file's timeline: |loops_|,
-  // |loop_start_|, |loop_length_| and |loop_end_|.
+  // Read thread, at the end of the input: goes on reading the next item
+  // (SetNext()) as later passes of a loop do, if its tracks continue the
+  // ones playing. False if it cannot; the control thread then switches to
+  // it at the end (AdvanceToNext()).
+  bool JoinNext();
+  // Whether |next|'s default tracks can follow the ones selected without
+  // a new decoder; their stream ids if so.
+  bool ContinuesLocked(const MediaInfo& next,
+                       int* video_stream,
+                       int* audio_stream,
+                       std::string* why) const;
+  // Control thread, with the read thread out of ReadPacket(): the joined
+  // item becomes the one playing, once the clock has reached it. Returns
+  // the previous item's demuxer, to delete without the lock.
+  std::unique_ptr<Demuxer> CrossLocked();
+  // Control thread, with the read thread parked: a seek or track change
+  // before the joined item started takes it back, to join again at the
+  // end. Returns it, to rewind without the lock and put back.
+  struct NextItem;
+  std::unique_ptr<NextItem> UnjoinLocked();
+  void RestoreNext(std::unique_ptr<NextItem> item);
+  // Control thread, with the read thread parked: replaces the renderers
+  // with the next item's, at its start.
+  void AdvanceToNext();
+  // Stops opening the next item and drops it.
+  void ClearNext();
+  static void DropNext(std::unique_ptr<NextItem> item);
+  // How passes after the first map onto the file's timeline: |item_base_|,
+  // |loops_|, |loop_start_|, |loop_length_|, |loop_end_| and the item
+  // joined (|join_|).
   struct LoopMap {
+    int64_t base = 0;
     int64_t loops = 0;
     int64_t start = 0;
     int64_t length = 0;
     int64_t end = kNoTimestamp;
-    // Media time of the start of the pass playing at |media_time|,
-    // relative to the first pass.
+    // From |join_at| on, media time is the joined item's file time plus
+    // |join_base|.
+    int64_t join_at = kNoTimestamp;
+    int64_t join_base = 0;
+    // Media time less the file time playing at |media_time|.
     int64_t Offset(int64_t media_time) const;
   };
+  LoopMap LoopMapLocked() const;
   int64_t LoopOffsetLocked(int64_t media_time) const;
+  // LoopOffsetLocked() for |media_info_|'s item: the one before a joined
+  // item until that plays (CrossLocked()), so that the position, duration
+  // and tracks change together.
+  int64_t ItemOffsetLocked(int64_t media_time) const;
   // Copies the loop fields into |loop_map_|, after any of them changed.
   void PublishLoopMapLocked();
   // Looping off after the read thread wrapped past the pass playing: the
@@ -564,6 +609,10 @@ class Player {
   // under |mutex_| by the read thread, or by the control thread while it is
   // parked; the read thread reads it without the lock.
   int64_t loops_ = 0;
+  // Media time less file time of the item's first pass: 0, but for an item
+  // joined to the one before (JoinNext()) the time it started at less its
+  // start time, until a seek. Written like |loops_|.
+  int64_t item_base_ = 0;
   // Passes after the first start at |loop_start_| + N * |loop_length_|
   // (media time; file time plus N lengths), where the content starts and
   // ends rather than the container (WrapLoop()). Set by the read thread
@@ -604,6 +653,45 @@ class Player {
   // media, kNoTimestamp if unknown), instead of showing frames again.
   bool switch_seek_ = false;
   int64_t continue_shown_ = kNoTimestamp;
+  // SetNext()'s item, opening on its own thread.
+  struct NextItem {
+    std::string url;
+    std::unique_ptr<Demuxer> demuxer;
+    std::thread thread;
+    // Under |mutex_|: the open returned, and how.
+    bool done = false;
+    bool ok = false;
+    std::string error;
+    // |next_serial_| when it was set.
+    uint64_t serial = 0;
+  };
+  // Under |mutex_|. Taken by JoinNext() or AdvanceToNext().
+  std::unique_ptr<NextItem> next_;
+  // Counts SetNext() and ClearNext() calls, under |mutex_|.
+  uint64_t next_serial_ = 0;
+  // The next item joined at the end of the input (JoinNext()), until the
+  // clock reaches it (CrossLocked()) or a seek takes it back. Set by the
+  // read thread under |mutex_|; the read thread reads it without the
+  // lock, and the control thread changes it only under the lock while the
+  // read thread is out of ReadPacket().
+  struct Join {
+    std::unique_ptr<NextItem> item;
+    // The item playing until |at|, whose demuxer |demuxer_| replaced.
+    std::unique_ptr<Demuxer> previous;
+    MediaInfo info;
+    int video_stream = -1;
+    int audio_stream = -1;
+    std::map<int, std::unique_ptr<SubtitleRenderer>> subtitles;
+    // Media time it starts at, and its |item_base_|.
+    int64_t at = kNoTimestamp;
+    int64_t base = 0;
+  };
+  std::unique_ptr<Join> join_;
+  // The input ended with the next item still opening: buffering until it
+  // has (or until it is cleared).
+  bool waiting_for_next_ = false;
+  // The control thread is to switch to the next item (AdvanceToNext()).
+  bool advance_pending_ = false;
   // Video decoders lost since the last open or device change. The first is
   // replaced by hardware decoding again (a GPU reset passes), later ones by
   // software decoding. A hung decoder counts as two.

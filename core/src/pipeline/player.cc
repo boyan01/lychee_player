@@ -144,6 +144,7 @@ Player::Player(const PlayerConfig& config)
 }
 
 Player::~Player() {
+  ClearNext();
   std::lock_guard<std::mutex> open_lock(open_mutex_);
   StopPipeline();
 }
@@ -226,6 +227,9 @@ void Player::StopPipeline() {
   std::map<int, std::unique_ptr<SubtitleRenderer>> subtitles;
   std::map<int, ExternalSubtitle> external_subtitles;
   std::unique_ptr<Demuxer> demuxer;
+  // A joined item is dropped, even by SwitchSource(): its demuxer was
+  // aborted with the read.
+  std::unique_ptr<Join> join;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     video = std::move(video_renderer_);
@@ -236,6 +240,10 @@ void Player::StopPipeline() {
     external_subtitles_.clear();
     histories_.clear();
     demuxer = std::move(demuxer_);
+    join = std::move(join_);
+    item_base_ = 0;
+    waiting_for_next_ = false;
+    advance_pending_ = false;
     live_ = false;
     live_demuxer_ = nullptr;
     live_change_ = LiveChange();
@@ -320,6 +328,7 @@ bool Player::Open(const std::string& url, const std::string& headers) {
   if (url.empty() || OnControlThread()) {
     return false;
   }
+  ClearNext();
   std::lock_guard<std::mutex> open_lock(open_mutex_);
   StopPipeline();
   std::lock_guard<std::mutex> lock(mutex_);
@@ -337,6 +346,7 @@ bool Player::Close() {
   if (OnControlThread()) {
     return false;
   }
+  ClearNext();
   std::lock_guard<std::mutex> open_lock(open_mutex_);
   bool was_open;
   {
@@ -425,10 +435,369 @@ bool Player::SwitchSource(const std::string& url, bool keep_position) {
   return true;
 }
 
+bool Player::SetNext(const std::string& url) {
+  ClearNext();
+  if (url.empty()) {
+    return true;
+  }
+  auto item = std::make_unique<NextItem>();
+  item->url = url;
+  item->demuxer = CreateDemuxer();
+  if (!item->demuxer) {
+    return false;
+  }
+  std::unique_ptr<NextItem> replaced;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    // Another SetNext() since the ClearNext() above.
+    replaced = std::move(next_);
+    item->serial = ++next_serial_;
+    NextItem* next = item.get();
+    // Started under the lock, so that whoever takes |next_| joins it.
+    next->thread = std::thread([this, next] {
+      SetCurrentThreadName("lychee-next");
+      std::string error;
+      const bool ok = next->demuxer->Open(next->url, &error);
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        next->done = true;
+        next->ok = ok;
+        next->error = error;
+      }
+      condition_.notify_all();
+    });
+    next_ = std::move(item);
+    LOGI("opening the next item %s", url.c_str());
+  }
+  DropNext(std::move(replaced));
+  return true;
+}
+
+void Player::ClearNext() {
+  std::unique_ptr<NextItem> item;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ++next_serial_;
+    item = std::move(next_);
+    // One the read thread joined, but not yet playing, goes too: a resync
+    // flushes what was read of it and reads this item's end again.
+    if (join_ && clock_.Now() < join_->at) {
+      track_request_.resync = true;
+      demuxer_->Interrupt();
+    }
+  }
+  condition_.notify_all();
+  DropNext(std::move(item));
+}
+
+void Player::DropNext(std::unique_ptr<NextItem> item) {
+  if (!item) {
+    return;
+  }
+  // Ends an open in progress.
+  item->demuxer->Abort();
+  if (item->thread.joinable()) {
+    item->thread.join();
+  }
+}
+
+bool Player::ContinuesLocked(const MediaInfo& next,
+                             int* video_stream,
+                             int* audio_stream,
+                             std::string* why) const {
+  // Seeks before it starts take it back, to read it from its start again.
+  if (!next.seekable) {
+    *why = "it cannot seek";
+    return false;
+  }
+  const bool video = video_stream_ >= 0;
+  const bool next_video =
+      next.default_video_stream >= 0 && config_.video_frame_types != 0;
+  const bool audio = audio_stream_ >= 0;
+  const bool next_audio = next.default_audio_stream >= 0;
+  if (video != next_video || audio != next_audio) {
+    *why = "other kinds of tracks";
+    return false;
+  }
+  // The decoders go on after a drain and a flush, as at a loop's boundary,
+  // so the next item must need no other configuration.
+  if (video) {
+    const VideoConfig& a = media_info_.streams[video_stream_].video;
+    const VideoConfig& b = next.streams[next.default_video_stream].video;
+    if (a.codec != b.codec || a.width != b.width || a.height != b.height ||
+        a.rotation != b.rotation || a.extradata != b.extradata) {
+      *why = "another video format";
+      return false;
+    }
+  }
+  if (audio) {
+    const AudioConfig& a = media_info_.streams[audio_stream_].audio;
+    const AudioConfig& b = next.streams[next.default_audio_stream].audio;
+    if (a.codec != b.codec || a.sample_rate != b.sample_rate ||
+        a.channels != b.channels || a.extradata != b.extradata) {
+      *why = "another audio format";
+      return false;
+    }
+  }
+  *video_stream = video ? next.default_video_stream : -1;
+  *audio_stream = audio ? next.default_audio_stream : -1;
+  return true;
+}
+
+bool Player::JoinNext() {
+  std::unique_ptr<NextItem> item;
+  int video_stream = -1;
+  int audio_stream = -1;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    // Looping plays this item again instead; one looped already has its
+    // renderers set to end with its pass (ApplyLoopEndLocked()). This item
+    // must seek for a seek before the next one starts to take it back.
+    if (!next_ || !next_->done || !next_->ok || join_ || looping_ || live_ ||
+        loops_ != 0 || !media_info_.seekable ||
+        media_info_.duration == kNoTimestamp || media_info_.duration <= 0 ||
+        seek_pending_ || track_request_.pending() || quit_) {
+      return false;
+    }
+    std::string why;
+    if (!ContinuesLocked(next_->demuxer->media_info(), &video_stream,
+                         &audio_stream, &why)) {
+      LOGI("the next item %s switches at the end: %s", next_->url.c_str(),
+           why.c_str());
+      return false;
+    }
+    item = std::move(next_);
+  }
+  // It has opened (or came back from a join, its thread joined).
+  if (item->thread.joinable()) {
+    item->thread.join();
+  }
+  // This item ends where its tracks do, as a loop's pass would.
+  SetLoopSpan();
+  auto join = std::make_unique<Join>();
+  join->info = item->demuxer->media_info();
+  join->video_stream = video_stream;
+  join->audio_stream = audio_stream;
+  join->at = item_base_ + loop_start_ + loop_length_;
+  join->base = join->at - join->info.start_time;
+  std::vector<int> streams;
+  for (int stream : {video_stream, audio_stream}) {
+    if (stream >= 0) {
+      streams.push_back(stream);
+    }
+  }
+  for (const StreamInfo& stream : join->info.streams) {
+    if (stream.type == MediaType::kSubtitle) {
+      if (auto subtitle = CreateSubtitleRenderer(stream)) {
+        join->subtitles[stream.index] = std::move(subtitle);
+        streams.push_back(stream.index);
+      }
+    }
+  }
+  item->demuxer->SetEnabledStreams(streams);
+  if (video_stream_ >= 0) {
+    video_queue_.Push(EncodedPacket::CreateBoundary(video_stream_, join->at));
+  }
+  if (audio_stream_ >= 0) {
+    audio_queue_.Push(EncodedPacket::CreateBoundary(audio_stream_, join->at));
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (quit_) {
+    return false;
+  }
+  LOGI("the next item %s joins at %lld ms", item->url.c_str(),
+       Millis(join->at - media_info_.start_time - item_base_));
+  video_last_pts_ = std::max(video_last_pts_, join->at);
+  audio_last_pts_ = std::max(audio_last_pts_, join->at);
+  join->previous = std::move(demuxer_);
+  demuxer_ = std::move(item->demuxer);
+  join->item = std::move(item);
+  join_ = std::move(join);
+  // From here on, of the joined item's streams.
+  spans_.clear();
+  PublishLoopMapLocked();
+  return true;
+}
+
+std::unique_ptr<Demuxer> Player::CrossLocked() {
+  std::unique_ptr<Join> join = std::move(join_);
+  LOGI("the next item %s plays", join->item->url.c_str());
+  media_info_ = std::move(join->info);
+  video_stream_ = join->video_stream;
+  audio_stream_ = join->audio_stream;
+  subtitle_renderers_ = std::move(join->subtitles);
+  // Subtitle files added were for the item before.
+  external_subtitles_.clear();
+  subtitle_stream_ =
+      subtitle_renderers_.count(media_info_.default_subtitle_stream)
+          ? media_info_.default_subtitle_stream
+          : -1;
+  item_base_ = join->base;
+  loops_ = 0;
+  loop_start_ = loop_length_ = 0;
+  loop_end_ = kNoTimestamp;
+  PublishLoopMapLocked();
+  variant_switches_.clear();
+  PostEventLocked(PlayerEvent::kItemChanged, 1);
+  PostEventLocked(PlayerEvent::kMediaInfo, media_info_.duration == kNoTimestamp
+                                               ? -1
+                                               : media_info_.duration);
+  PostEventLocked(PlayerEvent::kTracksChanged);
+  // The size goes on (ContinuesLocked()), but for the pixel aspect ratio.
+  if (video_stream_ >= 0) {
+    const VideoConfig& config = media_info_.streams[video_stream_].video;
+    if (config.display_width() != video_width_ ||
+        config.height != video_height_) {
+      video_width_ = config.display_width();
+      video_height_ = config.height;
+      PostEventLocked(PlayerEvent::kVideoSizeChanged, video_width_,
+                      video_height_);
+    }
+  }
+  // The read thread waits for this (ShouldReadLocked()).
+  condition_.notify_all();
+  return std::move(join->previous);
+}
+
+std::unique_ptr<Player::NextItem> Player::UnjoinLocked() {
+  std::unique_ptr<Join> join = std::move(join_);
+  std::unique_ptr<NextItem> item = std::move(join->item);
+  LOGI("taking back the next item %s", item->url.c_str());
+  item->demuxer = std::move(demuxer_);
+  demuxer_ = std::move(join->previous);
+  spans_.clear();
+  PublishLoopMapLocked();
+  return item;
+}
+
+void Player::RestoreNext(std::unique_ptr<NextItem> item) {
+  // Read from its start again, and out of a Seek()'s interrupt.
+  if (!item->demuxer->Seek(item->demuxer->media_info().start_time)) {
+    LOGW("the next item %s cannot go back to its start: dropped",
+         item->url.c_str());
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  // Unless SetNext() or ClearNext() came since.
+  if (!next_ && item->serial == next_serial_) {
+    LOGI("the next item %s joins at the end again", item->url.c_str());
+    next_ = std::move(item);
+  }
+}
+
+void Player::AdvanceToNext() {
+  std::unique_ptr<NextItem> item;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    // Replaced or cleared since the end: the state machine sees to it.
+    if (!next_ || !next_->done) {
+      return;
+    }
+    item = std::move(next_);
+  }
+  if (item->thread.joinable()) {
+    item->thread.join();
+  }
+  if (!item->ok) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    LOGE("open %s failed: %s", item->url.c_str(), item->error.c_str());
+    PostEventLocked(PlayerEvent::kItemChanged, 0);
+    FailLocked(item->error);
+    return;
+  }
+  const MediaInfo info = item->demuxer->media_info();
+  LOGI("switching to the next item %s: format %s, duration %lld us",
+       item->url.c_str(), info.format_name.c_str(),
+       static_cast<long long>(info.duration));
+  std::map<int, std::unique_ptr<SubtitleRenderer>> subtitles;
+  std::map<int, PacketHistory> histories;
+  for (const StreamInfo& stream : info.streams) {
+    if (stream.type == MediaType::kSubtitle) {
+      if (auto subtitle = CreateSubtitleRenderer(stream)) {
+        subtitles[stream.index] = std::move(subtitle);
+      }
+    } else if (!info.seekable && (stream.type == MediaType::kAudio ||
+                                  (stream.type == MediaType::kVideo &&
+                                   config_.video_frame_types))) {
+      histories.try_emplace(stream.index, kMaxQueuedBytes,
+                            stream.type == MediaType::kAudio);
+    }
+  }
+  // Swapped with the item's streams in one go: callers look the renderers'
+  // streams up in |media_info_|.
+  std::unique_ptr<Demuxer> previous;
+  VideoRenderer::Ptr old_video;
+  std::unique_ptr<AudioRenderer> old_audio;
+  std::map<int, std::unique_ptr<SubtitleRenderer>> old_subtitles;
+  std::map<int, ExternalSubtitle> old_external_subtitles;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    {
+      std::lock_guard<std::mutex> display_lock(display_mutex_);
+      video_for_display_ = nullptr;
+    }
+    old_video = std::move(video_renderer_);
+    if (old_video) {
+      const VideoRenderer::Counts counts = old_video->counts();
+      retired_video_.rendered += counts.rendered;
+      retired_video_.dropped += counts.dropped;
+      retired_video_.decoded += counts.decoded;
+    }
+    old_audio = std::move(audio_renderer_);
+    video_stream_ = audio_stream_ = -1;
+    previous = std::move(demuxer_);
+    demuxer_ = std::move(item->demuxer);
+    media_info_ = info;
+    histories_ = std::move(histories);
+    old_subtitles = std::move(subtitle_renderers_);
+    subtitle_renderers_ = std::move(subtitles);
+    old_external_subtitles = std::move(external_subtitles_);
+    external_subtitles_.clear();
+    subtitle_stream_ = subtitle_renderers_.count(info.default_subtitle_stream)
+                           ? info.default_subtitle_stream
+                           : -1;
+    item_base_ = 0;
+    loops_ = 0;
+    loop_start_ = loop_length_ = 0;
+    loop_end_ = kNoTimestamp;
+    spans_.clear();
+    PublishLoopMapLocked();
+    // Reported as at its start until it plays, as a seek is.
+    seek_target_ = 0;
+    seek_in_progress_ = true;
+    current_seek_reported_ = false;
+    PostEventLocked(PlayerEvent::kItemChanged, 0);
+    PostEventLocked(PlayerEvent::kMediaInfo,
+                    info.duration == kNoTimestamp ? -1 : info.duration);
+  }
+  video_queue_.Abort();
+  audio_queue_.Abort();
+  if (old_video) {
+    old_video->Stop();
+  }
+  if (old_audio) {
+    old_audio->Retire();
+    if (old_audio->SinkStopped()) {
+      old_audio->Stop();
+    } else {
+      retired_audio_.push_back(std::move(old_audio));
+    }
+  }
+  TrackRequest request;
+  request.video = info.default_video_stream >= 0 && config_.video_frame_types
+                      ? info.default_video_stream
+                      : -1;
+  request.audio = info.default_audio_stream;
+  request.new_item = true;
+  ChangeTracks(request);
+  ProcessSeek(0, false, false, 0, true);
+}
+
 bool Player::OpenLive(int64_t latency) {
   if (OnControlThread()) {
     return false;
   }
+  ClearNext();
   std::lock_guard<std::mutex> open_lock(open_mutex_);
   StopPipeline();
   std::lock_guard<std::mutex> lock(mutex_);
@@ -1022,7 +1391,7 @@ int64_t Player::PositionLocked() const {
   }
   const int64_t now = clock_.Now();
   int64_t position = std::max<int64_t>(
-      now - LoopOffsetLocked(now) - media_info_.start_time, 0);
+      now - ItemOffsetLocked(now) - media_info_.start_time, 0);
   if (media_info_.duration != kNoTimestamp) {
     position = std::min(position, media_info_.duration);
   }
@@ -1058,8 +1427,8 @@ int64_t Player::buffered_position() const {
   if (end == kInfiniteTime || end == kNoTimestamp || end < now) {
     end = now;
   }
-  // Read into the next pass: buffered to the end of this one.
-  end -= LoopOffsetLocked(now) + media_info_.start_time;
+  // Read into the next pass or item: buffered to the end of this one.
+  end -= ItemOffsetLocked(now) + media_info_.start_time;
   if (media_info_.duration != kNoTimestamp) {
     end = std::min(end, media_info_.duration);
   }
@@ -1390,8 +1759,12 @@ int64_t Player::UnloopedPts(int64_t pts) const {
 }
 
 int64_t Player::LoopMap::Offset(int64_t media_time) const {
+  // A joined item's single pass.
+  if (join_at != kNoTimestamp && media_time >= join_at) {
+    return join_base;
+  }
   if (loops == 0) {
-    return 0;
+    return base;
   }
   // Still the last pass when it ends there.
   if (end != kNoTimestamp) {
@@ -1399,18 +1772,32 @@ int64_t Player::LoopMap::Offset(int64_t media_time) const {
   }
   // Pass 0 runs from the file's start to |start| + |length|.
   const int64_t pass =
-      std::clamp<int64_t>((media_time - start) / length, 0, loops);
-  return pass * length;
+      std::clamp<int64_t>((media_time - base - start) / length, 0, loops);
+  return base + pass * length;
+}
+
+Player::LoopMap Player::LoopMapLocked() const {
+  LoopMap map{item_base_, loops_, loop_start_, loop_length_, loop_end_};
+  if (join_) {
+    map.join_at = join_->at;
+    map.join_base = join_->base;
+  }
+  return map;
 }
 
 int64_t Player::LoopOffsetLocked(int64_t media_time) const {
-  return LoopMap{loops_, loop_start_, loop_length_, loop_end_}.Offset(
-      media_time);
+  return LoopMapLocked().Offset(media_time);
+}
+
+int64_t Player::ItemOffsetLocked(int64_t media_time) const {
+  // The item before a joined one has a single pass (JoinNext()).
+  return join_ ? item_base_ : LoopOffsetLocked(media_time);
 }
 
 void Player::PublishLoopMapLocked() {
+  const LoopMap map = LoopMapLocked();
   std::lock_guard<std::mutex> lock(loop_mutex_);
-  loop_map_ = {loops_, loop_start_, loop_length_, loop_end_};
+  loop_map_ = map;
 }
 
 void Player::ApplyLoopEndLocked() {
@@ -1421,9 +1808,10 @@ void Player::ApplyLoopEndLocked() {
   loop_end_ = kNoTimestamp;
   int64_t end = kNoTimestamp;
   if (!looping_ && loops_ > 0) {
-    const int64_t pass = LoopOffsetLocked(clock_.Now()) / loop_length_;
+    const int64_t pass =
+        (LoopOffsetLocked(clock_.Now()) - item_base_) / loop_length_;
     if (loops_ > pass) {
-      end = loop_start_ + (pass + 1) * loop_length_;
+      end = item_base_ + loop_start_ + (pass + 1) * loop_length_;
     }
   }
   loop_end_ = end;
@@ -1462,10 +1850,17 @@ void Player::Run(const std::string& url) {
     int64_t seek_target = 0;
     TrackRequest tracks;
     LiveChange live_change;
+    bool advance = false;
+    std::unique_ptr<Demuxer> crossed;
+    std::unique_ptr<NextItem> unjoined;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       if (quit_) {
         break;
+      }
+      // The joined item plays from when the clock reaches it.
+      if (join_ && !reading_ && clock_.Now() >= join_->at) {
+        crossed = CrossLocked();
       }
       if (live_) {
         if (live_change_.pending() || track_request_.pending()) {
@@ -1489,6 +1884,22 @@ void Player::Run(const std::string& url) {
         }
       } else if (seek_pending_ || track_request_.pending()) {
         seek = true;
+        // Seek() interrupted any read in flight; wait for it to return.
+        seeking_ = true;
+        condition_.wait(lock, [this] { return !reading_ || quit_; });
+        if (quit_) {
+          break;
+        }
+        // The joined item, unless it plays already, waits for the end
+        // again.
+        if (join_) {
+          if (clock_.Now() >= join_->at) {
+            crossed = CrossLocked();
+          } else {
+            unjoined = UnjoinLocked();
+          }
+        }
+        advance_pending_ = false;
         tracks = track_request_;
         track_request_ = TrackRequest();
         if (seek_pending_) {
@@ -1513,7 +1924,8 @@ void Player::Run(const std::string& url) {
           resync = true;
           const int64_t now = clock_.Now();
           const int64_t offset = LoopOffsetLocked(now);
-          resync_loops = offset ? offset / loop_length_ : 0;
+          const int64_t passes = offset - item_base_;
+          resync_loops = passes ? passes / loop_length_ : 0;
           int64_t position = std::max<int64_t>(
               now - offset - media_info_.start_time, 0);
           if (media_info_.duration != kNoTimestamp) {
@@ -1524,15 +1936,29 @@ void Player::Run(const std::string& url) {
         }
         seek_target = seek_target_;
         seek_in_progress_ = !loop;
-        // Seek() interrupted any read in flight; wait for it to return.
+      } else if (advance_pending_) {
+        advance_pending_ = false;
+        advance = true;
         seeking_ = true;
+        demuxer_->Interrupt();
         condition_.wait(lock, [this] { return !reading_ || quit_; });
         if (quit_) {
           break;
         }
       }
     }
-    if (seek && live_) {
+    crossed.reset();
+    if (unjoined) {
+      RestoreNext(std::move(unjoined));
+    }
+    if (advance) {
+      AdvanceToNext();
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        seeking_ = false;
+      }
+      condition_.notify_all();
+    } else if (seek && live_) {
       ApplyLiveChange(tracks, live_change);
       {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -1559,7 +1985,7 @@ void Player::Run(const std::string& url) {
     condition_.wait_for(
         lock, IdleLocked() ? kIdleControlPoll : kControlPoll, [this] {
           return quit_ || seek_pending_ || track_request_.pending() ||
-                 live_change_.pending() || !events_.empty();
+                 live_change_.pending() || advance_pending_ || !events_.empty();
         });
   }
   read_thread_.join();
@@ -1604,6 +2030,11 @@ bool Player::IdleLocked() const {
 }
 
 bool Player::ShouldReadLocked() const {
+  // Once the joined item is due, the control thread waits for a moment
+  // outside ReadPacket() to make it the one playing.
+  if (join_ && clock_.Now() >= join_->at) {
+    return false;
+  }
   return !seek_pending_ && !seeking_ && !track_request_.pending() &&
          !end_of_input_ && state_ != PlayerState::kError && NeedMoreData();
 }
@@ -1806,7 +2237,9 @@ void Player::ChangeTracks(const TrackRequest& request) {
       video = CreateVideoRenderer(media_info_.streams[video_stream]);
     }
     if (video) {
-      video->ContinueFrom(shown_end);
+      if (!request.new_item) {
+        video->ContinueFrom(shown_end);
+      }
     }
     std::lock_guard<std::mutex> lock(mutex_);
     const int width = video_width_;
@@ -1957,17 +2390,25 @@ void Player::ReadPacket() {
   if (result == DemuxerReadResult::kAborted) {
     return;
   }
-  if (result == DemuxerReadResult::kEndOfStream && WrapLoop()) {
+  if (result == DemuxerReadResult::kEndOfStream && (WrapLoop() || JoinNext())) {
     return;
   }
-  // The read thread is the only writer while it runs.
-  const int64_t offset = loops_ ? loops_ * loop_length_ : 0;
+  // The read thread is the only writer of these while it runs. A joined
+  // item has stream ids, subtitles and a timeline of its own until it
+  // plays.
+  const Join* join = join_.get();
+  const int video_stream = join ? join->video_stream : video_stream_;
+  const int audio_stream = join ? join->audio_stream : audio_stream_;
+  const std::map<int, std::unique_ptr<SubtitleRenderer>>& subtitles =
+      join ? join->subtitles : subtitle_renderers_;
+  const int64_t offset =
+      join ? join->base : item_base_ + (loops_ ? loops_ * loop_length_ : 0);
   if (result != DemuxerReadResult::kOk) {
-    if (video_stream_ >= 0) {
-      video_queue_.Push(EncodedPacket::CreateEndOfStream(video_stream_));
+    if (video_stream >= 0) {
+      video_queue_.Push(EncodedPacket::CreateEndOfStream(video_stream));
     }
-    if (audio_stream_ >= 0) {
-      audio_queue_.Push(EncodedPacket::CreateEndOfStream(audio_stream_));
+    if (audio_stream >= 0) {
+      audio_queue_.Push(EncodedPacket::CreateEndOfStream(audio_stream));
     }
     std::lock_guard<std::mutex> lock(mutex_);
     end_of_input_ = true;
@@ -1975,15 +2416,16 @@ void Player::ReadPacket() {
       input_error_ = demuxer_->error();
       LOGW("input failed (%s); playing what was read", input_error_.c_str());
     }
-    if (media_info_.duration != kNoTimestamp) {
+    const MediaInfo& info = join ? join->info : media_info_;
+    if (info.duration != kNoTimestamp) {
       video_last_pts_ = audio_last_pts_ =
-          media_info_.start_time + media_info_.duration + offset;
+          info.start_time + info.duration + offset;
     }
     return;
   }
 
-  if (packet->pts != kNoTimestamp && (packet->stream_index == video_stream_ ||
-                                      packet->stream_index == audio_stream_)) {
+  if (packet->pts != kNoTimestamp && (packet->stream_index == video_stream ||
+                                      packet->stream_index == audio_stream)) {
     StreamSpan& span = spans_[packet->stream_index];
     if (span.first == kNoTimestamp || packet->pts < span.first) {
       span.first = packet->pts;
@@ -1994,9 +2436,8 @@ void Player::ReadPacket() {
       span.open_end = packet->duration <= 0;
     }
   }
-  if (offset &&
-      (packet->stream_index == video_stream_ ||
-       packet->stream_index == audio_stream_)) {
+  if (offset && (packet->stream_index == video_stream ||
+                 packet->stream_index == audio_stream)) {
     if (packet->pts != kNoTimestamp) {
       packet->pts += offset;
     }
@@ -2010,7 +2451,7 @@ void Player::ReadPacket() {
   download_rate_.store(demuxer_->download_rate(), std::memory_order_relaxed);
   const int variant = demuxer_->current_variant();
   int64_t pts = packet->pts;
-  if (packet->stream_index == video_stream_) {
+  if (packet->stream_index == video_stream) {
     video_bytes_read_.fetch_add(static_cast<int64_t>(packet->size()),
                                 std::memory_order_relaxed);
     video_queue_.Push(std::move(packet));
@@ -2028,7 +2469,7 @@ void Player::ReadPacket() {
         variant_switches_.pop_front();
       }
     }
-  } else if (packet->stream_index == audio_stream_) {
+  } else if (packet->stream_index == audio_stream) {
     audio_bytes_read_.fetch_add(static_cast<int64_t>(packet->size()),
                                 std::memory_order_relaxed);
     audio_queue_.Push(std::move(packet));
@@ -2036,13 +2477,13 @@ void Player::ReadPacket() {
       std::lock_guard<std::mutex> lock(mutex_);
       audio_last_pts_ = std::max(audio_last_pts_, pts);
     }
-  } else if (auto it = subtitle_renderers_.find(packet->stream_index);
-             it != subtitle_renderers_.end()) {
+  } else if (auto it = subtitles.find(packet->stream_index);
+             it != subtitles.end()) {
     it->second->Decode(*packet);
     int64_t ended_by = kNoTimestamp;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (!media_info_.seekable) {
+      if (!(join ? join->info : media_info_).seekable) {
         const int64_t now = clock_.Now();
         ended_by = now - LoopOffsetLocked(now) - subtitle_delay_ -
                    kUnseekableSubtitleHistory;
@@ -2062,7 +2503,9 @@ bool Player::WrapLoop() {
     std::lock_guard<std::mutex> lock(mutex_);
     // A pending seek or track change replaces the loop; the control thread
     // flushes whatever this pushes.
-    if (!looping_ || live_ || !media_info_.seekable ||
+    // Nor does an item joined to the one playing before it has started:
+    // the control thread loops it by seeking.
+    if (!looping_ || live_ || join_ || !media_info_.seekable ||
         media_info_.duration == kNoTimestamp || media_info_.duration <= 0 ||
         seek_pending_ || track_request_.pending() || quit_) {
       return false;
@@ -2084,7 +2527,8 @@ bool Player::WrapLoop() {
   // Each pass lasts |loop_length_|: audio past it (encoder padding) is
   // cut, and a shorter track is padded with silence, so passes neither
   // overlap nor leave gaps.
-  const int64_t boundary = loop_start_ + (loops_ + 1) * loop_length_;
+  const int64_t boundary =
+      item_base_ + loop_start_ + (loops_ + 1) * loop_length_;
   if (video_stream_ >= 0) {
     video_queue_.Push(EncodedPacket::CreateBoundary(video_stream_, boundary));
   }
@@ -2167,8 +2611,9 @@ void Player::ProcessSeek(int64_t target,
                          bool tracks_changed) {
   const int64_t file_target = media_info_.start_time + target;
   // A resync stays in the pass playing; the read thread offsets its packets
-  // by as much.
-  const int64_t media_target = file_target + (loops ? loops * loop_length_ : 0);
+  // by as much. Other seeks go back to the file's timeline.
+  const int64_t media_target = file_target + (resync ? item_base_ : 0) +
+                               (loops ? loops * loop_length_ : 0);
   LOGI("%s to %lld us", loop ? "loop" : "seek", static_cast<long long>(target));
   // The read starts the audio's preroll early (as Chromium's FFmpegDemuxer
   // does for Opus); the audio renderer cuts what comes before the target.
@@ -2243,7 +2688,11 @@ void Player::ProcessSeek(int64_t target,
   EndRebufferLocked();
   variant_switches_.clear();
   input_error_.clear();
+  waiting_for_next_ = false;
   loops_ = loops;
+  if (!resync) {
+    item_base_ = 0;
+  }
   loop_end_ = kNoTimestamp;
   PublishLoopMapLocked();
   clock_.Reset(media_target);
@@ -2335,8 +2784,16 @@ void Player::UpdateStateLocked() {
   switch (state_) {
     case PlayerState::kLoading:
     case PlayerState::kBuffering:
-      if (PrerollDoneLocked() &&
-          (!rebuffering_ || end_of_input_ || !NeedMoreData())) {
+      if (waiting_for_next_) {
+        if (!next_) {
+          waiting_for_next_ = false;
+          SetStateLocked(PlayerState::kEnded);
+        } else if (next_->done) {
+          waiting_for_next_ = false;
+          advance_pending_ = true;
+        }
+      } else if (PrerollDoneLocked() &&
+                 (!rebuffering_ || end_of_input_ || !NeedMoreData())) {
         rebuffering_ = false;
         EndRebufferLocked();
         SetStateLocked(PlayerState::kReady);
@@ -2349,7 +2806,7 @@ void Player::UpdateStateLocked() {
           prerolling_ = false;
           FinishSeekLocked();
         }
-      } else if (seek_pending_) {
+      } else if (seek_pending_ || advance_pending_) {
         // Wait for the seek; the ended and starved checks see stale data.
       } else if (EndedLocked()) {
         if (!input_error_.empty()) {
@@ -2359,6 +2816,13 @@ void Player::UpdateStateLocked() {
           seek_target_ = 0;
           loop_seek_pending_ = true;
           report_seek_ = false;
+        } else if (next_ && next_->done) {
+          // The next item did not join: switch to it now.
+          advance_pending_ = true;
+        } else if (next_) {
+          LOGI("waiting for the next item to open");
+          waiting_for_next_ = true;
+          SetStateLocked(PlayerState::kBuffering);
         } else {
           SetStateLocked(PlayerState::kEnded);
         }
@@ -2480,7 +2944,11 @@ bool Player::SettledForTesting(int64_t until) const {
       return true;
   }
   if (seek_pending_ || seek_in_progress_ || seeking_ || prerolling_ ||
-      track_request_.pending()) {
+      track_request_.pending() || advance_pending_) {
+    return false;
+  }
+  // The control thread has yet to make the joined item the one playing.
+  if (join_ && clock_.Now() >= join_->at) {
     return false;
   }
   if (!play_when_ready_) {

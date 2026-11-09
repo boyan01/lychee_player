@@ -23,7 +23,8 @@ Flutter plugin, a Swift package, an Android library and Rust crates.
 - **HLS**: adaptive variants, fragmented MP4 segments, AES-128, alternate
   audio and subtitle renditions.
 - **Playback**: accurate seeking, rate from 0.25x to 4x with pitch kept,
-  gapless looping, audio, video and subtitle track selection.
+  gapless looping and a next item queued to follow without a gap, audio,
+  video and subtitle track selection.
 - **Subtitles**: text (SRT, WebVTT, tx3g, IMSC), drawn by the views in a
   style the app sets or left to it, and bitmap subtitles (PGS and IMSC
   images; DVB and VobSub with FFmpeg) as pictures; subtitle files and URLs (SRT, WebVTT,

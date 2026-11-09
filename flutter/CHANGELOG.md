@@ -40,6 +40,10 @@
   another URL (another quality, a mirror, a fresh URL) where playback is:
   the frame on screen, the position, play/pause and added subtitle files
   stay until the new source plays on, with no black frame or jump to 0.
+* `LycheePlayer.setNext(url)` opens the next media (a playlist's next
+  track, the next episode) ahead, so it starts when the current one ends
+  without the wait of an open; `itemChanges` reports when it does. Media
+  with the same codecs and format plays on without a gap.
 
 ### Fixed
 

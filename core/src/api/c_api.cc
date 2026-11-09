@@ -296,6 +296,10 @@ int32_t lychee_player_switch_source(lychee_player* player,
   return url && player->player->SwitchSource(url, keep_position != 0) ? 0 : -1;
 }
 
+int32_t lychee_player_set_next(lychee_player* player, const char* url) {
+  return player->player->SetNext(url ? url : "") ? 0 : -1;
+}
+
 int32_t lychee_player_open_live(lychee_player* player,
                                 const lychee_live_config* config) {
   int64_t latency = kDefaultLiveLatency;

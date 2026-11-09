@@ -282,6 +282,13 @@ pub enum Event {
     /// Another variant of an adaptive stream is on screen: its
     /// [`Variant::index`].
     VariantChanged(usize),
+    /// The item [`Player::set_next`] set is now the one open: `gapless`, it
+    /// went on from the one before without a gap; otherwise the player
+    /// switched to it (or it failed to open, and [`Event::Error`] follows).
+    /// [`Event::MediaInfo`] follows.
+    ItemChanged {
+        gapless: bool,
+    },
 }
 
 impl Event {
@@ -307,6 +314,7 @@ impl Event {
                 added: arg1 != 0,
             },
             sys::LYCHEE_EVENT_VARIANT_CHANGED => Event::VariantChanged(arg0 as usize),
+            sys::LYCHEE_EVENT_ITEM_CHANGED => Event::ItemChanged { gapless: arg0 != 0 },
             _ => return None,
         })
     }
@@ -639,6 +647,34 @@ impl Player {
                 sys::lychee_player_switch_source(self.raw(), url.as_ptr(), keep_position as i32)
             },
             "switch rejected",
+        )
+    }
+
+    /// Opens `url` in the background as the item to play when what is open
+    /// ends, so that it starts without the wait of an open; `None` unsets
+    /// it. When the current input ends, [`Event::ItemChanged`] says `url` is
+    /// the one open, and the state does not become [`State::Ended`]. Where
+    /// its default tracks continue the ones playing (the same codecs and
+    /// configuration, video of the same size, audio of the same rate and
+    /// channels) and both inputs can seek, it plays on without a gap;
+    /// otherwise the player switches to it at the end, buffering briefly.
+    /// Looping replays the current item instead, and a seek before `url`
+    /// starts plays on in the current one. [`Player::open`] and
+    /// [`Player::close`] unset it; [`Player::switch_source`] keeps it. May
+    /// be called from the event callback.
+    pub fn set_next(&self, url: Option<&str>) -> Result<()> {
+        let url = url
+            .map(CString::new)
+            .transpose()
+            .map_err(|_| Error("URL contains NUL"))?;
+        check(
+            unsafe {
+                sys::lychee_player_set_next(
+                    self.raw(),
+                    url.as_ref().map_or(std::ptr::null(), |url| url.as_ptr()),
+                )
+            },
+            "no demuxer in this build",
         )
     }
 

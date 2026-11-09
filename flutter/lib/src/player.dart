@@ -416,6 +416,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   Uint8List? _artwork;
   // addSubtitle() requests waiting for LYCHEE_EVENT_SUBTITLE_ADDED, by id.
   final Map<int, Completer<bool>> _addingSubtitles = {};
+  final StreamController<bool> _itemChanges = StreamController.broadcast();
 
   // A hot restart drops the previous isolate's players without dispose();
   // the plugin destroys them before this isolate creates its first.
@@ -529,6 +530,38 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     malloc.free(nativeUrl);
     _refresh();
   }
+
+  /// Opens [url] in the background as the media to play when what is open
+  /// ends (a playlist's next track, the next episode), so that it starts
+  /// without the wait of an open; null unsets it. When the current media
+  /// ends, [itemChanges] reports that [url] is now the media open, and the
+  /// state does not become [LycheePlayerState.ended]. Where its default
+  /// tracks continue the ones playing (the same codecs and configuration,
+  /// video of the same size, audio of the same rate and channels) and both
+  /// can seek, it plays on without a gap; otherwise the player switches to
+  /// it at the end, buffering briefly. Looping replays the current media
+  /// instead; a seek before [url] starts plays on in the current media.
+  /// [open] and [close] unset it, [switchSource] keeps it. Does nothing with
+  /// a core older than API 25.
+  void setNext(String? url) {
+    final setNext = native.playerSetNext;
+    if (_disposed || setNext == null) {
+      return;
+    }
+    if (url == null) {
+      setNext(_player, nullptr);
+      return;
+    }
+    final nativeUrl = url.toNativeUtf8();
+    setNext(_player, nativeUrl.cast());
+    malloc.free(nativeUrl);
+  }
+
+  /// An event each time the media [setNext] set becomes the media open:
+  /// true if it went on from the media before without a gap, false if the
+  /// player switched to it (or it failed to open, and
+  /// [LycheePlayerValue.error] says why). [value] then describes it.
+  Stream<bool> get itemChanges => _itemChanges.stream;
 
   /// Stops what is open and goes back to [LycheePlayerState.idle]: decoders,
   /// the audio output and the input (its network connections) are released.
@@ -854,6 +887,16 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       _readPictures();
     } else if (type == native.kEventSubtitleAdded) {
       _addingSubtitles.remove(arg0)?.complete(arg1 != 0);
+    } else if (type == native.kEventItemChanged) {
+      // Its tracks and artwork come with the LYCHEE_EVENT_MEDIA_INFO that
+      // follows.
+      _subtitle = null;
+      _hasPictures = false;
+      _setPictures(0, null);
+      _finishAddingSubtitles();
+      _refresh();
+      _itemChanges.add(arg0 != 0);
+      return;
     }
     _refresh();
   }
@@ -1094,6 +1137,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     _ticker?.cancel();
     _setPictures(0, null);
     _finishAddingSubtitles();
+    _itemChanges.close();
     super.dispose();
     _release();
   }

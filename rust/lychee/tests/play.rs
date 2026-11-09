@@ -197,6 +197,26 @@ fn switch_source_keeps_the_position() {
 }
 
 #[test]
+fn the_next_item_follows_without_a_gap() {
+    let (player, events) = open();
+    player.set_next(Some(&media("h264_aac.mp4"))).unwrap();
+    player.seek(Duration::from_secs(11));
+    player.play();
+    wait_for(&player, &events, |e| {
+        assert_ne!(*e, Event::StateChanged(State::Ended));
+        *e == Event::ItemChanged { gapless: true }
+    });
+    // The next item's own position.
+    assert!(
+        player.position() < Duration::from_secs(2),
+        "{:?}",
+        player.position()
+    );
+    assert_eq!(player.duration(), Some(Duration::from_secs(12)));
+    player.set_next(None).unwrap();
+}
+
+#[test]
 fn opens_at_a_start_position() {
     let player = Player::new(&Config::default()).unwrap();
     let (events, received) = mpsc::channel();

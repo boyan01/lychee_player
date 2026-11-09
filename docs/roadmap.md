@@ -237,10 +237,6 @@ reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
    codec (another quality). Done when regression cases see each code.
    Per-request observation (#9) only if it fits the ABI's plain-callback
    rule cheaply; otherwise say so here.
-6. **Source lifecycle** (#5): open the
-   next item ahead so it starts without a gap (music queue, next
-   episode). Done when regression cases show each, and the gapless one
-   by `tool/audio_check.py`.
 7. **Android TV**: `content://` URIs (#17) for media and subtitle files,
    opened through `ContentResolver`; display mode matching (#19), the
    output refresh rate following the video's frame rate during playback

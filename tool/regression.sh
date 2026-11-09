@@ -1328,6 +1328,8 @@ par audio audio-gain-peak "$media/h264_aac.mp4" --threshold 0.02 --min-peak 0.45
 par audio audio-fade "$media/h264_aac.mp4" --expect-gap 300 -- --seconds 3.5 \
   --fade 1:0:500 --fade 2.2:1:300 --audio-samples 0.5:256 --audio-samples 1.3:1024
 par audio audio-switch "$media/h264_aac.mp4" -- --seconds 4 --switch-after 1 "$media/h264_aac.mkv"
+# The next item joined without a gap: the sine runs on through the join.
+par audio audio-next "$media/loop.mp4" --max-gap 1 -- --next "$media/loop.mp4"
 # Looping: back to the start without ENDED or BUFFERING, and without
 # stopping: a frame held too long at the jump is a glitch.
 par expect loop "summary: state=ready" "loops=2" "summary:.*backward_jumps=0 " "summary:.*glitches=0 " \
@@ -1359,6 +1361,26 @@ par expect switch "switch at 2\.[0-9]+s -> .*result=0 state=buffering" \
 par expect close "close at 2\.[0-9]+s: result=0 state=idle position=0\.000s frame=0" \
   "event: state idle" "open -> " "<=0 event: state error" "summary: state=ended position=12\.000s" -- \
   --close-after 2 "$media/h264_aac.mp4"
+# The next item (lychee_player_set_next()). Where its tracks continue the
+# ones playing, it joins without a gap: no BUFFERING, one ENDED (its own),
+# and the drift stays within a vsync across the join. Otherwise the
+# player switches to it at the end. A seek before it starts plays on in
+# the item playing, and it joins again; unset before it starts, the item
+# playing ends.
+par expect next "the next item .* joins at 3000 ms" "event: item changed, gapless 1" \
+  "<=0 event: state buffering" "<=1 event: state ended" \
+  "summary: state=ended position=3\.000s .*rendered=180 dropped=0 glitches=0 backward_jumps=0 .*max_drift=1?[0-9]\.[0-9]ms " -- \
+  --next "$media/loop.mp4" "$media/loop.mp4"
+par expect next-switch "the next item .* switches at the end: another video format" \
+  "event: item changed, gapless 0" "<=1 event: state ended" "<=0 event: state error" \
+  "summary: state=ended position=10\.000s .*glitches=0 backward_jumps=0 " -- \
+  --next "$media/hevc10.mp4" "$media/h264_aac.mp4"
+par expect next-seek "taking back the next item" "joins at the end again" "event: seek completed at 0\.500s" \
+  "event: item changed, gapless 1" "summary: state=ended position=3\.000s .*backward_jumps=0 " -- \
+  --next "$media/loop.mp4" --seek 0.5 --seek-after 1.5 "$media/loop.mp4"
+par expect next-clear "next cleared at 1\.[0-9]+s: result=0" "<=0 joins at the end again" \
+  "<=0 event: item changed" "summary: state=ended position=3\.000s .*backward_jumps=0 " -- \
+  --next "$media/loop.mp4" --clear-next-after 1 "$media/loop.mp4"
 # Track selection keeps the position.
 par expect track-audio "select audio 2 at [0-9.]+s: accepted" "track 2: audio .* lang=fre title=French selected=1" \
   "track switch: resumed [+-]0\.[0-2][0-9]{2}s" "summary: state=ended.* backward_jumps=0 " -- --select audio:2 "$media/tracks.mkv"
@@ -1717,6 +1739,12 @@ par expect ts-lost-packets-video "summary: state=ended position=12\.0.* rendered
   "$media/ts_lost_packets_keyframes.ts"
 par expect ts-corrupt "summary: state=ended position=0\.[89]" -- "$media/corrupt.ts"
 exits=1 par expect corrupt-file "state=error" "error: (audio|video) decoding failed" -- "$media/corrupt.mp4"
+# A next item still opening when the input ends: buffering, then a
+# switch to it.
+serve --latency 1
+seq_ expect next-wait "waiting for the next item to open" "event: item changed, gapless 0" \
+  "<=0 event: state error" "summary: state=ended position=3\.000s .*backward_jumps=0 " -- \
+  --next "http://127.0.0.1:$port/loop.mp4" "$media/loop.mp4"
 serve
 seq_ check http          1 - -- "$url"
 # lychee_player_is_seekable(), known with the media info.

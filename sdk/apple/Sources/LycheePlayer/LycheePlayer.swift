@@ -41,6 +41,11 @@ public final class LycheePlayer {
     /// Another ``Variant`` is on screen, its ``Variant/index``: after
     /// ``selectVariant(_:)``, adaptation, or the first frame.
     case variantChanged(Int)
+    /// The media ``setNext(_:)`` set is now the media open: if `gapless`, it
+    /// went on from the media before without a gap; otherwise the player
+    /// switched to it (or it failed to open, and ``error`` follows).
+    /// ``mediaInfo`` follows.
+    case itemChanged(gapless: Bool)
   }
 
   /// What a track is for, as the container says. Matches
@@ -252,6 +257,21 @@ public final class LycheePlayer {
   /// start.
   public func switchSource(_ url: String, keepPosition: Bool = true) {
     lychee_player_switch_source(handle, url, keepPosition ? 1 : 0)
+  }
+
+  /// Opens `url` in the background as the media to play when what is open
+  /// ends, so that it starts without the wait of an open; `nil` unsets it.
+  /// When the current media ends, ``Event/itemChanged(gapless:)`` says `url`
+  /// is the media open, and the state does not become ``State/ended``.
+  /// Where its default tracks continue the ones playing (the same codecs
+  /// and configuration, video of the same size, audio of the same rate and
+  /// channels) and both can seek, it plays on without a gap; otherwise the
+  /// player switches to it at the end, buffering briefly. Looping replays
+  /// the current media instead, and a seek before `url` starts plays on in
+  /// the current media. ``open(_:start:)`` and ``close()`` unset it;
+  /// ``switchSource(_:keepPosition:)`` keeps it.
+  public func setNext(_ url: String?) {
+    lychee_player_set_next(handle, url)
   }
 
   /// Stops what is open and goes back to ``State/idle``, releasing decoders,
@@ -610,6 +630,7 @@ public final class LycheePlayer {
     case LYCHEE_EVENT_SUBTITLE_CHANGED: return .subtitleChanged(pictures: arg1 != 0)
     case LYCHEE_EVENT_SUBTITLE_ADDED: return .subtitleAdded(id: Int(arg0), added: arg1 != 0)
     case LYCHEE_EVENT_VARIANT_CHANGED: return .variantChanged(Int(arg0))
+    case LYCHEE_EVENT_ITEM_CHANGED: return .itemChanged(gapless: arg0 != 0)
     default: return nil
     }
   }

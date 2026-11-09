@@ -128,6 +128,16 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
   the pass playing (`ApplyLoopEndLocked`). Unseekable
   input or an unknown duration falls back to a seek from the control
   thread.
+- The next item (`lychee_player_set_next`) opens on a thread of its own.
+  At the end of the input, if its default tracks need no other decoder
+  configuration, the read thread joins it as looping does
+  (`Player::JoinNext`): a boundary packet, then its packets a timeline
+  offset later (`Player::item_base_`), with its own stream ids and
+  subtitles in `Player::join_`. The control thread makes it the item
+  playing once the clock reaches it (`CrossLocked`), while the read
+  thread is out of `ReadPacket`; a seek before then takes it back
+  (`UnjoinLocked`). Otherwise the control thread switches to it at the
+  end, replacing the renderers (`AdvanceToNext`).
 - Live input (`lychee_player_open_live`): caller threads push packets into
   `LiveDemuxer`, which the read thread reads like any demuxer. Packets
   carry deadlines in the `NowMicros()` timebase, set at push time by

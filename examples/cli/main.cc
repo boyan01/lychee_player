@@ -128,6 +128,10 @@ struct Options {
   // seconds after playback starts.
   std::string switch_url;
   double switch_after = -1;
+  // The item to play when |url| ends (lychee_player_set_next()), and when
+  // to unset it again, in seconds after playback starts.
+  std::string next_url;
+  double clear_next_after = -1;
   // Soak: every |soak_every| seconds of playback, seek to a random
   // position, twice, then open the other of |url| and |soak_url|.
   double soak_every = -1;
@@ -226,6 +230,12 @@ struct Options {
 std::atomic<int> g_seek_completed{0};
 // LYCHEE_EVENT_VARIANT_CHANGED's index, or -1.
 std::atomic<int> g_variant_changed{-1};
+std::atomic<int> g_item_changes{0};
+// The duration last reported, and at each item change the one of the item
+// before, and whether it joined without a gap.
+std::atomic<int64_t> g_duration{0};
+std::atomic<int64_t> g_item_duration{0};
+std::atomic<bool> g_item_gapless{false};
 std::atomic<bool> g_media_info{false};
 std::atomic<bool> g_tracks_changed{false};
 std::atomic<bool> g_subtitle_changed{false};
@@ -262,6 +272,7 @@ void OnEvent(void*, int32_t type, int64_t arg0, int64_t arg1) {
       break;
     case LYCHEE_EVENT_MEDIA_INFO:
       printf("event: media info, duration %.3fs\n", arg0 / 1e6);
+      g_duration = arg0;
       g_media_info = true;
       break;
     case LYCHEE_EVENT_TRACKS_CHANGED:
@@ -287,6 +298,13 @@ void OnEvent(void*, int32_t type, int64_t arg0, int64_t arg1) {
       break;
     case LYCHEE_EVENT_ERROR:
       printf("event: error\n");
+      break;
+    case LYCHEE_EVENT_ITEM_CHANGED:
+      printf("event: item changed, gapless %" PRId64 "\n", arg0);
+      // Before the new item's LYCHEE_EVENT_MEDIA_INFO.
+      g_item_duration = g_duration.load();
+      g_item_gapless = arg0 != 0;
+      g_item_changes++;
       break;
   }
   fflush(stdout);
@@ -380,6 +398,14 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       if (!v || !url) return false;
       options->switch_after = strtod(v, nullptr);
       options->switch_url = url;
+    } else if (arg == "--next") {
+      const char* url = value();
+      if (!url) return false;
+      options->next_url = url;
+    } else if (arg == "--clear-next-after") {
+      const char* v = value();
+      if (!v) return false;
+      options->clear_next_after = strtod(v, nullptr);
     } else if (arg == "--start") {
       const char* v = value();
       if (!v) return false;
@@ -1336,7 +1362,8 @@ int main(int argc, char** argv) {
         "[--rate R [--rate-after "
         "SEC]] [--loop [--loop-off-after SEC]] "
         "[--open-after SEC URL] [--close-after SEC] [--start SEC] "
-        "[--switch-after SEC URL] [--soak SEC "
+        "[--switch-after SEC URL] [--next URL [--clear-next-after SEC]] "
+        "[--soak SEC "
         "URL] [--select "
         "TYPE:INDEX[@SEC]]... "
         "[--select-after SEC] [--variant INDEX@SEC]... "
@@ -1451,6 +1478,10 @@ int main(int argc, char** argv) {
     printf("start at %.3fs\n", options.start_at);
     lychee_player_seek(player, static_cast<int64_t>(options.start_at * 1e6));
   }
+  if (!options.next_url.empty()) {
+    printf("next -> %s: result=%d\n", options.next_url.c_str(),
+           lychee_player_set_next(player, options.next_url.c_str()));
+  }
   lychee_player_set_subtitle_delay(
       player, static_cast<int64_t>(options.subtitle_delay * 1e6));
   for (const std::string& subtitle : options.add_subtitles) {
@@ -1488,6 +1519,7 @@ int main(int argc, char** argv) {
   // once reported), the frames pulled since with an earlier pts, and the
   // times the position was reported earlier.
   bool switched = false;
+  bool next_cleared = false;
   int64_t switch_position = INT64_MIN;
   int64_t switch_first_pts = INT64_MIN;
   int64_t switch_early_frames = 0;
@@ -1576,6 +1608,7 @@ int main(int argc, char** argv) {
   // Largest |drift| reported, a second after playback (re)starts.
   int64_t max_drift = 0;
   int64_t loops = 0;
+  int item_changes = 0;
   // The selections made so far.
   std::vector<bool> selected(options.selections.size());
   // Position when the track change was requested; INT64_MIN once reported.
@@ -1753,9 +1786,9 @@ int main(int argc, char** argv) {
           seek_ms =
               std::chrono::duration<double, std::milli>(wall_now() - wall_seek)
                   .count();
-        } else if (looping && last_pts != INT64_MIN &&
-                   pts < last_pts - 1000000) {
-          // Looped back to the start.
+        } else if ((looping || !options.next_url.empty()) &&
+                   last_pts != INT64_MIN && pts < last_pts - 1000000) {
+          // Looped back to the start, or the next item started.
         } else if (last_pts != INT64_MIN && pts < last_pts) {
           backward_jumps++;
         }
@@ -1859,6 +1892,18 @@ int main(int argc, char** argv) {
       printf("subtitle at %.3fs: %s\n", position / 1e6,
              text.empty() ? "(none)" : text.c_str());
       PrintSubtitleImages(player, options.subtitle_ppm);
+    }
+    if (const int changes = g_item_changes; changes != item_changes) {
+      item_changes = changes;
+      if (g_item_gapless) {
+        // The position starts over; the drift goes on across the join.
+        drift_position -= g_item_duration;
+      } else {
+        // Switched to: a new timeline, as after an open.
+        drift_wall = 0;
+        last_pts = INT64_MIN;
+        steady = false;
+      }
     }
     if (options.loop && state == LYCHEE_STATE_READY) {
       if (position < loop_check_position - 1000000) {
@@ -2025,6 +2070,13 @@ int main(int argc, char** argv) {
       continue;
     }
 
+    if (!next_cleared && options.clear_next_after >= 0 && ready_wall != 0 &&
+        now - ready_wall >=
+            static_cast<int64_t>(options.clear_next_after * 1e6)) {
+      next_cleared = true;
+      printf("next cleared at %.3fs: result=%d\n", position / 1e6,
+             lychee_player_set_next(player, nullptr));
+    }
     if (!switched && options.switch_after >= 0 && ready_wall != 0 &&
         now - ready_wall >= static_cast<int64_t>(options.switch_after * 1e6)) {
       switched = true;

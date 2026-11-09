@@ -141,6 +141,24 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertTrue(player.isPlaying)
   }
 
+  func testNextItemFollowsWithoutAGap() {
+    let player = LycheePlayer()
+    player.volume = 0
+    let changed = expectation(description: "next item")
+    var ended = false
+    player.onEvent = { event in
+      if case .stateChanged(.ended) = event { ended = true }
+      if case .itemChanged(gapless: true) = event { changed.fulfill() }
+    }
+    player.open(url, start: 11)
+    player.setNext(url)
+    player.play()
+    wait(for: [changed], timeout: 10)
+    XCTAssertFalse(ended)
+    XCTAssertLessThan(player.position, 2)
+    XCTAssertEqual(player.duration, 12)
+  }
+
   func testOpensAtStartPosition() {
     let player = LycheePlayer()
     player.volume = 0

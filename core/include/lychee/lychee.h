@@ -89,7 +89,8 @@ extern "C" {
 //    (lychee_player_get_seekable_range(), lychee_player_get_live_edge()).
 // 23: lychee_player_close().
 // 24: lychee_player_switch_source().
-#define LYCHEE_API_VERSION 24
+// 25: lychee_player_set_next() and LYCHEE_EVENT_ITEM_CHANGED.
+#define LYCHEE_API_VERSION 25
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -250,6 +251,12 @@ typedef enum lychee_event_type {
   // after lychee_player_select_variant(), adaptation, or the first frame.
   // arg0: its index (lychee_player_get_variant_info()).
   LYCHEE_EVENT_VARIANT_CHANGED = 10,
+  // API version 25. The item lychee_player_set_next() set is now the one
+  // open: the position, duration, tracks and metadata are its own, and the
+  // next item is unset. arg0: 1 if it went on from the one before without
+  // a gap, 0 if the player switched to it (or it failed to open, and
+  // LYCHEE_EVENT_ERROR follows). LYCHEE_EVENT_MEDIA_INFO follows.
+  LYCHEE_EVENT_ITEM_CHANGED = 11,
 } lychee_event_type;
 
 typedef enum lychee_track_type {
@@ -646,6 +653,25 @@ LYCHEE_EXPORT int32_t lychee_player_close(lychee_player* player);
 LYCHEE_EXPORT int32_t lychee_player_switch_source(lychee_player* player,
                                                   const char* url,
                                                   int32_t keep_position);
+
+// API version 25. Opens |url| in the background as the item to play when
+// what is open ends (a playlist's next track, the next episode), so that
+// it starts without the wait of an open; NULL or "" unsets it. When the
+// current input ends, LYCHEE_EVENT_ITEM_CHANGED says the next item is now
+// the one open, and the state never becomes ENDED. Where its default
+// tracks continue the ones playing (the same kinds of track, the same
+// codecs with the same configuration, video of the same size and
+// rotation, audio of the same rate and channels) and both inputs can
+// seek, its first sample follows the last one of the current item without
+// a gap; otherwise the player switches to it at the end, buffering
+// briefly, as after a seek. Looping replays the current item instead. A
+// seek or track change before the next item starts plays on in the
+// current one. lychee_player_open(), lychee_player_open_live() and
+// lychee_player_close() unset it; lychee_player_switch_source() keeps it.
+// May be called from an event callback. Returns 0, or -1 if this build
+// has no demuxer.
+LYCHEE_EXPORT int32_t lychee_player_set_next(lychee_player* player,
+                                             const char* url);
 
 // Stops what is open, like lychee_player_open(), and starts a live input:
 // packets pushed with lychee_player_push_live_packet() play as they

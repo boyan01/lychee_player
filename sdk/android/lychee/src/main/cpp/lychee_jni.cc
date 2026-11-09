@@ -296,6 +296,15 @@ Java_tech_soit_lychee_LycheePlayer_nativeSwitchSource(JNIEnv* env,
 }
 
 JNIEXPORT jint JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeSetNext(JNIEnv* env,
+                                                 jclass,
+                                                 jlong handle,
+                                                 jbyteArray url) {
+  return lychee_player_set_next(Player(handle),
+                                url ? FromBytes(env, url).c_str() : nullptr);
+}
+
+JNIEXPORT jint JNICALL
 Java_tech_soit_lychee_LycheePlayer_nativeClose(JNIEnv*, jclass, jlong handle) {
   return lychee_player_close(Player(handle));
 }

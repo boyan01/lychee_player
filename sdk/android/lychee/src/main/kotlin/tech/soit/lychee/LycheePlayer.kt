@@ -68,6 +68,13 @@ class LycheePlayer @JvmOverloads constructor(
          * [selectVariant], adaptation, or the first frame.
          */
         data class VariantChanged(val index: Int) : Event()
+        /**
+         * The media [setNext] set is now the media open: if [gapless], it
+         * went on from the media before without a gap; otherwise the player
+         * switched to it (or it failed to open, and [Error] follows).
+         * [MediaInfo] follows.
+         */
+        data class ItemChanged(val gapless: Boolean) : Event()
     }
 
     fun interface Listener {
@@ -223,6 +230,23 @@ class LycheePlayer @JvmOverloads constructor(
     @JvmOverloads
     fun switchSource(url: String, keepPosition: Boolean = true) {
         nativeSwitchSource(handle(), url.toByteArray(), keepPosition)
+    }
+
+    /**
+     * Opens [url] in the background as the media to play when what is open
+     * ends, so that it starts without the wait of an open; null unsets it.
+     * When the current media ends, [Event.ItemChanged] says [url] is the
+     * media open, and the state does not become [State.ENDED]. Where its
+     * default tracks continue the ones playing (the same codecs and
+     * configuration, video of the same size, audio of the same rate and
+     * channels) and both can seek, it plays on without a gap; otherwise the
+     * player switches to it at the end, buffering briefly. Looping replays
+     * the current media instead, and a seek before [url] starts plays on in
+     * the current media. [open] and [closeMedia] unset it; [switchSource]
+     * keeps it.
+     */
+    fun setNext(url: String?) {
+        nativeSetNext(handle(), url?.toByteArray())
     }
 
     /**
@@ -562,6 +586,7 @@ class LycheePlayer @JvmOverloads constructor(
             8 -> Event.SubtitleChanged(arg1 != 0L)
             9 -> Event.SubtitleAdded(arg0.toInt(), arg1 != 0L)
             10 -> Event.VariantChanged(arg0.toInt())
+            11 -> Event.ItemChanged(arg0 != 0L)
             else -> null
         } ?: return
         // A copy: listeners may remove themselves.
@@ -605,6 +630,7 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeOpen(handle: Long, url: ByteArray, headers: ByteArray): Int
         @JvmStatic private external fun nativeClose(handle: Long): Int
         @JvmStatic private external fun nativeSwitchSource(handle: Long, url: ByteArray, keepPosition: Boolean): Int
+        @JvmStatic private external fun nativeSetNext(handle: Long, url: ByteArray?): Int
         @JvmStatic private external fun nativePlay(handle: Long)
         @JvmStatic private external fun nativePause(handle: Long)
         @JvmStatic private external fun nativeRebuildVideoDecoder(handle: Long)

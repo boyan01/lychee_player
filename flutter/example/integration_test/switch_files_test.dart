@@ -298,6 +298,16 @@ void main() {
     await waitFor(player, LycheePlayerState.ready);
     expect(player.value.position, greaterThanOrEqualTo(position));
     expect((await _countThreads())['lychee'], before['lychee']! + 4);
+
+    // The next item: an event once this one ends, then it is the one open,
+    // and no thread is left from opening it.
+    player.setNext(_media[0]);
+    final changed = player.itemChanges.first;
+    player.seek(player.value.duration! - const Duration(seconds: 1));
+    await changed.timeout(const Duration(seconds: 10));
+    await waitFor(player, LycheePlayerState.ready);
+    expect(player.value.duration, const Duration(seconds: 12));
+    expect((await _countThreads())['lychee'], before['lychee']! + 4);
   });
 
   testWidgets('disposeAll destroys players a hot restart left', (tester) async {

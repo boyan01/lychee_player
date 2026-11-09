@@ -62,6 +62,7 @@ const int kEventTracksChanged = 7;
 const int kEventSubtitleChanged = 8;
 const int kEventSubtitleAdded = 9;
 const int kEventVariantChanged = 10;
+const int kEventItemChanged = 11;
 
 const int kTrackVideo = 1;
 const int kTrackAudio = 2;
@@ -264,6 +265,14 @@ final int Function(Pointer<Void>, Pointer<Char>, int)? playerSwitchSource =
             Int32 Function(Pointer<Void>, Pointer<Char>, Int32),
             int Function(Pointer<Void>, Pointer<Char>,
                 int)>('lychee_player_switch_source')
+        : null;
+
+/// Null with a core older than API 25.
+final int Function(Pointer<Void>, Pointer<Char>)? playerSetNext =
+    _library.providesSymbol('lychee_player_set_next')
+        ? _library.lookupFunction<
+            Int32 Function(Pointer<Void>, Pointer<Char>),
+            int Function(Pointer<Void>, Pointer<Char>)>('lychee_player_set_next')
         : null;
 
 final playerPlay = _library.lookupFunction<Void Function(Pointer<Void>),
