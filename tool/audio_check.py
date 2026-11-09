@@ -2,7 +2,9 @@
 """Finds clicks in audio the player output (lychee_cli --audio-dump).
 
     python3 -I tool/audio_check.py OUT.wav [--threshold X] [--max-gap MS]
-                                           [--expect-clicks]
+                                           [--expect-gap MS]
+                                           [--min-peak X] [--max-peak X]
+                                           [--samples LOG] [--expect-clicks]
 
 A click is a step in the waveform: a sample far off the line through its
 two neighbours. For a sine of amplitude A and angular frequency w per
@@ -18,6 +20,20 @@ A sine cut where it crosses zero makes no step, so a gap of silence can
 hide from the steps: --max-gap MS also fails on silence longer than that
 between the first and the last sound, for audio that should play on
 without one (a loop).
+
+--expect-gap MS fails unless there is such a silence, to see a fade
+reach silence.
+
+--min-peak and --max-peak bound the largest sample magnitude, to see a
+gain applied and kept within full scale. For a gain, scale --threshold
+with it: the steps of a sine grow with its amplitude.
+
+--samples LOG (- for stdin) checks the samples the player says it played
+(lychee_cli --audio-samples, its "samples at_us=T frames=N: ..." lines)
+against the recording: they must match the N frames, mixed down to mono,
+that end at T microseconds into it, give or take a frame. Pulls of only
+silence (the first, which starts the recording) are not compared, but
+one pull at least must have sound.
 
 Prints PASS or FAIL with the largest step and where the clicks are, in
 seconds from the start of the recording, and exits with 1 on FAIL.
@@ -120,12 +136,55 @@ def find_gaps(rate, channels, samples, max_gap):
     return gaps
 
 
+def check_samples(rate, channels, samples, log):
+    """Returns problems with the pulled samples in |log|, and how many
+    with sound it compared."""
+    problems = []
+    count = 0
+    frames = len(samples) // channels
+    for line in log:
+        if not line.startswith("samples at_us="):
+            continue
+        head, _, values = line.partition(":")
+        fields = dict(f.split("=") for f in head.split()[1:])
+        at_us, n = int(fields["at_us"]), int(fields["frames"])
+        pulled = [float(v) for v in values.split()]
+        if n == 0 or len(pulled) != n:
+            problems.append(f"{at_us / 1e6:.3f}s: {n} frames")
+            continue
+        if not any(pulled):
+            continue
+        if max(abs(v) for v in pulled) < 0.01:
+            problems.append(f"{at_us / 1e6:.3f}s: silent")
+            continue
+        count += 1
+        end = round(at_us * rate / 1e6)
+        best = None
+        for shift in (0, -1, 1):
+            start = end + shift - n
+            if start < 0 or start + n > frames:
+                continue
+            error = max(abs(pulled[i] - sum(samples[(start + i) * channels + k]
+                                            for k in range(channels)) / channels)
+                        for i in range(n))
+            if best is None or error < best[0]:
+                best = (error, shift)
+        if best is None or best[0] > 1e-4:
+            problems.append(f"{at_us / 1e6:.3f}s: differs by "
+                            f"{best[0] if best else float('nan'):.4f}")
+    return problems, count
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("wav")
     parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     parser.add_argument("--max-gap", type=float, help="milliseconds")
+    parser.add_argument("--expect-gap", type=float, help="milliseconds")
+    parser.add_argument("--min-peak", type=float)
+    parser.add_argument("--max-peak", type=float)
+    parser.add_argument("--samples", help="lychee_cli output, - for stdin")
     parser.add_argument("--expect-clicks", action="store_true")
     args = parser.parse_args()
 
@@ -138,13 +197,34 @@ def main():
     gaps = []
     if args.max_gap is not None:
         gaps = find_gaps(rate, channels, samples, args.max_gap / 1000)
+    peak = max(abs(s) for s in samples)
+    level = []
+    if args.expect_gap is not None and not find_gaps(
+            rate, channels, samples, args.expect_gap / 1000):
+        level.append(f"no silence of {args.expect_gap:g} ms")
+    if args.min_peak is not None and peak < args.min_peak:
+        level.append(f"peak {peak:.4f} < {args.min_peak}")
+    if args.max_peak is not None and peak > args.max_peak:
+        level.append(f"peak {peak:.4f} > {args.max_peak}")
+    pulled = []
+    pulls = 0
+    if args.samples:
+        if args.samples == "-":
+            pulled, pulls = check_samples(rate, channels, samples, sys.stdin)
+        else:
+            with open(args.samples) as log:
+                pulled, pulls = check_samples(rate, channels, samples, log)
+        if pulls == 0:
+            pulled.append("no pull with sound")
     found = " ".join(f"{t:.3f}s({s:.3f})" for t, s in clicks[:10])
     if len(clicks) > 10:
         found += f" +{len(clicks) - 10}"
     bad = bool(clicks or gaps)
-    ok = bad if args.expect_clicks else not bad
+    ok = (bad if args.expect_clicks else not bad) and not level and not pulled
     print(f"{'PASS' if ok else 'FAIL'} {args.wav} clicks={len(clicks)} "
-          f"max_step={largest:.4f}@{largest_at:.3f}s"
+          f"max_step={largest:.4f}@{largest_at:.3f}s peak={peak:.4f}"
+          + (f" pulls={pulls}" if args.samples else "")
+          + "".join(f" {p};" for p in level + pulled)
           + (f" at: {found}" if clicks else "")
           + (f" gaps={len(gaps)} at: " +
              " ".join(f"{t:.3f}s({d * 1000:.1f}ms)" for t, d in gaps[:10])

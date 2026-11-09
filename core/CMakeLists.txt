@@ -47,8 +47,10 @@ set(LYCHEE_SOURCES
   src/media/subtitle_decoder.cc
   src/media/subtitle_file.cc
   src/media/text_subtitle_decoder.cc
+  src/pipeline/audio_gain.cc
   src/pipeline/audio_renderer.cc
   src/pipeline/audio_renderer_algorithm.cc
+  src/pipeline/audio_tap.cc
   src/pipeline/live_demuxer.cc
   src/pipeline/live_timeline.cc
   src/pipeline/media_clock.cc

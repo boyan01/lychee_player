@@ -357,6 +357,14 @@ lychee_cli --virtual-time --volume 1 --seconds 4 --seek 5.2 --seek-after 1 \
 python3 -I tool/audio_check.py /tmp/a.wav
 ```
 
+Volume and gain: `--gain DB[:PEAK]` sets a gain before the open,
+`--fade SEC:VOLUME:MS` fades at SEC seconds of playback, and
+`--expect-gap MS`, `--min-peak X` and `--max-peak X` check that a fade
+reached silence and a boost stayed within full scale (scale
+`--threshold` with the gain). `--audio-samples SEC:FRAMES` prints what
+`lychee_player_get_audio_samples()` returned at SEC (the first call only
+starts recording); `--samples LOG` compares those lines with the WAV.
+
 ## Apple frameworks
 
 The Flutter plugin's iOS/macOS pod and the Swift package both link prebuilt

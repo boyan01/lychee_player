@@ -37,6 +37,11 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(player.tracks.map(\.type), [.video, .audio])
     // MP4: enabled tracks, their bitrate from the sample sizes.
     XCTAssertTrue(player.tracks.allSatisfy { $0.isDefault && $0.role == .main && $0.bitrate > 0 })
+    // Muted, and the first pull only starts recording: silence.
+    player.setGain(6, peak: 0.25)
+    player.fade(to: 0, duration: 0.1)
+    XCTAssertEqual(player.volume, 0)
+    XCTAssertEqual(player.audioSamples(256), [Float](repeating: 0, count: 256))
 
     var frames = 0
     var size = CGSize.zero

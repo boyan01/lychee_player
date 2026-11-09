@@ -313,6 +313,43 @@ JNIEXPORT void JNICALL Java_tech_soit_lychee_LycheePlayer_nativeSetVolume(
   lychee_player_set_volume(Player(handle), volume);
 }
 
+JNIEXPORT void JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeFade(JNIEnv*,
+                                              jclass,
+                                              jlong handle,
+                                              jfloat volume,
+                                              jlong duration_us) {
+  lychee_player_fade(Player(handle), volume, duration_us);
+}
+
+JNIEXPORT void JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeSetGain(JNIEnv*,
+                                                 jclass,
+                                                 jlong handle,
+                                                 jfloat db,
+                                                 jfloat peak) {
+  lychee_player_set_gain(Player(handle), db, peak);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeGetAudioSamples(JNIEnv* env,
+                                                         jclass,
+                                                         jlong handle,
+                                                         jlong display_time_us,
+                                                         jfloatArray samples) {
+  const jsize frames = env->GetArrayLength(samples);
+  if (frames <= 0) {
+    return JNI_FALSE;
+  }
+  std::vector<float> buffer(static_cast<size_t>(frames));
+  if (lychee_player_get_audio_samples(Player(handle), display_time_us,
+                                      buffer.data(), frames) <= 0) {
+    return JNI_FALSE;
+  }
+  env->SetFloatArrayRegion(samples, 0, frames, buffer.data());
+  return JNI_TRUE;
+}
+
 JNIEXPORT void JNICALL Java_tech_soit_lychee_LycheePlayer_nativeSetRate(JNIEnv*,
                                                                         jclass,
                                                                         jlong handle,

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' hide Size;
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:ffi/ffi.dart';
@@ -409,8 +410,63 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     if (!_disposed) native.playerSeek(_player, position.inMicroseconds);
   }
 
+  /// 0 - 1. Kept across [open]. Moves there over 10 ms, so the change does
+  /// not click, and stops a [fade] under way.
   void setVolume(double volume) {
     if (!_disposed) native.playerSetVolume(_player, volume);
+  }
+
+  /// Moves the volume to [to] (0 - 1) over [duration] of audio played, e.g.
+  /// to fade a track out before the next one or in after it. Goes on from
+  /// where a fade under way has got to, and holds while paused; an [open]
+  /// meanwhile starts at [to].
+  void fade(double to, Duration duration) {
+    if (_disposed) return;
+    final fade = native.playerFade;
+    if (fade == null) {
+      native.playerSetVolume(_player, to);
+    } else {
+      fade(_player, to, duration.inMicroseconds);
+    }
+  }
+
+  /// A gain in dB (-60 to +24, 0 by default) on top of the volume, such as
+  /// a ReplayGain track or album gain. Kept across [open]: set it for each
+  /// input. A boost is lowered so the loudest sample stays within full
+  /// scale: [peak], the input's largest sample (ReplayGain's peak, 1.0 at
+  /// full scale), if known; otherwise the boost comes down when the
+  /// decoder first meets a louder sample, ahead of it playing.
+  void setGain(double db, {double peak = 0}) {
+    if (!_disposed) native.playerSetGain?.call(_player, db, peak);
+  }
+
+  /// The last [frames] samples the audio output played, mixed down to mono,
+  /// after volume and gain, at [LycheePlayerStats.audioOutputSampleRate]: for
+  /// visualizers. The first call starts recording what plays, so it and
+  /// any time the output played nothing (paused) read as silence;
+  /// recording stops a second after the last call. Null without an audio
+  /// track (or with a core before API 20).
+  Float32List? getAudioSamples(int frames) {
+    final get = native.playerGetAudioSamples;
+    if (_disposed || get == null || frames <= 0) return null;
+    final buffer = malloc<Float>(frames);
+    try {
+      final got = get(_player, native.nowUs(), buffer, frames);
+      if (got <= 0) return null;
+      return Float32List.fromList(buffer.asTypedList(got));
+    } finally {
+      malloc.free(buffer);
+    }
+  }
+
+  /// The magnitude spectrum of what the audio output played last:
+  /// [bins] (a power of two) bands from 0 to half the output's sample
+  /// rate, each its share of full scale (a full-scale sine at a band's
+  /// frequency reads about 1), from a Hann-windowed FFT of the last
+  /// 2 × [bins] samples. Null as for [getAudioSamples].
+  Float32List? getAudioSpectrum(int bins) {
+    final samples = getAudioSamples(2 * bins);
+    return samples == null ? null : audioSpectrum(samples);
   }
 
   /// Playback speed, clamped to 0.25 - 4.0. Audio keeps its pitch.
@@ -770,4 +826,57 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     native.playerDestroy(_player);
     _events.close();
   }
+}
+
+/// The magnitude spectrum of [samples] (a power of two long): half as many
+/// bands from 0 to half the sample rate, each its share of full scale (a
+/// full-scale sine reads about 1 in its band), from a Hann-windowed FFT.
+Float32List audioSpectrum(Float32List samples) {
+  final n = samples.length;
+  if (n < 2 || n & (n - 1) != 0) {
+    throw ArgumentError.value(n, 'samples.length', 'not a power of two');
+  }
+  final re = Float64List(n);
+  final im = Float64List(n);
+  // Hann window; its mean gain is 1/2.
+  for (var i = 0; i < n; i++) {
+    re[i] = samples[i] * (0.5 - 0.5 * math.cos(2 * math.pi * i / n));
+  }
+  // Iterative radix-2 FFT: bit-reversed order, then butterflies.
+  for (var i = 1, j = 0; i < n; i++) {
+    var bit = n >> 1;
+    for (; j & bit != 0; bit >>= 1) {
+      j ^= bit;
+    }
+    j ^= bit;
+    if (i < j) {
+      final t = re[i];
+      re[i] = re[j];
+      re[j] = t;
+    }
+  }
+  for (var size = 2; size <= n; size <<= 1) {
+    final angle = -2 * math.pi / size;
+    for (var start = 0; start < n; start += size) {
+      for (var k = 0; k < size >> 1; k++) {
+        final wr = math.cos(angle * k);
+        final wi = math.sin(angle * k);
+        final a = start + k;
+        final b = a + (size >> 1);
+        final xr = re[b] * wr - im[b] * wi;
+        final xi = re[b] * wi + im[b] * wr;
+        re[b] = re[a] - xr;
+        im[b] = im[a] - xi;
+        re[a] += xr;
+        im[a] += xi;
+      }
+    }
+  }
+  final bins = Float32List(n >> 1);
+  // A sine of amplitude A peaks at A * n / 4 with the window.
+  final scale = 4 / n;
+  for (var i = 0; i < bins.length; i++) {
+    bins[i] = math.sqrt(re[i] * re[i] + im[i] * im[i]) * scale;
+  }
+  return bins;
 }

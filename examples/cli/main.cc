@@ -72,6 +72,19 @@ struct FrameSnapshot {
   std::string path;
 };
 
+// --fade SEC:VOLUME:MS.
+struct FadeAction {
+  double at;
+  float volume;
+  int64_t duration_us;
+};
+
+// --audio-samples SEC:FRAMES.
+struct SamplesPull {
+  double at;
+  int frames;
+};
+
 // --select TYPE:INDEX[@SEC].
 struct Selection {
   int32_t type;   // lychee_track_type
@@ -89,6 +102,13 @@ struct Options {
   double seek_to = -1;
   double seek_after = 2;
   float volume = 0;
+  // --gain DB[:PEAK], set before the open.
+  float gain_db = 0;
+  float gain_peak = 0;
+  // Fades and pulls of the samples played, by seconds after playback
+  // starts.
+  std::vector<FadeAction> fades;
+  std::vector<SamplesPull> sample_pulls;
   double rate = 1;
   // Seconds after playback starts to apply |rate|; < 0: before opening.
   double rate_after = -1;
@@ -265,6 +285,38 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       const char* v = value();
       if (!v) return false;
       options->volume = static_cast<float>(atof(v));
+    } else if (arg == "--gain") {
+      const char* v = value();
+      if (!v) return false;
+      char* end = nullptr;
+      options->gain_db = strtof(v, &end);
+      if (end == v) return false;
+      if (*end == ':') {
+        options->gain_peak = strtof(end + 1, nullptr);
+      }
+    } else if (arg == "--fade") {
+      // SEC:VOLUME:MS.
+      const char* v = value();
+      if (!v) return false;
+      char* end = nullptr;
+      FadeAction fade{};
+      fade.at = strtod(v, &end);
+      if (*end != ':') return false;
+      fade.volume = strtof(end + 1, &end);
+      if (*end != ':') return false;
+      fade.duration_us = static_cast<int64_t>(strtod(end + 1, &end) * 1000);
+      options->fades.push_back(fade);
+    } else if (arg == "--audio-samples") {
+      // SEC:FRAMES.
+      const char* v = value();
+      if (!v) return false;
+      char* end = nullptr;
+      SamplesPull pull{};
+      pull.at = strtod(v, &end);
+      if (*end != ':') return false;
+      pull.frames = static_cast<int>(strtol(end + 1, &end, 10));
+      if (pull.frames <= 0) return false;
+      options->sample_pulls.push_back(pull);
     } else if (arg == "--refresh") {
       const char* v = value();
       if (!v || atof(v) <= 0) return false;
@@ -1168,7 +1220,9 @@ int main(int argc, char** argv) {
     fprintf(
         stderr,
         "usage: %s [--seconds N] [--seek SEC [--seek-after SEC]] "
-        "[--volume 0..1] [--refresh HZ] [--vsync-jitter US] [--no-hw] "
+        "[--volume 0..1] [--gain DB[:PEAK]] [--fade SEC:VOLUME:MS]... "
+        "[--audio-samples SEC:FRAMES]... [--refresh HZ] [--vsync-jitter US] "
+        "[--no-hw] "
         "[--cpu | --rgba | --native | --d3d11 | --d3d11-hdr | --dmabuf NODE | "
         "--android-surface] "
         "[--rate R [--rate-after "
@@ -1202,8 +1256,11 @@ int main(int argc, char** argv) {
   if (options.null_audio) {
     lychee_testing_enable_null_audio();
   }
+  // Where the recording starts on the lychee_now_us() timeline.
+  int64_t capture_start = 0;
   if (!options.audio_dump.empty()) {
     lychee_testing_capture_audio();
+    capture_start = lychee_now_us();
   }
   if (options.fail_audio_starts > 0) {
     lychee_testing_fail_audio_starts(options.fail_audio_starts);
@@ -1251,6 +1308,7 @@ int main(int argc, char** argv) {
   }
   lychee_player_set_event_callback(player, &OnEvent, nullptr);
   lychee_player_set_volume(player, options.volume);
+  lychee_player_set_gain(player, options.gain_db, options.gain_peak);
   lychee_player_set_looping(player, options.loop ? 1 : 0);
   if (options.rate_after < 0) {
     lychee_player_set_rate(player, options.rate);
@@ -1687,6 +1745,36 @@ int main(int argc, char** argv) {
       } else {
         lychee_testing_lose_video_decoder(player);
       }
+    }
+    for (FadeAction& fade : options.fades) {
+      if (fade.at >= 0 && ready_wall != 0 &&
+          now - ready_wall >= static_cast<int64_t>(fade.at * 1e6)) {
+        fade.at = -1;
+        printf("fade to %.3f over %lld ms at %.3fs\n", fade.volume,
+               static_cast<long long>(fade.duration_us / 1000), position / 1e6);
+        lychee_player_fade(player, fade.volume, fade.duration_us);
+      }
+    }
+    for (SamplesPull& pull : options.sample_pulls) {
+      if (pull.at < 0 || ready_wall == 0 ||
+          now - ready_wall < static_cast<int64_t>(pull.at * 1e6)) {
+        continue;
+      }
+      pull.at = -1;
+      // What was heard up to now; on the recording's timeline for
+      // tool/audio_check.py --samples.
+      std::vector<float> samples(static_cast<size_t>(pull.frames));
+      const int32_t got = lychee_player_get_audio_samples(
+          player, now, samples.data(), pull.frames);
+      std::string line =
+          "samples at_us=" + std::to_string(now - capture_start) +
+          " frames=" + std::to_string(got) + ":";
+      char value[32];
+      for (int32_t i = 0; i < got; ++i) {
+        snprintf(value, sizeof(value), " %.6g", samples[i]);
+        line += value;
+      }
+      printf("%s\n", line.c_str());
     }
     if (options.pause_at >= 0 && ready_wall != 0) {
       const int64_t since = now - ready_wall;

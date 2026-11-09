@@ -7,6 +7,19 @@
   for the hearing impaired) and `bitrate` (bit/s, 0 if unknown), from
   Matroska, MP4, MPEG-TS and HLS (`DEFAULT`, `FORCED`, `CHARACTERISTICS`,
   and the variant's `BANDWIDTH` on the video track).
+* `setGain(db, peak:)` applies a gain on top of the volume, such as a
+  ReplayGain track or album gain. Boosts above 0 dB are limited so the
+  output does not clip; pass the ReplayGain peak when known.
+* `fade(to, duration)` ramps the volume smoothly, e.g. for crossfading
+  between tracks.
+* `getAudioSamples(frames)` and `getAudioSpectrum(bins)` return what the
+  output is playing now, for visualizers. Nothing is recorded until they
+  are first called.
+
+### Fixed
+
+* `setVolume` no longer clicks: the volume moves to the new value over
+  10 ms, and a running `fade` stops.
 
 ## 1.0.0
 

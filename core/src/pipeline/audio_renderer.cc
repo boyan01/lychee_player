@@ -52,6 +52,12 @@ constexpr auto kStopFadeTimeout = std::chrono::milliseconds(100);
 // playing; the stalled device's audio is pulled for meanwhile.
 constexpr int64_t kSinkStartRetry = 1 * kMicrosPerSecond;
 
+// GetPlayedSamples() keeps this much of what the device played (a device's
+// latency, up to ~300 ms on Bluetooth, and a window to analyse), and
+// records for this long after its last call.
+constexpr int64_t kTapDuration = 2 * kMicrosPerSecond;
+constexpr int64_t kTapLinger = 1 * kMicrosPerSecond;
+
 std::atomic<bool> g_devices_stalled{false};
 std::atomic<int> g_failed_sink_starts{0};
 
@@ -233,6 +239,11 @@ void AudioRenderer::DecodeLoop() {
 
 void AudioRenderer::OnBuffer(std::shared_ptr<AudioBuffer> buffer,
                              uint64_t generation) {
+  // For the boost's limit, outside the lock the device's thread takes.
+  float peak = 0;
+  for (float sample : buffer->samples) {
+    peak = std::max(peak, std::abs(sample));
+  }
   std::unique_lock<std::mutex> lock(mutex_);
   waiting_ = true;
   condition_.wait(lock, [&] {
@@ -243,6 +254,7 @@ void AudioRenderer::OnBuffer(std::shared_ptr<AudioBuffer> buffer,
   if (stopped_ || generation != generation_) {
     return;
   }
+  gain_.NotePeak(peak, RampFramesLocked());
   if (live_) {
     live_frames_ += buffer->frames();
     live_buffers_.push_back(std::move(buffer));
@@ -276,12 +288,12 @@ int AudioRenderer::Render(float* destination,
                           int frames,
                           int64_t playout_time,
                           bool from_device) {
-  const float volume = volume_.load();
   int written = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     // Under the lock: SetRate() fades out at the rate before it.
     const double rate = rate_.load();
+    const int64_t first_playout_time = playout_time;
     if (from_device) {
       device_pull_time_ = NowMicros();
       output_latency_.store(playout_time - device_pull_time_,
@@ -360,12 +372,23 @@ int AudioRenderer::Render(float* destination,
     // PullForStalledDevice() drops what it pulls.
     if (destination) {
       const int channels = format_.channels;
-      for (int k = 0; k < channels; ++k) {
-        const float* source = render_bus_.channel(k);
-        for (int i = 0; i < written; ++i) {
-          destination[i * channels + k] = source[i] * volume;
+      for (int i = 0; i < written; ++i) {
+        const float level = gain_.Next();
+        for (int k = 0; k < channels; ++k) {
+          float sample = render_bus_.channel(k)[i] * level;
+          // A boost whose peak limit came late (the decoder barely keeps
+          // up), or WSOLA overshooting it: clip rather than wrap.
+          if (level > 1.0f) {
+            sample = std::clamp(sample, -1.0f, 1.0f);
+          }
+          destination[i * channels + k] = sample;
         }
       }
+      if (tap_.initialized() && device_pull_time_ < tap_until_) {
+        tap_.Write(destination, channels, written, frames, first_playout_time);
+      }
+    } else {
+      gain_.Skip(written);
     }
   }
   condition_.notify_all();
@@ -538,6 +561,12 @@ void AudioRenderer::UpdateSink(int64_t now) {
   }
 }
 
+int AudioRenderer::RampFramesLocked() const {
+  // Before playing (a new renderer takes the player's settings) nothing
+  // plays to ramp from, and playing starts with a fade-in.
+  return playing_ ? FadeFrames() : 0;
+}
+
 int AudioRenderer::FadeFrames() const {
   return static_cast<int>(kFadeDuration * format_.sample_rate /
                           kMicrosPerSecond);
@@ -611,7 +640,30 @@ void AudioRenderer::PullForStalledDevice(int64_t now) {
 }
 
 void AudioRenderer::SetVolume(float volume) {
-  volume_ = std::clamp(volume, 0.0f, 1.0f);
+  std::lock_guard<std::mutex> lock(mutex_);
+  gain_.SetVolume(volume, RampFramesLocked());
+}
+
+void AudioRenderer::Fade(float volume, int64_t duration) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  gain_.SetVolume(volume, std::max<int64_t>(duration, 0) * format_.sample_rate /
+                              kMicrosPerSecond);
+}
+
+void AudioRenderer::SetGain(float gain, float peak) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  gain_.SetGain(gain, peak, RampFramesLocked());
+}
+
+void AudioRenderer::GetPlayedSamples(int64_t time, float* out, int frames) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!tap_.initialized()) {
+    tap_.Initialize(format_.sample_rate,
+                    static_cast<int>(kTapDuration * format_.sample_rate /
+                                     kMicrosPerSecond));
+  }
+  tap_until_ = NowMicros() + kTapLinger;
+  tap_.Read(time, out, frames);
 }
 
 void AudioRenderer::SetRate(double rate) {

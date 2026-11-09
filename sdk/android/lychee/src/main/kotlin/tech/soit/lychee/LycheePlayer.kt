@@ -184,12 +184,48 @@ class LycheePlayer @JvmOverloads constructor(
     /** Ignored where [isSeekable] is false. */
     fun seekTo(positionMs: Long) = nativeSeek(handle(), positionMs * 1000)
 
-    /** 0 - 1. */
+    /**
+     * 0 - 1. Kept across [open]. Moves there over 10 ms, so the change does
+     * not click, and stops a [fade] under way. After a fade, its target.
+     */
     var volume: Float = 1f
         set(value) {
             field = value
             nativeSetVolume(handle(), value)
         }
+
+    /**
+     * Moves [volume] to [to] (0 - 1) over [durationMs] of audio played, e.g.
+     * to fade a track out before the next one or in after it. Goes on from
+     * where a fade under way has got to, and holds while paused; an [open]
+     * meanwhile starts at [to].
+     */
+    fun fade(to: Float, durationMs: Long) {
+        volume = to
+        nativeFade(handle(), to, durationMs * 1000)
+    }
+
+    /**
+     * A gain in dB (-60 to +24, 0 by default) on top of [volume], such as a
+     * ReplayGain track or album gain. Kept across [open]: set it for each
+     * input. A boost is lowered so the loudest sample stays within full
+     * scale: [peak], the input's largest sample (1 at full scale), if known
+     * (0 if not); otherwise the boost comes down when the decoder first
+     * meets a louder sample, ahead of it playing.
+     */
+    fun setGain(db: Float, peak: Float = 0f) = nativeSetGain(handle(), db, peak)
+
+    /**
+     * Fills [samples] with what the audio output played up to
+     * [displayTimeUs] (`lychee_now_us()` timebase: [LycheeFrameDriver]'s
+     * display times), mixed down to mono, after volume and gain, at
+     * [Stats.audioOutputSampleRate]: for visualizers. The first call
+     * starts recording what plays, so it and any time the output played
+     * nothing read as silence; recording stops a second after the last
+     * call. False without an audio track.
+     */
+    fun getAudioSamples(displayTimeUs: Long, samples: FloatArray): Boolean =
+        nativeGetAudioSamples(handle(), displayTimeUs, samples)
 
     /** Playback speed, clamped to 0.25 - 4. Audio keeps its pitch. */
     var rate: Double
@@ -447,6 +483,11 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeRebuildVideoDecoder(handle: Long)
         @JvmStatic private external fun nativeSeek(handle: Long, positionUs: Long)
         @JvmStatic private external fun nativeSetVolume(handle: Long, volume: Float)
+        @JvmStatic private external fun nativeFade(handle: Long, volume: Float, durationUs: Long)
+        @JvmStatic private external fun nativeSetGain(handle: Long, db: Float, peak: Float)
+        @JvmStatic private external fun nativeGetAudioSamples(
+            handle: Long, displayTimeUs: Long, samples: FloatArray,
+        ): Boolean
         @JvmStatic private external fun nativeSetRate(handle: Long, rate: Double)
         @JvmStatic private external fun nativeGetRate(handle: Long): Double
         @JvmStatic private external fun nativeSetLooping(handle: Long, looping: Boolean)

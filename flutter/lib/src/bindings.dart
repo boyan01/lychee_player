@@ -223,6 +223,32 @@ final playerSetVolume = _library.lookupFunction<
     Void Function(Pointer<Void>, Float),
     void Function(Pointer<Void>, double)>('lychee_player_set_volume');
 
+final nowUs =
+    _library.lookupFunction<Int64 Function(), int Function()>('lychee_now_us');
+
+/// Null with a core older than API 20 (the released one a fresh checkout
+/// pins), as are [playerSetGain] and [playerGetAudioSamples].
+final void Function(Pointer<Void>, double, int)? playerFade =
+    _library.providesSymbol('lychee_player_fade')
+        ? _library.lookupFunction<Void Function(Pointer<Void>, Float, Int64),
+            void Function(Pointer<Void>, double, int)>('lychee_player_fade')
+        : null;
+
+final void Function(Pointer<Void>, double, double)? playerSetGain =
+    _library.providesSymbol('lychee_player_set_gain')
+        ? _library.lookupFunction<Void Function(Pointer<Void>, Float, Float),
+            void Function(Pointer<Void>, double, double)>('lychee_player_set_gain')
+        : null;
+
+final int Function(Pointer<Void>, int, Pointer<Float>, int)?
+    playerGetAudioSamples =
+    _library.providesSymbol('lychee_player_get_audio_samples')
+        ? _library.lookupFunction<
+            Int32 Function(Pointer<Void>, Int64, Pointer<Float>, Int32),
+            int Function(Pointer<Void>, int, Pointer<Float>,
+                int)>('lychee_player_get_audio_samples')
+        : null;
+
 final playerGetState = _library.lookupFunction<Int32 Function(Pointer<Void>),
     int Function(Pointer<Void>)>('lychee_player_get_state');
 

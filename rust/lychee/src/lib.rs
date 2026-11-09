@@ -554,9 +554,47 @@ impl Player {
         unsafe { sys::lychee_player_seek(self.raw(), position.as_micros() as i64) }
     }
 
-    /// 0.0 - 1.0.
+    /// 0.0 - 1.0. Kept across [`Player::open`]. Moves there over 10 ms,
+    /// so the change does not click, and stops a [`Player::fade`] under
+    /// way.
     pub fn set_volume(&self, volume: f32) {
         unsafe { sys::lychee_player_set_volume(self.raw(), volume) }
+    }
+
+    /// Moves the volume to `volume` (0.0 - 1.0) over `duration` of audio
+    /// played, e.g. to fade a track out before the next one. Goes on from
+    /// where a fade under way has got to, and holds while paused; an open
+    /// meanwhile starts at `volume`.
+    pub fn fade(&self, volume: f32, duration: Duration) {
+        unsafe { sys::lychee_player_fade(self.raw(), volume, duration.as_micros() as i64) }
+    }
+
+    /// A gain in dB (-60 to +24, 0 by default) on top of the volume, such
+    /// as a ReplayGain track or album gain. Kept across opens. A boost is
+    /// lowered so the loudest sample stays within full scale: `peak`, the
+    /// input's largest sample (1.0 at full scale), if known; otherwise the
+    /// boost comes down when the decoder first meets a louder sample,
+    /// ahead of it playing.
+    pub fn set_gain(&self, gain_db: f32, peak: Option<f32>) {
+        unsafe { sys::lychee_player_set_gain(self.raw(), gain_db, peak.unwrap_or(0.0)) }
+    }
+
+    /// Fills `samples` with what the audio output played up to
+    /// `display_time_us` ([`now_us`] timebase), mixed down to mono, after
+    /// volume and gain, at [`Stats::audio_output_sample_rate`]: for
+    /// visualizers. The first call starts recording what plays, so it
+    /// and any time the output played nothing read as silence; recording
+    /// stops a second after the last call. False without an audio track.
+    pub fn audio_samples(&self, display_time_us: i64, samples: &mut [f32]) -> bool {
+        let frames = i32::try_from(samples.len()).unwrap_or(i32::MAX);
+        unsafe {
+            sys::lychee_player_get_audio_samples(
+                self.raw(),
+                display_time_us,
+                samples.as_mut_ptr(),
+                frames,
+            ) > 0
+        }
     }
 
     /// Clamped to 0.25 - 4.0. Audio keeps its pitch.

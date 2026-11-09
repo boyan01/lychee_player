@@ -238,12 +238,6 @@ reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
    or a long sliding playlist) reports a seekable range and the live
    edge, and seeks within it. Done when regression cases switch variants
    and seek back in a live window.
-5. **Audio gain, fades and analysis** (#7, #6): a gain in dB that may
-   boost (above 0 dB, limited so peaks do not clip), a fade to a volume
-   over a duration, and the PCM (or spectrum) playing now, pulled by the
-   caller in the ABI's pull style, for visualizers. Done when
-   `tool/audio_check.py` cases show the gain, a click-free fade, and the
-   pulled samples matching what the device played.
 6. **Source lifecycle** (#11, #15, #4, #5): close what is open (back to
    IDLE, decoders and input released, the texture kept); open at a start
    position without decoding the start first; switch to another URL of

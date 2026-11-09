@@ -200,9 +200,51 @@ public final class LycheePlayer {
     lychee_player_seek(handle, micros(position))
   }
 
-  /// 0 - 1.
-  public var volume: Float = 1 {
-    didSet { lychee_player_set_volume(handle, volume) }
+  /// 0 - 1. Kept across ``open(_:)``. Moves there over 10 ms, so the
+  /// change does not click, and stops a ``fade(to:duration:)`` under way.
+  /// After a fade, its target.
+  public var volume: Float {
+    get { volumeTarget }
+    set {
+      volumeTarget = newValue
+      lychee_player_set_volume(handle, newValue)
+    }
+  }
+  private var volumeTarget: Float = 1
+
+  /// Moves ``volume`` to `volume` (0 - 1) over `duration` seconds of audio
+  /// played, e.g. to fade a track out before the next one or in after it.
+  /// Goes on from where a fade under way has got to, and holds while
+  /// paused; an open meanwhile starts at `volume`.
+  public func fade(to volume: Float, duration: TimeInterval) {
+    volumeTarget = volume
+    lychee_player_fade(handle, volume, micros(duration))
+  }
+
+  /// A gain in dB (-60 to +24, 0 by default) on top of ``volume``, such as
+  /// a ReplayGain track or album gain. Kept across opens: set it for each
+  /// input. A boost is lowered so the loudest sample stays within full
+  /// scale: `peak`, the input's largest sample (1 at full scale), if
+  /// known; otherwise the boost comes down when the decoder first meets a
+  /// louder sample, ahead of it playing.
+  public func setGain(_ gainDB: Float, peak: Float? = nil) {
+    lychee_player_set_gain(handle, gainDB, peak ?? 0)
+  }
+
+  /// The last `frames` samples the audio output played by `displayTime`
+  /// (`lychee_now_us()` timebase, now by default), mixed down to mono,
+  /// after volume and gain, at ``Stats/audioOutputSampleRate``: for
+  /// visualizers. The first call starts recording what plays, so it and
+  /// any time the output played nothing read as silence; recording stops a
+  /// second after the last call. Nil without an audio track.
+  public func audioSamples(_ frames: Int, displayTime: Int64? = nil) -> [Float]? {
+    guard frames > 0 else { return nil }
+    var samples = [Float](repeating: 0, count: frames)
+    let got = samples.withUnsafeMutableBufferPointer {
+      lychee_player_get_audio_samples(
+        handle, displayTime ?? lychee_now_us(), $0.baseAddress, Int32(clamping: frames))
+    }
+    return got > 0 ? samples : nil
   }
 
   /// Playback speed, clamped to 0.25 - 4. Audio keeps its pitch.

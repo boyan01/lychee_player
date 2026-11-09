@@ -80,6 +80,12 @@ fn plays_seeks_and_ends() {
     });
 
     assert_eq!(player.duration().map(|d| d.as_secs()), Some(12));
+    // Muted, and the first pull only starts recording: silence.
+    player.set_gain(6.0, Some(0.25));
+    player.fade(0.0, Duration::from_millis(100));
+    let mut samples = [1.0f32; 256];
+    assert!(player.audio_samples(lychee::now_us(), &mut samples));
+    assert!(samples.iter().all(|&s| s == 0.0));
     assert!(player.is_seekable());
     assert_eq!(player.video_size(), Some((1920, 1080)));
     assert_eq!(player.artwork(), None);

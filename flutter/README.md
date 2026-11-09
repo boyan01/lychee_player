@@ -81,6 +81,8 @@ aspect ratio and rotation (`fit` changes the scaling).
 | `open(url)` | Opens a file path or http(s) URL; replaces the current media. |
 | `play()`, `pause()`, `seek(Duration)` | Seeks are ignored while `value.seekable` is false. |
 | `setRate(1.5)`, `setVolume(0.5)`, `setLooping(true)` | Rate is 0.25 to 4, pitch kept. |
+| `fade(0, Duration(seconds: 2))`, `setGain(-6.5, peak: 0.9)` | A smooth volume ramp; a gain in dB (ReplayGain), boosts limited so they do not clip. |
+| `getAudioSamples(1024)`, `getAudioSpectrum(512)` | What the output plays now, for visualizers. |
 | `selectTrack(type, index)` | An index into `value.tracks`; `null` turns that type off. |
 | `getMetadata('title')` | A container tag; `value.artwork` has the cover. |
 | `getStats()` | Decoders, hardware or not, decoded, rendered and dropped frames, bytes read, download rate, startup, rebuffering and seek times. |

@@ -859,7 +859,8 @@ frames() {
 # audio NAME MEDIA [CHECK_ARGS]... -- CLI_ARGS: plays MEDIA with the volume
 # up, records what the silent device output (--audio-dump, into
 # $build/audio/NAME.wav) and passes if tool/audio_check.py finds no click
-# in it (CHECK_ARGS: e.g. --max-gap MS where no silence belongs).
+# in it (CHECK_ARGS: e.g. --max-gap MS where no silence belongs). The
+# samples the CLI pulled (--audio-samples) are compared with the recording.
 audio() {
   local name="$1" file="$2"; shift 2
   local wav="$build/audio/$name.wav" check=() out status checked problems="" start=$SECONDS
@@ -872,7 +873,8 @@ audio() {
   out="${out//$'\r'/}"
   [ "$status" = 0 ] || problems+=" exit=$status"
   grep -Eq "$sanitizer_reports" <<<"$out" && problems+=" sanitizer-report"
-  checked="$(python3 -I "$root/tool/audio_check.py" "$wav" ${check[@]+"${check[@]}"} 2>&1)" ||
+  grep -q '^samples at_us=' <<<"$out" && check+=(--samples -)
+  checked="$(python3 -I "$root/tool/audio_check.py" "$wav" ${check[@]+"${check[@]}"} <<<"$out" 2>&1)" ||
     problems+=" clicks"
   if [ -z "$problems" ]; then
     echo "PASS $name ($((SECONDS - start))s)"
@@ -1299,6 +1301,17 @@ par audio audio-seek-ts "$media/keyframes.ts" -- --seconds 4 --seek 5.237 --seek
 par audio audio-seek-fmp4 "$media/frag.mp4" -- --seconds 4 --seek 5.237 --seek-after 1
 par audio audio-track "$media/tracks.mkv" -- --seconds 3 --select audio:2 --select-after 1
 par audio audio-stop "$media/h264_aac.mp4" -- --seconds 1.5
+# The sine peaks at 1/8 of full scale: +24 dB would clip it, so the
+# limit holds it at full scale (known from the decoded audio, or from
+# the peak given); steps grow with the gain. The pulls (the first starts
+# recording) match what was played.
+par audio audio-gain "$media/h264_aac.mp4" --threshold 0.04 --min-peak 0.95 --max-peak 1 -- \
+  --seconds 3 --gain 24 --audio-samples 1:256 --audio-samples 1.5:2048 --audio-samples 2.5:4096
+par audio audio-gain-peak "$media/h264_aac.mp4" --threshold 0.02 --min-peak 0.45 --max-peak 0.6 -- \
+  --seconds 2 --gain 24:0.25
+# Down to silence and back without a click; pulled during the fade.
+par audio audio-fade "$media/h264_aac.mp4" --expect-gap 300 -- --seconds 3.5 \
+  --fade 1:0:500 --fade 2.2:1:300 --audio-samples 0.5:256 --audio-samples 1.3:1024
 # Looping: back to the start without ENDED or BUFFERING, and without
 # stopping: a frame held too long at the jump is a glitch.
 par expect loop "summary: state=ready" "loops=2" "summary:.*backward_jumps=0 " "summary:.*glitches=0 " \

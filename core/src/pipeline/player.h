@@ -127,6 +127,8 @@ class Player {
 
   static constexpr double kMinRate = 0.25;
   static constexpr double kMaxRate = 4.0;
+  static constexpr float kMinGainDb = -60.0f;
+  static constexpr float kMaxGainDb = 24.0f;
 
   explicit Player(const PlayerConfig& config);
   ~Player();
@@ -154,7 +156,15 @@ class Player {
   void Pause();
   // |position| is relative to the start of the media.
   void Seek(int64_t position);
+  // Volume and gain are kept across opens; a new open starts at a fade's
+  // target.
   void SetVolume(float volume);
+  void Fade(float volume, int64_t duration);
+  // |gain_db| clamped to [kMinGainDb, kMaxGainDb]; |peak| as in
+  // AudioGain::SetGain().
+  void SetGain(float gain_db, float peak);
+  // AudioRenderer::GetPlayedSamples(); false without an audio track.
+  bool GetPlayedSamples(int64_t time, float* out, int frames);
   // Rebuilds the video renderer on |device| during playback.
   void SetVideoDevice(VideoDevice device);
   void RebuildVideoDecoder();
@@ -544,6 +554,9 @@ class Player {
   // once the data read so far has played, unless a seek comes first.
   std::string input_error_;
   float volume_ = 1.0f;
+  // Linear.
+  float gain_ = 1.0f;
+  float gain_peak_ = 0;
   VideoDevice video_device_;
   // RetainVideoSurface() of the last SetVideoSurface().
   std::shared_ptr<void> video_surface_;

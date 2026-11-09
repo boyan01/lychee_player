@@ -12,7 +12,9 @@
 
 #include "media/audio_decoder.h"
 #include "media/audio_sink.h"
+#include "pipeline/audio_gain.h"
 #include "pipeline/audio_renderer_algorithm.h"
+#include "pipeline/audio_tap.h"
 #include "pipeline/media_clock.h"
 #include "pipeline/packet_queue.h"
 
@@ -26,6 +28,10 @@ namespace lychee {
 // as on a closed laptop lid) is pulled for in real time and its audio
 // dropped (PullForStalledDevice()), so playback goes on silently instead of
 // waiting for it; the device takes over again when it pulls.
+//
+// Volume and gain apply per frame (AudioGain): a volume change ramps over
+// kFadeDuration, a fade over its duration, and a boost is limited by the
+// loudest sample decoded, which is known before it plays.
 //
 // A seek, a pause, a rate change, a track switch or a stop does not cut
 // the waveform, which clicks: the device plays on for kFadeDuration,
@@ -78,7 +84,19 @@ class AudioRenderer {
   // Whether to play; pausing fades out. The sink starts or stops in
   // UpdateSink(), so this may run under the player's lock.
   void SetPlaying(bool playing);
+  // Moves the volume (0 to 1) to |volume| over kFadeDuration, so it does
+  // not click; ends a Fade() under way.
   void SetVolume(float volume);
+  // Moves the volume to |volume| over |duration| of audio played (at
+  // once if 0).
+  void Fade(float volume, int64_t duration);
+  // |gain| is linear and may boost; |peak| is the input's largest sample
+  // magnitude if known, else 0. Changes ramp over kFadeDuration.
+  void SetGain(float gain, float peak);
+  // The |frames| mono samples the device played up to |time| (NowMicros()
+  // timebase), silence where it played none. The first call starts
+  // recording them, which stops a second after the last.
+  void GetPlayedSamples(int64_t time, float* out, int frames);
   // Takes effect from the next buffer the sink pulls, after a fade.
   void SetRate(double rate);
   // Call every few milliseconds of |now|: once the device has pulled
@@ -144,6 +162,8 @@ class AudioRenderer {
   // Stops the decode thread; the sink plays on.
   void StopDecoding();
   int FadeFrames() const;
+  // How long a level change ramps: kFadeDuration while playing.
+  int RampFramesLocked() const;
   int64_t BufferedDurationLocked() const;
   // Output frames at |rate| left before |end_time_|; INT_MAX without one.
   int FramesBeforeEndLocked(double rate) const;
@@ -155,7 +175,6 @@ class AudioRenderer {
   std::unique_ptr<AudioDecoder> decoder_;
   AudioOutputFormat format_;
   std::thread thread_;
-  std::atomic<float> volume_{1.0f};
   std::atomic<double> rate_{1.0};
 
   mutable std::mutex mutex_;
@@ -164,6 +183,12 @@ class AudioRenderer {
   AudioRendererAlgorithm algorithm_;
   // Planar output before interleaving.
   AudioBus render_bus_;
+  // The level of each output frame.
+  AudioGain gain_;
+  // What the device plays, while GetPlayedSamples() is called, until
+  // |tap_until_|.
+  AudioTap tap_;
+  int64_t tap_until_ = kNoTimestamp;
   // Live: decoded audio in deadline order, and the frames of the front
   // buffer already played or dropped.
   std::deque<std::shared_ptr<AudioBuffer>> live_buffers_;

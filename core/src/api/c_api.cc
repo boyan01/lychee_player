@@ -337,6 +337,27 @@ void lychee_player_set_volume(lychee_player* player, float volume) {
   player->player->SetVolume(volume);
 }
 
+void lychee_player_fade(lychee_player* player,
+                        float volume,
+                        int64_t duration_us) {
+  player->player->Fade(volume, duration_us);
+}
+
+void lychee_player_set_gain(lychee_player* player, float gain_db, float peak) {
+  player->player->SetGain(gain_db, peak);
+}
+
+int32_t lychee_player_get_audio_samples(lychee_player* player,
+                                        int64_t time_us,
+                                        float* samples,
+                                        int32_t frames) {
+  if (!samples || frames <= 0) {
+    return 0;
+  }
+  return player->player->GetPlayedSamples(time_us, samples, frames) ? frames
+                                                                    : 0;
+}
+
 void lychee_player_set_rate(lychee_player* player, double rate) {
   player->player->SetRate(rate);
 }

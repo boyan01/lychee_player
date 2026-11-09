@@ -441,6 +441,39 @@ void Player::SetVolume(float volume) {
   }
 }
 
+void Player::Fade(float volume, int64_t duration) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  volume_ = volume;
+  if (audio_renderer_) {
+    audio_renderer_->Fade(volume, duration);
+  }
+}
+
+void Player::SetGain(float gain_db, float peak) {
+  if (std::isnan(gain_db)) {
+    gain_db = 0;
+  }
+  if (std::isnan(peak)) {
+    peak = 0;
+  }
+  const float db = std::clamp(gain_db, kMinGainDb, kMaxGainDb);
+  std::lock_guard<std::mutex> lock(mutex_);
+  gain_ = std::pow(10.0f, db / 20.0f);
+  gain_peak_ = peak;
+  if (audio_renderer_) {
+    audio_renderer_->SetGain(gain_, gain_peak_);
+  }
+}
+
+bool Player::GetPlayedSamples(int64_t time, float* out, int frames) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!audio_renderer_) {
+    return false;
+  }
+  audio_renderer_->GetPlayedSamples(time, out, frames);
+  return true;
+}
+
 void Player::SetSubtitleDelay(int64_t delay) {
   std::lock_guard<std::mutex> lock(mutex_);
   subtitle_delay_ = delay;
@@ -1431,6 +1464,7 @@ bool Player::Prepare(const std::string& url, std::string* error) {
   EnableStreamsLocked();
   if (audio_renderer_) {
     audio_renderer_->SetVolume(volume_);
+    audio_renderer_->SetGain(gain_, gain_peak_);
     audio_renderer_->SetRate(rate_);
     audio_renderer_->Start(live_ ? kNoTimestamp : info.start_time);
   }
@@ -1544,6 +1578,7 @@ void Player::ChangeTracks(const TrackRequest& request) {
       audio_renderer_ = std::move(audio);
       audio_stream_ = request.audio;
       audio_renderer_->SetVolume(volume_);
+      audio_renderer_->SetGain(gain_, gain_peak_);
       audio_renderer_->SetRate(rate_);
       // The resync seek that follows sets where it starts.
       audio_renderer_->Start(kNoTimestamp);

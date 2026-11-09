@@ -2,6 +2,7 @@ library;
 
 export 'src/player.dart'
     show
+        audioSpectrum,
         LycheePlayer,
         LycheePlayerState,
         LycheePlayerStats,

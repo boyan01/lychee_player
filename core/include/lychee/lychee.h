@@ -75,7 +75,10 @@ extern "C" {
 //    |encoding|; lychee_player_set_subtitle_delay().
 // 19: lychee_track_info.is_default, forced, role (lychee_track_role) and
 //    bitrate.
-#define LYCHEE_API_VERSION 19
+// 20: lychee_player_fade(), lychee_player_set_gain() and
+//    lychee_player_get_audio_samples(); lychee_player_set_volume() ramps
+//    over 10 ms instead of stepping.
+#define LYCHEE_API_VERSION 20
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -613,9 +616,43 @@ LYCHEE_EXPORT void lychee_player_pause(lychee_player* player);
 // LYCHEE_EVENT_SEEK_COMPLETED is sent: that event means the seek landed.
 LYCHEE_EXPORT void lychee_player_seek(lychee_player* player,
                                       int64_t position_us);
-// 0.0 - 1.0.
+// 0.0 - 1.0. Kept across lychee_player_open(). Since API 20 the volume
+// moves there over 10 ms, so the change does not click, and a
+// lychee_player_fade() under way stops.
 LYCHEE_EXPORT void lychee_player_set_volume(lychee_player* player,
                                             float volume);
+// API 20. Moves the volume to |volume| (0.0 - 1.0) in a straight line over
+// |duration_us| of audio played (at once if 0), e.g. to fade a track out
+// before the next one or in after it. The fade goes on from where one
+// under way has got to, and holds while paused. A lychee_player_open()
+// meanwhile starts at |volume|.
+LYCHEE_EXPORT void lychee_player_fade(lychee_player* player,
+                                      float volume,
+                                      int64_t duration_us);
+// API 20. A gain in dB (-60 to +24; 0 by default) applied on top of the
+// volume, such as a ReplayGain track or album gain. Kept across
+// lychee_player_open(): set it for each input. A boost (above 0 dB) is
+// lowered so the loudest sample stays within full scale: |peak|, the
+// input's largest sample magnitude (ReplayGain's peak, 1.0 being full
+// scale), if known, else 0. Without it, the boost comes down when the
+// decoder first meets a louder sample, ahead of it playing; so on a quiet
+// start and a loud end, the end plays quieter than asked. A cut is never
+// changed. Changes ramp over 10 ms.
+LYCHEE_EXPORT void lychee_player_set_gain(lychee_player* player,
+                                          float gain_db,
+                                          float peak);
+// API 20. For visualizers: writes into |samples| the |frames| samples the
+// audio output played up to |time_us| (lychee_now_us() timebase; pass the
+// display time of the frame being drawn), mixed down to mono, after volume
+// and gain, at lychee_stats.audio_output_sample_rate. Silence where it
+// played nothing (paused), and up to the first call: that call starts
+// recording the output, which stops a second after the last call, so
+// nothing is spent while nobody asks. About two seconds are kept. Returns
+// |frames|, or 0 if no audio track plays.
+LYCHEE_EXPORT int32_t lychee_player_get_audio_samples(lychee_player* player,
+                                                      int64_t time_us,
+                                                      float* samples,
+                                                      int32_t frames);
 // Playback speed, clamped to 0.25 - 4.0; 1.0 is normal. Audio keeps its
 // pitch. Kept across lychee_player_open().
 LYCHEE_EXPORT void lychee_player_set_rate(lychee_player* player, double rate);
