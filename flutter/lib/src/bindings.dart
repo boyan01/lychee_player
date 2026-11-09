@@ -250,6 +250,13 @@ final int Function(Pointer<Void>, Pointer<Char>, Pointer<LycheeOpenOptions>)?
                 Pointer<LycheeOpenOptions>)>('lychee_player_open_with_options')
         : null;
 
+/// Null with a core older than API 23.
+final int Function(Pointer<Void>)? playerClose =
+    _library.providesSymbol('lychee_player_close')
+        ? _library.lookupFunction<Int32 Function(Pointer<Void>),
+            int Function(Pointer<Void>)>('lychee_player_close')
+        : null;
+
 final playerPlay = _library.lookupFunction<Void Function(Pointer<Void>),
     void Function(Pointer<Void>)>('lychee_player_play');
 

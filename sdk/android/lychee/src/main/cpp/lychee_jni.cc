@@ -285,6 +285,11 @@ Java_tech_soit_lychee_LycheePlayer_nativeOpen(JNIEnv* env,
                                          FromBytes(env, url).c_str(), &options);
 }
 
+JNIEXPORT jint JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeClose(JNIEnv*, jclass, jlong handle) {
+  return lychee_player_close(Player(handle));
+}
+
 JNIEXPORT void JNICALL Java_tech_soit_lychee_LycheePlayer_nativePlay(JNIEnv*,
                                                                      jclass,
                                                                      jlong handle) {

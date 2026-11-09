@@ -310,7 +310,7 @@ bool Player::OnControlThread() const {
   if (t_control_thread_player != this) {
     return false;
   }
-  LOGE("open from an event callback: call it from another thread");
+  LOGE("open or close from an event callback: call it from another thread");
   return true;
 }
 
@@ -328,6 +328,36 @@ bool Player::Open(const std::string& url, const std::string& headers) {
     demuxer_->SetVariantPolicy(-1, max_bitrate_);
   }
   thread_ = std::thread(&Player::Run, this, url);
+  return true;
+}
+
+bool Player::Close() {
+  if (OnControlThread()) {
+    return false;
+  }
+  std::lock_guard<std::mutex> open_lock(open_mutex_);
+  bool was_open;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    was_open = state_ != PlayerState::kIdle;
+  }
+  StopPipeline();
+  if (!was_open) {
+    return true;
+  }
+  LOGI("closed");
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    PostEventLocked(PlayerEvent::kStateChanged,
+                    static_cast<int64_t>(PlayerState::kIdle));
+  }
+  // No control thread is left to hand it out. As there, an open or close
+  // from inside the callback is refused rather than deadlocking on
+  // |open_mutex_|.
+  const Player* control_thread_player = t_control_thread_player;
+  t_control_thread_player = this;
+  DispatchEvents();
+  t_control_thread_player = control_thread_player;
   return true;
 }
 

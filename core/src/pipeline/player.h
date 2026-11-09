@@ -141,6 +141,10 @@ class Player {
   // |headers| (NormalizeHttpHeaders()). Volume, rate, looping, the event
   // callback and whether to play are kept.
   bool Open(const std::string& url, const std::string& headers = {});
+  // Stops whatever is open and stays idle, keeping what Open() keeps. If
+  // anything was open, hands kStateChanged (idle) to the callback on this
+  // thread before it returns. False on the control thread.
+  bool Close();
   // Stops whatever is open and starts a live input presenting packets
   // |latency| after they arrive (lychee_player_open_live()).
   bool OpenLive(int64_t latency);

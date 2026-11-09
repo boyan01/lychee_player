@@ -1340,6 +1340,11 @@ par expect reopen "open -> " "<=0 event: state error" "video size 1280x720" "sum
   --open-after 2 "$media/video_only.mp4" "$media/h264_aac.mp4"
 par expect reopen-loading "open -> " "<=0 event: state error" "summary: state=ended position=8.000s" -- \
   --open-after 0 "$media/video_only.mp4" "$media/hevc10.mp4"
+# Closing: idle at once, with no frame handed out, then the same player
+# opens again.
+par expect close "close at 2\.[0-9]+s: result=0 state=idle position=0\.000s frame=0" \
+  "event: state idle" "open -> " "<=0 event: state error" "summary: state=ended position=12\.000s" -- \
+  --close-after 2 "$media/h264_aac.mp4"
 # Track selection keeps the position.
 par expect track-audio "select audio 2 at [0-9.]+s: accepted" "track 2: audio .* lang=fre title=French selected=1" \
   "track switch: resumed [+-]0\.[0-2][0-9]{2}s" "summary: state=ended.* backward_jumps=0 " -- --select audio:2 "$media/tracks.mkv"

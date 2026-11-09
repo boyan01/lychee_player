@@ -144,6 +144,27 @@ fn plays_seeks_and_ends() {
 }
 
 #[test]
+fn close_goes_idle_and_opens_again() {
+    let (player, events) = open();
+    player.play();
+    wait_for(&player, &events, |e| *e == Event::StateChanged(State::Ready));
+    player.close().unwrap();
+    assert_eq!(player.state(), State::Idle);
+    assert_eq!(player.duration(), None);
+    assert!(player.tracks().is_empty());
+    // Handed out before close() returned.
+    assert!(
+        events
+            .try_iter()
+            .any(|e| e == Event::StateChanged(State::Idle))
+    );
+    assert!(player.acquire_frame(lychee::now_us()).is_none());
+    player.open(&media("h264_aac.mp4")).unwrap();
+    wait_for(&player, &events, |e| *e == Event::StateChanged(State::Ready));
+    assert!(player.is_playing());
+}
+
+#[test]
 fn destroying_frees_the_callback_and_frames_outlive_it() {
     let (player, events) = open();
     let token = Arc::new(());

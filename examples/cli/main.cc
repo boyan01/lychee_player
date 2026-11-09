@@ -119,6 +119,9 @@ struct Options {
   // starts; 0: right after the first open, while it is still loading.
   std::string reopen_url;
   double reopen_after = -1;
+  // Close what is open this many seconds after playback starts, then open
+  // |url| again a second later.
+  double close_after = -1;
   // Soak: every |soak_every| seconds of playback, seek to a random
   // position, twice, then open the other of |url| and |soak_url|.
   double soak_every = -1;
@@ -365,6 +368,10 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       if (!v || !url) return false;
       options->reopen_after = atof(v);
       options->reopen_url = url;
+    } else if (arg == "--close-after") {
+      const char* v = value();
+      if (!v) return false;
+      options->close_after = strtod(v, nullptr);
     } else if (arg == "--soak") {
       const char* v = value();
       const char* url = value();
@@ -1312,7 +1319,7 @@ int main(int argc, char** argv) {
         "--android-surface] "
         "[--rate R [--rate-after "
         "SEC]] [--loop [--loop-off-after SEC]] "
-        "[--open-after SEC URL] [--soak SEC URL] [--select "
+        "[--open-after SEC URL] [--close-after SEC] [--soak SEC URL] [--select "
         "TYPE:INDEX[@SEC]]... "
         "[--select-after SEC] [--variant INDEX@SEC]... "
         "[--max-bitrate BPS[@SEC]] [--seek-edge SEC] "
@@ -1453,6 +1460,8 @@ int main(int argc, char** argv) {
   }
   lychee_player_play(player);
   bool reopened = false;
+  // --close-after: when the player was closed, 0 before.
+  int64_t closed_at = 0;
   if (options.reopen_after == 0) {
     printf("open -> %s\n", options.reopen_url.c_str());
     Open(player, options, options.reopen_url);
@@ -1951,6 +1960,28 @@ int main(int argc, char** argv) {
       ready_wall = 0;
       steady = false;
       last_state = -1;
+      continue;
+    }
+
+    if (options.close_after >= 0 && closed_at == 0 && ready_wall != 0 &&
+        now - ready_wall >= static_cast<int64_t>(options.close_after * 1e6)) {
+      const int32_t result = lychee_player_close(player);
+      closed_at = now;
+      lychee_frame* frame = lychee_player_acquire_frame(player, display_time);
+      printf("close at %.3fs: result=%d state=%s position=%.3fs frame=%d\n",
+             position / 1e6, result, StateName(lychee_player_get_state(player)),
+             lychee_player_get_position(player) / 1e6, frame ? 1 : 0);
+      if (frame) lychee_frame_release(frame);
+      last_pts = INT64_MIN;
+      ready_wall = 0;
+      steady = false;
+      last_state = -1;
+      continue;
+    }
+    if (closed_at > 0 && now - closed_at >= 1000000) {
+      closed_at = -1;
+      printf("open -> %s\n", options.url.c_str());
+      lychee_player_open(player, options.url.c_str());
       continue;
     }
 

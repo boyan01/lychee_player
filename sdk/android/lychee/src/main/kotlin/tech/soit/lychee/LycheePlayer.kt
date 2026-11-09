@@ -204,6 +204,16 @@ class LycheePlayer @JvmOverloads constructor(
         return nativeOpen(handle(), url.toByteArray(), lines.toByteArray()) == 0
     }
 
+    /**
+     * Stops what is open and goes back to [State.IDLE], releasing decoders,
+     * the audio output and the input; the player, its listeners, volume,
+     * rate, looping and play/pause stay for the next [open]. Unlike
+     * [close], the player stays usable.
+     */
+    fun closeMedia() {
+        nativeClose(handle())
+    }
+
     /** Plays from the start again if the state is [State.ENDED]. */
     fun play() = nativePlay(handle())
 
@@ -572,6 +582,7 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeSetEventSink(handle: Long, sink: Any): Long
         @JvmStatic private external fun nativeDestroy(handle: Long, sink: Long)
         @JvmStatic private external fun nativeOpen(handle: Long, url: ByteArray, headers: ByteArray): Int
+        @JvmStatic private external fun nativeClose(handle: Long): Int
         @JvmStatic private external fun nativePlay(handle: Long)
         @JvmStatic private external fun nativePause(handle: Long)
         @JvmStatic private external fun nativeRebuildVideoDecoder(handle: Long)

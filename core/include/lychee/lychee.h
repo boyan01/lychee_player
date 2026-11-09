@@ -7,8 +7,9 @@
 // - All lychee_player_* functions are thread-safe.
 // - Callbacks are invoked on internal threads. They must return quickly and
 //   must not call lychee_player_destroy(). From an event callback,
-//   lychee_player_open() and lychee_player_open_live() return -1: they
-//   stop the thread the callback runs on, so call them from another one.
+//   lychee_player_open(), lychee_player_open_live() and
+//   lychee_player_close() return -1: they stop the thread the callback
+//   runs on, so call them from another one.
 //
 // Time values are in microseconds unless stated otherwise.
 
@@ -85,7 +86,8 @@ extern "C" {
 //    lychee_player_select_variant(), lychee_player_set_max_bitrate(),
 //    LYCHEE_EVENT_VARIANT_CHANGED); live HLS windows
 //    (lychee_player_get_seekable_range(), lychee_player_get_live_edge()).
-#define LYCHEE_API_VERSION 22
+// 23: lychee_player_close().
+#define LYCHEE_API_VERSION 23
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -612,6 +614,16 @@ LYCHEE_EXPORT int32_t
 lychee_player_open_with_options(lychee_player* player,
                                 const char* url,
                                 const lychee_open_options* options);
+
+// API version 23. Stops what is open, as lychee_player_open() does, and
+// stays at LYCHEE_STATE_IDLE: the decoders, the audio device and the input
+// (with its network connections) are released, and no frame is handed out.
+// The event callback, volume, rate, looping, play/pause, the subtitle
+// delay and the video device and surface are kept for the next open. If
+// anything was open, LYCHEE_EVENT_STATE_CHANGED (IDLE) goes to the
+// callback on the calling thread before this returns. Returns 0, or -1
+// from an event callback.
+LYCHEE_EXPORT int32_t lychee_player_close(lychee_player* player);
 
 // Stops what is open, like lychee_player_open(), and starts a live input:
 // packets pushed with lychee_player_push_live_packet() play as they

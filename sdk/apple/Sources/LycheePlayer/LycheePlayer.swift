@@ -230,6 +230,13 @@ public final class LycheePlayer {
     return lines
   }
 
+  /// Stops what is open and goes back to ``State/idle``, releasing decoders,
+  /// the audio output and the input. The player, its event handler, volume,
+  /// rate, looping and play/pause stay for the next ``open(_:)``.
+  public func close() {
+    lychee_player_close(handle)
+  }
+
   /// Plays from the start again if the state is ``State/ended``.
   public func play() {
     lychee_player_play(handle)

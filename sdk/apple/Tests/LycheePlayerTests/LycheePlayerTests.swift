@@ -90,6 +90,33 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(player.state, .ready)
   }
 
+  func testCloseGoesIdleAndOpensAgain() {
+    let player = LycheePlayer()
+    player.volume = 0.5
+    var ready = expectation(description: "ready")
+    let idle = expectation(description: "idle")
+    player.onEvent = { event in
+      switch event {
+      case .stateChanged(.ready): ready.fulfill()
+      case .stateChanged(.idle): idle.fulfill()
+      default: break
+      }
+    }
+    player.open(url)
+    player.play()
+    wait(for: [ready], timeout: 10)
+    player.close()
+    XCTAssertEqual(player.state, .idle)
+    XCTAssertNil(player.duration)
+    XCTAssertTrue(player.tracks.isEmpty)
+    XCTAssertTrue(player.isPlaying, "play/pause is kept")
+    wait(for: [idle], timeout: 10)
+    ready = expectation(description: "ready again")
+    player.open(url)
+    wait(for: [ready], timeout: 10)
+    XCTAssertEqual(player.volume, 0.5)
+  }
+
   func testReleasedWhileDriverRunning() {
     weak var weakPlayer: LycheePlayer?
     var driver: LycheeFrameDriver?

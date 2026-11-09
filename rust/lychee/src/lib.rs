@@ -625,6 +625,18 @@ impl Player {
         )
     }
 
+    /// Stops what is open and goes back to [`State::Idle`], releasing the
+    /// decoders, the audio output and the input. The player, its event
+    /// callback, volume, rate, looping and play/pause stay for the next
+    /// [`Player::open`]. [`Event::StateChanged`] arrives on this thread
+    /// before it returns. Fails inside the event callback.
+    pub fn close(&self) -> Result<()> {
+        check(
+            unsafe { sys::lychee_player_close(self.raw()) },
+            "close rejected (inside the event callback)",
+        )
+    }
+
     /// Plays from the start again if the state is [`State::Ended`].
     pub fn play(&self) {
         unsafe { sys::lychee_player_play(self.raw()) }

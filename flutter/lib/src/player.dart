@@ -473,13 +473,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     if (lines.isNotEmpty && openWithOptions == null) {
       throw UnsupportedError('HTTP headers need lychee API 21');
     }
-    _tracks = const [];
-    _variants = const [];
-    _subtitle = null;
-    _hasPictures = false;
-    _setPictures(0, null);
-    _artwork = null;
-    _finishAddingSubtitles();
+    _forgetMedia();
     final nativeUrl = url.toNativeUtf8();
     if (openWithOptions == null) {
       native.playerOpen(_player, nativeUrl.cast());
@@ -495,6 +489,32 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     }
     malloc.free(nativeUrl);
     _refresh();
+  }
+
+  /// Stops what is open and goes back to [LycheePlayerState.idle]: decoders,
+  /// the audio output and the input (its network connections) are released.
+  /// The player and its [textureId] stay, as do volume, rate, looping and
+  /// play/pause, for the next [open]. Does nothing with a core older than
+  /// API 23.
+  void close() {
+    final close = native.playerClose;
+    if (_disposed || close == null) {
+      return;
+    }
+    _forgetMedia();
+    close(_player);
+    _refresh();
+  }
+
+  // What belongs to the media open so far.
+  void _forgetMedia() {
+    _tracks = const [];
+    _variants = const [];
+    _subtitle = null;
+    _hasPictures = false;
+    _setPictures(0, null);
+    _artwork = null;
+    _finishAddingSubtitles();
   }
 
   /// [headers] as the "Name: value" lines the C API takes.

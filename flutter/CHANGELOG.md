@@ -30,6 +30,9 @@
   sliding one at least six target durations long) is now seekable:
   `LycheePlayerValue.seekableRange` gives the window and `liveEdge` the
   position that plays live; seek there to return to live.
+* `LycheePlayer.close()` stops what is open and returns to idle: decoders,
+  the audio output and network connections are released, while the player,
+  its texture, volume, rate and looping stay for the next `open`.
 
 ### Fixed
 

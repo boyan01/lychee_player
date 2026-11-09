@@ -286,6 +286,10 @@ int32_t lychee_player_open_with_options(lychee_player* player,
   return player->player->Open(url, headers) ? 0 : -1;
 }
 
+int32_t lychee_player_close(lychee_player* player) {
+  return player->player->Close() ? 0 : -1;
+}
+
 int32_t lychee_player_open_live(lychee_player* player,
                                 const lychee_live_config* config) {
   int64_t latency = kDefaultLiveLatency;

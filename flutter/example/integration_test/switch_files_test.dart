@@ -257,6 +257,37 @@ void main() {
     );
   });
 
+  testWidgets('close releases the media and keeps the player', (tester) async {
+    Future<void> waitFor(LycheePlayer player, LycheePlayerState state) async {
+      for (var i = 0; i < 100 && player.value.state != state; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      expect(player.value.state, state);
+    }
+
+    // Whatever the previous test left has gone by then.
+    await Future<void>.delayed(const Duration(seconds: 1));
+    final before = await _countThreads();
+    final player = await LycheePlayer.create();
+    addTearDown(player.dispose);
+    player.setVolume(0);
+    player.open(_media[0]);
+    player.play();
+    await waitFor(player, LycheePlayerState.ready);
+    expect((await _countThreads())['lychee'], before['lychee']! + 4);
+
+    player.close();
+    expect(player.value.state, LycheePlayerState.idle);
+    expect(player.value.videoSize, isNull);
+    expect(player.value.playing, isTrue);
+    // close() joined them.
+    expect((await _countThreads())['lychee'], before['lychee']);
+
+    player.open(_media[0]);
+    await waitFor(player, LycheePlayerState.ready);
+    expect(player.value.tracks, isNotEmpty);
+  });
+
   testWidgets('disposeAll destroys players a hot restart left', (tester) async {
     // Lets the example dispose of its player.
     await tester.pumpWidget(const SizedBox());
