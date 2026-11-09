@@ -551,7 +551,7 @@ Tested: ONLY='hls-*' tool/regression.sh
   Homebrew has: the core follows the current FFmpeg API (e.g.
   `sws_free_context`). After a new FFmpeg build, rerun all of them and
   `pod install` in `flutter/example/macos` and `flutter/example/ios`.
-  Subtitles stay basic (decided 2026-10-27): text, and bitmap subtitles
+  Subtitles stay basic (decided 2026-10-27, kept 2026-11-09 for TV Play): text, and bitmap subtitles
   as pictures; ASS shows as its plain text, with no libass.
 - The iOS simulator slice must hold both arm64 and x86_64: Flutter builds the
   simulator for both, and CocoaPods silently copies nothing from an

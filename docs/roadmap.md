@@ -272,9 +272,6 @@ reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
    track and seek.
 9. **Thumbnails** (#10): a frame at a given time, decoded apart from
    playback, for seek previews without sprite sheets.
-10. **Styled ASS** (#20): ASS shows as plain text (decided 2026-10-27,
-    no libass). Reopen only if the user decides anime subtitles need it.
-
 ## FFmpeg-free builds
 
 The goal is FFmpeg-free builds on Apple platforms, Windows and Android;
