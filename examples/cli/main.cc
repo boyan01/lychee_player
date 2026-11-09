@@ -2284,12 +2284,15 @@ int main(int argc, char** argv) {
         now - ready_wall >= static_cast<int64_t>(options.switch_after * 1e6)) {
       switched = true;
       switch_position = position;
+      // The state after the switch: apart from printf's arguments, whose
+      // order of evaluation is unspecified (GCC and MSVC took it first).
+      const int result = stopping([&] {
+        const OpenOptions switch_options(options, options.audio_urls);
+        return lychee_player_switch_source(player, options.switch_url.c_str(),
+                                           1, switch_options.get());
+      });
       printf("switch at %.3fs -> %s: result=%d state=%s\n", position / 1e6,
-             options.switch_url.c_str(), stopping([&] {
-               const OpenOptions switch_options(options, options.audio_urls);
-               return lychee_player_switch_source(
-                   player, options.switch_url.c_str(), 1, switch_options.get());
-             }),
+             options.switch_url.c_str(), result,
              StateName(lychee_player_get_state(player)));
     } else if (switch_position != INT64_MIN) {
       if (lychee_player_get_position(player) < switch_position) {
