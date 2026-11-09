@@ -7,6 +7,10 @@ Used by tool/regression.sh to test network behaviour:
   --stall-at OFFSET    the first response to reach file offset OFFSET stops
                        sending there...
   --stall-for SECONDS  ...for this long, then continues
+  --stall-skip N       the first N file responses (in the order the
+                       requests came) never stall, wherever they reach: a
+                       client that looks at the head on one connection and
+                       reads on another
   --drop-at OFFSET     the first response to reach file offset OFFSET closes
                        its connection there
   --refuse-after-drop  after the drop, every request fails with 503
@@ -53,6 +57,8 @@ class State:
         self.stalled = False
         self.dropped = False
         self.requests = 0
+        # File responses (GET) so far, for --stall-skip.
+        self.responses = 0
         self.first_request = None
         # Where the ranges asked for so far end, per path.
         self.range_ends = set()
@@ -167,6 +173,9 @@ def make_handler(root, args, state):
             if head:
                 return
 
+            with state.lock:
+                state.responses += 1
+                stalls = state.responses > args.stall_skip
             sent = 0
             began = time.monotonic()
             offset = start
@@ -185,7 +194,8 @@ def make_handler(root, args, state):
                             self.close_connection = True
                             self.connection.shutdown(2)
                             return
-                        if (args.stall_at is not None and offset <= args.stall_at < offset + len(chunk)
+                        if (args.stall_at is not None and stalls
+                                and offset <= args.stall_at < offset + len(chunk)
                                 and state.claim("stalled")):
                             cut = args.stall_at - offset
                             self.wfile.write(chunk[:cut])
@@ -273,6 +283,7 @@ def main():
     parser.add_argument("--rate", type=float, default=0)
     parser.add_argument("--stall-at", type=int)
     parser.add_argument("--stall-for", type=float, default=5)
+    parser.add_argument("--stall-skip", type=int, default=0)
     parser.add_argument("--drop-at", type=int)
     parser.add_argument("--refuse-after-drop", action="store_true")
     parser.add_argument("--refuse-after-requests", type=int)

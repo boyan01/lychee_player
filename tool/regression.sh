@@ -2435,14 +2435,17 @@ serve --stall-at 3000000 --stall-for 10
 realtime=1 seq_ expect http-stall-seek "seek took [0-9]{1,3}\." "first_pts_after_seek=0.500s" \
   "summary: state=ended" -- --seek 0.5 --seek-after 1 "$url"
 # Destroying a thumbnailer interrupts the read that stalls in the first
-# keyframe (the open has read the moov before it).
-serve --stall-at 30000 --stall-for 10
+# keyframe (the open has read the moov before it). Where FFmpeg reads
+# through its own protocols (Linux), the look at the head took the first
+# response, and FFmpeg's own is the second.
+thumb_stall=(--stall-at 30000 --stall-for 10 --stall-skip "$((1 - data_source))")
+serve "${thumb_stall[@]}"
 realtime=1 seq_ expect thumbnail-destroy-stalled "decoder [a-z]" "thumbnail at 1\.000s: none" \
   "thumbnail at 1\.000s took 1[0-9]{3} ms" "thumbnailer destroyed in [0-9]{1,3} ms" "<=0 ^snapshot" -- \
   --thumbnail "1:$build/thumbnail-stalled.ppm" --thumbnail-destroy-after 1 "$url"
 # Cancelling does the same, and the next request opens the input again
 # (only the first response stalls).
-serve --stall-at 30000 --stall-for 10
+serve "${thumb_stall[@]}"
 realtime=1 seq_ expect thumbnail-cancel-stalled "thumbnail at 1\.000s: none" \
   "thumbnail at 1\.000s took 1[0-9]{3} ms" "thumbnailer cancelled in [0-9]{1,3} ms" \
   "thumbnail at 2\.000s: pts=0\.000s size=1920x1080" -- \
