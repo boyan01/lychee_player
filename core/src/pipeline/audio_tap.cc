@@ -80,9 +80,9 @@ void AudioTap::Read(int64_t time, float* out, int frames) const {
   const auto size = static_cast<int64_t>(ring_.size());
   // The frame after the last one heard by |time|.
   const int64_t last =
-      anchor_frame_ +
-      static_cast<int64_t>(std::llround(static_cast<double>(time - anchor_time_) *
-                                        sample_rate_ / kMicrosPerSecond));
+      anchor_frame_ + static_cast<int64_t>(std::llround(
+                          static_cast<double>(time - anchor_time_) *
+                          sample_rate_ / kMicrosPerSecond));
   for (int i = 0; i < frames; ++i) {
     const int64_t frame = last - frames + i;
     out[i] = frame >= begin_ && frame < end_
