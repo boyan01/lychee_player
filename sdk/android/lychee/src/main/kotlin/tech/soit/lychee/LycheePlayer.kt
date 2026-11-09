@@ -29,6 +29,29 @@ class LycheePlayer @JvmOverloads constructor(
     /** Matches lychee_track_type. */
     enum class TrackType(internal val value: Int) { VIDEO(1), AUDIO(2), SUBTITLE(3) }
 
+    /** What an [error] is about, for deciding what to do next. Matches lychee_error_kind. */
+    enum class ErrorKind(internal val value: Int) {
+        /** None of the others (a URL scheme without a client, refused cleartext http, ...), and kinds a newer core adds. */
+        OTHER(1),
+        /** No answer from the server: refused, reset, timed out or closed early, no DNS, TLS failed. A retry may succeed. */
+        NETWORK(2),
+        /**
+         * The server answered with an HTTP status of 400 or more ([errorHttpStatus]), for the URL or what
+         * it references (an HLS playlist, segment or key). 403 or 410 usually mean the URL expired.
+         */
+        HTTP(3),
+        /** A local file cannot be opened or read. */
+        FILE(4),
+        /** Not media this build plays, or corrupt. */
+        FORMAT(5),
+        /** The media's audio and video use codecs no decoder on this device takes: try another quality or format. */
+        CODEC(6),
+        /** A decoder failed while playing. */
+        DECODE(7),
+        /** The input ended before its duration with no other cause known: a truncated file, or a connection closed too early. */
+        ENDED_EARLY(8),
+    }
+
     /** What a track is for, as the container says. */
     enum class TrackRole(internal val value: Int) {
         MAIN(0),
@@ -48,7 +71,7 @@ class LycheePlayer @JvmOverloads constructor(
         data class VideoSizeChanged(val size: Size) : Event()
         /** The position the seek landed on. */
         data class SeekCompleted(val positionMs: Long) : Event()
-        /** [error] says which. */
+        /** [error] says which, and [errorKind] what it is about. */
         data object Error : Event()
         data object TracksChanged : Event()
         /**
@@ -388,6 +411,22 @@ class LycheePlayer @JvmOverloads constructor(
     val error: String?
         get() = if (state == State.ERROR) nativeGetError(handle())?.let(::String) else null
 
+    /** What [error] is about, once the state is [State.ERROR]. */
+    val errorKind: ErrorKind?
+        get() {
+            if (state != State.ERROR) return null
+            val kind = (nativeGetErrorCode(handle()) ushr 32).toInt()
+            return ErrorKind.entries.firstOrNull { it.value == kind } ?: ErrorKind.OTHER
+        }
+
+    /** The HTTP status for [ErrorKind.HTTP], else null. */
+    val errorHttpStatus: Int?
+        get() {
+            if (state != State.ERROR) return null
+            val code = nativeGetErrorCode(handle())
+            return code.toInt().takeIf { (code ushr 32).toInt() == ErrorKind.HTTP.value && it > 0 }
+        }
+
     val tracks: List<Track>
         get() {
             val handle = handle()
@@ -662,6 +701,7 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeGetVideoSize(handle: Long): Long
         @JvmStatic private external fun nativeGetRotation(handle: Long): Int
         @JvmStatic private external fun nativeGetError(handle: Long): ByteArray?
+        @JvmStatic private external fun nativeGetErrorCode(handle: Long): Long
         @JvmStatic private external fun nativeGetTrackCount(handle: Long): Int
         @JvmStatic private external fun nativeGetTrackInfo(handle: Long, index: Int, longs: LongArray): ByteArray?
         @JvmStatic private external fun nativeSelectTrack(handle: Long, type: Int, index: Int): Boolean

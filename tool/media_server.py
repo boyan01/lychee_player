@@ -19,6 +19,8 @@ Used by tool/regression.sh to test network behaviour:
   --latency SECONDS    wait this long before answering each file request,
                        as a distant server's round trips do
   --redirect FROM TO   answer requests for path FROM with a 302 to path TO
+  --status PATH CODE   answer requests for path PATH with HTTP status CODE.
+                       Repeatable
   --require-header NAME VALUE  refuse requests without header NAME set to
                        VALUE with 403, redirects included, and log them.
                        Repeatable
@@ -96,6 +98,10 @@ def make_handler(root, args, state):
             if args.refuse_after_drop and state.dropped:
                 self.send_error(503)
                 return
+            for status_path, code in args.status or []:
+                if self.path.split("?")[0] == status_path:
+                    self.send_error(int(code))
+                    return
             if args.redirect and self.path.split("?")[0] == args.redirect[0]:
                 self.send_response(302)
                 self.send_header("Location", args.redirect[1])
@@ -274,6 +280,8 @@ def main():
     parser.add_argument("--no-ranges", action="store_true")
     parser.add_argument("--latency", type=float, default=0)
     parser.add_argument("--redirect", nargs=2, metavar=("FROM", "TO"))
+    parser.add_argument("--status", nargs=2, action="append",
+                        metavar=("PATH", "CODE"))
     parser.add_argument("--require-header", nargs=2, action="append",
                         metavar=("NAME", "VALUE"))
     parser.add_argument("--live", nargs=2, action="append", metavar=("PATH", "VOD"))

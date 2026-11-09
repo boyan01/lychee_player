@@ -23,6 +23,52 @@ enum LycheeTrackType {
   final int value;
 }
 
+/// What a [LycheePlayerValue.error] is about, for deciding what to do
+/// next. Matches lychee_error_kind.
+enum LycheeErrorKind {
+  /// No error.
+  none(native.kErrorNone),
+
+  /// None of the others: a URL scheme without a client, cleartext http the
+  /// platform refuses, ...; also any kind a newer core adds.
+  other(native.kErrorOther),
+
+  /// No answer from the server: the connection was refused, reset, timed
+  /// out or closed early, the host name did not resolve, TLS failed. A
+  /// retry may succeed.
+  network(native.kErrorNetwork),
+
+  /// The server answered with an HTTP status of 400 or more
+  /// ([LycheePlayerValue.httpStatus]), for the URL or what it references
+  /// (an HLS playlist, segment or key). 403 or 410 usually mean the URL
+  /// expired: fetch a fresh one.
+  http(native.kErrorHttp),
+
+  /// A local file cannot be opened or read.
+  file(native.kErrorFile),
+
+  /// Not media this build plays, or corrupt.
+  format(native.kErrorFormat),
+
+  /// The media's audio and video use codecs no decoder on this device
+  /// takes: try another quality or format.
+  codec(native.kErrorCodec),
+
+  /// A decoder failed while playing.
+  decode(native.kErrorDecode),
+
+  /// The input ended before its duration with no other cause known: a
+  /// truncated file, or a connection closed too early.
+  endedEarly(native.kErrorEndedEarly);
+
+  const LycheeErrorKind(this.value);
+  final int value;
+
+  static LycheeErrorKind fromValue(int value) => values.firstWhere(
+      (kind) => kind.value == value,
+      orElse: () => LycheeErrorKind.other);
+}
+
 /// What a track is for, as the container says. Matches lychee_track_role.
 enum LycheeTrackRole {
   main(native.kTrackRoleMain),
@@ -171,6 +217,8 @@ class LycheePlayerValue {
     this.videoSize,
     this.rotation = 0,
     this.error,
+    this.errorKind = LycheeErrorKind.none,
+    this.httpStatus,
     this.rate = 1.0,
     this.looping = false,
     this.seekable = false,
@@ -200,7 +248,18 @@ class LycheePlayerValue {
 
   /// Clockwise rotation in degrees.
   final int rotation;
+
+  /// Why the state is [LycheePlayerState.error], for people to read.
   final String? error;
+
+  /// What [error] is about; [LycheeErrorKind.other] for an error from a
+  /// core older than API 27.
+  final LycheeErrorKind errorKind;
+
+  /// The HTTP status for [LycheeErrorKind.http]; null if the platform's
+  /// client does not say which (FFmpeg's http on Linux tells only 400,
+  /// 401, 403 and 404 apart) and for other kinds.
+  final int? httpStatus;
 
   /// Playback speed; audio keeps its pitch.
   final double rate;
@@ -255,6 +314,8 @@ class LycheePlayerValue {
       videoSize == other.videoSize &&
       rotation == other.rotation &&
       error == other.error &&
+      errorKind == other.errorKind &&
+      httpStatus == other.httpStatus &&
       rate == other.rate &&
       looping == other.looping &&
       seekable == other.seekable &&
@@ -276,6 +337,8 @@ class LycheePlayerValue {
       videoSize,
       rotation,
       error,
+      errorKind,
+      httpStatus,
       rate,
       looping,
       seekable,
@@ -1121,11 +1184,23 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     final edge = native.playerGetLiveEdge?.call(_player) ?? -1;
 
     String? error;
+    var errorKind = LycheeErrorKind.none;
+    int? httpStatus;
     if (state == LycheePlayerState.error) {
       final buffer = calloc<Char>(512);
       native.playerGetError(_player, buffer, 512);
       error = buffer.cast<Utf8>().toDartString();
       calloc.free(buffer);
+      errorKind = LycheeErrorKind.other;
+      final getCode = native.playerGetErrorCode;
+      if (getCode != null) {
+        final status = calloc<Int32>();
+        errorKind = LycheeErrorKind.fromValue(getCode(_player, status));
+        if (errorKind == LycheeErrorKind.http && status.value > 0) {
+          httpStatus = status.value;
+        }
+        calloc.free(status);
+      }
     }
 
     value = LycheePlayerValue(
@@ -1138,6 +1213,8 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       videoSize: videoSize,
       rotation: native.playerGetVideoRotation(_player),
       error: error,
+      errorKind: errorKind,
+      httpStatus: httpStatus,
       rate: native.playerGetRate(_player),
       looping: native.playerIsLooping(_player) != 0,
       seekable: native.playerIsSeekable(_player) != 0,

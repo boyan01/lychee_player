@@ -261,7 +261,7 @@ pub enum Event {
     },
     /// The position the seek landed on.
     SeekCompleted(Duration),
-    /// [`Player::error`] has the details.
+    /// [`Player::error`] and [`Player::error_kind`] have the details.
     Error,
     /// A [`Player::select_track`] request was carried out.
     TracksChanged,
@@ -326,6 +326,54 @@ fn micros(us: i64) -> Duration {
 
 fn duration(us: i64) -> Option<Duration> {
     (us >= 0).then(|| micros(us))
+}
+
+/// What a [`Player::error`] is about, for deciding what to do next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ErrorKind {
+    /// None of the others (a URL scheme without a client, cleartext http
+    /// the platform refuses, ...), and kinds a newer core adds.
+    Other,
+    /// No answer from the server: the connection was refused, reset,
+    /// timed out or closed early, the host name did not resolve, TLS
+    /// failed. A retry may succeed.
+    Network,
+    /// The server answered with an HTTP status of 400 or more, for the
+    /// URL or what it references (an HLS playlist, segment or key); `None`
+    /// if the client does not say which (FFmpeg's http on Linux tells
+    /// only 400, 401, 403 and 404 apart). 403 or 410 usually mean the URL
+    /// expired.
+    Http { status: Option<u16> },
+    /// A local file cannot be opened or read.
+    File,
+    /// Not media this build plays, or corrupt.
+    Format,
+    /// The media's audio and video use codecs no decoder on this device
+    /// takes: try another quality or format.
+    Codec,
+    /// A decoder failed while playing.
+    Decode,
+    /// The input ended before its duration with no other cause known: a
+    /// truncated file, or a connection closed too early.
+    EndedEarly,
+}
+
+impl ErrorKind {
+    fn from_raw(raw: i32, status: i32) -> Option<ErrorKind> {
+        Some(match raw as u32 {
+            sys::LYCHEE_ERROR_NONE => return None,
+            sys::LYCHEE_ERROR_NETWORK => ErrorKind::Network,
+            sys::LYCHEE_ERROR_HTTP => ErrorKind::Http {
+                status: u16::try_from(status).ok().filter(|&status| status > 0),
+            },
+            sys::LYCHEE_ERROR_FILE => ErrorKind::File,
+            sys::LYCHEE_ERROR_FORMAT => ErrorKind::Format,
+            sys::LYCHEE_ERROR_CODEC => ErrorKind::Codec,
+            sys::LYCHEE_ERROR_DECODE => ErrorKind::Decode,
+            sys::LYCHEE_ERROR_ENDED_EARLY => ErrorKind::EndedEarly,
+            _ => ErrorKind::Other,
+        })
+    }
 }
 
 /// What a track is for, as the container says.
@@ -861,6 +909,13 @@ impl Player {
         read_string(|buffer, size| unsafe {
             sys::lychee_player_get_error(self.raw(), buffer, size)
         })
+    }
+
+    /// What [`Player::error`] is about; `None` without an error.
+    pub fn error_kind(&self) -> Option<ErrorKind> {
+        let mut status = 0;
+        let kind = unsafe { sys::lychee_player_get_error_code(self.raw(), &mut status) };
+        ErrorKind::from_raw(kind, status)
     }
 
     /// Available from [`Event::MediaInfo`] on.

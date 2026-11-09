@@ -57,6 +57,8 @@ class ProbingDemuxer : public Demuxer {
  private:
   // Makes |demuxer| the one calls go to; it may then open.
   void Adopt(std::unique_ptr<Demuxer> demuxer);
+  // Open(), with the demuxers' errors as they give them.
+  bool OpenInput(const std::string& url, std::string* error);
   // Opens |url| with the fallback, unless aborted. |why| is what the own
   // demuxers made of it, logged.
   bool OpenFallback(std::unique_ptr<DataSource> probed,

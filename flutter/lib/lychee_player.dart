@@ -3,6 +3,7 @@ library;
 export 'src/player.dart'
     show
         audioSpectrum,
+        LycheeErrorKind,
         LycheePlayer,
         LycheePlayerState,
         LycheePlayerStats,

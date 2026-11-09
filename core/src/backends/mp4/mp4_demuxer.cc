@@ -14,6 +14,7 @@
 #include "backends/hls/hls_playlist.h"
 #include "backends/mp4/mp4_subtitle.h"
 #include "base/log.h"
+#include "media/error.h"
 #include "media/subtitle_image.h"
 
 namespace lychee {
@@ -1777,7 +1778,9 @@ Mp4Demuxer::LoadResult Mp4Demuxer::LoadNextFragment() {
     std::vector<uint8_t> moof;
     result = ReadMoof(offset, size, &moof);
     if (result == LoadResult::kEnd) {
-      error_ = "input ended in a moof box (truncated file or lost connection)";
+      error_ = TagError(
+          ErrorKind::kEndedEarly,
+          "input ended in a moof box (truncated file or lost connection)");
       return LoadResult::kError;
     }
     if (result != LoadResult::kLoaded) {
@@ -2160,7 +2163,9 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
     if (file_size_ > 0 &&
         (sample.offset > static_cast<uint64_t>(file_size_) ||
          sample.size > static_cast<uint64_t>(file_size_) - sample.offset)) {
-      return Fail(sample.pts(), kEnded, "");
+      Fail(sample.pts(), kEnded, "");
+      error_ = TagError(ErrorKind::kEndedEarly, error_);
+      return DemuxerReadResult::kError;
     }
     std::shared_ptr<Buffer> buffer;
     try {
@@ -2178,8 +2183,12 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
         return DemuxerReadResult::kAborted;
       }
       if (n <= 0) {
-        return Fail(sample.pts(), kEnded,
-                    n < 0 ? source_->error().c_str() : "");
+        const std::string cause = n < 0 ? source_->error() : "";
+        Fail(sample.pts(), kEnded, cause.c_str());
+        // The read's cause if it had one (a dropped connection, an HTTP
+        // status on reconnecting).
+        error_ = ErrorTagOf(cause) + ErrorTag(ErrorKind::kEndedEarly) + error_;
+        return DemuxerReadResult::kError;
       }
       filled += static_cast<size_t>(n);
       read_end_ = static_cast<int64_t>(sample.offset + filled);

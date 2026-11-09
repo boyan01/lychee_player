@@ -9,6 +9,7 @@
 
 #include "backends/ffmpeg/ffmpeg_common.h"
 #include "base/time.h"
+#include "media/error.h"
 
 extern "C" {
 #include <libavformat/avio.h>
@@ -125,7 +126,7 @@ class FFmpegHttpDataSource : public DataSource {
       receive_micros_ += MonotonicMicros() - began;
     }
     if (ret < 0) {
-      SetError(url_ + ": " + AVErrorString(ret));
+      SetError(AVErrorTag(ret, true) + url_ + ": " + AVErrorString(ret));
       return false;
     }
     const int64_t size = avio_size(io_);
@@ -157,7 +158,7 @@ class FFmpegHttpDataSource : public DataSource {
       return 0;
     }
     if (ret < 0) {
-      SetError("read: " + AVErrorString(ret));
+      SetError(AVErrorTag(ret, true) + "read: " + AVErrorString(ret));
       return -1;
     }
     behind_.insert(behind_.end(), data, data + ret);
@@ -180,7 +181,8 @@ class FFmpegHttpDataSource : public DataSource {
     if (!near && seekable()) {
       const int64_t ret = avio_seek(io_, offset, SEEK_SET);
       if (ret < 0) {
-        SetError("seek: " + AVErrorString(static_cast<int>(ret)));
+        SetError(AVErrorTag(static_cast<int>(ret), true) +
+                 "seek: " + AVErrorString(static_cast<int>(ret)));
         return false;
       }
       position_ = behind_start_ = offset;
@@ -197,7 +199,8 @@ class FFmpegHttpDataSource : public DataSource {
                               offset - position_, sizeof(skipped))));
       if (ret <= 0) {
         if (ret == 0) {
-          SetError("read: unexpected end of data");
+          SetError(
+              TagError(ErrorKind::kNetwork, "read: unexpected end of data"));
         }
         return false;
       }

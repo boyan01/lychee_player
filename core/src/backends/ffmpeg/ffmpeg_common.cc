@@ -1,6 +1,9 @@
 #include "backends/ffmpeg/ffmpeg_common.h"
 
+#include <cerrno>
 #include <cstring>
+
+#include "media/error.h"
 
 extern "C" {
 #include <libavutil/error.h>
@@ -22,6 +25,48 @@ std::string AVErrorString(int error) {
   char buffer[AV_ERROR_MAX_STRING_SIZE] = {};
   av_strerror(error, buffer, sizeof(buffer));
   return buffer;
+}
+
+std::string AVErrorTag(int error, bool network) {
+  switch (error) {
+    case AVERROR_HTTP_BAD_REQUEST:
+      return ErrorTag(ErrorKind::kHttp, 400);
+    case AVERROR_HTTP_UNAUTHORIZED:
+      return ErrorTag(ErrorKind::kHttp, 401);
+    case AVERROR_HTTP_FORBIDDEN:
+      return ErrorTag(ErrorKind::kHttp, 403);
+    case AVERROR_HTTP_NOT_FOUND:
+      return ErrorTag(ErrorKind::kHttp, 404);
+#if defined(AVERROR_HTTP_TOO_MANY_REQUESTS)
+    case AVERROR_HTTP_TOO_MANY_REQUESTS:
+      return ErrorTag(ErrorKind::kHttp, 429);
+#endif
+    // FFmpeg's http keeps the exact status to itself.
+    case AVERROR_HTTP_OTHER_4XX:
+    case AVERROR_HTTP_SERVER_ERROR:
+      return ErrorTag(ErrorKind::kHttp, 0);
+    case AVERROR_INVALIDDATA:
+    case AVERROR_DEMUXER_NOT_FOUND:
+    case AVERROR_STREAM_NOT_FOUND:
+      return ErrorTag(ErrorKind::kFormat);
+    case AVERROR(ECONNREFUSED):
+    case AVERROR(ECONNRESET):
+    case AVERROR(ECONNABORTED):
+    case AVERROR(ETIMEDOUT):
+    case AVERROR(EHOSTUNREACH):
+    case AVERROR(ENETUNREACH):
+    case AVERROR(ENETDOWN):
+    case AVERROR(EPIPE):
+      return ErrorTag(ErrorKind::kNetwork);
+    case AVERROR(EIO):
+      return network ? ErrorTag(ErrorKind::kNetwork) : "";
+    case AVERROR(ENOENT):
+    case AVERROR(EACCES):
+    case AVERROR(EPERM):
+      return network ? "" : ErrorTag(ErrorKind::kFile);
+    default:
+      return "";
+  }
 }
 
 VideoCodec VideoCodecFromAVCodecID(AVCodecID id) {

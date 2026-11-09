@@ -92,7 +92,9 @@ extern "C" {
 // 25: lychee_player_set_next() and LYCHEE_EVENT_ITEM_CHANGED.
 // 26: lychee_player_switch_source() and lychee_player_set_next() take
 //    lychee_open_options, for request headers (no release had 24 or 25).
-#define LYCHEE_API_VERSION 26
+// 27: error kinds: lychee_player_get_error_code(), and
+//    LYCHEE_EVENT_ERROR's arg0 and arg1.
+#define LYCHEE_API_VERSION 27
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -234,7 +236,9 @@ typedef enum lychee_event_type {
   LYCHEE_EVENT_VIDEO_SIZE_CHANGED = 4,
   // arg0: position the seek landed on.
   LYCHEE_EVENT_SEEK_COMPLETED = 5,
-  // Details are available from lychee_player_get_error().
+  // Details are available from lychee_player_get_error(). From API
+  // version 27, arg0: the lychee_error_kind, arg1: the HTTP status for
+  // LYCHEE_ERROR_HTTP (lychee_player_get_error_code()).
   LYCHEE_EVENT_ERROR = 6,
   // A lychee_player_select_track() request was carried out; the selected
   // tracks may differ from the request if a decoder rejected one.
@@ -260,6 +264,40 @@ typedef enum lychee_event_type {
   // LYCHEE_EVENT_ERROR follows). LYCHEE_EVENT_MEDIA_INFO follows.
   LYCHEE_EVENT_ITEM_CHANGED = 11,
 } lychee_event_type;
+
+// API version 27. What an error is about (lychee_player_get_error_code()),
+// for an app to decide what to do next: a fresh URL for LYCHEE_ERROR_HTTP
+// 403 or 410, a retry for LYCHEE_ERROR_NETWORK, another quality or format
+// for LYCHEE_ERROR_CODEC. Values may be added; treat unknown ones as
+// LYCHEE_ERROR_OTHER.
+typedef enum lychee_error_kind {
+  LYCHEE_ERROR_NONE = 0,
+  // None of the others, e.g. a URL scheme without a client, an
+  // interrupted request, cleartext http the platform refuses.
+  LYCHEE_ERROR_OTHER = 1,
+  // No answer: the connection was refused, reset, timed out or closed
+  // before the end, the host name did not resolve, TLS failed.
+  LYCHEE_ERROR_NETWORK = 2,
+  // The server answered with an HTTP status of 400 or more, for the input
+  // or anything it references (an HLS playlist, segment or key). The
+  // status comes with it, or 0 where the client does not say which (on
+  // Linux FFmpeg's http tells only 400, 401, 403 and 404 apart).
+  LYCHEE_ERROR_HTTP = 3,
+  // A local file cannot be opened or read: missing, no permission.
+  LYCHEE_ERROR_FILE = 4,
+  // The input is not media this build plays, or is corrupt: an unknown
+  // or unsupported container, damaged data.
+  LYCHEE_ERROR_FORMAT = 5,
+  // The input's audio and video use codecs no decoder on this device
+  // takes.
+  LYCHEE_ERROR_CODEC = 6,
+  // A decoder failed while playing (corrupt data, hardware decoding
+  // failing with no fallback left).
+  LYCHEE_ERROR_DECODE = 7,
+  // The input ended before its declared duration with no other cause
+  // known: a truncated file, or a connection closed cleanly too early.
+  LYCHEE_ERROR_ENDED_EARLY = 8,
+} lychee_error_kind;
 
 typedef enum lychee_track_type {
   LYCHEE_TRACK_VIDEO = 1,
@@ -847,6 +885,11 @@ LYCHEE_EXPORT int32_t lychee_player_get_video_rotation(lychee_player* player);
 LYCHEE_EXPORT int32_t lychee_player_get_error(lychee_player* player,
                                               char* buffer,
                                               int32_t buffer_size);
+// API version 27. The lychee_error_kind of the last error
+// (LYCHEE_ERROR_NONE if there is none), and with |http_status| (may be
+// null) its HTTP status: for LYCHEE_ERROR_HTTP the response's, else 0.
+LYCHEE_EXPORT int32_t lychee_player_get_error_code(lychee_player* player,
+                                                   int32_t* http_status);
 
 // Tracks of the open media: audio, video and subtitle streams, in container
 // order. Available from LYCHEE_EVENT_MEDIA_INFO on; 0 before.

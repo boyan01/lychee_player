@@ -2,6 +2,12 @@
 
 ### New
 
+* Errors say what they are about: `LycheePlayerValue.errorKind`
+  (`LycheeErrorKind`: network, http, file, format, codec, decode,
+  ended early) and `httpStatus`, so an app can fetch a fresh URL after a
+  403 or 410, retry after a dropped connection, or pick another quality
+  when the codec is not supported. Linux reports only 400, 401, 403 and
+  404 by number; other statuses there come with a null `httpStatus`.
 * Tracks say what the media marks them as: `LycheeTrack.isDefault`,
   `isForced`, `role` (`LycheeTrackRole`: commentary, audio description,
   for the hearing impaired) and `bitrate` (bit/s, 0 if unknown), from

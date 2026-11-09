@@ -13,6 +13,7 @@
 #include "backends/ffmpeg/ffmpeg_common.h"
 #include "base/log.h"
 #include "base/time.h"
+#include "media/error.h"
 
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
 #include <cstddef>
@@ -299,7 +300,8 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
                                 &options);
   av_dict_free(&options);
   if (ret < 0) {
-    *error = "avformat_open_input: " + AVErrorString(ret);
+    *error = AVErrorTag(ret, IsNetworkUrl(url)) +
+             "avformat_open_input: " + AVErrorString(ret);
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
     if (!io_error_.empty()) {
       *error = io_error_;
@@ -319,7 +321,8 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
   }
   ret = avformat_find_stream_info(format_context_, nullptr);
   if (ret < 0) {
-    *error = "avformat_find_stream_info: " + AVErrorString(ret);
+    *error = AVErrorTag(ret, IsNetworkUrl(url)) +
+             "avformat_find_stream_info: " + AVErrorString(ret);
     return false;
   }
 #if !defined(LYCHEE_FFMPEG_DATA_SOURCE)
@@ -543,10 +546,15 @@ DemuxerReadResult FFmpegDemuxer::ReadFailed(int ret) {
     return DemuxerReadResult::kAborted;
   }
   if (ret == AVERROR(ENOMEM)) {
-    error_ = "out of memory";
+    error_ = TagError(ErrorKind::kOther, "out of memory");
     return DemuxerReadResult::kError;
   }
-  std::string cause = ret == AVERROR_EOF ? "" : AVErrorString(ret);
+  std::string cause =
+      ret == AVERROR_EOF
+          ? ""
+          : AVErrorTag(ret, format_context_ && format_context_->url &&
+                                IsNetworkUrl(format_context_->url)) +
+                AVErrorString(ret);
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
   if (ret != AVERROR_EOF && !io_error_.empty()) {
     cause = io_error_;
@@ -562,7 +570,9 @@ DemuxerReadResult FFmpegDemuxer::ReadFailed(int ret) {
              "(truncated file or lost connection)",
              (read_end_ - media_info_.start_time) / 1e6,
              media_info_.duration / 1e6);
-    error_ = message;
+    // The read's cause if it had one (a dropped connection, an HTTP
+    // status on reconnecting).
+    error_ = ErrorTagOf(cause) + ErrorTag(ErrorKind::kEndedEarly) + message;
     LOGE("%s%s%s", message, cause.empty() ? "" : ": ", cause.c_str());
     return DemuxerReadResult::kError;
   }
@@ -992,7 +1002,8 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
   // HLS checks only a file's extension).
   if (s->url && target != s->url && !MayOpenReference(s->url, target)) {
     self->io_error_ =
-        "may not open from " + std::string(s->url) + ": " + target;
+        TagError(ErrorKind::kOther,
+                 "may not open from " + std::string(s->url) + ": " + target);
     LOGE("%s", self->io_error_.c_str());
     return AVERROR(EACCES);
   }

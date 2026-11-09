@@ -515,6 +515,16 @@ JNIEXPORT jbyteArray JNICALL Java_tech_soit_lychee_LycheePlayer_nativeGetError(
   });
 }
 
+// The lychee_error_kind in the high 32 bits, the HTTP status in the low.
+JNIEXPORT jlong JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeGetErrorCode(JNIEnv*,
+                                                      jclass,
+                                                      jlong handle) {
+  int32_t status = 0;
+  const int32_t kind = lychee_player_get_error_code(Player(handle), &status);
+  return (static_cast<jlong>(kind) << 32) | static_cast<uint32_t>(status);
+}
+
 JNIEXPORT jint JNICALL Java_tech_soit_lychee_LycheePlayer_nativeGetTrackCount(
     JNIEnv*,
     jclass,

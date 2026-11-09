@@ -240,12 +240,18 @@ around today (its `lib/core/playback/lychee_engine.dart` marks each as
 reproduced on a device. Each item is finished on every binding it
 reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
 
-2. **Error kinds** (#16, #9): the error carries a code (network, HTTP
-   status, decoder, format) besides its message, so an app can tell a 403
-   (fetch a new URL) from a dropped connection (retry) from an unsupported
-   codec (another quality). Done when regression cases see each code.
-   Per-request observation (#9) only if it fits the ABI's plain-callback
-   rule cheaply; otherwise say so here.
+2. **Per-request observation** (#9): host, status and bytes of each
+   http request an input makes, for an app's network audit. Not cheap:
+   a plain-integer callback cannot carry a host, so it takes a pull API
+   (a ring of recent requests, `lychee_request_info` with `struct_size`
+   and a URL buffer), and the requests are made by four clients that know
+   no player (NSURLSession, `HttpURLConnection`, WinHTTP, FFmpeg's http on
+   Linux and its HLS through `io_open`): an observer has to go with the
+   headers through every opener (`OpenDataSource`, `CreateSharedOpener`,
+   the FFmpeg demuxer's), about as much as request headers took. FFmpeg's
+   own http (Linux) tells no status but 400, 401, 403 and 404 and no
+   bytes per request. Worth it once an app needs more than the error's
+   kind and status.
 7. **Android TV**: `content://` URIs (#17) for media and subtitle files,
    opened through `ContentResolver`; display mode matching (#19), the
    output refresh rate following the video's frame rate during playback

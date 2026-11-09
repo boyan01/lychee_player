@@ -259,6 +259,31 @@ const char* StateName(int32_t state) {
   return "?";
 }
 
+const char* ErrorKindName(int64_t kind) {
+  switch (kind) {
+    case LYCHEE_ERROR_NONE:
+      return "none";
+    case LYCHEE_ERROR_OTHER:
+      return "other";
+    case LYCHEE_ERROR_NETWORK:
+      return "network";
+    case LYCHEE_ERROR_HTTP:
+      return "http";
+    case LYCHEE_ERROR_FILE:
+      return "file";
+    case LYCHEE_ERROR_FORMAT:
+      return "format";
+    case LYCHEE_ERROR_CODEC:
+      return "codec";
+    case LYCHEE_ERROR_DECODE:
+      return "decode";
+    case LYCHEE_ERROR_ENDED_EARLY:
+      return "ended-early";
+    default:
+      return "?";
+  }
+}
+
 void OnEvent(void*, int32_t type, int64_t arg0, int64_t arg1) {
   switch (type) {
     case LYCHEE_EVENT_STATE_CHANGED:
@@ -297,7 +322,8 @@ void OnEvent(void*, int32_t type, int64_t arg0, int64_t arg1) {
       g_seek_completed = 1;
       break;
     case LYCHEE_EVENT_ERROR:
-      printf("event: error\n");
+      printf("event: error kind=%s status=%" PRId64 "\n", ErrorKindName(arg0),
+             arg1);
       break;
     case LYCHEE_EVENT_ITEM_CHANGED:
       printf("event: item changed, gapless %" PRId64 "\n", arg0);
@@ -2214,6 +2240,10 @@ int main(int argc, char** argv) {
       char error[512];
       lychee_player_get_error(player, error, sizeof(error));
       fprintf(stderr, "error: %s\n", error);
+      int32_t http_status = 0;
+      const int32_t kind = lychee_player_get_error_code(player, &http_status);
+      fprintf(stderr, "error kind: %s status=%d\n", ErrorKindName(kind),
+              http_status);
       exit_code = 1;
       break;
     }

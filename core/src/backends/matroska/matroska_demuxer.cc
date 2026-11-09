@@ -12,6 +12,7 @@
 #include <numeric>
 
 #include "base/log.h"
+#include "media/error.h"
 
 namespace lychee {
 
@@ -1488,10 +1489,16 @@ DemuxerReadResult MatroskaDemuxer::ParseNext() {
     return aborted_ || interrupted_ || source_->interrupted();
   };
   auto ended = [&](int64_t time) {
-    if (!source_->error().empty()) {
-      LOGW("read failed: %s", source_->error().c_str());
+    const std::string cause = source_->error();
+    if (!cause.empty()) {
+      LOGW("read failed: %s", cause.c_str());
     }
-    return Fail("input ended", " (truncated file or lost connection)", time);
+    const DemuxerReadResult result =
+        Fail("input ended", " (truncated file or lost connection)", time);
+    // The read's cause if it had one (a dropped connection, an HTTP
+    // status on reconnecting).
+    error_ = ErrorTagOf(cause) + ErrorTag(ErrorKind::kEndedEarly) + error_;
+    return result;
   };
   for (;;) {
     if (aborted_ || interrupted_) {

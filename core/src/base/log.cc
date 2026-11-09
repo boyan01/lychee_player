@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 
 #if defined(__ANDROID__)
@@ -43,6 +44,23 @@ const char* LevelName(LogLevel level) {
   return "?";
 }
 
+// Removes the kind tags error messages carry (media/error.h): "\x1f"
+// KIND ":" STATUS "\x1f".
+void DropErrorTags(char* message) {
+  char* out = message;
+  for (const char* in = message; *in;) {
+    if (*in == '\x1f') {
+      const char* end = std::strchr(in + 1, '\x1f');
+      if (end) {
+        in = end + 1;
+        continue;
+      }
+    }
+    *out++ = *in++;
+  }
+  *out = '\0';
+}
+
 }  // namespace
 
 void SetLogLevel(LogLevel level) {
@@ -70,6 +88,7 @@ void LogMessage(LogLevel level, const char* tag, const char* format, ...) {
   va_start(args, format);
   vsnprintf(message + prefix, sizeof(message) - prefix, format, args);
   va_end(args);
+  DropErrorTags(message);
 
   LogSink sink = nullptr;
   void* user_data = nullptr;

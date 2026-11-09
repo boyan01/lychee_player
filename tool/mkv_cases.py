@@ -11,6 +11,7 @@ MODE:
                  cluster's size is unknown, so the block is in bounds
   corrupt        noise from the middle of the file on
   truncated      the first 60% of the file
+  unknown-codecs the tracks' codec IDs are ones no decoder knows
 """
 
 import random
@@ -107,6 +108,13 @@ def main():
         data[middle:] = bytes(rng.randrange(256) for _ in range(len(data) - middle))
     elif mode == "truncated":
         del data[len(data) * 6 // 10:]
+    elif mode == "unknown-codecs":
+        # Same lengths, so no size changes.
+        for known, unknown_id in ((b"V_MPEG4/ISO/AVC", b"V_LYCHEE/NOPE/X"),
+                                  (b"A_AAC", b"A_XYZ")):
+            if data.count(known) != 1:
+                sys.exit("expected one codec ID " + known.decode())
+            data = data.replace(known, unknown_id)
     else:
         sys.exit("unknown mode: " + mode)
     open(target, "wb").write(data)

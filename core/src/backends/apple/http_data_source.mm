@@ -13,6 +13,7 @@
 
 #include "base/log.h"
 #include "base/time.h"
+#include "media/error.h"
 
 namespace lychee {
 
@@ -249,9 +250,11 @@ struct HttpState : std::enable_shared_from_this<HttpState> {
   auto* http = static_cast<NSHTTPURLResponse*>(response);
   NSInteger status = http.statusCode;
   if (status >= 400) {
-    state->error =
+    state->error = lychee::TagError(
+        lychee::ErrorKind::kHttp,
         "HTTP " + std::to_string(status) + " " +
-        [NSHTTPURLResponse localizedStringForStatusCode:status].UTF8String;
+            [NSHTTPURLResponse localizedStringForStatusCode:status].UTF8String,
+        static_cast<int>(status));
     // Server errors may pass; FFmpeg's reconnect_on_http_error=5xx.
     state->refused = status < 500;
     state->complete = true;
@@ -336,7 +339,14 @@ struct HttpState : std::enable_shared_from_this<HttpState> {
   state->complete = true;
   state->EndSpan();
   if (error && state->error.empty()) {
-    state->error = error.localizedDescription.UTF8String ?: "network error";
+    // NSURLErrorDomain's errors are the connection's, but for a policy
+    // that no retry gets past.
+    const bool network =
+        [error.domain isEqualToString:NSURLErrorDomain] &&
+        error.code != NSURLErrorAppTransportSecurityRequiresSecureConnection;
+    state->error = lychee::TagError(
+        network ? lychee::ErrorKind::kNetwork : lychee::ErrorKind::kOther,
+        error.localizedDescription.UTF8String ?: "network error");
   }
   if (error.code == NSURLErrorAppTransportSecurityRequiresSecureConnection) {
     state->cleartext_refused = true;
@@ -448,7 +458,8 @@ int64_t HttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
           // The connection broke (or closed early): ask again from here.
           if (state.refused || state.retries >= kMaxRetries) {
             if (state.error.empty()) {
-              state.error = "connection closed before the end";
+              state.error = TagError(ErrorKind::kNetwork,
+                                     "connection closed before the end");
             }
             return -1;
           }

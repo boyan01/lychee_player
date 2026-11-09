@@ -9,6 +9,8 @@
 #include <mutex>
 #include <thread>
 
+#include "media/error.h"
+
 #if defined(__APPLE__)
 #include "backends/apple/http_data_source.h"
 #elif defined(__ANDROID__)
@@ -79,12 +81,12 @@ class FileDataSource : public DataSource {
 
   int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
     if (Seek(file_, offset, SEEK_SET) != 0) {
-      error_ = ErrorString(errno);
+      error_ = TagError(ErrorKind::kFile, ErrorString(errno));
       return -1;
     }
     size_t read = std::fread(data, 1, size, file_);
     if (read == 0 && std::ferror(file_)) {
-      error_ = ErrorString(errno);
+      error_ = TagError(ErrorKind::kFile, ErrorString(errno));
       std::clearerr(file_);
       return -1;
     }
@@ -378,12 +380,12 @@ std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
       return OpenFFmpegHttpDataSource(url, error, headers);
 #else
       (void)headers;
-      *error = "no HTTP client in this build";
+      *error = TagError(ErrorKind::kOther, "no HTTP client in this build");
       return nullptr;
 #endif
     }
     if (scheme != "file") {
-      *error = "unsupported URL scheme: " + scheme;
+      *error = TagError(ErrorKind::kOther, "unsupported URL scheme: " + scheme);
       return nullptr;
     }
     path = url.substr(scheme_end + 3);
@@ -396,7 +398,7 @@ std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
   }
   std::FILE* file = OpenFile(path);
   if (!file) {
-    *error = path + ": " + ErrorString(errno);
+    *error = TagError(ErrorKind::kFile, path + ": " + ErrorString(errno));
     return nullptr;
   }
   Seek(file, 0, SEEK_END);

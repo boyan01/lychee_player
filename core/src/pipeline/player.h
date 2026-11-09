@@ -15,6 +15,7 @@
 
 #include "media/data_source.h"
 #include "media/demuxer.h"
+#include "media/error.h"
 #include "pipeline/audio_renderer.h"
 #include "pipeline/live_demuxer.h"
 #include "pipeline/media_clock.h"
@@ -233,6 +234,8 @@ class Player {
   bool video_size(int* width, int* height) const;
   int video_rotation() const;
   std::string error() const;
+  // What the last error() is about.
+  ErrorCode error_code() const;
   PlayerStats stats() const;
   // Under virtual time (base/time.h): whether playback can move on to
   // system time |until| without waiting for data. False while loading,
@@ -701,6 +704,7 @@ class Player {
   double rate_ = 1.0;
   bool looping_ = false;
   std::string error_;
+  ErrorCode error_code_;
   MediaInfo media_info_;
   // The demuxer's variants(), SelectVariant() and SetMaxBitrate().
   std::vector<VariantInfo> variants_;

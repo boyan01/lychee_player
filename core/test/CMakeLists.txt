@@ -9,6 +9,7 @@ add_executable(lychee_unittests
   audio_timestamp_follower_test.cc
   cpu_frame_converter_test.cc
   data_source_test.cc
+  error_test.cc
   decode_order_timestamps_test.cc
   live_demuxer_test.cc
   live_timeline_test.cc

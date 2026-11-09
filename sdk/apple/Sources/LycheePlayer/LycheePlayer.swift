@@ -26,7 +26,7 @@ public final class LycheePlayer {
     case videoSizeChanged(CGSize)
     /// The position the seek landed on.
     case seekCompleted(TimeInterval)
-    /// ``error`` says which.
+    /// ``error`` says which, and ``errorKind`` what it is about.
     case error
     case tracksChanged
     /// ``subtitle`` has the new text. With `pictures`, the subtitle is drawn
@@ -46,6 +46,34 @@ public final class LycheePlayer {
     /// switched to it (or it failed to open, and ``error`` follows).
     /// ``mediaInfo`` follows.
     case itemChanged(gapless: Bool)
+  }
+
+  /// What an ``error`` is about, for deciding what to do next. Matches
+  /// lychee_error_kind.
+  public enum ErrorKind: Equatable {
+    /// None of the others (a URL scheme without a client, cleartext http
+    /// App Transport Security refuses, ...), and kinds a newer core adds.
+    case other
+    /// No answer from the server: the connection was refused, reset, timed
+    /// out or closed early, the host name did not resolve, TLS failed. A
+    /// retry may succeed.
+    case network
+    /// The server answered with an HTTP status of 400 or more, for the URL
+    /// or what it references (an HLS playlist, segment or key). 403 or 410
+    /// usually mean the URL expired: fetch a fresh one.
+    case http(status: Int)
+    /// A local file cannot be opened or read.
+    case file
+    /// Not media this build plays, or corrupt.
+    case format
+    /// The media's audio and video use codecs no decoder on this device
+    /// takes: try another quality or format.
+    case codec
+    /// A decoder failed while playing.
+    case decode
+    /// The input ended before its duration with no other cause known: a
+    /// truncated file, or a connection closed too early.
+    case endedEarly
   }
 
   /// What a track is for, as the container says. Matches
@@ -451,6 +479,23 @@ public final class LycheePlayer {
   public var error: String? {
     guard state == .error else { return nil }
     return readString { lychee_player_get_error(handle, $0, $1) }
+  }
+
+  /// What ``error`` is about, once the state is ``State/error``.
+  public var errorKind: ErrorKind? {
+    guard state == .error else { return nil }
+    var status: Int32 = 0
+    switch UInt32(bitPattern: lychee_player_get_error_code(handle, &status)) {
+    case LYCHEE_ERROR_NONE.rawValue: return nil
+    case LYCHEE_ERROR_NETWORK.rawValue: return .network
+    case LYCHEE_ERROR_HTTP.rawValue: return .http(status: Int(status))
+    case LYCHEE_ERROR_FILE.rawValue: return .file
+    case LYCHEE_ERROR_FORMAT.rawValue: return .format
+    case LYCHEE_ERROR_CODEC.rawValue: return .codec
+    case LYCHEE_ERROR_DECODE.rawValue: return .decode
+    case LYCHEE_ERROR_ENDED_EARLY.rawValue: return .endedEarly
+    default: return .other
+    }
   }
 
   public var tracks: [Track] {

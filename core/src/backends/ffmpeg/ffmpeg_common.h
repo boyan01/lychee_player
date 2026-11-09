@@ -31,6 +31,10 @@ struct FFmpegCodecParams : public CodecPrivate {
 };
 
 std::string AVErrorString(int error);
+// The kind tag (media/error.h) for FFmpeg's |error|, or "" if it has no
+// kind. |network| for errors of a network URL, where EIO is what FFmpeg's
+// tcp returns for a host name that does not resolve.
+std::string AVErrorTag(int error, bool network);
 
 VideoCodec VideoCodecFromAVCodecID(AVCodecID id);
 AudioCodec AudioCodecFromAVCodecID(AVCodecID id);

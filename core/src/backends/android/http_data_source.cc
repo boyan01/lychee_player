@@ -15,6 +15,7 @@
 #include "backends/android/jvm.h"
 #include "base/log.h"
 #include "base/time.h"
+#include "media/error.h"
 
 namespace lychee {
 
@@ -218,7 +219,8 @@ class HttpDataSource : public DataSource {
         if (size_ < 0 || end() >= size_) {
           return 0;
         }
-        error_ = "connection closed before the end";
+        error_ =
+            TagError(ErrorKind::kNetwork, "connection closed before the end");
       }
       // The connection broke or closed early: ask again from here.
       if (!WaitToRetry(offset)) {
@@ -327,7 +329,7 @@ class HttpDataSource : public DataSource {
     }
     if (refused_ || retries_ >= kMaxRetries) {
       if (error_.empty()) {
-        error_ = "connection failed";
+        error_ = TagError(ErrorKind::kNetwork, "connection failed");
       }
       return false;
     }
@@ -463,6 +465,8 @@ class HttpDataSource : public DataSource {
       if (status < 400) {
         // A redirect to http, or one too many.
         error_ += " to " + HeaderField(env, jni_, connection, "Location");
+      } else {
+        error_ = TagError(ErrorKind::kHttp, error_, status);
       }
       // Server errors may pass; FFmpeg's reconnect_on_http_error=5xx.
       refused_ = status < 500;
@@ -519,7 +523,10 @@ class HttpDataSource : public DataSource {
     std::string error = TakeException(env);
     std::lock_guard<std::mutex> lock(mutex_);
     if (error_.empty()) {
-      error_ = error.empty() ? "network error" : error;
+      // Java's IOExceptions from the connection; what another try would
+      // meet again (a malformed URL) is not the network's.
+      error_ = TagError(refused ? ErrorKind::kOther : ErrorKind::kNetwork,
+                        error.empty() ? "network error" : error);
     }
     refused_ = refused;
     return false;

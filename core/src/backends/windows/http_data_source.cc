@@ -15,6 +15,7 @@
 
 #include "base/log.h"
 #include "base/time.h"
+#include "media/error.h"
 
 namespace lychee {
 
@@ -255,7 +256,7 @@ struct WinHttpState {
         if (opened) {
           WinHttpCloseHandle(opened);
         }
-        error = ErrorString(failure);
+        error = TagError(ErrorKind::kNetwork, ErrorString(failure));
         complete = true;
         condition.notify_all();
         continue;
@@ -282,8 +283,10 @@ struct WinHttpState {
                         WINHTTP_HEADER_NAME_BY_INDEX, &status, &length,
                         WINHTTP_NO_HEADER_INDEX);
     if (status >= 400) {
-      error = "HTTP " + std::to_string(status) + " " +
-              Narrow(Header(response, WINHTTP_QUERY_STATUS_TEXT));
+      error = TagError(ErrorKind::kHttp,
+                       "HTTP " + std::to_string(status) + " " +
+                           Narrow(Header(response, WINHTTP_QUERY_STATUS_TEXT)),
+                       static_cast<int>(status));
       // Server errors may pass; FFmpeg's reconnect_on_http_error=5xx.
       refused = status < 500;
       complete = true;
@@ -347,7 +350,7 @@ struct WinHttpState {
       }
       if (!ok || read == 0) {
         if (!ok && error.empty()) {
-          error = ErrorString(failure);
+          error = TagError(ErrorKind::kNetwork, ErrorString(failure));
         }
         complete = true;
         condition.notify_all();
@@ -486,7 +489,8 @@ int64_t WinHttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
         // The connection broke (or closed early): ask again from here.
         if (state.refused || state.retries >= kMaxRetries) {
           if (state.error.empty()) {
-            state.error = "connection closed before the end";
+            state.error = TagError(ErrorKind::kNetwork,
+                                   "connection closed before the end");
           }
           return -1;
         }

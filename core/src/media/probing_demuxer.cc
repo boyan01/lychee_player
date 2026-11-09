@@ -21,6 +21,7 @@
 #include "backends/mpegps/ps_demuxer.h"
 #include "base/log.h"
 #include "media/data_source.h"
+#include "media/error.h"
 #if defined(_WIN32)
 #include "backends/media_foundation/mf_asf_demuxer.h"
 #endif
@@ -78,7 +79,18 @@ bool ProbingDemuxer::OpenFallback(std::unique_ptr<DataSource> probed,
   return opening->Open(url, error);
 }
 
+// The demuxers' own errors are about the data they read (not media they
+// know, corrupt, truncated headers); those of reading it are tagged with
+// the source's kind already.
 bool ProbingDemuxer::Open(const std::string& url, std::string* error) {
+  const bool opened = OpenInput(url, error);
+  if (!opened && !aborted_) {
+    *error = TagError(ErrorKind::kFormat, std::move(*error));
+  }
+  return opened;
+}
+
+bool ProbingDemuxer::OpenInput(const std::string& url, std::string* error) {
   std::unique_ptr<DataSource> source = OpenDataSource(url, error, headers_);
   if (!source) {
     // Another scheme (data:, rtsp://), or http without a client.
@@ -271,7 +283,8 @@ void ProbingDemuxer::Abort() {
 }
 
 std::string ProbingDemuxer::error() const {
-  return demuxer_ ? demuxer_->error() : "";
+  std::string error = demuxer_ ? demuxer_->error() : "";
+  return error.empty() ? error : TagError(ErrorKind::kFormat, std::move(error));
 }
 
 int64_t ProbingDemuxer::download_rate() const {

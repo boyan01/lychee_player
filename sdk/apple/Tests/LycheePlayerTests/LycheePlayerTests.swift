@@ -117,6 +117,22 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(player.volume, 0.5)
   }
 
+  func testErrorKinds() {
+    let player = LycheePlayer()
+    var failed = expectation(description: "error")
+    player.onEvent = { event in
+      if case .error = event { failed.fulfill() }
+    }
+    player.open("/tmp/lychee-media/not_media.dat")
+    wait(for: [failed], timeout: 10)
+    XCTAssertEqual(player.errorKind, .format)
+    failed = expectation(description: "error again")
+    player.open("/tmp/lychee-media/missing.mp4")
+    wait(for: [failed], timeout: 10)
+    XCTAssertEqual(player.errorKind, .file)
+    XCTAssertTrue(player.error?.contains("missing.mp4") ?? false)
+  }
+
   func testSwitchSourceKeepsPositionAndSize() throws {
     let other = "/tmp/lychee-media/h264_aac.mkv"
     try XCTSkipUnless(FileManager.default.fileExists(atPath: other), "run tool/regression.sh first")

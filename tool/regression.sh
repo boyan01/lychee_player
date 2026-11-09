@@ -526,7 +526,7 @@ mkv_case() {
   [ -f "$out" ] || python3 -I "$root/tool/mkv_cases.py" "$2" "$media/h264_aac.mkv" "$out" ||
     { rm -f "$out"; exit 1; }
 }
-for mode in no-cues unknown-sizes huge-tracks huge-block corrupt truncated; do
+for mode in no-cues unknown-sizes huge-tracks huge-block corrupt truncated unknown-codecs; do
   mkv_case "mkv_${mode//-/_}.mkv" "$mode"
 done
 gen flac.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=440:sample_rate=44100 -map 0:v -map 1:a -t 5 \
@@ -959,6 +959,8 @@ plays_without_ffmpeg() {
     avi-mpeg4 | seek-avi-mpeg4) [ "$windows" = 1 ] || return 1 ;;
     # Windows uses the Store AV1 extension; Apple needs newer hardware.
     av1-software | av1-mp4-software) [ "$windows" = 1 ] || return 1 ;;
+    # Not media, in either build.
+    error-format) return 0 ;;
   esac
   local arg
   for arg in "$@"; do
@@ -1503,7 +1505,8 @@ if [ "${NO_FFMPEG:-0}" = 1 ]; then
   exits=1 par expect mkv-huge-block "state=error" "error: block at 5\.[0-9]{3} s .* too large" -- \
     "$media/mkv_huge_block.mkv"
   exits=1 par expect mkv-corrupt "state=error" "error: corrupt data at 6\." -- "$media/mkv_corrupt.mkv"
-  exits=1 par expect mkv-truncated "state=error" "error: input ended at 7\." -- "$media/mkv_truncated.mkv"
+  exits=1 par expect mkv-truncated "state=error" "error: input ended at 7\." \
+    "error kind: ended-early status=0" -- "$media/mkv_truncated.mkv"
 fi
 # Fragmented MP4: seeks through mfra, into the moov's own samples,
 # through a sidx, by reading the moofs (to a keyframe in an earlier
@@ -1730,7 +1733,20 @@ serve() {
 }
 trap 'stop_server; rm -rf "$results"' EXIT
 
-exits=1 par expect truncated-file "state=error" "error: input ended at" -- "$media/truncated.mp4"
+exits=1 par expect truncated-file "state=error" "error: input ended at" "error kind: ended-early status=0" \
+  -- "$media/truncated.mp4"
+# Error kinds (lychee_player_get_error_code()), here for local input and
+# below for http: a file that is not there, one that is not media (what
+# a captive portal answers), and media whose codecs no decoder knows.
+[ -f "$media/not_media.dat" ] ||
+  printf '<!DOCTYPE html>\n<html><body><p>Please log in to continue.</p></body></html>\n' \
+    >"$media/not_media.dat"
+exits=1 par expect error-file "event: error kind=file status=0" "error kind: file status=0" -- \
+  "$media/missing.mp4"
+exits=1 par expect error-format "event: error kind=format status=0" "error kind: format status=0" -- \
+  "$media/not_media.dat"
+exits=1 par expect error-codec "event: error kind=codec status=0" "error kind: codec status=0" \
+  "error: no playable audio or video stream" -- "$media/mkv_unknown_codecs.mkv"
 par expect resolution-change "video size 1280x720" "video size 640x360" "state=ended" -- \
   "$media/resolution_change.ts"
 # Damaged MPEG-TS: continuity errors pass the damaged data on (audio
@@ -1743,7 +1759,8 @@ par expect ts-lost-packets "summary: state=ended position=12\.0" -- --audio-only
 par expect ts-lost-packets-video "summary: state=ended position=12\.0.* rendered=([3-9][0-9]|[1-9][0-9]{2,}) " -- \
   "$media/ts_lost_packets_keyframes.ts"
 par expect ts-corrupt "summary: state=ended position=0\.[89]" -- "$media/corrupt.ts"
-exits=1 par expect corrupt-file "state=error" "error: (audio|video) decoding failed" -- "$media/corrupt.mp4"
+exits=1 par expect corrupt-file "state=error" "error: (audio|video) decoding failed" \
+  "error kind: decode status=0" -- "$media/corrupt.mp4"
 # A next item still opening when the input ends: buffering, then a
 # switch to it.
 serve --latency 1
@@ -1851,15 +1868,18 @@ elif [ "$windows" = 1 ]; then
   refuse=(--refuse-after-seconds 2)
   refuse_realtime=1
 fi
+# The demuxer's cause is the seek's error kind (checked here on macOS).
+seek_kind="error kind: "
+[ "$(uname)" = Darwin ] && seek_kind="error kind: http status=403"
 serve "${refuse[@]}"
 realtime=$refuse_realtime exits=1 seq_ expect http-seek-failed "403 [Ff]orbidden" "error: seek failed" \
-  "summary: state=error" "<=0 seek completed" "<=0 event: state ended" -- \
+  "$seek_kind" "summary: state=error" "<=0 seek completed" "<=0 event: state ended" -- \
   --seek 6 --seek-after 5 "http://127.0.0.1:$port/offset.ts"
 # A failed read-ahead loop is an input error after the buffered pass,
 # not an EOF that silently schedules another seek on the control thread.
 serve "${refuse[@]}"
 realtime=$refuse_realtime exits=1 seq_ expect http-loop-seek-failed "403 [Ff]orbidden" "error: loop seek failed" \
-  "summary: state=error" "<=0 loop to" "<=0 seek completed" \
+  "$seek_kind" "summary: state=error" "<=0 loop to" "<=0 seek completed" \
   "<=0 event: state ended" -- --loop "http://127.0.0.1:$port/offset.ts"
 serve
 seq_ check http-ts 1 - -- "http://127.0.0.1:$port/offset.ts"
@@ -1922,7 +1942,8 @@ fi
 need_header=(--require-header Referer "https://example.com/" --require-header X-Token "a b;c")
 with_header=(--header "Referer: https://example.com/" --header "X-Token:a b;c")
 serve "${need_header[@]}" --redirect /moved.mp4 /faststart.mp4
-exits=1 seq_ expect http-headers-refused "403" "<=0 summary: state=ended" -- "$url"
+exits=1 seq_ expect http-headers-refused "403" "<=0 summary: state=ended" \
+  "event: error kind=http status=403" "error kind: http status=403" -- "$url"
 seq_ expect http-headers "event: subtitle [0-9]+ added" "subtitle at [01]\.[0-9]{3}s: Hello world$" \
   "summary: state=ended position=12\.000s" -- "${with_header[@]}" \
   --add-subtitle "http://127.0.0.1:$port/subs.srt" "http://127.0.0.1:$port/moved.mp4"
@@ -2169,7 +2190,27 @@ fi
 # sends, and twice on CI the open itself got the 503 (taken to be a
 # request it made after the drop; not reproduced here).
 serve --drop-at 3000000 --refuse-after-drop --rate 2000
-exits=1 seq_ expect http-lost "state=error" "error: input ended at" -- "$url"
+# The reconnection's 503 is the error's kind. FFmpeg's http (Linux) tells
+# no 5xx apart, and may report the end of the file instead.
+lost_kind="http status=503"
+[ "$(uname)" = Linux ] && lost_kind="(http status=0|ended-early status=0)"
+exits=1 seq_ expect http-lost "state=error" "error: input ended at" "error kind: $lost_kind" -- "$url"
+# Error kinds of http input: a refused connection; a status for the input
+# and for an HLS segment, with the status (FFmpeg's http on Linux tells
+# only 400, 401, 403 and 404 apart).
+other_status() { if [ "$(uname)" = Linux ]; then echo 0; else echo "$1"; fi; }
+exits=1 seq_ expect error-network "event: error kind=network status=0" "error kind: network status=0" -- \
+  "http://127.0.0.1:1/faststart.mp4"
+serve --status /gone.mp4 410 --status /broken.mp4 500 --status /hls/seg2.ts 410
+exits=1 seq_ expect error-http-404 "event: error kind=http status=404" "error kind: http status=404" -- \
+  "http://127.0.0.1:$port/missing.mp4"
+exits=1 seq_ expect error-http-410 "error kind: http status=$(other_status 410)" -- \
+  "http://127.0.0.1:$port/gone.mp4"
+exits=1 seq_ expect error-http-500 "error kind: http status=$(other_status 500)" -- \
+  "http://127.0.0.1:$port/broken.mp4"
+# FFmpeg's HLS (Windows, Android) skips a segment it cannot fetch.
+[ "$own_ts" = 1 ] &&
+  exits=1 seq_ expect error-hls-segment "error kind: http status=$(other_status 410)" -- "http://127.0.0.1:$port/hls/index.m3u8"
 # Slower than the bitrate: rebuffer in long stretches, not every few frames.
 serve --rate 550
 # The http clients measure what arrives: 550 kB/s.

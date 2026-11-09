@@ -7,7 +7,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use lychee::{
-    Config, Event, FrameType, Player, State, SubtitleOptions, TrackRole, TrackType,
+    Config, ErrorKind, Event, FrameType, Player, State, SubtitleOptions, TrackRole, TrackType,
 };
 
 fn media(name: &str) -> String {
@@ -141,6 +141,7 @@ fn plays_seeks_and_ends() {
     assert!(!stats.startup_time.is_zero(), "{stats:?}");
     assert_eq!(stats.seek_count, 1, "{stats:?}");
     assert_eq!(player.error(), None);
+    assert_eq!(player.error_kind(), None);
 }
 
 #[test]
@@ -433,4 +434,18 @@ fn subtitle_pictures() {
     assert_eq!(&image.data[middle..middle + 4], &[255, 255, 255, 255]);
     let again = player.acquire_subtitle(0, 960, 540).unwrap();
     assert_eq!(again.id(), subtitle.id());
+}
+
+#[test]
+fn error_kinds() {
+    // A file that is not media (tool/regression.sh writes it).
+    let (player, events) = open_file(&media("not_media.dat"));
+    wait_for(&player, &events, |event| matches!(event, Event::Error));
+    assert_eq!(player.state(), State::Error);
+    assert_eq!(player.error_kind(), Some(ErrorKind::Format));
+    // One that is not there.
+    player.open(&media("missing.mp4")).unwrap();
+    wait_for(&player, &events, |event| matches!(event, Event::Error));
+    assert_eq!(player.error_kind(), Some(ErrorKind::File));
+    assert!(player.error().unwrap().contains("missing.mp4"));
 }

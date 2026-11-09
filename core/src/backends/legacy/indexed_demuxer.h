@@ -10,6 +10,7 @@
 
 #include "media/data_source.h"
 #include "media/demuxer.h"
+#include "media/error.h"
 
 namespace lychee {
 
@@ -143,7 +144,9 @@ class IndexedDemuxer : public Demuxer {
         const int64_t n = source_->Read(at, cache_.data(), cache_.size());
         if (n <= 0 || n > static_cast<int64_t>(cache_.size())) {
           cache_.clear();
-          error_ = n < 0 ? source_->error() : "truncated container";
+          error_ =
+              n < 0 ? source_->error()
+                    : TagError(ErrorKind::kEndedEarly, "truncated container");
           return false;
         }
         cache_.resize(static_cast<size_t>(n));

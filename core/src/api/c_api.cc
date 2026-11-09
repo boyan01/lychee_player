@@ -691,6 +691,15 @@ int32_t lychee_player_get_error(lychee_player* player,
   return CopyString(player->player->error(), buffer, buffer_size);
 }
 
+int32_t lychee_player_get_error_code(lychee_player* player,
+                                     int32_t* http_status) {
+  const lychee::ErrorCode code = player->player->error_code();
+  if (http_status) {
+    *http_status = code.http_status;
+  }
+  return static_cast<int32_t>(code.kind);
+}
+
 void lychee_player_get_stats(lychee_player* player, lychee_stats* stats) {
   lychee_stats result = {};
   lychee::PlayerStats player_stats = player->player->stats();

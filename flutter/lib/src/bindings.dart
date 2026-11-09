@@ -68,6 +68,16 @@ const int kTrackVideo = 1;
 const int kTrackAudio = 2;
 const int kTrackSubtitle = 3;
 
+const int kErrorNone = 0;
+const int kErrorOther = 1;
+const int kErrorNetwork = 2;
+const int kErrorHttp = 3;
+const int kErrorFile = 4;
+const int kErrorFormat = 5;
+const int kErrorCodec = 6;
+const int kErrorDecode = 7;
+const int kErrorEndedEarly = 8;
+
 const int kTrackRoleMain = 0;
 const int kTrackRoleCommentary = 1;
 const int kTrackRoleDescription = 2;
@@ -347,6 +357,14 @@ final playerGetVideoRotation = _library.lookupFunction<
 final playerGetError = _library.lookupFunction<
     Int32 Function(Pointer<Void>, Pointer<Char>, Int32),
     int Function(Pointer<Void>, Pointer<Char>, int)>('lychee_player_get_error');
+
+/// Null with a core older than API 27.
+final int Function(Pointer<Void>, Pointer<Int32>)? playerGetErrorCode =
+    _library.providesSymbol('lychee_player_get_error_code')
+        ? _library.lookupFunction<Int32 Function(Pointer<Void>, Pointer<Int32>),
+                int Function(Pointer<Void>, Pointer<Int32>)>(
+            'lychee_player_get_error_code')
+        : null;
 
 final playerGetStats = _library.lookupFunction<
     Void Function(Pointer<Void>, Pointer<LycheeStats>),

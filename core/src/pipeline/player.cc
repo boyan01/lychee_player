@@ -10,12 +10,25 @@
 
 #include "base/log.h"
 #include "base/thread_name.h"
+#include "media/error.h"
 #include "media/factory.h"
 #include "media/subtitle_file.h"
 
 namespace lychee {
 
 namespace {
+
+// Input with audio or video that no decoder takes has a codec this
+// device does not decode; input with neither is not media to play.
+std::string NoPlayableStream(const MediaInfo& info) {
+  const bool any = std::any_of(info.streams.begin(), info.streams.end(),
+                               [](const StreamInfo& stream) {
+                                 return stream.type == MediaType::kVideo ||
+                                        stream.type == MediaType::kAudio;
+                               });
+  return TagError(any ? ErrorKind::kCodec : ErrorKind::kFormat,
+                  "no playable audio or video stream");
+}
 
 // Keep reading until each active stream has this much queued (and after a
 // stall, wait for this much before playing again)...
@@ -272,6 +285,7 @@ void Player::StopPipeline() {
     track_request_ = TrackRequest();
     input_error_.clear();
     error_.clear();
+    error_code_ = ErrorCode();
     media_info_ = MediaInfo();
     variants_.clear();
     selected_variant_ = -1;
@@ -1464,6 +1478,11 @@ std::string Player::error() const {
   return error_;
 }
 
+ErrorCode Player::error_code() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return error_code_;
+}
+
 PlayerStats Player::stats() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return StatsLocked();
@@ -2138,7 +2157,7 @@ bool Player::Prepare(const std::string& url, std::string* error) {
     audio = CreateAudioRenderer(info.streams[info.default_audio_stream]);
   }
   if (!video && !audio) {
-    *error = "no playable audio or video stream";
+    *error = NoPlayableStream(info);
     return false;
   }
   for (const StreamInfo& stream : info.streams) {
@@ -2312,7 +2331,7 @@ void Player::ChangeTracks(const TrackRequest& request) {
   EnableStreamsLocked();
   // A live input may have no tracks for a while.
   if (!video_renderer_ && !audio_renderer_ && !live_) {
-    FailLocked("no playable audio or video stream");
+    FailLocked(NoPlayableStream(media_info_));
   }
   if (request.tracks_changed()) {
     PostEventLocked(PlayerEvent::kTracksChanged);
@@ -2524,7 +2543,7 @@ bool Player::WrapLoop() {
     // EOF and retry it from the control thread. A pending request or
     // shutdown may have interrupted this read-ahead seek intentionally.
     if (!quit_ && !seek_pending_ && !track_request_.pending()) {
-      input_error_ = "loop seek failed";
+      input_error_ = ErrorTagOf(demuxer_->error()) + "loop seek failed";
     }
     return false;
   }
@@ -2655,7 +2674,7 @@ void Player::ProcessSeek(int64_t target,
     // renderers still have buffered data from before the seek.
     if (!quit_ && !seek_pending_ && !track_request_.pending() &&
         state_ != PlayerState::kError) {
-      FailLocked("seek failed");
+      FailLocked(ErrorTagOf(demuxer_->error()) + "seek failed");
     }
     return;
   }
@@ -2770,10 +2789,11 @@ void Player::UpdateStateLocked() {
   CheckVideoRendererLocked();
   if (state_ != PlayerState::kError) {
     if (video_renderer_ && video_renderer_->HasError()) {
-      FailLocked(std::string("video decoding failed (") +
-                 video_renderer_->decoder_name() + ")");
+      FailLocked(TagError(ErrorKind::kDecode,
+                          std::string("video decoding failed (") +
+                              video_renderer_->decoder_name() + ")"));
     } else if (audio_renderer_ && audio_renderer_->HasError()) {
-      FailLocked("audio decoding failed");
+      FailLocked(TagError(ErrorKind::kDecode, "audio decoding failed"));
     }
   }
   if (live_) {
@@ -3154,8 +3174,10 @@ void Player::DispatchEvents() {
 
 void Player::FailLocked(const std::string& error) {
   error_ = error;
+  error_code_ = TakeErrorCode(&error_);
   SetStateLocked(PlayerState::kError);
-  PostEventLocked(PlayerEvent::kError);
+  PostEventLocked(PlayerEvent::kError, static_cast<int64_t>(error_code_.kind),
+                  error_code_.http_status);
 }
 
 }  // namespace lychee
