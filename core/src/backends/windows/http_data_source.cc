@@ -340,9 +340,17 @@ struct WinHttpState {
       }
       const int64_t began = MonotonicMicros();
       lock->unlock();
+      // What has arrived, at most a chunk: a synchronous WinHttpReadData
+      // waits until it fills the buffer, so bytes that came before a
+      // stall would wait with it.
+      DWORD available = 0;
       DWORD read = 0;
-      const BOOL ok = WinHttpReadData(response, chunk->data(),
-                                      static_cast<DWORD>(chunk->size()), &read);
+      BOOL ok = WinHttpQueryDataAvailable(response, &available);
+      if (ok && available > 0) {
+        ok = WinHttpReadData(
+            response, chunk->data(),
+            std::min(available, static_cast<DWORD>(chunk->size())), &read);
+      }
       const DWORD failure = ok ? 0 : GetLastError();
       lock->lock();
       if (shutdown || generation != served) {

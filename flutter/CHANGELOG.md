@@ -86,6 +86,9 @@
   10 ms, and a running `fade` stops.
 * HLS that plays through FFmpeg now reports the variant bandwidth in
   `LycheePlayerStats.variantBandwidth`.
+* Windows: http(s) input no longer holds back data that has arrived
+  until 64 KB of it has, so opens and seeks on a slow or stalling
+  connection start as soon as the data is there.
 
 ## 1.0.0
 
