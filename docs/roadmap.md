@@ -122,6 +122,15 @@ building on top of them.
   on to the window's start. Done when a regression case pauses past the
   window and plays on from its start.
 
+- **Mono audio level**: the FFmpeg backend upmixes mono to stereo 3 dB
+  down (swresample's center mix level, 1/sqrt(2) per channel), while
+  AudioToolbox and Android's `ChannelMatrix` copy it to both channels
+  at full level, so a mono file plays 3 dB quieter with FFmpeg than
+  without (`h264_aac.mp4`: peak 0.13 against 0.19; Windows' Media
+  Foundation and Linux unchecked). Done when every backend plays mono
+  at one level (copying it, as Chromium's `ChannelMixer` does) and
+  `audio-gain-peak` checks that one level.
+
 - **Android Surface snapshots**: `LycheePlayerView.snapshot()` uses
   PixelCopy, whose padded-YUV Surface readback applies a crop/scale that
   differs from the screen compositor. Actual MPEG-2 output and compositor

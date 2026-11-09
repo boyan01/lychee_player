@@ -1316,13 +1316,16 @@ par audio audio-seek-ts "$media/keyframes.ts" -- --seconds 4 --seek 5.237 --seek
 par audio audio-seek-fmp4 "$media/frag.mp4" -- --seconds 4 --seek 5.237 --seek-after 1
 par audio audio-track "$media/tracks.mkv" -- --seconds 3 --select audio:2 --select-after 1
 par audio audio-stop "$media/h264_aac.mp4" -- --seconds 1.5
-# The sine peaks at 1/8 of full scale: +24 dB would clip it, so the
-# limit holds it at full scale (known from the decoded audio, or from
-# the peak given); steps grow with the gain. The pulls (the first starts
-# recording) match what was played.
+# The mono AAC decodes to a peak of 0.19 (the sine's 1/8 plus the
+# codec's overshoot), which FFmpeg's backend upmixes to 0.13 per channel
+# and the others to 0.19 (roadmap, Known defects): +24 dB would clip
+# either, so the limit holds it at full scale (known from the decoded
+# audio), and a given peak of 0.25 at 4 times that, 0.53 or 0.76. Steps
+# grow with the gain. The pulls (the first starts recording) match what
+# was played.
 par audio audio-gain "$media/h264_aac.mp4" --threshold 0.04 --min-peak 0.95 --max-peak 1 -- \
   --seconds 3 --gain 24 --audio-samples 1:256 --audio-samples 1.5:2048 --audio-samples 2.5:4096
-par audio audio-gain-peak "$media/h264_aac.mp4" --threshold 0.02 --min-peak 0.45 --max-peak 0.6 -- \
+par audio audio-gain-peak "$media/h264_aac.mp4" --threshold 0.02 --min-peak 0.45 --max-peak 0.85 -- \
   --seconds 2 --gain 24:0.25
 # Down to silence and back without a click; pulled during the fade.
 par audio audio-fade "$media/h264_aac.mp4" --expect-gap 300 -- --seconds 3.5 \
