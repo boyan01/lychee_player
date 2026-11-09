@@ -211,6 +211,70 @@ What the review of 2026-11-02 found and left, by expected gain.
      swscale's reference (`hdr_pq_bars.mp4`: 27.9 dB), and HLG comes out
      darker (98 for a 0.5 signal against 142); that is Apple's mapping.
 
+## TV Play gaps
+
+What TV Play (an Android TV and desktop app on the Flutter plugin) works
+around today (its `lib/core/playback/lychee_engine.dart` marks each as
+`gap #N`, the numbers below). Read from the beta.7 Dart API; none was
+reproduced on a device. Each item is finished on every binding it
+reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
+
+1. **Request headers** (#1, #12): `open` and `addSubtitle` take HTTP
+   headers (User-Agent, Referer, Cookie) that every request of that input
+   carries: HLS variants, segments, keys, `EXT-X-MAP` and renditions, on
+   every platform's HTTP stack and FFmpeg's. `addSubtitle` can add a
+   track without selecting it. Done when a regression case against a
+   server that refuses requests without the header plays MP4, HLS
+   (renditions and keys included) and a subtitle URL.
+2. **Error kinds** (#16, #9): the error carries a code (network, HTTP
+   status, decoder, format) besides its message, so an app can tell a 403
+   (fetch a new URL) from a dropped connection (retry) from an unsupported
+   codec (another quality). Done when regression cases see each code.
+   Per-request observation (#9) only if it fits the ABI's plain-callback
+   rule cheaply; otherwise say so here.
+3. **Track details** (#13): tracks report default, forced, a role (main,
+   commentary, description, from Matroska flags, MP4 `kind`, HLS
+   `CHARACTERISTICS`) and bitrate. Also check, and fix where they fail,
+   two claims TV Play could not confirm: HLS `EXT-X-MEDIA` audio
+   renditions appear as audio tracks that `selectTrack` switches, and
+   bitmap subtitles (PGS) can be selected and turned off (the Dart doc of
+   `selectTrack` says bitmap subtitles are rejected).
+4. **HLS variants and live window** (#14, #18, #8): list a master
+   playlist's variants (resolution, bandwidth, codecs), pin one or go
+   back to automatic, and cap the bitrate. Live HLS with a window (EVENT,
+   or a long sliding playlist) reports a seekable range and the live
+   edge, and seeks within it. Done when regression cases switch variants
+   and seek back in a live window.
+5. **Audio gain, fades and analysis** (#7, #6): a gain in dB that may
+   boost (above 0 dB, limited so peaks do not clip), a fade to a volume
+   over a duration, and the PCM (or spectrum) playing now, pulled by the
+   caller in the ABI's pull style, for visualizers. Done when
+   `tool/audio_check.py` cases show the gain, a click-free fade, and the
+   pulled samples matching what the device played.
+6. **Source lifecycle** (#11, #15, #4, #5): close what is open (back to
+   IDLE, decoders and input released, the texture kept); open at a start
+   position without decoding the start first; switch to another URL of
+   the same content at the current position keeping the last frame on
+   screen until the new one comes (quality or mirror switch); open the
+   next item ahead so it starts without a gap (music queue, next
+   episode). Done when regression cases show each, and the gapless one
+   by `tool/audio_check.py`.
+7. **Android TV**: `content://` URIs (#17) for media and subtitle files,
+   opened through `ContentResolver`; display mode matching (#19), the
+   output refresh rate following the video's frame rate during playback
+   and restored after. The refresh rate switch needs a TV that offers
+   several modes: waiting on the user once built.
+8. **Separate audio, and DASH** (#2, #3): open a video URL with
+   separate audio URLs, which appear as audio tracks; MPEG-DASH
+   manifests (`.mpd`: segment templates and lists, several
+   Representations and AdaptationSets for audio and subtitles) without
+   FFmpeg. Done when regression cases play both, switch the audio
+   track and seek.
+9. **Thumbnails** (#10): a frame at a given time, decoded apart from
+   playback, for seek previews without sprite sheets.
+10. **Styled ASS** (#20): ASS shows as plain text (decided 2026-10-27,
+    no libass). Reopen only if the user decides anime subtitles need it.
+
 ## FFmpeg-free builds
 
 The goal is FFmpeg-free builds on Apple platforms, Windows and Android;
