@@ -85,6 +85,7 @@ if(ANDROID)
     src/backends/android/subtitle_image.cc
     src/backends/android/text_encoding.cc
     src/backends/android/aaudio_sink.cc
+    src/backends/android/content_data_source.cc
     src/backends/android/http_data_source.cc
     src/backends/android/jvm.cc
     src/backends/android/media_codec_video_decoder.cc

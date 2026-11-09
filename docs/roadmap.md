@@ -252,11 +252,12 @@ reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
    own http (Linux) tells no status but 400, 401, 403 and 404 and no
    bytes per request. Worth it once an app needs more than the error's
    kind and status.
-7. **Android TV**: `content://` URIs (#17) for media and subtitle files,
-   opened through `ContentResolver`; display mode matching (#19), the
-   output refresh rate following the video's frame rate during playback
-   and restored after. The refresh rate switch needs a TV that offers
-   several modes: waiting on the user once built.
+7. **Android TV**: display mode matching (#19), the output refresh rate
+   following the video's frame rate during playback and restored after.
+   The refresh rate switch needs a TV that offers several modes: waiting
+   on the user once built. `content://` from a real DocumentsProvider
+   (a USB drive through the Storage Access Framework) is checked only
+   with the SDK example's own provider on the emulator.
 8. **Separate audio, and DASH** (#2, #3): open a video URL with
    separate audio URLs, which appear as audio tracks; MPEG-DASH
    manifests (`.mpd`: segment templates and lists, several

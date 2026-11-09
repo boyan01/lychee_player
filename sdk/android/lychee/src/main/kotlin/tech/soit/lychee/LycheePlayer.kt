@@ -1,5 +1,6 @@
 package tech.soit.lychee
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.Handler
@@ -222,6 +223,12 @@ class LycheePlayer @JvmOverloads constructor(
     /**
      * Opens a file path or URL. Calling it again replaces the current media;
      * volume, rate, looping and play/pause are kept.
+     *
+     * `content://` URIs (the Storage Access Framework's documents, a USB
+     * drive's) play in place, read through `ContentResolver`, once
+     * [setContext] has been called; subtitle files, [switchSource] and
+     * [setNext] take them too. A provider that streams through a pipe
+     * plays without seeking.
      *
      * Every http(s) request of the input carries [headers] ("User-Agent",
      * "Referer", "Cookie", any other): the URL, its redirects, and for HLS
@@ -660,6 +667,14 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic
         fun destroyHandle(handle: Long) = nativeDestroy(handle, 0)
 
+        /**
+         * Lets players open `content://` URIs, through [context]'s
+         * application `ContentResolver`; the first call counts.
+         * [LycheePlayerView] and the Flutter plugin call it.
+         */
+        @JvmStatic
+        fun setContext(context: Context) = nativeSetContext(context)
+
         private val mainHandler = Handler(Looper.getMainLooper())
 
         init {
@@ -669,6 +684,8 @@ class LycheePlayer @JvmOverloads constructor(
             System.loadLibrary("lychee_jni")
         }
 
+        // In liblychee, which keeps the Context for content://.
+        @JvmStatic private external fun nativeSetContext(context: Context)
         @JvmStatic private external fun nativeCreate(hardwareDecoding: Boolean, video: Boolean): Long
         @JvmStatic private external fun nativeSetEventSink(handle: Long, sink: Any): Long
         @JvmStatic private external fun nativeDestroy(handle: Long, sink: Long)

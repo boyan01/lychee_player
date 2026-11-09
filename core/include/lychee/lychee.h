@@ -638,6 +638,11 @@ LYCHEE_EXPORT void lychee_player_clear_event_callback(lychee_player* player);
 // Opens a file path or URL asynchronously. Progress is reported through
 // LYCHEE_EVENT_STATE_CHANGED. Returns 0 if the request was accepted.
 //
+// On Android it also takes content:// URIs, read through the
+// ContentResolver of the Context given to the SDK's
+// LycheePlayer.setContext() (its LycheePlayerView and the Flutter plugin
+// call it), as every other call that takes a URL does.
+//
 // Calling it again stops what is open (the state returns to IDLE, then
 // LOADING) and opens |url| on the same player. The event callback, volume,
 // rate, looping and play/pause are kept.

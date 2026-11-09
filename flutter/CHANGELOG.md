@@ -51,6 +51,11 @@
   track, the next episode) ahead, so it starts when the current one ends
   without the wait of an open; `itemChanges` reports when it does. Media
   with the same codecs and format plays on without a gap.
+* Android: `open`, `addSubtitle`, `switchSource` and `setNext` take
+  `content://` URIs (a file picked through the Storage Access Framework,
+  a USB drive's), read in place through the `ContentResolver` without
+  copying. Native SDK users call `LycheePlayer.setContext(context)` once
+  (`LycheePlayerView` does).
 
 ### Fixed
 

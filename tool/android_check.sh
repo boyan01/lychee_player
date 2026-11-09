@@ -29,6 +29,8 @@
 #    MediaCodec frames (including system software decoding) use --matrix
 #    bt601: the emulator's compositor converts them so; docs/development.md,
 #    "Checking frames by pixels").
+#    h264_aac.mp4 also plays from a content:// URI, from a file
+#    descriptor (with subs.srt from one too) and from a pipe.
 #    LYCHEE_FFMPEG_EXTENSION=1 loads the optional backend and also checks
 #    encrypted HLS through FFmpeg's fallback and its memory data source.
 #
@@ -204,11 +206,26 @@ cases=(h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8)
 if [ "$ffmpeg_extension" = 1 ]; then
   cases+=(hls_aes/ts_fallback.m3u8 hls_aes/fmp4_fallback.m3u8)
 fi
+# content:// through the example's MediaProvider, which serves its files
+# directory: as a file descriptor (read in place) and as a pipe (read
+# from the start). With the extension FFmpeg demuxes it, through the
+# core's ContentResolver source. Needs run-as (a debug build).
+if [ -n "$file_access" ]; then
+  adb push "$media/h264_aac.mp4" "$media/subs.srt" /data/local/tmp/ >/dev/null
+  adb shell "$file_access cp /data/local/tmp/h264_aac.mp4 /data/local/tmp/subs.srt $files/"
+  adb shell rm -f /data/local/tmp/h264_aac.mp4 /data/local/tmp/subs.srt
+  cases+=(content/h264_aac.mp4 content_pipe/h264_aac.mp4)
+fi
+content=content://$package.media
 for file in "${cases[@]}"; do
   modes="false true"
   seek=()
+  extra=()
   reference="$file"
+  url="http://127.0.0.1:$port/$file"
   case "$file" in
+    content/*) reference="${file#*/}"; url="$content/$reference"; extra=(--es subtitle "$content/subs.srt") ;;
+    content_pipe/*) modes=true; reference="${file#*/}"; url="$content/pipe/$reference" ;;
     hls_aes/ts.m3u8 | hls_aes/ts_fallback.m3u8) modes=true; seek=(--es seek 1:6); reference=hls/index.m3u8 ;;
     hls_aes/fmp4.m3u8 | hls_aes/fmp4_fallback.m3u8) modes=true; seek=(--es seek 1:6); reference=hls_fmp4/index.m3u8 ;;
   esac
@@ -224,8 +241,8 @@ for file in "${cases[@]}"; do
     adb shell "$file_access rm -f $files/$name-a.ppm $files/$name-b.ppm"
     extension_args=()
     [ "$ffmpeg_extension" != 1 ] || extension_args=(--es ffmpeg load)
-    adb shell am start -n "$package/.MainActivity" ${extension_args[@]+"${extension_args[@]}"} --es url "http://127.0.0.1:$port/$file" \
-      --ez hw "$hw" ${seek[@]+"${seek[@]}"} ${recreate[@]+"${recreate[@]}"} --es snapshot "2:${snapshot_prefix}$name-a.ppm,3.5:${snapshot_prefix}$name-b.ppm" >/dev/null
+    adb shell am start -n "$package/.MainActivity" ${extension_args[@]+"${extension_args[@]}"} --es url "$url" \
+      --ez hw "$hw" ${seek[@]+"${seek[@]}"} ${extra[@]+"${extra[@]}"} ${recreate[@]+"${recreate[@]}"} --es snapshot "2:${snapshot_prefix}$name-a.ppm,3.5:${snapshot_prefix}$name-b.ppm" >/dev/null
     log=""
     for _ in $(seq 60); do
       # A recreation can log the same path twice; the last line describes
@@ -248,6 +265,14 @@ for file in "${cases[@]}"; do
     for suffix in a b; do
       adb exec-out $file_access cat "$files/$name-$suffix.ppm" >"$snaps/$name-$suffix.ppm"
     done
+    if [[ "$file" = content/* ]] && ! grep -q 'subtitle at .*: [^n]' "$snaps/$name.logcat.txt"; then
+      echo "the content:// subtitle file showed no text"
+      failed=1
+    fi
+    if [[ "$file" = content_pipe/* ]] && ! grep -q 'is a stream' "$snaps/$name.logcat.txt"; then
+      echo "the pipe was not read as a stream"
+      failed=1
+    fi
     if [[ "$file" = hls_aes/* ]]; then
       if [[ "$file" = *_fallback.m3u8 ]]; then
         if ! grep -q 'the fallback opens it' "$snaps/$name.logcat.txt" ||

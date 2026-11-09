@@ -14,6 +14,7 @@
 #if defined(__APPLE__)
 #include "backends/apple/http_data_source.h"
 #elif defined(__ANDROID__)
+#include "backends/android/content_data_source.h"
 #include "backends/android/http_data_source.h"
 #elif defined(_WIN32)
 #include <windows.h>
@@ -384,6 +385,11 @@ std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
       return nullptr;
 #endif
     }
+#if defined(__ANDROID__)
+    if (scheme == "content") {
+      return OpenContentDataSource(url, error);
+    }
+#endif
     if (scheme != "file") {
       *error = TagError(ErrorKind::kOther, "unsupported URL scheme: " + scheme);
       return nullptr;

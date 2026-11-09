@@ -18,6 +18,8 @@
 // "subtitle_encoding" extra's encoding (default: guessed); "subtitle_delay"
 // (seconds) shows subtitles that much later. Subtitle text is logged as it
 // changes: subtitle at SECs: TEXT.
+// "url" may be content://tech.soit.lychee.example.media/NAME (or
+// .../pipe/NAME) for a file in the app's files directory (MediaProvider).
 
 package tech.soit.lychee.example
 
@@ -67,6 +69,8 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // For content:// URLs; the player opens before the view exists.
+        LycheePlayer.setContext(this)
         // Reflection is only for this harness: the same example also builds
         // without the optional AAR. Apps call LycheeFFmpeg.load() directly.
         val extension = intent.getStringExtra("ffmpeg")

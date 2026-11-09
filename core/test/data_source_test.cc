@@ -120,6 +120,15 @@ TEST(DataSource, MayOpenReference) {
   EXPECT_TRUE(MayOpenReference(share, "//nas/media/show/s.ts"));
   EXPECT_TRUE(MayOpenReference("\\\\nas\\media\\a.mp4", "//NAS/media/a.png"));
   EXPECT_TRUE(!MayOpenReference(share, "//attacker.example/media/s.ts"));
+  // An Android content provider's media: the network and that provider.
+  const std::string provider = "content://com.example.files/hls/index.m3u8";
+  EXPECT_TRUE(MayOpenReference(provider, "content://com.example.files/hls/s"));
+  EXPECT_TRUE(MayOpenReference(provider, "https://cdn.example/s.ts"));
+  EXPECT_TRUE(!MayOpenReference(provider, "content://com.example.filesx/s"));
+  EXPECT_TRUE(!MayOpenReference(provider, "content://other/hls/s.ts"));
+  EXPECT_TRUE(!MayOpenReference(provider, "/data/data/app/secret"));
+  EXPECT_TRUE(!MayOpenReference(provider, "file:///sdcard/a.ts"));
+  EXPECT_TRUE(!MayOpenReference("content://bare", "content://bare/a"));
 }
 
 TEST(PrefetchingDataSource, ReadsAheadThenPassesOn) {

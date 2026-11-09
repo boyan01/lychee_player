@@ -60,8 +60,9 @@ bool IsNetworkUrl(const std::string& url) {
 }
 
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
-// What OpenDataSource reads: paths, file:// and http(s)://. FFmpeg opens
-// the rest itself (data:, and AES-128 HLS segments without a key option).
+// What OpenDataSource reads: paths, file://, http(s):// and on Android
+// content://. FFmpeg opens the rest itself (data:, and AES-128 HLS
+// segments without a key option).
 bool ReadsThroughDataSource(const std::string& url) {
   size_t colon = url.find(':');
   if (colon == std::string::npos || url.find('/') < colon) {
@@ -84,6 +85,12 @@ bool ReadsThroughDataSource(const std::string& url) {
     return true;
 #endif
   }
+#if defined(__ANDROID__)
+  // Only ContentResolver opens it.
+  if (scheme == "content") {
+    return true;
+  }
+#endif
   return scheme == "file";
 }
 

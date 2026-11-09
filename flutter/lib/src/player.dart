@@ -523,6 +523,10 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   /// Opens [url]. Calling it again replaces the current media on this
   /// player; volume, rate, looping and play/pause are kept.
   ///
+  /// On Android [url] can be a `content://` URI (a file picked through the
+  /// Storage Access Framework, a USB drive's), read in place; so can
+  /// [addSubtitle], [switchSource] and [setNext]'s.
+  ///
   /// Every http(s) request of the input carries [headers] ('User-Agent',
   /// 'Referer', 'Cookie', any other): the URL, its redirects, and for HLS
   /// every playlist, segment, key, `EXT-X-MAP` and rendition. Throws an

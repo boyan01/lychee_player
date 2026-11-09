@@ -16,5 +16,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- content:// media for the player; see MediaProvider.kt. -->
+        <provider
+            android:name=".MediaProvider"
+            android:authorities="tech.soit.lychee.example.media"
+            android:exported="false" />
     </application>
 </manifest>

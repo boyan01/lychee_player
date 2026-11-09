@@ -83,6 +83,7 @@ class LycheePlayerView @JvmOverloads constructor(
     }
 
     init {
+        LycheePlayer.setContext(context)
         setBackgroundColor(Color.BLACK)
         addView(subtitleView)
     }

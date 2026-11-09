@@ -78,7 +78,8 @@ std::vector<std::pair<std::string, std::string>> SplitHttpHeaders(
 
 // Blocking. A path or file:// URL, or http(s):// where the platform has a
 // client (Apple, Windows; Android with a Java VM) or FFmpeg's (Linux),
-// whose requests carry |headers| (normalized). Null with |error| set if it
+// whose requests carry |headers| (normalized); on Android also content://
+// (backends/android/content_data_source.h). Null with |error| set if it
 // cannot be opened.
 std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
                                            std::string* error,
@@ -86,7 +87,8 @@ std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
 
 // Whether media read from |base| may make the player open |url|, a
 // reference it resolved (an HLS segment, key or variant, an IMSC
-// image): media from the network reaches only the network, and no media
+// image): media from the network reaches only the network, media from
+// an Android content provider only the network and that provider, and no media
 // reaches a Windows UNC path (//host/share) on a host other than its
 // own, which Windows would log in to with the user's credentials. The
 // caller's own URLs are not references. Inline, as the Android FFmpeg
@@ -100,6 +102,12 @@ inline bool MayOpenReference(const std::string& base, const std::string& url) {
   }
   if (http(base)) {
     return false;
+  }
+  if (base.starts_with("content://")) {
+    // content://AUTHORITY/...
+    const size_t authority_end = base.find('/', 10);
+    return authority_end != std::string::npos &&
+           url.compare(0, authority_end + 1, base, 0, authority_end + 1) == 0;
   }
   // The host of the UNC path a local URL opens (OpenDataSource drops
   // file://), lowercase, or empty for another path.

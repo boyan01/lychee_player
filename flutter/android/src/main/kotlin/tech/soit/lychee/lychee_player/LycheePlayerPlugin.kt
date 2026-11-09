@@ -24,6 +24,8 @@ class LycheePlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 .getMethod("load").invoke(null)
         }
         context = binding.applicationContext
+        // Dart's players open content:// URIs through it.
+        LycheePlayer.setContext(context)
         textureRegistry = binding.textureRegistry
         channel = MethodChannel(binding.binaryMessenger, "lychee_player")
         channel.setMethodCallHandler(this)
