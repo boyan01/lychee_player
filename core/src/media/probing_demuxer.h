@@ -33,7 +33,10 @@ class ProbingDemuxer : public Demuxer {
   using Fallback = std::function<std::unique_ptr<Demuxer>(
       std::unique_ptr<DataSource> probed)>;
 
-  explicit ProbingDemuxer(Fallback fallback = nullptr);
+  // Every http(s) request of the input carries |headers|
+  // (NormalizeHttpHeaders()); the fallback is the caller's to give them.
+  explicit ProbingDemuxer(Fallback fallback = nullptr,
+                          std::string headers = {});
   ~ProbingDemuxer() override;
 
   const char* name() const override;
@@ -59,6 +62,7 @@ class ProbingDemuxer : public Demuxer {
                     std::string* error);
 
   const Fallback fallback_;
+  const std::string headers_;
   std::mutex mutex_;
   // The source read for the first bytes, while it is.
   DataSource* probing_ = nullptr;

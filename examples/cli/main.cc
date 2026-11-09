@@ -147,6 +147,11 @@ struct Options {
   // guessed).
   std::vector<std::string> add_subtitles;
   std::string subtitle_encoding;
+  // Add them without selecting them.
+  bool subtitle_keep_selection = false;
+  // HTTP request headers for every URL opened, subtitles included:
+  // "Name: value" lines.
+  std::string headers;
   // Seconds to show subtitles later (negative: earlier).
   double subtitle_delay = 0;
   // Frames to write as they would be shown (tool/frame_check.py), by time.
@@ -454,6 +459,12 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       const char* v = value();
       if (!v) return false;
       options->add_subtitles.push_back(v);
+    } else if (arg == "--subtitle-keep-selection") {
+      options->subtitle_keep_selection = true;
+    } else if (arg == "--header") {
+      const char* v = value();
+      if (!v) return false;
+      options->headers.append(v).append("\r\n");
     } else if (arg == "--subtitle-encoding") {
       const char* v = value();
       if (!v) return false;
@@ -536,6 +547,16 @@ const char* TrackTypeName(int32_t type) {
       return "subtitle";
   }
   return "?";
+}
+
+// lychee_player_open() with the --header lines.
+int32_t Open(lychee_player* player,
+             const Options& options,
+             const std::string& url) {
+  lychee_open_options open_options = {};
+  open_options.struct_size = sizeof(open_options);
+  open_options.headers = options.headers.c_str();
+  return lychee_player_open_with_options(player, url.c_str(), &open_options);
 }
 
 void PrintTracks(lychee_player* player) {
@@ -1238,6 +1259,7 @@ int main(int argc, char** argv) {
         "[--live-stall SEC FOR] [--live-flush SEC] [--live-gap SEC FOR] "
         "[--live-audio-gap SEC FOR] [--live-audio-jump SEC]] "
         "[--add-subtitle URL]... [--subtitle-encoding NAME] "
+        "[--subtitle-keep-selection] [--header 'NAME: VALUE']... "
         "[--subtitle-delay SEC] [--subtitle-ppm FILE] [--frame-ppm "
         "SEC:FILE]... [--virtual-time] "
         "[--null-audio] [--verbose] [--audio-dump FILE] [--pause SEC FOR] "
@@ -1327,19 +1349,23 @@ int main(int argc, char** argv) {
       fprintf(stderr, "cannot read %s\n", options.url.c_str());
       return 1;
     }
-  } else if (lychee_player_open(player, options.url.c_str()) != 0) {
+  } else if (Open(player, options, options.url) != 0) {
     fprintf(stderr, "open rejected\n");
     return 1;
   }
   lychee_player_set_subtitle_delay(
       player, static_cast<int64_t>(options.subtitle_delay * 1e6));
   for (const std::string& subtitle : options.add_subtitles) {
-    const char* encoding = options.subtitle_encoding.empty()
-                               ? nullptr
-                               : options.subtitle_encoding.c_str();
+    lychee_subtitle_options subtitle_options = {};
+    subtitle_options.struct_size = sizeof(subtitle_options);
+    subtitle_options.encoding = options.subtitle_encoding.empty()
+                                    ? nullptr
+                                    : options.subtitle_encoding.c_str();
+    subtitle_options.headers = options.headers.c_str();
+    subtitle_options.keep_selection = options.subtitle_keep_selection ? 1 : 0;
     printf("add subtitle %s: %d\n", subtitle.c_str(),
-           lychee_player_add_subtitle(player, subtitle.c_str(), nullptr,
-                                      nullptr, encoding));
+           lychee_player_add_subtitle_with_options(player, subtitle.c_str(),
+                                                   &subtitle_options));
   }
   // Start after the early returns above; the only exit below stops and joins
   // the thread before destroying the player. std::jthread is still experimental
@@ -1360,7 +1386,7 @@ int main(int argc, char** argv) {
   bool reopened = false;
   if (options.reopen_after == 0) {
     printf("open -> %s\n", options.reopen_url.c_str());
-    lychee_player_open(player, options.reopen_url.c_str());
+    Open(player, options, options.reopen_url);
     reopened = true;
   }
 
@@ -1821,7 +1847,7 @@ int main(int argc, char** argv) {
         now - ready_wall >= static_cast<int64_t>(options.reopen_after * 1e6)) {
       reopened = true;
       printf("open -> %s\n", options.reopen_url.c_str());
-      lychee_player_open(player, options.reopen_url.c_str());
+      Open(player, options, options.reopen_url);
       // A new timeline.
       last_pts = INT64_MIN;
       ready_wall = 0;
@@ -1838,7 +1864,7 @@ int main(int argc, char** argv) {
         const std::string& url =
             soak_on_alternate ? options.soak_url : options.url;
         printf("soak: open -> %s\n", url.c_str());
-        lychee_player_open(player, url.c_str());
+        Open(player, options, url);
         last_pts = INT64_MIN;
         ready_wall = 0;
         soak_next = 0;

@@ -33,7 +33,9 @@ struct FFmpegHost {
 };
 
 struct FFmpegBackend {
-  std::unique_ptr<Demuxer> (*demuxer)(std::unique_ptr<DataSource>);
+  // The probe's source (or null) and the input's HTTP headers.
+  std::unique_ptr<Demuxer> (*demuxer)(std::unique_ptr<DataSource>,
+                                      const std::string&);
   std::unique_ptr<VideoDecoder> (*video)(bool, uint32_t, const VideoDevice&);
   std::unique_ptr<AudioDecoder> (*audio)();
   std::unique_ptr<SubtitleDecoder> (*subtitle)();

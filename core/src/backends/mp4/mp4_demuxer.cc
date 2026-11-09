@@ -495,7 +495,10 @@ bool Mp4Demuxer::Open(std::unique_ptr<DataSource> source,
                       const std::string& base_url,
                       DataSourceOpener opener) {
   base_url_ = base_url;
-  opener_ = opener ? std::move(opener) : OpenDataSource;
+  opener_ = opener ? std::move(opener)
+                   : [](const std::string& url, std::string* why) {
+                       return OpenDataSource(url, why);
+                     };
   {
     std::lock_guard<std::mutex> lock(source_mutex_);
     source_ = std::move(source);

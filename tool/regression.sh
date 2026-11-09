@@ -1590,6 +1590,12 @@ par expect subtitle-file-ts "track 2: subtitle webvtt .*external$" "subtitle at 
   "subtitle at 2\.5[0-9]{2}s: \(none\)" -- --seconds 3 --add-subtitle "$media/subs.vtt" "$media/keyframes.ts"
 par expect subtitle-file-seek "subtitle at 3\.[4-9][0-9]{2}s: Second line" "<=0 Hello world" -- \
   --seconds 5 --seek 3.5 --seek-after 0.5 --add-subtitle "$media/subs.srt" "$media/h264_aac.mp4"
+# Added without selecting them (lychee_subtitle_options.keep_selection):
+# both tracks there, none showing.
+par expect subtitle-file-keep-selection "track 2: subtitle subrip .*selected=0 external$" \
+  "track 3: subtitle webvtt .*selected=0 external$" "<=0 subtitle at .*Hello" "summary: state=ended" -- \
+  --subtitle-keep-selection --add-subtitle "$media/subs.srt" --add-subtitle "$media/subs.vtt" \
+  "$media/h264_aac.mp4"
 # A legacy encoding, guessed and named.
 par expect subtitle-file-gbk "subtitle at [01]\.[0-9]{3}s: 你好，世界$" -- \
   --seconds 2 --add-subtitle "$media/subs_gbk.srt" "$media/h264_aac.mp4"
@@ -1842,6 +1848,30 @@ if [ "$own_ts" = 1 ]; then
   seq_ check http-hls-renditions-seek 1 '8\.4[36][37]' -- --seek 7 --seek-after 2 \
     "http://127.0.0.1:$port/hls_alt/master.m3u8"
 fi
+# Request headers (lychee_player_open_with_options()): a server that
+# refuses requests without them, so every request of an input must carry
+# them: the redirect and the file, HLS's playlists, renditions, EXT-X-MAP,
+# keys and segments, through the own HLS and FFmpeg's, and a subtitle file.
+need_header=(--require-header Referer "https://example.com/" --require-header X-Token "a b;c")
+with_header=(--header "Referer: https://example.com/" --header "X-Token:a b;c")
+serve "${need_header[@]}" --redirect /moved.mp4 /faststart.mp4
+exits=1 seq_ expect http-headers-refused "403" "<=0 summary: state=ended" -- "$url"
+seq_ expect http-headers "event: subtitle [0-9]+ added" "subtitle at [01]\.[0-9]{3}s: Hello world$" \
+  "summary: state=ended position=12\.000s" -- "${with_header[@]}" \
+  --add-subtitle "http://127.0.0.1:$port/subs.srt" "http://127.0.0.1:$port/moved.mp4"
+seq_ check http-headers-hls-aes 1 7.033 -- "${with_header[@]}" --seek 7 --seek-after 2 \
+  "http://127.0.0.1:$port/hls_aes/fmp4.m3u8"
+if [ "$own_ts" = 1 ]; then
+  seq_ expect http-headers-hls-renditions "select audio 1 at [0-9.]+s: accepted" \
+    "track 1: audio .* selected=1" "summary: state=ended position=12\.000s" -- \
+    "${with_header[@]}" --select audio:1@3 "http://127.0.0.1:$port/hls_alt/master.m3u8"
+fi
+if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
+  seq_ expect http-headers-hls-fallback "hls: no HLS variant .*; the fallback opens it" \
+    "summary: state=ended position=12\.000s" -- "${with_header[@]}" \
+    "http://127.0.0.1:$port/hls_aes/ts_fallback.m3u8"
+fi
+serve
 # A master playlist plays one variant: FFmpeg's HLS the first, the own
 # one the highest bandwidth it can decode (not the VP9 one).
 hls_variant="video size (640x360|1920x1080)"

@@ -22,10 +22,13 @@ std::shared_ptr<HttpSession> CreateHttpSession();
 class HttpDataSource : public DataSource {
  public:
   // Starts the request in |session|, or in a session of its own; errors
-  // (no such host, HTTP 404) surface on the first Read().
+  // (no such host, HTTP 404) surface on the first Read(). Every request
+  // carries |headers| (NormalizeHttpHeaders()); NSURLSession keeps them
+  // across redirects.
   static std::unique_ptr<DataSource> Open(
       const std::string& url,
       std::string* error,
+      const std::string& headers = {},
       std::shared_ptr<HttpSession> session = nullptr);
   ~HttpDataSource() override;
 

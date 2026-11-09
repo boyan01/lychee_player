@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace lychee {
@@ -62,11 +63,26 @@ class DataSource {
   virtual bool reads_ahead() const { return false; }
 };
 
+// HTTP request headers the caller gave for an input
+// (lychee_open_options.headers): "Name: value" lines, each ended by
+// "\r\n", as NormalizeHttpHeaders() writes them; empty for none. Every
+// http(s) request of that input carries them, redirects included.
+//
+// False if |text| (lines separated by "\n" or "\r\n"; blank lines
+// skipped) has a line that is not "Name: value" with a token for a name,
+// or a stray "\r" that could start a header of its own.
+bool NormalizeHttpHeaders(std::string_view text, std::string* headers);
+// |headers| (normalized) as name and value pairs.
+std::vector<std::pair<std::string, std::string>> SplitHttpHeaders(
+    const std::string& headers);
+
 // Blocking. A path or file:// URL, or http(s):// where the platform has a
-// client (Apple, Windows; Android with a Java VM) or FFmpeg's (Linux). Null
-// with |error| set if it cannot be opened.
+// client (Apple, Windows; Android with a Java VM) or FFmpeg's (Linux),
+// whose requests carry |headers| (normalized). Null with |error| set if it
+// cannot be opened.
 std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
-                                           std::string* error);
+                                           std::string* error,
+                                           const std::string& headers = {});
 
 // Whether media read from |base| may make the player open |url|, a
 // reference it resolved (an HLS segment, key or variant, an IMSC
@@ -114,8 +130,8 @@ using DataSourceOpener =
 // one NSURLSession on Apple platforms, one WinHTTP session on Windows,
 // so that the playlists and segments of an HLS stream reuse kept-alive
 // connections instead of a new TCP and TLS handshake each. Elsewhere
-// OpenDataSource itself.
-DataSourceOpener CreateSharedOpener();
+// OpenDataSource itself. Its http(s) requests carry |headers|.
+DataSourceOpener CreateSharedOpener(const std::string& headers = {});
 
 // Bytes in memory (tests, the fuzzer).
 std::unique_ptr<DataSource> CreateMemoryDataSource(std::vector<uint8_t> data);

@@ -376,9 +376,20 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
 
   /// Opens [url]. Calling it again replaces the current media on this
   /// player; volume, rate, looping and play/pause are kept.
-  void open(String url) {
+  ///
+  /// Every http(s) request of the input carries [headers] ('User-Agent',
+  /// 'Referer', 'Cookie', any other): the URL, its redirects, and for HLS
+  /// every playlist, segment, key, `EXT-X-MAP` and rendition. Throws an
+  /// [ArgumentError] if a name or value holds a line break, and an
+  /// [UnsupportedError] for headers with a core older than API 21.
+  void open(String url, {Map<String, String>? headers}) {
     if (_disposed) {
       return;
+    }
+    final lines = _headerLines(headers);
+    final openWithOptions = native.playerOpenWithOptions;
+    if (lines.isNotEmpty && openWithOptions == null) {
+      throw UnsupportedError('HTTP headers need lychee API 21');
     }
     _tracks = const [];
     _subtitle = null;
@@ -387,9 +398,34 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     _artwork = null;
     _finishAddingSubtitles();
     final nativeUrl = url.toNativeUtf8();
-    native.playerOpen(_player, nativeUrl.cast());
+    if (openWithOptions == null) {
+      native.playerOpen(_player, nativeUrl.cast());
+    } else {
+      final options = calloc<native.LycheeOpenOptions>();
+      final nativeHeaders = lines.toNativeUtf8();
+      options.ref
+        ..structSize = sizeOf<native.LycheeOpenOptions>()
+        ..headers = nativeHeaders.cast();
+      openWithOptions(_player, nativeUrl.cast(), options);
+      malloc.free(nativeHeaders);
+      calloc.free(options);
+    }
     malloc.free(nativeUrl);
     _refresh();
+  }
+
+  /// [headers] as the "Name: value" lines the C API takes.
+  static String _headerLines(Map<String, String>? headers) {
+    final lines = StringBuffer();
+    headers?.forEach((name, value) {
+      if (name.isEmpty ||
+          name.contains(RegExp('[\r\n:]')) ||
+          value.contains(RegExp('[\r\n]'))) {
+        throw ArgumentError.value(name, 'headers', 'malformed HTTP header');
+      }
+      lines.write('$name: $value\r\n');
+    });
+    return lines.toString();
   }
 
   void play() {
@@ -497,24 +533,55 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   /// Adds the subtitle file [url] (a path, file:// or http(s):// URL;
   /// SubRip, WebVTT or ASS/SSA) to the media opened last, as a subtitle
   /// track after the container's. Its cue times count from the start of
-  /// the media. It is read in the background and selected once loaded; the
-  /// future says whether it was added (false: it could not be read or is
-  /// not a subtitle file, or other media was opened first). Call it any
-  /// time after [open]; opening other media drops it.
+  /// the media. It is read in the background and, unless [select] is
+  /// false, selected once loaded (false keeps the subtitle track selected
+  /// before, or none, so several files can be added without the selection
+  /// changing); the future says whether it was added (false: it could not
+  /// be read or is not a subtitle file, or other media was opened first).
+  /// Call it any time after [open]; opening other media drops it.
   ///
   /// Without a byte order mark, the text is in [encoding], an IANA name
   /// such as 'GB18030', 'Big5', 'Shift_JIS' or 'windows-1251'; null reads
   /// UTF-8, or guesses between GB18030 (GBK), Big5 and windows-1252 when
   /// the file is not UTF-8.
+  ///
+  /// [headers] are HTTP request headers for [url], as in [open] (the
+  /// media's are not used); they and `select: false` need a core of API 21
+  /// or later, or throw an [UnsupportedError].
   Future<bool> addSubtitle(String url,
-      {String? language, String? title, String? encoding}) {
+      {String? language,
+      String? title,
+      String? encoding,
+      bool select = true,
+      Map<String, String>? headers}) {
+    final lines = _headerLines(headers);
+    final addWithOptions = native.playerAddSubtitleWithOptions;
+    if ((lines.isNotEmpty || !select) && addWithOptions == null) {
+      throw UnsupportedError('subtitle options need lychee API 21');
+    }
     final add = native.playerAddSubtitle;
-    if (_disposed || add == null) return Future.value(false);
-    final strings = [url, language, title, encoding]
+    if (_disposed || (add == null && addWithOptions == null)) {
+      return Future.value(false);
+    }
+    final strings = [url, language, title, encoding, lines]
         .map((s) => s == null ? nullptr : s.toNativeUtf8())
         .toList();
-    final id = add(_player, strings[0].cast(), strings[1].cast(),
-        strings[2].cast(), strings[3].cast());
+    final int id;
+    if (addWithOptions != null) {
+      final options = calloc<native.LycheeSubtitleOptions>();
+      options.ref
+        ..structSize = sizeOf<native.LycheeSubtitleOptions>()
+        ..language = strings[1].cast()
+        ..title = strings[2].cast()
+        ..encoding = strings[3].cast()
+        ..headers = strings[4].cast()
+        ..keepSelection = select ? 0 : 1;
+      id = addWithOptions(_player, strings[0].cast(), options);
+      calloc.free(options);
+    } else {
+      id = add!(_player, strings[0].cast(), strings[1].cast(),
+          strings[2].cast(), strings[3].cast());
+    }
     for (final s in strings) {
       if (s != nullptr) malloc.free(s);
     }

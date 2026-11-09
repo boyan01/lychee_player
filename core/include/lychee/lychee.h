@@ -78,7 +78,10 @@ extern "C" {
 // 20: lychee_player_fade(), lychee_player_set_gain() and
 //    lychee_player_get_audio_samples(); lychee_player_set_volume() ramps
 //    over 10 ms instead of stepping.
-#define LYCHEE_API_VERSION 20
+// 21: HTTP request headers: lychee_player_open_with_options() and
+//    lychee_player_add_subtitle_with_options(), which can also add a
+//    subtitle track without selecting it.
+#define LYCHEE_API_VERSION 21
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -558,6 +561,26 @@ LYCHEE_EXPORT void lychee_player_clear_event_callback(lychee_player* player);
 LYCHEE_EXPORT int32_t lychee_player_open(lychee_player* player,
                                          const char* url);
 
+// API version 21. What lychee_player_open_with_options() takes besides the
+// URL. Zero is the default for every field.
+typedef struct lychee_open_options {
+  // Must be sizeof(lychee_open_options) (or an older version's size).
+  uint32_t struct_size;
+  // HTTP request headers ("User-Agent", "Referer", "Cookie", any other):
+  // "Name: value" lines, separated by "\r\n" or "\n". Every http(s)
+  // request of the input carries them: the URL, the redirects it takes,
+  // and for HLS every playlist, segment, key, EXT-X-MAP and rendition. A
+  // User-Agent replaces the HTTP client's own. NULL or "" for none.
+  const char* headers;
+} lychee_open_options;
+
+// API version 21. lychee_player_open() with |options| (NULL: none).
+// Returns -1, opening nothing, if the headers are not "Name: value" lines.
+LYCHEE_EXPORT int32_t
+lychee_player_open_with_options(lychee_player* player,
+                                const char* url,
+                                const lychee_open_options* options);
+
 // Stops what is open, like lychee_player_open(), and starts a live input:
 // packets pushed with lychee_player_push_live_packet() play as they
 // arrive, |config->latency_us| after the first one. Returns 0 if accepted.
@@ -736,6 +759,31 @@ LYCHEE_EXPORT int32_t lychee_player_add_subtitle(lychee_player* player,
                                                  const char* language,
                                                  const char* title,
                                                  const char* encoding);
+
+// API version 21. What lychee_player_add_subtitle_with_options() takes
+// besides the URL. Zero (NULL) is the default for every field.
+typedef struct lychee_subtitle_options {
+  // Must be sizeof(lychee_subtitle_options) (or an older version's size).
+  uint32_t struct_size;
+  // As lychee_player_add_subtitle()'s arguments.
+  const char* language;
+  const char* title;
+  const char* encoding;
+  // HTTP request headers for |url|, as lychee_open_options.headers. The
+  // media's are not used: pass them here too if the file needs them.
+  const char* headers;
+  // Non-zero adds the track without selecting it: the subtitle track
+  // selected before (or none) stays, so several files can be added
+  // without the selection changing.
+  int32_t keep_selection;
+} lychee_subtitle_options;
+
+// API version 21. lychee_player_add_subtitle() with |options| (NULL: the
+// defaults). Returns -1 also if the headers are not "Name: value" lines.
+LYCHEE_EXPORT int32_t
+lychee_player_add_subtitle_with_options(lychee_player* player,
+                                        const char* url,
+                                        const lychee_subtitle_options* options);
 // API version 18. Shows the subtitles of every track |delay_us|
 // microseconds later; negative shows them earlier. Kept across
 // lychee_player_open(). A container's subtitles show early only as far as

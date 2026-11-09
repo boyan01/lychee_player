@@ -137,6 +137,8 @@ struct WinHttpState {
   // Set by Open().
   std::wstring url;
   std::wstring path;
+  // The caller's headers, "Name: value" lines.
+  std::vector<std::wstring> headers;
   bool secure = false;
   std::shared_ptr<WinHttpSession> session;
   // The server, within |session|; it opens no socket itself.
@@ -229,11 +231,18 @@ struct WinHttpState {
       HINTERNET opened = WinHttpOpenRequest(
           connection, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
           WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
-      const bool sent =
-          opened &&
-          WinHttpSendRequest(opened, header.c_str(), static_cast<DWORD>(-1),
-                             WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
-          WinHttpReceiveResponse(opened, nullptr);
+      // Replacing WinHTTP's own (User-Agent from the session).
+      bool sent = opened != nullptr;
+      for (const std::wstring& line : headers) {
+        sent =
+            sent && WinHttpAddRequestHeaders(
+                        opened, line.c_str(), static_cast<DWORD>(-1),
+                        WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
+      }
+      sent = sent &&
+             WinHttpSendRequest(opened, header.c_str(), static_cast<DWORD>(-1),
+                                WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+             WinHttpReceiveResponse(opened, nullptr);
       const DWORD failure = sent ? 0 : GetLastError();
       lock.lock();
       if (shutdown || generation != served) {
@@ -360,9 +369,13 @@ struct WinHttpState {
 std::unique_ptr<DataSource> WinHttpDataSource::Open(
     const std::string& url,
     std::string* error,
+    const std::string& headers,
     std::shared_ptr<WinHttpSession> session) {
   auto state = std::make_unique<WinHttpState>();
   state->url = Widen(url);
+  for (const auto& [name, value] : SplitHttpHeaders(headers)) {
+    state->headers.push_back(Widen(name + ": " + value));
+  }
   URL_COMPONENTS parts = {};
   parts.dwStructSize = sizeof(parts);
   parts.dwSchemeLength = parts.dwHostNameLength = parts.dwUrlPathLength =

@@ -12,9 +12,12 @@ namespace lychee {
 // system http client: what the own demuxers (HLS, MPEG-TS) read there.
 // Connects on the first Read(), so errors (no such host, HTTP 404)
 // surface there and Interrupt() reaches the connect. Reconnects on drops
-// as FFmpegDemuxer's http does.
-std::unique_ptr<DataSource> OpenFFmpegHttpDataSource(const std::string& url,
-                                                     std::string* error);
+// as FFmpegDemuxer's http does. Every request carries |headers|
+// (NormalizeHttpHeaders()), redirects included.
+std::unique_ptr<DataSource> OpenFFmpegHttpDataSource(
+    const std::string& url,
+    std::string* error,
+    const std::string& headers);
 
 }  // namespace lychee
 

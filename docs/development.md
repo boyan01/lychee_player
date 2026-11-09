@@ -137,8 +137,11 @@ file's packets into a live input when a sender would send them, with
 `--live-audio-jump SEC` (audio timestamps 16 hours ahead from SEC on) to
 simulate the network and the sender.
 `--add-subtitle URL` (repeatable) adds a subtitle file right after the
-open, in the encoding `--subtitle-encoding NAME` names (default: guessed);
+open, in the encoding `--subtitle-encoding NAME` names (default: guessed),
+selected once loaded unless `--subtitle-keep-selection` is given;
 `--subtitle-delay SEC` shows subtitles SEC later (negative: earlier).
+`--header 'NAME: VALUE'` (repeatable) adds an HTTP request header to every
+request of the media and of the added subtitle files.
 `--subtitle-ppm FILE` writes each subtitle with pictures (bitmap
 subtitles) onto a grey canvas of the video's size. `--verbose` logs at
 the debug level: state changes, and the playback stats every 5 s.

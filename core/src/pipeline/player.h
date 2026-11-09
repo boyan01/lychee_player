@@ -136,9 +136,10 @@ class Player {
   // Returns once no thread is in the old callback, unless called from it.
   void SetEventCallback(EventCallback callback, void* user_data);
 
-  // Stops whatever is open and opens |url|. Volume, rate, looping, the
-  // event callback and whether to play are kept.
-  bool Open(const std::string& url);
+  // Stops whatever is open and opens |url|, whose http(s) requests carry
+  // |headers| (NormalizeHttpHeaders()). Volume, rate, looping, the event
+  // callback and whether to play are kept.
+  bool Open(const std::string& url, const std::string& headers = {});
   // Stops whatever is open and starts a live input presenting packets
   // |latency| after they arrive (lychee_player_open_live()).
   bool OpenLive(int64_t latency);
@@ -179,15 +180,18 @@ class Player {
   // kTracksChanged.
   bool SelectTrack(MediaType type, int track);
   // Loads the subtitle file |url| in the background and adds it as a
-  // subtitle track, selected, of what is open now. Returns the stream id
-  // the track will have (TrackInfo::stream_index), or -1 if nothing that
-  // takes subtitles is open; kSubtitleAdded with that id follows.
-  // |encoding| names the file's text encoding; empty guesses it
-  // (ParseSubtitleFile()).
+  // subtitle track of what is open now, selected if |select|. Returns the
+  // stream id the track will have (TrackInfo::stream_index), or -1 if
+  // nothing that takes subtitles is open; kSubtitleAdded with that id
+  // follows. |encoding| names the file's text encoding; empty guesses it
+  // (ParseSubtitleFile()). Its http(s) requests carry |headers|
+  // (NormalizeHttpHeaders()).
   int AddSubtitle(const std::string& url,
                   const std::string& language,
                   const std::string& title,
-                  const std::string& encoding);
+                  const std::string& encoding,
+                  const std::string& headers = {},
+                  bool select = true);
   // Shows every subtitle track |delay| microseconds later (earlier if
   // negative). Kept across Open().
   void SetSubtitleDelay(int64_t delay);
@@ -319,7 +323,9 @@ class Player {
                     const std::string& url,
                     std::string language,
                     std::string title,
-                    const std::string& encoding);
+                    const std::string& encoding,
+                    const std::string& headers,
+                    bool select);
   std::unique_ptr<SubtitleRenderer> CreateSubtitleRenderer(
       const StreamInfo& info);
   void EnableStreamsLocked();

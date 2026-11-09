@@ -273,6 +273,19 @@ int32_t lychee_player_open(lychee_player* player, const char* url) {
   return url && player->player->Open(url) ? 0 : -1;
 }
 
+int32_t lychee_player_open_with_options(lychee_player* player,
+                                        const char* url,
+                                        const lychee_open_options* options) {
+  const lychee_open_options copy =
+      options ? CopyStruct(options) : lychee_open_options{};
+  std::string headers;
+  if (!url || !lychee::NormalizeHttpHeaders(copy.headers ? copy.headers : "",
+                                            &headers)) {
+    return -1;
+  }
+  return player->player->Open(url, headers) ? 0 : -1;
+}
+
 int32_t lychee_player_open_live(lychee_player* player,
                                 const lychee_live_config* config) {
   int64_t latency = kDefaultLiveLatency;
@@ -428,6 +441,22 @@ int32_t lychee_player_add_subtitle(lychee_player* player,
   return player->player->AddSubtitle(url, language ? language : "",
                                      title ? title : "",
                                      encoding ? encoding : "");
+}
+
+int32_t lychee_player_add_subtitle_with_options(
+    lychee_player* player,
+    const char* url,
+    const lychee_subtitle_options* options) {
+  const lychee_subtitle_options copy =
+      options ? CopyStruct(options) : lychee_subtitle_options{};
+  std::string headers;
+  if (!url || !lychee::NormalizeHttpHeaders(copy.headers ? copy.headers : "",
+                                            &headers)) {
+    return -1;
+  }
+  return player->player->AddSubtitle(
+      url, copy.language ? copy.language : "", copy.title ? copy.title : "",
+      copy.encoding ? copy.encoding : "", headers, copy.keep_selection == 0);
 }
 
 void lychee_player_set_subtitle_delay(lychee_player* player, int64_t delay_us) {

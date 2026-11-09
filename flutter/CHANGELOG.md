@@ -15,6 +15,13 @@
 * `getAudioSamples(frames)` and `getAudioSpectrum(bins)` return what the
   output is playing now, for visualizers. Nothing is recorded until they
   are first called.
+* Open URLs with HTTP request headers (User-Agent, Referer, Cookie, any
+  other): `open(url, headers: {...})`. Every request of the input carries
+  them, including redirects and an HLS stream's playlists, segments, keys
+  and renditions.
+* `addSubtitle` takes `headers` too, and `select: false` adds the track
+  without selecting it, so several language files can be added while the
+  current subtitle (or none) stays.
 
 ### Fixed
 

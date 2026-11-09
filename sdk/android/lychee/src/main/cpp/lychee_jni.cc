@@ -271,12 +271,18 @@ JNIEXPORT void JNICALL Java_tech_soit_lychee_LycheePlayer_nativeDestroy(
   }
 }
 
-JNIEXPORT jint JNICALL Java_tech_soit_lychee_LycheePlayer_nativeOpen(
-    JNIEnv* env,
-    jclass,
-    jlong handle,
-    jbyteArray url) {
-  return lychee_player_open(Player(handle), FromBytes(env, url).c_str());
+JNIEXPORT jint JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeOpen(JNIEnv* env,
+                                              jclass,
+                                              jlong handle,
+                                              jbyteArray url,
+                                              jbyteArray headers) {
+  const std::string headers_text = FromBytes(env, headers);
+  lychee_open_options options = {};
+  options.struct_size = sizeof(options);
+  options.headers = headers_text.c_str();
+  return lychee_player_open_with_options(Player(handle),
+                                         FromBytes(env, url).c_str(), &options);
 }
 
 JNIEXPORT void JNICALL Java_tech_soit_lychee_LycheePlayer_nativePlay(JNIEnv*,
@@ -499,14 +505,22 @@ Java_tech_soit_lychee_LycheePlayer_nativeAddSubtitle(JNIEnv* env,
                                                      jbyteArray url,
                                                      jbyteArray language,
                                                      jbyteArray title,
-                                                     jbyteArray encoding) {
+                                                     jbyteArray encoding,
+                                                     jbyteArray headers,
+                                                     jboolean keep_selection) {
   const std::string language_text = language ? FromBytes(env, language) : "";
   const std::string title_text = title ? FromBytes(env, title) : "";
   const std::string encoding_text = encoding ? FromBytes(env, encoding) : "";
-  return lychee_player_add_subtitle(Player(handle), FromBytes(env, url).c_str(),
-                                    language ? language_text.c_str() : nullptr,
-                                    title ? title_text.c_str() : nullptr,
-                                    encoding ? encoding_text.c_str() : nullptr);
+  const std::string headers_text = FromBytes(env, headers);
+  lychee_subtitle_options options = {};
+  options.struct_size = sizeof(options);
+  options.language = language ? language_text.c_str() : nullptr;
+  options.title = title ? title_text.c_str() : nullptr;
+  options.encoding = encoding ? encoding_text.c_str() : nullptr;
+  options.headers = headers_text.c_str();
+  options.keep_selection = keep_selection ? 1 : 0;
+  return lychee_player_add_subtitle_with_options(
+      Player(handle), FromBytes(env, url).c_str(), &options);
 }
 
 JNIEXPORT void JNICALL

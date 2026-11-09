@@ -475,6 +475,49 @@ unsafe extern "C" fn event_trampoline(user_data: *mut c_void, kind: i32, arg0: i
     IN_EVENT_CALLBACK.set(was_in_callback);
 }
 
+/// What [`Player::add_subtitle_with`] takes besides the URL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubtitleOptions<'a> {
+    pub language: Option<&'a str>,
+    pub title: Option<&'a str>,
+    /// As in [`Player::add_subtitle`].
+    pub encoding: Option<&'a str>,
+    /// HTTP request headers for the file, as in
+    /// [`Player::open_with_headers`]; the media's are not used.
+    pub headers: &'a [(&'a str, &'a str)],
+    /// Whether the track is selected once loaded (the default). `false`
+    /// keeps the subtitle track selected before, or none.
+    pub select: bool,
+}
+
+impl Default for SubtitleOptions<'_> {
+    fn default() -> Self {
+        SubtitleOptions {
+            language: None,
+            title: None,
+            encoding: None,
+            headers: &[],
+            select: true,
+        }
+    }
+}
+
+/// `headers` as the "Name: value" lines the C API takes; a line break in
+/// a name or value, which would start another header, is an error.
+fn header_lines(headers: &[(&str, &str)]) -> Result<CString> {
+    let mut lines = String::new();
+    for (name, value) in headers {
+        if name.is_empty() || name.contains(['\r', '\n', ':']) || value.contains(['\r', '\n']) {
+            return Err(Error("malformed HTTP header"));
+        }
+        lines.push_str(name);
+        lines.push_str(": ");
+        lines.push_str(value);
+        lines.push_str("\r\n");
+    }
+    CString::new(lines).map_err(|_| Error("HTTP header contains NUL"))
+}
+
 /// A player. Every method can be called from any thread.
 pub struct Player {
     raw: NonNull<sys::lychee_player>,
@@ -536,6 +579,23 @@ impl Player {
         let url = CString::new(url).map_err(|_| Error("URL contains NUL"))?;
         check(
             unsafe { sys::lychee_player_open(self.raw(), url.as_ptr()) },
+            "open rejected",
+        )
+    }
+
+    /// [`Player::open`], with HTTP request headers (`("User-Agent", ...)`,
+    /// `("Referer", ...)`, `("Cookie", ...)`, any other) that every
+    /// http(s) request of the input carries: the URL, its redirects, and
+    /// for HLS every playlist, segment, key, `EXT-X-MAP` and rendition.
+    pub fn open_with_headers(&self, url: &str, headers: &[(&str, &str)]) -> Result<()> {
+        let url = CString::new(url).map_err(|_| Error("URL contains NUL"))?;
+        let headers = header_lines(headers)?;
+        let options = sys::lychee_open_options {
+            struct_size: std::mem::size_of::<sys::lychee_open_options>() as u32,
+            headers: headers.as_ptr(),
+        };
+        check(
+            unsafe { sys::lychee_player_open_with_options(self.raw(), url.as_ptr(), &options) },
             "open rejected",
         )
     }
@@ -722,25 +782,42 @@ impl Player {
         title: Option<&str>,
         encoding: Option<&str>,
     ) -> Result<i32> {
+        self.add_subtitle_with(
+            url,
+            &SubtitleOptions {
+                language,
+                title,
+                encoding,
+                ..SubtitleOptions::default()
+            },
+        )
+    }
+
+    /// [`Player::add_subtitle`] with HTTP request headers for `url`, and
+    /// with [`SubtitleOptions::select`] `false` adding the track without
+    /// selecting it.
+    pub fn add_subtitle_with(&self, url: &str, options: &SubtitleOptions) -> Result<i32> {
         let url = CString::new(url).map_err(|_| Error("URL contains NUL"))?;
         let text = |s: Option<&str>| {
             s.map(CString::new)
                 .transpose()
                 .map_err(|_| Error("text contains NUL"))
         };
-        let language = text(language)?;
-        let title = text(title)?;
-        let encoding = text(encoding)?;
+        let language = text(options.language)?;
+        let title = text(options.title)?;
+        let encoding = text(options.encoding)?;
+        let headers = header_lines(options.headers)?;
         let pointer = |s: &Option<CString>| s.as_ref().map_or(std::ptr::null(), |s| s.as_ptr());
-        let id = unsafe {
-            sys::lychee_player_add_subtitle(
-                self.raw(),
-                url.as_ptr(),
-                pointer(&language),
-                pointer(&title),
-                pointer(&encoding),
-            )
+        let raw = sys::lychee_subtitle_options {
+            struct_size: std::mem::size_of::<sys::lychee_subtitle_options>() as u32,
+            language: pointer(&language),
+            title: pointer(&title),
+            encoding: pointer(&encoding),
+            headers: headers.as_ptr(),
+            keep_selection: (!options.select).into(),
         };
+        let id =
+            unsafe { sys::lychee_player_add_subtitle_with_options(self.raw(), url.as_ptr(), &raw) };
         if id < 0 {
             return Err(Error("nothing open to add a subtitle to"));
         }

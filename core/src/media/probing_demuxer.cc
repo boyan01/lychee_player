@@ -40,8 +40,8 @@ bool IsEbml(const uint8_t* data, size_t size) {
 
 }  // namespace
 
-ProbingDemuxer::ProbingDemuxer(Fallback fallback)
-    : fallback_(std::move(fallback)) {}
+ProbingDemuxer::ProbingDemuxer(Fallback fallback, std::string headers)
+    : fallback_(std::move(fallback)), headers_(std::move(headers)) {}
 ProbingDemuxer::~ProbingDemuxer() = default;
 
 const char* ProbingDemuxer::name() const {
@@ -78,7 +78,7 @@ bool ProbingDemuxer::OpenFallback(std::unique_ptr<DataSource> probed,
 }
 
 bool ProbingDemuxer::Open(const std::string& url, std::string* error) {
-  std::unique_ptr<DataSource> source = OpenDataSource(url, error);
+  std::unique_ptr<DataSource> source = OpenDataSource(url, error, headers_);
   if (!source) {
     // Another scheme (data:, rtsp://), or http without a client.
     return fallback_ && OpenFallback(nullptr, url, "", error);
@@ -124,6 +124,7 @@ bool ProbingDemuxer::Open(const std::string& url, std::string* error) {
     auto hls = std::make_unique<HlsDemuxer>();
     HlsDemuxer* opening = hls.get();
     opening->set_refuse_subtitles(fallback_ != nullptr);
+    opening->set_opener(CreateSharedOpener(headers_));
     Adopt(std::move(hls));
     const bool opened = opening->Open(std::move(source), url, error);
     if (opened || !fallback_) {
@@ -220,11 +221,16 @@ bool ProbingDemuxer::Open(const std::string& url, std::string* error) {
     return opening->Open(std::move(source), error);
   }
 
-  // Everything else is MP4's to open or to name the error for.
+  // Everything else is MP4's to open or to name the error for. What it
+  // fetches besides (IMSC images) carries the headers too.
   auto mp4 = std::make_unique<Mp4Demuxer>();
   Mp4Demuxer* opening = mp4.get();
   Adopt(std::move(mp4));
-  return opening->Open(std::move(source), error);
+  return opening->Open(
+      std::move(source), error, {},
+      [headers = headers_](const std::string& resource, std::string* why) {
+        return OpenDataSource(resource, why, headers);
+      });
 }
 
 const MediaInfo& ProbingDemuxer::media_info() const {

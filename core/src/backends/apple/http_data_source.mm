@@ -104,6 +104,8 @@ struct HttpState : std::enable_shared_from_this<HttpState> {
   std::mutex mutex;
   std::condition_variable condition;
   NSURL* url = nil;
+  // The caller's, sent with every request.
+  NSDictionary<NSString*, NSString*>* headers = nil;
   std::shared_ptr<HttpSession> session;
   NSURLSessionDataTask* task = nil;
   // Bytes [offset, offset + data.size() - head) of the resource, from
@@ -195,6 +197,10 @@ struct HttpState : std::enable_shared_from_this<HttpState> {
     next_range = range * 2;
     NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:url];
     request.timeoutInterval = kIdleTimeout;
+    [headers enumerateKeysAndObjectsUsingBlock:^(NSString* name,
+                                                 NSString* value, BOOL*) {
+      [request setValue:value forHTTPHeaderField:name];
+    }];
     // From 0 too, as FFmpeg does: a 206 says the server takes ranges.
     NSString* bytes = range > 0
                           ? [NSString stringWithFormat:@"bytes=%lld-%lld", from,
@@ -346,6 +352,7 @@ namespace lychee {
 std::unique_ptr<DataSource> HttpDataSource::Open(
     const std::string& url,
     std::string* error,
+    const std::string& headers,
     std::shared_ptr<HttpSession> session) {
   @autoreleasepool {
     NSURL* nsurl = [NSURL URLWithString:@(url.c_str())];
@@ -355,6 +362,20 @@ std::unique_ptr<DataSource> HttpDataSource::Open(
     }
     auto state = std::make_shared<HttpState>();
     state->url = nsurl;
+    if (!headers.empty()) {
+      NSMutableDictionary<NSString*, NSString*>* fields =
+          [NSMutableDictionary dictionary];
+      for (const auto& [name, value] : SplitHttpHeaders(headers)) {
+        NSString* field = [NSString stringWithUTF8String:name.c_str()];
+        NSString* text = [NSString stringWithUTF8String:value.c_str()];
+        if (!field || !text) {
+          *error = "header not UTF-8: " + name;
+          return nullptr;
+        }
+        fields[field] = text;
+      }
+      state->headers = fields;
+    }
     state->session = session ? std::move(session) : CreateHttpSession();
     std::lock_guard<std::mutex> lock(state->mutex);
     state->Restart(0, 0);

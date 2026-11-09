@@ -16,9 +16,11 @@ bool HttpDataSourceAvailable();
 // (backends/apple/http_data_source.mm, whose behaviour this follows).
 // Reads block on the caller's thread: one streaming request from the
 // offset read, replaced by a range request when a read jumps elsewhere,
-// with a few retries when a connection drops.
+// with a few retries when a connection drops. Every request, redirects
+// included, carries |headers| (NormalizeHttpHeaders()).
 std::unique_ptr<DataSource> OpenHttpDataSource(const std::string& url,
-                                               std::string* error);
+                                               std::string* error,
+                                               const std::string& headers);
 
 }  // namespace lychee
 

@@ -78,7 +78,7 @@ constexpr bool kNativeOnly = false;
 
 }  // namespace
 
-std::unique_ptr<Demuxer> CreateDemuxer() {
+std::unique_ptr<Demuxer> CreateDemuxer(const std::string& headers) {
 #if defined(LYCHEE_WITH_FFMPEG) && \
     (defined(__APPLE__) || defined(_WIN32) || defined(__ANDROID__))
   // MPEG-TS and HLS through the own demuxers, which put timestamps that
@@ -88,26 +88,35 @@ std::unique_ptr<Demuxer> CreateDemuxer() {
   // cannot play. Media Foundation and MediaCodec take TS video without
   // extradata (Annex B, parameter sets in band).
   return std::make_unique<ProbingDemuxer>(
-      [](std::unique_ptr<DataSource> probed) -> std::unique_ptr<Demuxer> {
-        return std::make_unique<FFmpegDemuxer>(std::move(probed));
-      });
+      [headers = headers](
+          std::unique_ptr<DataSource> probed) -> std::unique_ptr<Demuxer> {
+        return std::make_unique<FFmpegDemuxer>(std::move(probed), headers);
+      },
+      headers);
 #elif defined(LYCHEE_WITH_FFMPEG) && defined(__linux__) && !defined(__ANDROID__)
   // The same as on Apple; FFmpegDemuxer opens the URL anew, since it
   // reads through FFmpeg's own protocols here (ffmpeg_demuxer.h).
   return std::make_unique<ProbingDemuxer>(
-      [](std::unique_ptr<DataSource>) -> std::unique_ptr<Demuxer> {
-        return std::make_unique<FFmpegDemuxer>();
-      });
+      [headers =
+           headers](std::unique_ptr<DataSource>) -> std::unique_ptr<Demuxer> {
+        return std::make_unique<FFmpegDemuxer>(headers);
+      },
+      headers);
 #elif defined(LYCHEE_WITH_FFMPEG)
-  return std::make_unique<FFmpegDemuxer>();
+  return std::make_unique<FFmpegDemuxer>(headers);
 #elif defined(__APPLE__) || defined(_WIN32) || defined(__ANDROID__)
 #if defined(__ANDROID__)
   if (const auto* backend = AndroidFFmpegExtension().backend()) {
-    return std::make_unique<ProbingDemuxer>(backend->demuxer);
+    return std::make_unique<ProbingDemuxer>(
+        [backend, headers = headers](std::unique_ptr<DataSource> probed) {
+          return backend->demuxer(std::move(probed), headers);
+        },
+        headers);
   }
 #endif
-  return std::make_unique<ProbingDemuxer>();
+  return std::make_unique<ProbingDemuxer>(nullptr, headers);
 #else
+  (void)headers;
   return nullptr;
 #endif
 }
@@ -368,13 +377,15 @@ std::unique_ptr<FrameConverter> CreateFrameConverter() {
 }
 
 std::unique_ptr<DataSource> OpenInput(const std::string& url,
-                                      std::string* error) {
+                                      std::string* error,
+                                      const std::string& headers) {
 #if defined(__linux__) && !defined(__ANDROID__) && !defined(LYCHEE_WITH_FFMPEG)
   (void)url;
+  (void)headers;
   *error = "no file or http reader in this build";
   return nullptr;
 #else
-  return OpenDataSource(url, error);
+  return OpenDataSource(url, error, headers);
 #endif
 }
 

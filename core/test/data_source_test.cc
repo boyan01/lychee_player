@@ -199,6 +199,27 @@ TEST(PrefetchingDataSource, DestroyedWhileReading) {
   source.reset();
   EXPECT_TRUE(source == nullptr);
 }
+TEST(DataSource, NormalizeHttpHeaders) {
+  std::string headers;
+  EXPECT_TRUE(NormalizeHttpHeaders("", &headers));
+  EXPECT_EQ(headers, "");
+  EXPECT_TRUE(NormalizeHttpHeaders(
+      "User-Agent: tv/1.0\nReferer:https://a.example/ \r\n\r\nX-A:", &headers));
+  EXPECT_EQ(headers,
+            "User-Agent: tv/1.0\r\nReferer: https://a.example/\r\nX-A: \r\n");
+  const auto pairs = SplitHttpHeaders(headers);
+  EXPECT_EQ(pairs.size(), 3u);
+  EXPECT_EQ(pairs[1].first, "Referer");
+  EXPECT_EQ(pairs[1].second, "https://a.example/");
+  EXPECT_EQ(pairs[2].second, "");
+  // No name, no colon, a name that is not a token, a stray CR that would
+  // start a header of its own.
+  EXPECT_TRUE(!NormalizeHttpHeaders(": value", &headers));
+  EXPECT_TRUE(!NormalizeHttpHeaders("Referer", &headers));
+  EXPECT_TRUE(!NormalizeHttpHeaders("Bad Name: value", &headers));
+  EXPECT_TRUE(!NormalizeHttpHeaders("Cookie: a=1\rHost: evil", &headers));
+}
+
 // NOLINTEND(bugprone-throwing-static-initialization)
 
 }  // namespace

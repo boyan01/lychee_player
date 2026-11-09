@@ -219,13 +219,6 @@ around today (its `lib/core/playback/lychee_engine.dart` marks each as
 reproduced on a device. Each item is finished on every binding it
 reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
 
-1. **Request headers** (#1, #12): `open` and `addSubtitle` take HTTP
-   headers (User-Agent, Referer, Cookie) that every request of that input
-   carries: HLS variants, segments, keys, `EXT-X-MAP` and renditions, on
-   every platform's HTTP stack and FFmpeg's. `addSubtitle` can add a
-   track without selecting it. Done when a regression case against a
-   server that refuses requests without the header plays MP4, HLS
-   (renditions and keys included) and a subtitle URL.
 2. **Error kinds** (#16, #9): the error carries a code (network, HTTP
    status, decoder, format) besides its message, so an app can tell a 403
    (fetch a new URL) from a dropped connection (retry) from an unsupported

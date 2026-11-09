@@ -177,8 +177,35 @@ public final class LycheePlayer {
 
   /// Opens a file path or URL. Calling it again replaces the current media;
   /// volume, rate, looping and play/pause are kept.
-  public func open(_ url: String) {
-    lychee_player_open(handle, url)
+  ///
+  /// Every http(s) request of the input carries `headers` ("User-Agent",
+  /// "Referer", "Cookie", any other): the URL, its redirects, and for HLS
+  /// every playlist, segment, key, `EXT-X-MAP` and rendition. Returns false,
+  /// opening nothing, if a name or value holds a line break.
+  @discardableResult
+  public func open(_ url: String, headers: [String: String] = [:]) -> Bool {
+    guard let lines = Self.headerLines(headers) else { return false }
+    return lines.withCString { lines in
+      var options = lychee_open_options()
+      options.struct_size = UInt32(MemoryLayout<lychee_open_options>.size)
+      options.headers = lines
+      return lychee_player_open_with_options(handle, url, &options) == 0
+    }
+  }
+
+  /// `headers` as the "Name: value" lines the C API takes, or nil if one
+  /// would start another header.
+  private static func headerLines(_ headers: [String: String]) -> String? {
+    var lines = ""
+    for (name, value) in headers {
+      if name.isEmpty || name.contains(where: { $0.isNewline || $0 == ":" })
+        || value.contains(where: \.isNewline)
+      {
+        return nil
+      }
+      lines += "\(name): \(value)\r\n"
+    }
+    return lines
   }
 
   /// Plays from the start again if the state is ``State/ended``.
@@ -336,9 +363,12 @@ public final class LycheePlayer {
   /// Reads the subtitle file `url` (a path, file:// or http(s):// URL;
   /// SubRip, WebVTT or ASS/SSA) in the background and adds it to the media
   /// opened last as a subtitle track after the container's, its cue times
-  /// counting from the start of the media. Once loaded it is selected;
-  /// ``Event/subtitleAdded(id:added:)`` with the returned id says how it
-  /// went. Opening other media drops it. Returns nil if nothing is open.
+  /// counting from the start of the media. Once loaded it is selected,
+  /// unless `select` is false: then the subtitle track selected before (or
+  /// none) stays. ``Event/subtitleAdded(id:added:)`` with the returned id
+  /// says how it went. Opening other media drops it. Returns nil if nothing
+  /// is open, or if `headers` (HTTP request headers for `url`, as in
+  /// ``open(_:headers:)``; the media's are not used) holds a line break.
   ///
   /// Without a byte order mark, the text is in `encoding`, an IANA name
   /// such as "GB18030", "Big5", "Shift_JIS" or "windows-1251"; nil reads
@@ -346,9 +376,26 @@ public final class LycheePlayer {
   /// the file is not UTF-8.
   @discardableResult
   public func addSubtitle(
-    _ url: String, language: String? = nil, title: String? = nil, encoding: String? = nil
+    _ url: String, language: String? = nil, title: String? = nil, encoding: String? = nil,
+    select: Bool = true, headers: [String: String] = [:]
   ) -> Int? {
-    let id = lychee_player_add_subtitle(handle, url, language, title, encoding)
+    guard let lines = Self.headerLines(headers) else { return nil }
+    let id = withOptionalCString(language) { language in
+      withOptionalCString(title) { title in
+        withOptionalCString(encoding) { encoding in
+          lines.withCString { lines in
+            var options = lychee_subtitle_options()
+            options.struct_size = UInt32(MemoryLayout<lychee_subtitle_options>.size)
+            options.language = language
+            options.title = title
+            options.encoding = encoding
+            options.headers = lines
+            options.keep_selection = select ? 0 : 1
+            return lychee_player_add_subtitle_with_options(handle, url, &options)
+          }
+        }
+      }
+    }
     return id >= 0 ? Int(id) : nil
   }
 
@@ -476,6 +523,14 @@ private final class EventSink {
     player.onEventForView?(event)
     player.onEvent?(event)
   }
+}
+
+/// `body` with `text` as a C string, or with nil.
+private func withOptionalCString<R>(
+  _ text: String?, _ body: (UnsafePointer<CChar>?) -> R
+) -> R {
+  guard let text else { return body(nil) }
+  return text.withCString { body($0) }
 }
 
 private func micros(_ seconds: TimeInterval) -> Int64 {

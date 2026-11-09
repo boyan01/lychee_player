@@ -210,6 +210,24 @@ final playerOpen = _library.lookupFunction<
     Int32 Function(Pointer<Void>, Pointer<Char>),
     int Function(Pointer<Void>, Pointer<Char>)>('lychee_player_open');
 
+/// lychee_open_options (API 21).
+final class LycheeOpenOptions extends Struct {
+  @Uint32()
+  external int structSize;
+  external Pointer<Char> headers;
+}
+
+/// Null with a core older than API 21.
+final int Function(Pointer<Void>, Pointer<Char>, Pointer<LycheeOpenOptions>)?
+    playerOpenWithOptions =
+    _library.providesSymbol('lychee_player_open_with_options')
+        ? _library.lookupFunction<
+            Int32 Function(
+                Pointer<Void>, Pointer<Char>, Pointer<LycheeOpenOptions>),
+            int Function(Pointer<Void>, Pointer<Char>,
+                Pointer<LycheeOpenOptions>)>('lychee_player_open_with_options')
+        : null;
+
 final playerPlay = _library.lookupFunction<Void Function(Pointer<Void>),
     void Function(Pointer<Void>)>('lychee_player_play');
 
@@ -327,6 +345,31 @@ final int Function(Pointer<Void>, Pointer<Char>, Pointer<Char>, Pointer<Char>,
                 Pointer<Char>, Pointer<Char>),
             int Function(Pointer<Void>, Pointer<Char>, Pointer<Char>,
                 Pointer<Char>, Pointer<Char>)>('lychee_player_add_subtitle')
+        : null;
+
+/// lychee_subtitle_options (API 21).
+final class LycheeSubtitleOptions extends Struct {
+  @Uint32()
+  external int structSize;
+  external Pointer<Char> language;
+  external Pointer<Char> title;
+  external Pointer<Char> encoding;
+  external Pointer<Char> headers;
+  @Int32()
+  external int keepSelection;
+}
+
+/// Null with a core older than API 21.
+final int Function(
+        Pointer<Void>, Pointer<Char>, Pointer<LycheeSubtitleOptions>)?
+    playerAddSubtitleWithOptions = _library
+            .providesSymbol('lychee_player_add_subtitle_with_options')
+        ? _library.lookupFunction<
+                Int32 Function(Pointer<Void>, Pointer<Char>,
+                    Pointer<LycheeSubtitleOptions>),
+                int Function(Pointer<Void>, Pointer<Char>,
+                    Pointer<LycheeSubtitleOptions>)>(
+            'lychee_player_add_subtitle_with_options')
         : null;
 
 /// Null with a core older than API 18.

@@ -1,6 +1,7 @@
 #include "media/data_source.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <condition_variable>
 #include <cstdio>
@@ -268,44 +269,115 @@ std::unique_ptr<DataSource> CreatePrefetchingDataSource(
   return std::make_unique<PrefetchingDataSource>(std::move(source), limit);
 }
 
-DataSourceOpener CreateSharedOpener() {
+DataSourceOpener CreateSharedOpener(const std::string& headers) {
 #if defined(__APPLE__)
   std::shared_ptr<HttpSession> session = CreateHttpSession();
-  return [session](const std::string& url, std::string* error) {
-    if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
-      return HttpDataSource::Open(url, error, session);
-    }
-    return OpenDataSource(url, error);
-  };
+  return
+      [session, headers = headers](const std::string& url, std::string* error) {
+        if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
+          return HttpDataSource::Open(url, error, headers, session);
+        }
+        return OpenDataSource(url, error);
+      };
 #elif defined(_WIN32)
   std::shared_ptr<WinHttpSession> session = CreateWinHttpSession();
-  return [session](const std::string& url, std::string* error) {
-    if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
-      return WinHttpDataSource::Open(url, error, session);
-    }
-    return OpenDataSource(url, error);
-  };
+  return
+      [session, headers = headers](const std::string& url, std::string* error) {
+        if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
+          return WinHttpDataSource::Open(url, error, headers, session);
+        }
+        return OpenDataSource(url, error);
+      };
 #else
-  return OpenDataSource;
+  return [headers = headers](const std::string& url, std::string* error) {
+    return OpenDataSource(url, error, headers);
+  };
 #endif
 }
 
+bool NormalizeHttpHeaders(std::string_view text, std::string* headers) {
+  // RFC 9110's tchar.
+  const auto token = [](unsigned char c) {
+    return std::isalnum(c) ||
+           (c != 0 && std::strchr("!#$%&'*+-.^_`|~", c) != nullptr);
+  };
+  headers->clear();
+  while (!text.empty()) {
+    const size_t newline = text.find('\n');
+    std::string_view line = text.substr(0, newline);
+    text.remove_prefix(newline == std::string_view::npos ? text.size()
+                                                         : newline + 1);
+    if (!line.empty() && line.back() == '\r') {
+      line.remove_suffix(1);
+    }
+    if (line.empty()) {
+      continue;
+    }
+    const size_t colon = line.find(':');
+    if (colon == 0 || colon == std::string_view::npos ||
+        !std::all_of(line.begin(), line.begin() + colon, token)) {
+      return false;
+    }
+    std::string_view value = line.substr(colon + 1);
+    while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
+      value.remove_prefix(1);
+    }
+    while (!value.empty() && (value.back() == ' ' || value.back() == '\t')) {
+      value.remove_suffix(1);
+    }
+    if (std::any_of(value.begin(), value.end(),
+                    [](char c) { return c == '\r' || c == '\0'; })) {
+      return false;
+    }
+    headers->append(line.substr(0, colon));
+    headers->append(": ");
+    headers->append(value);
+    headers->append("\r\n");
+  }
+  return true;
+}
+
+std::vector<std::pair<std::string, std::string>> SplitHttpHeaders(
+    const std::string& headers) {
+  std::vector<std::pair<std::string, std::string>> pairs;
+  size_t start = 0;
+  while (start < headers.size()) {
+    size_t end = headers.find("\r\n", start);
+    if (end == std::string::npos) {
+      end = headers.size();
+    }
+    const size_t colon = headers.find(':', start);
+    if (colon < end) {
+      size_t value = colon + 1;
+      while (value < end && headers[value] == ' ') {
+        ++value;
+      }
+      pairs.emplace_back(headers.substr(start, colon - start),
+                         headers.substr(value, end - value));
+    }
+    start = end + 2;
+  }
+  return pairs;
+}
+
 std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
-                                           std::string* error) {
+                                           std::string* error,
+                                           const std::string& headers) {
   std::string path = url;
   size_t scheme_end = url.find("://");
   if (scheme_end != std::string::npos) {
     std::string scheme = url.substr(0, scheme_end);
     if (scheme == "http" || scheme == "https") {
 #if defined(__APPLE__)
-      return HttpDataSource::Open(url, error);
+      return HttpDataSource::Open(url, error, headers);
 #elif defined(_WIN32)
-      return WinHttpDataSource::Open(url, error);
+      return WinHttpDataSource::Open(url, error, headers);
 #elif defined(__ANDROID__)
-      return OpenHttpDataSource(url, error);
+      return OpenHttpDataSource(url, error, headers);
 #elif defined(LYCHEE_WITH_FFMPEG)
-      return OpenFFmpegHttpDataSource(url, error);
+      return OpenFFmpegHttpDataSource(url, error, headers);
 #else
+      (void)headers;
       *error = "no HTTP client in this build";
       return nullptr;
 #endif

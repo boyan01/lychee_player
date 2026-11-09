@@ -18,8 +18,9 @@ const FFmpegHost* host = nullptr;
 const FFmpegBackend* Initialize(const FFmpegHost* callbacks) {
   host = callbacks;
   static const FFmpegBackend backend{
-      [](std::unique_ptr<DataSource> source) -> std::unique_ptr<Demuxer> {
-        return std::make_unique<FFmpegDemuxer>(std::move(source));
+      [](std::unique_ptr<DataSource> source,
+         const std::string& headers) -> std::unique_ptr<Demuxer> {
+        return std::make_unique<FFmpegDemuxer>(std::move(source), headers);
       },
       [](bool hardware, uint32_t storage,
          const VideoDevice& device) -> std::unique_ptr<VideoDecoder> {
@@ -39,8 +40,9 @@ const FFmpegBackend* Initialize(const FFmpegHost* callbacks) {
 // Private forwarding stubs: no duplicate HTTP client, JVM or logging state,
 // and no need to export the core's C++ implementation symbols.
 std::unique_ptr<DataSource> OpenDataSource(const std::string& url,
-                                           std::string* error) {
-  return host->open_data_source(url, error);
+                                           std::string* error,
+                                           const std::string& headers) {
+  return host->open_data_source(url, error, headers);
 }
 
 bool HttpDataSourceAvailable() {

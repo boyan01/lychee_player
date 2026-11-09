@@ -9,6 +9,7 @@
 #include <cstring>
 #include <limits>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 #include "backends/android/jvm.h"
@@ -155,8 +156,8 @@ std::string HeaderField(JNIEnv* env,
 
 class HttpDataSource : public DataSource {
  public:
-  HttpDataSource(const Jni& jni, std::string url)
-      : jni_(jni), url_(std::move(url)) {}
+  HttpDataSource(const Jni& jni, std::string url, const std::string& headers)
+      : jni_(jni), url_(std::move(url)), headers_(SplitHttpHeaders(headers)) {}
 
   ~HttpDataSource() override {
     if (JNIEnv* env = AttachedEnv()) {
@@ -406,6 +407,16 @@ class HttpDataSource : public DataSource {
       }
       env->CallVoidMethod(connection, jni_.set_connect_timeout, kTimeoutMs);
       env->CallVoidMethod(connection, jni_.set_read_timeout, kTimeoutMs);
+      for (const auto& [name, value] : headers_) {
+        jstring key = env->NewStringUTF(name.c_str());
+        jstring text = env->NewStringUTF(value.c_str());
+        env->CallVoidMethod(connection, jni_.set_request_property, key, text);
+        env->DeleteLocalRef(key);
+        env->DeleteLocalRef(text);
+        if (env->ExceptionCheck()) {
+          return Fail(env, true);  // A header Java refuses.
+        }
+      }
       // From 0 too, as FFmpeg does: a 206 says the server takes ranges.
       std::string range = "bytes=" + std::to_string(from) + "-" +
                           (range_ > 0 ? std::to_string(from + range_ - 1) : "");
@@ -593,6 +604,8 @@ class HttpDataSource : public DataSource {
 
   const Jni& jni_;
   const std::string url_;
+  // The caller's, set on every request.
+  const std::vector<std::pair<std::string, std::string>> headers_;
 
   // The reader's thread only.
   jobject stream_ = nullptr;
@@ -636,7 +649,8 @@ bool HttpDataSourceAvailable() {
 }
 
 std::unique_ptr<DataSource> OpenHttpDataSource(const std::string& url,
-                                               std::string* error) {
+                                               std::string* error,
+                                               const std::string& headers) {
   JNIEnv* env = AttachedEnv();
   const Jni* jni = env ? GetJni(env) : nullptr;
   if (!jni) {
@@ -645,7 +659,7 @@ std::unique_ptr<DataSource> OpenHttpDataSource(const std::string& url,
   }
   // Like NSURLSession on Apple, nothing is requested before the first
   // read.
-  return std::make_unique<HttpDataSource>(*jni, url);
+  return std::make_unique<HttpDataSource>(*jni, url, headers);
 }
 
 }  // namespace lychee

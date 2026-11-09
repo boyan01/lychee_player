@@ -146,6 +146,27 @@ TEST(CApi, NotSeekableBeforeOpen) {
   lychee_player_destroy(player);
 }
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(CApi, OpenRejectsMalformedHeaders) {
+  lychee_config config;
+  lychee_config_init(&config, sizeof(config));
+  config.video_frame_types = 0;
+  lychee_player* player = lychee_player_create(&config);
+  lychee_open_options options = {};
+  options.struct_size = sizeof(options);
+  options.headers = "Cookie: a=1\rHost: evil";
+  EXPECT_EQ(lychee_player_open_with_options(player, "/no/such/file", &options),
+            -1);
+  EXPECT_EQ(lychee_player_get_state(player), LYCHEE_STATE_IDLE);
+  lychee_subtitle_options subtitle = {};
+  subtitle.struct_size = sizeof(subtitle);
+  subtitle.headers = "no colon";
+  EXPECT_EQ(lychee_player_add_subtitle_with_options(player, "/no/such.srt",
+                                                    &subtitle),
+            -1);
+  lychee_player_destroy(player);
+}
+
 // Fails the run instead of hanging it when a setter deadlocks.
 class Watchdog {
  public:

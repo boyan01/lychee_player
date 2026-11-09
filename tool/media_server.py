@@ -19,6 +19,9 @@ Used by tool/regression.sh to test network behaviour:
   --latency SECONDS    wait this long before answering each file request,
                        as a distant server's round trips do
   --redirect FROM TO   answer requests for path FROM with a 302 to path TO
+  --require-header NAME VALUE  refuse requests without header NAME set to
+                       VALUE with 403, redirects included, and log them.
+                       Repeatable
   --live PATH VOD      answer requests for path PATH with a live HLS
                        playlist made from the VOD playlist at path VOD (in
                        the same directory): its first three segments at the
@@ -81,6 +84,12 @@ def make_handler(root, args, state):
             self.serve(head=False)
 
         def serve(self, head):
+            for name, value in args.require_header or []:
+                if self.headers.get(name) != value:
+                    sys.stderr.write("media_server: %s without %s: %s\n"
+                                     % (self.path, name, value))
+                    self.send_error(403)
+                    return
             if args.refuse_after_drop and state.dropped:
                 self.send_error(503)
                 return
@@ -260,6 +269,8 @@ def main():
     parser.add_argument("--no-ranges", action="store_true")
     parser.add_argument("--latency", type=float, default=0)
     parser.add_argument("--redirect", nargs=2, metavar=("FROM", "TO"))
+    parser.add_argument("--require-header", nargs=2, action="append",
+                        metavar=("NAME", "VALUE"))
     parser.add_argument("--live", nargs=2, action="append", metavar=("PATH", "VOD"))
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()

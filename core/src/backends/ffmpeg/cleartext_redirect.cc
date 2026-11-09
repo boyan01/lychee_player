@@ -34,6 +34,7 @@ std::string Origin(const std::string& url) {
 // authentication and streaming. Bound both headers and network waits.
 int Redirect(const std::string& url,
              bool head,
+             const std::string& extra_headers,
              const AVIOInterruptCB& interrupt,
              std::string* location) {
   char host[4096], path[16384], auth[4096];
@@ -67,11 +68,18 @@ int Redirect(const std::string& url,
     target = "/" + target;
   }
   target = target.substr(0, target.find('#'));
+  // The caller's headers, as FFmpeg's http sends them: a User-Agent among
+  // them replaces FFmpeg's.
+  std::string lower = "\r\n" + extra_headers;
+  std::transform(lower.begin(), lower.end(), lower.begin(),
+                 [](unsigned char c) { return static_cast<char>(tolower(c)); });
+  const bool own_agent = lower.find("\r\nuser-agent:") != std::string::npos;
   std::string request =
       std::string(head ? "HEAD " : "GET ") + target +
-      " HTTP/1.1\r\nHost: " + endpoint + "\r\nUser-Agent: " + kUserAgent +
-      "\r\nConnection: close\r\nAccept-Encoding: identity\r\n" +
-      (head ? "" : "Range: bytes=0-0\r\n") + "\r\n";
+      " HTTP/1.1\r\nHost: " + endpoint + "\r\n" +
+      (own_agent ? "" : std::string("User-Agent: ") + kUserAgent + "\r\n") +
+      "Connection: close\r\nAccept-Encoding: identity\r\n" +
+      (head ? "" : "Range: bytes=0-0\r\n") + extra_headers + "\r\n";
   avio_write(io, reinterpret_cast<const unsigned char*>(request.data()),
              static_cast<int>(request.size()));
   avio_flush(io);
@@ -128,6 +136,7 @@ int Redirect(const std::string& url,
 }  // namespace
 
 std::string CleartextRedirects::Find(const std::string& url,
+                                     const std::string& headers,
                                      const AVIOInterruptCB& interrupt,
                                      std::string* error) {
   std::string current = url;
@@ -140,9 +149,9 @@ std::string CleartextRedirects::Find(const std::string& url,
       return "";
     }
     std::string location;
-    int status = Redirect(current, true, interrupt, &location);
+    int status = Redirect(current, true, headers, interrupt, &location);
     if (status == 405 || status == 501) {
-      status = Redirect(current, false, interrupt, &location);
+      status = Redirect(current, false, headers, interrupt, &location);
     }
     if ((status != 301 && status != 302 && status != 303 && status != 307 &&
          status != 308) ||

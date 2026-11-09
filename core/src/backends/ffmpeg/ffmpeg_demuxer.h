@@ -33,11 +33,15 @@ namespace lychee {
 
 class FFmpegDemuxer : public Demuxer {
  public:
-  FFmpegDemuxer();
+  // Every http(s) request of the input carries |headers|
+  // (NormalizeHttpHeaders()): the input's and what FFmpeg's demuxers open
+  // from it (HLS playlists, segments and keys).
+  explicit FFmpegDemuxer(std::string headers = {});
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
   // Reads the input through |input|, opened (and partly read) by the
   // format probe (ProbingDemuxer), rather than opening it again.
-  explicit FFmpegDemuxer(std::unique_ptr<DataSource> input);
+  explicit FFmpegDemuxer(std::unique_ptr<DataSource> input,
+                         std::string headers = {});
 #endif
   ~FFmpegDemuxer() override;
 
@@ -62,6 +66,13 @@ class FFmpegDemuxer : public Demuxer {
                     int flags,
                     AVDictionary** options);
   static int IoClose(AVFormatContext* s, AVIOContext* pb);
+  // FFmpeg's own io_open, for what DataSource does not read, with the
+  // caller's headers added to |options| for FFmpeg's http.
+  int DefaultIoOpen(AVFormatContext* s,
+                    AVIOContext** pb,
+                    const char* url,
+                    int flags,
+                    AVDictionary** options);
   static int ReadPacket(void* opaque, uint8_t* data, int size);
   static int64_t SeekPacket(void* opaque, int64_t offset, int whence);
   // Null with |error| set if the source cannot be opened or its first
@@ -107,6 +118,7 @@ class FFmpegDemuxer : public Demuxer {
   // container declares.
   bool TruncatedAtEnd() const;
 
+  const std::string headers_;
   AVFormatContext* format_context_ = nullptr;
   AVPacket* av_packet_ = nullptr;
   std::atomic<bool> aborted_{false};

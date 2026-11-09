@@ -240,6 +240,27 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertTrue(textLayer.isHidden)
   }
 
+  // Added with select: false, a subtitle file is a track that is not
+  // selected; headers with a line break are refused.
+  func testSubtitleFileKeptUnselected() throws {
+    let player = LycheePlayer()
+    player.volume = 0
+    let added = expectation(description: "added")
+    var id: Int?
+    player.onEvent = { event in
+      if case .subtitleAdded(let added_id, true) = event, added_id == id { added.fulfill() }
+    }
+    XCTAssertFalse(player.open(url, headers: ["Cookie": "a=1\nHost: x"]))
+    XCTAssertTrue(player.open(url, headers: ["User-Agent": "lychee-test"]))
+    id = player.addSubtitle(
+      "/tmp/lychee-media/subs.srt", select: false, headers: ["Referer": "https://example.com/"])
+    XCTAssertNotNil(id)
+    wait(for: [added], timeout: 10)
+    let track = try XCTUnwrap(player.tracks.first { $0.id == id })
+    XCTAssertTrue(track.isExternal)
+    XCTAssertFalse(track.isSelected)
+  }
+
   // The view's pictures follow subtitle events, not only new frames: turned
   // off while paused, they go at once. The app's onEvent still gets them.
   func testViewClearsSubtitleWhilePaused() throws {

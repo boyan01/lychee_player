@@ -31,7 +31,8 @@ constexpr size_t kKeepBehind = 1 << 20;
 
 class FFmpegHttpDataSource : public DataSource {
  public:
-  explicit FFmpegHttpDataSource(std::string url) : url_(std::move(url)) {}
+  FFmpegHttpDataSource(std::string url, std::string headers)
+      : url_(std::move(url)), headers_(std::move(headers)) {}
   ~FFmpegHttpDataSource() override { avio_closep(&io_); }
 
   int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
@@ -111,6 +112,9 @@ class FFmpegHttpDataSource : public DataSource {
     av_dict_set(&options, "reconnect_delay_max", "4", 0);
     av_dict_set(&options, "reconnect_delay_total_max", "10", 0);
     av_dict_set(&options, "rw_timeout", "10000000", 0);
+    if (!headers_.empty()) {
+      av_dict_set(&options, "headers", headers_.c_str(), 0);
+    }
     const AVIOInterruptCB interrupt = {&InterruptCallback, this};
     const int64_t began = MonotonicMicros();
     const int ret =
@@ -207,6 +211,8 @@ class FFmpegHttpDataSource : public DataSource {
   }
 
   const std::string url_;
+  // The caller's, CRLF-terminated lines as FFmpeg's http takes them.
+  const std::string headers_;
   // Read() only.
   AVIOContext* io_ = nullptr;
   int64_t position_ = 0;
@@ -229,9 +235,11 @@ class FFmpegHttpDataSource : public DataSource {
 
 }  // namespace
 
-std::unique_ptr<DataSource> OpenFFmpegHttpDataSource(const std::string& url,
-                                                     std::string* /*error*/) {
-  return std::make_unique<FFmpegHttpDataSource>(url);
+std::unique_ptr<DataSource> OpenFFmpegHttpDataSource(
+    const std::string& url,
+    std::string* /*error*/,
+    const std::string& headers) {
+  return std::make_unique<FFmpegHttpDataSource>(url, headers);
 }
 
 }  // namespace lychee

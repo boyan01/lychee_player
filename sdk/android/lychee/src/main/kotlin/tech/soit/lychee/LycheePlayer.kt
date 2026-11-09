@@ -168,9 +168,16 @@ class LycheePlayer @JvmOverloads constructor(
     /**
      * Opens a file path or URL. Calling it again replaces the current media;
      * volume, rate, looping and play/pause are kept.
+     *
+     * Every http(s) request of the input carries [headers] ("User-Agent",
+     * "Referer", "Cookie", any other): the URL, its redirects, and for HLS
+     * every playlist, segment, key, `EXT-X-MAP` and rendition. Returns
+     * false, opening nothing, if a name or value holds a line break.
      */
-    fun open(url: String) {
-        nativeOpen(handle(), url.toByteArray())
+    @JvmOverloads
+    fun open(url: String, headers: Map<String, String> = emptyMap()): Boolean {
+        val lines = headerLines(headers) ?: return false
+        return nativeOpen(handle(), url.toByteArray(), lines.toByteArray()) == 0
     }
 
     /** Plays from the start again if the state is [State.ENDED]. */
@@ -310,9 +317,12 @@ class LycheePlayer @JvmOverloads constructor(
      * Reads the subtitle file [url] (a path, file:// or http(s):// URL;
      * SubRip, WebVTT or ASS/SSA) in the background and adds it to the media
      * opened last as a subtitle track after the container's, its cue times
-     * counting from the start of the media. Once loaded it is selected;
-     * [Event.SubtitleAdded] with the returned id says how it went. Opening
-     * other media drops it. Returns null if nothing is open.
+     * counting from the start of the media. Once loaded it is selected,
+     * unless [select] is false: then the subtitle track selected before (or
+     * none) stays. [Event.SubtitleAdded] with the returned id says how it
+     * went. Opening other media drops it. Returns null if nothing is open,
+     * or if [headers] (HTTP request headers for [url], as in [open]; the
+     * media's are not used) holds a line break.
      *
      * Without a byte order mark, the text is in [encoding], a name
      * [java.nio.charset.Charset] knows such as "GB18030", "Big5",
@@ -325,11 +335,15 @@ class LycheePlayer @JvmOverloads constructor(
         language: String? = null,
         title: String? = null,
         encoding: String? = null,
-    ): Int? =
-        nativeAddSubtitle(
+        select: Boolean = true,
+        headers: Map<String, String> = emptyMap(),
+    ): Int? {
+        val lines = headerLines(headers) ?: return null
+        return nativeAddSubtitle(
             handle(), url.toByteArray(), language?.toByteArray(), title?.toByteArray(),
-            encoding?.toByteArray(),
+            encoding?.toByteArray(), lines.toByteArray(), !select,
         ).takeIf { it >= 0 }
+    }
 
     /**
      * Shows the subtitles of every track this many milliseconds later;
@@ -477,7 +491,7 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeCreate(hardwareDecoding: Boolean, video: Boolean): Long
         @JvmStatic private external fun nativeSetEventSink(handle: Long, sink: Any): Long
         @JvmStatic private external fun nativeDestroy(handle: Long, sink: Long)
-        @JvmStatic private external fun nativeOpen(handle: Long, url: ByteArray): Int
+        @JvmStatic private external fun nativeOpen(handle: Long, url: ByteArray, headers: ByteArray): Int
         @JvmStatic private external fun nativePlay(handle: Long)
         @JvmStatic private external fun nativePause(handle: Long)
         @JvmStatic private external fun nativeRebuildVideoDecoder(handle: Long)
@@ -506,8 +520,22 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeSelectTrack(handle: Long, type: Int, index: Int): Boolean
         @JvmStatic private external fun nativeAddSubtitle(
             handle: Long, url: ByteArray, language: ByteArray?, title: ByteArray?,
-            encoding: ByteArray?,
+            encoding: ByteArray?, headers: ByteArray, keepSelection: Boolean,
         ): Int
+
+        /** [headers] as the "Name: value" lines the C API takes, or null if one would start another header. */
+        private fun headerLines(headers: Map<String, String>): String? {
+            val lines = StringBuilder()
+            for ((name, value) in headers) {
+                if (name.isEmpty() || name.any { it == '\r' || it == '\n' || it == ':' } ||
+                    value.any { it == '\r' || it == '\n' }
+                ) {
+                    return null
+                }
+                lines.append(name).append(": ").append(value).append("\r\n")
+            }
+            return lines.toString()
+        }
         @JvmStatic private external fun nativeSetSubtitleDelay(handle: Long, delayUs: Long)
         @JvmStatic private external fun nativeGetSubtitle(handle: Long): ByteArray?
         @JvmStatic private external fun nativeGetMetadata(handle: Long, key: ByteArray): ByteArray?

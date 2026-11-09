@@ -285,7 +285,7 @@ bool Player::OnControlThread() const {
   return true;
 }
 
-bool Player::Open(const std::string& url) {
+bool Player::Open(const std::string& url, const std::string& headers) {
   if (url.empty() || OnControlThread()) {
     return false;
   }
@@ -293,7 +293,7 @@ bool Player::Open(const std::string& url) {
   StopPipeline();
   std::lock_guard<std::mutex> lock(mutex_);
   SetStateLocked(PlayerState::kLoading);
-  demuxer_ = CreateDemuxer();
+  demuxer_ = CreateDemuxer(headers);
   thread_ = std::thread(&Player::Run, this, url);
   return true;
 }
@@ -634,7 +634,9 @@ bool Player::SelectTrack(MediaType type, int track) {
 int Player::AddSubtitle(const std::string& url,
                         const std::string& language,
                         const std::string& title,
-                        const std::string& encoding) {
+                        const std::string& encoding,
+                        const std::string& headers,
+                        bool select) {
   if (url.empty()) {
     return -1;
   }
@@ -646,7 +648,7 @@ int Player::AddSubtitle(const std::string& url,
   const int stream = next_external_subtitle_++;
   subtitle_loads_pending_++;
   subtitle_loads_.emplace_back(&Player::LoadSubtitle, this, stream, url,
-                               language, title, encoding);
+                               language, title, encoding, headers, select);
   return stream;
 }
 
@@ -654,11 +656,13 @@ void Player::LoadSubtitle(int stream,
                           const std::string& url,
                           std::string language,
                           std::string title,
-                          const std::string& encoding) {
+                          const std::string& encoding,
+                          const std::string& headers,
+                          bool select) {
   SetCurrentThreadName("lychee-subtitle");
   std::string error;
   std::string data;
-  std::unique_ptr<DataSource> source = OpenInput(url, &error);
+  std::unique_ptr<DataSource> source = OpenInput(url, &error, headers);
   bool stopped = false;
   if (source) {
     {
@@ -720,7 +724,9 @@ void Player::LoadSubtitle(int stream,
   LOGI("subtitle %s added: %s, %zu cues, stream %d", url.c_str(),
        subtitle.codec.c_str(), cues.size(), stream);
   external_subtitles_[stream] = std::move(subtitle);
-  subtitle_stream_ = stream;
+  if (select) {
+    subtitle_stream_ = stream;
+  }
   PostEventLocked(PlayerEvent::kSubtitleAdded, stream, 1);
   PostEventLocked(PlayerEvent::kTracksChanged);
   UpdateSubtitleLocked();

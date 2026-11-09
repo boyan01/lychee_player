@@ -231,11 +231,13 @@ struct FFmpegDemuxer::Io {
 };
 #endif
 
-FFmpegDemuxer::FFmpegDemuxer() : av_packet_(av_packet_alloc()) {}
+FFmpegDemuxer::FFmpegDemuxer(std::string headers)
+    : headers_(std::move(headers)), av_packet_(av_packet_alloc()) {}
 
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
-FFmpegDemuxer::FFmpegDemuxer(std::unique_ptr<DataSource> input)
-    : FFmpegDemuxer() {
+FFmpegDemuxer::FFmpegDemuxer(std::unique_ptr<DataSource> input,
+                             std::string headers)
+    : FFmpegDemuxer(std::move(headers)) {
   input_ = std::move(input);
 }
 #endif
@@ -285,6 +287,10 @@ bool FFmpegDemuxer::Open(const std::string& url, std::string* error) {
     // (MayOpenReference): no file protocol for an HLS segment or key.
     av_dict_set(&options, "protocol_whitelist",
                 "http,https,tls,tcp,httpproxy,crypto,data", 0);
+    // FFmpeg's HLS passes them on to what it opens.
+    if (!headers_.empty()) {
+      av_dict_set(&options, "headers", headers_.c_str(), 0);
+    }
   }
 #if !defined(LYCHEE_FFMPEG_DATA_SOURCE)
   const int64_t began = MonotonicMicros();
@@ -955,7 +961,7 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
     target = url;
   }
   if ((flags & AVIO_FLAG_WRITE) || !ReadsThroughDataSource(target)) {
-    return self->default_io_open_(s, pb, url, flags, options);
+    return self->DefaultIoOpen(s, pb, url, flags, options);
   }
   // Besides the input itself, what demuxers open is a reference (FFmpeg's
   // HLS checks only a file's extension).
@@ -982,7 +988,7 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
     int ret = 0;
     bool failed = false;
     if (self->redirects_.Known(target)) {
-      ret = self->default_io_open_(s, pb, url, flags, options);
+      ret = self->DefaultIoOpen(s, pb, url, flags, options);
       if (ret >= 0 || self->aborted_ || self->interrupted_) {
         return ret;
       }
@@ -991,8 +997,8 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
     }
     for (;;) {
       error.clear();
-      const std::string secure =
-          self->redirects_.Find(target, s->interrupt_callback, &error);
+      const std::string secure = self->redirects_.Find(
+          target, self->headers_, s->interrupt_callback, &error);
       if (!secure.empty()) {
         LOGI("HTTP redirected to HTTPS: using the platform client");
         *pb = self->OpenIo(secure, &error, &cleartext_refused, opts, decrypt);
@@ -1007,7 +1013,7 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
       if (failed) {
         return ret;  // Still no redirect: FFmpeg's error stands.
       }
-      ret = self->default_io_open_(s, pb, url, flags, options);
+      ret = self->DefaultIoOpen(s, pb, url, flags, options);
       if (ret >= 0 || self->aborted_ || self->interrupted_) {
         return ret;
       }
@@ -1015,7 +1021,7 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
       failed = true;
     }
 #else
-    return self->default_io_open_(s, pb, url, flags, options);
+    return self->DefaultIoOpen(s, pb, url, flags, options);
 #endif
   }
   if (self->aborted_ || self->interrupted_) {
@@ -1024,6 +1030,22 @@ int FFmpegDemuxer::IoOpen(AVFormatContext* s,
   LOGE("cannot open: %s", error.c_str());
   self->io_error_ = error;
   return AVERROR(EIO);
+}
+
+int FFmpegDemuxer::DefaultIoOpen(AVFormatContext* s,
+                                 AVIOContext** pb,
+                                 const char* url,
+                                 int flags,
+                                 AVDictionary** options) {
+  if (headers_.empty()) {
+    return default_io_open_(s, pb, url, flags, options);
+  }
+  AVDictionary* own = nullptr;
+  AVDictionary** with_headers = options ? options : &own;
+  av_dict_set(with_headers, "headers", headers_.c_str(), 0);
+  const int ret = default_io_open_(s, pb, url, flags, with_headers);
+  av_dict_free(&own);
+  return ret;
 }
 
 int FFmpegDemuxer::IoClose(AVFormatContext* s, AVIOContext* pb) {
@@ -1116,7 +1138,7 @@ AVIOContext* FFmpegDemuxer::OpenIo(const std::string& url,
   // The first open is the input's.
   std::unique_ptr<DataSource> source = std::move(input_);
   if (!source) {
-    source = OpenDataSource(url, error);
+    source = OpenDataSource(url, error, headers_);
   }
   if (!source) {
     return nullptr;

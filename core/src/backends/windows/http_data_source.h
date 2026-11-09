@@ -25,9 +25,12 @@ class WinHttpDataSource : public DataSource {
  public:
   // Starts the request; errors (no such host, HTTP 404) surface on the
   // first Read(). Without |session|, the source has a session of its own.
+  // Every request, redirects included, carries |headers|
+  // (NormalizeHttpHeaders()).
   static std::unique_ptr<DataSource> Open(
       const std::string& url,
       std::string* error,
+      const std::string& headers = {},
       std::shared_ptr<WinHttpSession> session = nullptr);
   ~WinHttpDataSource() override;
 

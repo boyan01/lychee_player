@@ -16,8 +16,9 @@ class CleartextRedirects {
  public:
   // The HTTPS URL |url| redirects to, or empty if FFmpeg should read HTTP
   // as before. A nonempty error instead stops the open (invalid or too
-  // many redirects).
+  // many redirects). The probe carries |headers| (NormalizeHttpHeaders()).
   std::string Find(const std::string& url,
+                   const std::string& headers,
                    const AVIOInterruptCB& interrupt,
                    std::string* error);
   // Whether |url|'s origin did not redirect before; Forget() probes it

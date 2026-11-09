@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "media/audio_decoder.h"
@@ -19,7 +20,8 @@ namespace lychee {
 // Creates the implementations compiled into this build, or registered by
 // Android's optional FFmpeg extension before the first player is created.
 
-std::unique_ptr<Demuxer> CreateDemuxer();
+// The input's http(s) requests carry |headers| (NormalizeHttpHeaders()).
+std::unique_ptr<Demuxer> CreateDemuxer(const std::string& headers = {});
 
 // Candidates in priority order: hardware first if allowed. Decoders that
 // produce CPU frames produce one of the |accepted_storage| types if they can.
@@ -69,7 +71,8 @@ std::unique_ptr<SubtitleDecoder> CreateSubtitleDecoder(
 // OpenDataSource(), or null with |error| set in a build that reads no
 // files or URLs of its own (Linux without FFmpeg).
 std::unique_ptr<DataSource> OpenInput(const std::string& url,
-                                      std::string* error);
+                                      std::string* error,
+                                      const std::string& headers = {});
 
 }  // namespace lychee
 

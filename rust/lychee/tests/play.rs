@@ -6,7 +6,9 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use lychee::{Config, Event, FrameType, Player, State, TrackRole, TrackType};
+use lychee::{
+    Config, Event, FrameType, Player, State, SubtitleOptions, TrackRole, TrackType,
+};
 
 fn media(name: &str) -> String {
     let dir = std::env::var("MEDIA_DIR").unwrap_or_else(|_| "/tmp/lychee-media".into());
@@ -268,6 +270,35 @@ fn subtitle_file() {
     wait_for(&player, &events, |e| {
         *e == Event::SubtitleAdded { id: missing, added: false }
     });
+}
+
+#[test]
+fn subtitle_kept_unselected_and_headers() {
+    let (player, events) = open();
+    let id = player
+        .add_subtitle_with(
+            &media("subs.srt"),
+            &SubtitleOptions {
+                headers: &[("Referer", "https://example.com/")],
+                select: false,
+                ..SubtitleOptions::default()
+            },
+        )
+        .unwrap();
+    wait_for(&player, &events, |e| {
+        *e == Event::SubtitleAdded { id, added: true }
+    });
+    let track = player.tracks().into_iter().find(|t| t.id == id).unwrap();
+    assert!(track.external && !track.selected);
+    // A line break would start a header of its own.
+    assert!(
+        player
+            .open_with_headers(&media("h264_aac.mp4"), &[("Cookie", "a=1\nHost: x")])
+            .is_err()
+    );
+    player
+        .open_with_headers(&media("h264_aac.mp4"), &[("User-Agent", "lychee-test")])
+        .unwrap();
 }
 
 #[test]
