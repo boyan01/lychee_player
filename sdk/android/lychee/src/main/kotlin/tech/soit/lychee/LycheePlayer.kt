@@ -198,6 +198,16 @@ class LycheePlayer @JvmOverloads constructor(
         val audioOutputLatencyMs: Long,
         /** The bandwidth of the HLS variant on screen, 0 for other input. */
         val variantBandwidthBps: Long,
+        /**
+         * The video's frames per second, the container's or measured from its frames;
+         * 0 if unknown, without video, or for variable frame rate.
+         */
+        val videoFrameRate: Double = 0.0,
+        /**
+         * The video's ITU-T H.273 transfer characteristics: 16 (PQ) and 18 (HLG) are
+         * HDR; 2 if unspecified, 0 without video.
+         */
+        val videoColorTransfer: Int = 0,
     )
 
     /** The lychee_player*, for the C ABI and [LycheeFrameDriver]. */
@@ -592,7 +602,7 @@ class LycheePlayer @JvmOverloads constructor(
 
     val stats: Stats
         get() {
-            val longs = LongArray(20)
+            val longs = LongArray(22)
             val decoders = String(nativeGetStats(handle(), longs)).split('\n')
             return Stats(
                 hardwareDecoding = longs[0] != 0L, framesRendered = longs[1],
@@ -605,7 +615,8 @@ class LycheePlayer @JvmOverloads constructor(
                 seekCount = longs[13], lastSeekTimeMs = longs[14] / 1000,
                 videoOffsetUs = longs[15], audioOutputSampleRate = longs[16].toInt(),
                 audioOutputChannels = longs[17].toInt(), audioOutputLatencyMs = longs[18] / 1000,
-                variantBandwidthBps = longs[19],
+                variantBandwidthBps = longs[19], videoFrameRate = Double.fromBits(longs[20]),
+                videoColorTransfer = longs[21].toInt(),
             )
         }
 

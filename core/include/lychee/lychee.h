@@ -94,7 +94,9 @@ extern "C" {
 //    lychee_open_options, for request headers (no release had 24 or 25).
 // 27: error kinds: lychee_player_get_error_code(), and
 //    LYCHEE_EVENT_ERROR's arg0 and arg1.
-#define LYCHEE_API_VERSION 27
+// 28: lychee_stats.video_frame_rate and video_color_transfer; content://
+//    URIs on Android.
+#define LYCHEE_API_VERSION 28
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -492,6 +494,18 @@ typedef struct lychee_stats {
   // variant on screen, as adaptive streaming switches; 0 otherwise.
   // Before API version 22, also 0 for HLS that FFmpeg plays.
   int64_t variant_bandwidth_bps;
+  // API version 28. The video's frames per second, for matching the
+  // display's refresh rate to it: what the container says (MP4,
+  // Matroska; FFmpeg's average), else measured from the frames decoded
+  // once their durations settle (MPEG-TS, HLS, FLV, AVI: about 15
+  // frames after the open or a variant switch; standard rates such as
+  // 24000/1001 exactly). 0 if unknown, without video, or for variable
+  // frame rate.
+  double video_frame_rate;
+  // API version 28. The video's ITU-T H.273 transfer characteristics, as
+  // the container or the stream says: 16 (PQ) and 18 (HLG) are HDR; 2
+  // if unspecified, 0 without video.
+  int32_t video_color_transfer;
 } lychee_stats;
 
 typedef struct lychee_track_info {

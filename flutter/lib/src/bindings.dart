@@ -152,6 +152,10 @@ final class LycheeStats extends Struct {
   external int audioOutputLatencyUs;
   @Int64()
   external int variantBandwidthBps;
+  @Double()
+  external double videoFrameRate;
+  @Int32()
+  external int videoColorTransfer;
 }
 
 final class LycheeTrackInfo extends Struct {

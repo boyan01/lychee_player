@@ -15,7 +15,8 @@ import 'package:lychee_player/lychee_player.dart';
 /// prints a summary line in examples/glfw's format after N seconds and
 /// quits, for unattended runs. It writes to logcat on Android, stderr
 /// elsewhere. Mobile apps get no arguments, so the LYCHEE_SECONDS define
-/// does the same there.
+/// does the same there. LYCHEE_MATCH_DISPLAY=true turns on display mode
+/// matching (Android).
 void main(List<String> args) {
   var url = const String.fromEnvironment('LYCHEE_URL');
   const defined = int.fromEnvironment('LYCHEE_SECONDS');
@@ -162,6 +163,9 @@ class _PlayerPageState extends State<PlayerPage> {
       if (!mounted || request != _openRequest) {
         player.dispose();
         return;
+      }
+      if (const bool.fromEnvironment('LYCHEE_MATCH_DISPLAY')) {
+        unawaited(player.setDisplayModeMatching(true));
       }
       player.open(source);
       player.play();

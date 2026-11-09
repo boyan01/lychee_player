@@ -15,6 +15,7 @@
 #include "media/frame_converter.h"
 #include "media/video_decoder.h"
 #include "media/video_device.h"
+#include "pipeline/frame_rate_estimator.h"
 #include "pipeline/media_clock.h"
 #include "pipeline/packet_queue.h"
 #include "pipeline/video_renderer_algorithm.h"
@@ -143,6 +144,12 @@ class VideoRenderer {
   int64_t average_offset() const;
   // Moving average of the time Decode() takes per packet.
   int64_t average_decode_time() const;
+  // Frames per second: the container's, else measured from the decoded
+  // frames (FrameRateEstimator); 0 if unknown.
+  double frame_rate() const;
+  // The video's H.273 transfer characteristics (16 PQ, 18 HLG; 2 if
+  // unspecified): the container's, else the decoder's.
+  int color_transfer() const;
 
  private:
   VideoRenderer(MediaClock* clock,
@@ -242,6 +249,7 @@ class VideoRenderer {
   Counts counts_;
   int64_t average_offset_ = 0;
   int64_t average_decode_time_ = 0;
+  FrameRateEstimator frame_rate_estimator_;
 };
 
 }  // namespace lychee

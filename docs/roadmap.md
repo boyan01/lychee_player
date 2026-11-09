@@ -252,12 +252,22 @@ reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
    own http (Linux) tells no status but 400, 401, 403 and 404 and no
    bytes per request. Worth it once an app needs more than the error's
    kind and status.
-7. **Android TV**: display mode matching (#19), the output refresh rate
-   following the video's frame rate during playback and restored after.
-   The refresh rate switch needs a TV that offers several modes: waiting
-   on the user once built. `content://` from a real DocumentsProvider
-   (a USB drive through the Storage Access Framework) is checked only
-   with the SDK example's own provider on the emulator.
+7. **Android TV** (#17, #19; waiting on the user): built and checked on
+   the emulator, whose one display mode cannot show a switch, and with
+   the SDK example's own content provider. On a TV that lists several
+   modes (`adb shell dumpsys display | grep supportedModes`), with
+   `tool/serve_media.py` and `adb reverse tcp:8765 tcp:8765`, install
+   the SDK example and run
+   `adb shell am start -n tech.soit.lychee.example/.MainActivity --es url
+   http://127.0.0.1:8765/ntsc_film.ts --ez match_display true --es
+   seconds 20` (also `hevc10.mp4`, 24 fps, and an HDR10 file): the TV
+   switches to 23.976 Hz (24 Hz; an HDR mode where its modes list HDR
+   types, Android 14+), `adb logcat -s lychee` shows `display mode
+   matching: ... requesting mode N`, `dumpsys display` shows that mode
+   active, and it switches back when the activity ends. Then pick a
+   video on a USB drive through the Storage Access Framework (the
+   system file picker's `content://` URI) in TV Play or the Flutter
+   example: it plays and seeks without copying.
 8. **Separate audio, and DASH** (#2, #3): open a video URL with
    separate audio URLs, which appear as audio tracks; MPEG-DASH
    manifests (`.mpd`: segment templates and lists, several

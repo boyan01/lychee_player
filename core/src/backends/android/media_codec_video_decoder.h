@@ -4,6 +4,7 @@
 #include <media/NdkImageReader.h>
 #include <media/NdkMediaCodec.h>
 
+#include <atomic>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -45,6 +46,7 @@ class MediaCodecVideoDecoder : public VideoDecoder {
 
   const char* name() const override { return "mediacodec"; }
   bool is_hardware() const override { return hardware_; }
+  int color_transfer() const override { return color_transfer_; }
   bool Initialize(const VideoConfig& config, std::string* error) override;
   bool Decode(const EncodedPacket& packet,
               const OutputCallback& output) override;
@@ -106,6 +108,8 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   int coded_width_ = 0;
   int coded_height_ = 0;
   // Decode thread only.
+  // From the output format (MediaFormat's color-transfer), as H.273.
+  std::atomic<int> color_transfer_{2};
   int width_ = 0;
   int height_ = 0;
   // MediaCodec drops packet durations; matched back by timestamp.

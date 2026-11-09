@@ -943,6 +943,10 @@ bool MatroskaDemuxer::ParseTrackEntry(const uint8_t* data, size_t size) {
     VideoConfig& config = info.video;
     MapVideoCodec(codec_id, &config);
     config.extradata = std::move(codec_private);
+    // DefaultDuration is in nanoseconds, whatever the TimestampScale.
+    if (default_duration > 0) {
+      config.frame_rate = 1e9 / static_cast<double>(default_duration);
+    }
     int64_t display_width = 0;
     int64_t display_height = 0;
     uint64_t display_unit = 0;

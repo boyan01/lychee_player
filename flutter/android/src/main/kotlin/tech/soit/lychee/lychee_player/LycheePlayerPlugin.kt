@@ -3,17 +3,22 @@ package tech.soit.lychee.lychee_player
 import android.content.Context
 import android.hardware.display.DisplayManager
 import android.view.Display
+import android.app.Activity
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
 import tech.soit.lychee.LycheePlayer
 
-class LycheePlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
+class LycheePlayerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
     private lateinit var channel: MethodChannel
     private lateinit var textureRegistry: TextureRegistry
     private lateinit var context: Context
     private val textures = HashMap<Long, LycheeTexture>()
+    // Whose window display mode matching asks for modes.
+    private var activity: Activity? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         System.loadLibrary("lychee")
@@ -38,6 +43,21 @@ class LycheePlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         destroyAll()
     }
 
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activity = binding.activity
+        textures.values.forEach { it.setWindow(binding.activity.window) }
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() = onDetachedFromActivity()
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) =
+        onAttachedToActivity(binding)
+
+    override fun onDetachedFromActivity() {
+        activity = null
+        textures.values.forEach { it.setWindow(null) }
+    }
+
     // Releases every texture and destroys its player.
     private fun destroyAll() {
         textures.values.forEach {
@@ -52,12 +72,18 @@ class LycheePlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "createTexture" -> {
                 val player = call.argument<Number>("player")!!.toLong()
                 val producer = textureRegistry.createSurfaceProducer()
-                textures[producer.id()] = LycheeTexture(producer, player, refreshRate())
+                textures[producer.id()] =
+                    LycheeTexture(producer, player, refreshRate()).also { it.setWindow(activity?.window) }
                 result.success(producer.id())
             }
             // After a hot restart: the previous isolate's players still play.
             "disposeAll" -> {
                 destroyAll()
+                result.success(null)
+            }
+            "setDisplayModeMatching" -> {
+                val id = call.argument<Number>("textureId")!!.toLong()
+                textures[id]?.displayModeMatching = call.argument<Boolean>("enabled")!!
                 result.success(null)
             }
             "disposeTexture" -> {

@@ -18,6 +18,8 @@
 // "subtitle_encoding" extra's encoding (default: guessed); "subtitle_delay"
 // (seconds) shows subtitles that much later. Subtitle text is logged as it
 // changes: subtitle at SECs: TEXT.
+// "match_display" (true) turns on display mode matching: the log has
+// "display mode matching:" lines with the mode requested.
 // "url" may be content://tech.soit.lychee.example.media/NAME (or
 // .../pipe/NAME) for a file in the app's files directory (MediaProvider).
 
@@ -57,7 +59,8 @@ class MainActivity : Activity() {
         Log.i("lychee-example", "summary: state=${player.state} " +
             "decoder=${stats.videoDecoder} " +
             "position=${player.positionMs / 1000.0}s hw=${if (stats.hardwareDecoding) 1 else 0} " +
-            "rendered=${stats.framesRendered} dropped=${stats.framesDropped}")
+            "rendered=${stats.framesRendered} dropped=${stats.framesDropped} " +
+            "fps=${"%.3f".format(stats.videoFrameRate)} transfer=${stats.videoColorTransfer}")
         finishAndRemoveTask()
     }
     private val tick = object : Runnable {
@@ -102,7 +105,10 @@ class MainActivity : Activity() {
         }
         player.play()
 
-        video = LycheePlayerView(this).also { it.player = player }
+        video = LycheePlayerView(this).also {
+            it.player = player
+            it.displayModeMatching = intent.getBooleanExtra("match_display", false)
+        }
         status = TextView(this).apply {
             setTextColor(Color.WHITE)
             typeface = Typeface.MONOSPACE

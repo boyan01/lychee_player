@@ -58,6 +58,7 @@ set(LYCHEE_SOURCES
   src/pipeline/packet_queue.cc
   src/pipeline/player.cc
   src/pipeline/subtitle_renderer.cc
+  src/pipeline/frame_rate_estimator.cc
   src/pipeline/video_cadence_estimator.cc
   src/pipeline/video_renderer.cc
   src/pipeline/video_renderer_algorithm.cc

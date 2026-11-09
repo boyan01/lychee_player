@@ -978,9 +978,16 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
   uint32_t deltas = stts.U32();
   int64_t dts = 0;
   sample = 0;
+  // The duration most samples have: the frame rate.
+  uint32_t common_delta = 0;
+  uint64_t common_run = 0;
   for (uint32_t i = 0; i < deltas && stts.ok() && sample < track.samples.size(); ++i) {
     uint32_t run = stts.U32();
     uint32_t delta = stts.U32();
+    if (delta > 0 && run > common_run) {
+      common_run = run;
+      common_delta = delta;
+    }
     for (uint32_t j = 0; j < run && sample < track.samples.size(); ++j) {
       Sample& s = track.samples[sample++];
       s.dts = dts;
@@ -993,6 +1000,11 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
     track.samples[sample].duration = 0;
   }
   track.moov_decode_time = ClampTicks(dts);
+  // A single sample says nothing (a cover picture, a still).
+  if (info.type == MediaType::kVideo && common_delta > 0 && common_run > 1) {
+    info.video.frame_rate =
+        static_cast<double>(timescale) / static_cast<double>(common_delta);
+  }
   // Composition offsets, in ticks until MakeSample() below.
   if (Reader ctts = entries_of(FourCC("ctts"), 8); ctts.remaining()) {
     ctts.Skip(4);

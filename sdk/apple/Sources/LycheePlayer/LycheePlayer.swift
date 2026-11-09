@@ -193,6 +193,12 @@ public final class LycheePlayer {
     /// The bandwidth (bit/s) of the HLS variant on screen, nil for other
     /// input.
     public let variantBandwidth: Int64?
+    /// The video's frames per second, the container's or measured from its
+    /// frames; nil if unknown, without video, or for variable frame rate.
+    public let videoFrameRate: Double?
+    /// The video's ITU-T H.273 transfer characteristics: 16 (PQ) and 18
+    /// (HLG) are HDR; 2 if unspecified, 0 without video.
+    public let videoColorTransfer: Int
   }
 
   /// Called on the main queue.
@@ -684,7 +690,9 @@ public final class LycheePlayer {
       audioOutputSampleRate: Int(stats.audio_output_sample_rate),
       audioOutputChannels: Int(stats.audio_output_channels),
       audioOutputLatency: seconds(stats.audio_output_latency_us),
-      variantBandwidth: stats.variant_bandwidth_bps > 0 ? stats.variant_bandwidth_bps : nil)
+      variantBandwidth: stats.variant_bandwidth_bps > 0 ? stats.variant_bandwidth_bps : nil,
+      videoFrameRate: stats.video_frame_rate > 0 ? stats.video_frame_rate : nil,
+      videoColorTransfer: Int(stats.video_color_transfer))
   }
 
   fileprivate func event(_ type: Int32, _ arg0: Int64, _ arg1: Int64) -> Event? {

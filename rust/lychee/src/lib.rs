@@ -457,7 +457,7 @@ pub struct Variant {
     pub selected: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Stats {
     pub hardware_decoding: bool,
     /// Frames handed out by [`Player::acquire_frame`], and frames skipped
@@ -498,6 +498,12 @@ pub struct Stats {
     pub audio_output_latency: Duration,
     /// The HLS variant playing; `None` for other input.
     pub variant_bandwidth_bps: Option<u64>,
+    /// The video's frames per second, the container's or measured from its
+    /// frames; `None` if unknown, without video, or for variable frame rate.
+    pub video_frame_rate: Option<f64>,
+    /// The video's ITU-T H.273 transfer characteristics: 16 (PQ) and 18
+    /// (HLG) are HDR; 2 if unspecified, 0 without video.
+    pub video_color_transfer: i32,
 }
 
 /// Codecs of live tracks; see `lychee_codec` in `lychee.h` for the packet
@@ -1153,6 +1159,8 @@ impl Player {
             variant_bandwidth_bps: u64::try_from(stats.variant_bandwidth_bps)
                 .ok()
                 .filter(|&bps| bps > 0),
+            video_frame_rate: Some(stats.video_frame_rate).filter(|&fps| fps > 0.0),
+            video_color_transfer: stats.video_color_transfer,
         }
     }
 

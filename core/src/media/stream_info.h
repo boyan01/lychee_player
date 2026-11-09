@@ -38,6 +38,10 @@ struct VideoConfig {
   int sar_den = 1;
   // Clockwise, in degrees.
   int rotation = 0;
+  // Frames per second as the container says (MP4's most common sample
+  // duration, Matroska's DefaultDuration, FFmpeg's average), 0 if it
+  // does not.
+  double frame_rate = 0;
   ColorInfo color;
   // Codec configuration in the container's format (e.g. avcC, hvcC).
   std::vector<uint8_t> extradata;

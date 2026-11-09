@@ -390,6 +390,8 @@ class LycheePlayerStats {
     this.audioOutputChannels = 0,
     this.audioOutputLatency = Duration.zero,
     this.variantBandwidth,
+    this.videoFrameRate,
+    this.videoColorTransfer = 0,
   });
 
   final bool hardwareDecoding;
@@ -447,6 +449,14 @@ class LycheePlayerStats {
   /// The bandwidth (bit/s) of the HLS variant on screen, null for other
   /// input.
   final int? variantBandwidth;
+
+  /// The video's frames per second, the container's or measured from its
+  /// frames; null if unknown, without video, or for variable frame rate.
+  final double? videoFrameRate;
+
+  /// The video's ITU-T H.273 transfer characteristics: 16 (PQ) and 18
+  /// (HLG) are HDR; 2 if unspecified, 0 without video.
+  final int videoColorTransfer;
 }
 
 class LycheePlayer extends ValueNotifier<LycheePlayerValue>
@@ -817,6 +827,19 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
         ?.call(_player, bitrate == null || bitrate < 0 ? 0 : bitrate);
   }
 
+  /// Android (for TVs): whether the display's refresh rate follows the
+  /// video's frame rate while it plays, and switches to an HDR mode for
+  /// HDR video where the display offers one per mode (Android 14+). The
+  /// mode is picked at the current resolution, at the smallest multiple
+  /// of the frame rate; without one nothing changes. The app's own mode
+  /// comes back when it is turned off, on [close] or a failed open, and
+  /// on [dispose]. Off by default; does nothing on other platforms.
+  Future<void> setDisplayModeMatching(bool enabled) async {
+    if (_disposed || defaultTargetPlatform != TargetPlatform.android) return;
+    await _channel.invokeMethod<void>(
+        'setDisplayModeMatching', {'textureId': textureId, 'enabled': enabled});
+  }
+
   /// Adds the subtitle file [url] (a path, file:// or http(s):// URL;
   /// SubRip, WebVTT or ASS/SSA) to the media opened last, as a subtitle
   /// track after the container's. Its cue times count from the start of
@@ -954,6 +977,8 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       audioOutputLatency: Duration(microseconds: s.audioOutputLatencyUs),
       variantBandwidth:
           s.variantBandwidthBps > 0 ? s.variantBandwidthBps : null,
+      videoFrameRate: s.videoFrameRate > 0 ? s.videoFrameRate : null,
+      videoColorTransfer: s.videoColorTransfer,
     );
     calloc.free(stats);
     return result;

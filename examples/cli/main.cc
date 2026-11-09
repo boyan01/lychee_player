@@ -2325,6 +2325,8 @@ int main(int argc, char** argv) {
           stats.video_offset_us / 1e3, stats.audio_output_sample_rate,
           stats.audio_output_channels, stats.audio_output_latency_us / 1e3,
           stats.variant_bandwidth_bps / 1000);
+  Appendf(&summary, " fps=%.3f transfer=%d", stats.video_frame_rate,
+          stats.video_color_transfer);
   summary += '\n';
   fputs(summary.c_str(), stdout);
   fflush(stdout);

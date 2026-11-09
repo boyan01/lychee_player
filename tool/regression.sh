@@ -122,6 +122,11 @@ gen h264_aac.mp4 -f lavfi -i "$src" -f lavfi -i sine=frequency=440:sample_rate=4
   -c:v libx264 -preset veryfast -bf 3 -pix_fmt yuv420p -c:a aac -b:a 128k
 gen hevc10.mp4 -f lavfi -i testsrc2=size=1920x1080:rate=24 -f lavfi -i sine=frequency=660:sample_rate=48000 -t 10 \
   -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -tag:v hvc1 -x265-params log-level=error -c:a aac
+# 23.976 fps with B-frames, for the frame rate the stats report: Matroska
+# says it, MPEG-TS does not.
+gen ntsc_film.ts -f lavfi -i testsrc2=size=640x360:rate=24000/1001 -t 3 \
+  -c:v libx264 -preset veryfast -bf 2 -pix_fmt yuv420p
+gen ntsc_film.mkv -i "$media/ntsc_film.ts" -c copy
 # Native color metadata: untagged SD HEVC, and only one specified VUI field.
 gen sd_hevc.mp4 -i "$media/h264_aac.mp4" -map 0:v -t 8 -vf scale=640:360 \
   -c:v libx265 -preset ultrafast -pix_fmt yuv420p -tag:v hvc1 -x265-params log-level=error
@@ -1116,6 +1121,16 @@ par expect video-short "summary: state=ended position=0\.100s .*rendered=3 dropp
 par check ts-offset     1 - -- "$media/offset.ts"
 par check ts-hevc10     1 - -- "$media/hevc10.ts"
 par check no-hw-cpu     0 - -- --no-hw --cpu "$media/h264_aac.mp4"
+# The video's frame rate and transfer function, for display mode
+# matching: the container's (MP4's sample durations, Matroska's
+# DefaultDuration), else measured from the frames (MPEG-TS).
+par expect frame-rate-mp4 "summary: .* fps=30\.000 transfer=2$" -- --seconds 1 "$media/h264_aac.mp4"
+par expect frame-rate-mkv "summary: .* fps=23\.976 transfer=2$" -- --seconds 1 "$media/ntsc_film.mkv"
+par expect frame-rate-ts "summary: .* fps=23\.976 transfer=2$" -- --seconds 2 "$media/ntsc_film.ts"
+# Without FFmpeg the transfer of HDR10 that only its VUI tags comes from
+# the decoder: MediaCodec says it, VideoToolbox does not.
+[ "${NO_FFMPEG:-0}" = 1 ] ||
+  par expect frame-rate-hdr "summary: .* fps=30\.000 transfer=16$" -- --seconds 1 "$media/hdr_pq.mp4"
 # 8-bit frames from HDR are tone-mapped, by VideoToolbox and by swscale.
 par expect hdr-tonemap "center pixel: 1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9]),1(7[5-9]|8[0-9])$" -- --cpu --seconds 1 \
   "$media/hdr_pq.mp4"

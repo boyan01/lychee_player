@@ -1,5 +1,6 @@
 package tech.soit.lychee.lychee_player
 
+import android.view.Window
 import io.flutter.view.TextureRegistry
 import tech.soit.lychee.LycheeFrameDriver
 
@@ -34,6 +35,25 @@ internal class LycheeTexture(
             }
         })
         driver.setSurface(producer.surface)
+    }
+
+    // The Activity's window, while the plugin has one.
+    private var window: Window? = null
+
+    /** Dart's LycheePlayer.setDisplayModeMatching(). */
+    var displayModeMatching = false
+        set(value) {
+            field = value
+            applyDisplayModeMatching()
+        }
+
+    fun setWindow(window: Window?) {
+        this.window = window
+        applyDisplayModeMatching()
+    }
+
+    private fun applyDisplayModeMatching() {
+        if (!released) driver.setDisplayModeMatching(if (displayModeMatching) window else null)
     }
 
     private fun onSurfaceNeeded(cpu: Boolean, width: Int, height: Int) {

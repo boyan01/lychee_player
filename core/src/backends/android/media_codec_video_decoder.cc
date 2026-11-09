@@ -606,6 +606,26 @@ bool MediaCodecVideoDecoder::DrainOutput(const OutputCallback& output) {
     if (index == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
       AMediaFormat* format = AMediaCodec_getOutputFormat(codec);
       VisibleSize(format, &width_, &height_);
+      // MediaFormat.COLOR_TRANSFER_*: what the decoder read from the VUI.
+      int32_t transfer = 0;
+      if (AMediaFormat_getInt32(format, "color-transfer", &transfer)) {
+        switch (transfer) {
+          case 1:  // LINEAR
+            color_transfer_ = 8;
+            break;
+          case 3:  // SDR_VIDEO (BT.709 / BT.601)
+            color_transfer_ = 1;
+            break;
+          case 6:  // ST2084 (PQ)
+            color_transfer_ = 16;
+            break;
+          case 7:  // HLG
+            color_transfer_ = 18;
+            break;
+          default:
+            break;
+        }
+      }
       LOGI("output format: %s", AMediaFormat_toString(format));
       AMediaFormat_delete(format);
       continue;

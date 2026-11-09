@@ -56,6 +56,14 @@
   a USB drive's), read in place through the `ContentResolver` without
   copying. Native SDK users call `LycheePlayer.setContext(context)` once
   (`LycheePlayerView` does).
+* Android TV: `setDisplayModeMatching(true)` makes the display's refresh
+  rate follow the video's frame rate while it plays (24p films at 24 Hz
+  or 23.976 Hz), with an HDR mode for HDR video where the display offers
+  one per mode; the app's own mode comes back afterwards. Off by default;
+  the native SDK has `LycheePlayerView.displayModeMatching`.
+* `LycheePlayerStats.videoFrameRate` and `videoColorTransfer` give the
+  video's frame rate (from the container, or measured from the frames)
+  and its transfer function (16 for HDR10/PQ, 18 for HLG).
 
 ### Fixed
 

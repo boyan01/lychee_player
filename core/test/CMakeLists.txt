@@ -11,6 +11,7 @@ add_executable(lychee_unittests
   data_source_test.cc
   error_test.cc
   decode_order_timestamps_test.cc
+  frame_rate_estimator_test.cc
   live_demuxer_test.cc
   live_timeline_test.cc
   media_clock_test.cc

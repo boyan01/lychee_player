@@ -457,6 +457,9 @@ void FFmpegDemuxer::BuildMediaInfo() {
         config.sar_den = sar.den;
       }
       config.rotation = RotationFromDisplayMatrix(par);
+      if (stream->avg_frame_rate.num > 0 && stream->avg_frame_rate.den > 0) {
+        config.frame_rate = av_q2d(stream->avg_frame_rate);
+      }
       config.color.primaries = static_cast<uint8_t>(par->color_primaries);
       config.color.transfer = static_cast<uint8_t>(par->color_trc);
       config.color.matrix = static_cast<uint8_t>(par->color_space);

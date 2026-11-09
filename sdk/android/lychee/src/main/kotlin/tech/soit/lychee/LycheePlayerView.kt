@@ -1,6 +1,8 @@
 package tech.soit.lychee
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -18,6 +20,7 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.view.View
+import android.view.Window
 import android.widget.FrameLayout
 import kotlin.math.ceil
 
@@ -59,6 +62,20 @@ class LycheePlayerView @JvmOverloads constructor(
         /** Between the last line and the bottom of the video. */
         val bottomMargin: Float = 0.05f,
     )
+
+    /**
+     * Whether the display's refresh rate follows the video's frame rate
+     * (and HDR format) while it plays, for TVs: see
+     * [LycheeFrameDriver.setDisplayModeMatching]. Off by default; the
+     * window's own mode comes back when it is turned off, the player
+     * stops or the view lets go of it. Needs the view in an Activity.
+     */
+    var displayModeMatching: Boolean = false
+        set(value) {
+            if (value == field) return
+            field = value
+            driver?.setDisplayModeMatching(if (value) activityWindow() else null)
+        }
 
     /** Null draws no text subtitles, for drawing [LycheePlayer.subtitle] yourself. */
     var subtitleStyle: SubtitleStyle? = SubtitleStyle()
@@ -104,8 +121,17 @@ class LycheePlayerView @JvmOverloads constructor(
         player.addListener(listener)
         driver = LycheeFrameDriver(
             player.nativeHandle, display?.refreshRate ?: 60f, true, ::onSurfaceNeeded,
-        )
+        ).also { if (displayModeMatching) it.setDisplayModeMatching(activityWindow()) }
         newSurfaceView(null)
+    }
+
+    private fun activityWindow(): Window? {
+        var wrapper = context
+        while (wrapper is ContextWrapper) {
+            if (wrapper is Activity) return wrapper.window
+            wrapper = wrapper.baseContext
+        }
+        return null
     }
 
     private fun stop() {

@@ -89,6 +89,8 @@ struct PlayerStats {
   int audio_output_channels = 0;
   int64_t audio_output_latency = 0;
   int64_t variant_bandwidth = 0;
+  double video_frame_rate = 0;
+  int video_color_transfer = 0;
 };
 
 // An audio, video or subtitle stream of the open media.

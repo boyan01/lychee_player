@@ -731,6 +731,8 @@ void lychee_player_get_stats(lychee_player* player, lychee_stats* stats) {
   result.audio_output_channels = player_stats.audio_output_channels;
   result.audio_output_latency_us = player_stats.audio_output_latency;
   result.variant_bandwidth_bps = player_stats.variant_bandwidth;
+  result.video_frame_rate = player_stats.video_frame_rate;
+  result.video_color_transfer = player_stats.video_color_transfer;
   CopyOut(result, stats);
 }
 

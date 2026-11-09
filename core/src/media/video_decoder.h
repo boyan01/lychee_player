@@ -32,6 +32,11 @@ class VideoDecoder {
   // Drops all pending frames, e.g. after a seek.
   virtual void Flush() = 0;
 
+  // The ITU-T H.273 transfer characteristics the stream itself says (its
+  // VUI), once the decoder has read them; 2 if unknown. Containers often
+  // leave them out. Called on any thread.
+  virtual int color_transfer() const { return 2; }
+
   // lychee_player_set_video_surface() changed. Called on any thread.
   // By value: overrides keep the pointer.
   // NOLINTNEXTLINE(performance-unnecessary-value-param)

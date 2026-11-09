@@ -314,6 +314,7 @@ void VideoRenderer::OnFrame(std::shared_ptr<VideoFrame> frame,
       return;
     }
     counts_.decoded++;
+    frame_rate_estimator_.AddFrame(frame->pts);
     // Accurate seek: skip frames that end before the seek target.
     if (start_time_ != kNoTimestamp && frame->pts != kNoTimestamp &&
         FrameEnd(*frame) <= start_time_ + kFrameEndSlop) {
@@ -379,6 +380,7 @@ void VideoRenderer::Flush(uint64_t generation,
     end_time_ = kNoTimestamp;
     generation_ = generation;
     start_time_ = start_time;
+    frame_rate_estimator_.Restart();
     // The frame rate survives a seek; cadence detection need not restart.
     algorithm_.Reset(
         VideoRendererAlgorithm::ResetFlag::kPreserveNextFrameEstimates);
@@ -627,6 +629,22 @@ int64_t VideoRenderer::average_offset() const {
 int64_t VideoRenderer::average_decode_time() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return average_decode_time_;
+}
+
+int VideoRenderer::color_transfer() const {
+  if (config_.color.transfer != 2) {
+    return config_.color.transfer;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  return decoder_ ? decoder_->color_transfer() : 2;
+}
+
+double VideoRenderer::frame_rate() const {
+  if (config_.frame_rate > 0) {
+    return config_.frame_rate;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  return frame_rate_estimator_.frame_rate();
 }
 
 }  // namespace lychee

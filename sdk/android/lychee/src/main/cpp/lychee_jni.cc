@@ -8,6 +8,7 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <bit>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -749,16 +750,16 @@ JNIEXPORT jbyteArray JNICALL Java_tech_soit_lychee_LycheePlayer_nativeGetStats(
   stats.struct_size = sizeof(stats);
   lychee_player_get_stats(Player(handle), &stats);
   const jlong values[] = {
-      stats.hardware_decoding,        stats.frames_rendered,
-      stats.frames_dropped,           stats.video_buffered_us,
-      stats.audio_buffered_us,        stats.video_decode_time_us,
-      stats.frames_decoded,           stats.video_bytes_read,
-      stats.audio_bytes_read,         stats.download_rate_bps,
-      stats.startup_time_us,          stats.rebuffer_count,
-      stats.rebuffer_time_us,         stats.seek_count,
-      stats.last_seek_time_us,        stats.video_offset_us,
+      stats.hardware_decoding, stats.frames_rendered, stats.frames_dropped,
+      stats.video_buffered_us, stats.audio_buffered_us,
+      stats.video_decode_time_us, stats.frames_decoded, stats.video_bytes_read,
+      stats.audio_bytes_read, stats.download_rate_bps, stats.startup_time_us,
+      stats.rebuffer_count, stats.rebuffer_time_us, stats.seek_count,
+      stats.last_seek_time_us, stats.video_offset_us,
       stats.audio_output_sample_rate, stats.audio_output_channels,
-      stats.audio_output_latency_us,  stats.variant_bandwidth_bps};
+      stats.audio_output_latency_us, stats.variant_bandwidth_bps,
+      // Its bits: Double.fromBits().
+      std::bit_cast<jlong>(stats.video_frame_rate), stats.video_color_transfer};
   env->SetLongArrayRegion(longs, 0, sizeof(values) / sizeof(values[0]), values);
   const std::string decoders =
       FromArray(stats.video_decoder) + "\n" + FromArray(stats.audio_decoder);
@@ -884,6 +885,32 @@ Java_tech_soit_lychee_LycheeFrameDriver_nativeFramePts(JNIEnv*,
   Driver* driver = FromHandle(handle);
   std::lock_guard<std::mutex> lock(driver->mutex);
   return driver->frame_pts;
+}
+
+// For display mode matching: fills |longs| with the player's state, the
+// bits of the video's frame rate (Double.fromBits()) and its transfer
+// characteristics. False once detached.
+JNIEXPORT jboolean JNICALL
+Java_tech_soit_lychee_LycheeFrameDriver_nativeVideoInfo(JNIEnv* env,
+                                                        jclass,
+                                                        jlong handle,
+                                                        jlongArray longs) {
+  Driver* driver = FromHandle(handle);
+  lychee_stats stats{};
+  stats.struct_size = sizeof(stats);
+  int32_t state = 0;
+  {
+    std::lock_guard<std::mutex> lock(driver->mutex);
+    if (!driver->player) {
+      return JNI_FALSE;
+    }
+    lychee_player_get_stats(driver->player, &stats);
+    state = lychee_player_get_state(driver->player);
+  }
+  const jlong values[] = {state, std::bit_cast<jlong>(stats.video_frame_rate),
+                          stats.video_color_transfer};
+  env->SetLongArrayRegion(longs, 0, 3, values);
+  return JNI_TRUE;
 }
 
 // After this returns, the player is not touched again.

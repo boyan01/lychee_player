@@ -1503,6 +1503,8 @@ PlayerStats Player::StatsLocked() const {
     stats.frames_decoded += counts.decoded;
     stats.video_decode_time = video_renderer_->average_decode_time();
     stats.video_offset = video_renderer_->average_offset();
+    stats.video_frame_rate = video_renderer_->frame_rate();
+    stats.video_color_transfer = video_renderer_->color_transfer();
     if (const int variant = PlayingVariantLocked(); variant >= 0) {
       stats.variant_bandwidth = variants_[variant].bandwidth;
     }
