@@ -149,11 +149,13 @@ class Player {
   // Replaces what is open with |url|, the same content from elsewhere,
   // at the position playing if |keep_position| (lychee_player_switch_source()).
   // Opens |url| like Open() if nothing is open or the input is live.
-  bool SwitchSource(const std::string& url, bool keep_position);
+  bool SwitchSource(const std::string& url,
+                    bool keep_position,
+                    const std::string& headers = {});
   // Opens |url| in the background to play when what is open ends, without
   // a gap where the tracks match (lychee_player_set_next()); empty clears
   // it. Open(), OpenLive() and Close() clear it; SwitchSource() keeps it.
-  bool SetNext(const std::string& url);
+  bool SetNext(const std::string& url, const std::string& headers = {});
   // Stops whatever is open and starts a live input presenting packets
   // |latency| after they arrive (lychee_player_open_live()).
   bool OpenLive(int64_t latency);

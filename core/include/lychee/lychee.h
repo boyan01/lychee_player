@@ -90,7 +90,9 @@ extern "C" {
 // 23: lychee_player_close().
 // 24: lychee_player_switch_source().
 // 25: lychee_player_set_next() and LYCHEE_EVENT_ITEM_CHANGED.
-#define LYCHEE_API_VERSION 25
+// 26: lychee_player_switch_source() and lychee_player_set_next() take
+//    lychee_open_options, for request headers (no release had 24 or 25).
+#define LYCHEE_API_VERSION 26
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -648,11 +650,15 @@ LYCHEE_EXPORT int32_t lychee_player_close(lychee_player* player);
 // lychee_player_add_subtitle() added are kept; the tracks are the new
 // input's defaults. Input that cannot seek plays from its start. Works
 // from LYCHEE_STATE_ERROR too. With nothing open, or a live input, it opens
-// |url| as lychee_player_open() does. Returns 0 if accepted, -1 from an
-// event callback.
-LYCHEE_EXPORT int32_t lychee_player_switch_source(lychee_player* player,
-                                                  const char* url,
-                                                  int32_t keep_position);
+// |url| as lychee_player_open() does. |options| (NULL: none) are the new
+// input's, as for lychee_player_open_with_options(): a fresh URL usually
+// needs the same headers as the old one. Returns 0 if accepted, -1 from an
+// event callback or if the headers are not "Name: value" lines.
+LYCHEE_EXPORT int32_t
+lychee_player_switch_source(lychee_player* player,
+                            const char* url,
+                            int32_t keep_position,
+                            const lychee_open_options* options);
 
 // API version 25. Opens |url| in the background as the item to play when
 // what is open ends (a playlist's next track, the next episode), so that
@@ -668,10 +674,14 @@ LYCHEE_EXPORT int32_t lychee_player_switch_source(lychee_player* player,
 // seek or track change before the next item starts plays on in the
 // current one. lychee_player_open(), lychee_player_open_live() and
 // lychee_player_close() unset it; lychee_player_switch_source() keeps it.
-// May be called from an event callback. Returns 0, or -1 if this build
-// has no demuxer.
-LYCHEE_EXPORT int32_t lychee_player_set_next(lychee_player* player,
-                                             const char* url);
+// |options| (NULL: none) are the next item's, as for
+// lychee_player_open_with_options(). May be called from an event callback.
+// Returns 0, or -1 if this build has no demuxer or the headers are not
+// "Name: value" lines.
+LYCHEE_EXPORT int32_t
+lychee_player_set_next(lychee_player* player,
+                       const char* url,
+                       const lychee_open_options* options);
 
 // Stops what is open, like lychee_player_open(), and starts a live input:
 // packets pushed with lychee_player_push_live_packet() play as they

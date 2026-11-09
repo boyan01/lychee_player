@@ -629,13 +629,18 @@ const char* TrackTypeName(int32_t type) {
   return "?";
 }
 
-// lychee_player_open() with the --header lines.
-int32_t Open(lychee_player* player,
-             const Options& options,
-             const std::string& url) {
+// The --header lines, for every URL the CLI opens.
+lychee_open_options OpenOptions(const Options& options) {
   lychee_open_options open_options = {};
   open_options.struct_size = sizeof(open_options);
   open_options.headers = options.headers.c_str();
+  return open_options;
+}
+
+int32_t Open(lychee_player* player,
+             const Options& options,
+             const std::string& url) {
+  const lychee_open_options open_options = OpenOptions(options);
   return lychee_player_open_with_options(player, url.c_str(), &open_options);
 }
 
@@ -1479,8 +1484,10 @@ int main(int argc, char** argv) {
     lychee_player_seek(player, static_cast<int64_t>(options.start_at * 1e6));
   }
   if (!options.next_url.empty()) {
+    const lychee_open_options next_options = OpenOptions(options);
     printf("next -> %s: result=%d\n", options.next_url.c_str(),
-           lychee_player_set_next(player, options.next_url.c_str()));
+           lychee_player_set_next(player, options.next_url.c_str(),
+                                  &next_options));
   }
   lychee_player_set_subtitle_delay(
       player, static_cast<int64_t>(options.subtitle_delay * 1e6));
@@ -2075,7 +2082,7 @@ int main(int argc, char** argv) {
             static_cast<int64_t>(options.clear_next_after * 1e6)) {
       next_cleared = true;
       printf("next cleared at %.3fs: result=%d\n", position / 1e6,
-             lychee_player_set_next(player, nullptr));
+             lychee_player_set_next(player, nullptr, nullptr));
     }
     if (!switched && options.switch_after >= 0 && ready_wall != 0 &&
         now - ready_wall >= static_cast<int64_t>(options.switch_after * 1e6)) {
@@ -2083,8 +2090,9 @@ int main(int argc, char** argv) {
       switch_position = position;
       printf("switch at %.3fs -> %s: result=%d state=%s\n", position / 1e6,
              options.switch_url.c_str(), stopping([&] {
+               const lychee_open_options switch_options = OpenOptions(options);
                return lychee_player_switch_source(
-                   player, options.switch_url.c_str(), 1);
+                   player, options.switch_url.c_str(), 1, &switch_options);
              }),
              StateName(lychee_player_get_state(player)));
     } else if (switch_position != INT64_MIN) {

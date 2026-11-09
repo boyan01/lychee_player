@@ -1923,6 +1923,13 @@ seq_ expect http-headers "event: subtitle [0-9]+ added" "subtitle at [01]\.[0-9]
   --add-subtitle "http://127.0.0.1:$port/subs.srt" "http://127.0.0.1:$port/moved.mp4"
 seq_ check http-headers-hls-aes 1 7.033 -- "${with_header[@]}" --seek 7 --seek-after 2 \
   "http://127.0.0.1:$port/hls_aes/fmp4.m3u8"
+# A source switch and a next item carry the headers too.
+seq_ expect http-headers-switch "switch at 1\.[0-9]+s -> .*result=0 state=buffering" \
+  "<=0 event: state error" "summary: state=ended position=12\.000s" -- "${with_header[@]}" \
+  --switch-after 1 "http://127.0.0.1:$port/faststart.mp4" "http://127.0.0.1:$port/moved.mp4"
+seq_ expect http-headers-next "event: item changed, gapless 1" "<=0 event: state error" \
+  "summary: state=ended position=3\.000s" -- "${with_header[@]}" \
+  --next "http://127.0.0.1:$port/loop.mp4" "http://127.0.0.1:$port/loop.mp4"
 if [ "$own_ts" = 1 ]; then
   seq_ expect http-headers-hls-renditions "select audio 1 at [0-9.]+s: accepted" \
     "track 1: audio .* selected=1" "summary: state=ended position=12\.000s" -- \

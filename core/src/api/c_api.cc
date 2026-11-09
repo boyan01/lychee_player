@@ -273,14 +273,24 @@ int32_t lychee_player_open(lychee_player* player, const char* url) {
   return url && player->player->Open(url) ? 0 : -1;
 }
 
+namespace {
+
+// The headers |options| (NULL: none) carry, normalized; false if malformed.
+bool OpenOptionsHeaders(const lychee_open_options* options,
+                        std::string* headers) {
+  const lychee_open_options copy =
+      options ? CopyStruct(options) : lychee_open_options{};
+  return lychee::NormalizeHttpHeaders(copy.headers ? copy.headers : "",
+                                      headers);
+}
+
+}  // namespace
+
 int32_t lychee_player_open_with_options(lychee_player* player,
                                         const char* url,
                                         const lychee_open_options* options) {
-  const lychee_open_options copy =
-      options ? CopyStruct(options) : lychee_open_options{};
   std::string headers;
-  if (!url || !lychee::NormalizeHttpHeaders(copy.headers ? copy.headers : "",
-                                            &headers)) {
+  if (!url || !OpenOptionsHeaders(options, &headers)) {
     return -1;
   }
   return player->player->Open(url, headers) ? 0 : -1;
@@ -292,12 +302,24 @@ int32_t lychee_player_close(lychee_player* player) {
 
 int32_t lychee_player_switch_source(lychee_player* player,
                                     const char* url,
-                                    int32_t keep_position) {
-  return url && player->player->SwitchSource(url, keep_position != 0) ? 0 : -1;
+                                    int32_t keep_position,
+                                    const lychee_open_options* options) {
+  std::string headers;
+  if (!url || !OpenOptionsHeaders(options, &headers)) {
+    return -1;
+  }
+  return player->player->SwitchSource(url, keep_position != 0, headers) ? 0
+                                                                        : -1;
 }
 
-int32_t lychee_player_set_next(lychee_player* player, const char* url) {
-  return player->player->SetNext(url ? url : "") ? 0 : -1;
+int32_t lychee_player_set_next(lychee_player* player,
+                               const char* url,
+                               const lychee_open_options* options) {
+  std::string headers;
+  if (!OpenOptionsHeaders(options, &headers)) {
+    return -1;
+  }
+  return player->player->SetNext(url ? url : "", headers) ? 0 : -1;
 }
 
 int32_t lychee_player_open_live(lychee_player* player,

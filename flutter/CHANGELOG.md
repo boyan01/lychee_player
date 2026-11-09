@@ -19,9 +19,10 @@
   other): `open(url, headers: {...})`. Every request of the input carries
   them, including redirects and an HLS stream's playlists, segments, keys
   and renditions.
-* `addSubtitle` takes `headers` too, and `select: false` adds the track
-  without selecting it, so several language files can be added while the
-  current subtitle (or none) stays.
+* `addSubtitle`, `switchSource` and `setNext` take `headers` too. For
+  `addSubtitle`, `select: false` adds the track without selecting it, so
+  several language files can be added while the current subtitle (or
+  none) stays.
 * HLS: `LycheePlayerValue.variants` lists a master playlist's variants
   (bandwidth, resolution, frame rate, codecs). `selectVariant(index)`
   pins one without stopping playback, `selectVariant(null)` adapts

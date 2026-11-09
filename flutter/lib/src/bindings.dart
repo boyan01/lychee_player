@@ -258,21 +258,26 @@ final int Function(Pointer<Void>)? playerClose =
             int Function(Pointer<Void>)>('lychee_player_close')
         : null;
 
-/// Null with a core older than API 24.
-final int Function(Pointer<Void>, Pointer<Char>, int)? playerSwitchSource =
-    _library.providesSymbol('lychee_player_switch_source')
+/// Null with a core older than API 24 (its options since 26; no release
+/// had 24 or 25).
+final int Function(
+        Pointer<Void>, Pointer<Char>, int, Pointer<LycheeOpenOptions>)?
+    playerSwitchSource = _library.providesSymbol('lychee_player_switch_source')
         ? _library.lookupFunction<
-            Int32 Function(Pointer<Void>, Pointer<Char>, Int32),
-            int Function(Pointer<Void>, Pointer<Char>,
-                int)>('lychee_player_switch_source')
+            Int32 Function(Pointer<Void>, Pointer<Char>, Int32,
+                Pointer<LycheeOpenOptions>),
+            int Function(Pointer<Void>, Pointer<Char>, int,
+                Pointer<LycheeOpenOptions>)>('lychee_player_switch_source')
         : null;
 
-/// Null with a core older than API 25.
-final int Function(Pointer<Void>, Pointer<Char>)? playerSetNext =
-    _library.providesSymbol('lychee_player_set_next')
+/// Null with a core older than API 25 (its options since 26).
+final int Function(Pointer<Void>, Pointer<Char>, Pointer<LycheeOpenOptions>)?
+    playerSetNext = _library.providesSymbol('lychee_player_set_next')
         ? _library.lookupFunction<
-            Int32 Function(Pointer<Void>, Pointer<Char>),
-            int Function(Pointer<Void>, Pointer<Char>)>('lychee_player_set_next')
+            Int32 Function(
+                Pointer<Void>, Pointer<Char>, Pointer<LycheeOpenOptions>),
+            int Function(Pointer<Void>, Pointer<Char>,
+                Pointer<LycheeOpenOptions>)>('lychee_player_set_next')
         : null;
 
 final playerPlay = _library.lookupFunction<Void Function(Pointer<Void>),
@@ -299,11 +304,11 @@ final void Function(Pointer<Void>, double, int)? playerFade =
             void Function(Pointer<Void>, double, int)>('lychee_player_fade')
         : null;
 
-final void Function(Pointer<Void>, double, double)? playerSetGain =
-    _library.providesSymbol('lychee_player_set_gain')
-        ? _library.lookupFunction<Void Function(Pointer<Void>, Float, Float),
-            void Function(Pointer<Void>, double, double)>('lychee_player_set_gain')
-        : null;
+final void Function(Pointer<Void>, double, double)? playerSetGain = _library
+        .providesSymbol('lychee_player_set_gain')
+    ? _library.lookupFunction<Void Function(Pointer<Void>, Float, Float),
+        void Function(Pointer<Void>, double, double)>('lychee_player_set_gain')
+    : null;
 
 final int Function(Pointer<Void>, int, Pointer<Float>, int)?
     playerGetAudioSamples =
@@ -448,17 +453,16 @@ final class LycheeSubtitleOptions extends Struct {
 }
 
 /// Null with a core older than API 21.
-final int Function(
-        Pointer<Void>, Pointer<Char>, Pointer<LycheeSubtitleOptions>)?
-    playerAddSubtitleWithOptions = _library
-            .providesSymbol('lychee_player_add_subtitle_with_options')
-        ? _library.lookupFunction<
-                Int32 Function(Pointer<Void>, Pointer<Char>,
-                    Pointer<LycheeSubtitleOptions>),
-                int Function(Pointer<Void>, Pointer<Char>,
-                    Pointer<LycheeSubtitleOptions>)>(
-            'lychee_player_add_subtitle_with_options')
-        : null;
+final int Function(Pointer<Void>, Pointer<Char>,
+    Pointer<LycheeSubtitleOptions>)? playerAddSubtitleWithOptions = _library
+        .providesSymbol('lychee_player_add_subtitle_with_options')
+    ? _library.lookupFunction<
+            Int32 Function(
+                Pointer<Void>, Pointer<Char>, Pointer<LycheeSubtitleOptions>),
+            int Function(
+                Pointer<Void>, Pointer<Char>, Pointer<LycheeSubtitleOptions>)>(
+        'lychee_player_add_subtitle_with_options')
+    : null;
 
 /// Null with a core older than API 18.
 final void Function(Pointer<Void>, int)? playerSetSubtitleDelay = _library

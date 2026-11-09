@@ -290,18 +290,29 @@ Java_tech_soit_lychee_LycheePlayer_nativeSwitchSource(JNIEnv* env,
                                                       jclass,
                                                       jlong handle,
                                                       jbyteArray url,
-                                                      jboolean keep_position) {
-  return lychee_player_switch_source(
-      Player(handle), FromBytes(env, url).c_str(), keep_position ? 1 : 0);
+                                                      jboolean keep_position,
+                                                      jbyteArray headers) {
+  const std::string headers_text = FromBytes(env, headers);
+  lychee_open_options options = {};
+  options.struct_size = sizeof(options);
+  options.headers = headers_text.c_str();
+  return lychee_player_switch_source(Player(handle),
+                                     FromBytes(env, url).c_str(),
+                                     keep_position ? 1 : 0, &options);
 }
 
 JNIEXPORT jint JNICALL
 Java_tech_soit_lychee_LycheePlayer_nativeSetNext(JNIEnv* env,
                                                  jclass,
                                                  jlong handle,
-                                                 jbyteArray url) {
-  return lychee_player_set_next(Player(handle),
-                                url ? FromBytes(env, url).c_str() : nullptr);
+                                                 jbyteArray url,
+                                                 jbyteArray headers) {
+  const std::string headers_text = FromBytes(env, headers);
+  lychee_open_options options = {};
+  options.struct_size = sizeof(options);
+  options.headers = headers_text.c_str();
+  return lychee_player_set_next(
+      Player(handle), url ? FromBytes(env, url).c_str() : nullptr, &options);
 }
 
 JNIEXPORT jint JNICALL

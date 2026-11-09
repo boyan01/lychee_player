@@ -177,7 +177,7 @@ fn switch_source_keeps_the_position() {
     });
     pull(&player, &events, Duration::from_millis(500), |_| false);
     let position = player.position();
-    player.switch_source(&media("h264_aac.mkv"), true).unwrap();
+    player.switch_source(&media("h264_aac.mkv"), true, &[]).unwrap();
     assert_eq!(player.state(), State::Buffering);
     assert!(player.position() >= position, "{:?}", player.position());
     assert_eq!(player.video_size(), Some((1920, 1080)));
@@ -199,7 +199,7 @@ fn switch_source_keeps_the_position() {
 #[test]
 fn the_next_item_follows_without_a_gap() {
     let (player, events) = open();
-    player.set_next(Some(&media("h264_aac.mp4"))).unwrap();
+    player.set_next(Some(&media("h264_aac.mp4")), &[]).unwrap();
     player.seek(Duration::from_secs(11));
     player.play();
     wait_for(&player, &events, |e| {
@@ -213,7 +213,7 @@ fn the_next_item_follows_without_a_gap() {
         player.position()
     );
     assert_eq!(player.duration(), Some(Duration::from_secs(12)));
-    player.set_next(None).unwrap();
+    player.set_next(None, &[]).unwrap();
 }
 
 #[test]

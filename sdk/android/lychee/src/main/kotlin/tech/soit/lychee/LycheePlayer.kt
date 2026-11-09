@@ -225,11 +225,14 @@ class LycheePlayer @JvmOverloads constructor(
      * state is [State.BUFFERING], and the position, duration, video size
      * and the frame on screen stay; play/pause, volume, rate, looping and
      * added subtitle files are kept. Media that cannot seek plays from its
-     * start.
+     * start. Every http(s) request of the new media carries [headers], as
+     * for [open]. Returns false if a header name or value holds a line
+     * break.
      */
     @JvmOverloads
-    fun switchSource(url: String, keepPosition: Boolean = true) {
-        nativeSwitchSource(handle(), url.toByteArray(), keepPosition)
+    fun switchSource(url: String, keepPosition: Boolean = true, headers: Map<String, String> = emptyMap()): Boolean {
+        val lines = headerLines(headers) ?: return false
+        return nativeSwitchSource(handle(), url.toByteArray(), keepPosition, lines.toByteArray()) == 0
     }
 
     /**
@@ -243,10 +246,13 @@ class LycheePlayer @JvmOverloads constructor(
      * player switches to it at the end, buffering briefly. Looping replays
      * the current media instead, and a seek before [url] starts plays on in
      * the current media. [open] and [closeMedia] unset it; [switchSource]
-     * keeps it.
+     * keeps it. Every http(s) request of [url] carries [headers], as for
+     * [open]. Returns false if a header name or value holds a line break.
      */
-    fun setNext(url: String?) {
-        nativeSetNext(handle(), url?.toByteArray())
+    @JvmOverloads
+    fun setNext(url: String?, headers: Map<String, String> = emptyMap()): Boolean {
+        val lines = headerLines(headers) ?: return false
+        return nativeSetNext(handle(), url?.toByteArray(), lines.toByteArray()) == 0
     }
 
     /**
@@ -629,8 +635,8 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeDestroy(handle: Long, sink: Long)
         @JvmStatic private external fun nativeOpen(handle: Long, url: ByteArray, headers: ByteArray): Int
         @JvmStatic private external fun nativeClose(handle: Long): Int
-        @JvmStatic private external fun nativeSwitchSource(handle: Long, url: ByteArray, keepPosition: Boolean): Int
-        @JvmStatic private external fun nativeSetNext(handle: Long, url: ByteArray?): Int
+        @JvmStatic private external fun nativeSwitchSource(handle: Long, url: ByteArray, keepPosition: Boolean, headers: ByteArray): Int
+        @JvmStatic private external fun nativeSetNext(handle: Long, url: ByteArray?, headers: ByteArray): Int
         @JvmStatic private external fun nativePlay(handle: Long)
         @JvmStatic private external fun nativePause(handle: Long)
         @JvmStatic private external fun nativeRebuildVideoDecoder(handle: Long)

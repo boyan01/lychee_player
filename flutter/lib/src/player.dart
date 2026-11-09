@@ -480,19 +480,13 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     }
     _forgetMedia();
     final nativeUrl = url.toNativeUtf8();
-    final bool opened;
-    if (openWithOptions == null) {
-      opened = native.playerOpen(_player, nativeUrl.cast()) == 0;
-    } else {
-      final options = calloc<native.LycheeOpenOptions>();
-      final nativeHeaders = lines.toNativeUtf8();
-      options.ref
-        ..structSize = sizeOf<native.LycheeOpenOptions>()
-        ..headers = nativeHeaders.cast();
-      opened = openWithOptions(_player, nativeUrl.cast(), options) == 0;
-      malloc.free(nativeHeaders);
-      calloc.free(options);
-    }
+    final opened = openWithOptions == null
+        ? native.playerOpen(_player, nativeUrl.cast()) == 0
+        : _withOpenOptions(
+                lines,
+                (options) =>
+                    openWithOptions(_player, nativeUrl.cast(), options)) ==
+            0;
     malloc.free(nativeUrl);
     if (opened && start != null && start > Duration.zero) {
       // While loading, a seek sets where playback starts.
@@ -509,16 +503,19 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   /// volume, rate, looping, the subtitle delay and subtitle files from
   /// [addSubtitle] are kept. Media that cannot seek plays from its start.
   /// Opens [url] as [open] does if nothing is open, or with a core older
-  /// than API 24.
-  void switchSource(String url, {bool keepPosition = true}) {
+  /// than API 24. Every http(s) request of the new media carries
+  /// [headers], as for [open]: a fresh URL usually needs the old one's.
+  void switchSource(String url,
+      {bool keepPosition = true, Map<String, String>? headers}) {
     final switchSource = native.playerSwitchSource;
     if (_disposed) {
       return;
     }
     if (switchSource == null) {
-      open(url);
+      open(url, headers: headers);
       return;
     }
+    final lines = _headerLines(headers);
     // The tracks and artwork stay until the new media reports its own; the
     // subtitle on screen comes again from its event.
     _subtitle = null;
@@ -526,7 +523,10 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     _setPictures(0, null);
     _finishAddingSubtitles();
     final nativeUrl = url.toNativeUtf8();
-    switchSource(_player, nativeUrl.cast(), keepPosition ? 1 : 0);
+    _withOpenOptions(
+        lines,
+        (options) => switchSource(
+            _player, nativeUrl.cast(), keepPosition ? 1 : 0, options));
     malloc.free(nativeUrl);
     _refresh();
   }
@@ -541,20 +541,43 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   /// can seek, it plays on without a gap; otherwise the player switches to
   /// it at the end, buffering briefly. Looping replays the current media
   /// instead; a seek before [url] starts plays on in the current media.
-  /// [open] and [close] unset it, [switchSource] keeps it. Does nothing with
+  /// [open] and [close] unset it, [switchSource] keeps it. Every http(s)
+  /// request of [url] carries [headers], as for [open]. Does nothing with
   /// a core older than API 25.
-  void setNext(String? url) {
+  void setNext(String? url, {Map<String, String>? headers}) {
     final setNext = native.playerSetNext;
     if (_disposed || setNext == null) {
       return;
     }
     if (url == null) {
-      setNext(_player, nullptr);
+      setNext(_player, nullptr, nullptr);
       return;
     }
+    final lines = _headerLines(headers);
     final nativeUrl = url.toNativeUtf8();
-    setNext(_player, nativeUrl.cast());
+    _withOpenOptions(
+        lines, (options) => setNext(_player, nativeUrl.cast(), options));
     malloc.free(nativeUrl);
+  }
+
+  /// Calls [call] with lychee_open_options holding the header [lines]
+  /// (null for none), freed after it returns.
+  static int _withOpenOptions(
+      String lines, int Function(Pointer<native.LycheeOpenOptions>) call) {
+    if (lines.isEmpty) {
+      return call(nullptr);
+    }
+    final options = calloc<native.LycheeOpenOptions>();
+    final nativeHeaders = lines.toNativeUtf8();
+    options.ref
+      ..structSize = sizeOf<native.LycheeOpenOptions>()
+      ..headers = nativeHeaders.cast();
+    try {
+      return call(options);
+    } finally {
+      malloc.free(nativeHeaders);
+      calloc.free(options);
+    }
   }
 
   /// An event each time the media [setNext] set becomes the media open:

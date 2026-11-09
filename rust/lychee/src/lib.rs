@@ -537,6 +537,15 @@ impl Default for SubtitleOptions<'_> {
 
 /// `headers` as the "Name: value" lines the C API takes; a line break in
 /// a name or value, which would start another header, is an error.
+/// lychee_open_options holding `headers` (from [`header_lines`]), which must
+/// outlive it.
+fn open_options(headers: &CString) -> sys::lychee_open_options {
+    sys::lychee_open_options {
+        struct_size: std::mem::size_of::<sys::lychee_open_options>() as u32,
+        headers: headers.as_ptr(),
+    }
+}
+
 fn header_lines(headers: &[(&str, &str)]) -> Result<CString> {
     let mut lines = String::new();
     for (name, value) in headers {
@@ -623,10 +632,7 @@ impl Player {
     pub fn open_with_headers(&self, url: &str, headers: &[(&str, &str)]) -> Result<()> {
         let url = CString::new(url).map_err(|_| Error("URL contains NUL"))?;
         let headers = header_lines(headers)?;
-        let options = sys::lychee_open_options {
-            struct_size: std::mem::size_of::<sys::lychee_open_options>() as u32,
-            headers: headers.as_ptr(),
-        };
+        let options = open_options(&headers);
         check(
             unsafe { sys::lychee_player_open_with_options(self.raw(), url.as_ptr(), &options) },
             "open rejected",
@@ -639,12 +645,26 @@ impl Player {
     /// the state is [`State::Buffering`], and the position, duration, video
     /// size and the caller's last frame stay; play/pause, volume, rate,
     /// looping and added subtitle files are kept. Input that cannot seek
-    /// plays from its start. Fails inside the event callback.
-    pub fn switch_source(&self, url: &str, keep_position: bool) -> Result<()> {
+    /// plays from its start. Every http(s) request of the new input
+    /// carries `headers`, as for [`Player::open_with_headers`]. Fails inside
+    /// the event callback.
+    pub fn switch_source(
+        &self,
+        url: &str,
+        keep_position: bool,
+        headers: &[(&str, &str)],
+    ) -> Result<()> {
         let url = CString::new(url).map_err(|_| Error("URL contains NUL"))?;
+        let headers = header_lines(headers)?;
+        let options = open_options(&headers);
         check(
             unsafe {
-                sys::lychee_player_switch_source(self.raw(), url.as_ptr(), keep_position as i32)
+                sys::lychee_player_switch_source(
+                    self.raw(),
+                    url.as_ptr(),
+                    keep_position as i32,
+                    &options,
+                )
             },
             "switch rejected",
         )
@@ -660,18 +680,22 @@ impl Player {
     /// otherwise the player switches to it at the end, buffering briefly.
     /// Looping replays the current item instead, and a seek before `url`
     /// starts plays on in the current one. [`Player::open`] and
-    /// [`Player::close`] unset it; [`Player::switch_source`] keeps it. May
-    /// be called from the event callback.
-    pub fn set_next(&self, url: Option<&str>) -> Result<()> {
+    /// [`Player::close`] unset it; [`Player::switch_source`] keeps it.
+    /// Every http(s) request of `url` carries `headers`, as for
+    /// [`Player::open_with_headers`]. May be called from the event callback.
+    pub fn set_next(&self, url: Option<&str>, headers: &[(&str, &str)]) -> Result<()> {
         let url = url
             .map(CString::new)
             .transpose()
             .map_err(|_| Error("URL contains NUL"))?;
+        let headers = header_lines(headers)?;
+        let options = open_options(&headers);
         check(
             unsafe {
                 sys::lychee_player_set_next(
                     self.raw(),
                     url.as_ref().map_or(std::ptr::null(), |url| url.as_ptr()),
+                    &options,
                 )
             },
             "no demuxer in this build",

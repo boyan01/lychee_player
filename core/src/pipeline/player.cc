@@ -373,7 +373,9 @@ bool Player::Close() {
   return true;
 }
 
-bool Player::SwitchSource(const std::string& url, bool keep_position) {
+bool Player::SwitchSource(const std::string& url,
+                          bool keep_position,
+                          const std::string& headers) {
   if (url.empty() || OnControlThread()) {
     return false;
   }
@@ -430,19 +432,22 @@ bool Player::SwitchSource(const std::string& url, bool keep_position) {
   } else {
     SetStateLocked(PlayerState::kLoading);
   }
-  demuxer_ = CreateDemuxer();
+  demuxer_ = CreateDemuxer(headers);
+  if (demuxer_) {
+    demuxer_->SetVariantPolicy(-1, max_bitrate_);
+  }
   thread_ = std::thread(&Player::Run, this, url);
   return true;
 }
 
-bool Player::SetNext(const std::string& url) {
+bool Player::SetNext(const std::string& url, const std::string& headers) {
   ClearNext();
   if (url.empty()) {
     return true;
   }
   auto item = std::make_unique<NextItem>();
   item->url = url;
-  item->demuxer = CreateDemuxer();
+  item->demuxer = CreateDemuxer(headers);
   if (!item->demuxer) {
     return false;
   }
@@ -451,6 +456,8 @@ bool Player::SetNext(const std::string& url) {
     std::lock_guard<std::mutex> lock(mutex_);
     // Another SetNext() since the ClearNext() above.
     replaced = std::move(next_);
+    // An HLS master playlist starts within the cap, as at an open.
+    item->demuxer->SetVariantPolicy(-1, max_bitrate_);
     item->serial = ++next_serial_;
     NextItem* next = item.get();
     // Started under the lock, so that whoever takes |next_| joins it.

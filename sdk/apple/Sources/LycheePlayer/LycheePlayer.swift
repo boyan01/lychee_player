@@ -254,9 +254,17 @@ public final class LycheePlayer {
   /// state is ``State/buffering``, and the position, duration, video size
   /// and the frame on screen stay; play/pause, volume, rate, looping and
   /// added subtitle files are kept. Media that cannot seek plays from its
-  /// start.
-  public func switchSource(_ url: String, keepPosition: Bool = true) {
-    lychee_player_switch_source(handle, url, keepPosition ? 1 : 0)
+  /// start. Every http(s) request of the new media carries `headers`, as
+  /// for ``open(_:headers:start:)``. Returns false if a header name or value
+  /// holds a line break.
+  @discardableResult
+  public func switchSource(
+    _ url: String, keepPosition: Bool = true, headers: [String: String] = [:]
+  ) -> Bool {
+    guard let lines = Self.headerLines(headers) else { return false }
+    return Self.withOpenOptions(lines) {
+      lychee_player_switch_source(handle, url, keepPosition ? 1 : 0, $0) == 0
+    }
   }
 
   /// Opens `url` in the background as the media to play when what is open
@@ -268,10 +276,28 @@ public final class LycheePlayer {
   /// channels) and both can seek, it plays on without a gap; otherwise the
   /// player switches to it at the end, buffering briefly. Looping replays
   /// the current media instead, and a seek before `url` starts plays on in
-  /// the current media. ``open(_:start:)`` and ``close()`` unset it;
-  /// ``switchSource(_:keepPosition:)`` keeps it.
-  public func setNext(_ url: String?) {
-    lychee_player_set_next(handle, url)
+  /// the current media. ``open(_:headers:start:)`` and ``close()`` unset it;
+  /// ``switchSource(_:keepPosition:headers:)`` keeps it. Every http(s)
+  /// request of `url` carries `headers`, as for ``open(_:headers:start:)``.
+  /// Returns false if a header name or value holds a line break.
+  @discardableResult
+  public func setNext(_ url: String?, headers: [String: String] = [:]) -> Bool {
+    guard let lines = Self.headerLines(headers) else { return false }
+    return Self.withOpenOptions(lines) {
+      lychee_player_set_next(handle, url, $0) == 0
+    }
+  }
+
+  /// Calls `body` with lychee_open_options holding the header `lines`.
+  private static func withOpenOptions<T>(
+    _ lines: String, _ body: (UnsafePointer<lychee_open_options>) -> T
+  ) -> T {
+    lines.withCString { lines in
+      var options = lychee_open_options()
+      options.struct_size = UInt32(MemoryLayout<lychee_open_options>.size)
+      options.headers = lines
+      return withUnsafePointer(to: &options) { body($0) }
+    }
   }
 
   /// Stops what is open and goes back to ``State/idle``, releasing decoders,
