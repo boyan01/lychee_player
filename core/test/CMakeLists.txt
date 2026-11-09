@@ -84,8 +84,9 @@ if(APPLE OR WIN32 OR ANDROID OR LYCHEE_WITH_FFMPEG)
   target_sources(lychee_unittests PRIVATE audio_demuxer_test.cc legacy_demuxer_test.cc)
 endif()
 
-# The FFmpeg-free MP4, MPEG-TS and HLS demuxers, built on Apple only.
-if(APPLE OR WIN32 OR ANDROID)
+# The own DASH, HLS and MP4 demuxers: in every build but Linux without
+# FFmpeg (core/CMakeLists.txt).
+if(APPLE OR WIN32 OR ANDROID OR LYCHEE_WITH_FFMPEG)
   target_sources(lychee_unittests PRIVATE dash_test.cc hls_playlist_test.cc mp4_demuxer_test.cc mp4_subtitle_test.cc)
 endif()
 if(APPLE)

@@ -685,7 +685,11 @@ bool DashMediaPlaylist(const DashRepresentation& representation,
           const int64_t time = k * s.duration;
           // The last one ends with the Period.
           const int64_t length = std::min(s.duration, end - time);
-          add(url(time), -1, -1, ToMicros(length, s.timescale), number++);
+          // url() reads |number|: the increment is not in the arguments,
+          // whose order of evaluation is unspecified (GCC and MSVC took
+          // the next segment's number).
+          add(url(time), -1, -1, ToMicros(length, s.timescale), number);
+          ++number;
         }
       } else {
         *error = "SegmentTemplate without a duration or a SegmentTimeline";
