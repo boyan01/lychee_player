@@ -81,7 +81,11 @@ extern "C" {
 // 21: HTTP request headers: lychee_player_open_with_options() and
 //    lychee_player_add_subtitle_with_options(), which can also add a
 //    subtitle track without selecting it.
-#define LYCHEE_API_VERSION 21
+// 22: HLS variants (lychee_player_get_variant_info(),
+//    lychee_player_select_variant(), lychee_player_set_max_bitrate(),
+//    LYCHEE_EVENT_VARIANT_CHANGED); live HLS windows
+//    (lychee_player_get_seekable_range(), lychee_player_get_live_edge()).
+#define LYCHEE_API_VERSION 22
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -238,6 +242,10 @@ typedef enum lychee_event_type {
   // track and selected (LYCHEE_EVENT_TRACKS_CHANGED follows), 0 if it
   // could not be read or is not a subtitle file (the log says why).
   LYCHEE_EVENT_SUBTITLE_ADDED = 9,
+  // API version 22. Another variant of an adaptive stream is on screen:
+  // after lychee_player_select_variant(), adaptation, or the first frame.
+  // arg0: its index (lychee_player_get_variant_info()).
+  LYCHEE_EVENT_VARIANT_CHANGED = 10,
 } lychee_event_type;
 
 typedef enum lychee_track_type {
@@ -430,8 +438,8 @@ typedef struct lychee_stats {
   int32_t audio_output_channels;
   int64_t audio_output_latency_us;
   // HLS: the BANDWIDTH (bit/s) the master playlist declares for the
-  // variant on screen, as adaptive streaming switches; 0 otherwise, also
-  // for HLS that FFmpeg plays (subtitle renditions only it reads).
+  // variant on screen, as adaptive streaming switches; 0 otherwise.
+  // Before API version 22, also 0 for HLS that FFmpeg plays.
   int64_t variant_bandwidth_bps;
 } lychee_stats;
 
@@ -471,6 +479,30 @@ typedef struct lychee_track_info {
   // (HLS: the variant's BANDWIDTH, on its video track), 0 if unknown.
   int64_t bitrate;
 } lychee_track_info;
+
+// API version 22. A variant of an HLS master playlist that this build
+// can play.
+typedef struct lychee_variant_info {
+  // Must be sizeof(lychee_variant_info).
+  uint32_t struct_size;
+  // BANDWIDTH, in bit/s.
+  int64_t bandwidth;
+  // RESOLUTION and FRAME-RATE, 0 if the playlist does not say. (HLS that
+  // FFmpeg plays: the stream's.)
+  int32_t width;
+  int32_t height;
+  double frame_rate;
+  // NUL-terminated CODECS, truncated to fit, or empty. (HLS that FFmpeg
+  // plays: the video codec's name.)
+  char codecs[64];
+  // The video track (an index for lychee_player_get_track_info()) that
+  // plays it.
+  int32_t track;
+  // 1 for the variant on screen.
+  int32_t playing;
+  // 1 for the variant lychee_player_select_variant() keeps to.
+  int32_t selected;
+} lychee_variant_info;
 
 LYCHEE_EXPORT int32_t lychee_api_version(void);
 
@@ -690,8 +722,32 @@ LYCHEE_EXPORT int32_t lychee_player_is_looping(lychee_player* player);
 // open. Known from LYCHEE_EVENT_MEDIA_INFO on: 0 before it (IDLE, and
 // LOADING until then), for live input and at LYCHEE_STATE_ERROR. An http
 // server without range requests read through FFmpeg cannot seek; the
-// library's own MP4 reader can wherever it knows the file size.
+// library's own MP4 reader can wherever it knows the file size. Live HLS
+// can since API 22 when its playlist keeps a window (see
+// lychee_player_get_seekable_range()).
 LYCHEE_EXPORT int32_t lychee_player_is_seekable(lychee_player* player);
+// API version 22. The positions lychee_player_seek() reaches, into
+// |start_us| and |end_us|: 0 and the duration (-1 if unknown) for media
+// that can seek, and the window of live HLS. Returns 0, or -1 if the
+// input cannot seek (lychee_player_is_seekable()).
+//
+// Live HLS whose playlist keeps a window (EXT-X-PLAYLIST-TYPE:EVENT, or a
+// sliding playlist at least six target durations long when opened) can
+// seek within it. Its position counts from the start of the playlist's
+// first segment when it was opened, and goes on across what the
+// playlist drops: playback starts at the live edge, a position above 0,
+// and the range moves on in real time (its start too for a sliding
+// playlist), up to EXT-X-ENDLIST. Seeks are clamped into it. The
+// duration stays -1. HLS that FFmpeg plays (variants this build cannot
+// decode without it, SAMPLE-AES) does not seek while live.
+LYCHEE_EXPORT int32_t lychee_player_get_seekable_range(lychee_player* player,
+                                                       int64_t* start_us,
+                                                       int64_t* end_us);
+// API version 22. Live HLS that can seek: the position of the live edge,
+// where playback started (three target durations before the end of the
+// playlist), as it moves on; seeking there plays live again. -1 for other
+// input.
+LYCHEE_EXPORT int64_t lychee_player_get_live_edge(lychee_player* player);
 
 LYCHEE_EXPORT int32_t lychee_player_get_state(lychee_player* player);
 // Whether playback is requested (lychee_player_play() since the last pause).
@@ -735,6 +791,38 @@ LYCHEE_EXPORT int32_t lychee_player_get_track_info(lychee_player* player,
 LYCHEE_EXPORT int32_t lychee_player_select_track(lychee_player* player,
                                                  int32_t type,
                                                  int32_t index);
+// API version 22. The variants of an HLS master playlist that this build
+// can play, in the playlist's order. Available from
+// LYCHEE_EVENT_MEDIA_INFO on; 0 for other media.
+//
+// Variants of the codec and audio group of the one played first are one
+// video track, which adaptive streaming moves between them by the
+// bandwidth measured. Others are video tracks of their own; selecting one
+// of those with lychee_player_select_track() also plays that variant.
+LYCHEE_EXPORT int32_t lychee_player_get_variant_count(lychee_player* player);
+// |info->struct_size| must be set by the caller. Returns 0, or -1 if
+// |index| is out of range.
+LYCHEE_EXPORT int32_t lychee_player_get_variant_info(lychee_player* player,
+                                                     int32_t index,
+                                                     lychee_variant_info* info);
+// API version 22. Plays variant |index| only, or adapts again for -1.
+// One on the adaptive track plays from the next segment read, without
+// stopping (what is buffered plays first); another is a video track
+// switch, which plays on from the current position.
+// LYCHEE_EVENT_VARIANT_CHANGED follows once it is on screen. Returns 0 if
+// accepted; -1 for an index out of range, before the media is loaded,
+// and on a player created for audio only. Opening other media goes back
+// to automatic selection.
+LYCHEE_EXPORT int32_t lychee_player_select_variant(lychee_player* player,
+                                                   int32_t index);
+// API version 22. The highest BANDWIDTH (bit/s) automatic variant
+// selection plays, for slow or metered networks; 0 for no limit (the
+// default). Applies from the next segment read, and from the start of
+// media opened later: kept across lychee_player_open(). If every variant
+// is above it, the lowest plays. A variant lychee_player_select_variant()
+// chose plays regardless.
+LYCHEE_EXPORT void lychee_player_set_max_bitrate(lychee_player* player,
+                                                 int64_t bitrate_bps);
 // API version 18 (17 without |encoding|). Reads the subtitle file |url|
 // (a path, file:// or http(s):// URL: SubRip, WebVTT or ASS/SSA, told
 // apart by content; ASS as plain text) in the background, and adds it to the

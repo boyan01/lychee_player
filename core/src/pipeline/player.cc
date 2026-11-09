@@ -47,6 +47,33 @@ constexpr int64_t kStatsLogInterval = 5 * kMicrosPerSecond;
 // enough for a later, larger subtitle delay to still find them.
 constexpr int64_t kUnseekableSubtitleHistory = 60 * kMicrosPerSecond;
 
+// The video stream automatic variant selection plays: the adaptive one,
+// which the demuxer moves between variants; without one (FFmpeg's HLS,
+// each variant on its own stream) the highest within |cap| (0: any), or
+// the lowest. -1 without variants.
+int AutoVariantStream(const std::vector<VariantInfo>& variants, int64_t cap) {
+  int best = -1;
+  for (size_t i = 0; i < variants.size(); ++i) {
+    const VariantInfo& v = variants[i];
+    if (v.adaptive) {
+      return v.stream;
+    }
+    if (best < 0) {
+      best = static_cast<int>(i);
+      continue;
+    }
+    const VariantInfo& b = variants[best];
+    const bool v_fits = cap <= 0 || v.bandwidth <= cap;
+    const bool b_fits = cap <= 0 || b.bandwidth <= cap;
+    if (v_fits != b_fits ? v_fits
+        : v_fits         ? v.bandwidth > b.bandwidth
+                         : v.bandwidth < b.bandwidth) {
+      best = static_cast<int>(i);
+    }
+  }
+  return best >= 0 ? variants[best].stream : -1;
+}
+
 // How far before a seek target an audio decoder must start to output the
 // target, after a flush. Opus: 80 ms to converge (RFC 7845's seek
 // preroll; Android's decoder drops that much). MP3: a frame's data may
@@ -238,6 +265,8 @@ void Player::StopPipeline() {
     input_error_.clear();
     error_.clear();
     media_info_ = MediaInfo();
+    variants_.clear();
+    selected_variant_ = -1;
     video_last_pts_ = audio_last_pts_ = kNoTimestamp;
     video_width_ = video_height_ = 0;
     subtitle_text_.clear();
@@ -260,7 +289,7 @@ void Player::StopPipeline() {
   seek_request_time_ = kNoTimestamp;
   seek_count_ = last_seek_time_ = 0;
   variant_switches_.clear();
-  variant_logged_ = 0;
+  variant_logged_ = -1;
   video_bytes_read_ = 0;
   audio_bytes_read_ = 0;
   download_rate_ = -1;
@@ -294,6 +323,10 @@ bool Player::Open(const std::string& url, const std::string& headers) {
   std::lock_guard<std::mutex> lock(mutex_);
   SetStateLocked(PlayerState::kLoading);
   demuxer_ = CreateDemuxer(headers);
+  if (demuxer_) {
+    // An HLS master playlist starts within the cap.
+    demuxer_->SetVariantPolicy(-1, max_bitrate_);
+  }
   thread_ = std::thread(&Player::Run, this, url);
   return true;
 }
@@ -418,6 +451,9 @@ void Player::Seek(int64_t position) {
     position = std::max<int64_t>(position, 0);
     if (media_info_.duration != kNoTimestamp) {
       position = std::min(position, media_info_.duration);
+    }
+    if (LiveWindow window; LiveWindowLocked(&window)) {
+      position = std::clamp(position, window.start, window.end);
     }
     seek_pending_ = true;
     seek_target_ = position;
@@ -629,6 +665,116 @@ bool Player::SelectTrack(MediaType type, int track) {
   }
   condition_.notify_all();
   return true;
+}
+
+bool Player::SelectVariant(int index) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ == PlayerState::kIdle || state_ == PlayerState::kError ||
+        live_ || (!video_renderer_ && !audio_renderer_) || index < -1 ||
+        index >= static_cast<int>(variants_.size()) ||
+        (index >= 0 && config_.video_frame_types == 0)) {
+      return false;
+    }
+    LOGI("variant %d selected", index);
+    selected_variant_ = index;
+    ApplyVariantsLocked();
+  }
+  condition_.notify_all();
+  return true;
+}
+
+void Player::SetMaxBitrate(int64_t bitrate) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    max_bitrate_ = std::max<int64_t>(bitrate, 0);
+    ApplyVariantsLocked();
+  }
+  condition_.notify_all();
+}
+
+void Player::ApplyVariantsLocked() {
+  if (!demuxer_) {
+    return;
+  }
+  const bool pinned = selected_variant_ >= 0 &&
+                      selected_variant_ < static_cast<int>(variants_.size());
+  demuxer_->SetVariantPolicy(
+      pinned && variants_[selected_variant_].adaptive ? selected_variant_ : -1,
+      max_bitrate_);
+  if (variants_.empty() || live_ || state_ == PlayerState::kError ||
+      (!video_renderer_ && !audio_renderer_)) {
+    return;
+  }
+  const int want = pinned ? variants_[selected_variant_].stream
+                          : AutoVariantStream(variants_, max_bitrate_);
+  const int current =
+      track_request_.video != kUnchanged ? track_request_.video : video_stream_;
+  // Video turned off stays off.
+  if (want < 0 || current < 0 || want == current) {
+    return;
+  }
+  LOGI("variant: video track -> stream %d", want);
+  track_request_.video = want == video_stream_ ? kUnchanged : want;
+  track_request_.resync = true;
+  demuxer_->Interrupt();
+}
+
+std::vector<VariantInfo> Player::variants() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return variants_;
+}
+
+int Player::playing_variant() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return PlayingVariantLocked();
+}
+
+int Player::selected_variant() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return selected_variant_;
+}
+
+bool Player::LiveWindowLocked(LiveWindow* window) const {
+  if (!demuxer_ || live_ || !media_info_.seekable ||
+      state_ == PlayerState::kError || (!video_renderer_ && !audio_renderer_) ||
+      !demuxer_->live_window(window)) {
+    return false;
+  }
+  if (window->moving) {
+    // Moved on since the playlist was read, which only happens when the
+    // read needs segments.
+    const int64_t elapsed =
+        std::max<int64_t>(MonotonicMicros() - window->updated, 0);
+    window->end += elapsed;
+    window->edge += elapsed;
+    if (window->sliding) {
+      window->start = std::min(window->start + elapsed, window->edge);
+    }
+  }
+  return true;
+}
+
+bool Player::seekable_range(int64_t* start, int64_t* end) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!media_info_.seekable || live_ || state_ == PlayerState::kError ||
+      (!video_renderer_ && !audio_renderer_)) {
+    return false;
+  }
+  if (LiveWindow window; LiveWindowLocked(&window)) {
+    *start = window.start;
+    *end = window.end;
+    return true;
+  }
+  *start = 0;
+  *end = media_info_.duration;
+  return true;
+}
+
+int64_t Player::live_edge() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  LiveWindow window;
+  return LiveWindowLocked(&window) ? window.edge : kNoTimestamp;
 }
 
 int Player::AddSubtitle(const std::string& url,
@@ -864,7 +1010,9 @@ PlayerStats Player::StatsLocked() const {
     stats.frames_decoded += counts.decoded;
     stats.video_decode_time = video_renderer_->average_decode_time();
     stats.video_offset = video_renderer_->average_offset();
-    stats.variant_bandwidth = VariantBandwidthLocked();
+    if (const int variant = PlayingVariantLocked(); variant >= 0) {
+      stats.variant_bandwidth = variants_[variant].bandwidth;
+    }
     if (video_last_pts_ != kNoTimestamp) {
       stats.video_buffered = std::max<int64_t>(video_last_pts_ - now, 0);
     }
@@ -961,19 +1109,19 @@ void Player::LogStatsLocked() {
   stats_log_at_ = now + kStatsLogInterval;
 }
 
-int64_t Player::VariantBandwidthLocked() const {
+int Player::PlayingVariantLocked() const {
   if (variant_switches_.empty()) {
-    return 0;
+    return -1;
   }
   const int64_t now = clock_.Now();
-  int64_t bandwidth = variant_switches_.front().second;
+  int variant = variant_switches_.front().second;
   for (const auto& [pts, switched_to] : variant_switches_) {
     if (pts > now) {
       break;
     }
-    bandwidth = switched_to;
+    variant = switched_to;
   }
-  return bandwidth;
+  return variant < static_cast<int>(variants_.size()) ? variant : -1;
 }
 
 void Player::EndRebufferLocked() {
@@ -1419,11 +1567,21 @@ bool Player::Prepare(const std::string& url, std::string* error) {
        info.format_name.c_str(), static_cast<long long>(info.duration),
        info.streams.size());
 
+  // An adaptive stream starts on the variant automatic selection plays.
+  std::vector<VariantInfo> variants = demuxer_->variants();
+  int video_index = info.default_video_stream;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (const int stream = AutoVariantStream(variants, max_bitrate_);
+        stream >= 0) {
+      video_index = stream;
+    }
+  }
   VideoRenderer::Ptr video;
   std::unique_ptr<AudioRenderer> audio;
   std::map<int, std::unique_ptr<SubtitleRenderer>> subtitles;
-  if (info.default_video_stream >= 0 && config_.video_frame_types != 0) {
-    video = CreateVideoRenderer(info.streams[info.default_video_stream]);
+  if (video_index >= 0 && config_.video_frame_types != 0) {
+    video = CreateVideoRenderer(info.streams[video_index]);
   }
   if (info.default_audio_stream >= 0) {
     audio = CreateAudioRenderer(info.streams[info.default_audio_stream]);
@@ -1449,14 +1607,17 @@ bool Player::Prepare(const std::string& url, std::string* error) {
       }
     }
   }
-  clock_.Reset(info.start_time);
+  // Live HLS starts near the end of its window.
+  const int64_t start = info.start_time + info.start_position;
+  clock_.Reset(start);
 
   std::lock_guard<std::mutex> lock(mutex_);
   // A live input before may have left it at 1.
   clock_.SetRate(rate_);
   media_info_ = info;
+  variants_ = std::move(variants);
   histories_ = std::move(histories);
-  video_stream_ = video ? info.default_video_stream : -1;
+  video_stream_ = video ? video_index : -1;
   audio_stream_ = audio ? info.default_audio_stream : -1;
   // A subtitle file added while the input opened stays selected.
   if (subtitle_stream_ < kExternalSubtitleStream) {
@@ -1472,7 +1633,7 @@ bool Player::Prepare(const std::string& url, std::string* error) {
     audio_renderer_->SetVolume(volume_);
     audio_renderer_->SetGain(gain_, gain_peak_);
     audio_renderer_->SetRate(rate_);
-    audio_renderer_->Start(live_ ? kNoTimestamp : info.start_time);
+    audio_renderer_->Start(live_ ? kNoTimestamp : start);
   }
   if (video_renderer_) {
     video_renderer_->Start();
@@ -1730,7 +1891,7 @@ void Player::ReadPacket() {
     it->second.Push(packet, clock_.Now());
   }
   download_rate_.store(demuxer_->download_rate(), std::memory_order_relaxed);
-  const int64_t variant_bandwidth = demuxer_->variant_bandwidth();
+  const int variant = demuxer_->current_variant();
   int64_t pts = packet->pts;
   if (packet->stream_index == video_stream_) {
     video_bytes_read_.fetch_add(static_cast<int64_t>(packet->size()),
@@ -1739,9 +1900,9 @@ void Player::ReadPacket() {
     if (pts != kNoTimestamp) {
       std::lock_guard<std::mutex> lock(mutex_);
       video_last_pts_ = std::max(video_last_pts_, pts);
-      if (variant_switches_.empty() ||
-          variant_switches_.back().second != variant_bandwidth) {
-        variant_switches_.emplace_back(pts, variant_bandwidth);
+      if (variant >= 0 && (variant_switches_.empty() ||
+                           variant_switches_.back().second != variant)) {
+        variant_switches_.emplace_back(pts, variant);
       }
       // Keep the one playing.
       const int64_t now = clock_.Now();
@@ -2100,13 +2261,14 @@ void Player::UpdateStateLocked() {
   ApplyPlayingLocked();
   UpdateVideoSizeLocked();
   UpdateSubtitleLocked();
-  if (const int64_t bandwidth = VariantBandwidthLocked();
-      bandwidth != 0 && bandwidth != variant_logged_) {
+  if (const int variant = PlayingVariantLocked();
+      variant >= 0 && variant != variant_logged_) {
     const int64_t now = clock_.Now();
     LOGI("variant of %lld bit/s plays from %lld ms",
-         static_cast<long long>(bandwidth),
+         static_cast<long long>(variants_[variant].bandwidth),
          Millis(now - LoopOffsetLocked(now) - media_info_.start_time));
-    variant_logged_ = bandwidth;
+    variant_logged_ = variant;
+    PostEventLocked(PlayerEvent::kVariantChanged, variant);
   }
   LogStatsLocked();
 }

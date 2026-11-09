@@ -55,6 +55,7 @@ void ProbingDemuxer::Adopt(std::unique_ptr<Demuxer> demuxer) {
   std::lock_guard<std::mutex> lock(mutex_);
   replaced = std::move(demuxer_);
   demuxer_ = std::move(demuxer);
+  demuxer_->SetVariantPolicy(pinned_, max_bandwidth_);
   if (aborted_) {
     demuxer_->Abort();
   }
@@ -277,8 +278,26 @@ int64_t ProbingDemuxer::download_rate() const {
   return demuxer_ ? demuxer_->download_rate() : -1;
 }
 
-int64_t ProbingDemuxer::variant_bandwidth() const {
-  return demuxer_ ? demuxer_->variant_bandwidth() : 0;
+std::vector<VariantInfo> ProbingDemuxer::variants() const {
+  return demuxer_ ? demuxer_->variants() : std::vector<VariantInfo>();
+}
+
+int ProbingDemuxer::current_variant() const {
+  return demuxer_ ? demuxer_->current_variant() : -1;
+}
+
+void ProbingDemuxer::SetVariantPolicy(int pinned, int64_t max_bandwidth) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  pinned_ = pinned;
+  max_bandwidth_ = max_bandwidth;
+  if (demuxer_) {
+    demuxer_->SetVariantPolicy(pinned, max_bandwidth);
+  }
+}
+
+bool ProbingDemuxer::live_window(LiveWindow* window) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return demuxer_ && demuxer_->live_window(window);
 }
 
 }  // namespace lychee

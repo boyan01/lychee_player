@@ -12,6 +12,37 @@ namespace lychee {
 
 enum class DemuxerReadResult { kOk, kEndOfStream, kError, kAborted };
 
+// A variant of an adaptive stream (an HLS master playlist's).
+struct VariantInfo {
+  // Declared bit/s, picture size and frame rate (0 if not declared), and
+  // codecs (HLS's CODECS attribute, else the codec's name).
+  int64_t bandwidth = 0;
+  int width = 0;
+  int height = 0;
+  double frame_rate = 0;
+  std::string codecs;
+  // The video stream that plays it.
+  int stream = -1;
+  // The demuxer moves |stream| between the adaptive variants by itself
+  // (SetVariantPolicy()); the others play only on their own stream.
+  bool adaptive = false;
+};
+
+// The part of a live input's timeline that a seek reaches, in positions
+// (media time less MediaInfo::start_time).
+struct LiveWindow {
+  int64_t start = 0;
+  int64_t end = 0;
+  // Where playback starts at the open: far enough from |end| that the
+  // input keeps ahead (HLS: three target durations).
+  int64_t edge = 0;
+  // MonotonicMicros() of the playlist these come from. The window moves on
+  // in real time from then (its start too if |sliding|) while |moving|.
+  int64_t updated = 0;
+  bool sliding = false;
+  bool moving = false;
+};
+
 class Demuxer {
  public:
   virtual ~Demuxer() = default;
@@ -50,9 +81,23 @@ class Demuxer {
   // bandwidth estimate), or -1 if unknown.
   virtual int64_t download_rate() const { return -1; }
 
-  // Called on the thread that reads. The declared bandwidth (bit/s) of the
-  // adaptive stream variant the last video packet read came from, or 0.
-  virtual int64_t variant_bandwidth() const { return 0; }
+  // The variants of an adaptive stream, fixed once Open() returns; empty
+  // for other input.
+  virtual std::vector<VariantInfo> variants() const { return {}; }
+
+  // Called on the thread that reads. The variant (an index into
+  // variants()) the last video packet read came from, or -1.
+  virtual int current_variant() const { return -1; }
+
+  // Thread-safe, also before Open(). The adaptive variant to keep to (an
+  // index into variants()), or -1 to follow the bandwidth; and the
+  // highest bandwidth (bit/s) to move to on its own, 0 for any. Takes
+  // effect from the next segment read.
+  virtual void SetVariantPolicy(int /*pinned*/, int64_t /*max_bandwidth*/) {}
+
+  // Thread-safe once Open() returned. False unless the input is live and
+  // can seek within a window (MediaInfo::seekable).
+  virtual bool live_window(LiveWindow* /*window*/) const { return false; }
 };
 
 }  // namespace lychee

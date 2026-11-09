@@ -103,6 +103,63 @@ class LycheeTrack {
   final int bitrate;
 }
 
+/// A variant of an HLS master playlist that this build can play.
+@immutable
+class LycheeVariant {
+  const LycheeVariant({
+    required this.index,
+    required this.bandwidth,
+    this.width = 0,
+    this.height = 0,
+    this.frameRate = 0,
+    this.codecs = '',
+    required this.track,
+    this.playing = false,
+    this.selected = false,
+  });
+
+  /// Pass to [LycheePlayer.selectVariant].
+  final int index;
+
+  /// Declared bit/s.
+  final int bandwidth;
+
+  /// Picture size and frame rate; 0 if the playlist does not say.
+  final int width;
+  final int height;
+  final double frameRate;
+
+  /// The CODECS attribute, or empty.
+  final String codecs;
+
+  /// The [LycheeTrack.index] of the video track that plays it.
+  final int track;
+
+  /// On screen.
+  final bool playing;
+
+  /// [LycheePlayer.selectVariant] keeps to it.
+  final bool selected;
+}
+
+/// The positions [LycheePlayer.seek] reaches.
+@immutable
+class LycheeSeekableRange {
+  const LycheeSeekableRange(this.start, this.end);
+
+  final Duration start;
+
+  /// Null if unknown.
+  final Duration? end;
+
+  @override
+  bool operator ==(Object other) =>
+      other is LycheeSeekableRange && start == other.start && end == other.end;
+
+  @override
+  int get hashCode => Object.hash(start, end);
+}
+
 @immutable
 class LycheePlayerValue {
   const LycheePlayerValue({
@@ -121,6 +178,9 @@ class LycheePlayerValue {
     this.subtitle,
     this.subtitlePictures,
     this.artwork,
+    this.variants = const [],
+    this.seekableRange,
+    this.liveEdge,
   });
 
   final LycheePlayerState state;
@@ -166,6 +226,21 @@ class LycheePlayerValue {
   /// [Image.memory]); null if it has none.
   final Uint8List? artwork;
 
+  /// The variants of an HLS master playlist; empty for other media.
+  final List<LycheeVariant> variants;
+
+  /// The positions [LycheePlayer.seek] reaches; null where [seekable] is
+  /// false. Live HLS whose playlist keeps a window (an EVENT playlist, or
+  /// a sliding one at least six target durations long) can seek within
+  /// it: its positions count from the start of the playlist's first
+  /// segment when it was opened, so playback starts above zero, at
+  /// [liveEdge], and the range moves on in real time.
+  final LycheeSeekableRange? seekableRange;
+
+  /// Live HLS that can seek: the position that plays live, as it moves on;
+  /// seek there to return to live. Null for other input.
+  final Duration? liveEdge;
+
   // By value, so the player notifies its listeners only when something
   // changed. Lists compare element by element; tracks and pictures are
   // then the same objects unless the player read them again.
@@ -186,7 +261,10 @@ class LycheePlayerValue {
       listEquals(tracks, other.tracks) &&
       subtitle == other.subtitle &&
       listEquals(subtitlePictures, other.subtitlePictures) &&
-      listEquals(artwork, other.artwork);
+      listEquals(artwork, other.artwork) &&
+      listEquals(variants, other.variants) &&
+      seekableRange == other.seekableRange &&
+      liveEdge == other.liveEdge;
 
   @override
   int get hashCode => Object.hash(
@@ -205,7 +283,10 @@ class LycheePlayerValue {
       subtitle,
       subtitlePictures == null ? null : Object.hashAll(subtitlePictures!),
       // Not the bytes: they can be megabytes.
-      artwork?.length);
+      artwork?.length,
+      Object.hashAll(variants),
+      seekableRange,
+      liveEdge);
 }
 
 /// A subtitle picture and where it goes on the video, in pixels of its
@@ -327,6 +408,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   Timer? _ticker;
   bool _disposed = false;
   List<LycheeTrack> _tracks = const [];
+  List<LycheeVariant> _variants = const [];
   String? _subtitle;
   bool _hasPictures = false;
   int _picturesId = 0;
@@ -392,6 +474,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       throw UnsupportedError('HTTP headers need lychee API 21');
     }
     _tracks = const [];
+    _variants = const [];
     _subtitle = null;
     _hasPictures = false;
     _setPictures(0, null);
@@ -528,6 +611,28 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   bool selectTrack(LycheeTrackType type, int? index) {
     if (_disposed) return false;
     return native.playerSelectTrack(_player, type.value, index ?? -1) == 0;
+  }
+
+  /// Plays the variant at [index] in [LycheePlayerValue.variants] only, or
+  /// adapts to the bandwidth again if [index] is null. Returns false if
+  /// rejected (an index out of range, or before the media is loaded);
+  /// otherwise [LycheeVariant.playing] moves once it is on screen.
+  bool selectVariant(int? index) {
+    final select = native.playerSelectVariant;
+    if (_disposed || select == null) return false;
+    final accepted = select(_player, index ?? -1) == 0;
+    _variants = _readVariants();
+    _refresh();
+    return accepted;
+  }
+
+  /// The highest bandwidth (bit/s) automatic variant selection plays, for
+  /// slow or metered networks; null for no limit. Kept across [open]. If
+  /// every variant is above it, the lowest plays.
+  void setMaxBitrate(int? bitrate) {
+    if (_disposed) return;
+    native.playerSetMaxBitrate
+        ?.call(_player, bitrate == null || bitrate < 0 ? 0 : bitrate);
   }
 
   /// Adds the subtitle file [url] (a path, file:// or http(s):// URL;
@@ -677,6 +782,11 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     if (type == native.kEventMediaInfo || type == native.kEventTracksChanged) {
       _tracks = _readTracks();
     }
+    if (type == native.kEventMediaInfo ||
+        type == native.kEventTracksChanged ||
+        type == native.kEventVariantChanged) {
+      _variants = _readVariants();
+    }
     if (type == native.kEventMediaInfo) {
       _artwork = _readArtwork();
     } else if (type == native.kEventSubtitleChanged) {
@@ -730,6 +840,33 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     }
     calloc.free(info);
     return List.unmodifiable(tracks);
+  }
+
+  List<LycheeVariant> _readVariants() {
+    final getCount = native.playerGetVariantCount;
+    final getInfo = native.playerGetVariantInfo;
+    if (getCount == null || getInfo == null) return const [];
+    final variants = <LycheeVariant>[];
+    final info = calloc<native.LycheeVariantInfo>();
+    final count = getCount(_player);
+    for (var i = 0; i < count; i++) {
+      info.ref.structSize = sizeOf<native.LycheeVariantInfo>();
+      if (getInfo(_player, i, info) != 0) continue;
+      final ref = info.ref;
+      variants.add(LycheeVariant(
+        index: i,
+        bandwidth: ref.bandwidth,
+        width: ref.width,
+        height: ref.height,
+        frameRate: ref.frameRate,
+        codecs: _string(ref.codecs, 64),
+        track: ref.track,
+        playing: ref.playing != 0,
+        selected: ref.selected != 0,
+      ));
+    }
+    calloc.free(info);
+    return List.unmodifiable(variants);
   }
 
   String? _readSubtitle(int length) {
@@ -844,6 +981,20 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     calloc.free(width);
     calloc.free(height);
 
+    LycheeSeekableRange? seekableRange;
+    final getRange = native.playerGetSeekableRange;
+    if (getRange != null) {
+      final start = calloc<Int64>();
+      final end = calloc<Int64>();
+      if (getRange(_player, start, end) == 0) {
+        seekableRange = LycheeSeekableRange(Duration(microseconds: start.value),
+            end.value < 0 ? null : Duration(microseconds: end.value));
+      }
+      calloc.free(start);
+      calloc.free(end);
+    }
+    final edge = native.playerGetLiveEdge?.call(_player) ?? -1;
+
     String? error;
     if (state == LycheePlayerState.error) {
       final buffer = calloc<Char>(512);
@@ -869,6 +1020,9 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       subtitle: _subtitle,
       subtitlePictures: _pictures,
       artwork: _artwork,
+      variants: _variants,
+      seekableRange: seekableRange,
+      liveEdge: edge < 0 ? null : Duration(microseconds: edge),
     );
   }
 

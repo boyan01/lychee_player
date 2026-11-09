@@ -129,7 +129,10 @@ BGRA for SDR and CPU fallback),
 the same player), `--select TYPE:INDEX[@SEC] [--select-after SEC]` (TYPE
 is `video`, `audio` or `subtitle`, INDEX a track index as the CLI lists
 them; -1 turns the type off; `@SEC` makes that one SEC seconds in instead
-of `--select-after`'s), `--virtual-time` (play on a simulated clock, as fast
+of `--select-after`'s), `--variant INDEX@SEC` (HLS: pin a variant as
+the CLI lists them, -1 adapts again; repeatable), `--max-bitrate
+BPS[@SEC]` (cap automatic variant selection), `--seek-edge SEC` (live
+HLS: seek to the live edge), `--virtual-time` (play on a simulated clock, as fast
 as the media decodes, with audio to a null sink). `--live` pushes the
 file's packets into a live input when a sender would send them, with
 `--latency MS`, `--live-jitter MS`, `--live-stall SEC FOR`,

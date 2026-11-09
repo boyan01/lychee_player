@@ -7,8 +7,10 @@ export 'src/player.dart'
         LycheePlayerState,
         LycheePlayerStats,
         LycheePlayerValue,
+        LycheeSeekableRange,
         LycheeSubtitlePicture,
         LycheeTrack,
         LycheeTrackRole,
-        LycheeTrackType;
+        LycheeTrackType,
+        LycheeVariant;
 export 'src/video_view.dart' show LycheeSubtitleStyle, LycheeVideo;

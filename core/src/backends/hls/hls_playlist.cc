@@ -388,6 +388,10 @@ bool ParseHlsPlaylist(const std::string& text,
         variant.height =
             static_cast<int>(ParseInteger(resolution.substr(x + 1)));
       }
+      // A decimal-floating-point, read as ParseSeconds() reads seconds.
+      variant.frame_rate =
+          static_cast<double>(ParseSeconds(attributes["FRAME-RATE"])) /
+          kMicrosPerSecond;
       pending_variant = true;
       playlist->master = true;
     } else if (StartsWith(line, "#EXT-X-MEDIA:")) {
@@ -429,6 +433,8 @@ bool ParseHlsPlaylist(const std::string& text,
     } else if (line == "#EXT-X-ENDLIST" || line == "#EXT-X-PLAYLIST-TYPE:VOD") {
       // A VOD playlist cannot change, ENDLIST or not.
       playlist->ended = true;
+    } else if (line == "#EXT-X-PLAYLIST-TYPE:EVENT") {
+      playlist->event = true;
     } else if (StartsWith(line, "#EXT-X-BYTERANGE:")) {
       std::string range = line.substr(17);
       size_t at = range.find('@');
@@ -536,7 +542,8 @@ bool HlsCodecsDecodable(const std::string& codecs) {
   return true;
 }
 
-int PickHlsVariant(const std::vector<HlsVariant>& variants) {
+int PickHlsVariant(const std::vector<HlsVariant>& variants,
+                   int64_t max_bandwidth) {
   int best = -1;
   for (size_t i = 0; i < variants.size(); ++i) {
     const HlsVariant& v = variants[i];
@@ -548,9 +555,20 @@ int PickHlsVariant(const std::vector<HlsVariant>& variants) {
       continue;
     }
     const HlsVariant& b = variants[best];
-    if (v.bandwidth > b.bandwidth ||
+    const bool v_fits = max_bandwidth <= 0 || v.bandwidth <= max_bandwidth;
+    const bool b_fits = max_bandwidth <= 0 || b.bandwidth <= max_bandwidth;
+    if (v_fits != b_fits) {
+      if (v_fits) {
+        best = static_cast<int>(i);
+      }
+      continue;
+    }
+    // Both above the cap: the lower one.
+    const bool higher =
+        v.bandwidth > b.bandwidth ||
         (v.bandwidth == b.bandwidth &&
-         int64_t{v.width} * v.height > int64_t{b.width} * b.height)) {
+         int64_t{v.width} * v.height > int64_t{b.width} * b.height);
+    if (v_fits ? higher : v.bandwidth < b.bandwidth) {
       best = static_cast<int>(i);
     }
   }

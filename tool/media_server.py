@@ -29,6 +29,9 @@ Used by tool/regression.sh to test network behaviour:
                        has played in real time, a window of four, and
                        EXT-X-ENDLIST once all are out. Repeatable (the
                        renditions of a master playlist), on one clock
+  --live-start N       live playlists start with N segments out (default 3)
+  --live-window N      live playlists keep a window of N segments (default
+                       4); 0 keeps all, as PLAYLIST-TYPE EVENT
 
 Prints "port N" once listening (pass --port 0 for a free port).
 """
@@ -219,17 +222,19 @@ def make_handler(root, args, state):
                 if state.live_start is None:
                     state.live_start = time.monotonic()
                 elapsed = time.monotonic() - state.live_start
-            # Segment 3 + k is out once segments 3 .. 3 + k - 1 have played.
-            out = min(3, len(segments))
+            # Segment S + k is out once segments S .. S + k - 1 have played.
+            out = min(args.live_start, len(segments))
             played = 0.0
             while out < len(segments):
                 played += float(segments[out][0][8:].split(",")[0])
                 if played > elapsed:
                     break
                 out += 1
-            first = max(out - 4, 0)
+            first = max(out - args.live_window, 0) if args.live_window else 0
             lines = ["#EXTM3U", "#EXT-X-VERSION:7", f"#EXT-X-TARGETDURATION:{target}",
                      f"#EXT-X-MEDIA-SEQUENCE:{first}"] + header
+            if not args.live_window:
+                lines.append("#EXT-X-PLAYLIST-TYPE:EVENT")
             for extinf, uri in segments[first:out]:
                 lines += [extinf, uri]
             if out == len(segments):
@@ -272,6 +277,8 @@ def main():
     parser.add_argument("--require-header", nargs=2, action="append",
                         metavar=("NAME", "VALUE"))
     parser.add_argument("--live", nargs=2, action="append", metavar=("PATH", "VOD"))
+    parser.add_argument("--live-start", type=int, default=3)
+    parser.add_argument("--live-window", type=int, default=4)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 

@@ -45,6 +45,7 @@ enum class PlayerEvent {
   kTracksChanged = 7,
   kSubtitleChanged = 8,
   kSubtitleAdded = 9,
+  kVariantChanged = 10,
 };
 
 struct PlayerConfig {
@@ -195,6 +196,14 @@ class Player {
   // Shows every subtitle track |delay| microseconds later (earlier if
   // negative). Kept across Open().
   void SetSubtitleDelay(int64_t delay);
+  // Plays variant |index| of variants() only, or adapts again for -1:
+  // the demuxer moves the stream playing to an adaptive one from its next
+  // segment, and another one is a video track switch. False if there is
+  // no such variant or nothing is open.
+  bool SelectVariant(int index);
+  // The highest bandwidth (bit/s) automatic variant selection plays; 0
+  // for any. Kept across Open().
+  void SetMaxBitrate(int64_t bitrate);
 
   PlayerState state() const;
   bool playing() const;
@@ -222,6 +231,18 @@ class Player {
   // Makes the video decoder hang, as a driver that never returns.
   void HangVideoDecoderForTesting();
   std::vector<TrackInfo> tracks() const;
+  // The variants of an adaptive stream (HLS), from kMediaInfo on.
+  std::vector<VariantInfo> variants() const;
+  // The variant on screen, and the one SelectVariant() keeps to; -1 if
+  // none.
+  int playing_variant() const;
+  int selected_variant() const;
+  // Positions a seek reaches, false if none: [0, duration] for input that
+  // can seek, a live window as it moves on.
+  bool seekable_range(int64_t* start, int64_t* end) const;
+  // Live input with a window: the position playback started at, as the
+  // window moves on; kNoTimestamp otherwise.
+  int64_t live_edge() const;
   // Container tag, case-insensitive. False if absent.
   bool metadata(const std::string& key, std::string* value) const;
   // The cover picture, encoded; null if the media has none.
@@ -379,9 +400,13 @@ class Player {
   void LogStatsLocked();
   // Ends the rebuffering in progress, if any, into the counts.
   void EndRebufferLocked();
-  // The bandwidth of the variant at the clock's position, from
-  // |variant_switches_|.
-  int64_t VariantBandwidthLocked() const;
+  // The variant at the clock's position, from |variant_switches_|.
+  int PlayingVariantLocked() const;
+  // Hands |selected_variant_| and |max_bitrate_| to the demuxer, and
+  // switches the video track to the stream that plays the variant chosen.
+  void ApplyVariantsLocked();
+  // The demuxer's live window, moved on to now; false if it has none.
+  bool LiveWindowLocked(LiveWindow* window) const;
   void UpdateVideoSizeLocked();
   // The display size of the frame on screen, false before one is shown.
   bool ShownSizeLocked(int* width, int* height) const;
@@ -426,11 +451,10 @@ class Player {
   int64_t seek_request_time_ = kNoTimestamp;
   int64_t seek_count_ = 0;
   int64_t last_seek_time_ = 0;
-  // Where the adaptive stream variant read changed, as (video pts, its
-  // bandwidth), from the one playing on; and the one last logged as
-  // playing.
-  std::deque<std::pair<int64_t, int64_t>> variant_switches_;
-  int64_t variant_logged_ = 0;
+  // Where the variant read changed, as (video pts, its index), from the
+  // one playing on; and the one last reported as playing.
+  std::deque<std::pair<int64_t, int>> variant_switches_;
+  int variant_logged_ = -1;
   // Written by the read thread.
   std::atomic<int64_t> video_bytes_read_{0};
   std::atomic<int64_t> audio_bytes_read_{0};
@@ -574,6 +598,10 @@ class Player {
   bool looping_ = false;
   std::string error_;
   MediaInfo media_info_;
+  // The demuxer's variants(), SelectVariant() and SetMaxBitrate().
+  std::vector<VariantInfo> variants_;
+  int selected_variant_ = -1;
+  int64_t max_bitrate_ = 0;
   int64_t video_last_pts_ = kNoTimestamp;
   // Display size last reported by kVideoSizeChanged.
   int video_width_ = 0;

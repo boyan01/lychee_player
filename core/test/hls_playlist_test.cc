@@ -111,6 +111,12 @@ TEST(HlsPlaylist, ParsesMediaPlaylists) {
       ParseHlsPlaylist("#EXTM3U\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:1,\na.ts\n",
                        "x", &playlist, &error));
   EXPECT_TRUE(playlist.ended);
+  EXPECT_TRUE(!playlist.event);
+  EXPECT_TRUE(ParseHlsPlaylist(
+      "#EXTM3U\n#EXT-X-PLAYLIST-TYPE:EVENT\n#EXTINF:1,\na.ts\n", "x", &playlist,
+      &error));
+  EXPECT_TRUE(playlist.event);
+  EXPECT_TRUE(!playlist.ended);
   EXPECT_TRUE(!ParseHlsPlaylist("<html>", "x", &playlist, &error));
   EXPECT_TRUE(!ParseHlsPlaylist("", "x", &playlist, &error));
 }
@@ -126,7 +132,7 @@ TEST(HlsPlaylist, PicksVariants) {
       "CHARACTERISTICS=\"public.accessibility.transcribes-spoken-dialog,"
       "public.accessibility.describes-music-and-sound\",URI=\"s.m3u8\"\n"
       "#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS=\"avc1."
-      "64001e,mp4a.40.2\"\n"
+      "64001e,mp4a.40.2\",FRAME-RATE=29.970\n"
       "low.m3u8\n"
       "#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=90000,URI=\"iframes.m3u8\"\n"
       "#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS=\"hvc1."
@@ -145,6 +151,12 @@ TEST(HlsPlaylist, PicksVariants) {
   EXPECT_EQ(playlist.variants[1].height, 1080);
   EXPECT_EQ(playlist.variants[1].url, std::string("http://h/high/index.m3u8"));
   EXPECT_EQ(PickHlsVariant(playlist.variants), 1);
+  EXPECT_TRUE(playlist.variants[0].frame_rate == 29.97);
+  EXPECT_TRUE(playlist.variants[1].frame_rate == 0);
+  // Capped: the highest within the cap, else the lowest decodable.
+  EXPECT_EQ(PickHlsVariant(playlist.variants, 5000000), 1);
+  EXPECT_EQ(PickHlsVariant(playlist.variants, 4999999), 0);
+  EXPECT_EQ(PickHlsVariant(playlist.variants, 1000), 0);
   EXPECT_EQ(playlist.variants[1].audio, std::string("a"));
   EXPECT_TRUE(playlist.variants[0].audio.empty());
   EXPECT_EQ(playlist.renditions.size(), 3u);

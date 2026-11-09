@@ -279,6 +279,9 @@ pub enum Event {
         id: i32,
         added: bool,
     },
+    /// Another variant of an adaptive stream is on screen: its
+    /// [`Variant::index`].
+    VariantChanged(usize),
 }
 
 impl Event {
@@ -303,6 +306,7 @@ impl Event {
                 id: arg0 as i32,
                 added: arg1 != 0,
             },
+            sys::LYCHEE_EVENT_VARIANT_CHANGED => Event::VariantChanged(arg0 as usize),
             _ => return None,
         })
     }
@@ -374,6 +378,27 @@ pub struct Track {
     /// Bits per second the container declares or its sample sizes imply
     /// (HLS: the variant's `BANDWIDTH`, on its video track); 0 if unknown.
     pub bitrate: u64,
+}
+
+/// A variant of an HLS master playlist that this build can play.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Variant {
+    /// The index for [`Player::select_variant`].
+    pub index: usize,
+    /// BANDWIDTH, in bit/s.
+    pub bandwidth: u64,
+    /// RESOLUTION and FRAME-RATE; 0 if the playlist does not say.
+    pub width: u32,
+    pub height: u32,
+    pub frame_rate: f64,
+    /// CODECS, or empty.
+    pub codecs: String,
+    /// The video track ([`Track::index`]) that plays it.
+    pub track: Option<usize>,
+    /// On screen.
+    pub playing: bool,
+    /// The one [`Player::select_variant`] keeps to.
+    pub selected: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -682,6 +707,23 @@ impl Player {
         unsafe { sys::lychee_player_is_seekable(self.raw()) != 0 }
     }
 
+    /// The positions [`Player::seek`] reaches: from 0 to the duration
+    /// (`None` if unknown), or the window of live HLS, which moves on in
+    /// real time. Live HLS positions count from the playlist's first
+    /// segment when it was opened. `None` if the input cannot seek.
+    pub fn seekable_range(&self) -> Option<(Duration, Option<Duration>)> {
+        let (mut start, mut end) = (0, 0);
+        let status =
+            unsafe { sys::lychee_player_get_seekable_range(self.raw(), &mut start, &mut end) };
+        (status == 0).then(|| (micros(start), duration(end)))
+    }
+
+    /// Live HLS that can seek: the live edge, where playback started, as
+    /// it moves on; seeking there plays live again.
+    pub fn live_edge(&self) -> Option<Duration> {
+        duration(unsafe { sys::lychee_player_get_live_edge(self.raw()) })
+    }
+
     pub fn state(&self) -> State {
         State::from_raw(unsafe { sys::lychee_player_get_state(self.raw()) })
     }
@@ -762,6 +804,51 @@ impl Player {
             unsafe { sys::lychee_player_select_track(self.raw(), kind.raw(), index) },
             "track selection rejected",
         )
+    }
+
+    /// The variants of an HLS master playlist that this build can play, in
+    /// the playlist's order; available from [`Event::MediaInfo`] on.
+    pub fn variants(&self) -> Vec<Variant> {
+        let count = unsafe { sys::lychee_player_get_variant_count(self.raw()) };
+        (0..count).filter_map(|index| self.variant(index)).collect()
+    }
+
+    fn variant(&self, index: i32) -> Option<Variant> {
+        let mut info: sys::lychee_variant_info = unsafe { std::mem::zeroed() };
+        info.struct_size = size_of::<sys::lychee_variant_info>() as u32;
+        if unsafe { sys::lychee_player_get_variant_info(self.raw(), index, &mut info) } != 0 {
+            return None;
+        }
+        Some(Variant {
+            index: index as usize,
+            bandwidth: info.bandwidth.max(0) as u64,
+            width: info.width as u32,
+            height: info.height as u32,
+            frame_rate: info.frame_rate,
+            codecs: c_array(&info.codecs),
+            track: (info.track >= 0).then_some(info.track as usize),
+            playing: info.playing != 0,
+            selected: info.selected != 0,
+        })
+    }
+
+    /// Plays variant `index` (a [`Variant::index`]) only, or adapts again
+    /// with `None`: one on the adaptive track from the next segment read,
+    /// another by a video track switch. [`Event::VariantChanged`] follows
+    /// once it is on screen.
+    pub fn select_variant(&self, index: Option<usize>) -> Result<()> {
+        let index = index.map_or(-1, |i| i as i32);
+        check(
+            unsafe { sys::lychee_player_select_variant(self.raw(), index) },
+            "variant selection rejected",
+        )
+    }
+
+    /// The highest BANDWIDTH (bit/s) automatic variant selection plays;
+    /// `None` for no limit. Kept across [`Player::open`].
+    pub fn set_max_bitrate(&self, bitrate: Option<u64>) {
+        let bitrate = bitrate.map_or(0, |b| b.min(i64::MAX as u64) as i64);
+        unsafe { sys::lychee_player_set_max_bitrate(self.raw(), bitrate) }
     }
 
     /// Loads the subtitle file `url` (a path, file:// or http(s)://

@@ -559,6 +559,21 @@ fi
   '#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2"' index.m3u8 \
   '#EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=1920x1080,CODECS="vp09.00.40.08,mp4a.40.2"' index.m3u8 \
   >"$media/hls/master.m3u8"
+# 30 s of 2 s segments, for live windows to seek in.
+if [ ! -f "$media/hls_long/index.m3u8" ]; then
+  mkdir -p "$media/hls_long"
+  ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=s=640x360:r=30:d=30 \
+    -f lavfi -i sine=frequency=440:sample_rate=48000:d=30 -c:v libx264 -preset veryfast -pix_fmt yuv420p \
+    -g 60 -sc_threshold 0 -c:a aac -f hls -hls_time 2 -hls_playlist_type vod \
+    -hls_segment_filename "$media/hls_long/seg%d.ts" "$media/hls_long/index.m3u8.tmp" &&
+    mv "$media/hls_long/index.m3u8.tmp" "$media/hls_long/index.m3u8" || exit 1
+fi
+# Variants all said to be VP9 (the segments are H.264): FFmpeg's HLS plays
+# them, each its own video track.
+[ -f "$media/hls/vp9_variants.m3u8" ] || printf '%s\n' '#EXTM3U' \
+  '#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS="vp09.00.40.08,mp4a.40.2"' ../hls_low/index.m3u8 \
+  '#EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=1920x1080,CODECS="vp09.00.40.08,mp4a.40.2"' index.m3u8 \
+  >"$media/hls/vp9_variants.m3u8"
 # Only a variant the own HLS demuxer does not take (said to be VP9, the
 # segments are H.264): FFmpeg's plays it.
 [ -f "$media/hls/vp9_master.m3u8" ] || printf '%s\n' '#EXTM3U' \
@@ -1904,6 +1919,13 @@ if [ "${NO_FFMPEG:-0}" != 1 ] && [ "$own_ts" = 1 ]; then
     1 3 -- --seconds 4 --seek 7 --seek-after 2
   seq_ expect http-hls-subtitles-fallback-close "hls: no HLS variant .*; the fallback opens it" \
     "subtitle at 0\.0[0-9]{2}s: Hello$" "summary: state=ready" -- --seconds 1 "http://127.0.0.1:$port/hls/subs_fallback.m3u8"
+  # Its variants are video tracks of their own: automatic plays the
+  # highest, a selected one is a track switch.
+  seq_ expect http-hls-variant-fallback "variant 0: 800000 bit/s 640x360 .*codecs=h264 track=[0-9]" \
+    "variant playing: 1 \(9000000 bit/s\) at 0\." "select variant 0 at 2\.[0-9]{3}s: accepted" \
+    "variant playing: 0 \(800000 bit/s\) at [2-4]\." "video size 640x360" \
+    "summary: state=ended position=12\.000s .*backward_jumps=0 .* variant=800kbit/s" -- \
+    --variant 0@2 "http://127.0.0.1:$port/hls/vp9_variants.m3u8"
   # Where FFmpeg reads through DataSource, its AES-128 segments do too and
   # are decrypted there, not by FFmpeg's crypto protocol.
   decrypted=()
@@ -1981,6 +2003,24 @@ if [ "$own_ts" = 1 ]; then
     "summary: state=ended position=12\.000s decoder=none .*backward_jumps=0 " -- \
     --select video:-1@2 "http://127.0.0.1:$port/hls_fmp4/master.m3u8"
 fi
+# A variant selected plays from the segment after the read position on
+# (the read is 3 s and more ahead), on the same track, and automatic
+# selection goes back to the highest; a cap keeps automatic selection
+# below it, from the start, or from the next segment.
+if [ "$own_ts" = 1 ]; then
+  seq_ expect http-hls-variant-select "variant 0: 800000 bit/s 640x360 fps=0\.000 codecs=avc1\.64001e,mp4a\.40\.2 track=0" \
+    "variant 1: 5000000 bit/s 1920x1080 .* track=0" "<=0 variant 2:" "variant playing: 1 \(5000000 bit/s\) at 0\." \
+    "select variant 0 at 1\.[0-9]{3}s: accepted" "variant playing: 0 \(800000 bit/s\) at [4-8]\." "video size 640x360" \
+    "select variant -1 at 4\.[0-9]{3}s: accepted" "variant playing: 1 \(5000000 bit/s\) at ([89]|1[01])\." \
+    "<=0 event: tracks changed" "summary: state=ended position=12\.000s .*pulled=360 .*backward_jumps=0 .* variant=5000kbit/s" -- \
+    --variant 0@1 --variant -1@4 "http://127.0.0.1:$port/hls/master.m3u8"
+  seq_ expect http-hls-max-bitrate "variant 0 of 3: 800000 bit/s 640x360" "<=0 variant playing: 1" \
+    "summary: state=ended position=12\.000s .*backward_jumps=0 .* variant=800kbit/s" -- \
+    --max-bitrate 1000000 "http://127.0.0.1:$port/hls/master.m3u8"
+  seq_ expect http-hls-max-bitrate-later "max bitrate 1000000 at 2\." "variant playing: 0 \(800000 bit/s\) at [4-8]\." \
+    "summary: state=ended position=12\.000s .*pulled=360 .*backward_jumps=0 .* variant=800kbit/s" -- \
+    --max-bitrate 1000000@2 "http://127.0.0.1:$port/hls_fmp4/master.m3u8"
+fi
 # Timestamps that start over at a discontinuity go on from where the
 # previous segment ended, also after a seek into the later segment (which
 # FFmpeg's HLS reads on to from before the discontinuity).
@@ -2025,6 +2065,29 @@ if [ "$own_ts" = 1 ]; then
     "track switch: resumed" "<=0 event: state error" \
     "summary: state=ended .*backward_jumps=0 " -- ${null_audio[@]+"${null_audio[@]}"} \
     --select audio:1@4 "http://127.0.0.1:$port/hls_alt/live.m3u8"
+fi
+# A live playlist that keeps a window seeks within it: an EVENT playlist
+# from its first segment, a sliding one of eight segments (16 s, eight
+# target durations) within what it lists. The position counts from the
+# first segment listed at the open, and playback starts at the live edge,
+# three target durations (6 s) before the end: 10 s with eight segments
+# out. A seek to the edge plays live again. (FFmpeg's HLS seeks no live
+# playlist.)
+if [ "$own_ts" = 1 ]; then
+  serve --live /hls_long/live.m3u8 /hls_long/index.m3u8 --live-start 8 --live-window 0
+  realtime=1 seq_ expect http-hls-live-event "^seekable=1$" "seekable 0\.000-16\.[0-9]{3}s edge 10\.[0-9]{3}s at" \
+    "seek -> 1\.000s" "event: seek completed at 1\.000s" \
+    "seek -> edge 1[2-7]\.[0-9]{3}s \(seekable 0\.000-[0-9.]+s edge [0-9.]+s at [1-4]\.[0-9]{3}s\)" \
+    "event: seek completed at 1[2-7]\." "<=0 event: state error" \
+    "summary: state=ready position=1[4-9]\.[0-9]{3}s .*backward_jumps=0 " -- \
+    --seek 1 --seek-after 2 --seek-edge 5 --seconds 8 "http://127.0.0.1:$port/hls_long/live.m3u8"
+  serve --live /hls_long/live.m3u8 /hls_long/index.m3u8 --live-start 8 --live-window 8
+  realtime=1 seq_ expect http-hls-live-window "^seekable=1$" "seekable 0\.[0-9]{3}-16\.[0-9]{3}s edge 10\.[0-9]{3}s at" \
+    "seek -> 5\.000s" "event: seek completed at 5\.000s" \
+    "seek -> edge 1[2-7]\.[0-9]{3}s \(seekable [2-6]\.[0-9]{3}-[0-9.]+s edge [0-9.]+s at [5-8]\.[0-9]{3}s\)" \
+    "event: seek completed at 1[2-7]\." "<=0 event: state error" \
+    "summary: state=ready position=1[4-9]\.[0-9]{3}s .*backward_jumps=0 " -- \
+    --seek 5 --seek-after 3 --seek-edge 6 --seconds 9 "http://127.0.0.1:$port/hls_long/live.m3u8"
 fi
 # Slower than the 1080p variant (5 Mbit/s against 2.5): after its first
 # segment the own HLS goes on with the 800 kbit/s one. The system http

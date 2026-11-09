@@ -125,6 +125,16 @@ struct Options {
   std::string soak_url;
   std::vector<Selection> selections;
   double select_after = 2;
+  // --variant INDEX@SEC: lychee_player_select_variant() SEC seconds after
+  // playback starts (-1: automatic again).
+  std::vector<std::pair<int32_t, double>> variants;
+  // --max-bitrate BPS[@SEC]: before the open, or SEC seconds after
+  // playback starts.
+  int64_t max_bitrate = -1;
+  double max_bitrate_after = -1;
+  // --seek-edge SEC: a seek to the live edge SEC seconds after playback
+  // starts.
+  double seek_edge_after = -1;
   bool hardware = true;
   // --dmabuf: the DRM render node to decode on.
   std::string dmabuf_node;
@@ -205,6 +215,8 @@ struct Options {
 };
 
 std::atomic<int> g_seek_completed{0};
+// LYCHEE_EVENT_VARIANT_CHANGED's index, or -1.
+std::atomic<int> g_variant_changed{-1};
 std::atomic<bool> g_media_info{false};
 std::atomic<bool> g_tracks_changed{false};
 std::atomic<bool> g_subtitle_changed{false};
@@ -256,6 +268,9 @@ void OnEvent(void*, int32_t type, int64_t arg0, int64_t arg1) {
       break;
     case LYCHEE_EVENT_VIDEO_SIZE_CHANGED:
       printf("event: video size %" PRId64 "x%" PRId64 "\n", arg0, arg1);
+      break;
+    case LYCHEE_EVENT_VARIANT_CHANGED:
+      g_variant_changed = static_cast<int>(arg0);
       break;
     case LYCHEE_EVENT_SEEK_COMPLETED:
       printf("event: seek completed at %.3fs\n", arg0 / 1e6);
@@ -375,6 +390,22 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       options->selections.push_back(
           {track_type, atoi(spec.c_str() + colon + 1),
            at == std::string::npos ? -1 : atof(spec.c_str() + at + 1)});
+    } else if (arg == "--variant") {
+      const char* v = value();
+      const char* at = v ? strchr(v, '@') : nullptr;
+      if (!at) return false;
+      options->variants.emplace_back(static_cast<int>(strtol(v, nullptr, 10)),
+                                     strtod(at + 1, nullptr));
+    } else if (arg == "--max-bitrate") {
+      const char* v = value();
+      if (!v) return false;
+      options->max_bitrate = strtoll(v, nullptr, 10);
+      const char* at = strchr(v, '@');
+      options->max_bitrate_after = at ? strtod(at + 1, nullptr) : -1;
+    } else if (arg == "--seek-edge") {
+      const char* v = value();
+      if (!v) return false;
+      options->seek_edge_after = strtod(v, nullptr);
     } else if (arg == "--select-after") {
       const char* v = value();
       if (!v) return false;
@@ -594,6 +625,39 @@ void PrintTracks(lychee_player* player) {
     }
     printf("%s\n", line.c_str());
   }
+}
+
+void PrintVariants(lychee_player* player) {
+  const int32_t count = lychee_player_get_variant_count(player);
+  for (int32_t i = 0; i < count; ++i) {
+    lychee_variant_info info = {};
+    info.struct_size = sizeof(info);
+    if (lychee_player_get_variant_info(player, i, &info) != 0) {
+      continue;
+    }
+    printf("variant %d: %" PRId64 " bit/s %dx%d fps=%.3f codecs=%s track=%d\n",
+           i, info.bandwidth, info.width, info.height, info.frame_rate,
+           info.codecs, info.track);
+  }
+}
+
+// The seekable range and the live edge, as "seekable 0.000-12.000s" and
+// " edge 6.000s".
+std::string SeekableRange(lychee_player* player) {
+  int64_t start = 0;
+  int64_t end = 0;
+  if (lychee_player_get_seekable_range(player, &start, &end) != 0) {
+    return "seekable none";
+  }
+  char text[96];
+  const int64_t edge = lychee_player_get_live_edge(player);
+  snprintf(text, sizeof(text), "seekable %.3f-%.3fs", start / 1e6, end / 1e6);
+  std::string result = text;
+  if (edge >= 0) {
+    snprintf(text, sizeof(text), " edge %.3fs", edge / 1e6);
+    result += text;
+  }
+  return result;
 }
 
 void PrintMetadata(lychee_player* player) {
@@ -1250,7 +1314,9 @@ int main(int argc, char** argv) {
         "SEC]] [--loop [--loop-off-after SEC]] "
         "[--open-after SEC URL] [--soak SEC URL] [--select "
         "TYPE:INDEX[@SEC]]... "
-        "[--select-after SEC] [--lose-decoder-after SEC]... "
+        "[--select-after SEC] [--variant INDEX@SEC]... "
+        "[--max-bitrate BPS[@SEC]] [--seek-edge SEC] "
+        "[--lose-decoder-after SEC]... "
         "[--hang-decoder-after SEC]... [--rebuild-decoder-after SEC]... "
         "[--stall-audio-after SEC "
         "[--stall-audio-for SEC]] [--fail-audio-start N] "
@@ -1331,6 +1397,9 @@ int main(int argc, char** argv) {
   lychee_player_set_event_callback(player, &OnEvent, nullptr);
   lychee_player_set_volume(player, options.volume);
   lychee_player_set_gain(player, options.gain_db, options.gain_peak);
+  if (options.max_bitrate >= 0 && options.max_bitrate_after < 0) {
+    lychee_player_set_max_bitrate(player, options.max_bitrate);
+  }
   lychee_player_set_looping(player, options.loop ? 1 : 0);
   if (options.rate_after < 0) {
     lychee_player_set_rate(player, options.rate);
@@ -1683,7 +1752,36 @@ int main(int argc, char** argv) {
     if (g_media_info.exchange(false)) {
       printf("seekable=%d\n", lychee_player_is_seekable(player));
       PrintTracks(player);
+      PrintVariants(player);
       PrintMetadata(player);
+      if (lychee_player_is_seekable(player)) {
+        printf("%s at %.3fs\n", SeekableRange(player).c_str(), position / 1e6);
+      }
+    }
+    if (const int variant = g_variant_changed.exchange(-1); variant >= 0) {
+      lychee_variant_info info = {};
+      info.struct_size = sizeof(info);
+      lychee_player_get_variant_info(player, variant, &info);
+      printf("variant playing: %d (%" PRId64 " bit/s) at %.3fs\n", variant,
+             info.bandwidth, position / 1e6);
+    }
+    for (auto& [index, after] : options.variants) {
+      if (after < 0 || ready_wall == 0 ||
+          now - ready_wall < static_cast<int64_t>(after * 1e6)) {
+        continue;
+      }
+      after = -1;
+      printf("select variant %d at %.3fs: %s\n", index, position / 1e6,
+             lychee_player_select_variant(player, index) == 0 ? "accepted"
+                                                              : "rejected");
+    }
+    if (options.max_bitrate_after >= 0 && ready_wall != 0 &&
+        now - ready_wall >=
+            static_cast<int64_t>(options.max_bitrate_after * 1e6)) {
+      options.max_bitrate_after = -1;
+      printf("max bitrate %" PRId64 " at %.3fs\n", options.max_bitrate,
+             position / 1e6);
+      lychee_player_set_max_bitrate(player, options.max_bitrate);
     }
     if (g_subtitle_changed.exchange(false)) {
       std::string text = SubtitleText(player);
@@ -1888,6 +1986,17 @@ int main(int argc, char** argv) {
       seek_issued = true;
       seek_issued_at = now;
       wall_seek = wall_now();
+    }
+    if (options.seek_edge_after >= 0 && ready_wall != 0 &&
+        now - ready_wall >=
+            static_cast<int64_t>(options.seek_edge_after * 1e6)) {
+      options.seek_edge_after = -1;
+      const int64_t edge = lychee_player_get_live_edge(player);
+      printf("seek -> edge %.3fs (%s at %.3fs)\n", edge / 1e6,
+             SeekableRange(player).c_str(), position / 1e6);
+      if (edge >= 0) {
+        lychee_player_seek(player, edge);
+      }
     }
     if (seek_issued && g_seek_completed == 1) {
       g_seek_completed = 2;

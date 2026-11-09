@@ -110,6 +110,18 @@ building on top of them.
   with "audio decoding failed" with it. Done when each is explained or
   plays to its end.
 
+- **Live HLS through FFmpeg does not seek** (2026-11-09): the FFmpeg
+  fallback (variants the native HLS reader cannot decode, SAMPLE-AES,
+  subtitle renditions only FFmpeg reads) refuses seeks in a live
+  playlist, so such input reports no seekable range. Done when a
+  `http-hls-live-window` case through that fallback seeks back and
+  returns to the edge.
+- **Paused behind live past the window** (2026-11-09): live HLS paused
+  (or seeked back) longer than a sliding playlist keeps its segments
+  fails when the next segment has left the playlist, instead of moving
+  on to the window's start. Done when a regression case pauses past the
+  window and plays on from its start.
+
 - **Android Surface snapshots**: `LycheePlayerView.snapshot()` uses
   PixelCopy, whose padded-YUV Surface readback applies a crop/scale that
   differs from the screen compositor. Actual MPEG-2 output and compositor
@@ -225,12 +237,6 @@ reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
    codec (another quality). Done when regression cases see each code.
    Per-request observation (#9) only if it fits the ABI's plain-callback
    rule cheaply; otherwise say so here.
-4. **HLS variants and live window** (#14, #18, #8): list a master
-   playlist's variants (resolution, bandwidth, codecs), pin one or go
-   back to automatic, and cap the bitrate. Live HLS with a window (EVENT,
-   or a long sliding playlist) reports a seekable range and the live
-   edge, and seeks within it. Done when regression cases switch variants
-   and seek back in a live window.
 6. **Source lifecycle** (#11, #15, #4, #5): close what is open (back to
    IDLE, decoders and input released, the texture kept); open at a start
    position without decoding the start first; switch to another URL of

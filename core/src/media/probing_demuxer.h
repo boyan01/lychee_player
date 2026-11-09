@@ -49,7 +49,10 @@ class ProbingDemuxer : public Demuxer {
   void Abort() override;
   std::string error() const override;
   int64_t download_rate() const override;
-  int64_t variant_bandwidth() const override;
+  std::vector<VariantInfo> variants() const override;
+  int current_variant() const override;
+  void SetVariantPolicy(int pinned, int64_t max_bandwidth) override;
+  bool live_window(LiveWindow* window) const override;
 
  private:
   // Makes |demuxer| the one calls go to; it may then open.
@@ -63,11 +66,14 @@ class ProbingDemuxer : public Demuxer {
 
   const Fallback fallback_;
   const std::string headers_;
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
   // The source read for the first bytes, while it is.
   DataSource* probing_ = nullptr;
   std::unique_ptr<Demuxer> demuxer_;
   std::atomic<bool> aborted_{false};
+  // SetVariantPolicy(), for the demuxer adopted.
+  int pinned_ = -1;
+  int64_t max_bandwidth_ = 0;
   MediaInfo empty_;
 };
 

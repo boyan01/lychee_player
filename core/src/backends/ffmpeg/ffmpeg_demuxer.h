@@ -55,6 +55,9 @@ class FFmpegDemuxer : public Demuxer {
   void Abort() override;
   std::string error() const override { return error_; }
   int64_t download_rate() const override;
+  // HLS: each variant is a video stream of its own; nothing adapts.
+  std::vector<VariantInfo> variants() const override { return variants_; }
+  int current_variant() const override { return current_variant_; }
 
  private:
   static int InterruptCallback(void* opaque);
@@ -126,6 +129,12 @@ class FFmpegDemuxer : public Demuxer {
   MediaInfo media_info_;
   std::vector<bool> enabled_streams_;
   std::string error_;
+  // HLS: the video streams FFmpeg tags with their variant's bandwidth,
+  // the variant of each stream (-1 if none), and of the last video packet
+  // read.
+  std::vector<VariantInfo> variants_;
+  std::vector<int> stream_variants_;
+  int current_variant_ = -1;
   // The duration comes from the container's index rather than an estimate.
   bool declared_duration_ = false;
   // End of the data read since open or the last seek.

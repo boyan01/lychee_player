@@ -122,6 +122,9 @@ struct MediaInfo {
   // kNoTimestamp if unknown (e.g. live streams).
   int64_t duration = kNoTimestamp;
   int64_t start_time = 0;
+  // The position (media time less |start_time|) the first packets play
+  // at: 0 but for live HLS, which starts near the end of its window.
+  int64_t start_position = 0;
   bool seekable = false;
   std::vector<StreamInfo> streams;
   // Indices into |streams| the demuxer suggests, or -1.

@@ -15,6 +15,8 @@ struct HlsVariant {
   int64_t bandwidth = 0;
   int width = 0;
   int height = 0;
+  // FRAME-RATE, or 0.
+  double frame_rate = 0;
   std::string codecs;
   // The GROUP-ID of its audio renditions, or empty.
   std::string audio;
@@ -90,6 +92,8 @@ struct HlsPlaylist {
   int64_t target_duration = 0;  // Microseconds.
   int64_t media_sequence = 0;
   bool ended = false;  // EXT-X-ENDLIST, or PLAYLIST-TYPE VOD.
+  // PLAYLIST-TYPE EVENT: segments are only added, none removed.
+  bool event = false;
   std::vector<HlsSegment> segments;
 };
 
@@ -110,8 +114,10 @@ bool HlsCodecsDecodable(const std::string& codecs);
 
 // The variant to play: the highest bandwidth among those whose CODECS
 // this build decodes (H.264, HEVC, AAC; any without CODECS), the larger
-// picture on a tie. -1 if there are none.
-int PickHlsVariant(const std::vector<HlsVariant>& variants);
+// picture on a tie; at most |max_bandwidth| if that is above 0 (the
+// lowest if all are above it). -1 if there are none.
+int PickHlsVariant(const std::vector<HlsVariant>& variants,
+                   int64_t max_bandwidth = 0);
 
 // A cue of a WebVTT segment; microseconds from the segment's MPEG-2
 // timestamp (see ParseHlsWebVtt).

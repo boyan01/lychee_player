@@ -32,6 +32,10 @@ constexpr size_t kMaxPlaylistBytes = 16 << 20;
 constexpr int64_t kSegmentProbeBytes = 4 << 20;
 // RFC 8216 6.3.3: start no closer to the end of a live playlist.
 constexpr int kLiveStartTargetDurations = 3;
+// A sliding live playlist at least this long when opened can seek within
+// its window: twice what playback keeps from the end, so that there is
+// as much to go back to.
+constexpr int kLiveSeekableTargetDurations = 6;
 // Failed reloads of a live playlist in a row before giving up.
 constexpr int kMaxReloadFailures = 3;
 // Segments kept behind the one playing (live).
@@ -297,7 +301,7 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
   std::vector<HlsVariant> variants;
   int pick = -1;
   if (playlist.master) {
-    pick = PickHlsVariant(playlist.variants);
+    pick = PickHlsVariant(playlist.variants, max_bandwidth_);
     if (pick < 0) {
       *error = playlist.variants.empty()
                    ? "HLS master playlist without variants"
@@ -309,7 +313,6 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
          playlist.variants.size(), static_cast<long long>(variant.bandwidth),
          variant.width, variant.height, variant.codecs.c_str());
     main->url = variant.url;
-    main->bandwidth = variant.bandwidth;
     for (const HlsRendition& rendition : playlist.renditions) {
       if (rendition.type == HlsRendition::Type::kAudio &&
           !variant.audio.empty() && rendition.group == variant.audio &&
@@ -421,6 +424,16 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
   if (!variant.live) {
     const Segment& last = variant.segments.back();
     media_info_.duration = last.start + last.duration;
+  } else if (!variant.segments.empty()) {
+    const int64_t length = variant.segments.back().start +
+                           variant.segments.back().duration -
+                           variant.segments.front().start;
+    media_info_.seekable =
+        variant.event ||
+        length >= kLiveSeekableTargetDurations * variant.target_duration;
+    if (media_info_.seekable) {
+      UpdateWindow(variant);
+    }
   }
   enabled_.assign(media_info_.streams.size(), true);
   need_keyframe_.assign(media_info_.streams.size(), true);
@@ -434,6 +447,7 @@ bool HlsDemuxer::Start(Rendition* r,
                        std::string* error) {
   r->live = !playlist.ended;
   r->ended = playlist.ended;
+  r->event = playlist.event;
   r->target_duration = std::max(playlist.target_duration, kMicrosPerSecond);
   Merge(r, playlist);
   r->last_reload = Now();
@@ -442,18 +456,7 @@ bool HlsDemuxer::Start(Rendition* r,
     return false;
   }
   if (r->live && !r->segments.empty()) {
-    // The last segment that starts at least three target durations
-    // before the end.
-    const Segment& last = r->segments.back();
-    const int64_t end = last.start + last.duration;
-    r->current = 0;
-    for (size_t i = r->segments.size(); i-- > 0;) {
-      if (end - r->segments[i].start >=
-          kLiveStartTargetDurations * r->target_duration) {
-        r->current = i;
-        break;
-      }
-    }
+    r->current = LiveStart(*r);
   }
   if (r->live && r->current >= r->segments.size()) {
     DemuxerReadResult result = WaitForSegments(r);
@@ -479,6 +482,7 @@ bool HlsDemuxer::Start(Rendition* r,
 void HlsDemuxer::Load(Rendition* r, const HlsPlaylist& playlist) {
   r->live = !playlist.ended;
   r->ended = playlist.ended;
+  r->event = playlist.event;
   r->target_duration = std::max(playlist.target_duration, kMicrosPerSecond);
   Merge(r, playlist);
   r->last_reload = Now();
@@ -512,15 +516,7 @@ void HlsDemuxer::Load(Rendition* r, const HlsPlaylist& playlist) {
       }
     }
     if (!found && !r->segments.empty()) {
-      const Segment& last = r->segments.back();
-      const int64_t end = last.start + last.duration;
-      for (size_t i = r->segments.size(); i-- > 0;) {
-        if (end - r->segments[i].start >=
-            kLiveStartTargetDurations * r->target_duration) {
-          r->current = i;
-          break;
-        }
-      }
+      r->current = LiveStart(*r);
     }
     r->resume = kNoTimestamp;
   } else if (r->resume != kNoTimestamp) {
@@ -618,17 +614,137 @@ void HlsDemuxer::AddVariants(const std::vector<HlsVariant>& variants,
     media_info_.streams.push_back(info);
     auto r = std::make_unique<Rendition>();
     r->url = variant.url;
-    r->bandwidth = variant.bandwidth;
     r->video = info.index;
     r->streams.push_back(info.index);
     r->streams.insert(r->streams.end(), audio.begin(), audio.end());
     renditions_.push_back(std::move(r));
   }
+  // What can be played, once each: the ladder's and the played one on
+  // the first variant's stream, the others on their own.
+  for (const HlsVariant& variant : variants) {
+    if (std::find(variant_urls_.begin(), variant_urls_.end(), variant.url) !=
+            variant_urls_.end() ||
+        !HlsCodecsDecodable(variant.codecs) ||
+        codec_of(variant) == VideoCodec::kUnknown) {
+      continue;
+    }
+    VariantInfo info;
+    info.bandwidth = variant.bandwidth;
+    info.width = variant.width;
+    info.height = variant.height;
+    info.frame_rate = variant.frame_rate;
+    info.codecs = variant.codecs;
+    info.adaptive = std::any_of(
+        ladder_.begin(), ladder_.end(),
+        [&variant](const HlsVariant& rung) { return rung.url == variant.url; });
+    if (info.adaptive || variant.url == variants[pick].url) {
+      info.stream = first.video;
+    } else {
+      for (const auto& r : renditions_) {
+        if (r->video >= 0 && r->url == variant.url) {
+          info.stream = r->video;
+        }
+      }
+    }
+    if (info.stream < 0) {
+      continue;  // Past kMaxVariants.
+    }
+    variants_.push_back(info);
+    variant_urls_.push_back(variant.url);
+  }
+  for (auto& r : renditions_) {
+    if (r->video < 0) {
+      continue;
+    }
+    const auto known =
+        std::find(variant_urls_.begin(), variant_urls_.end(), r->url);
+    if (known != variant_urls_.end()) {
+      r->variant = static_cast<int>(known - variant_urls_.begin());
+    }
+  }
+}
+
+void HlsDemuxer::SetVariantPolicy(int pinned, int64_t max_bandwidth) {
+  pinned_ = pinned;
+  max_bandwidth_ = std::max<int64_t>(max_bandwidth, 0);
+}
+
+bool HlsDemuxer::live_window(LiveWindow* window) const {
+  std::lock_guard<std::mutex> lock(window_mutex_);
+  if (has_window_) {
+    *window = window_;
+  }
+  return has_window_;
+}
+
+size_t HlsDemuxer::LiveStart(const Rendition& r) const {
+  if (r.segments.empty()) {
+    return 0;
+  }
+  const Segment& last = r.segments.back();
+  const int64_t end = last.start + last.duration;
+  for (size_t i = r.segments.size(); i-- > 0;) {
+    if (end - r.segments[i].start >=
+        kLiveStartTargetDurations * r.target_duration) {
+      return i;
+    }
+  }
+  return 0;
+}
+
+void HlsDemuxer::UpdateWindow(const Rendition& r) {
+  if (!media_info_.seekable || !r.live || r.segments.empty()) {
+    return;
+  }
+  // From what the playlist lists, not the segments kept behind it.
+  size_t first = r.segments.size() - 1;
+  for (size_t i = r.segments.size(); i-- > 0;) {
+    if (r.segments[i].sequence >= r.listed_from) {
+      first = i;
+    }
+  }
+  const Segment& last = r.segments.back();
+  LiveWindow window;
+  window.start = r.segments[first].start - r.origin;
+  window.end = last.start + last.duration - r.origin;
+  window.edge =
+      std::max(r.segments[LiveStart(r)].start - r.origin, window.start);
+  window.updated = MonotonicMicros();
+  window.sliding = !r.event;
+  window.moving = !r.ended;
+  std::lock_guard<std::mutex> lock(window_mutex_);
+  window_ = window;
+  has_window_ = true;
+}
+
+void HlsDemuxer::ReloadForSeek() {
+  for (auto& r : renditions_) {
+    if (!r->loaded || !r->live || r->ended ||
+        (r.get() != renditions_[0].get() && !Enabled(*r))) {
+      continue;
+    }
+    HlsPlaylist playlist;
+    std::string final_url;
+    std::string error;
+    r->last_reload = Now();
+    if (!LoadPlaylist(nullptr, r->url, &playlist, &final_url, &error) ||
+        playlist.master) {
+      // Placed by what is known; reading on reloads it again.
+      LOGW("playlist reload for the seek failed: %s", error.c_str());
+      continue;
+    }
+    r->last_reload_changed = Merge(r.get(), playlist);
+    r->ended = playlist.ended;
+  }
+  UpdateWindow(*renditions_[0]);
 }
 
 bool HlsDemuxer::Merge(Rendition* r, const HlsPlaylist& playlist) {
   std::vector<Segment>& segments = r->segments;
   bool added = false;
+  if (!playlist.segments.empty()) {
+    r->listed_from = playlist.segments.front().sequence;
+  }
   for (const HlsSegment& segment : playlist.segments) {
     if (!segments.empty() && segment.sequence <= segments.back().sequence) {
       continue;
@@ -886,12 +1002,33 @@ bool HlsDemuxer::Measure(int64_t rate, int64_t bytes) {
 }
 
 size_t HlsDemuxer::AffordedRung(const Rendition& r) const {
-  if (ladder_.size() < 2 || estimate_ <= 0 || r.video < 0 ||
-      !enabled_[r.video]) {
+  if (ladder_.empty() || r.video < 0 || !enabled_[r.video]) {
     return rung_;
   }
-  size_t want = 0;
+  const int pinned = pinned_;
+  if (pinned >= 0 && pinned < static_cast<int>(variant_urls_.size())) {
+    for (size_t i = 0; i < ladder_.size(); ++i) {
+      if (ladder_[i].url == variant_urls_[pinned]) {
+        return i;
+      }
+    }
+  }
+  if (ladder_.size() < 2) {
+    return rung_;
+  }
+  // The highest rung within the cap, or the lowest.
+  const int64_t cap = max_bandwidth_;
+  size_t top = 0;
   for (size_t i = 1; i < ladder_.size(); ++i) {
+    if (cap <= 0 || ladder_[i].bandwidth <= cap) {
+      top = i;
+    }
+  }
+  if (estimate_ <= 0) {
+    return std::min(rung_, top);
+  }
+  size_t want = 0;
+  for (size_t i = 1; i <= top; ++i) {
     if (ladder_[i].bandwidth * kBandwidthHeadroom <= estimate_ * 100) {
       want = i;
     }
@@ -945,14 +1082,21 @@ void HlsDemuxer::Adapt(Rendition* r) {
        static_cast<long long>(variant.bandwidth),
        static_cast<long long>(estimate_));
   r->url = variant.url;
-  r->bandwidth = variant.bandwidth;
+  const auto known =
+      std::find(variant_urls_.begin(), variant_urls_.end(), variant.url);
+  r->variant = known != variant_urls_.end()
+                   ? static_cast<int>(known - variant_urls_.begin())
+                   : -1;
   r->segments = std::move(next.segments);
   r->current = index;
   r->live = !playlist.ended;
   r->ended = playlist.ended;
+  r->event = playlist.event;
+  r->listed_from = next.listed_from;
   r->target_duration = std::max(playlist.target_duration, kMicrosPerSecond);
   r->last_reload = Now();
   rung_ = want;
+  UpdateWindow(*r);
 }
 
 bool HlsDemuxer::OpenWebVtt(Rendition* r, std::string* error) {
@@ -1167,9 +1311,13 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
       start = 0;
     }
     if (offsets_.empty()) {
-      media_info_.start_time = start;
-    }
-    if (!r->opened) {
+      // Positions count from the playlist's first segment: live input
+      // starts near the end of its window, which is where it then plays.
+      const int64_t into = segment.start - r->segments.front().start;
+      media_info_.start_time = start - into;
+      media_info_.start_position = into;
+      r->origin = r->segments.front().start;
+    } else if (!r->opened) {
       r->origin = segment.start;
     }
     r->offset = media_info_.start_time + segment.start - r->origin - start;
@@ -1306,6 +1454,9 @@ DemuxerReadResult HlsDemuxer::WaitForSegments(Rendition* r) {
     r->last_reload_changed = Merge(r, playlist);
     if (playlist.ended) {
       r->ended = true;
+    }
+    if (r == renditions_[0].get()) {
+      UpdateWindow(*r);
     }
   }
   return DemuxerReadResult::kOk;
@@ -1556,7 +1707,7 @@ DemuxerReadResult HlsDemuxer::Read(EncodedPacket* packet) {
           return result;
         }
         r->has_next = true;
-        r->next_bandwidth = r->bandwidth;
+        r->next_variant = r->variant;
       }
       if (!pick || r->next.dts < pick->next.dts) {
         pick = r.get();
@@ -1575,7 +1726,7 @@ DemuxerReadResult HlsDemuxer::Read(EncodedPacket* packet) {
       continue;
     }
     if (index == pick->video) {
-      variant_bandwidth_ = pick->next_bandwidth;
+      current_variant_ = pick->next_variant;
     }
     *packet = std::move(pick->next);
     last_dts_ = packet->dts;
@@ -1596,6 +1747,17 @@ bool HlsDemuxer::Seek(int64_t time) {
   }
   if (!media_info_.seekable) {
     return false;
+  }
+  if (renditions_[0]->live) {
+    ReloadForSeek();
+    if (aborted_ || interrupted_) {
+      return false;
+    }
+    LiveWindow window;
+    if (live_window(&window)) {
+      time = std::clamp(time, media_info_.start_time + window.start,
+                        media_info_.start_time + window.end);
+    }
   }
   for (auto& r : renditions_) {
     Position(r.get(), time);

@@ -61,6 +61,7 @@ const int kEventError = 6;
 const int kEventTracksChanged = 7;
 const int kEventSubtitleChanged = 8;
 const int kEventSubtitleAdded = 9;
+const int kEventVariantChanged = 10;
 
 const int kTrackVideo = 1;
 const int kTrackAudio = 2;
@@ -177,6 +178,27 @@ final class LycheeTrackInfo extends Struct {
   external int role;
   @Int64()
   external int bitrate;
+}
+
+final class LycheeVariantInfo extends Struct {
+  @Uint32()
+  external int structSize;
+  @Int64()
+  external int bandwidth;
+  @Int32()
+  external int width;
+  @Int32()
+  external int height;
+  @Double()
+  external double frameRate;
+  @Array(64)
+  external Array<Uint8> codecs;
+  @Int32()
+  external int track;
+  @Int32()
+  external int playing;
+  @Int32()
+  external int selected;
 }
 
 typedef EventCallbackNative = Void Function(
@@ -334,6 +356,47 @@ final playerGetTrackInfo = _library.lookupFunction<
 final playerSelectTrack = _library.lookupFunction<
     Int32 Function(Pointer<Void>, Int32, Int32),
     int Function(Pointer<Void>, int, int)>('lychee_player_select_track');
+
+// API 22, absent from older cores (the released one a fresh checkout
+// pins): then null, and the player reports no variants and no live window.
+final bool _hasVariants =
+    _library.providesSymbol('lychee_player_get_variant_count');
+
+final int Function(Pointer<Void>)? playerGetVariantCount = _hasVariants
+    ? _library.lookupFunction<Int32 Function(Pointer<Void>),
+        int Function(Pointer<Void>)>('lychee_player_get_variant_count')
+    : null;
+
+final int Function(Pointer<Void>, int, Pointer<LycheeVariantInfo>)?
+    playerGetVariantInfo = _hasVariants
+        ? _library.lookupFunction<
+            Int32 Function(Pointer<Void>, Int32, Pointer<LycheeVariantInfo>),
+            int Function(Pointer<Void>, int,
+                Pointer<LycheeVariantInfo>)>('lychee_player_get_variant_info')
+        : null;
+
+final int Function(Pointer<Void>, int)? playerSelectVariant = _hasVariants
+    ? _library.lookupFunction<Int32 Function(Pointer<Void>, Int32),
+        int Function(Pointer<Void>, int)>('lychee_player_select_variant')
+    : null;
+
+final void Function(Pointer<Void>, int)? playerSetMaxBitrate = _hasVariants
+    ? _library.lookupFunction<Void Function(Pointer<Void>, Int64),
+        void Function(Pointer<Void>, int)>('lychee_player_set_max_bitrate')
+    : null;
+
+final int Function(Pointer<Void>, Pointer<Int64>, Pointer<Int64>)?
+    playerGetSeekableRange = _hasVariants
+        ? _library.lookupFunction<
+            Int32 Function(Pointer<Void>, Pointer<Int64>, Pointer<Int64>),
+            int Function(Pointer<Void>, Pointer<Int64>,
+                Pointer<Int64>)>('lychee_player_get_seekable_range')
+        : null;
+
+final int Function(Pointer<Void>)? playerGetLiveEdge = _hasVariants
+    ? _library.lookupFunction<Int64 Function(Pointer<Void>),
+        int Function(Pointer<Void>)>('lychee_player_get_live_edge')
+    : null;
 
 /// Null with a core older than API 18 (the released one a fresh checkout
 /// pins).

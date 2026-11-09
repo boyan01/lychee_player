@@ -63,6 +63,11 @@ class LycheePlayer @JvmOverloads constructor(
          * follows); otherwise it could not be read or is not a subtitle file.
          */
         data class SubtitleAdded(val id: Int, val added: Boolean) : Event()
+        /**
+         * Another [Variant] is on screen, its [Variant.index]: after
+         * [selectVariant], adaptation, or the first frame.
+         */
+        data class VariantChanged(val index: Int) : Event()
     }
 
     fun interface Listener {
@@ -101,6 +106,25 @@ class LycheePlayer @JvmOverloads constructor(
          * variant's `BANDWIDTH`, on its video track); 0 if unknown.
          */
         val bitrate: Long = 0,
+    )
+
+    /** A variant of an HLS master playlist that this build can play. */
+    data class Variant(
+        /** Pass to [selectVariant]. */
+        val index: Int,
+        /** Declared bit/s. */
+        val bandwidth: Long,
+        /** Picture size and frame rate; 0 if the playlist does not say. */
+        val width: Int,
+        val height: Int,
+        val frameRate: Double,
+        /** The CODECS attribute, or empty. */
+        val codecs: String,
+        /** The [Track.index] of the video track that plays it. */
+        val track: Int,
+        val isPlaying: Boolean,
+        /** [selectVariant] keeps to it. */
+        val isSelected: Boolean,
     )
 
     /** Counts are since the open. */
@@ -252,6 +276,27 @@ class LycheePlayer @JvmOverloads constructor(
     val isSeekable: Boolean
         get() = nativeIsSeekable(handle())
 
+    /**
+     * The positions [seekTo] reaches in milliseconds, null if it cannot
+     * seek; the upper bound is null if unknown. Live HLS whose playlist
+     * keeps a window counts positions from the start of the playlist's
+     * first segment when it was opened; the range moves on in real time,
+     * and playback starts at [liveEdgeMs].
+     */
+    val seekableRangeMs: Pair<Long, Long?>?
+        get() {
+            val range = LongArray(2)
+            if (!nativeGetSeekableRange(handle(), range)) return null
+            return range[0] / 1000 to range[1].takeIf { it >= 0 }?.let { it / 1000 }
+        }
+
+    /**
+     * Live HLS that can seek: the position that plays live, as it moves
+     * on; seek there to return to live. Null for other input.
+     */
+    val liveEdgeMs: Long?
+        get() = nativeGetLiveEdge(handle()).takeIf { it >= 0 }?.let { it / 1000 }
+
     val state: State
         get() = State.entries.getOrElse(nativeGetState(handle())) { State.IDLE }
 
@@ -312,6 +357,40 @@ class LycheePlayer @JvmOverloads constructor(
      */
     fun selectTrack(type: TrackType, index: Int?): Boolean =
         nativeSelectTrack(handle(), type.value, index ?: -1)
+
+    /** The variants of an HLS master playlist, from [Event.MediaInfo] on; empty for other media. */
+    val variants: List<Variant>
+        get() {
+            val handle = handle()
+            val longs = LongArray(7)
+            return (0 until nativeGetVariantCount(handle)).mapNotNull { index ->
+                val codecs = nativeGetVariantInfo(handle, index, longs)?.let(::String)
+                    ?: return@mapNotNull null
+                Variant(
+                    index = index, bandwidth = longs[0], width = longs[1].toInt(),
+                    height = longs[2].toInt(), frameRate = Double.fromBits(longs[3]),
+                    codecs = codecs, track = longs[4].toInt(), isPlaying = longs[5] != 0L,
+                    isSelected = longs[6] != 0L,
+                )
+            }
+        }
+
+    /**
+     * Plays [Variant.index] only, or adapts to the bandwidth again for
+     * null. Returns false if the request was rejected;
+     * [Event.VariantChanged] follows once it is on screen.
+     */
+    fun selectVariant(index: Int?): Boolean = nativeSelectVariant(handle(), index ?: -1)
+
+    /**
+     * The highest bandwidth (bit/s) automatic variant selection plays, or
+     * null for no limit. Kept across [open].
+     */
+    var maxBitrate: Long? = null
+        set(value) {
+            field = value
+            nativeSetMaxBitrate(handle(), (value ?: 0).coerceAtLeast(0))
+        }
 
     /**
      * Reads the subtitle file [url] (a path, file:// or http(s):// URL;
@@ -451,6 +530,7 @@ class LycheePlayer @JvmOverloads constructor(
             7 -> Event.TracksChanged
             8 -> Event.SubtitleChanged(arg1 != 0L)
             9 -> Event.SubtitleAdded(arg0.toInt(), arg1 != 0L)
+            10 -> Event.VariantChanged(arg0.toInt())
             else -> null
         } ?: return
         // A copy: listeners may remove themselves.
@@ -507,6 +587,8 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeSetLooping(handle: Long, looping: Boolean)
         @JvmStatic private external fun nativeIsLooping(handle: Long): Boolean
         @JvmStatic private external fun nativeIsSeekable(handle: Long): Boolean
+        @JvmStatic private external fun nativeGetSeekableRange(handle: Long, range: LongArray): Boolean
+        @JvmStatic private external fun nativeGetLiveEdge(handle: Long): Long
         @JvmStatic private external fun nativeGetState(handle: Long): Int
         @JvmStatic private external fun nativeIsPlaying(handle: Long): Boolean
         @JvmStatic private external fun nativeGetPosition(handle: Long): Long
@@ -518,6 +600,10 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeGetTrackCount(handle: Long): Int
         @JvmStatic private external fun nativeGetTrackInfo(handle: Long, index: Int, longs: LongArray): ByteArray?
         @JvmStatic private external fun nativeSelectTrack(handle: Long, type: Int, index: Int): Boolean
+        @JvmStatic private external fun nativeGetVariantCount(handle: Long): Int
+        @JvmStatic private external fun nativeGetVariantInfo(handle: Long, index: Int, longs: LongArray): ByteArray?
+        @JvmStatic private external fun nativeSetMaxBitrate(handle: Long, bitrate: Long)
+        @JvmStatic private external fun nativeSelectVariant(handle: Long, index: Int): Boolean
         @JvmStatic private external fun nativeAddSubtitle(
             handle: Long, url: ByteArray, language: ByteArray?, title: ByteArray?,
             encoding: ByteArray?, headers: ByteArray, keepSelection: Boolean,

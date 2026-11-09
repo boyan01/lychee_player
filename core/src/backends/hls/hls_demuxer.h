@@ -31,12 +31,16 @@ class SegmentStream;
 // selected (their audio is the first's). While the first one's stream is
 // selected, it moves between the variants of its codec and audio group
 // by the bandwidth its segments arrived at (TS, or fMP4 with each map
-// supplying the in-band parameter sets at a keyframe). Its audio renditions
-// (EXT-X-MEDIA) with a playlist of their own are audio streams
+// supplying the in-band parameter sets at a keyframe), or keeps to the
+// one SetVariantPolicy() pins, and to those within its cap. Its audio
+// renditions (EXT-X-MEDIA) with a playlist of their own are audio streams
 // (DEFAULT=YES the default one), read alongside in decode order, and so
 // are its WebVTT and fMP4 IMSC text/image and WebVTT subtitle renditions.
 // VOD seeks by segment; live input starts three target durations from
 // the end and reloads each playlist read as its segments are used up.
+// A live playlist that keeps a window (EVENT, or at least
+// kLiveSeekableTargetDurations long when opened) seeks within it:
+// positions count from its first segment at the open.
 // Each discontinuity sequence gets its own offset onto one continuous
 // timeline, shared by the renditions, whose timestamps match. AES-128
 // segments are decrypted through the platform (CommonCrypto, BCrypt or
@@ -65,7 +69,10 @@ class HlsDemuxer : public Demuxer {
   int64_t download_rate() const override {
     return estimate_ > 0 ? estimate_ : -1;
   }
-  int64_t variant_bandwidth() const override { return variant_bandwidth_; }
+  std::vector<VariantInfo> variants() const override { return variants_; }
+  int current_variant() const override { return current_variant_; }
+  void SetVariantPolicy(int pinned, int64_t max_bandwidth) override;
+  bool live_window(LiveWindow* window) const override;
 
   // Opens the playlists and segments the input refers to; a shared
   // opener (CreateSharedOpener) unless set (the fuzzer serves them from
@@ -99,13 +106,17 @@ class HlsDemuxer : public Demuxer {
     bool loaded = false;
     int64_t resume = kNoTimestamp;
     // A variant's own video stream, or -1 (audio renditions), and the
-    // BANDWIDTH of the variant it reads (0 without a master playlist).
+    // variant it reads (variants_; -1 without a master playlist).
     int video = -1;
-    int64_t bandwidth = 0;
+    int variant = -1;
     std::vector<Segment> segments;
     size_t current = 0;
     bool live = false;
     bool ended = false;
+    bool event = false;
+    // The sequence number of the first segment the last playlist loaded
+    // listed: those before it are gone from the server.
+    int64_t listed_from = 0;
     int64_t target_duration = 0;
     int64_t last_reload = 0;
     bool last_reload_changed = true;
@@ -154,9 +165,9 @@ class HlsDemuxer : public Demuxer {
     std::deque<EncodedPacket> text;
 
     // The next packet, read ahead to interleave the renditions, and the
-    // bandwidth it was read at.
+    // variant it was read from.
     EncodedPacket next;
-    int64_t next_bandwidth = 0;
+    int next_variant = -1;
     bool has_next = false;
     bool at_end = false;
     // Enabled while playing, from before the read position: what streams
@@ -182,6 +193,14 @@ class HlsDemuxer : public Demuxer {
   void AddVariants(const std::vector<HlsVariant>& variants, int pick);
   // Appends the segments after the last one known. True if there were.
   bool Merge(Rendition* r, const HlsPlaylist& playlist);
+  // Live: the last segment that starts three target durations or more
+  // before the end of r's playlist, or the first.
+  size_t LiveStart(const Rendition& r) const;
+  // Live: window_ from the first variant's playlist.
+  void UpdateWindow(const Rendition& r);
+  // Seek() on live input: reloads the playlists read, so that the target
+  // is placed in their current windows.
+  void ReloadForSeek();
   // Opens r->segments[r->current]; the first one adds r's streams.
   bool OpenSegment(Rendition* r, std::string* error);
   // OpenSegment() for a subtitle rendition.
@@ -215,8 +234,9 @@ class HlsDemuxer : public Demuxer {
   // Takes a segment's transfer rate (bit/s) into the estimate, unless
   // too few bytes measure it (false).
   bool Measure(int64_t rate, int64_t bytes);
-  // The rung of ladder_ the estimate affords r (the first variant), or
-  // rung_ while it has nothing to move between.
+  // The rung of ladder_ the estimate affords r (the first variant) within
+  // the cap, or the one pinned; rung_ while it has nothing to move
+  // between.
   size_t AffordedRung(const Rendition& r) const;
   // Before the first variant opens its next segment: moves it to the
   // variant the estimate affords, if another.
@@ -259,8 +279,19 @@ class HlsDemuxer : public Demuxer {
   std::vector<HlsVariant> ladder_;
   size_t rung_ = 0;
   int64_t estimate_ = 0;
+  // The master playlist's variants this build plays, in its order, and
+  // their URLs.
+  std::vector<VariantInfo> variants_;
+  std::vector<std::string> variant_urls_;
+  // SetVariantPolicy().
+  std::atomic<int> pinned_{-1};
+  std::atomic<int64_t> max_bandwidth_{0};
   // Of the last video packet Read() returned.
-  int64_t variant_bandwidth_ = 0;
+  int current_variant_ = -1;
+  // Live input that can seek: the window, under its own lock.
+  mutable std::mutex window_mutex_;
+  LiveWindow window_;
+  bool has_window_ = false;
   // AES-128 keys by URL.
   std::map<std::string, std::array<uint8_t, 16>> keys_;
   // Discontinuity sequence -> microseconds added to its timestamps.

@@ -430,6 +430,46 @@ int32_t lychee_player_select_track(lychee_player* player,
                                                                           : -1;
 }
 
+int32_t lychee_player_get_variant_count(lychee_player* player) {
+  return static_cast<int32_t>(player->player->variants().size());
+}
+
+int32_t lychee_player_get_variant_info(lychee_player* player,
+                                       int32_t index,
+                                       lychee_variant_info* info) {
+  std::vector<lychee::VariantInfo> variants = player->player->variants();
+  if (!info || index < 0 || index >= static_cast<int32_t>(variants.size())) {
+    return -1;
+  }
+  const lychee::VariantInfo& variant = variants[index];
+  lychee_variant_info result = {};
+  result.bandwidth = variant.bandwidth;
+  result.width = variant.width;
+  result.height = variant.height;
+  result.frame_rate = variant.frame_rate;
+  CopyString(variant.codecs, result.codecs, sizeof(result.codecs));
+  result.track = -1;
+  std::vector<lychee::TrackInfo> tracks = player->player->tracks();
+  for (size_t i = 0; i < tracks.size(); ++i) {
+    if (tracks[i].type == MediaType::kVideo &&
+        tracks[i].stream_index == variant.stream) {
+      result.track = static_cast<int32_t>(i);
+    }
+  }
+  result.playing = player->player->playing_variant() == index ? 1 : 0;
+  result.selected = player->player->selected_variant() == index ? 1 : 0;
+  CopyOut(result, info);
+  return 0;
+}
+
+int32_t lychee_player_select_variant(lychee_player* player, int32_t index) {
+  return player->player->SelectVariant(index) ? 0 : -1;
+}
+
+void lychee_player_set_max_bitrate(lychee_player* player, int64_t bitrate_bps) {
+  player->player->SetMaxBitrate(bitrate_bps);
+}
+
 int32_t lychee_player_add_subtitle(lychee_player* player,
                                    const char* url,
                                    const char* language,
@@ -545,6 +585,28 @@ int32_t lychee_player_get_artwork(lychee_player* player,
 
 int32_t lychee_player_is_seekable(lychee_player* player) {
   return player->player->seekable() ? 1 : 0;
+}
+
+int32_t lychee_player_get_seekable_range(lychee_player* player,
+                                         int64_t* start_us,
+                                         int64_t* end_us) {
+  int64_t start = 0;
+  int64_t end = 0;
+  if (!player->player->seekable_range(&start, &end)) {
+    return -1;
+  }
+  if (start_us) {
+    *start_us = start;
+  }
+  if (end_us) {
+    *end_us = end == lychee::kNoTimestamp ? -1 : end;
+  }
+  return 0;
+}
+
+int64_t lychee_player_get_live_edge(lychee_player* player) {
+  const int64_t edge = player->player->live_edge();
+  return edge == lychee::kNoTimestamp ? -1 : edge;
 }
 
 int32_t lychee_player_get_state(lychee_player* player) {

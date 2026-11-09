@@ -42,6 +42,11 @@ final class LycheePlayerTests: XCTestCase {
     player.fade(to: 0, duration: 0.1)
     XCTAssertEqual(player.volume, 0)
     XCTAssertEqual(player.audioSamples(256), [Float](repeating: 0, count: 256))
+    XCTAssertEqual(player.seekableRange?.start, 0)
+    XCTAssertEqual(player.seekableRange?.end, 12)
+    XCTAssertNil(player.liveEdge)
+    XCTAssertTrue(player.variants.isEmpty)
+    XCTAssertFalse(player.selectVariant(0))
 
     var frames = 0
     var size = CGSize.zero

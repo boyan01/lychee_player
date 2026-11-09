@@ -89,6 +89,13 @@ fn plays_seeks_and_ends() {
     assert!(player.audio_samples(lychee::now_us(), &mut samples));
     assert!(samples.iter().all(|&s| s == 0.0));
     assert!(player.is_seekable());
+    assert_eq!(
+        player.seekable_range().map(|(start, end)| (start.as_secs(), end.map(|d| d.as_secs()))),
+        Some((0, Some(12)))
+    );
+    assert_eq!(player.live_edge(), None);
+    assert!(player.variants().is_empty());
+    assert!(player.select_variant(Some(0)).is_err());
     assert_eq!(player.video_size(), Some((1920, 1080)));
     assert_eq!(player.artwork(), None);
     assert_eq!(player.metadata("no-such-key"), None);

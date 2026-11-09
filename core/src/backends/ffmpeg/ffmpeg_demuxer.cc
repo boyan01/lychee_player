@@ -16,7 +16,6 @@
 
 #if defined(LYCHEE_FFMPEG_DATA_SOURCE)
 #include <cstddef>
-#include <cstdlib>
 
 #include "media/data_source.h"
 #endif
@@ -480,6 +479,29 @@ void FFmpegDemuxer::BuildMediaInfo() {
     media_info_.streams.push_back(std::move(info));
   }
 
+  // HLS tags each variant's streams with its BANDWIDTH (hls.c).
+  stream_variants_.assign(ic->nb_streams, -1);
+  for (unsigned i = 0; i < ic->nb_streams && media_info_.format_name == "hls";
+       ++i) {
+    const AVStream* stream = ic->streams[i];
+    const AVDictionaryEntry* bitrate =
+        av_dict_get(stream->metadata, "variant_bitrate", nullptr, 0);
+    if (!bitrate || media_info_.streams[i].type != MediaType::kVideo) {
+      continue;
+    }
+    VariantInfo variant;
+    variant.bandwidth = strtoll(bitrate->value, nullptr, 10);
+    variant.width = stream->codecpar->width;
+    variant.height = stream->codecpar->height;
+    if (stream->avg_frame_rate.num > 0 && stream->avg_frame_rate.den > 0) {
+      variant.frame_rate = av_q2d(stream->avg_frame_rate);
+    }
+    variant.codecs = avcodec_get_name(stream->codecpar->codec_id);
+    variant.stream = static_cast<int>(i);
+    stream_variants_[i] = static_cast<int>(variants_.size());
+    variants_.push_back(variant);
+  }
+
   int video = av_find_best_stream(ic, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
   if (video >= 0 && media_info_.streams[video].type == MediaType::kVideo) {
     media_info_.default_video_stream = video;
@@ -594,6 +616,9 @@ int FFmpegDemuxer::ReadNext(EncodedPacket* packet) {
                            ? ToMicros(av_packet_->duration, time_base)
                            : 0;
     ExactCodecDelay(index, packet);
+    if (stream_variants_[index] >= 0) {
+      current_variant_ = stream_variants_[index];
+    }
     if (discontinuous_) {
       ApplyDiscontinuity(index, packet);
     }

@@ -38,6 +38,9 @@ public final class LycheePlayer {
     /// (``tracksChanged`` follows); otherwise it could not be read or is
     /// not a subtitle file.
     case subtitleAdded(id: Int, added: Bool)
+    /// Another ``Variant`` is on screen, its ``Variant/index``: after
+    /// ``selectVariant(_:)``, adaptation, or the first frame.
+    case variantChanged(Int)
   }
 
   /// What a track is for, as the container says. Matches
@@ -85,6 +88,25 @@ public final class LycheePlayer {
     /// Bits per second the container declares or its sample sizes imply
     /// (HLS: the variant's `BANDWIDTH`, on its video track); 0 if unknown.
     public let bitrate: Int64
+  }
+
+  /// A variant of an HLS master playlist that this build can play.
+  public struct Variant {
+    /// Pass to ``selectVariant(_:)``.
+    public let index: Int
+    /// Declared bit/s.
+    public let bandwidth: Int64
+    /// Picture size and frame rate; 0 if the playlist does not say.
+    public let width: Int
+    public let height: Int
+    public let frameRate: Double
+    /// The CODECS attribute, or empty.
+    public let codecs: String
+    /// The ``Track/index`` of the video track that plays it.
+    public let track: Int
+    public let isPlaying: Bool
+    /// ``selectVariant(_:)`` keeps to it.
+    public let isSelected: Bool
   }
 
   /// Bitmap subtitles (PGS, DVB, VobSub), laid out on a canvas the video
@@ -293,6 +315,25 @@ public final class LycheePlayer {
     lychee_player_is_seekable(handle) != 0
   }
 
+  /// The positions ``seek(to:)`` reaches, nil if it cannot seek; the
+  /// upper bound is nil if unknown. Live HLS whose playlist keeps a window
+  /// counts positions from the start of the playlist's first segment when
+  /// it was opened; the range moves on in real time, and playback starts
+  /// at ``liveEdge``.
+  public var seekableRange: (start: TimeInterval, end: TimeInterval?)? {
+    var start: Int64 = 0
+    var end: Int64 = 0
+    guard lychee_player_get_seekable_range(handle, &start, &end) == 0 else { return nil }
+    return (seconds(start), end < 0 ? nil : seconds(end))
+  }
+
+  /// Live HLS that can seek: the position that plays live, as it moves
+  /// on; seek there to return to live. nil for other input.
+  public var liveEdge: TimeInterval? {
+    let edge = lychee_player_get_live_edge(handle)
+    return edge < 0 ? nil : seconds(edge)
+  }
+
   public var state: State {
     State(rawValue: lychee_player_get_state(handle)) ?? .idle
   }
@@ -358,6 +399,34 @@ public final class LycheePlayer {
   @discardableResult
   public func selectTrack(_ type: TrackType, index: Int?) -> Bool {
     lychee_player_select_track(handle, type.rawValue, Int32(index ?? -1)) == 0
+  }
+
+  /// The variants of an HLS master playlist, from ``Event/mediaInfo`` on;
+  /// empty for other media.
+  public var variants: [Variant] {
+    (0..<lychee_player_get_variant_count(handle)).compactMap { index in
+      var info = lychee_variant_info()
+      info.struct_size = UInt32(MemoryLayout<lychee_variant_info>.size)
+      guard lychee_player_get_variant_info(handle, index, &info) == 0 else { return nil }
+      return Variant(
+        index: Int(index), bandwidth: info.bandwidth, width: Int(info.width),
+        height: Int(info.height), frameRate: info.frame_rate, codecs: string(&info.codecs),
+        track: Int(info.track), isPlaying: info.playing != 0, isSelected: info.selected != 0)
+    }
+  }
+
+  /// Plays ``Variant/index`` only, or adapts to the bandwidth again for
+  /// nil. Returns false if the request was rejected;
+  /// ``Event/variantChanged(_:)`` follows once it is on screen.
+  @discardableResult
+  public func selectVariant(_ index: Int?) -> Bool {
+    lychee_player_select_variant(handle, Int32(index ?? -1)) == 0
+  }
+
+  /// The highest bandwidth (bit/s) automatic variant selection plays, or
+  /// nil for no limit. Kept across ``open(_:)``.
+  public var maxBitrate: Int64? {
+    didSet { lychee_player_set_max_bitrate(handle, max(maxBitrate ?? 0, 0)) }
   }
 
   /// Reads the subtitle file `url` (a path, file:// or http(s):// URL;
@@ -509,6 +578,7 @@ public final class LycheePlayer {
     case LYCHEE_EVENT_TRACKS_CHANGED: return .tracksChanged
     case LYCHEE_EVENT_SUBTITLE_CHANGED: return .subtitleChanged(pictures: arg1 != 0)
     case LYCHEE_EVENT_SUBTITLE_ADDED: return .subtitleAdded(id: Int(arg0), added: arg1 != 0)
+    case LYCHEE_EVENT_VARIANT_CHANGED: return .variantChanged(Int(arg0))
     default: return nil
     }
   }

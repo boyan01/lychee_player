@@ -22,11 +22,21 @@
 * `addSubtitle` takes `headers` too, and `select: false` adds the track
   without selecting it, so several language files can be added while the
   current subtitle (or none) stays.
+* HLS: `LycheePlayerValue.variants` lists a master playlist's variants
+  (bandwidth, resolution, frame rate, codecs). `selectVariant(index)`
+  pins one without stopping playback, `selectVariant(null)` adapts
+  again, and `setMaxBitrate(bps)` caps what automatic selection plays.
+* Live HLS whose playlist keeps a window (an EVENT playlist, or a
+  sliding one at least six target durations long) is now seekable:
+  `LycheePlayerValue.seekableRange` gives the window and `liveEdge` the
+  position that plays live; seek there to return to live.
 
 ### Fixed
 
 * `setVolume` no longer clicks: the volume moves to the new value over
   10 ms, and a running `fade` stops.
+* HLS that plays through FFmpeg now reports the variant bandwidth in
+  `LycheePlayerStats.variantBandwidth`.
 
 ## 1.0.0
 

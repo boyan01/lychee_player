@@ -392,6 +392,30 @@ Java_tech_soit_lychee_LycheePlayer_nativeIsSeekable(JNIEnv*,
   return lychee_player_is_seekable(Player(handle)) != 0;
 }
 
+// Fills |range| with start and end (-1 if unknown); false if the input
+// cannot seek.
+JNIEXPORT jboolean JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeGetSeekableRange(JNIEnv* env,
+                                                          jclass,
+                                                          jlong handle,
+                                                          jlongArray range) {
+  int64_t start = 0;
+  int64_t end = 0;
+  if (lychee_player_get_seekable_range(Player(handle), &start, &end) != 0) {
+    return false;
+  }
+  const jlong values[] = {start, end};
+  env->SetLongArrayRegion(range, 0, 2, values);
+  return true;
+}
+
+JNIEXPORT jlong JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeGetLiveEdge(JNIEnv*,
+                                                     jclass,
+                                                     jlong handle) {
+  return lychee_player_get_live_edge(Player(handle));
+}
+
 JNIEXPORT jint JNICALL Java_tech_soit_lychee_LycheePlayer_nativeGetState(
     JNIEnv*,
     jclass,
@@ -496,6 +520,54 @@ JNIEXPORT jboolean JNICALL Java_tech_soit_lychee_LycheePlayer_nativeSelectTrack(
     jint type,
     jint index) {
   return lychee_player_select_track(Player(handle), type, index) == 0;
+}
+
+JNIEXPORT jint JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeGetVariantCount(JNIEnv*,
+                                                         jclass,
+                                                         jlong handle) {
+  return lychee_player_get_variant_count(Player(handle));
+}
+
+// Fills |longs| with bandwidth, width, height, the frame rate's bits,
+// track, playing and selected, and returns the codecs; null if |index| is
+// out of range.
+JNIEXPORT jbyteArray JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeGetVariantInfo(JNIEnv* env,
+                                                        jclass,
+                                                        jlong handle,
+                                                        jint index,
+                                                        jlongArray longs) {
+  lychee_variant_info info{};
+  info.struct_size = sizeof(info);
+  if (lychee_player_get_variant_info(Player(handle), index, &info) != 0) {
+    return nullptr;
+  }
+  jlong frame_rate = 0;
+  static_assert(sizeof(frame_rate) == sizeof(info.frame_rate));
+  std::memcpy(&frame_rate, &info.frame_rate, sizeof(frame_rate));
+  const jlong values[] = {info.bandwidth, info.width, info.height,
+                          frame_rate,     info.track, info.playing,
+                          info.selected};
+  env->SetLongArrayRegion(longs, 0, 7, values);
+  const std::string codecs = FromArray(info.codecs);
+  return ToBytes(env, codecs.data(), codecs.size());
+}
+
+JNIEXPORT jboolean JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeSelectVariant(JNIEnv*,
+                                                       jclass,
+                                                       jlong handle,
+                                                       jint index) {
+  return lychee_player_select_variant(Player(handle), index) == 0;
+}
+
+JNIEXPORT void JNICALL
+Java_tech_soit_lychee_LycheePlayer_nativeSetMaxBitrate(JNIEnv*,
+                                                       jclass,
+                                                       jlong handle,
+                                                       jlong bitrate) {
+  lychee_player_set_max_bitrate(Player(handle), bitrate);
 }
 
 JNIEXPORT jint JNICALL
