@@ -1340,6 +1340,12 @@ par expect reopen "open -> " "<=0 event: state error" "video size 1280x720" "sum
   --open-after 2 "$media/video_only.mp4" "$media/h264_aac.mp4"
 par expect reopen-loading "open -> " "<=0 event: state error" "summary: state=ended position=8.000s" -- \
   --open-after 0 "$media/video_only.mp4" "$media/hevc10.mp4"
+# A start position: a seek while loading. Nothing before it is shown or
+# heard; past the end it ends at once.
+par expect start "first frame: pts=5\.500s position=5\.5" "seek completed at 5\.500s" \
+  "summary: state=ended .*backward_jumps=0 .*audio_onset=5\.5[0-9]*s" -- --volume 1 --start 5.5 "$media/h264_aac.mp4"
+par expect start-past-end "seek completed at 12\.000s" "summary: state=ended position=12\.000s .*pulled=0 " -- \
+  --start 50 "$media/h264_aac.mp4"
 # Closing: idle at once, with no frame handed out, then the same player
 # opens again.
 par expect close "close at 2\.[0-9]+s: result=0 state=idle position=0\.000s frame=0" \

@@ -204,14 +204,27 @@ public final class LycheePlayer {
   /// "Referer", "Cookie", any other): the URL, its redirects, and for HLS
   /// every playlist, segment, key, `EXT-X-MAP` and rendition. Returns false,
   /// opening nothing, if a name or value holds a line break.
+  ///
+  /// With a `start` above 0, playback starts there: nothing before it is
+  /// shown or heard, and ``position`` reports it at once. Media that cannot
+  /// seek plays from its start.
   @discardableResult
-  public func open(_ url: String, headers: [String: String] = [:]) -> Bool {
+  public func open(
+    _ url: String, headers: [String: String] = [:], start: TimeInterval = 0
+  ) -> Bool {
     guard let lines = Self.headerLines(headers) else { return false }
     return lines.withCString { lines in
       var options = lychee_open_options()
       options.struct_size = UInt32(MemoryLayout<lychee_open_options>.size)
       options.headers = lines
-      return lychee_player_open_with_options(handle, url, &options) == 0
+      guard lychee_player_open_with_options(handle, url, &options) == 0 else {
+        return false
+      }
+      // While loading, a seek sets where playback starts.
+      if start > 0 {
+        lychee_player_seek(handle, micros(start))
+      }
+      return true
     }
   }
 

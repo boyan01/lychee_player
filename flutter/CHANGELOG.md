@@ -33,6 +33,9 @@
 * `LycheePlayer.close()` stops what is open and returns to idle: decoders,
   the audio output and network connections are released, while the player,
   its texture, volume, rate and looping stay for the next `open`.
+* `LycheePlayer.open(url, start: ...)` starts playback at a position:
+  nothing before it is shown or heard, and the position reports it from
+  the start. `seek` called while loading does the same.
 
 ### Fixed
 

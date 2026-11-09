@@ -165,6 +165,25 @@ fn close_goes_idle_and_opens_again() {
 }
 
 #[test]
+fn opens_at_a_start_position() {
+    let player = Player::new(&Config::default()).unwrap();
+    let (events, received) = mpsc::channel();
+    player.on_event(move |event| {
+        let _ = events.send(event);
+    });
+    player.set_volume(0.0);
+    player
+        .open_at(&media("h264_aac.mp4"), Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(player.position(), Duration::from_secs(5));
+    wait_for(&player, &received, |e| {
+        *e == Event::SeekCompleted(Duration::from_secs(5))
+    });
+    let frame = player.acquire_frame(lychee::now_us()).unwrap();
+    assert_eq!(frame.pts_us(), 5_000_000);
+}
+
+#[test]
 fn destroying_frees_the_callback_and_frames_outlive_it() {
     let (player, events) = open();
     let token = Arc::new(());

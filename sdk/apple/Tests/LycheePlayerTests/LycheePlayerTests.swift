@@ -117,6 +117,19 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertEqual(player.volume, 0.5)
   }
 
+  func testOpensAtStartPosition() {
+    let player = LycheePlayer()
+    player.volume = 0
+    let landed = expectation(description: "start reached")
+    player.onEvent = { event in
+      if case .seekCompleted(let position) = event, position == 5 { landed.fulfill() }
+    }
+    player.open(url, start: 5)
+    XCTAssertEqual(player.position, 5)
+    wait(for: [landed], timeout: 10)
+    XCTAssertEqual(player.position, 5, accuracy: 0.001)
+  }
+
   func testReleasedWhileDriverRunning() {
     weak var weakPlayer: LycheePlayer?
     var driver: LycheeFrameDriver?

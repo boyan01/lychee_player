@@ -637,6 +637,16 @@ impl Player {
         )
     }
 
+    /// [`Player::open`], starting at `start`: nothing before it is shown or
+    /// heard, and [`Player::position`] reports it at once. Input that
+    /// cannot seek plays from its start.
+    pub fn open_at(&self, url: &str, start: Duration) -> Result<()> {
+        self.open(url)?;
+        // While loading, a seek sets where playback starts.
+        self.seek(start);
+        Ok(())
+    }
+
     /// Plays from the start again if the state is [`State::Ended`].
     pub fn play(&self) {
         unsafe { sys::lychee_player_play(self.raw()) }

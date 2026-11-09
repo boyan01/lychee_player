@@ -237,8 +237,7 @@ reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
    codec (another quality). Done when regression cases see each code.
    Per-request observation (#9) only if it fits the ABI's plain-callback
    rule cheaply; otherwise say so here.
-6. **Source lifecycle** (#15, #4, #5): open at a start
-   position without decoding the start first; switch to another URL of
+6. **Source lifecycle** (#4, #5): switch to another URL of
    the same content at the current position keeping the last frame on
    screen until the new one comes (quality or mirror switch); open the
    next item ahead so it starts without a gap (music queue, next

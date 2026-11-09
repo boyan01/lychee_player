@@ -1429,6 +1429,11 @@ void Player::Run(const std::string& url) {
           loop_seek_pending_ = false;
           current_seek_reported_ = report_seek_;
           report_seek_ = false;
+          // One requested while loading (a start position) is clamped only
+          // now that the duration is known.
+          if (media_info_.duration != kNoTimestamp) {
+            seek_target_ = std::min(seek_target_, media_info_.duration);
+          }
         } else if (!seek_in_progress_) {
           // A track change resumes where playback is.
           resync = true;

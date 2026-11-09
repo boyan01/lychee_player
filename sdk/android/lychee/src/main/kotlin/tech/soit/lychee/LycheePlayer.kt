@@ -197,11 +197,18 @@ class LycheePlayer @JvmOverloads constructor(
      * "Referer", "Cookie", any other): the URL, its redirects, and for HLS
      * every playlist, segment, key, `EXT-X-MAP` and rendition. Returns
      * false, opening nothing, if a name or value holds a line break.
+     *
+     * With [startMs] above 0, playback starts there: nothing before it is
+     * shown or heard, and [positionMs] reports it at once. Media that cannot
+     * seek plays from its start.
      */
     @JvmOverloads
-    fun open(url: String, headers: Map<String, String> = emptyMap()): Boolean {
+    fun open(url: String, headers: Map<String, String> = emptyMap(), startMs: Long = 0): Boolean {
         val lines = headerLines(headers) ?: return false
-        return nativeOpen(handle(), url.toByteArray(), lines.toByteArray()) == 0
+        if (nativeOpen(handle(), url.toByteArray(), lines.toByteArray()) != 0) return false
+        // While loading, a seek sets where playback starts.
+        if (startMs > 0) nativeSeek(handle(), startMs * 1000)
+        return true
     }
 
     /**

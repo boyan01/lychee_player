@@ -681,6 +681,13 @@ LYCHEE_EXPORT void lychee_player_pause(lychee_player* player);
 // becomes ERROR: the input may no longer be at its previous read position.
 // Either way no
 // LYCHEE_EVENT_SEEK_COMPLETED is sent: that event means the seek landed.
+//
+// Called while LOADING (e.g. right after lychee_player_open()), it sets
+// where playback starts: the input is read from there (from the keyframe
+// before it), nothing before it is shown or heard, and the position
+// reports it from the call on. The state goes LOADING -> READY, followed
+// by LYCHEE_EVENT_SEEK_COMPLETED. Input that turns out not to seek plays
+// from its start.
 LYCHEE_EXPORT void lychee_player_seek(lychee_player* player,
                                       int64_t position_us);
 // 0.0 - 1.0. Kept across lychee_player_open(). Since API 20 the volume

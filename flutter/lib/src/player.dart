@@ -464,7 +464,11 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   /// every playlist, segment, key, `EXT-X-MAP` and rendition. Throws an
   /// [ArgumentError] if a name or value holds a line break, and an
   /// [UnsupportedError] for headers with a core older than API 21.
-  void open(String url, {Map<String, String>? headers}) {
+  ///
+  /// With [start], playback starts there: nothing before it is decoded
+  /// from its keyframe on, shown or heard, and [LycheePlayerValue.position]
+  /// reports it at once. Media that cannot seek plays from its start.
+  void open(String url, {Map<String, String>? headers, Duration? start}) {
     if (_disposed) {
       return;
     }
@@ -475,19 +479,24 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     }
     _forgetMedia();
     final nativeUrl = url.toNativeUtf8();
+    final bool opened;
     if (openWithOptions == null) {
-      native.playerOpen(_player, nativeUrl.cast());
+      opened = native.playerOpen(_player, nativeUrl.cast()) == 0;
     } else {
       final options = calloc<native.LycheeOpenOptions>();
       final nativeHeaders = lines.toNativeUtf8();
       options.ref
         ..structSize = sizeOf<native.LycheeOpenOptions>()
         ..headers = nativeHeaders.cast();
-      openWithOptions(_player, nativeUrl.cast(), options);
+      opened = openWithOptions(_player, nativeUrl.cast(), options) == 0;
       malloc.free(nativeHeaders);
       calloc.free(options);
     }
     malloc.free(nativeUrl);
+    if (opened && start != null && start > Duration.zero) {
+      // While loading, a seek sets where playback starts.
+      native.playerSeek(_player, start.inMicroseconds);
+    }
     _refresh();
   }
 

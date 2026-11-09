@@ -122,6 +122,8 @@ struct Options {
   // Close what is open this many seconds after playback starts, then open
   // |url| again a second later.
   double close_after = -1;
+  // Seek right after the open, while loading: where playback starts.
+  double start_at = -1;
   // Soak: every |soak_every| seconds of playback, seek to a random
   // position, twice, then open the other of |url| and |soak_url|.
   double soak_every = -1;
@@ -368,6 +370,10 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       if (!v || !url) return false;
       options->reopen_after = atof(v);
       options->reopen_url = url;
+    } else if (arg == "--start") {
+      const char* v = value();
+      if (!v) return false;
+      options->start_at = strtod(v, nullptr);
     } else if (arg == "--close-after") {
       const char* v = value();
       if (!v) return false;
@@ -1319,7 +1325,8 @@ int main(int argc, char** argv) {
         "--android-surface] "
         "[--rate R [--rate-after "
         "SEC]] [--loop [--loop-off-after SEC]] "
-        "[--open-after SEC URL] [--close-after SEC] [--soak SEC URL] [--select "
+        "[--open-after SEC URL] [--close-after SEC] [--start SEC] [--soak SEC "
+        "URL] [--select "
         "TYPE:INDEX[@SEC]]... "
         "[--select-after SEC] [--variant INDEX@SEC]... "
         "[--max-bitrate BPS[@SEC]] [--seek-edge SEC] "
@@ -1428,6 +1435,10 @@ int main(int argc, char** argv) {
   } else if (Open(player, options, options.url) != 0) {
     fprintf(stderr, "open rejected\n");
     return 1;
+  }
+  if (options.start_at >= 0) {
+    printf("start at %.3fs\n", options.start_at);
+    lychee_player_seek(player, static_cast<int64_t>(options.start_at * 1e6));
   }
   lychee_player_set_subtitle_delay(
       player, static_cast<int64_t>(options.subtitle_delay * 1e6));
@@ -1701,6 +1712,8 @@ int main(int argc, char** argv) {
         }
         last_pts = pts;
         if (frames_pulled++ == 0) {
+          printf("first frame: pts=%.3fs position=%.3fs\n", pts / 1e6,
+                 lychee_player_get_position(player) / 1e6);
           open_ms =
               std::chrono::duration<double, std::milli>(wall_now() - wall_open)
                   .count();
