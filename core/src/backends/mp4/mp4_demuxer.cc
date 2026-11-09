@@ -1063,8 +1063,8 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
   // What its samples add up to over its duration, as FFmpeg's mov does.
   if (!track.samples.empty() && info.duration > 0) {
     uint64_t bytes = 0;
-    for (const Sample& sample : track.samples) {
-      bytes += sample.size;
+    for (const Sample& s : track.samples) {
+      bytes += s.size;
     }
     info.bitrate = static_cast<int64_t>(static_cast<double>(bytes) * 8e6 /
                                         static_cast<double>(info.duration));
