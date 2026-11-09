@@ -400,8 +400,13 @@ class Player {
   // Read thread, at the end of the input: goes on reading the next item
   // (SetNext()) as later passes of a loop do, if its tracks continue the
   // ones playing. False if it cannot; the control thread then switches to
-  // it at the end (AdvanceToNext()).
+  // it at the end (AdvanceToNext()). One still opening makes the read
+  // wait for it (|read_awaits_next_|).
   bool JoinNext();
+  // The read has reached the end with a next item that may join still
+  // opening: it reads the end again once that has opened, unless what it
+  // read has less than kNextJoinWait left to play.
+  bool ReadAwaitsNextLocked() const;
   // Whether |next|'s default tracks can follow the ones selected without
   // a new decoder; their stream ids if so.
   bool ContinuesLocked(const MediaInfo& next,
@@ -703,6 +708,8 @@ class Player {
   // The input ended with the next item still opening: buffering until it
   // has (or until it is cleared).
   bool waiting_for_next_ = false;
+  // Set by JoinNext() for ReadAwaitsNextLocked().
+  bool read_awaits_next_ = false;
   // The control thread is to switch to the next item (AdvanceToNext()).
   bool advance_pending_ = false;
   // Video decoders lost since the last open or device change. The first is

@@ -42,6 +42,10 @@ constexpr size_t kMaxQueuedBytes = size_t{64} * 1024 * 1024;
 constexpr auto kReadPoll = std::chrono::milliseconds(100);
 constexpr int64_t kReadWakeDuration =
     kMinQueuedDuration - 500 * kMicrosPerMilli;
+// The read waits at the end for a next item still opening while what it
+// read has more than this to play; decoders give out their last frames
+// only once they see the end, so it stops waiting with time to spare.
+constexpr int64_t kNextJoinWait = kMicrosPerSecond;
 // The control thread runs the state machine this often, to notice what
 // the renderers and the clock do (preroll, the end, starving, subtitle
 // cues, a device's fade-out). Paused or ended with nothing in flight
@@ -274,6 +278,7 @@ void Player::StopPipeline() {
     seeking_ = false;
     reading_ = false;
     end_of_input_ = false;
+    read_awaits_next_ = false;
     rebuffering_ = false;
     loop_seek_pending_ = false;
     prerolling_ = false;
@@ -579,12 +584,18 @@ bool Player::JoinNext() {
     // Looping plays this item again instead; one looped already has its
     // renderers set to end with its pass (ApplyLoopEndLocked()). This item
     // must seek for a seek before the next one starts to take it back.
-    if (!next_ || !next_->done || !next_->ok || join_ || looping_ || live_ ||
-        loops_ != 0 || !media_info_.seekable ||
-        media_info_.duration == kNoTimestamp || media_info_.duration <= 0 ||
-        seek_pending_ || track_request_.pending() || quit_) {
+    const bool may_join = next_ && !join_ && !looping_ && !live_ &&
+                          loops_ == 0 && media_info_.seekable &&
+                          media_info_.duration != kNoTimestamp &&
+                          media_info_.duration > 0 && !seek_pending_ &&
+                          !track_request_.pending() && !quit_;
+    if (!may_join || !next_->done || !next_->ok) {
+      // Opening a moment longer than the read took to reach the end (a
+      // short file) does not lose the join: the read waits for it.
+      read_awaits_next_ = may_join && !next_->done;
       return false;
     }
+    read_awaits_next_ = false;
     std::string why;
     if (!ContinuesLocked(next_->demuxer->media_info(), &video_stream,
                          &audio_stream, &why)) {
@@ -2068,8 +2079,19 @@ bool Player::ShouldReadLocked() const {
   if (join_ && clock_.Now() >= join_->at) {
     return false;
   }
+  if (ReadAwaitsNextLocked()) {
+    return false;
+  }
   return !seek_pending_ && !seeking_ && !track_request_.pending() &&
          !end_of_input_ && state_ != PlayerState::kError && NeedMoreData();
+}
+
+bool Player::ReadAwaitsNextLocked() const {
+  if (!read_awaits_next_ || !next_ || next_->done || seek_pending_ || quit_) {
+    return false;
+  }
+  const int64_t end = std::max(video_last_pts_, audio_last_pts_);
+  return end != kNoTimestamp && clock_.Now() < end - kNextJoinWait;
 }
 
 VideoRenderer::Ptr Player::CreateVideoRenderer(const StreamInfo& info) {
@@ -2423,8 +2445,15 @@ void Player::ReadPacket() {
   if (result == DemuxerReadResult::kAborted) {
     return;
   }
-  if (result == DemuxerReadResult::kEndOfStream && (WrapLoop() || JoinNext())) {
-    return;
+  if (result == DemuxerReadResult::kEndOfStream) {
+    if (WrapLoop() || JoinNext()) {
+      return;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (ReadAwaitsNextLocked()) {
+      // Nothing pushed: it reads the end again (ShouldReadLocked()).
+      return;
+    }
   }
   // The read thread is the only writer of these while it runs. A joined
   // item has stream ids, subtitles and a timeline of its own until it
@@ -2717,6 +2746,7 @@ void Player::ProcessSeek(int64_t target,
 
   std::lock_guard<std::mutex> lock(mutex_);
   end_of_input_ = false;
+  read_awaits_next_ = false;
   rebuffering_ = false;
   EndRebufferLocked();
   variant_switches_.clear();
@@ -2963,6 +2993,11 @@ bool Player::SettledForTesting(int64_t until) const {
   // late, as a cue shown from a time past its start. Likewise a subtitle
   // file still loading, whose cues would come in late.
   if (!events_.empty() || dispatching_ || subtitle_loads_pending_ > 0) {
+    return false;
+  }
+  // Likewise a next item opening while the read waits for it: the clock
+  // would reach the end before it opens in real time.
+  if (ReadAwaitsNextLocked()) {
     return false;
   }
   if (live_) {

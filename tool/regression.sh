@@ -1959,10 +1959,16 @@ par expect ts-lost-packets-video "summary: state=ended position=12\.0.* rendered
 par expect ts-corrupt "summary: state=ended position=0\.[89]" -- "$media/corrupt.ts"
 exits=1 par expect corrupt-file "state=error" "error: (audio|video) decoding failed" \
   "error kind: decode status=0" -- "$media/corrupt.mp4"
-# A next item still opening when the input ends: buffering, then a
-# switch to it.
+# A next item that opens after the read reached the end (all of a short
+# file at once) but before the end plays still joins: the read waits for
+# it. One still opening when the input ends: buffering, then a switch to
+# it.
 serve --latency 1
-seq_ expect next-wait "waiting for the next item to open" "event: item changed, gapless 0" \
+seq_ expect next-late-open "the next item .* joins at (2999|3000) ms" "event: item changed, gapless 1" \
+  "<=0 event: state (buffering|error)" "summary: state=ended position=3\.000s .*backward_jumps=0 " -- \
+  --next "http://127.0.0.1:$port/loop.mp4" "$media/loop.mp4"
+serve --latency 4
+realtime=1 seq_ expect next-wait "waiting for the next item to open" "event: item changed, gapless 0" \
   "<=0 event: state error" "summary: state=ended position=3\.000s .*backward_jumps=0 " -- \
   --next "http://127.0.0.1:$port/loop.mp4" "$media/loop.mp4"
 serve

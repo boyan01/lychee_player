@@ -133,7 +133,10 @@ The pipeline is multithreaded; most bugs here are lifetime and ordering bugs.
   configuration, the read thread joins it as looping does
   (`Player::JoinNext`): a boundary packet, then its packets a timeline
   offset later (`Player::item_base_`), with its own stream ids and
-  subtitles in `Player::join_`. The control thread makes it the item
+  subtitles in `Player::join_`. One still opening when the read reaches
+  the end parks the read until it has (`Player::ReadAwaitsNextLocked`),
+  while what was read has more than a second left to play. The control
+  thread makes it the item
   playing once the clock reaches it (`CrossLocked`), while the read
   thread is out of `ReadPacket`; a seek before then takes it back
   (`UnjoinLocked`). Otherwise the control thread switches to it at the
