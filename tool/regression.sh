@@ -730,6 +730,11 @@ data = bytearray(open(sys.argv[1], "rb").read())
 rng = random.Random(1)
 data[600000:] = bytes(rng.randrange(256) for _ in range(len(data) - 600000))
 open(sys.argv[2], "wb").write(data)' "$media/offset.ts" "$media/corrupt.ts" || exit 1
+# What a captive portal answers instead of media. The bindings' tests
+# open it too, so it is generated here, before MEDIA_ONLY exits.
+[ -f "$media/not_media.dat" ] ||
+  printf '<!DOCTYPE html>\n<html><body><p>Please log in to continue.</p></body></html>\n' \
+    >"$media/not_media.dat"
 
 [ "${MEDIA_ONLY:-0}" = 1 ] && exit 0
 
@@ -1931,11 +1936,9 @@ trap 'stop_server; rm -rf "$results"' EXIT
 exits=1 par expect truncated-file "state=error" "error: input ended at" "error kind: ended-early status=0" \
   -- "$media/truncated.mp4"
 # Error kinds (lychee_player_get_error_code()), here for local input and
-# below for http: a file that is not there, one that is not media (what
-# a captive portal answers), and media whose codecs no decoder knows.
-[ -f "$media/not_media.dat" ] ||
-  printf '<!DOCTYPE html>\n<html><body><p>Please log in to continue.</p></body></html>\n' \
-    >"$media/not_media.dat"
+# below for http: a file that is not there, one that is not media
+# (not_media.dat, generated with the media), and media whose codecs no
+# decoder knows.
 exits=1 par expect error-file "event: error kind=file status=0" "error kind: file status=0" -- \
   "$media/missing.mp4"
 exits=1 par expect error-format "event: error kind=format status=0" "error kind: format status=0" -- \
