@@ -2062,15 +2062,18 @@ if [ "$own_ts" = 1 ]; then
     "summary: state=ended position=12\.000s decoder=none .*backward_jumps=0 " -- \
     --select video:-1@2 "http://127.0.0.1:$port/hls_fmp4/master.m3u8"
 fi
-# A variant selected plays from the segment after the read position on
-# (the read is 3 s and more ahead), on the same track, and automatic
-# selection goes back to the highest; a cap keeps automatic selection
-# below it, from the start, or from the next segment.
+# A variant selected plays from the segment after the read position on,
+# on the same track, and automatic selection goes back to the highest; a
+# cap keeps automatic selection below it, from the start, or from the
+# next segment. How far the read is ahead on the virtual clock depends on
+# how fast it runs (about a second under TSan, 3 s and more otherwise),
+# so each switch may land on any 2 s segment boundary after its
+# selection.
 if [ "$own_ts" = 1 ]; then
   seq_ expect http-hls-variant-select "variant 0: 800000 bit/s 640x360 fps=0\.000 codecs=avc1\.64001e,mp4a\.40\.2 track=0" \
     "variant 1: 5000000 bit/s 1920x1080 .* track=0" "<=0 variant 2:" "variant playing: 1 \(5000000 bit/s\) at 0\." \
-    "select variant 0 at 1\.[0-9]{3}s: accepted" "variant playing: 0 \(800000 bit/s\) at [4-8]\." "video size 640x360" \
-    "select variant -1 at 4\.[0-9]{3}s: accepted" "variant playing: 1 \(5000000 bit/s\) at ([89]|1[01])\." \
+    "select variant 0 at 1\.[0-9]{3}s: accepted" "variant playing: 0 \(800000 bit/s\) at [2-7]\." "video size 640x360" \
+    "select variant -1 at 4\.[0-9]{3}s: accepted" "variant playing: 1 \(5000000 bit/s\) at ([6-9]|1[01])\." \
     "<=0 event: tracks changed" "summary: state=ended position=12\.000s .*pulled=360 .*backward_jumps=0 .* variant=5000kbit/s" -- \
     --variant 0@1 --variant -1@4 "http://127.0.0.1:$port/hls/master.m3u8"
   seq_ expect http-hls-max-bitrate "variant 0 of 3: 800000 bit/s 640x360" "<=0 variant playing: 1" \
