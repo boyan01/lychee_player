@@ -1366,8 +1366,10 @@ par expect close "close at 2\.[0-9]+s: result=0 state=idle position=0\.000s fram
 # and the drift stays within a vsync across the join. Otherwise the
 # player switches to it at the end. A seek before it starts plays on in
 # the item playing, and it joins again; unset before it starts, the item
-# playing ends.
-par expect next "the next item .* joins at 3000 ms" "event: item changed, gapless 1" \
+# playing ends. It joins where the tracks end (as a loop's pass does),
+# which the FFmpeg-free MP4 reader's rounding puts a microsecond before
+# the container's 3 s.
+par expect next "the next item .* joins at (2999|3000) ms" "event: item changed, gapless 1" \
   "<=0 event: state buffering" "<=1 event: state ended" \
   "summary: state=ended position=3\.000s .*rendered=180 dropped=0 glitches=0 backward_jumps=0 .*max_drift=1?[0-9]\.[0-9]ms " -- \
   --next "$media/loop.mp4" "$media/loop.mp4"
