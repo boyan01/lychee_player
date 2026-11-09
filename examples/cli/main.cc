@@ -1896,6 +1896,13 @@ int main(int argc, char** argv) {
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
       lychee_testing_set_time(next_vsync);
+      // What the jump itself sets off, before this vsync looks at the
+      // position: a joined next item becoming the one playing, and its
+      // event (the position starts over with it).
+      while (!lychee_testing_player_settled(player, next_vsync) &&
+             std::chrono::steady_clock::now() <= give_up) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
     } else {
       std::this_thread::sleep_for(
           std::chrono::microseconds(next_vsync - lychee_now_us()));
