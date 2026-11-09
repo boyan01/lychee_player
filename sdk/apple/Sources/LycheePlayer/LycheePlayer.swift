@@ -244,19 +244,24 @@ public final class LycheePlayer {
   /// every playlist, segment, key, `EXT-X-MAP` and rendition. Returns false,
   /// opening nothing, if a name or value holds a line break.
   ///
+  /// `audioURLs` are audio-only inputs played with `url` as one input
+  /// (DASH-style separate audio: a video-only file, an audio-only file per
+  /// quality or language), with the same headers. Their audio tracks follow
+  /// `url`'s own in ``tracks``, the first is the default unless `url` has
+  /// audio, and seeks reach every file; the duration is `url`'s. The open
+  /// fails (``State/error``) if one cannot be played.
+  ///
   /// With a `start` above 0, playback starts there: nothing before it is
   /// shown or heard, and ``position`` reports it at once. Media that cannot
   /// seek plays from its start.
   @discardableResult
   public func open(
-    _ url: String, headers: [String: String] = [:], start: TimeInterval = 0
+    _ url: String, headers: [String: String] = [:], audioURLs: [String] = [],
+    start: TimeInterval = 0
   ) -> Bool {
     guard let lines = Self.headerLines(headers) else { return false }
-    return lines.withCString { lines in
-      var options = lychee_open_options()
-      options.struct_size = UInt32(MemoryLayout<lychee_open_options>.size)
-      options.headers = lines
-      guard lychee_player_open_with_options(handle, url, &options) == 0 else {
+    return Self.withOpenOptions(lines, audioURLs) {
+      guard lychee_player_open_with_options(handle, url, $0) == 0 else {
         return false
       }
       // While loading, a seek sets where playback starts.
@@ -288,15 +293,16 @@ public final class LycheePlayer {
   /// state is ``State/buffering``, and the position, duration, video size
   /// and the frame on screen stay; play/pause, volume, rate, looping and
   /// added subtitle files are kept. Media that cannot seek plays from its
-  /// start. Every http(s) request of the new media carries `headers`, as
-  /// for ``open(_:headers:start:)``. Returns false if a header name or value
-  /// holds a line break.
+  /// start. `headers` and `audioURLs` are the new media's, as for
+  /// ``open(_:headers:audioURLs:start:)``. Returns false if a header name or
+  /// value holds a line break.
   @discardableResult
   public func switchSource(
-    _ url: String, keepPosition: Bool = true, headers: [String: String] = [:]
+    _ url: String, keepPosition: Bool = true, headers: [String: String] = [:],
+    audioURLs: [String] = []
   ) -> Bool {
     guard let lines = Self.headerLines(headers) else { return false }
-    return Self.withOpenOptions(lines) {
+    return Self.withOpenOptions(lines, audioURLs) {
       lychee_player_switch_source(handle, url, keepPosition ? 1 : 0, $0) == 0
     }
   }
@@ -310,27 +316,40 @@ public final class LycheePlayer {
   /// channels) and both can seek, it plays on without a gap; otherwise the
   /// player switches to it at the end, buffering briefly. Looping replays
   /// the current media instead, and a seek before `url` starts plays on in
-  /// the current media. ``open(_:headers:start:)`` and ``close()`` unset it;
-  /// ``switchSource(_:keepPosition:headers:)`` keeps it. Every http(s)
-  /// request of `url` carries `headers`, as for ``open(_:headers:start:)``.
-  /// Returns false if a header name or value holds a line break.
+  /// the current media. ``open(_:headers:audioURLs:start:)`` and ``close()``
+  /// unset it; ``switchSource(_:keepPosition:headers:audioURLs:)`` keeps it.
+  /// `headers` and `audioURLs` are `url`'s, as for
+  /// ``open(_:headers:audioURLs:start:)``. Returns false if a header name or
+  /// value holds a line break.
   @discardableResult
-  public func setNext(_ url: String?, headers: [String: String] = [:]) -> Bool {
+  public func setNext(
+    _ url: String?, headers: [String: String] = [:], audioURLs: [String] = []
+  ) -> Bool {
     guard let lines = Self.headerLines(headers) else { return false }
-    return Self.withOpenOptions(lines) {
+    return Self.withOpenOptions(lines, audioURLs) {
       lychee_player_set_next(handle, url, $0) == 0
     }
   }
 
-  /// Calls `body` with lychee_open_options holding the header `lines`.
+  /// Calls `body` with lychee_open_options holding the header `lines` and
+  /// `audioURLs`.
   private static func withOpenOptions<T>(
-    _ lines: String, _ body: (UnsafePointer<lychee_open_options>) -> T
+    _ lines: String, _ audioURLs: [String],
+    _ body: (UnsafePointer<lychee_open_options>) -> T
   ) -> T {
-    lines.withCString { lines in
-      var options = lychee_open_options()
-      options.struct_size = UInt32(MemoryLayout<lychee_open_options>.size)
-      options.headers = lines
-      return withUnsafePointer(to: &options) { body($0) }
+    let urls: [UnsafePointer<CChar>?] = audioURLs.map { UnsafePointer(strdup($0)) }
+    defer {
+      for url in urls { free(UnsafeMutablePointer(mutating: url)) }
+    }
+    return lines.withCString { lines in
+      urls.withUnsafeBufferPointer { urls in
+        var options = lychee_open_options()
+        options.struct_size = UInt32(MemoryLayout<lychee_open_options>.size)
+        options.headers = lines
+        options.audio_url_count = Int32(urls.count)
+        options.audio_urls = urls.isEmpty ? nil : urls.baseAddress
+        return withUnsafePointer(to: &options) { body($0) }
+      }
     }
   }
 

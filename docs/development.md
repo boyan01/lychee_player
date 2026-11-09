@@ -145,6 +145,9 @@ selected once loaded unless `--subtitle-keep-selection` is given;
 `--subtitle-delay SEC` shows subtitles SEC later (negative: earlier).
 `--header 'NAME: VALUE'` (repeatable) adds an HTTP request header to every
 request of the media and of the added subtitle files.
+`--audio URL` (repeatable) plays a separate audio file with the media
+(`lychee_open_options.audio_urls`), also after `--switch-after`;
+`--next-audio URL` does so for `--next`'s.
 `--subtitle-ppm FILE` writes each subtitle with pictures (bitmap
 subtitles) onto a grey canvas of the video's size. `--verbose` logs at
 the debug level: state changes, and the playback stats every 5 s.

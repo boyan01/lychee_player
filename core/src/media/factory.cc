@@ -7,6 +7,7 @@
 #if defined(__ANDROID__) && !defined(LYCHEE_WITH_FFMPEG)
 #include "media/ffmpeg_extension.h"
 #endif
+#include "media/merging_demuxer.h"
 #include "media/null_audio_sink.h"
 #include "media/pcm_audio_decoder.h"
 
@@ -78,7 +79,9 @@ constexpr bool kNativeOnly = false;
 
 }  // namespace
 
-std::unique_ptr<Demuxer> CreateDemuxer(const std::string& headers) {
+namespace {
+
+std::unique_ptr<Demuxer> CreateInputDemuxer(const std::string& headers) {
 #if defined(LYCHEE_WITH_FFMPEG) && \
     (defined(__APPLE__) || defined(_WIN32) || defined(__ANDROID__))
   // MPEG-TS and HLS through the own demuxers, which put timestamps that
@@ -119,6 +122,23 @@ std::unique_ptr<Demuxer> CreateDemuxer(const std::string& headers) {
   (void)headers;
   return nullptr;
 #endif
+}
+
+}  // namespace
+
+std::unique_ptr<Demuxer> CreateDemuxer(const std::string& headers,
+                                       const std::vector<std::string>& audio) {
+  std::unique_ptr<Demuxer> main = CreateInputDemuxer(headers);
+  if (!main || audio.empty()) {
+    return main;
+  }
+  std::vector<std::unique_ptr<Demuxer>> inputs;
+  inputs.reserve(audio.size());
+  for (size_t i = 0; i < audio.size(); ++i) {
+    inputs.push_back(CreateInputDemuxer(headers));
+  }
+  return std::make_unique<MergingDemuxer>(std::move(main), std::move(inputs),
+                                          audio);
 }
 
 std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecoders(

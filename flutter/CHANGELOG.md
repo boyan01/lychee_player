@@ -25,6 +25,11 @@
   other): `open(url, headers: {...})`. Every request of the input carries
   them, including redirects and an HLS stream's playlists, segments, keys
   and renditions.
+* Separate audio files, as DASH sites serve them (a video-only file and
+  an audio-only file per quality or language):
+  `open(videoUrl, audioUrls: [...])`. Each file's audio shows as an audio
+  track to switch to; seeks and the position cover all of them.
+  `switchSource` and `setNext` take `audioUrls` too.
 * `addSubtitle`, `switchSource` and `setNext` take `headers` too. For
   `addSubtitle`, `select: false` adds the track without selecting it, so
   several language files can be added while the current subtitle (or

@@ -338,7 +338,9 @@ bool Player::OnControlThread() const {
   return true;
 }
 
-bool Player::Open(const std::string& url, const std::string& headers) {
+bool Player::Open(const std::string& url,
+                  const std::string& headers,
+                  const std::vector<std::string>& audio) {
   if (url.empty() || OnControlThread()) {
     return false;
   }
@@ -347,7 +349,7 @@ bool Player::Open(const std::string& url, const std::string& headers) {
   StopPipeline();
   std::lock_guard<std::mutex> lock(mutex_);
   SetStateLocked(PlayerState::kLoading);
-  demuxer_ = CreateDemuxer(headers);
+  demuxer_ = CreateDemuxer(headers, audio);
   if (demuxer_) {
     // An HLS master playlist starts within the cap.
     demuxer_->SetVariantPolicy(-1, max_bitrate_);
@@ -389,7 +391,8 @@ bool Player::Close() {
 
 bool Player::SwitchSource(const std::string& url,
                           bool keep_position,
-                          const std::string& headers) {
+                          const std::string& headers,
+                          const std::vector<std::string>& audio) {
   if (url.empty() || OnControlThread()) {
     return false;
   }
@@ -446,7 +449,7 @@ bool Player::SwitchSource(const std::string& url,
   } else {
     SetStateLocked(PlayerState::kLoading);
   }
-  demuxer_ = CreateDemuxer(headers);
+  demuxer_ = CreateDemuxer(headers, audio);
   if (demuxer_) {
     demuxer_->SetVariantPolicy(-1, max_bitrate_);
   }
@@ -454,14 +457,16 @@ bool Player::SwitchSource(const std::string& url,
   return true;
 }
 
-bool Player::SetNext(const std::string& url, const std::string& headers) {
+bool Player::SetNext(const std::string& url,
+                     const std::string& headers,
+                     const std::vector<std::string>& audio) {
   ClearNext();
   if (url.empty()) {
     return true;
   }
   auto item = std::make_unique<NextItem>();
   item->url = url;
-  item->demuxer = CreateDemuxer(headers);
+  item->demuxer = CreateDemuxer(headers, audio);
   if (!item->demuxer) {
     return false;
   }

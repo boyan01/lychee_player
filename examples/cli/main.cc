@@ -175,6 +175,10 @@ struct Options {
   // HTTP request headers for every URL opened, subtitles included:
   // "Name: value" lines.
   std::string headers;
+  // Separate audio inputs (lychee_open_options.audio_urls) of the URL
+  // opened and of --switch-to's; and of --next's.
+  std::vector<std::string> audio_urls;
+  std::vector<std::string> next_audio_urls;
   // Seconds to show subtitles later (negative: earlier).
   double subtitle_delay = 0;
   // Frames to write as they would be shown (tool/frame_check.py), by time.
@@ -567,6 +571,14 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       options->add_subtitles.push_back(v);
     } else if (arg == "--subtitle-keep-selection") {
       options->subtitle_keep_selection = true;
+    } else if (arg == "--audio") {
+      const char* v = value();
+      if (!v) return false;
+      options->audio_urls.push_back(v);
+    } else if (arg == "--next-audio") {
+      const char* v = value();
+      if (!v) return false;
+      options->next_audio_urls.push_back(v);
     } else if (arg == "--header") {
       const char* v = value();
       if (!v) return false;
@@ -655,19 +667,36 @@ const char* TrackTypeName(int32_t type) {
   return "?";
 }
 
-// The --header lines, for every URL the CLI opens.
-lychee_open_options OpenOptions(const Options& options) {
-  lychee_open_options open_options = {};
-  open_options.struct_size = sizeof(open_options);
-  open_options.headers = options.headers.c_str();
-  return open_options;
-}
+// The --header lines, for every URL the CLI opens, and |audio_urls|, for
+// as long as it lives.
+class OpenOptions {
+ public:
+  OpenOptions(const Options& options,
+              const std::vector<std::string>& audio_urls) {
+    options_.struct_size = sizeof(options_);
+    options_.headers = options.headers.c_str();
+    for (const std::string& url : audio_urls) {
+      urls_.push_back(url.c_str());
+    }
+    options_.audio_url_count = static_cast<int32_t>(urls_.size());
+    options_.audio_urls = urls_.data();
+  }
+  OpenOptions(const OpenOptions&) = delete;
+  OpenOptions& operator=(const OpenOptions&) = delete;
+
+  const lychee_open_options* get() const { return &options_; }
+
+ private:
+  lychee_open_options options_ = {};
+  std::vector<const char*> urls_;
+};
 
 int32_t Open(lychee_player* player,
              const Options& options,
              const std::string& url) {
-  const lychee_open_options open_options = OpenOptions(options);
-  return lychee_player_open_with_options(player, url.c_str(), &open_options);
+  const OpenOptions open_options(options, options.audio_urls);
+  return lychee_player_open_with_options(player, url.c_str(),
+                                         open_options.get());
 }
 
 void PrintTracks(lychee_player* player) {
@@ -1409,6 +1438,7 @@ int main(int argc, char** argv) {
         "[--live-audio-gap SEC FOR] [--live-audio-jump SEC]] "
         "[--add-subtitle URL]... [--subtitle-encoding NAME] "
         "[--subtitle-keep-selection] [--header 'NAME: VALUE']... "
+        "[--audio URL]... [--next-audio URL]... "
         "[--subtitle-delay SEC] [--subtitle-ppm FILE] [--frame-ppm "
         "SEC:FILE]... [--virtual-time] "
         "[--null-audio] [--verbose] [--audio-dump FILE] [--pause SEC FOR] "
@@ -1510,10 +1540,10 @@ int main(int argc, char** argv) {
     lychee_player_seek(player, static_cast<int64_t>(options.start_at * 1e6));
   }
   if (!options.next_url.empty()) {
-    const lychee_open_options next_options = OpenOptions(options);
+    const OpenOptions next_options(options, options.next_audio_urls);
     printf("next -> %s: result=%d\n", options.next_url.c_str(),
            lychee_player_set_next(player, options.next_url.c_str(),
-                                  &next_options));
+                                  next_options.get()));
   }
   lychee_player_set_subtitle_delay(
       player, static_cast<int64_t>(options.subtitle_delay * 1e6));
@@ -2116,9 +2146,9 @@ int main(int argc, char** argv) {
       switch_position = position;
       printf("switch at %.3fs -> %s: result=%d state=%s\n", position / 1e6,
              options.switch_url.c_str(), stopping([&] {
-               const lychee_open_options switch_options = OpenOptions(options);
+               const OpenOptions switch_options(options, options.audio_urls);
                return lychee_player_switch_source(
-                   player, options.switch_url.c_str(), 1, &switch_options);
+                   player, options.switch_url.c_str(), 1, switch_options.get());
              }),
              StateName(lychee_player_get_state(player)));
     } else if (switch_position != INT64_MIN) {

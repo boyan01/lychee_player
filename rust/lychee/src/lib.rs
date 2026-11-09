@@ -589,17 +589,61 @@ impl Default for SubtitleOptions<'_> {
     }
 }
 
-/// `headers` as the "Name: value" lines the C API takes; a line break in
-/// a name or value, which would start another header, is an error.
-/// lychee_open_options holding `headers` (from [`header_lines`]), which must
-/// outlive it.
-fn open_options(headers: &CString) -> sys::lychee_open_options {
-    sys::lychee_open_options {
-        struct_size: std::mem::size_of::<sys::lychee_open_options>() as u32,
-        headers: headers.as_ptr(),
+/// What [`Player::open_with_options`], [`Player::switch_source`] and
+/// [`Player::set_next`] take besides the URL.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OpenOptions<'a> {
+    /// HTTP request headers, as in [`Player::open_with_headers`]; they
+    /// apply to the audio URLs too.
+    pub headers: &'a [(&'a str, &'a str)],
+    /// Audio-only inputs played with the URL as one input (DASH-style
+    /// separate audio: a video-only file, an audio-only file per quality or
+    /// language). Their audio tracks follow the URL's own, the first is
+    /// the default unless the URL has audio, and seeks reach every file;
+    /// the duration is the URL's. The open fails if one cannot be played.
+    pub audio_urls: &'a [&'a str],
+}
+
+/// [`OpenOptions`] as C strings, for [`NativeOpenOptions::raw`].
+struct NativeOpenOptions {
+    headers: CString,
+    _audio_urls: Vec<CString>,
+    audio_pointers: Vec<*const c_char>,
+}
+
+impl NativeOpenOptions {
+    fn new(options: &OpenOptions) -> Result<NativeOpenOptions> {
+        let headers = header_lines(options.headers)?;
+        let audio_urls = options
+            .audio_urls
+            .iter()
+            .map(|url| CString::new(*url).map_err(|_| Error("URL contains NUL")))
+            .collect::<Result<Vec<_>>>()?;
+        let audio_pointers = audio_urls.iter().map(|url| url.as_ptr()).collect();
+        Ok(NativeOpenOptions {
+            headers,
+            _audio_urls: audio_urls,
+            audio_pointers,
+        })
+    }
+
+    /// lychee_open_options pointing into `self`, which must outlive it.
+    fn raw(&self) -> sys::lychee_open_options {
+        sys::lychee_open_options {
+            struct_size: std::mem::size_of::<sys::lychee_open_options>() as u32,
+            headers: self.headers.as_ptr(),
+            audio_url_count: self.audio_pointers.len() as i32,
+            audio_urls: if self.audio_pointers.is_empty() {
+                ptr::null()
+            } else {
+                self.audio_pointers.as_ptr()
+            },
+        }
     }
 }
 
+/// `headers` as the "Name: value" lines the C API takes; a line break in
+/// a name or value, which would start another header, is an error.
 fn header_lines(headers: &[(&str, &str)]) -> Result<CString> {
     let mut lines = String::new();
     for (name, value) in headers {
@@ -684,11 +728,24 @@ impl Player {
     /// http(s) request of the input carries: the URL, its redirects, and
     /// for HLS every playlist, segment, key, `EXT-X-MAP` and rendition.
     pub fn open_with_headers(&self, url: &str, headers: &[(&str, &str)]) -> Result<()> {
+        self.open_with_options(
+            url,
+            &OpenOptions {
+                headers,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// [`Player::open`] with [`OpenOptions`]: request headers, separate
+    /// audio inputs.
+    pub fn open_with_options(&self, url: &str, options: &OpenOptions) -> Result<()> {
         let url = CString::new(url).map_err(|_| Error("URL contains NUL"))?;
-        let headers = header_lines(headers)?;
-        let options = open_options(&headers);
+        let options = NativeOpenOptions::new(options)?;
         check(
-            unsafe { sys::lychee_player_open_with_options(self.raw(), url.as_ptr(), &options) },
+            unsafe {
+                sys::lychee_player_open_with_options(self.raw(), url.as_ptr(), &options.raw())
+            },
             "open rejected",
         )
     }
@@ -699,25 +756,24 @@ impl Player {
     /// the state is [`State::Buffering`], and the position, duration, video
     /// size and the caller's last frame stay; play/pause, volume, rate,
     /// looping and added subtitle files are kept. Input that cannot seek
-    /// plays from its start. Every http(s) request of the new input
-    /// carries `headers`, as for [`Player::open_with_headers`]. Fails inside
-    /// the event callback.
+    /// plays from its start. `options` are the new input's, as for
+    /// [`Player::open_with_options`]: a fresh URL usually needs the same
+    /// headers. Fails inside the event callback.
     pub fn switch_source(
         &self,
         url: &str,
         keep_position: bool,
-        headers: &[(&str, &str)],
+        options: &OpenOptions,
     ) -> Result<()> {
         let url = CString::new(url).map_err(|_| Error("URL contains NUL"))?;
-        let headers = header_lines(headers)?;
-        let options = open_options(&headers);
+        let options = NativeOpenOptions::new(options)?;
         check(
             unsafe {
                 sys::lychee_player_switch_source(
                     self.raw(),
                     url.as_ptr(),
                     keep_position as i32,
-                    &options,
+                    &options.raw(),
                 )
             },
             "switch rejected",
@@ -735,21 +791,20 @@ impl Player {
     /// Looping replays the current item instead, and a seek before `url`
     /// starts plays on in the current one. [`Player::open`] and
     /// [`Player::close`] unset it; [`Player::switch_source`] keeps it.
-    /// Every http(s) request of `url` carries `headers`, as for
-    /// [`Player::open_with_headers`]. May be called from the event callback.
-    pub fn set_next(&self, url: Option<&str>, headers: &[(&str, &str)]) -> Result<()> {
+    /// `options` are `url`'s, as for [`Player::open_with_options`]. May be
+    /// called from the event callback.
+    pub fn set_next(&self, url: Option<&str>, options: &OpenOptions) -> Result<()> {
         let url = url
             .map(CString::new)
             .transpose()
             .map_err(|_| Error("URL contains NUL"))?;
-        let headers = header_lines(headers)?;
-        let options = open_options(&headers);
+        let options = NativeOpenOptions::new(options)?;
         check(
             unsafe {
                 sys::lychee_player_set_next(
                     self.raw(),
                     url.as_ref().map_or(std::ptr::null(), |url| url.as_ptr()),
-                    &options,
+                    &options.raw(),
                 )
             },
             "no demuxer in this build",

@@ -164,6 +164,19 @@ TEST(CApi, OpenRejectsMalformedHeaders) {
   EXPECT_EQ(lychee_player_add_subtitle_with_options(player, "/no/such.srt",
                                                     &subtitle),
             -1);
+  // Audio URLs must be there, and not empty.
+  options.headers = nullptr;
+  const char* audio[] = {"/no/such.m4a", ""};
+  options.audio_url_count = 2;
+  options.audio_urls = audio;
+  EXPECT_EQ(lychee_player_open_with_options(player, "/no/such/file", &options),
+            -1);
+  options.audio_urls = nullptr;
+  EXPECT_EQ(lychee_player_switch_source(player, "/no/such/file", 1, &options),
+            -1);
+  options.audio_url_count = -1;
+  EXPECT_EQ(lychee_player_set_next(player, "/no/such/file", &options), -1);
+  EXPECT_EQ(lychee_player_get_state(player), LYCHEE_STATE_IDLE);
   lychee_player_destroy(player);
 }
 

@@ -543,10 +543,22 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   /// [ArgumentError] if a name or value holds a line break, and an
   /// [UnsupportedError] for headers with a core older than API 21.
   ///
+  /// [audioUrls] are audio-only inputs played with [url] as one input
+  /// (DASH-style separate audio: a video-only file, an audio-only file per
+  /// quality or language), with the same [headers]. Their audio tracks
+  /// follow [url]'s own in [LycheePlayerValue.tracks], the first is the
+  /// default unless [url] has audio, and seeks reach every file; the
+  /// duration is [url]'s. Opening fails ([LycheePlayerState.error]) if one
+  /// cannot be played. Throws an [UnsupportedError] with a core older than
+  /// API 29.
+  ///
   /// With [start], playback starts there: nothing before it is decoded
   /// from its keyframe on, shown or heard, and [LycheePlayerValue.position]
   /// reports it at once. Media that cannot seek plays from its start.
-  void open(String url, {Map<String, String>? headers, Duration? start}) {
+  void open(String url,
+      {Map<String, String>? headers,
+      List<String>? audioUrls,
+      Duration? start}) {
     if (_disposed) {
       return;
     }
@@ -555,12 +567,14 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     if (lines.isNotEmpty && openWithOptions == null) {
       throw UnsupportedError('HTTP headers need lychee API 21');
     }
+    _checkAudioUrls(audioUrls);
     _forgetMedia();
     final nativeUrl = url.toNativeUtf8();
     final opened = openWithOptions == null
         ? native.playerOpen(_player, nativeUrl.cast()) == 0
         : _withOpenOptions(
                 lines,
+                audioUrls,
                 (options) =>
                     openWithOptions(_player, nativeUrl.cast(), options)) ==
             0;
@@ -580,19 +594,22 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   /// volume, rate, looping, the subtitle delay and subtitle files from
   /// [addSubtitle] are kept. Media that cannot seek plays from its start.
   /// Opens [url] as [open] does if nothing is open, or with a core older
-  /// than API 24. Every http(s) request of the new media carries
-  /// [headers], as for [open]: a fresh URL usually needs the old one's.
+  /// than API 24. [headers] and [audioUrls] are the new media's, as for
+  /// [open]: a fresh URL usually needs the old one's headers.
   void switchSource(String url,
-      {bool keepPosition = true, Map<String, String>? headers}) {
+      {bool keepPosition = true,
+      Map<String, String>? headers,
+      List<String>? audioUrls}) {
     final switchSource = native.playerSwitchSource;
     if (_disposed) {
       return;
     }
     if (switchSource == null) {
-      open(url, headers: headers);
+      open(url, headers: headers, audioUrls: audioUrls);
       return;
     }
     final lines = _headerLines(headers);
+    _checkAudioUrls(audioUrls);
     // The tracks and artwork stay until the new media reports its own; the
     // subtitle on screen comes again from its event.
     _subtitle = null;
@@ -602,6 +619,7 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     final nativeUrl = url.toNativeUtf8();
     _withOpenOptions(
         lines,
+        audioUrls,
         (options) => switchSource(
             _player, nativeUrl.cast(), keepPosition ? 1 : 0, options));
     malloc.free(nativeUrl);
@@ -618,10 +636,11 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   /// can seek, it plays on without a gap; otherwise the player switches to
   /// it at the end, buffering briefly. Looping replays the current media
   /// instead; a seek before [url] starts plays on in the current media.
-  /// [open] and [close] unset it, [switchSource] keeps it. Every http(s)
-  /// request of [url] carries [headers], as for [open]. Does nothing with
-  /// a core older than API 25.
-  void setNext(String? url, {Map<String, String>? headers}) {
+  /// [open] and [close] unset it, [switchSource] keeps it. [headers] and
+  /// [audioUrls] are [url]'s, as for [open]. Does nothing with a core older
+  /// than API 25.
+  void setNext(String? url,
+      {Map<String, String>? headers, List<String>? audioUrls}) {
     final setNext = native.playerSetNext;
     if (_disposed || setNext == null) {
       return;
@@ -631,27 +650,48 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       return;
     }
     final lines = _headerLines(headers);
+    _checkAudioUrls(audioUrls);
     final nativeUrl = url.toNativeUtf8();
-    _withOpenOptions(
-        lines, (options) => setNext(_player, nativeUrl.cast(), options));
+    _withOpenOptions(lines, audioUrls,
+        (options) => setNext(_player, nativeUrl.cast(), options));
     malloc.free(nativeUrl);
   }
 
-  /// Calls [call] with lychee_open_options holding the header [lines]
-  /// (null for none), freed after it returns.
-  static int _withOpenOptions(
-      String lines, int Function(Pointer<native.LycheeOpenOptions>) call) {
-    if (lines.isEmpty) {
+  /// Throws if [audioUrls] are given to a core older than API 29.
+  static void _checkAudioUrls(List<String>? audioUrls) {
+    if (audioUrls != null &&
+        audioUrls.isNotEmpty &&
+        native.apiVersion() < 27) {
+      throw UnsupportedError('separate audio needs lychee API 29');
+    }
+  }
+
+  /// Calls [call] with lychee_open_options holding the header [lines] and
+  /// [audioUrls] (null for neither), freed after it returns.
+  static int _withOpenOptions(String lines, List<String>? audioUrls,
+      int Function(Pointer<native.LycheeOpenOptions>) call) {
+    final audio = audioUrls ?? const <String>[];
+    if (lines.isEmpty && audio.isEmpty) {
       return call(nullptr);
     }
     final options = calloc<native.LycheeOpenOptions>();
     final nativeHeaders = lines.toNativeUtf8();
+    final nativeAudio = calloc<Pointer<Char>>(audio.length);
+    for (var i = 0; i < audio.length; i++) {
+      nativeAudio[i] = audio[i].toNativeUtf8().cast();
+    }
     options.ref
       ..structSize = sizeOf<native.LycheeOpenOptions>()
-      ..headers = nativeHeaders.cast();
+      ..headers = nativeHeaders.cast()
+      ..audioUrlCount = audio.length
+      ..audioUrls = nativeAudio;
     try {
       return call(options);
     } finally {
+      for (var i = 0; i < audio.length; i++) {
+        malloc.free(nativeAudio[i]);
+      }
+      calloc.free(nativeAudio);
       malloc.free(nativeHeaders);
       calloc.free(options);
     }

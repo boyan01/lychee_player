@@ -272,18 +272,53 @@ JNIEXPORT void JNICALL Java_tech_soit_lychee_LycheePlayer_nativeDestroy(
   }
 }
 
+namespace {
+
+// lychee_open_options for the header lines and audio URLs from Kotlin, for
+// as long as it lives.
+class OpenOptions {
+ public:
+  OpenOptions(JNIEnv* env, jbyteArray headers, jobjectArray audio_urls)
+      : headers_(FromBytes(env, headers)) {
+    const jsize count = audio_urls ? env->GetArrayLength(audio_urls) : 0;
+    for (jsize i = 0; i < count; ++i) {
+      auto url =
+          static_cast<jbyteArray>(env->GetObjectArrayElement(audio_urls, i));
+      audio_urls_.push_back(FromBytes(env, url));
+      env->DeleteLocalRef(url);
+    }
+    for (const std::string& url : audio_urls_) {
+      audio_pointers_.push_back(url.c_str());
+    }
+    options_.struct_size = sizeof(options_);
+    options_.headers = headers_.c_str();
+    options_.audio_url_count = static_cast<int32_t>(audio_pointers_.size());
+    options_.audio_urls = audio_pointers_.data();
+  }
+  OpenOptions(const OpenOptions&) = delete;
+  OpenOptions& operator=(const OpenOptions&) = delete;
+
+  const lychee_open_options* get() const { return &options_; }
+
+ private:
+  const std::string headers_;
+  std::vector<std::string> audio_urls_;
+  std::vector<const char*> audio_pointers_;
+  lychee_open_options options_ = {};
+};
+
+}  // namespace
+
 JNIEXPORT jint JNICALL
 Java_tech_soit_lychee_LycheePlayer_nativeOpen(JNIEnv* env,
                                               jclass,
                                               jlong handle,
                                               jbyteArray url,
-                                              jbyteArray headers) {
-  const std::string headers_text = FromBytes(env, headers);
-  lychee_open_options options = {};
-  options.struct_size = sizeof(options);
-  options.headers = headers_text.c_str();
-  return lychee_player_open_with_options(Player(handle),
-                                         FromBytes(env, url).c_str(), &options);
+                                              jbyteArray headers,
+                                              jobjectArray audio_urls) {
+  const OpenOptions options(env, headers, audio_urls);
+  return lychee_player_open_with_options(
+      Player(handle), FromBytes(env, url).c_str(), options.get());
 }
 
 JNIEXPORT jint JNICALL
@@ -292,14 +327,12 @@ Java_tech_soit_lychee_LycheePlayer_nativeSwitchSource(JNIEnv* env,
                                                       jlong handle,
                                                       jbyteArray url,
                                                       jboolean keep_position,
-                                                      jbyteArray headers) {
-  const std::string headers_text = FromBytes(env, headers);
-  lychee_open_options options = {};
-  options.struct_size = sizeof(options);
-  options.headers = headers_text.c_str();
+                                                      jbyteArray headers,
+                                                      jobjectArray audio_urls) {
+  const OpenOptions options(env, headers, audio_urls);
   return lychee_player_switch_source(Player(handle),
                                      FromBytes(env, url).c_str(),
-                                     keep_position ? 1 : 0, &options);
+                                     keep_position ? 1 : 0, options.get());
 }
 
 JNIEXPORT jint JNICALL
@@ -307,13 +340,12 @@ Java_tech_soit_lychee_LycheePlayer_nativeSetNext(JNIEnv* env,
                                                  jclass,
                                                  jlong handle,
                                                  jbyteArray url,
-                                                 jbyteArray headers) {
-  const std::string headers_text = FromBytes(env, headers);
-  lychee_open_options options = {};
-  options.struct_size = sizeof(options);
-  options.headers = headers_text.c_str();
-  return lychee_player_set_next(
-      Player(handle), url ? FromBytes(env, url).c_str() : nullptr, &options);
+                                                 jbyteArray headers,
+                                                 jobjectArray audio_urls) {
+  const OpenOptions options(env, headers, audio_urls);
+  return lychee_player_set_next(Player(handle),
+                                url ? FromBytes(env, url).c_str() : nullptr,
+                                options.get());
 }
 
 JNIEXPORT jint JNICALL

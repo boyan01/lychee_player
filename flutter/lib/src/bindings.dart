@@ -247,11 +247,18 @@ final playerOpen = _library.lookupFunction<
     Int32 Function(Pointer<Void>, Pointer<Char>),
     int Function(Pointer<Void>, Pointer<Char>)>('lychee_player_open');
 
-/// lychee_open_options (API 21).
+/// lychee_api_version().
+final apiVersion = _library
+    .lookupFunction<Int32 Function(), int Function()>('lychee_api_version');
+
+/// lychee_open_options (API 21; the audio URLs since API 29).
 final class LycheeOpenOptions extends Struct {
   @Uint32()
   external int structSize;
   external Pointer<Char> headers;
+  @Int32()
+  external int audioUrlCount;
+  external Pointer<Pointer<Char>> audioUrls;
 }
 
 /// Null with a core older than API 21.

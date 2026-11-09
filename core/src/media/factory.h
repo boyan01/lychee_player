@@ -21,7 +21,10 @@ namespace lychee {
 // Android's optional FFmpeg extension before the first player is created.
 
 // The input's http(s) requests carry |headers| (NormalizeHttpHeaders()).
-std::unique_ptr<Demuxer> CreateDemuxer(const std::string& headers = {});
+// With |audio| inputs, a MergingDemuxer plays them beside the URL opened.
+std::unique_ptr<Demuxer> CreateDemuxer(
+    const std::string& headers = {},
+    const std::vector<std::string>& audio = {});
 
 // Candidates in priority order: hardware first if allowed. Decoders that
 // produce CPU frames produce one of the |accepted_storage| types if they can.

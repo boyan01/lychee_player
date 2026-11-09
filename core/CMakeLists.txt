@@ -40,6 +40,7 @@ set(LYCHEE_SOURCES
   src/media/decode_order_timestamps.cc
   src/media/cpu_frame_converter.cc
   src/media/factory.cc
+  src/media/merging_demuxer.cc
   src/media/null_audio_sink.cc
   src/media/pcm_audio_decoder.cc
   src/media/pgs_subtitle_decoder.cc

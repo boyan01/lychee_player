@@ -203,6 +203,14 @@ gen mpeg4_pcm.avi -f lavfi -i testsrc2=size=320x240:rate=25 \
   -f lavfi -i sine=frequency=440:sample_rate=44100 -t 8 -c:v mpeg4 -g 25 -bf 0 -c:a pcm_s16le -f avi
 gen h264_aac.flv -i "$media/h264_aac.mp4" -t 8 -c:v libx264 -preset veryfast -g 30 -bf 2 -c:a copy -f flv
 gen video_only.mp4 -f lavfi -i testsrc2=size=1280x720:rate=60 -t 8 -c:v libx264 -preset veryfast -pix_fmt yuv420p
+# Separate audio (lychee_open_options.audio_urls), as DASH sites serve it:
+# fragmented video-only MP4, and an audio-only file per language (a tone
+# of its own each, 8 s), fragmented and not.
+gen separate_video.mp4 -f lavfi -i testsrc2=size=1280x720:rate=30 -t 8 -c:v libx264 -preset veryfast -bf 0 \
+  -g 30 -pix_fmt yuv420p -movflags frag_keyframe+empty_moov+default_base_moof
+gen separate_audio_eng.m4a -f lavfi -i sine=frequency=440:sample_rate=48000 -t 8 -c:a aac \
+  -metadata:s:a language=eng -movflags frag_keyframe+empty_moov+default_base_moof -frag_duration 1000000
+gen separate_audio_fre.m4a -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a aac -metadata:s:a language=fre
 # Fewer pictures than VideoToolbox's asynchronous batch: end-of-stream
 # must complete and deliver the partial batch, including a reordered B-frame.
 gen short_video.mp4 -f lavfi -i testsrc2=size=320x180:rate=30 -frames:v 3 \
@@ -1410,6 +1418,28 @@ par expect track-audio "select audio 2 at [0-9.]+s: accepted" "track 2: audio .*
 # goes on.
 par expect track-cancel "select audio 1 at [0-9.]+s: accepted" "track 1: audio .* selected=1" \
   "summary: state=ended position=8\.[0-9]{3}s" -- --select audio:2 --select audio:1 "$media/tracks.mkv"
+# Separate audio inputs (lychee_open_options.audio_urls) are audio
+# tracks after the video file's own: the first plays by default, a track
+# switch moves to the other file, and seeks reach every file.
+separate=(--volume 1 --audio "$media/separate_audio_eng.m4a" --audio "$media/separate_audio_fre.m4a")
+par expect separate-audio "track 1: audio aac 48000 Hz 1 ch lang=eng title= selected=1 default" \
+  "track 2: audio aac 44100 Hz 1 ch lang=fre title= selected=0 bitrate" \
+  "summary: state=ended position=8\.000s .*glitches=0 backward_jumps=0 .*audio_onset=" -- \
+  "${separate[@]}" "$media/separate_video.mp4"
+par expect separate-audio-switch "select audio 2 at [0-9.]+s: accepted" \
+  "track 2: audio .* lang=fre title= selected=1" "track switch: resumed [+-]0\.[0-2][0-9]{2}s" \
+  "summary: state=ended position=8\.000s .*backward_jumps=0 " -- \
+  "${separate[@]}" --select audio:2 --select-after 2 "$media/separate_video.mp4"
+par expect separate-audio-seek "event: seek completed at 5\.000s" \
+  "summary: state=ended position=8\.000s .*backward_jumps=0 .*first_pts_after_seek=5\.0[0-9]{2}s .*seeks=1 " -- \
+  "${separate[@]}" --select audio:2 --seek 5 --seek-after 1 "$media/separate_video.mp4"
+# A next item with the same separate audio joins without a gap.
+par expect separate-audio-next "event: item changed, gapless 1" "<=0 event: state error" \
+  "summary: state=ended position=8\.000s .*backward_jumps=0 " -- \
+  --audio "$media/separate_audio_eng.m4a" --next "$media/separate_video.mp4" \
+  --next-audio "$media/separate_audio_eng.m4a" "$media/separate_video.mp4"
+exits=1 par expect separate-audio-missing "state=error" "no/such\.m4a" -- \
+  --audio "$media/no/such.m4a" "$media/separate_video.mp4"
 par expect track-no-video "select video -1 at [0-9.]+s: accepted" "video size 0x0" "track switch: resumed [+-]0\.[0-2]" \
   "summary: state=ended position=8\.[0-9]{3}s decoder=none" -- --select video:-1 "$media/tracks.mkv"
 par expect track-subtitle "select subtitle 4 .*: accepted" "select video 1 .*: rejected" \
@@ -1971,6 +2001,11 @@ seq_ expect http-headers-switch "switch at 1\.[0-9]+s -> .*result=0 state=buffer
 seq_ expect http-headers-next "event: item changed, gapless 1" "<=0 event: state error" \
   "summary: state=ended position=3\.000s" -- "${with_header[@]}" \
   --next "http://127.0.0.1:$port/loop.mp4" "http://127.0.0.1:$port/loop.mp4"
+seq_ expect http-headers-separate-audio "track 2: audio .* selected=1" "event: seek completed at 6\.000s" \
+  "summary: state=ended position=8\.000s .*backward_jumps=0 " -- "${with_header[@]}" \
+  --audio "http://127.0.0.1:$port/separate_audio_eng.m4a" \
+  --audio "http://127.0.0.1:$port/separate_audio_fre.m4a" --select audio:2@2 --seek 6 --seek-after 3 \
+  "http://127.0.0.1:$port/separate_video.mp4"
 if [ "$own_ts" = 1 ]; then
   seq_ expect http-headers-hls-renditions "select audio 1 at [0-9.]+s: accepted" \
     "track 1: audio .* selected=1" "summary: state=ended position=12\.000s" -- \

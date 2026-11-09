@@ -96,7 +96,9 @@ extern "C" {
 //    LYCHEE_EVENT_ERROR's arg0 and arg1.
 // 28: lychee_stats.video_frame_rate and video_color_transfer; content://
 //    URIs on Android.
-#define LYCHEE_API_VERSION 28
+// 29: lychee_open_options.audio_url_count and audio_urls: separate audio
+//    inputs.
+#define LYCHEE_API_VERSION 29
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -674,10 +676,23 @@ typedef struct lychee_open_options {
   // and for HLS every playlist, segment, key, EXT-X-MAP and rendition. A
   // User-Agent replaces the HTTP client's own. NULL or "" for none.
   const char* headers;
+  // API version 29. Audio-only inputs played with the URL as one input
+  // (DASH-style separate audio: a video-only file and an audio-only file
+  // per quality or language), |audio_url_count| of them. Their audio
+  // streams follow the URL's own tracks in lychee_player_get_track_info()
+  // and lychee_player_select_track() switches among them; seeks and the
+  // position cover all, the duration is the URL's, and the input seeks
+  // only if all of them do. They share the URL's timeline. The first is
+  // the default audio track unless the URL has audio of its own. The
+  // headers apply to them too. An open fails if one fails to open or has
+  // no audio.
+  int32_t audio_url_count;
+  const char* const* audio_urls;
 } lychee_open_options;
 
 // API version 21. lychee_player_open() with |options| (NULL: none).
-// Returns -1, opening nothing, if the headers are not "Name: value" lines.
+// Returns -1, opening nothing, if the headers are not "Name: value" lines,
+// or an audio URL is NULL or "".
 LYCHEE_EXPORT int32_t
 lychee_player_open_with_options(lychee_player* player,
                                 const char* url,

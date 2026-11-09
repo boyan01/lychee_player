@@ -7,7 +7,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use lychee::{
-    Config, ErrorKind, Event, FrameType, Player, State, SubtitleOptions, TrackRole, TrackType,
+    Config, ErrorKind, Event, FrameType, OpenOptions, Player, State, SubtitleOptions, TrackRole,
+    TrackType,
 };
 
 fn media(name: &str) -> String {
@@ -90,7 +91,9 @@ fn plays_seeks_and_ends() {
     assert!(samples.iter().all(|&s| s == 0.0));
     assert!(player.is_seekable());
     assert_eq!(
-        player.seekable_range().map(|(start, end)| (start.as_secs(), end.map(|d| d.as_secs()))),
+        player
+            .seekable_range()
+            .map(|(start, end)| (start.as_secs(), end.map(|d| d.as_secs()))),
         Some((0, Some(12)))
     );
     assert_eq!(player.live_edge(), None);
@@ -178,7 +181,9 @@ fn switch_source_keeps_the_position() {
     });
     pull(&player, &events, Duration::from_millis(500), |_| false);
     let position = player.position();
-    player.switch_source(&media("h264_aac.mkv"), true, &[]).unwrap();
+    player
+        .switch_source(&media("h264_aac.mkv"), true, &OpenOptions::default())
+        .unwrap();
     assert_eq!(player.state(), State::Buffering);
     assert!(player.position() >= position, "{:?}", player.position());
     assert_eq!(player.video_size(), Some((1920, 1080)));
@@ -200,7 +205,9 @@ fn switch_source_keeps_the_position() {
 #[test]
 fn the_next_item_follows_without_a_gap() {
     let (player, events) = open();
-    player.set_next(Some(&media("h264_aac.mp4")), &[]).unwrap();
+    player
+        .set_next(Some(&media("h264_aac.mp4")), &OpenOptions::default())
+        .unwrap();
     player.seek(Duration::from_secs(11));
     player.play();
     wait_for(&player, &events, |e| {
@@ -214,7 +221,41 @@ fn the_next_item_follows_without_a_gap() {
         player.position()
     );
     assert_eq!(player.duration(), Some(Duration::from_secs(12)));
-    player.set_next(None, &[]).unwrap();
+    player.set_next(None, &OpenOptions::default()).unwrap();
+}
+
+#[test]
+fn separate_audio_files_are_audio_tracks() {
+    let player = Player::new(&Config::default()).unwrap();
+    let (events, received) = mpsc::channel();
+    player.on_event(move |event| {
+        let _ = events.send(event);
+    });
+    player.set_volume(0.0);
+    let audio = [
+        media("separate_audio_eng.m4a"),
+        media("separate_audio_fre.m4a"),
+    ];
+    player
+        .open_with_options(
+            &media("separate_video.mp4"),
+            &OpenOptions {
+                audio_urls: &[&audio[0], &audio[1]],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    wait_for(&player, &received, |e| {
+        *e == Event::StateChanged(State::Ready)
+    });
+    let tracks = player.tracks();
+    let audio: Vec<_> = tracks
+        .iter()
+        .filter(|t| t.kind == TrackType::Audio)
+        .map(|t| (t.language.as_str(), t.selected))
+        .collect();
+    assert_eq!(audio, [("eng", true), ("fre", false)], "{tracks:?}");
+    assert_eq!(player.duration(), Some(Duration::from_secs(8)));
 }
 
 #[test]

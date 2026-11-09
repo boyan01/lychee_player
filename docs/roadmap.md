@@ -268,12 +268,10 @@ reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
    video on a USB drive through the Storage Access Framework (the
    system file picker's `content://` URI) in TV Play or the Flutter
    example: it plays and seeks without copying.
-8. **Separate audio, and DASH** (#2, #3): open a video URL with
-   separate audio URLs, which appear as audio tracks; MPEG-DASH
-   manifests (`.mpd`: segment templates and lists, several
-   Representations and AdaptationSets for audio and subtitles) without
-   FFmpeg. Done when regression cases play both, switch the audio
-   track and seek.
+8. **DASH** (#3): MPEG-DASH manifests (`.mpd`: segment templates and
+   lists, several Representations and AdaptationSets for audio and
+   subtitles) without FFmpeg. Done when regression cases play it, switch
+   the audio track and seek.
 9. **Thumbnails** (#10): a frame at a given time, decoded apart from
    playback, for seek previews without sprite sheets.
 ## FFmpeg-free builds

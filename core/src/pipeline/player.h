@@ -142,9 +142,12 @@ class Player {
   void SetEventCallback(EventCallback callback, void* user_data);
 
   // Stops whatever is open and opens |url|, whose http(s) requests carry
-  // |headers| (NormalizeHttpHeaders()). Volume, rate, looping, the event
-  // callback and whether to play are kept.
-  bool Open(const std::string& url, const std::string& headers = {});
+  // |headers| (NormalizeHttpHeaders()), with the |audio| inputs beside
+  // it (MergingDemuxer). Volume, rate, looping, the event callback and
+  // whether to play are kept.
+  bool Open(const std::string& url,
+            const std::string& headers = {},
+            const std::vector<std::string>& audio = {});
   // Stops whatever is open and stays idle, keeping what Open() keeps. If
   // anything was open, hands kStateChanged (idle) to the callback on this
   // thread before it returns. False on the control thread.
@@ -154,11 +157,14 @@ class Player {
   // Opens |url| like Open() if nothing is open or the input is live.
   bool SwitchSource(const std::string& url,
                     bool keep_position,
-                    const std::string& headers = {});
+                    const std::string& headers = {},
+                    const std::vector<std::string>& audio = {});
   // Opens |url| in the background to play when what is open ends, without
   // a gap where the tracks match (lychee_player_set_next()); empty clears
   // it. Open(), OpenLive() and Close() clear it; SwitchSource() keeps it.
-  bool SetNext(const std::string& url, const std::string& headers = {});
+  bool SetNext(const std::string& url,
+               const std::string& headers = {},
+               const std::vector<std::string>& audio = {});
   // Stops whatever is open and starts a live input presenting packets
   // |latency| after they arrive (lychee_player_open_live()).
   bool OpenLive(int64_t latency);

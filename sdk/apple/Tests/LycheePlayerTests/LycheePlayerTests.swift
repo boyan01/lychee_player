@@ -343,6 +343,29 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertTrue(textLayer.isHidden)
   }
 
+  // Separate audio files are audio tracks after the video's, the first
+  // selected.
+  func testSeparateAudio() throws {
+    let player = LycheePlayer()
+    player.volume = 0
+    let ready = expectation(description: "ready")
+    player.onEvent = { event in
+      if case .stateChanged(.ready) = event { ready.fulfill() }
+    }
+    XCTAssertTrue(
+      player.open(
+        "/tmp/lychee-media/separate_video.mp4",
+        audioURLs: [
+          "/tmp/lychee-media/separate_audio_eng.m4a", "/tmp/lychee-media/separate_audio_fre.m4a",
+        ]))
+    wait(for: [ready], timeout: 10)
+    // The video's: the FFmpeg-free MP4 reader rounds it to 7.999999 s.
+    XCTAssertEqual(player.duration ?? 0, 8, accuracy: 0.001)
+    let audio = player.tracks.filter { $0.type == .audio }
+    XCTAssertEqual(audio.map(\.language), ["eng", "fre"])
+    XCTAssertEqual(audio.map(\.isSelected), [true, false])
+  }
+
   // Added with select: false, a subtitle file is a track that is not
   // selected; headers with a line break are refused.
   func testSubtitleFileKeptUnselected() throws {

@@ -275,11 +275,23 @@ int32_t lychee_player_open(lychee_player* player, const char* url) {
 
 namespace {
 
-// The headers |options| (NULL: none) carry, normalized; false if malformed.
-bool OpenOptionsHeaders(const lychee_open_options* options,
-                        std::string* headers) {
+// The headers and audio inputs |options| (NULL: none) carry, the headers
+// normalized; false if malformed.
+bool ReadOpenOptions(const lychee_open_options* options,
+                     std::string* headers,
+                     std::vector<std::string>* audio) {
   const lychee_open_options copy =
       options ? CopyStruct(options) : lychee_open_options{};
+  if (copy.audio_url_count < 0 ||
+      (copy.audio_url_count > 0 && !copy.audio_urls)) {
+    return false;
+  }
+  for (int32_t i = 0; i < copy.audio_url_count; ++i) {
+    if (!copy.audio_urls[i] || !*copy.audio_urls[i]) {
+      return false;
+    }
+    audio->push_back(copy.audio_urls[i]);
+  }
   return lychee::NormalizeHttpHeaders(copy.headers ? copy.headers : "",
                                       headers);
 }
@@ -290,10 +302,11 @@ int32_t lychee_player_open_with_options(lychee_player* player,
                                         const char* url,
                                         const lychee_open_options* options) {
   std::string headers;
-  if (!url || !OpenOptionsHeaders(options, &headers)) {
+  std::vector<std::string> audio;
+  if (!url || !ReadOpenOptions(options, &headers, &audio)) {
     return -1;
   }
-  return player->player->Open(url, headers) ? 0 : -1;
+  return player->player->Open(url, headers, audio) ? 0 : -1;
 }
 
 int32_t lychee_player_close(lychee_player* player) {
@@ -305,21 +318,24 @@ int32_t lychee_player_switch_source(lychee_player* player,
                                     int32_t keep_position,
                                     const lychee_open_options* options) {
   std::string headers;
-  if (!url || !OpenOptionsHeaders(options, &headers)) {
+  std::vector<std::string> audio;
+  if (!url || !ReadOpenOptions(options, &headers, &audio)) {
     return -1;
   }
-  return player->player->SwitchSource(url, keep_position != 0, headers) ? 0
-                                                                        : -1;
+  return player->player->SwitchSource(url, keep_position != 0, headers, audio)
+             ? 0
+             : -1;
 }
 
 int32_t lychee_player_set_next(lychee_player* player,
                                const char* url,
                                const lychee_open_options* options) {
   std::string headers;
-  if (!OpenOptionsHeaders(options, &headers)) {
+  std::vector<std::string> audio;
+  if (!ReadOpenOptions(options, &headers, &audio)) {
     return -1;
   }
-  return player->player->SetNext(url ? url : "", headers) ? 0 : -1;
+  return player->player->SetNext(url ? url : "", headers, audio) ? 0 : -1;
 }
 
 int32_t lychee_player_open_live(lychee_player* player,

@@ -245,14 +245,26 @@ class LycheePlayer @JvmOverloads constructor(
      * every playlist, segment, key, `EXT-X-MAP` and rendition. Returns
      * false, opening nothing, if a name or value holds a line break.
      *
+     * [audioUrls] are audio-only inputs played with [url] as one input
+     * (DASH-style separate audio: a video-only file, an audio-only file per
+     * quality or language), with the same headers. Their audio tracks
+     * follow [url]'s own in [tracks], the first is the default unless [url]
+     * has audio, and seeks reach every file; the duration is [url]'s. The
+     * open fails ([State.ERROR]) if one cannot be played.
+     *
      * With [startMs] above 0, playback starts there: nothing before it is
      * shown or heard, and [positionMs] reports it at once. Media that cannot
      * seek plays from its start.
      */
     @JvmOverloads
-    fun open(url: String, headers: Map<String, String> = emptyMap(), startMs: Long = 0): Boolean {
+    fun open(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        startMs: Long = 0,
+        audioUrls: List<String> = emptyList(),
+    ): Boolean {
         val lines = headerLines(headers) ?: return false
-        if (nativeOpen(handle(), url.toByteArray(), lines.toByteArray()) != 0) return false
+        if (nativeOpen(handle(), url.toByteArray(), lines.toByteArray(), audioBytes(audioUrls)) != 0) return false
         // While loading, a seek sets where playback starts.
         if (startMs > 0) nativeSeek(handle(), startMs * 1000)
         return true
@@ -265,14 +277,20 @@ class LycheePlayer @JvmOverloads constructor(
      * state is [State.BUFFERING], and the position, duration, video size
      * and the frame on screen stay; play/pause, volume, rate, looping and
      * added subtitle files are kept. Media that cannot seek plays from its
-     * start. Every http(s) request of the new media carries [headers], as
-     * for [open]. Returns false if a header name or value holds a line
-     * break.
+     * start. [headers] and [audioUrls] are the new media's, as for [open].
+     * Returns false if a header name or value holds a line break.
      */
     @JvmOverloads
-    fun switchSource(url: String, keepPosition: Boolean = true, headers: Map<String, String> = emptyMap()): Boolean {
+    fun switchSource(
+        url: String,
+        keepPosition: Boolean = true,
+        headers: Map<String, String> = emptyMap(),
+        audioUrls: List<String> = emptyList(),
+    ): Boolean {
         val lines = headerLines(headers) ?: return false
-        return nativeSwitchSource(handle(), url.toByteArray(), keepPosition, lines.toByteArray()) == 0
+        return nativeSwitchSource(
+            handle(), url.toByteArray(), keepPosition, lines.toByteArray(), audioBytes(audioUrls),
+        ) == 0
     }
 
     /**
@@ -286,13 +304,17 @@ class LycheePlayer @JvmOverloads constructor(
      * player switches to it at the end, buffering briefly. Looping replays
      * the current media instead, and a seek before [url] starts plays on in
      * the current media. [open] and [closeMedia] unset it; [switchSource]
-     * keeps it. Every http(s) request of [url] carries [headers], as for
-     * [open]. Returns false if a header name or value holds a line break.
+     * keeps it. [headers] and [audioUrls] are [url]'s, as for [open].
+     * Returns false if a header name or value holds a line break.
      */
     @JvmOverloads
-    fun setNext(url: String?, headers: Map<String, String> = emptyMap()): Boolean {
+    fun setNext(
+        url: String?,
+        headers: Map<String, String> = emptyMap(),
+        audioUrls: List<String> = emptyList(),
+    ): Boolean {
         val lines = headerLines(headers) ?: return false
-        return nativeSetNext(handle(), url?.toByteArray(), lines.toByteArray()) == 0
+        return nativeSetNext(handle(), url?.toByteArray(), lines.toByteArray(), audioBytes(audioUrls)) == 0
     }
 
     /**
@@ -700,10 +722,26 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeCreate(hardwareDecoding: Boolean, video: Boolean): Long
         @JvmStatic private external fun nativeSetEventSink(handle: Long, sink: Any): Long
         @JvmStatic private external fun nativeDestroy(handle: Long, sink: Long)
-        @JvmStatic private external fun nativeOpen(handle: Long, url: ByteArray, headers: ByteArray): Int
+        @JvmStatic private external fun nativeOpen(
+            handle: Long,
+            url: ByteArray,
+            headers: ByteArray,
+            audioUrls: Array<ByteArray>,
+        ): Int
         @JvmStatic private external fun nativeClose(handle: Long): Int
-        @JvmStatic private external fun nativeSwitchSource(handle: Long, url: ByteArray, keepPosition: Boolean, headers: ByteArray): Int
-        @JvmStatic private external fun nativeSetNext(handle: Long, url: ByteArray?, headers: ByteArray): Int
+        @JvmStatic private external fun nativeSwitchSource(
+            handle: Long,
+            url: ByteArray,
+            keepPosition: Boolean,
+            headers: ByteArray,
+            audioUrls: Array<ByteArray>,
+        ): Int
+        @JvmStatic private external fun nativeSetNext(
+            handle: Long,
+            url: ByteArray?,
+            headers: ByteArray,
+            audioUrls: Array<ByteArray>,
+        ): Int
         @JvmStatic private external fun nativePlay(handle: Long)
         @JvmStatic private external fun nativePause(handle: Long)
         @JvmStatic private external fun nativeRebuildVideoDecoder(handle: Long)
@@ -741,6 +779,10 @@ class LycheePlayer @JvmOverloads constructor(
             handle: Long, url: ByteArray, language: ByteArray?, title: ByteArray?,
             encoding: ByteArray?, headers: ByteArray, keepSelection: Boolean,
         ): Int
+
+        /** [urls] as UTF-8 bytes. */
+        private fun audioBytes(urls: List<String>): Array<ByteArray> =
+            Array(urls.size) { urls[it].toByteArray() }
 
         /** [headers] as the "Name: value" lines the C API takes, or null if one would start another header. */
         private fun headerLines(headers: Map<String, String>): String? {
