@@ -390,9 +390,11 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   }
 
   /// Switches [type] to the track at [index] in [LycheePlayerValue.tracks],
-  /// or disables it if [index] is null. Returns false if rejected (wrong
-  /// type, bitmap subtitles, or no audio and no video left); otherwise
-  /// [LycheePlayerValue.tracks] updates once the switch is done.
+  /// or disables it if [index] is null. Text and bitmap subtitles (PGS,
+  /// DVB, VobSub) both switch, and turn off, at once. Returns false if
+  /// rejected (wrong type, a subtitle track no decoder takes, or no audio
+  /// and no video left); otherwise [LycheePlayerValue.tracks] updates once
+  /// the switch is done.
   bool selectTrack(LycheeTrackType type, int? index) {
     if (_disposed) return false;
     return native.playerSelectTrack(_player, type.value, index ?? -1) == 0;

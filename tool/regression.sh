@@ -1526,6 +1526,12 @@ done
 par expect subtitle-pgs-m2ts "track 1: subtitle hdmv_pgs_subtitle " \
   "subtitle images: 1 \| 600x80 at 660,900 opaque=100% rgb=21[0-4],21[0-4],21[0-4]$" \
   "subtitle at 2\.[5-6][0-9]{2}s: \(none\)" "summary: state=ended" -- --select subtitle:1@0.1 "$media/sub_pgs.m2ts"
+# A bitmap track turned off takes its picture off at once, and turned
+# on again shows the picture of the time.
+par expect subtitle-pgs-off "select subtitle -1 at 3\.3[0-9]{2}s: accepted" "subtitle at 3\.3[0-9]{2}s: \(none\)" \
+  "track 2: subtitle hdmv_pgs_subtitle .*selected=0" "select subtitle 2 at 3\.8[0-9]{2}s: accepted" \
+  "subtitle at 4\.5[0-9]{2}s: \(none\)" "summary: state=ended" -- \
+  --select subtitle:-1@3.3 --select subtitle:2@3.8 "$media/sub_pgs.mkv"
 par expect subtitle-pgs-m2ts-seek "seek -> 3\.500s" \
   "subtitle images: 1 \| 200x60 at 860,100 opaque=100% rgb=19[0-3]," "subtitle at 4\.[5-6][0-9]{2}s: \(none\)" \
   "summary: state=ended" -- --select subtitle:1@0.1 --seek 3.5 --seek-after 2.7 "$media/sub_pgs.m2ts"
