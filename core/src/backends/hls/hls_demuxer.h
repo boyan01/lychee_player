@@ -53,12 +53,12 @@ class HlsDemuxer : public Demuxer {
   // Whether |data| (the input's first bytes) is an M3U playlist.
   static bool Detect(const uint8_t* data, size_t size);
 
-  const char* name() const override { return "hls"; }
+  const char* name() const override { return format_name_; }
   bool Open(const std::string& url, std::string* error) override;
   // Takes the playlist's source, already opened by the format probe.
-  bool Open(std::unique_ptr<DataSource> source,
-            const std::string& url,
-            std::string* error);
+  virtual bool Open(std::unique_ptr<DataSource> source,
+                    const std::string& url,
+                    std::string* error);
   const MediaInfo& media_info() const override { return media_info_; }
   void SetEnabledStreams(const std::vector<int>& stream_indices) override;
   DemuxerReadResult Read(EncodedPacket* packet) override;
@@ -91,6 +91,21 @@ class HlsDemuxer : public Demuxer {
   // that this demuxer cannot read: for builds
   // with a demuxer that reads them (FFmpeg's). Set before Open().
   void set_refuse_subtitles(bool refuse) { refuse_subtitles_ = refuse; }
+  // Where playlists come from instead of being fetched and parsed (the
+  // ones DashDemuxer makes of a manifest): the playlist for |url|, or
+  // false with |error| set. Called on the thread that opens or reads.
+  // Set before Open().
+  using PlaylistSource = std::function<
+      bool(const std::string& url, HlsPlaylist* playlist, std::string* error)>;
+  void set_playlist_source(PlaylistSource source) {
+    playlist_source_ = std::move(source);
+  }
+  // name() and MediaInfo::format_name; "hls" unless set. Set before Open().
+  void set_format_name(const char* name) { format_name_ = name; }
+
+ protected:
+  // What set_opener() set, for a subclass's own requests.
+  const Opener& opener() const { return opener_; }
 
  private:
   struct Segment : HlsSegment {
@@ -263,6 +278,8 @@ class HlsDemuxer : public Demuxer {
   int64_t Now() const;
 
   Opener opener_ = CreateSharedOpener();
+  PlaylistSource playlist_source_;
+  const char* format_name_ = "hls";
   // Open() has returned: the variants to adapt between are known.
   bool started_ = false;
   bool refuse_subtitles_ = false;

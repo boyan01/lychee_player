@@ -21,6 +21,8 @@
 #include "backends/audio/ogg_demuxer.h"
 #include "backends/audio/wav_demuxer.h"
 #include "backends/avi/avi_demuxer.h"
+#include "backends/dash/dash_demuxer.h"
+#include "backends/dash/mpd.h"
 #include "backends/flv/flv_demuxer.h"
 #include "backends/hls/hls_demuxer.h"
 #include "backends/hls/hls_playlist.h"
@@ -312,6 +314,75 @@ inline void FuzzHlsDemuxer(const uint8_t* data, size_t size) {
                        now = std::max(now, until);
                        return ++waits <= 32;
                      }});
+  std::string error;
+  if (demuxer.Open(CreateMemoryDataSource(parts[0]), kUrl, &error)) {
+    fuzz::Play(&demuxer);
+  }
+}
+
+// An MPEG-DASH manifest: the XML and MPD parsers, and each
+// Representation's segments, a SegmentBase's index read from the input
+// too (a 'sidx' box anywhere is unlikely to be found by chance).
+inline void FuzzDashMpd(const uint8_t* data, size_t size) {
+  DashDemuxer::Detect(data, size);
+  const std::string_view text(reinterpret_cast<const char*>(data), size);
+  std::vector<DashSubsegment> index;
+  const char* sidx = static_cast<const char*>(memmem(data, size, "sidx", 4));
+  if (sidx && sidx - reinterpret_cast<const char*>(data) >= 4) {
+    const size_t at =
+        static_cast<size_t>(sidx - 4 - reinterpret_cast<const char*>(data));
+    ParseSidx(data + at, size - at, 1000, &index);
+  }
+  std::string error;
+  for (const char* base :
+       {"http://a.example/b/c/manifest.mpd?t=1", "/tmp/b/manifest.mpd"}) {
+    DashManifest manifest;
+    if (!ParseMpd(text, base, &manifest, &error)) {
+      continue;
+    }
+    for (const DashAdaptationSet& set : manifest.adaptation_sets) {
+      for (const DashRepresentation& representation : set.representations) {
+        HlsPlaylist playlist;
+        DashMediaPlaylist(representation, set.type, manifest.duration, index,
+                          &playlist, &error);
+      }
+    }
+  }
+}
+
+// The DASH demuxer over an input of resources separated by
+// fuzz::kHlsPartSeparator: the manifest, then what it names, in the order
+// the demuxer first opens them (indexes, initialization and media
+// segments). A URL opened again gets the same resource.
+inline void FuzzDashDemuxer(const uint8_t* data, size_t size) {
+  std::vector<std::vector<uint8_t>> parts;
+  const size_t separator = std::strlen(fuzz::kHlsPartSeparator);
+  size_t begin = 0;
+  for (;;) {
+    const void* found =
+        memmem(data + begin, size - begin, fuzz::kHlsPartSeparator, separator);
+    const size_t end = found ? static_cast<const uint8_t*>(found) - data : size;
+    parts.emplace_back(data + begin, data + end);
+    if (!found) {
+      break;
+    }
+    begin = end + separator;
+  }
+  static constexpr char kUrl[] = "http://fuzz/manifest.mpd";
+  std::map<std::string, size_t> opened = {{kUrl, 0}};
+  size_t next = 1;
+  DashDemuxer demuxer;
+  demuxer.set_opener([&](const std::string& url, std::string* error) {
+    auto it = opened.find(url);
+    if (it == opened.end()) {
+      it = opened.emplace(url, next++).first;
+    }
+    if (it->second >= parts.size()) {
+      *error = "not found";
+      return std::unique_ptr<DataSource>();
+    }
+    return CreateMemoryDataSource(parts[it->second]);
+  });
   std::string error;
   if (demuxer.Open(CreateMemoryDataSource(parts[0]), kUrl, &error)) {
     fuzz::Play(&demuxer);

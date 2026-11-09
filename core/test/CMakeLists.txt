@@ -85,7 +85,7 @@ endif()
 
 # The FFmpeg-free MP4, MPEG-TS and HLS demuxers, built on Apple only.
 if(APPLE OR WIN32 OR ANDROID)
-  target_sources(lychee_unittests PRIVATE hls_playlist_test.cc mp4_demuxer_test.cc mp4_subtitle_test.cc)
+  target_sources(lychee_unittests PRIVATE dash_test.cc hls_playlist_test.cc mp4_demuxer_test.cc mp4_subtitle_test.cc)
 endif()
 if(APPLE)
   target_sources(lychee_unittests PRIVATE

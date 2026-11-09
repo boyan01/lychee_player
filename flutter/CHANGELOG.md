@@ -30,6 +30,11 @@
   `open(videoUrl, audioUrls: [...])`. Each file's audio shows as an audio
   track to switch to; seeks and the position cover all of them.
   `switchSource` and `setNext` take `audioUrls` too.
+* MPEG-DASH (`.mpd`, VOD) in every build, without FFmpeg: video
+  Representations (H.264, HEVC) are variants that adapt to the bandwidth
+  and work with `selectVariant` and `setMaxBitrate`; audio AdaptationSets
+  are audio tracks with their language, label and role; WebVTT and fMP4
+  text AdaptationSets are subtitle tracks.
 * `addSubtitle`, `switchSource` and `setNext` take `headers` too. For
   `addSubtitle`, `select: false` adds the track without selecting it, so
   several language files can be added while the current subtitle (or

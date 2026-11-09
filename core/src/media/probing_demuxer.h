@@ -15,11 +15,11 @@ namespace lychee {
 
 // Builds without FFmpeg have one demuxer per container. This one opens
 // the input, looks at its first bytes, and hands it to the demuxer for
-// what it finds: HLS, MPEG-TS, Matroska/WebM, standalone audio, FLV, AVI,
+// what it finds: DASH, HLS, MPEG-TS, Matroska/WebM, standalone audio, FLV, AVI,
 // MPEG-PS, Windows ASF, and MP4 for anything else. Unknown input fails
 // with MP4's error.
 //
-// With a fallback (FFmpeg's demuxer), HLS, MPEG-TS, AVI, MPEG-PS and
+// With a fallback (FFmpeg's demuxer), DASH, HLS, MPEG-TS, AVI, MPEG-PS and
 // Windows ASF use native readers. HLS and MPEG-TS join timestamps that start
 // over where FFmpeg does not; ASF uses Windows' own reader and decoder MFTs.
 // The fallback takes everything else, input that OpenDataSource cannot

@@ -96,6 +96,9 @@ if(ANDROID)
     src/media/data_source.cc
     # MP4, MPEG-TS, HLS and Matroska from files and http(s). With FFmpeg
     # only MPEG-TS and HLS go to these (media/factory.cc), as on Apple.
+    src/backends/dash/dash_demuxer.cc
+    src/backends/dash/mpd.cc
+    src/backends/dash/xml.cc
     src/backends/hls/hls_demuxer.cc
     src/backends/hls/hls_playlist.cc
     src/backends/matroska/matroska_demuxer.cc
@@ -134,6 +137,9 @@ if(WIN32)
     # MP4, Matroska/WebM, MPEG-TS and HLS from files and http(s). With
     # FFmpeg only MPEG-TS and HLS go to these (media/factory.cc), FFmpeg
     # the rest.
+    src/backends/dash/dash_demuxer.cc
+    src/backends/dash/mpd.cc
+    src/backends/dash/xml.cc
     src/backends/hls/hls_demuxer.cc
     src/backends/hls/hls_playlist.cc
     src/backends/matroska/matroska_demuxer.cc
@@ -159,7 +165,10 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
     # Matroska are only linked: ProbingDemuxer names them).
     list(APPEND LYCHEE_SOURCES
       src/backends/ffmpeg/ffmpeg_data_source.cc
-      src/backends/hls/hls_demuxer.cc
+      src/backends/dash/dash_demuxer.cc
+    src/backends/dash/mpd.cc
+    src/backends/dash/xml.cc
+    src/backends/hls/hls_demuxer.cc
       src/backends/hls/hls_playlist.cc
       src/backends/matroska/matroska_demuxer.cc
       src/backends/mp2t/elementary_stream.cc
@@ -188,6 +197,9 @@ if(APPLE)
     # MP4 (also fragmented), MPEG-TS and HLS from files and http(s), and
     # Matroska and WebM. With FFmpeg only MPEG-TS and HLS (with fMP4
     # segments) go to these (media/factory.cc), FFmpeg the rest.
+    src/backends/dash/dash_demuxer.cc
+    src/backends/dash/mpd.cc
+    src/backends/dash/xml.cc
     src/backends/hls/hls_demuxer.cc
     src/backends/hls/hls_playlist.cc
     src/backends/matroska/matroska_demuxer.cc

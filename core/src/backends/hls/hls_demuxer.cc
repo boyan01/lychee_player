@@ -249,6 +249,10 @@ bool HlsDemuxer::LoadPlaylist(std::unique_ptr<DataSource> source,
                               HlsPlaylist* playlist,
                               std::string* final_url,
                               std::string* error) {
+  if (playlist_source_ && !source) {
+    *final_url = url;
+    return playlist_source_(url, playlist, error);
+  }
   if (!source) {
     source = opener_(url, error);
     if (!source) {
@@ -419,7 +423,7 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
     AddVariants(variants, pick);
   }
   const Rendition& variant = *renditions_[0];
-  media_info_.format_name = "hls";
+  media_info_.format_name = format_name_;
   media_info_.seekable = !variant.live;
   if (!variant.live) {
     const Segment& last = variant.segments.back();

@@ -268,10 +268,14 @@ reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
    video on a USB drive through the Storage Access Framework (the
    system file picker's `content://` URI) in TV Play or the Flutter
    example: it plays and seeks without copying.
-8. **DASH** (#3): MPEG-DASH manifests (`.mpd`: segment templates and
-   lists, several Representations and AdaptationSets for audio and
-   subtitles) without FFmpeg. Done when regression cases play it, switch
-   the audio track and seek.
+8. **DASH leftovers** (#3): `DashDemuxer` plays static manifests'
+   first Period through the HLS reader. Missing: dynamic (live) MPDs
+   (`availabilityStartTime`, `$Number$` from the wall clock, manifest
+   reloads); later Periods; WebM segments (the HLS reader takes TS and
+   fMP4 only); VP9 and AV1 Representations (HLS variants are H.264 and
+   HEVC); ContentProtection; one audio Representation per AdaptationSet
+   plays (its highest bandwidth), audio does not adapt. Each is done when
+   a regression case plays it.
 9. **Thumbnails** (#10): a frame at a given time, decoded apart from
    playback, for seek previews without sprite sheets.
 ## FFmpeg-free builds

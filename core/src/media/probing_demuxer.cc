@@ -12,6 +12,7 @@
 #include "backends/audio/ogg_demuxer.h"
 #include "backends/audio/wav_demuxer.h"
 #include "backends/avi/avi_demuxer.h"
+#include "backends/dash/dash_demuxer.h"
 #include "backends/flv/flv_demuxer.h"
 #include "backends/hls/hls_demuxer.h"
 #include "backends/matroska/matroska_demuxer.h"
@@ -133,6 +134,15 @@ bool ProbingDemuxer::OpenInput(const std::string& url, std::string* error) {
   // after a failed open reads the URL anew: that is rare (SAMPLE-AES,
   // subtitles other than WebVTT, MPEG-2 video), and the own demuxer may have
   // read anywhere in it.
+  // DASH through the own reader in every build: FFmpeg's needs libxml2,
+  // which the shipped FFmpeg does not enable (media/factory.cc).
+  if (DashDemuxer::Detect(head, filled)) {
+    auto dash = std::make_unique<DashDemuxer>();
+    DashDemuxer* opening = dash.get();
+    opening->set_opener(CreateSharedOpener(headers_));
+    Adopt(std::move(dash));
+    return opening->Open(std::move(source), url, error);
+  }
   if (HlsDemuxer::Detect(head, filled)) {
     auto hls = std::make_unique<HlsDemuxer>();
     HlsDemuxer* opening = hls.get();

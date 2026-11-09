@@ -22,6 +22,10 @@ Flutter plugin, a Swift package, an Android library and Rust crates.
   More codecs and containers use optional LGPL FFmpeg.
 - **HLS**: adaptive variants, fragmented MP4 segments, AES-128, alternate
   audio and subtitle renditions.
+- **DASH** (VOD, in every build): segment templates, timelines, lists and
+  indexes; Representations as adaptive variants, AdaptationSets as audio
+  and subtitle tracks. Separate audio files (a video-only and an
+  audio-only URL) open as one input.
 - **Playback**: accurate seeking, rate from 0.25x to 4x with pitch kept,
   gapless looping and a next item queued to follow without a gap, audio,
   video and subtitle track selection.

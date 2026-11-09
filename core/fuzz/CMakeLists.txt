@@ -29,6 +29,9 @@ add_library(lychee_parsers STATIC
   ${_src}/backends/mpegps/ps_demuxer.cc
   ${_src}/backends/avi/avi_demuxer.cc
   ${_src}/backends/flv/flv_demuxer.cc
+  ${_src}/backends/dash/dash_demuxer.cc
+  ${_src}/backends/dash/mpd.cc
+  ${_src}/backends/dash/xml.cc
   ${_src}/backends/hls/hls_demuxer.cc
   ${_src}/backends/hls/hls_playlist.cc
   ${_src}/backends/matroska/matroska_demuxer.cc
@@ -72,6 +75,7 @@ endif()
 # lychee_TARGET_fuzzer: the directory regressions/TARGET holds its inputs.
 foreach(_target mp4:FuzzMp4Demuxer matroska:FuzzMatroskaDemuxer mpegts:FuzzTsDemuxer
                 hls_playlist:FuzzHlsPlaylist hls:FuzzHlsDemuxer
+                dash_mpd:FuzzDashMpd dash:FuzzDashDemuxer
                 subtitle_file:FuzzSubtitleFile pgs:FuzzPgsSubtitle
                 mp3:FuzzMp3Demuxer flac:FuzzFlacDemuxer wav:FuzzWavDemuxer
                 adts:FuzzAdtsDemuxer ogg:FuzzOggDemuxer flv:FuzzFlvDemuxer avi:FuzzAviDemuxer mpegps:FuzzPsDemuxer)

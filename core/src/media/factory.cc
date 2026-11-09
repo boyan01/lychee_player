@@ -84,6 +84,9 @@ namespace {
 std::unique_ptr<Demuxer> CreateInputDemuxer(const std::string& headers) {
 #if defined(LYCHEE_WITH_FFMPEG) && \
     (defined(__APPLE__) || defined(_WIN32) || defined(__ANDROID__))
+  // DASH always goes to the own demuxer (DashDemuxer): FFmpeg's dashdec
+  // needs libxml2, which tool/build_ffmpeg.sh does not enable, and the
+  // own one plays it through the HLS reader's variants and renditions.
   // MPEG-TS and HLS through the own demuxers, which put timestamps that
   // start over (in a file, at HLS discontinuities, across audio
   // renditions) on one timeline, and seek HLS by segment; FFmpeg's

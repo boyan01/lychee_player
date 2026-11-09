@@ -592,6 +592,66 @@ fi
 [ -f "$media/hls/vp9_master.m3u8" ] || printf '%s\n' '#EXTM3U' \
   '#EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=1920x1080,CODECS="vp09.00.40.08,mp4a.40.2"' index.m3u8 \
   >"$media/hls/vp9_master.m3u8"
+# MPEG-DASH (DashDemuxer, in every build): 12 s, two video bitrates and
+# two audio languages, segments listed by a SegmentTemplate with a
+# SegmentTimeline, by one with $Number$ and a duration, and by a
+# SegmentList (a file per Representation).
+mkdir -p "$media/dash"
+dash_streams=(-f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=440:sample_rate=48000
+  -f lavfi -i sine=frequency=880:sample_rate=48000 -t 12 -map 0:v -map 0:v -map 1:a -map 2:a
+  -c:v libx264 -preset veryfast -bf 0 -g 30 -pix_fmt yuv420p -b:v:0 1500k -s:v:1 640x360 -b:v:1 400k
+  -c:a aac -b:a 96k -metadata:s:a:0 language=eng -metadata:s:a:1 language=fre
+  -adaptation_sets "id=0,streams=v id=1,streams=2 id=2,streams=3" -seg_duration 2 -f dash)
+gen dash/timeline.mpd "${dash_streams[@]}" -use_template 1 -use_timeline 1 \
+  -init_seg_name 't-init-$RepresentationID$.m4s' -media_seg_name 't-$RepresentationID$-$Number%05d$.m4s'
+gen dash/number.mpd "${dash_streams[@]}" -use_template 1 -use_timeline 0 \
+  -init_seg_name 'n-init-$RepresentationID$.m4s' -media_seg_name 'n-$RepresentationID$-$Number$.m4s'
+gen dash/list.mpd "${dash_streams[@]}" -single_file 1 -single_file_name 'l-$RepresentationID$.mp4'
+# SegmentBase: B站-style files with a 'sidx' after the 'moov', the
+# languages' AdaptationSets with Roles (French the main one, English
+# commentary), and a WebVTT sidecar.
+gen dash/base_video.mp4 -f lavfi -i testsrc2=size=1280x720:rate=30 -t 12 -c:v libx264 -preset veryfast \
+  -bf 0 -g 60 -pix_fmt yuv420p -movflags frag_keyframe+empty_moov+default_base_moof+global_sidx
+for lang in eng:440 fre:880; do
+  gen "dash/base_${lang%%:*}.m4a" -f lavfi -i "sine=frequency=${lang#*:}:sample_rate=48000" -t 12 -c:a aac \
+    -frag_duration 2000000 -movflags empty_moov+default_base_moof+global_sidx
+done
+[ -f "$media/dash/base.mpd" ] || python3 -I - "$media/dash" <<'PY' || exit 1
+import os, struct, sys
+d = sys.argv[1]
+def ranges(name):
+    data = open(os.path.join(d, name), "rb").read()
+    at = 0
+    while at + 8 <= len(data):
+        size, kind = struct.unpack(">I4s", data[at:at + 8])
+        if kind == b"sidx":
+            return at, at + size - 1
+        at += size
+    raise SystemExit(name + ": no sidx")
+def rep(rid, name, mime, codecs, extra):
+    first, last = ranges(name)
+    return (f'      <Representation id="{rid}" mimeType="{mime}" codecs="{codecs}" {extra}>\n'
+            f'        <BaseURL>{name}</BaseURL>\n'
+            f'        <SegmentBase indexRange="{first}-{last}"><Initialization range="0-{first - 1}"/></SegmentBase>\n'
+            f'      </Representation>\n')
+role = '<Role schemeIdUri="urn:mpeg:dash:role:2011" value="{}"/>'
+mpd = ('<?xml version="1.0" encoding="utf-8"?>\n'
+       '<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT12S"\n'
+       '  profiles="urn:mpeg:dash:profile:isoff-on-demand:2011">\n  <Period>\n'
+       '    <AdaptationSet contentType="video">\n'
+       + rep("v", "base_video.mp4", "video/mp4", "avc1.64001f", 'bandwidth="1500000" width="1280" height="720"')
+       + '    </AdaptationSet>\n'
+       '    <AdaptationSet contentType="audio" lang="en">' + role.format("commentary") + '<Label>Director</Label>\n'
+       + rep("en", "base_eng.m4a", "audio/mp4", "mp4a.40.2", 'bandwidth="96000"')
+       + '    </AdaptationSet>\n'
+       '    <AdaptationSet contentType="audio" lang="fr">' + role.format("main") + '\n'
+       + rep("fr", "base_fre.m4a", "audio/mp4", "mp4a.40.2", 'bandwidth="96000"')
+       + '    </AdaptationSet>\n'
+       '    <AdaptationSet contentType="text" mimeType="text/vtt" lang="en">\n'
+       '      <Representation id="sub" bandwidth="100"><BaseURL>../subs.vtt</BaseURL></Representation>\n'
+       '    </AdaptationSet>\n  </Period>\n</MPD>\n')
+open(os.path.join(d, "base.mpd"), "w").write(mpd)
+PY
 # A WebVTT subtitle rendition.
 if [ ! -f "$media/hls/subs_master.m3u8" ]; then
   printf '%s\n' WEBVTT '' '00:00:01.000 --> 00:00:03.000' 'Hello' >"$media/hls/subs.vtt"
@@ -979,7 +1039,7 @@ plays_without_ffmpeg() {
   for arg in "$@"; do
     [[ "$arg" == "$media"/* ]] || continue
     case "$arg" in
-      *.mp4 | *.m4a | *.mkv | *.webm | *.ts | *.m2ts | *.m3u8 | \
+      *.mp4 | *.m4a | *.mkv | *.webm | *.ts | *.m2ts | *.m3u8 | *.mpd | \
       *.mp3 | *.flac | *.wav | *.aac | *.ogg | *.opus | *.flv | *.avi | *.mpg | *.vob) ;;
       *.wmv | *.asf) [ "$windows" = 1 ] || return 1 ;;
       *) return 1 ;;
@@ -1440,6 +1500,37 @@ par expect separate-audio-next "event: item changed, gapless 1" "<=0 event: stat
   --next-audio "$media/separate_audio_eng.m4a" "$media/separate_video.mp4"
 exits=1 par expect separate-audio-missing "state=error" "no/such\.m4a" -- \
   --audio "$media/no/such.m4a" "$media/separate_video.mp4"
+# MPEG-DASH through the own reader, in every build that has the own
+# demuxers: video Representations are variants, audio AdaptationSets
+# audio tracks (lang, Label, Role), a WebVTT sidecar a subtitle track.
+if [ "$own_ts" = 1 ]; then
+  par expect dash-timeline "variant 0: 1500000 bit/s 1280x720 fps=30\.000 codecs=avc1\.64001f track=0" \
+    "variant 1: 400000 bit/s 640x360 .* track=0" "track 1: audio aac 48000 Hz 1 ch lang=eng .*selected=1" \
+    "track 2: audio aac 48000 Hz 1 ch lang=fre .*selected=0" \
+    "summary: state=ended position=12\.000s .*pulled=360 .*glitches=0 backward_jumps=0 .*audio_onset=" -- \
+    --volume 1 "$media/dash/timeline.mpd"
+  par expect dash-audio-switch "select audio 2 at [0-9.]+s: accepted" "track 2: audio .* lang=fre .*selected=1" \
+    "track switch: resumed [+-]0\.[0-2][0-9]{2}s" "summary: state=ended position=12\.000s .*backward_jumps=0 " -- \
+    --volume 1 --select audio:2@3 "$media/dash/timeline.mpd"
+  for kind in timeline number list base; do
+    par expect "dash-seek-$kind" "event: seek completed at 7\.000s" \
+      "summary: state=ended position=12\.000s .*backward_jumps=0 .*first_pts_after_seek=7\.000s .*seeks=1 " -- \
+      --volume 1 --seek 7 --seek-after 3 "$media/dash/$kind.mpd"
+  done
+  # A variant pinned plays from a later segment on; on the virtual clock
+  # the read is ahead by up to a few segments.
+  par expect dash-variant "select variant 1 at 1\.[0-9]{3}s: accepted" \
+    "variant playing: 1 \(400000 bit/s\) at [2-9]\." "video size 640x360" \
+    "summary: state=ended position=12\.000s .*backward_jumps=0 .* variant=400kbit/s" -- \
+    --variant 1@1 "$media/dash/timeline.mpd"
+  par expect dash-max-bitrate "variant playing: 1 \(400000 bit/s\) at 0\." "<=0 variant playing: 0" \
+    "summary: state=ended position=12\.000s .*backward_jumps=0 .* variant=400kbit/s" -- \
+    --max-bitrate 1000000 "$media/dash/number.mpd"
+  par expect dash-segment-base "track 1: audio aac 48000 Hz 1 ch lang=en title=Director selected=0 role=commentary" \
+    "track 2: audio aac 48000 Hz 1 ch lang=fr title= selected=1 default" "track 3: subtitle webvtt lang=en" \
+    "subtitle at 1\.[0-9]{3}s: Hello vtt" "subtitle at 2\.[5-6][0-9]{2}s: \(none\)" \
+    "summary: state=ended position=12\.000s .*backward_jumps=0 " -- --select subtitle:3@0.5 "$media/dash/base.mpd"
+fi
 par expect track-no-video "select video -1 at [0-9.]+s: accepted" "video size 0x0" "track switch: resumed [+-]0\.[0-2]" \
   "summary: state=ended position=8\.[0-9]{3}s decoder=none" -- --select video:-1 "$media/tracks.mkv"
 par expect track-subtitle "select subtitle 4 .*: accepted" "select video 1 .*: rejected" \
@@ -2001,6 +2092,11 @@ seq_ expect http-headers-switch "switch at 1\.[0-9]+s -> .*result=0 state=buffer
 seq_ expect http-headers-next "event: item changed, gapless 1" "<=0 event: state error" \
   "summary: state=ended position=3\.000s" -- "${with_header[@]}" \
   --next "http://127.0.0.1:$port/loop.mp4" "http://127.0.0.1:$port/loop.mp4"
+if [ "$own_ts" = 1 ]; then
+  seq_ expect http-headers-dash "event: seek completed at 4\.000s" "track 2: audio .* selected=1" \
+    "summary: state=ended position=12\.000s .*backward_jumps=0 " -- "${with_header[@]}" --select audio:2@2 \
+    --seek 4 --seek-after 3 "http://127.0.0.1:$port/dash/base.mpd"
+fi
 seq_ expect http-headers-separate-audio "track 2: audio .* selected=1" "event: seek completed at 6\.000s" \
   "summary: state=ended position=8\.000s .*backward_jumps=0 " -- "${with_header[@]}" \
   --audio "http://127.0.0.1:$port/separate_audio_eng.m4a" \

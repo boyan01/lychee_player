@@ -27,6 +27,8 @@ core/                 C++ core, no UI toolkit dependency
     backends/mp2t/    MPEG-TS demuxer: without FFmpeg, and with it on Apple
     backends/hls/     HLS demuxer (TS, fMP4): without FFmpeg, and with it
                       on Apple, where FFmpeg takes what these cannot play
+    backends/dash/    MPEG-DASH manifests (own XML parser), played by the
+                      HLS demuxer, in every build
     backends/android/ AAudio output
     backends/windows/ WASAPI output
     backends/linux/   PulseAudio (and PipeWire's pulse server) output
@@ -206,7 +208,7 @@ keeps the original P010 planes and color metadata for native HDR callers.
 (`TSAN=1` for a ThreadSanitizer build, `ASAN=1` for AddressSanitizer and
 UndefinedBehaviorSanitizer, `COVERAGE=1` for a line coverage report).
 `tool/format.sh` runs clang-format on the lines a branch changed. `tool/fuzz.sh` fuzzes the
-FFmpeg-free parsers (MP4, Matroska, MPEG-TS, HLS, MP3, FLAC, WAV, ADTS
+FFmpeg-free parsers (MP4, Matroska, MPEG-TS, HLS, DASH, MP3, FLAC, WAV, ADTS
 and Ogg, FLV, AVI and MPEG-PS) with libFuzzer under
 ASan and UBSan (`FUZZ_TARGET`, `FUZZ_SECONDS`, `JOBS`); on macOS it
 needs Homebrew's LLVM (`brew install llvm`, a development tool only),

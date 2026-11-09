@@ -8,6 +8,8 @@
 #   mpegts        TsDemuxer (TsReader, TsParser, the elementary streams)
 #   hls_playlist  the HLS playlist parser
 #   hls           HlsDemuxer on a playlist and its segments in one input
+#   dash_mpd      the XML and MPEG-DASH manifest parsers, segment listing
+#   dash          DashDemuxer on a manifest and its segments in one input
 #
 # Needs clang with libFuzzer: Homebrew's LLVM on macOS (brew install llvm;
 # Apple's clang has no libFuzzer runtime), clang on Linux (or LLVM=...).
@@ -28,7 +30,7 @@ set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 build="$root/build-fuzz"
-all_targets=(mp4 matroska mpegts hls_playlist hls subtitle_file pgs mp3 flac wav adts ogg flv avi mpegps)
+all_targets=(mp4 matroska mpegts hls_playlist hls dash_mpd dash subtitle_file pgs mp3 flac wav adts ogg flv avi mpegps)
 read -r -a targets <<<"${FUZZ_TARGET:-${all_targets[*]}}"
 for target in "${targets[@]}"; do
   case " ${all_targets[*]} " in *" $target "*) ;; *)
@@ -309,6 +311,70 @@ seeds_hls() {
     "$segs/audio.ts"
 }
 
+# Manifests, for both DASH targets: each way of listing segments.
+seeds_dash_mpd() {
+  local dir="$seeds/dash_mpd"
+  mkdir -p "$dir"
+  cat >"$dir/kinds.mpd" <<'MPD'
+<?xml version="1.0" encoding="utf-8"?>
+<!-- every way of listing segments -->
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT1M2.5S">
+  <BaseURL>http://cdn.example/a/</BaseURL>
+  <Period id="0" duration="PT10S">
+    <AdaptationSet contentType="video" frameRate="30000/1001" maxWidth="1280">
+      <SegmentTemplate timescale="90000" initialization="$RepresentationID$/init.mp4"
+        media="$RepresentationID$/$Number%05d$-$Time$-$Bandwidth$.m4s" startNumber="3">
+        <SegmentTimeline><S t="900" d="180000" r="2"/><S d="90000" r="-1"/></SegmentTimeline>
+      </SegmentTemplate>
+      <Representation id="hi" mimeType="video/mp4" codecs="avc1.64001f" bandwidth="2000000" width="1280" height="720"/>
+      <Representation id="lo" mimeType="video/mp4" codecs="hev1.1.6.L93.90" bandwidth="500000" width="640" height="360">
+        <SegmentTemplate duration="2" timescale="1" media="lo-$Number$.m4s" initialization="lo.mp4"/>
+      </Representation>
+    </AdaptationSet>
+    <AdaptationSet contentType="audio" lang="en">
+      <Role schemeIdUri="urn:mpeg:dash:role:2011" value="main"/>
+      <Representation id="a" mimeType="audio/mp4" codecs="mp4a.40.2" bandwidth="128000">
+        <BaseURL>audio.mp4</BaseURL>
+        <SegmentBase indexRange="812-863" timescale="48000"><Initialization range="0-811"/></SegmentBase>
+      </Representation>
+    </AdaptationSet>
+    <AdaptationSet contentType="audio" lang="fr">
+      <Role schemeIdUri="urn:mpeg:dash:role:2011" value="commentary"/>
+      <Label>Fran&#xE7;ais &amp; co</Label>
+      <Representation id="b" mimeType="audio/mp4" codecs="mp4a.40.2" bandwidth="64000">
+        <BaseURL>b.mp4</BaseURL>
+        <SegmentList timescale="1000" duration="2000"><Initialization sourceURL="b-init.mp4"/>
+          <SegmentURL media="b1.m4s"/><SegmentURL mediaRange="100-199"/></SegmentList>
+      </Representation>
+    </AdaptationSet>
+    <AdaptationSet contentType="text" lang="en" mimeType="text/vtt">
+      <Role schemeIdUri="urn:mpeg:dash:role:2011" value="forced-subtitle"/>
+      <Representation id="s" bandwidth="100"><BaseURL><![CDATA[subs.vtt]]></BaseURL></Representation>
+    </AdaptationSet>
+  </Period>
+  <Period id="1"/>
+</MPD>
+MPD
+}
+
+# seeds/dash/NAME: a manifest and its resources (fuzz_targets.h).
+seeds_dash() {
+  seeds_dash_mpd
+  local segs="$media/dash"
+  mkdir -p "$segs" "$seeds/dash"
+  [ -f "$segs/tiny.mpd" ] || ffmpeg -hide_banner -loglevel error -y "${tiny48k[@]}" "${h264[@]}" -c:a aac \
+    -seg_duration 0.5 -use_timeline 1 -f dash "$segs/tiny.mpd" 2>/dev/null
+  local out="$seeds/dash/template" part first=1
+  : >"$out"
+  for part in "$segs/tiny.mpd" "$segs/init-stream0.m4s" "$segs/chunk-stream0-00001.m4s" \
+    "$segs/init-stream1.m4s" "$segs/chunk-stream1-00001.m4s" "$segs/chunk-stream0-00002.m4s"; do
+    [ -f "$part" ] || { rm -f "$out"; return; }
+    [ "$first" = 1 ] || printf '\n#PART\n' >>"$out"
+    cat "$part" >>"$out"
+    first=0
+  done
+}
+
 # Subtitle files: one of each format, and UTF-16.
 seeds_subtitle_file() {
   local dir="$seeds/subtitle_file"
@@ -364,7 +430,10 @@ for target in "${targets[@]}"; do
   fi
   args=(-max_len=65536 -timeout=10 -rss_limit_mb=2048 -max_total_time="$seconds"
     -artifact_prefix="$artifacts/" -print_final_stats=1)
-  case "$target" in hls*) args+=(-dict="$root/core/fuzz/hls.dict") ;; esac
+  case "$target" in
+    hls*) args+=(-dict="$root/core/fuzz/hls.dict") ;;
+    dash*) args+=(-dict="$root/core/fuzz/dash.dict") ;;
+  esac
   if [ "$jobs" -gt 1 ]; then
     # Fork mode keeps going after a crash, collecting every artifact.
     args+=(-fork="$jobs" -ignore_crashes=1 -ignore_ooms=1 -ignore_timeouts=1)
