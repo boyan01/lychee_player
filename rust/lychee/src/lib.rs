@@ -316,6 +316,32 @@ fn duration(us: i64) -> Option<Duration> {
     (us >= 0).then(|| micros(us))
 }
 
+/// What a track is for, as the container says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum TrackRole {
+    #[default]
+    Main,
+    /// Spoken commentary (a director's, ...).
+    Commentary,
+    /// For viewers who cannot see the picture: audio description, or
+    /// text describing the video.
+    Description,
+    /// For viewers who cannot hear the sound: captions (SDH), or audio
+    /// with clearer dialog.
+    HearingImpaired,
+}
+
+impl TrackRole {
+    fn from_raw(raw: i32) -> TrackRole {
+        match raw as u32 {
+            sys::LYCHEE_TRACK_ROLE_COMMENTARY => TrackRole::Commentary,
+            sys::LYCHEE_TRACK_ROLE_DESCRIPTION => TrackRole::Description,
+            sys::LYCHEE_TRACK_ROLE_HEARING_IMPAIRED => TrackRole::HearingImpaired,
+            _ => TrackRole::Main,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Track {
     /// The index for [`Player::select_track`].
@@ -337,6 +363,17 @@ pub struct Track {
     pub channels: u32,
     /// A subtitle file [`Player::add_subtitle`] added.
     pub external: bool,
+    /// The container marks it as a track to play by default (Matroska's
+    /// FlagDefault, which is set unless a file says otherwise; MP4's
+    /// enabled flag; HLS `DEFAULT=YES`).
+    pub is_default: bool,
+    /// Subtitles to show even when subtitles are off, e.g. for dialog in
+    /// another language.
+    pub forced: bool,
+    pub role: TrackRole,
+    /// Bits per second the container declares or its sample sizes imply
+    /// (HLS: the variant's `BANDWIDTH`, on its video track); 0 if unknown.
+    pub bitrate: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -612,6 +649,10 @@ impl Player {
             sample_rate: info.sample_rate as u32,
             channels: info.channels as u32,
             external: info.external != 0,
+            is_default: info.is_default != 0,
+            forced: info.forced != 0,
+            role: TrackRole::from_raw(info.role),
+            bitrate: info.bitrate.max(0) as u64,
         })
     }
 

@@ -420,24 +420,26 @@ JNIEXPORT jint JNICALL Java_tech_soit_lychee_LycheePlayer_nativeGetTrackCount(
   return lychee_player_get_track_count(Player(handle));
 }
 
-// Fills |ints| with type, id, selected, width, height, sample_rate,
-// channels and external, and returns codec, language and title separated by
-// NULs; null if |index| is out of range.
+// Fills |longs| with type, id, selected, width, height, sample_rate,
+// channels, external, is_default, forced, role and bitrate, and returns
+// codec, language and title separated by NULs; null if |index| is out of
+// range.
 JNIEXPORT jbyteArray JNICALL
 Java_tech_soit_lychee_LycheePlayer_nativeGetTrackInfo(JNIEnv* env,
                                                       jclass,
                                                       jlong handle,
                                                       jint index,
-                                                      jintArray ints) {
+                                                      jlongArray longs) {
   lychee_track_info info{};
   info.struct_size = sizeof(info);
   if (lychee_player_get_track_info(Player(handle), index, &info) != 0) {
     return nullptr;
   }
-  const jint values[] = {info.type,     info.id,      info.selected,
-                         info.width,    info.height,  info.sample_rate,
-                         info.channels, info.external};
-  env->SetIntArrayRegion(ints, 0, 8, values);
+  const jlong values[] = {info.type,     info.id,       info.selected,
+                          info.width,    info.height,   info.sample_rate,
+                          info.channels, info.external, info.is_default,
+                          info.forced,   info.role,     info.bitrate};
+  env->SetLongArrayRegion(longs, 0, 12, values);
   const std::string strings = FromArray(info.codec) + '\0' +
                               FromArray(info.language) + '\0' +
                               FromArray(info.title);

@@ -66,6 +66,11 @@ const int kTrackVideo = 1;
 const int kTrackAudio = 2;
 const int kTrackSubtitle = 3;
 
+const int kTrackRoleMain = 0;
+const int kTrackRoleCommentary = 1;
+const int kTrackRoleDescription = 2;
+const int kTrackRoleHearingImpaired = 3;
+
 final class LycheeConfig extends Struct {
   @Uint32()
   external int structSize;
@@ -163,6 +168,15 @@ final class LycheeTrackInfo extends Struct {
   // lychee_track_info.external (API 17); an older core leaves it 0.
   @Int32()
   external int isExternal;
+  // API 19; an older core leaves them 0.
+  @Int32()
+  external int isDefault;
+  @Int32()
+  external int forced;
+  @Int32()
+  external int role;
+  @Int64()
+  external int bitrate;
 }
 
 typedef EventCallbackNative = Void Function(

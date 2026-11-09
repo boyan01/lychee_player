@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use lychee::{Config, Event, FrameType, Player, State, TrackType};
+use lychee::{Config, Event, FrameType, Player, State, TrackRole, TrackType};
 
 fn media(name: &str) -> String {
     let dir = std::env::var("MEDIA_DIR").unwrap_or_else(|_| "/tmp/lychee-media".into());
@@ -95,6 +95,13 @@ fn plays_seeks_and_ends() {
         tracks
             .iter()
             .any(|t| t.kind == TrackType::Audio && t.selected),
+        "{tracks:?}"
+    );
+    // MP4: enabled tracks, their bitrate from the sample sizes.
+    assert!(
+        tracks
+            .iter()
+            .all(|t| t.is_default && t.bitrate > 0 && t.role == TrackRole::Main),
         "{tracks:?}"
     );
 

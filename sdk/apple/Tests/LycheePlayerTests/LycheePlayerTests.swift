@@ -35,6 +35,8 @@ final class LycheePlayerTests: XCTestCase {
     XCTAssertNil(player.artwork)
     XCTAssertEqual(player.videoSize, CGSize(width: 1920, height: 1080))
     XCTAssertEqual(player.tracks.map(\.type), [.video, .audio])
+    // MP4: enabled tracks, their bitrate from the sample sizes.
+    XCTAssertTrue(player.tracks.allSatisfy { $0.isDefault && $0.role == .main && $0.bitrate > 0 })
 
     var frames = 0
     var size = CGSize.zero

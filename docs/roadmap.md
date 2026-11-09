@@ -232,13 +232,6 @@ reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
    codec (another quality). Done when regression cases see each code.
    Per-request observation (#9) only if it fits the ABI's plain-callback
    rule cheaply; otherwise say so here.
-3. **Track details** (#13): tracks report default, forced, a role (main,
-   commentary, description, from Matroska flags, MP4 `kind`, HLS
-   `CHARACTERISTICS`) and bitrate. Also check, and fix where they fail,
-   two claims TV Play could not confirm: HLS `EXT-X-MEDIA` audio
-   renditions appear as audio tracks that `selectTrack` switches, and
-   bitmap subtitles (PGS) can be selected and turned off (the Dart doc of
-   `selectTrack` says bitmap subtitles are rejected).
 4. **HLS variants and live window** (#14, #18, #8): list a master
    playlist's variants (resolution, bandwidth, codecs), pin one or go
    back to automatic, and cap the bitrate. Live HLS with a window (EVENT,

@@ -17,6 +17,9 @@ struct TsStreamEntry {
   int stream_type = 0;
   // ISO 639 language descriptor, or empty.
   std::string language;
+  // Its audio_type: 2 for the hearing impaired, 3 a visual impaired
+  // commentary (audio description).
+  int audio_type = 0;
   // stream_type 0x06 (private data) with an AC-3 or E-AC-3 descriptor.
   bool ac3 = false;
   bool eac3 = false;

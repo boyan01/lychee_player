@@ -118,9 +118,13 @@ TEST(HlsPlaylist, ParsesMediaPlaylists) {
 TEST(HlsPlaylist, PicksVariants) {
   const std::string text =
       "#EXTM3U\n"
-      "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"en\",URI=\"audio.m3u8\"\n"
+      "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"en\",URI=\"audio.m3u8\","
+      "CHARACTERISTICS=\"public.accessibility.describes-video\"\n"
       "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"Main\",LANGUAGE=\"fr\","
       "DEFAULT=YES\n"
+      "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"s\",NAME=\"SDH\",FORCED=YES,"
+      "CHARACTERISTICS=\"public.accessibility.transcribes-spoken-dialog,"
+      "public.accessibility.describes-music-and-sound\",URI=\"s.m3u8\"\n"
       "#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS=\"avc1."
       "64001e,mp4a.40.2\"\n"
       "low.m3u8\n"
@@ -143,11 +147,16 @@ TEST(HlsPlaylist, PicksVariants) {
   EXPECT_EQ(PickHlsVariant(playlist.variants), 1);
   EXPECT_EQ(playlist.variants[1].audio, std::string("a"));
   EXPECT_TRUE(playlist.variants[0].audio.empty());
-  EXPECT_EQ(playlist.renditions.size(), 2u);
+  EXPECT_EQ(playlist.renditions.size(), 3u);
   EXPECT_TRUE(playlist.renditions[0].type == HlsRendition::Type::kAudio);
   EXPECT_EQ(playlist.renditions[0].group, std::string("a"));
   EXPECT_EQ(playlist.renditions[0].url, std::string("http://h/audio.m3u8"));
   EXPECT_TRUE(!playlist.renditions[0].is_default);
+  EXPECT_TRUE(playlist.renditions[0].role == TrackRole::kDescription);
+  EXPECT_TRUE(playlist.renditions[1].role == TrackRole::kMain);
+  EXPECT_TRUE(!playlist.renditions[1].forced);
+  EXPECT_TRUE(playlist.renditions[2].forced);
+  EXPECT_TRUE(playlist.renditions[2].role == TrackRole::kHearingImpaired);
   // Without URI the variant's own segments carry it.
   EXPECT_TRUE(playlist.renditions[1].url.empty());
   EXPECT_EQ(playlist.renditions[1].language, std::string("fr"));

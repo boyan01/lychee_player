@@ -73,7 +73,9 @@ extern "C" {
 //    LYCHEE_EVENT_SUBTITLE_ADDED and lychee_track_info.external.
 // 18: lychee_player_add_subtitle() reads legacy encodings and takes an
 //    |encoding|; lychee_player_set_subtitle_delay().
-#define LYCHEE_API_VERSION 18
+// 19: lychee_track_info.is_default, forced, role (lychee_track_role) and
+//    bitrate.
+#define LYCHEE_API_VERSION 19
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -239,6 +241,21 @@ typedef enum lychee_track_type {
   // (PGS, DVB, VobSub).
   LYCHEE_TRACK_SUBTITLE = 3,
 } lychee_track_type;
+
+// What a track is for (lychee_track_info.role), from Matroska's flags,
+// MP4's 'kind' and 'tagc', MPEG-TS's audio_type and HLS's
+// CHARACTERISTICS. Values may be added; treat unknown ones as MAIN.
+typedef enum lychee_track_role {
+  LYCHEE_TRACK_ROLE_MAIN = 0,
+  // Spoken commentary (a director's, ...).
+  LYCHEE_TRACK_ROLE_COMMENTARY = 1,
+  // For viewers who cannot see the picture: audio description, or text
+  // describing the video.
+  LYCHEE_TRACK_ROLE_DESCRIPTION = 2,
+  // For viewers who cannot hear the sound: captions (SDH), or audio with
+  // clearer dialog.
+  LYCHEE_TRACK_ROLE_HEARING_IMPAIRED = 3,
+} lychee_track_role;
 
 // Codecs of a live input's tracks.
 typedef enum lychee_codec {
@@ -435,6 +452,18 @@ typedef struct lychee_track_info {
   // API version 17. 1 for a subtitle file lychee_player_add_subtitle()
   // added, which comes after the container's tracks.
   int32_t external;
+  // API version 19. 1 if the container marks it as a track to play by
+  // default (Matroska's FlagDefault, which is 1 unless a file says
+  // otherwise; MP4's enabled flag; HLS DEFAULT=YES).
+  int32_t is_default;
+  // 1 for subtitles to show even when subtitles are off (Matroska's
+  // FlagForced, HLS FORCED=YES), e.g. for dialog in another language.
+  int32_t forced;
+  // lychee_track_role.
+  int32_t role;
+  // Bits per second the container declares or its sample sizes imply
+  // (HLS: the variant's BANDWIDTH, on its video track), 0 if unknown.
+  int64_t bitrate;
 } lychee_track_info;
 
 LYCHEE_EXPORT int32_t lychee_api_version(void);

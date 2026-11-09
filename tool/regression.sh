@@ -417,6 +417,17 @@ gen tracks.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=880:sample_ra
   -c:v copy -c:a:0 copy -c:a:1 aac -c:s srt -metadata:s:a:0 language=eng -metadata:s:a:1 language=fre \
   -metadata:s:a:1 title=French -metadata:s:s:0 language=eng -metadata:s:s:1 language=fre \
   -disposition:s:0 default -disposition:s:1 0
+# Track details: audio 1 the default (with mkvmerge's BPS tag), 2 a
+# commentary, 3 an audio description; subtitle 4 forced, 5 for the
+# hearing impaired. MP4 says so in 'kind' boxes, TS in audio_type.
+gen roles.mkv -i "$media/h264_aac.mp4" -f lavfi -i sine=frequency=880:sample_rate=48000 \
+  -i "$media/subs.srt" -i "$media/subs_fre.srt" -map 0:v -map 0:a -map 1:a -map 1:a -map 2 -map 3 -t 4 \
+  -c:v copy -c:a:0 copy -c:a:1 aac -c:a:2 aac -c:s srt -metadata:s:a language=eng -metadata:s:a:0 BPS=128000 \
+  -disposition:a:0 default -disposition:a:1 comment -disposition:a:2 visual_impaired \
+  -disposition:s:0 forced -disposition:s:1 hearing_impaired
+gen roles.mp4 -i "$media/roles.mkv" -map 0 -c copy -c:s mov_text -disposition:a:2 visual_impaired+descriptions \
+  -disposition:s:1 captions
+gen roles.ts -i "$media/roles.mkv" -map 0:v -map 0:a -c copy -disposition:a:1 hearing_impaired
 # Tracks 0-1 video (1920x1080, one keyframe; 640x360, one a second), 2 audio.
 gen video_tracks.mkv -i "$media/h264_aac.mp4" -map 0:v -map 0:v -map 0:a -t 8 \
   -c:v:0 copy -c:v:1 libx264 -preset veryfast -g 30 -pix_fmt yuv420p -filter:v:1 scale=640:360 -c:a copy
@@ -504,6 +515,9 @@ if [ ! -f "$media/hls_alt/master.m3u8" ]; then
 fi
 [ -f "$media/hls_alt/live.m3u8" ] || sed 's|/index\.m3u8|/live.m3u8|' "$media/hls_alt/master.m3u8" \
   >"$media/hls_alt/live.m3u8"
+# The same with an audio description in English (CHARACTERISTICS).
+[ -f "$media/hls_alt/roles.m3u8" ] || sed 's|NAME="English",|&CHARACTERISTICS="public.accessibility.describes-video",|' \
+  "$media/hls_alt/master.m3u8" >"$media/hls_alt/roles.m3u8"
 # Matroska: the MP4 remuxed, with and without Cues, with clusters of
 # unknown size, damaged (tool/mkv_cases.py); FLAC in it, and MP3 in MP4.
 gen h264_aac.mkv -i "$media/h264_aac.mp4" -c copy
@@ -1310,6 +1324,18 @@ par expect track-no-video "select video -1 at [0-9.]+s: accepted" "video size 0x
 par expect track-subtitle "select subtitle 4 .*: accepted" "select video 1 .*: rejected" \
   "subtitle at [0-9.]+s: Bonjour le monde" "<=0 subtitle at [0-9.]+s: Hello world" -- \
   --select subtitle:4 --select video:1 --select-after 0.5 "$media/tracks.mkv"
+# What the container says about each track (lychee_track_info's
+# is_default, forced, role, bitrate), from the own demuxers and FFmpeg's.
+par expect track-roles-mkv "track 1: audio .* selected=1 default bitrate=128000$" \
+  "track 2: audio .* selected=0 role=commentary$" "track 3: audio .* selected=0 role=description$" \
+  "track 4: subtitle subrip .*selected=1 forced$" "track 5: subtitle subrip .*selected=0 role=hearing-impaired$" \
+  -- --seconds 0.5 "$media/roles.mkv"
+par expect track-roles-mp4 "track 0: video .* default bitrate=5[0-9]{6}$" "track 1: audio .* default bitrate=12[0-9]{4}$" \
+  "track 2: audio .* role=commentary bitrate=[0-9]+$" "track 3: audio .* role=description bitrate=[0-9]+$" \
+  "track 4: subtitle mov_text .* forced bitrate=[0-9]+$" "track 5: subtitle mov_text .* role=hearing-impaired bitrate=" \
+  -- --seconds 0.5 "$media/roles.mp4"
+par expect track-roles-ts "track 2: audio .* selected=0 role=hearing-impaired$" "<=0 role=commentary" \
+  -- --seconds 0.5 "$media/roles.ts"
 # Audio only (video_frame_types 0): the video track is listed but never
 # decoded or selectable.
 # Without the longer track the file ends with the shorter one, and is not
@@ -1789,13 +1815,15 @@ fi
 # FFmpeg's HLS, which plays HLS on Windows and Android, puts the fMP4
 # rendition 1 s off (roadmap).
 if [ "$own_ts" = 1 ]; then
-  seq_ expect http-hls-renditions "track 1: audio .* lang=en title=English selected=0" \
-    "track 2: audio .* lang=fr title=French selected=1" \
+  seq_ expect http-hls-renditions "track 1: audio .* lang=en title=English selected=0$" \
+    "track 2: audio .* lang=fr title=French selected=1 default$" "track 0: video .* bitrate=5000000$" \
     "summary: state=ended position=12\.000s .*backward_jumps=0 .*audio_onset=0\.95[4-6]" -- \
     --volume 1 "http://127.0.0.1:$port/hls_alt/master.m3u8"
   seq_ expect http-hls-renditions-switch "select audio 1 at [0-9.]+s: accepted" "track 1: audio .* selected=1" \
     "track switch: resumed [+-]0\.0[0-9]{2}s" "summary: state=ended position=12\.000s .*backward_jumps=0 " -- \
     --select audio:1@3 "http://127.0.0.1:$port/hls_alt/master.m3u8"
+  seq_ expect http-hls-roles "track 1: audio .* title=English selected=0 role=description$" -- \
+    --seconds 0.5 "http://127.0.0.1:$port/hls_alt/roles.m3u8"
   # 8.433 or 8.467, one frame apart, by the B-frame order x264 picked:
   # Homebrew's FFmpeg and BtbN's (Linux) encode the segments differently.
   seq_ check http-hls-renditions-seek 1 '8\.4[36][37]' -- --seek 7 --seek-after 2 \

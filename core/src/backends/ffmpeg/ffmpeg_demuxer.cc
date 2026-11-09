@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <utility>
 
@@ -402,8 +403,27 @@ void FFmpegDemuxer::BuildMediaInfo() {
             av_dict_get(stream->metadata, "title", nullptr, 0)) {
       info.title = title->value;
     }
-    info.default_track = (stream->disposition &
-                          (AV_DISPOSITION_DEFAULT | AV_DISPOSITION_FORCED)) != 0;
+    info.default_track = (stream->disposition & AV_DISPOSITION_DEFAULT) != 0;
+    info.forced = (stream->disposition & AV_DISPOSITION_FORCED) != 0;
+    if (stream->disposition & AV_DISPOSITION_COMMENT) {
+      info.role = TrackRole::kCommentary;
+    } else if (stream->disposition &
+               (AV_DISPOSITION_VISUAL_IMPAIRED | AV_DISPOSITION_DESCRIPTIONS)) {
+      info.role = TrackRole::kDescription;
+    } else if (stream->disposition &
+               (AV_DISPOSITION_HEARING_IMPAIRED | AV_DISPOSITION_CAPTIONS)) {
+      info.role = TrackRole::kHearingImpaired;
+    }
+    // The codec's declared rate, else what HLS (the variant's BANDWIDTH)
+    // or mkvmerge's statistics tags say.
+    info.bitrate = par->bit_rate > 0 ? par->bit_rate : 0;
+    for (const char* key : {"variant_bitrate", "BPS", "BPS-eng"}) {
+      const AVDictionaryEntry* entry =
+          av_dict_get(stream->metadata, key, nullptr, 0);
+      if (info.bitrate == 0 && entry) {
+        info.bitrate = std::max<int64_t>(strtoll(entry->value, nullptr, 10), 0);
+      }
+    }
     auto codec_private = std::make_shared<FFmpegCodecParams>(par);
     std::vector<uint8_t> extradata(par->extradata,
                                    par->extradata + par->extradata_size);
@@ -446,7 +466,8 @@ void FFmpegDemuxer::BuildMediaInfo() {
       config.text = descriptor && (descriptor->props & AV_CODEC_PROP_TEXT_SUB);
       config.extradata = std::move(extradata);
       config.codec_private = codec_private;
-      if (info.default_track && media_info_.default_subtitle_stream < 0) {
+      if ((info.default_track || info.forced) &&
+          media_info_.default_subtitle_stream < 0) {
         media_info_.default_subtitle_stream = info.index;
       }
     }

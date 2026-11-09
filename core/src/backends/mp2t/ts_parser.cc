@@ -277,6 +277,7 @@ void TsParser::HandlePmt(const uint8_t* data, size_t size) {
       const uint8_t* body = data + d + 2;
       if (tag == 0x0a && length >= 3) {  // ISO_639_language_descriptor
         entry.language.assign(reinterpret_cast<const char*>(body), 3);
+        entry.audio_type = length >= 4 ? body[3] : 0;
       } else if (tag == 0x6a) {  // AC-3 (ETSI EN 300 468)
         entry.ac3 = true;
       } else if (tag == 0x7a) {  // Enhanced AC-3

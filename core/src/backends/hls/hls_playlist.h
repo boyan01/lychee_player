@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "media/stream_info.h"
+
 namespace lychee {
 
 // A variant stream of a master playlist (RFC 8216 4.3.4.2).
@@ -28,6 +30,10 @@ struct HlsRendition {
   std::string name;
   std::string language;
   bool is_default = false;
+  // FORCED=YES (subtitles).
+  bool forced = false;
+  // From CHARACTERISTICS.
+  TrackRole role = TrackRole::kMain;
   // Its media playlist; empty if the variant's own segments carry it.
   std::string url;
 };

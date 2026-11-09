@@ -103,6 +103,10 @@ struct TrackInfo {
   int channels = 0;
   // A subtitle file added with Player::AddSubtitle().
   bool external = false;
+  bool is_default = false;
+  bool forced = false;
+  TrackRole role = TrackRole::kMain;
+  int64_t bitrate = 0;
 };
 
 // Owns the demuxer and the renderers. The control thread opens the input,

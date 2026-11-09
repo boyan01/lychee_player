@@ -49,6 +49,8 @@ class MatroskaDemuxer : public Demuxer {
 
   struct Track {
     uint64_t number = 0;
+    // TrackUID, which Tags target; 0 if absent.
+    uint64_t uid = 0;
     int stream = -1;
     bool enabled = true;
     // H.264 and HEVC may reorder frames; Matroska stores only their pts.
@@ -102,6 +104,8 @@ class MatroskaDemuxer : public Demuxer {
   bool ParseTracks(const std::vector<uint8_t>& body, std::string* error);
   bool ParseTrackEntry(const uint8_t* data, size_t size);
   void ParseTags(const std::vector<uint8_t>& body);
+  // The SimpleTags of a Tag (|data|) that targets the track |uid|.
+  void ParseTrackTags(uint64_t uid, const uint8_t* data, size_t size);
   void ParseAttachments(const std::vector<uint8_t>& body);
   void ParseCues(const std::vector<uint8_t>& body);
   // Reads the top-level element at |position| (from the SeekHead) if it is

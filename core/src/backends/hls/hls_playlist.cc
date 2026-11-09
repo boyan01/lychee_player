@@ -402,6 +402,9 @@ bool ParseHlsPlaylist(const std::string& text,
       rendition.name = attributes["NAME"];
       rendition.language = attributes["LANGUAGE"];
       rendition.is_default = attributes["DEFAULT"] == "YES";
+      rendition.forced = attributes["FORCED"] == "YES";
+      rendition.role =
+          TrackRoleFromCharacteristics(attributes["CHARACTERISTICS"]);
       auto uri = attributes.find("URI");
       if (uri != attributes.end()) {
         rendition.url = ResolveUrl(base_url, uri->second);

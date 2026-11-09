@@ -57,6 +57,13 @@ static_assert(static_cast<int>(MediaType::kVideo) == LYCHEE_TRACK_VIDEO &&
                   static_cast<int>(MediaType::kSubtitle) ==
                       LYCHEE_TRACK_SUBTITLE,
               "lychee_track_type mirrors MediaType");
+static_assert(static_cast<int>(lychee::TrackRole::kCommentary) ==
+                      LYCHEE_TRACK_ROLE_COMMENTARY &&
+                  static_cast<int>(lychee::TrackRole::kDescription) ==
+                      LYCHEE_TRACK_ROLE_DESCRIPTION &&
+                  static_cast<int>(lychee::TrackRole::kHearingImpaired) ==
+                      LYCHEE_TRACK_ROLE_HEARING_IMPAIRED,
+              "lychee_track_role mirrors TrackRole");
 
 namespace {
 
@@ -370,6 +377,10 @@ int32_t lychee_player_get_track_info(lychee_player* player,
   result.sample_rate = track.sample_rate;
   result.channels = track.channels;
   result.external = track.external ? 1 : 0;
+  result.is_default = track.is_default ? 1 : 0;
+  result.forced = track.forced ? 1 : 0;
+  result.role = static_cast<int32_t>(track.role);
+  result.bitrate = track.bitrate;
   CopyOut(result, info);
   return 0;
 }

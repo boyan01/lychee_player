@@ -986,6 +986,10 @@ std::vector<TrackInfo> Player::tracks() const {
                      index == subtitle_stream_;
     track.language = info.language;
     track.title = info.title;
+    track.is_default = info.default_track;
+    track.forced = info.forced;
+    track.role = info.role;
+    track.bitrate = info.bitrate;
     switch (info.type) {
       case MediaType::kVideo:
         track.codec = info.video.codec_name;

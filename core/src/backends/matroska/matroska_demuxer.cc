@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 #include <numeric>
@@ -34,6 +35,11 @@ constexpr uint32_t kTrackNumber = 0xD7;
 constexpr uint32_t kTrackType = 0x83;
 constexpr uint32_t kFlagDefault = 0x88;
 constexpr uint32_t kFlagForced = 0x55AA;
+constexpr uint32_t kFlagHearingImpaired = 0x55AB;
+constexpr uint32_t kFlagVisualImpaired = 0x55AC;
+constexpr uint32_t kFlagTextDescriptions = 0x55AD;
+constexpr uint32_t kFlagCommentary = 0x55AF;
+constexpr uint32_t kTrackUid = 0x73C5;
 constexpr uint32_t kDefaultDuration = 0x23E383;
 constexpr uint32_t kName = 0x536E;
 constexpr uint32_t kLanguage = 0x22B59C;
@@ -793,6 +799,8 @@ bool MatroskaDemuxer::ParseTrackEntry(const uint8_t* data, size_t size) {
   uint64_t type = 0;
   bool flag_default = true;
   bool forced = false;
+  TrackRole role = TrackRole::kMain;
+  uint64_t uid = 0;
   int64_t default_duration = 0;
   int64_t codec_delay = 0;
   std::string name;
@@ -817,6 +825,25 @@ bool MatroskaDemuxer::ParseTrackEntry(const uint8_t* data, size_t size) {
         break;
       case kFlagForced:
         forced = UInt(child) != 0;
+        break;
+      case kFlagCommentary:
+        if (UInt(child) != 0) {
+          role = TrackRole::kCommentary;
+        }
+        break;
+      case kFlagVisualImpaired:
+      case kFlagTextDescriptions:
+        if (UInt(child) != 0) {
+          role = TrackRole::kDescription;
+        }
+        break;
+      case kFlagHearingImpaired:
+        if (UInt(child) != 0) {
+          role = TrackRole::kHearingImpaired;
+        }
+        break;
+      case kTrackUid:
+        uid = UInt(child);
         break;
       case kDefaultDuration:
         default_duration =
@@ -900,9 +927,12 @@ bool MatroskaDemuxer::ParseTrackEntry(const uint8_t* data, size_t size) {
   if (lang != "und") {
     info.language = lang;
   }
-  info.default_track = flag_default || forced;
+  info.default_track = flag_default;
+  info.forced = forced;
+  info.role = role;
   Track track;
   track.number = number;
+  track.uid = uid;
   track.stream = info.index;
   track.default_duration = default_duration;
   track.stripped_header = std::move(stripped_header);
@@ -1030,10 +1060,14 @@ bool MatroskaDemuxer::ParseTrackEntry(const uint8_t* data, size_t size) {
     return false;
   }
 
-  // The first track of each type the file marks default, else the first.
+  // The first track of each type the file marks default (or forced), else
+  // the first.
+  auto marked = [](const StreamInfo& stream) {
+    return stream.default_track || stream.forced;
+  };
   auto pick = [&](int* chosen) {
     if (*chosen < 0 ||
-        (info.default_track && !media_info_.streams[*chosen].default_track)) {
+        (marked(info) && !marked(media_info_.streams[*chosen]))) {
       *chosen = info.index;
     }
   };
@@ -1041,7 +1075,7 @@ bool MatroskaDemuxer::ParseTrackEntry(const uint8_t* data, size_t size) {
     pick(&media_info_.default_video_stream);
   } else if (info.type == MediaType::kAudio) {
     pick(&media_info_.default_audio_stream);
-  } else if (info.default_track && media_info_.default_subtitle_stream < 0) {
+  } else if (marked(info) && media_info_.default_subtitle_stream < 0) {
     media_info_.default_subtitle_stream = info.index;
   }
   media_info_.streams.push_back(std::move(info));
@@ -1055,15 +1089,19 @@ void MatroskaDemuxer::ParseTags(const std::vector<uint8_t>& body) {
     if (tag.id != kTag) {
       continue;
     }
-    // Only tags about the whole file: no track, edition, chapter or
-    // attachment targets.
+    // Tags about the whole file (no track, edition, chapter or attachment
+    // targets), and a track's bitrate (mkvmerge's statistics tags).
     bool global = true;
+    uint64_t track_uid = 0;
     std::vector<Child> fields = Children(tag.data, tag.size);
     for (const Child& field : fields) {
       if (field.id != kTargets) {
         continue;
       }
       for (const Child& target : Children(field.data, field.size)) {
+        if (target.id == kTagTrackUid) {
+          track_uid = UInt(target);
+        }
         if (target.id == kTagTrackUid || target.id == kTagEditionUid ||
             target.id == kTagChapterUid || target.id == kTagAttachmentUid) {
           global = false;
@@ -1071,6 +1109,9 @@ void MatroskaDemuxer::ParseTags(const std::vector<uint8_t>& body) {
       }
     }
     if (!global) {
+      if (track_uid != 0) {
+        ParseTrackTags(track_uid, tag.data, tag.size);
+      }
       continue;
     }
     for (const Child& field : fields) {
@@ -1097,6 +1138,36 @@ void MatroskaDemuxer::ParseTags(const std::vector<uint8_t>& body) {
                        [&](const auto& entry) { return entry.first == key; });
       if (same == media_info_.metadata.end()) {
         media_info_.metadata.emplace_back(std::move(key), std::move(value));
+      }
+    }
+  }
+}
+
+void MatroskaDemuxer::ParseTrackTags(uint64_t uid,
+                                     const uint8_t* data,
+                                     size_t size) {
+  auto track = std::find_if(tracks_.begin(), tracks_.end(),
+                            [&](const Track& t) { return t.uid == uid; });
+  if (track == tracks_.end()) {
+    return;
+  }
+  for (const Child& field : Children(data, size)) {
+    if (field.id != kSimpleTag) {
+      continue;
+    }
+    std::string key;
+    std::string value;
+    for (const Child& c : Children(field.data, field.size)) {
+      if (c.id == kTagName) {
+        key = String(c);
+      } else if (c.id == kTagString) {
+        value = String(c);
+      }
+    }
+    if (key == "BPS") {
+      const long long bps = std::strtoll(value.c_str(), nullptr, 10);
+      if (bps > 0) {
+        media_info_.streams[track->stream].bitrate = bps;
       }
     }
   }

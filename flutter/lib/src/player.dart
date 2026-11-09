@@ -22,6 +22,25 @@ enum LycheeTrackType {
   final int value;
 }
 
+/// What a track is for, as the container says. Matches lychee_track_role.
+enum LycheeTrackRole {
+  main(native.kTrackRoleMain),
+
+  /// Spoken commentary (a director's, ...).
+  commentary(native.kTrackRoleCommentary),
+
+  /// For viewers who cannot see the picture: audio description, or text
+  /// describing the video.
+  description(native.kTrackRoleDescription),
+
+  /// For viewers who cannot hear the sound: captions (SDH), or audio with
+  /// clearer dialog.
+  hearingImpaired(native.kTrackRoleHearingImpaired);
+
+  const LycheeTrackRole(this.value);
+  final int value;
+}
+
 /// An audio, video or subtitle stream of the open media.
 @immutable
 class LycheeTrack {
@@ -38,6 +57,10 @@ class LycheeTrack {
     this.sampleRate = 0,
     this.channels = 0,
     this.external = false,
+    this.isDefault = false,
+    this.isForced = false,
+    this.role = LycheeTrackRole.main,
+    this.bitrate = 0,
   });
 
   /// Pass to [LycheePlayer.selectTrack].
@@ -62,6 +85,21 @@ class LycheeTrack {
 
   /// A subtitle file [LycheePlayer.addSubtitle] added.
   final bool external;
+
+  /// The container marks it as a track to play by default (Matroska's
+  /// FlagDefault, which is set unless a file says otherwise; MP4's enabled
+  /// flag; HLS `DEFAULT=YES`).
+  final bool isDefault;
+
+  /// Subtitles to show even when subtitles are off, e.g. for dialog in
+  /// another language.
+  final bool isForced;
+
+  final LycheeTrackRole role;
+
+  /// Bits per second the container declares or its sample sizes imply
+  /// (HLS: the variant's `BANDWIDTH`, on its video track); 0 if unknown.
+  final int bitrate;
 }
 
 @immutable
@@ -560,6 +598,11 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
         sampleRate: ref.sampleRate,
         channels: ref.channels,
         external: ref.isExternal != 0,
+        isDefault: ref.isDefault != 0,
+        isForced: ref.forced != 0,
+        role: LycheeTrackRole.values.firstWhere((r) => r.value == ref.role,
+            orElse: () => LycheeTrackRole.main),
+        bitrate: ref.bitrate < 0 ? 0 : ref.bitrate,
       ));
     }
     calloc.free(info);

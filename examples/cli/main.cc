@@ -494,15 +494,32 @@ void PrintTracks(lychee_player* player) {
     if (lychee_player_get_track_info(player, i, &info) != 0) {
       continue;
     }
-    printf("track %d: %s %s", i, TrackTypeName(info.type), info.codec);
+    std::string line;
+    Appendf(&line, "track %d: %s %s", i, TrackTypeName(info.type), info.codec);
     if (info.type == LYCHEE_TRACK_VIDEO) {
-      printf(" %dx%d rotation=%d", info.width, info.height,
-             lychee_player_get_video_rotation(player));
+      Appendf(&line, " %dx%d rotation=%d", info.width, info.height,
+              lychee_player_get_video_rotation(player));
     } else if (info.type == LYCHEE_TRACK_AUDIO) {
-      printf(" %d Hz %d ch", info.sample_rate, info.channels);
+      Appendf(&line, " %d Hz %d ch", info.sample_rate, info.channels);
     }
-    printf(" lang=%s title=%s selected=%d%s\n", info.language, info.title,
-           info.selected, info.external ? " external" : "");
+    Appendf(&line, " lang=%s title=%s selected=%d%s", info.language, info.title,
+            info.selected, info.external ? " external" : "");
+    // What the container says about it, where it says anything.
+    static const char* const kRoles[] = {"main", "commentary", "description",
+                                         "hearing-impaired"};
+    if (info.is_default) {
+      line += " default";
+    }
+    if (info.forced) {
+      line += " forced";
+    }
+    if (info.role > 0 && info.role < 4) {
+      Appendf(&line, " role=%s", kRoles[info.role]);
+    }
+    if (info.bitrate > 0) {
+      Appendf(&line, " bitrate=%lld", static_cast<long long>(info.bitrate));
+    }
+    printf("%s\n", line.c_str());
   }
 }
 

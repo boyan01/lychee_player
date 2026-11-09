@@ -29,6 +29,17 @@ class LycheePlayer @JvmOverloads constructor(
     /** Matches lychee_track_type. */
     enum class TrackType(internal val value: Int) { VIDEO(1), AUDIO(2), SUBTITLE(3) }
 
+    /** What a track is for, as the container says. */
+    enum class TrackRole(internal val value: Int) {
+        MAIN(0),
+        /** Spoken commentary (a director's, ...). */
+        COMMENTARY(1),
+        /** For viewers who cannot see the picture: audio description, or text describing the video. */
+        DESCRIPTION(2),
+        /** For viewers who cannot hear the sound: captions (SDH), or audio with clearer dialog. */
+        HEARING_IMPAIRED(3),
+    }
+
     sealed class Event {
         data class StateChanged(val state: State) : Event()
         data class PlayingChanged(val playing: Boolean) : Event()
@@ -77,6 +88,19 @@ class LycheePlayer @JvmOverloads constructor(
         val channels: Int,
         /** A subtitle file [addSubtitle] added. */
         val isExternal: Boolean = false,
+        /**
+         * The container marks it as a track to play by default (Matroska's FlagDefault,
+         * which is set unless a file says otherwise; MP4's enabled flag; HLS `DEFAULT=YES`).
+         */
+        val isDefault: Boolean = false,
+        /** Subtitles to show even when subtitles are off, e.g. for dialog in another language. */
+        val isForced: Boolean = false,
+        val role: TrackRole = TrackRole.MAIN,
+        /**
+         * Bits per second the container declares or its sample sizes imply (HLS: the
+         * variant's `BANDWIDTH`, on its video track); 0 if unknown.
+         */
+        val bitrate: Long = 0,
     )
 
     /** Counts are since the open. */
@@ -218,17 +242,22 @@ class LycheePlayer @JvmOverloads constructor(
     val tracks: List<Track>
         get() {
             val handle = handle()
-            val ints = IntArray(8)
+            val longs = LongArray(12)
             return (0 until nativeGetTrackCount(handle)).mapNotNull { index ->
-                val strings = nativeGetTrackInfo(handle, index, ints)?.let(::String)
+                val strings = nativeGetTrackInfo(handle, index, longs)?.let(::String)
                     ?.split('\u0000') ?: return@mapNotNull null
-                val type = TrackType.entries.firstOrNull { it.value == ints[0] }
+                val type = TrackType.entries.firstOrNull { it.value.toLong() == longs[0] }
                     ?: return@mapNotNull null
                 Track(
-                    index = index, type = type, id = ints[1], isSelected = ints[2] != 0,
+                    index = index, type = type, id = longs[1].toInt(), isSelected = longs[2] != 0L,
                     codec = strings[0], language = strings[1], title = strings[2],
-                    width = ints[3], height = ints[4], sampleRate = ints[5], channels = ints[6],
-                    isExternal = ints[7] != 0,
+                    width = longs[3].toInt(), height = longs[4].toInt(),
+                    sampleRate = longs[5].toInt(), channels = longs[6].toInt(),
+                    isExternal = longs[7] != 0L, isDefault = longs[8] != 0L,
+                    isForced = longs[9] != 0L,
+                    role = TrackRole.entries.firstOrNull { it.value.toLong() == longs[10] }
+                        ?: TrackRole.MAIN,
+                    bitrate = longs[11],
                 )
             }
         }
@@ -432,7 +461,7 @@ class LycheePlayer @JvmOverloads constructor(
         @JvmStatic private external fun nativeGetRotation(handle: Long): Int
         @JvmStatic private external fun nativeGetError(handle: Long): ByteArray?
         @JvmStatic private external fun nativeGetTrackCount(handle: Long): Int
-        @JvmStatic private external fun nativeGetTrackInfo(handle: Long, index: Int, ints: IntArray): ByteArray?
+        @JvmStatic private external fun nativeGetTrackInfo(handle: Long, index: Int, longs: LongArray): ByteArray?
         @JvmStatic private external fun nativeSelectTrack(handle: Long, type: Int, index: Int): Boolean
         @JvmStatic private external fun nativeAddSubtitle(
             handle: Long, url: ByteArray, language: ByteArray?, title: ByteArray?,

@@ -98,6 +98,11 @@ void Describe(int stream_type, const TsStreamEntry& entry, StreamInfo* info) {
     info->audio.codec_name = AudioCodecName(audio);
   }
   info->language = entry.language;
+  if (entry.audio_type == 2) {
+    info->role = TrackRole::kHearingImpaired;
+  } else if (entry.audio_type == 3) {
+    info->role = TrackRole::kDescription;
+  }
 }
 
 // Whether a stream Describe() leaves out carries audio, video or

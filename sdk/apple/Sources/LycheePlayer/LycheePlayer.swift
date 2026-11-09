@@ -40,6 +40,20 @@ public final class LycheePlayer {
     case subtitleAdded(id: Int, added: Bool)
   }
 
+  /// What a track is for, as the container says. Matches
+  /// lychee_track_role.
+  public enum TrackRole: Int32 {
+    case main = 0
+    /// Spoken commentary (a director's, ...).
+    case commentary
+    /// For viewers who cannot see the picture: audio description, or text
+    /// describing the video.
+    case description
+    /// For viewers who cannot hear the sound: captions (SDH), or audio
+    /// with clearer dialog.
+    case hearingImpaired
+  }
+
   /// An audio, video or subtitle stream of the open media.
   public struct Track {
     /// Pass to ``selectTrack(_:index:)``.
@@ -60,6 +74,17 @@ public final class LycheePlayer {
     public let channels: Int
     /// A subtitle file ``addSubtitle(_:language:title:)`` added.
     public let isExternal: Bool
+    /// The container marks it as a track to play by default (Matroska's
+    /// FlagDefault, which is set unless a file says otherwise; MP4's
+    /// enabled flag; HLS `DEFAULT=YES`).
+    public let isDefault: Bool
+    /// Subtitles to show even when subtitles are off, e.g. for dialog in
+    /// another language.
+    public let isForced: Bool
+    public let role: TrackRole
+    /// Bits per second the container declares or its sample sizes imply
+    /// (HLS: the variant's `BANDWIDTH`, on its video track); 0 if unknown.
+    public let bitrate: Int64
   }
 
   /// Bitmap subtitles (PGS, DVB, VobSub), laid out on a canvas the video
@@ -252,7 +277,9 @@ public final class LycheePlayer {
         codec: string(&info.codec), language: string(&info.language),
         title: string(&info.title), width: Int(info.width), height: Int(info.height),
         sampleRate: Int(info.sample_rate), channels: Int(info.channels),
-        isExternal: info.external != 0)
+        isExternal: info.external != 0, isDefault: info.is_default != 0,
+        isForced: info.forced != 0, role: TrackRole(rawValue: info.role) ?? .main,
+        bitrate: max(info.bitrate, 0))
     }
   }
 

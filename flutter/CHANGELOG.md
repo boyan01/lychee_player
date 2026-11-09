@@ -1,3 +1,13 @@
+## Unreleased
+
+### New
+
+* Tracks say what the media marks them as: `LycheeTrack.isDefault`,
+  `isForced`, `role` (`LycheeTrackRole`: commentary, audio description,
+  for the hearing impaired) and `bitrate` (bit/s, 0 if unknown), from
+  Matroska, MP4, MPEG-TS and HLS (`DEFAULT`, `FORCED`, `CHARACTERISTICS`,
+  and the variant's `BANDWIDTH` on the video track).
+
 ## 1.0.0
 
 ### New

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -68,6 +69,35 @@ struct SubtitleConfig {
   bool normalized = false;
 };
 
+// What a track is for, as the container says (lychee_track_role).
+enum class TrackRole {
+  kMain = 0,
+  // Spoken commentary (a director's, ...).
+  kCommentary = 1,
+  // For viewers who cannot see the picture: audio description, or text
+  // describing the video.
+  kDescription = 2,
+  // For viewers who cannot hear the sound: captions (SDH), or audio with
+  // clearer dialog.
+  kHearingImpaired = 3,
+};
+
+// The role of Apple's media characteristics, a comma separated list of
+// UTIs (HLS CHARACTERISTICS, MP4 'tagc').
+inline TrackRole TrackRoleFromCharacteristics(std::string_view list) {
+  if (list.find("public.accessibility.describes-video") !=
+      std::string_view::npos) {
+    return TrackRole::kDescription;
+  }
+  if (list.find("public.accessibility.transcribes-spoken-dialog") !=
+          std::string_view::npos ||
+      list.find("public.accessibility.describes-music-and-sound") !=
+          std::string_view::npos) {
+    return TrackRole::kHearingImpaired;
+  }
+  return TrackRole::kMain;
+}
+
 struct StreamInfo {
   int index = -1;
   MediaType type = MediaType::kUnknown;
@@ -76,6 +106,12 @@ struct StreamInfo {
   std::string title;
   // The container marks it as the track to play by default.
   bool default_track = false;
+  // ... or as one to show even when subtitles are off (foreign dialog).
+  bool forced = false;
+  TrackRole role = TrackRole::kMain;
+  // Bits per second the container declares or its sizes imply; 0 if
+  // unknown.
+  int64_t bitrate = 0;
   VideoConfig video;
   AudioConfig audio;
   SubtitleConfig subtitle;

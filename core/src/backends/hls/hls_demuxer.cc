@@ -364,6 +364,7 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
       }
       stream.title = info.name;
       stream.default_track = info.is_default;
+      stream.role = info.role;
       // The DEFAULT=YES one, else the first if the variant has none.
       if (info.is_default ? !default_is_tagged
                           : default_audio < 0 && !had_audio) {
@@ -402,7 +403,10 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
       stream.language = info.language;
       stream.title = info.name;
       stream.default_track = info.is_default;
-      if (info.is_default && media_info_.default_subtitle_stream < 0) {
+      stream.forced = info.forced;
+      stream.role = info.role;
+      if ((info.is_default || info.forced) &&
+          media_info_.default_subtitle_stream < 0) {
         media_info_.default_subtitle_stream = index;
       }
     }
@@ -553,6 +557,7 @@ void HlsDemuxer::AddVariants(const std::vector<HlsVariant>& variants,
     return std::string(title);
   };
   media_info_.streams[first.video].title = describe(variants[pick]);
+  media_info_.streams[first.video].bitrate = variants[pick].bandwidth;
   // The ladder: decodable variants of the played codec and the same
   // audio, one per URL.
   const VideoCodec codec_played = played;
@@ -605,6 +610,7 @@ void HlsDemuxer::AddVariants(const std::vector<HlsVariant>& variants,
     info.index = static_cast<int>(media_info_.streams.size());
     info.type = MediaType::kVideo;
     info.title = describe(variant);
+    info.bitrate = variant.bandwidth;
     info.video.codec = codec;
     info.video.codec_name = VideoCodecName(codec);
     info.video.width = variant.width;

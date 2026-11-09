@@ -9,6 +9,7 @@
 #include <cstring>
 #include <new>
 #include <optional>
+#include <string_view>
 
 #include "backends/hls/hls_playlist.h"
 #include "backends/mp4/mp4_subtitle.h"
@@ -155,6 +156,46 @@ std::optional<Box> Find(const std::vector<Box>& boxes, uint32_t type) {
     }
   }
   return std::nullopt;
+}
+
+// A track's role from its udta: 'kind' boxes (14496-12 8.10.4; DASH
+// roles and HTML kinds, which FFmpeg writes) and Apple's 'tagc' (media
+// characteristics).
+void ParseTrackUserData(const uint8_t* data, size_t size, StreamInfo* info) {
+  for (const Box& box : Children(data, size)) {
+    if (box.type == FourCC("tagc")) {
+      const auto* text = reinterpret_cast<const char*>(box.payload);
+      const TrackRole role = TrackRoleFromCharacteristics(
+          std::string_view(text, strnlen(text, box.payload_size)));
+      if (role != TrackRole::kMain) {
+        info->role = role;
+      }
+      continue;
+    }
+    if (box.type != FourCC("kind") || box.payload_size < 4) {
+      continue;
+    }
+    // version, flags, then schemeURI and value, each NUL-terminated.
+    const auto* text = reinterpret_cast<const char*>(box.payload + 4);
+    const size_t length = box.payload_size - 4;
+    const size_t scheme_length = strnlen(text, length);
+    if (scheme_length >= length) {
+      continue;
+    }
+    const std::string_view value(
+        text + scheme_length + 1,
+        strnlen(text + scheme_length + 1, length - scheme_length - 1));
+    if (value == "commentary") {
+      info->role = TrackRole::kCommentary;
+    } else if (value == "description" || value == "descriptions" ||
+               value == "main-desc") {
+      info->role = TrackRole::kDescription;
+    } else if (value == "caption" || value == "captions") {
+      info->role = TrackRole::kHearingImpaired;
+    } else if (value == "forced-subtitle") {
+      info->forced = true;
+    }
+  }
 }
 
 // |ticks| / |timescale| seconds in microseconds, without overflow: the
@@ -714,6 +755,9 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
     }
   }
   info.default_track = (flags & 1) != 0;
+  if (std::optional<Box> udta = Find(trak, FourCC("udta"))) {
+    ParseTrackUserData(udta->payload, udta->payload_size, &info);
+  }
 
   Reader media_header(mdhd->payload, mdhd->payload_size);
   version = media_header.U8();
@@ -1000,12 +1044,22 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
 
   info.index = static_cast<int>(media_info_.streams.size());
   info.duration = Rescale(media_duration, timescale);
+  // What its samples add up to over its duration, as FFmpeg's mov does.
+  if (!track.samples.empty() && info.duration > 0) {
+    uint64_t bytes = 0;
+    for (const Sample& sample : track.samples) {
+      bytes += sample.size;
+    }
+    info.bitrate = static_cast<int64_t>(static_cast<double>(bytes) * 8e6 /
+                                        static_cast<double>(info.duration));
+  }
   if (info.type == MediaType::kVideo && media_info_.default_video_stream < 0) {
     media_info_.default_video_stream = info.index;
   } else if (info.type == MediaType::kAudio &&
              media_info_.default_audio_stream < 0) {
     media_info_.default_audio_stream = info.index;
-  } else if (info.type == MediaType::kSubtitle && info.default_track &&
+  } else if (info.type == MediaType::kSubtitle &&
+             (info.default_track || info.forced) &&
              media_info_.default_subtitle_stream < 0) {
     // FFmpeg reads tkhd's enabled flag as the default disposition.
     media_info_.default_subtitle_stream = info.index;
