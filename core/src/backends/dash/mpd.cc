@@ -642,21 +642,50 @@ bool DashMediaPlaylist(const DashRepresentation& representation,
             ExpandDashTemplate(s.media, representation, number, time));
       };
       if (!s.timeline.empty()) {
+        // How often entry |i|, starting at |time|, repeats.
+        auto repeats_of = [&](size_t i, int64_t time) {
+          const DashSegments::Entry& e = s.timeline[i];
+          if (e.r >= 0) {
+            return e.r;
+          }
+          // Up to the next entry's time, or the end of the Period.
+          const int64_t until =
+              i + 1 < s.timeline.size() && s.timeline[i + 1].t >= 0
+                  ? s.timeline[i + 1].t
+                  : end;
+          return until > time ? (until - time + e.d - 1) / e.d - 1 : int64_t{0};
+        };
+        // Count the segments before expanding any: each costs a template
+        // expansion and a URL resolution, and a short d with r="-1" asks
+        // for hundreds of thousands (as the @duration case below does).
+        int64_t count = 0;
         int64_t time = 0;
         for (size_t i = 0; i < s.timeline.size(); ++i) {
           const DashSegments::Entry& e = s.timeline[i];
           if (e.t >= 0) {
             time = e.t;
           }
-          int64_t repeats = e.r;
-          if (repeats < 0) {
-            // Up to the next entry's time, or the end of the Period.
-            const int64_t until =
-                i + 1 < s.timeline.size() && s.timeline[i + 1].t >= 0
-                    ? s.timeline[i + 1].t
-                    : end;
-            repeats = until > time ? (until - time + e.d - 1) / e.d - 1 : 0;
+          const int64_t repeats = repeats_of(i, time);
+          // add() refuses the kMaxSegments-th.
+          if (repeats >= static_cast<int64_t>(kMaxSegments) - 1 - count) {
+            *error = "too many segments";
+            return false;
           }
+          count += repeats + 1;
+          if (repeats + 1 >
+              (std::numeric_limits<int64_t>::max() - time) / e.d) {
+            // The expansion below stops there with an error.
+            break;
+          }
+          time += (repeats + 1) * e.d;
+        }
+        time = 0;
+        for (size_t i = 0; i < s.timeline.size(); ++i) {
+          const DashSegments::Entry& e = s.timeline[i];
+          if (e.t >= 0) {
+            time = e.t;
+          }
+          const int64_t repeats = repeats_of(i, time);
           for (int64_t k = 0; k <= repeats; ++k) {
             if (!add(url(time), -1, -1, ToMicros(e.d, s.timescale), number)) {
               *error = "too many segments";
