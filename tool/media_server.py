@@ -335,10 +335,12 @@ def make_handler(root, args, state):
                         time.sleep(max(drop - time.monotonic(), 0))
                         # A reset, which clients report as an error (a
                         # close some take for the end of a chunked body).
+                        # close() waits for rfile and wfile to let go of
+                        # the socket; the descriptor closes now.
                         self.close_connection = True
                         self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
                                                    struct.pack("ii", 1, 0))
-                        self.connection.close()
+                        os.close(self.connection.detach())
                         return
                     if wait > 0:
                         time.sleep(wait)

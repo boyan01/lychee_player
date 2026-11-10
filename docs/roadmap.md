@@ -109,6 +109,10 @@ building on top of them.
   others keep decode times and jump back and forth like H.264 did. None
   has been seen. Done when an HEVC `tool/mp4_ctts_case.py` file passes a
   `frames` case.
+- **`http-no-ranges-track` failed once on CI's Windows** (2026-11-10,
+  run 42776609119): "input ended at 6.000 s, before its duration of
+  8.066 s" after the track switch; three runs on the Windows PC passed.
+  Done when the cause is known or it no longer fails on CI.
 - **Seen once in the 2026-11-04 Windows sweep, unchecked**: FATE's
   `cover_art.flac` ends at 0.186 s with FFmpeg's "invalid residual";
   Chromium's `bear-1280x720-av_frag.mp4` ends early without FFmpeg and

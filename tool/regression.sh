@@ -920,7 +920,9 @@ expect() {
     pass "$name"
   else
     echo "FAIL $name ($((SECONDS - start))s):$problems"
+    # Warnings too (a reconnect, a timeout), at most a few.
     grep -E '^(summary|error|seek took)' <<<"$out" | sed 's/^/     /'
+    grep -E '^\[[WE]/' <<<"$out" | head -8 | sed 's/^/     /'
     print_reports "$out"
   fi
 }
