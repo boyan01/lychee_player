@@ -277,6 +277,28 @@ TEST(FlvDemuxer, StreamEndsIfItCannotReconnectAfterItsEnd) {
   EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kEndOfStream);
   EXPECT_EQ(reopened, 1);
 }
+TEST(FlvDemuxer, StreamEndsWhenAReconnectBringsNothingNew) {
+  // Every response fails at its end, as FFmpeg's http reports the end of
+  // a chunked one: the reconnect sends the same again, then ends.
+  Bytes bytes = FlvHeader(4);
+  FlvTag(&bytes, 8, 0, {0xaf, 0, 0x11, 0x90});
+  FlvTag(&bytes, 8, 0, {0xaf, 1, 1});
+  const auto end = static_cast<int64_t>(bytes.size());
+  FlvDemuxer demuxer;
+  int reopened = 0;
+  demuxer.SetReopener(
+      [&](const std::string&, std::string*) -> std::unique_ptr<DataSource> {
+        ++reopened;
+        return std::make_unique<StreamSource>(bytes, end);
+      },
+      "http://live/stream.flv");
+  std::string error;
+  EXPECT_TRUE(demuxer.Open(std::make_unique<StreamSource>(bytes, end), &error));
+  EncodedPacket packet;
+  EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kOk);
+  EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kEndOfStream);
+  EXPECT_EQ(reopened, 1);
+}
 TEST(FlvDemuxer, StreamGivesUpReconnecting) {
   Bytes bytes = FlvHeader(4);
   FlvTag(&bytes, 8, 0, {0xaf, 0, 0x11, 0x90});

@@ -398,12 +398,12 @@ void FlvDemuxer::ParseMetadata(const uint8_t* data, size_t size) {
     double value;
     if (!amf.U8(&type) || !amf.Double(&value)) return;
     // Converting a NaN or a huge double to int is undefined.
-    const bool size = value > 0 && value < 65536;
+    const bool dimension = value > 0 && value < 65536;
     if (name == "duration" && value > 0 && value < 1e9) {
       metadata_duration_ = value;
-    } else if (name == "width" && size) {
+    } else if (name == "width" && dimension) {
       metadata_width_ = static_cast<int>(value);
-    } else if (name == "height" && size) {
+    } else if (name == "height" && dimension) {
       metadata_height_ = static_cast<int>(value);
     }
   }
@@ -719,7 +719,11 @@ DemuxerReadResult FlvDemuxer::Read(EncodedPacket* packet) {
       ended_ = true;
       continue;
     }
-    after_end_ = step == Step::kEnd;
+    // Also a break right after a reconnect that brought nothing new
+    // (reconnects_ is reset by each new frame): FFmpeg's http reports
+    // the clean end of a chunked response of unknown size as EIO, and a
+    // server whose stream is over sends what it held again, then that.
+    after_end_ = step == Step::kEnd || reconnects_ > 0;
     if (after_end_) {
       LOGI("flv: the stream ended; reconnecting in case it broke off");
     } else {

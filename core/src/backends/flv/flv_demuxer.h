@@ -125,7 +125,8 @@ class FlvDemuxer final : public IndexedDemuxer {
   std::vector<bool> resending_;
   // The connection broke: Read() opens it again first. After a clean
   // end, which some clients also report for a connection cut off (Apple's
-  // for a chunked response), once only, and failing that it ends.
+  // for a chunked response), or after a reconnect that brought no new
+  // frame, once only, and failing that it ends.
   bool broken_ = false;
   bool after_end_ = false;
   size_t reconnects_ = 0;

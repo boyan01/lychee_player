@@ -54,15 +54,11 @@ building on top of them.
    `http-hls-prefetch-hls` on Linux, or of the Android example playing
    `hls/index.m3u8`, has segment 5 requested before segment 4's last
    bytes went out.
-5. **HTTP-FLV live on Android and Linux** (2026-11-10): the
-   `http-flv-live*` cases ran on macOS only; Windows and Linux run them
-   on CI. On Android no run has played a live FLV through
-   `HttpURLConnection`, whose source now fails instead of resuming a
-   response without a length or ranges, so the FLV reader reconnects. On
-   Linux FFmpeg's http (`reconnect_streamed`) reads the stream, and how
-   it resumes a live response that breaks off is unchecked. Done when
-   `http-flv-live-reconnect` passes on Linux and the Android example
-   plays `--live-flv` through a drop.
+5. **HTTP-FLV live on Android** (2026-11-10): no run has played a live
+   FLV through `HttpURLConnection`, whose source now fails instead of
+   resuming a response without a length or ranges, so the FLV reader
+   reconnects. Done when the Android example plays `--live-flv` through
+   a drop.
 6. **iOS audio after the background**: on the iPhone 17 (2026-10-29)
    sound and hardware video came back after the Home Screen, but that
    run's audio device never failed to start, so the renderer's retry of
