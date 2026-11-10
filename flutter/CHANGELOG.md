@@ -6,6 +6,10 @@
   log lines to the app, to keep them with its own logs, and
   `LycheeLog.level` sets how much it logs. On Android the lines
   otherwise only go to logcat, which some devices do not keep for apps.
+* Android: `LycheeVideo(player, surfaceView: true)` shows the video in a
+  `SurfaceView` instead of a texture. On TVs this shows 4K at the
+  panel's resolution where the app's UI runs at 1080p, and passes HDR on
+  to the display. Widgets drawn over the video cost more with it.
 
 ### Fixed
 

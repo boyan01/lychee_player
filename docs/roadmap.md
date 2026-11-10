@@ -75,7 +75,13 @@ building on top of them.
    H.264. Not seen yet: B站 4K HEVC HDR playing in TV Play on that TV
    with this build, and the cost of Impeller Vulkan's GL-to-Vulkan copy
    of each SurfaceTexture frame at 4K60 (dropped frames in a profile
-   build). Done when both are checked on the TV. Also open: the
+   build). Done when both are checked on the TV. Likewise
+   `LycheeVideo(surfaceView: true)` (Hybrid Composition), seen only on
+   the Pixel_10 emulator with `h264_aac.mp4`: on the TV, 4K HDR in TV
+   Play with danmaku over it, whether the picture is at 4K and in HDR,
+   and dropped frames of the UI. Rotated video and `BoxFit.cover` with
+   it are unchecked (rotated video falls back to the texture). Also
+   open: the
    2026-11-10 18:26 run on that TV where H.264 from 480p to 4K became
    ready at 0x0 (`DecodeFinal failed, ret=-5`), and choosing another
    hardware decoder by name (`MediaCodecList` needs Java) when a device

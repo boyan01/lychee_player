@@ -1,5 +1,6 @@
 package tech.soit.lychee.lychee_player
 
+import android.util.Size
 import android.view.Surface
 import android.view.Window
 import io.flutter.view.TextureRegistry
@@ -21,6 +22,8 @@ import tech.soit.lychee.LycheeFrameDriver
  *
  * MediaCodec renders at whatever size it decodes; software frames need a
  * Surface of the frame's size. Either kind of switch takes a new Surface.
+ * While a [LycheeSurfaceView] shows the player, frames go into its
+ * SurfaceView instead.
  *
  * Created and released on the platform thread.
  */
@@ -32,6 +35,11 @@ internal class LycheeTexture(
 ) {
     private var released = false
     private var surface = Surface(entry.surfaceTexture())
+    // The platform view frames go into instead, if any.
+    private var view: LycheeSurfaceView? = null
+    // The size of CPU frames since the driver asked for a CPU Surface; null
+    // for MediaCodec.
+    private var cpuSize: Size? = null
     private val driver = LycheeFrameDriver(player, refreshRate, false, ::onSurfaceNeeded)
 
     init {
@@ -59,11 +67,45 @@ internal class LycheeTexture(
 
     private fun onSurfaceNeeded(cpu: Boolean, width: Int, height: Int) {
         if (released) return
-        if (cpu) entry.surfaceTexture().setDefaultBufferSize(width, height)
+        cpuSize = if (cpu) Size(width, height) else null
+        val view = view
+        if (view != null) {
+            newViewSurface(view)
+            return
+        }
+        newTextureSurface()
+    }
+
+    private fun newTextureSurface() {
+        cpuSize?.let { entry.surfaceTexture().setDefaultBufferSize(it.width, it.height) }
         val old = surface
         surface = Surface(entry.surfaceTexture())
         driver.setSurface(surface)
         old.release()
+    }
+
+    private fun newViewSurface(view: LycheeSurfaceView) {
+        driver.setSurface(null)
+        view.newSurfaceView(cpuSize) { surface ->
+            if (!released && this.view === view) driver.setSurface(surface)
+        }
+    }
+
+    /** [view] shows the player from now on, until [detachView]. */
+    fun attachView(view: LycheeSurfaceView) {
+        if (released) return
+        this.view = view
+        newViewSurface(view)
+    }
+
+    /** Back to the texture, if [view] was the one showing the player. */
+    fun detachView(view: LycheeSurfaceView) {
+        if (released || this.view !== view) return
+        this.view = null
+        driver.setSurface(null)
+        // The SurfaceTexture's old Surface may have been connected to
+        // MediaCodec before; a new one connects to either.
+        newTextureSurface()
     }
 
     fun release() {

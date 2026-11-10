@@ -34,6 +34,9 @@ class LycheePlayerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
         textureRegistry = binding.textureRegistry
         channel = MethodChannel(binding.binaryMessenger, "lychee_player")
         channel.setMethodCallHandler(this)
+        binding.platformViewRegistry.registerViewFactory(
+            LycheeSurfaceView.VIEW_TYPE, LycheeSurfaceView.Factory(textures),
+        )
     }
 
     // Also when an activity's engine goes while the process stays (back out

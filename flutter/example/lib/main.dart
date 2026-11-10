@@ -15,7 +15,8 @@ import 'package:lychee_player/lychee_player.dart';
 /// prints a summary line in examples/glfw's format after N seconds and
 /// quits, for unattended runs. It writes to logcat on Android, stderr
 /// elsewhere. Mobile apps get no arguments, so the LYCHEE_SECONDS define
-/// does the same there. LYCHEE_MATCH_DISPLAY=true turns on display mode
+/// does the same there. LYCHEE_SURFACE_VIEW=true shows the video in a
+/// SurfaceView (Android). LYCHEE_MATCH_DISPLAY=true turns on display mode
 /// matching (Android).
 void main(List<String> args) {
   var url = const String.fromEnvironment('LYCHEE_URL');
@@ -750,7 +751,10 @@ class _Picture extends StatelessWidget {
         }
         return const Icon(Icons.graphic_eq, size: 80, color: Colors.white38);
       },
-      child: LycheeVideo(player),
+      child: LycheeVideo(
+        player,
+        surfaceView: const bool.fromEnvironment('LYCHEE_SURFACE_VIEW'),
+      ),
     );
   }
 }

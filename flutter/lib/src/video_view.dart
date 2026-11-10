@@ -1,3 +1,7 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'player.dart';
@@ -46,6 +50,7 @@ class LycheeVideo extends StatelessWidget {
     super.key,
     this.fit = BoxFit.contain,
     this.subtitleStyle = const LycheeSubtitleStyle(),
+    this.surfaceView = false,
   });
 
   final LycheePlayer player;
@@ -53,6 +58,17 @@ class LycheeVideo extends StatelessWidget {
 
   /// Null draws no text subtitles, for drawing them yourself.
   final LycheeSubtitleStyle? subtitleStyle;
+
+  /// Android: show the video in a SurfaceView (a platform view, in Hybrid
+  /// Composition) instead of a texture, for 4K and HDR on TVs. The
+  /// compositor then shows the decoder's frames itself: at the panel's
+  /// resolution where Flutter's UI is drawn smaller (4K TVs whose UI runs
+  /// at 1080p), with HDR passed on to the display, and without the copy
+  /// into Flutter's texture. Widgets over the video cost more to draw
+  /// (Flutter composites them in layers of their own). Only one
+  /// [LycheeVideo] with it should show a player at a time. Ignored on other
+  /// platforms, for rotated video, and without bounded constraints.
+  final bool surfaceView;
 
   @override
   Widget build(BuildContext context) {
@@ -68,33 +84,101 @@ class LycheeVideo extends StatelessWidget {
         final pictures = drawn.pictures;
         final text = pictures == null ? drawn.subtitle : null;
         final style = subtitleStyle;
-        return ClipRect(
-          child: FittedBox(
-            fit: fit,
-            child: SizedBox.fromSize(
-              size: rotated,
-              child: Stack(
-                children: [
-                  RotatedBox(
-                    quarterTurns: turns,
-                    child: SizedBox.fromSize(
-                      size: size,
-                      child: Texture(textureId: player.textureId),
-                    ),
-                  ),
-                  for (final picture in pictures ?? const [])
-                    Positioned.fromRect(
-                      rect: picture.rect,
-                      child: RawImage(image: picture.image, fit: BoxFit.fill),
-                    ),
-                  if (text != null && style != null)
-                    _SubtitleText(text, style, rotated),
-                ],
+        // Video (or nothing) and subtitles, laid out in pixels of the
+        // video and scaled by |fit|.
+        Widget fitted(Widget? video) => FittedBox(
+              fit: fit,
+              child: SizedBox.fromSize(
+                size: rotated,
+                child: Stack(
+                  children: [
+                    if (video != null) video,
+                    for (final picture in pictures ?? const [])
+                      Positioned.fromRect(
+                        rect: picture.rect,
+                        child: RawImage(image: picture.image, fit: BoxFit.fill),
+                      ),
+                    if (text != null && style != null)
+                      _SubtitleText(text, style, rotated),
+                  ],
+                ),
               ),
-            ),
-          ),
-        );
+            );
+        if (surfaceView &&
+            turns == 0 &&
+            !kIsWeb &&
+            defaultTargetPlatform == TargetPlatform.android) {
+          return LayoutBuilder(builder: (context, constraints) {
+            if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
+              return ClipRect(child: fitted(_textureOf(size, turns)));
+            }
+            // The platform view gets the video's rectangle untransformed:
+            // a SurfaceView does not follow a scale.
+            final box = Offset.zero & constraints.biggest;
+            final destination = applyBoxFit(fit, size, box.size).destination;
+            final rect = Alignment.center.inscribe(destination, box);
+            return ClipRect(
+              child: SizedBox.fromSize(
+                size: box.size,
+                child: Stack(
+                  children: [
+                    Positioned.fromRect(
+                      rect: rect,
+                      child: _AndroidSurfaceView(
+                        key: ValueKey(player.textureId),
+                        textureId: player.textureId,
+                      ),
+                    ),
+                    Positioned.fill(child: fitted(null)),
+                  ],
+                ),
+              ),
+            );
+          });
+        }
+        return ClipRect(child: fitted(_textureOf(size, turns)));
       },
+    );
+  }
+
+  Widget _textureOf(Size size, int turns) => RotatedBox(
+        quarterTurns: turns,
+        child: SizedBox.fromSize(
+          size: size,
+          child: Texture(textureId: player.textureId),
+        ),
+      );
+}
+
+// The player's SurfaceView (LycheeSurfaceView.kt). Hybrid Composition: the
+// SurfaceView sits in Android's view hierarchy; texture layer composition
+// would draw it into a texture again.
+class _AndroidSurfaceView extends StatelessWidget {
+  const _AndroidSurfaceView({super.key, required this.textureId});
+
+  final int textureId;
+
+  static const _viewType = 'lychee_player/surface_view';
+
+  @override
+  Widget build(BuildContext context) {
+    return PlatformViewLink(
+      viewType: _viewType,
+      surfaceFactory: (context, controller) => AndroidViewSurface(
+        controller: controller as AndroidViewController,
+        gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+        hitTestBehavior: PlatformViewHitTestBehavior.transparent,
+      ),
+      onCreatePlatformView: (params) =>
+          PlatformViewsService.initExpensiveAndroidView(
+        id: params.id,
+        viewType: _viewType,
+        layoutDirection: TextDirection.ltr,
+        creationParams: {'textureId': textureId},
+        creationParamsCodec: const StandardMessageCodec(),
+      )
+            ..addOnPlatformViewCreatedListener(params.onPlatformViewCreated)
+            ..create(),
     );
   }
 }
