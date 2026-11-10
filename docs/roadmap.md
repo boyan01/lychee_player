@@ -65,30 +65,22 @@ building on top of them.
    a refused start (`'what'`, `audio device started on retry`) is seen
    only in `audio-device-start-retry`. Also unseen: an alarm or call
    alone (an audio interruption) recovering without the foreground hook.
-7. **Flutter on Android through a SurfaceTexture** (2026-11-10): the
-   plugin renders into `createSurfaceTexture()` instead of a
-   SurfaceProducer, whose ImageReader keeps up to five shown frames and
-   so starved MediaTek's 4K decoders on a TCL TV (MT9655, Android 14;
-   about ten output buffers, `C2BqBuffer: ... consecutive failures`):
-   picture stuck, sound on. `lychee_cli --android-surface` with
-   `debug.lychee.hold_surface_images 4` reproduces it there with 4K
-   H.264. Not seen yet: B站 4K HEVC HDR playing in TV Play on that TV
-   with this build, and the cost of Impeller Vulkan's GL-to-Vulkan copy
-   of each SurfaceTexture frame at 4K60 (dropped frames in a profile
-   build). Done when both are checked on the TV. Likewise
-   `LycheeVideo(surfaceView: true)` (Hybrid Composition), seen only on
-   the Pixel_10 emulator with `h264_aac.mp4`: on the TV, 4K HDR in TV
-   Play with danmaku over it, whether the picture is at 4K and in HDR,
-   and dropped frames of the UI. Rotated video and `BoxFit.cover` with
-   it are unchecked (rotated video falls back to the texture). Also
-   open: the
-   2026-11-10 18:26 run on that TV where H.264 from 480p to 4K became
-   ready at 0x0 (`DecodeFinal failed, ret=-5`), and choosing another
-   hardware decoder by name (`MediaCodecList` needs Java) when a device
-   lists several.
+7. **Choosing another hardware decoder** (2026-11-10): by name
+   (`MediaCodecList` needs Java) when a device lists several. Also
+   unexplained: the 2026-11-10 18:26 run on the TCL TV where H.264 from
+   480p to 4K became ready at 0x0 (`DecodeFinal failed, ret=-5`).
 
 ## Known defects
 
+- **Android SurfaceView drops frames** (2026-11-10): on the TCL TV
+  (MT9655, 60 Hz), TV Play with `LycheeVideo(surfaceView: true)` showed
+  B站 4K HEVC HDR10 correctly (the TV switched to HDR10) but counted 549
+  of 2297 decoded frames dropped in 39 s, and 104 of 661 for 1080p H.264;
+  through the texture the same TV dropped 4 of 932 (4K H.264). Likely
+  the frame driver's display time (vsync plus two periods, for
+  Flutter's compositor) is a period late for a SurfaceView, which
+  SurfaceFlinger takes directly. Done when 60 fps video through it
+  drops about as few as through the texture on that TV.
 - **macOS MP3 fuzz run leak report** (2026-11-07): `FUZZ_TARGET=mp3
   tool/fuzz.sh` completed 116,883 inputs without a crash artifact, but
   LeakSanitizer reported 995 bytes allocated by the sanitizer's symbolizer
