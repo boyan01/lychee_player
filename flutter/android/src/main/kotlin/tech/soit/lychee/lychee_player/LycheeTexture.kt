@@ -2,9 +2,10 @@ package tech.soit.lychee.lychee_player
 
 import android.util.Size
 import android.view.Surface
-import android.view.Window
+import android.app.Activity
 import io.flutter.view.TextureRegistry
 import tech.soit.lychee.LycheeFrameDriver
+import tech.soit.lychee.LycheePlayer
 
 /**
  * Pulls a player's frames once per vsync into a Flutter SurfaceTexture,
@@ -22,8 +23,8 @@ import tech.soit.lychee.LycheeFrameDriver
  *
  * MediaCodec renders at whatever size it decodes; software frames need a
  * Surface of the frame's size. Either kind of switch takes a new Surface.
- * While a [LycheeSurfaceView] shows the player, frames go into its
- * SurfaceView instead.
+ * While Dart shows the player in a [LycheeSurfaceView], frames go into
+ * its SurfaceView instead.
  *
  * Created and released on the platform thread.
  */
@@ -35,8 +36,11 @@ internal class LycheeTexture(
 ) {
     private var released = false
     private var surface = Surface(entry.surfaceTexture())
-    // The platform view frames go into instead, if any.
+    // The view frames go into instead, if any, and its rectangle (left,
+    // top, width, height in pixels of the FlutterView) while Dart asks
+    // for one, also while the Activity is away.
     private var view: LycheeSurfaceView? = null
+    private var viewRect: IntArray? = null
     // The size of CPU frames since the driver asked for a CPU Surface; null
     // for MediaCodec.
     private var cpuSize: Size? = null
@@ -46,8 +50,8 @@ internal class LycheeTexture(
         driver.setSurface(surface)
     }
 
-    // The Activity's window, while the plugin has one.
-    private var window: Window? = null
+    // While the plugin has one.
+    private var activity: Activity? = null
 
     /** Dart's LycheePlayer.setDisplayModeMatching(). */
     var displayModeMatching = false
@@ -56,13 +60,43 @@ internal class LycheeTexture(
             applyDisplayModeMatching()
         }
 
-    fun setWindow(window: Window?) {
-        this.window = window
+    fun setActivity(activity: Activity?) {
+        if (released) return
+        removeView()
+        this.activity = activity
         applyDisplayModeMatching()
+        viewRect?.let(::setViewRect)
     }
 
     private fun applyDisplayModeMatching() {
-        if (!released) driver.setDisplayModeMatching(if (displayModeMatching) window else null)
+        if (!released) driver.setDisplayModeMatching(if (displayModeMatching) activity?.window else null)
+    }
+
+    /**
+     * Dart's LycheeVideo(surfaceView: true) at [rect] (left, top, width,
+     * height in pixels of the FlutterView), or gone with null. False when
+     * the Activity cannot show a [LycheeSurfaceView]: Dart then draws the
+     * texture.
+     */
+    fun setViewRect(rect: IntArray?): Boolean {
+        if (released) return false
+        viewRect = rect
+        if (rect == null) {
+            removeView()
+            return true
+        }
+        val view = view ?: activity?.let(LycheeSurfaceView::create)?.also {
+            it.setRect(rect[0], rect[1], rect[2], rect[3])
+            attachView(it)
+        } ?: return false
+        view.setRect(rect[0], rect[1], rect[2], rect[3])
+        return true
+    }
+
+    private fun removeView() {
+        val view = view ?: return
+        detachView(view)
+        view.remove()
     }
 
     private fun onSurfaceNeeded(cpu: Boolean, width: Int, height: Int) {
@@ -87,20 +121,26 @@ internal class LycheeTexture(
     private fun newViewSurface(view: LycheeSurfaceView) {
         driver.setSurface(null)
         view.newSurfaceView(cpuSize) { surface ->
-            if (!released && this.view === view) driver.setSurface(surface)
+            if (!released && this.view === view) {
+                driver.setSurface(surface)
+                if (surface != null && cpuSize == null) {
+                    // On some MediaTek TVs, switching from the texture leaves
+                    // video GPU-composited. Recreate with this view attached
+                    // to recover native video composition.
+                    LycheePlayer.rebuildVideoDecoderHandle(player)
+                }
+            }
         }
     }
 
-    /** [view] shows the player from now on, until [detachView]. */
-    fun attachView(view: LycheeSurfaceView) {
-        if (released) return
+    private fun attachView(view: LycheeSurfaceView) {
         this.view = view
         newViewSurface(view)
     }
 
-    /** Back to the texture, if [view] was the one showing the player. */
-    fun detachView(view: LycheeSurfaceView) {
-        if (released || this.view !== view) return
+    // Back to the texture.
+    private fun detachView(view: LycheeSurfaceView) {
+        if (this.view !== view) return
         this.view = null
         driver.setSurface(null)
         // The SurfaceTexture's old Surface may have been connected to
@@ -109,6 +149,8 @@ internal class LycheeTexture(
     }
 
     fun release() {
+        view?.remove()
+        view = null
         released = true
         // The player may be destroyed as soon as this returns.
         driver.close()

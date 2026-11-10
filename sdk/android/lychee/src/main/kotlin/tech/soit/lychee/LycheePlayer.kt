@@ -691,6 +691,10 @@ class LycheePlayer @JvmOverloads constructor(
     }
 
     companion object {
+        /** Requests fresh video decoding for a player created through the C ABI. */
+        @JvmStatic
+        fun rebuildVideoDecoderHandle(handle: Long) = nativeRebuildVideoDecoder(handle)
+
         /**
          * Destroys a player created through the C ABI rather than this
          * class, whose owner is gone: the Flutter plugin's, after a hot

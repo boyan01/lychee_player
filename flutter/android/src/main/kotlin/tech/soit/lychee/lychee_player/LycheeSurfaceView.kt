@@ -1,48 +1,71 @@
 package tech.soit.lychee.lychee_player
 
-import android.content.Context
-import android.graphics.Color
+import android.app.Activity
 import android.util.Size
+import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import io.flutter.plugin.common.StandardMessageCodec
-import io.flutter.plugin.platform.PlatformView
-import io.flutter.plugin.platform.PlatformViewFactory
+import io.flutter.embedding.android.FlutterTextureView
+import io.flutter.embedding.android.FlutterView
 
 /**
  * Dart's LycheeVideo(surfaceView: true): the player's frames go into a
- * SurfaceView shown as a platform view (Hybrid Composition) instead of the
- * texture, while the view exists. The compositor then shows MediaCodec's
- * buffers itself: at the panel's resolution where the UI layer is smaller
- * (4K TVs whose UI runs at 1080p), with HDR passed on, and without Flutter
- * holding any buffer. Dart sizes the view to the video's rectangle, so the
- * SurfaceView fills it.
+ * SurfaceView below the FlutterView, which shows through where Dart
+ * clears its layer to transparent (the video's rectangle). The compositor
+ * then shows MediaCodec's buffers itself: at the panel's resolution where
+ * the UI layer is smaller (4K TVs whose UI runs at 1080p), with HDR passed
+ * on, and without Flutter holding any buffer.
+ *
+ * Not a platform view: with a Hybrid Composition one, the Choreographer
+ * the frame driver pulls on missed 12 to 18 of every 120 vsyncs on a TCL
+ * TV, and a third of 4K60's frames never showed. This path uses a
+ * TextureView-backed FlutterView (the Activity's `getRenderMode()` returns
+ * `RenderMode.texture`), so Flutter's transparent video rectangle is
+ * drawn into the window above the native video. flutter-airplay does the
+ * same.
  */
-internal class LycheeSurfaceView(
-    context: Context,
-    private val texture: LycheeTexture?,
-) : PlatformView {
-    private val layout = FrameLayout(context).apply {
-        setBackgroundColor(Color.BLACK)
-        // D-pad focus stays with Flutter.
-        isFocusable = false
-        descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
-    }
+internal class LycheeSurfaceView private constructor(
+    private val layer: FrameLayout,
+    private val flutterView: View,
+) {
     private var surfaceView: SurfaceView? = null
+    // In pixels of the FlutterView.
+    private var left = 0
+    private var top = 0
+    private var width = 1
+    private var height = 1
 
-    init {
-        texture?.attachView(this)
+    fun setRect(left: Int, top: Int, width: Int, height: Int) {
+        this.left = left
+        this.top = top
+        this.width = width.coerceAtLeast(1)
+        this.height = height.coerceAtLeast(1)
+        surfaceView?.let(::layout)
     }
 
-    override fun getView(): View = layout
+    private fun layout(view: SurfaceView) {
+        val params = view.layoutParams as FrameLayout.LayoutParams
+        val l = flutterView.left + left
+        val t = flutterView.top + top
+        if (params.width == width && params.height == height &&
+            params.leftMargin == l && params.topMargin == t
+        ) {
+            return
+        }
+        params.width = width
+        params.height = height
+        params.leftMargin = l
+        params.topMargin = t
+        view.layoutParams = params
+    }
 
-    override fun dispose() {
-        texture?.detachView(this)
-        surfaceView?.let(layout::removeView)
+    fun remove() {
+        surfaceView?.let(layer::removeView)
         surfaceView = null
+        if (layer.childCount == 0) (layer.parent as? ViewGroup)?.removeView(layer)
     }
 
     /**
@@ -51,9 +74,9 @@ internal class LycheeSurfaceView(
      * CPU frames are copied at. [onSurface] gets its Surface, or null when
      * it goes.
      */
-    fun newSurfaceView(cpuSize: Size?, onSurface: (android.view.Surface?) -> Unit) {
-        surfaceView?.let(layout::removeView)
-        val view = SurfaceView(layout.context)
+    fun newSurfaceView(cpuSize: Size?, onSurface: (Surface?) -> Unit) {
+        surfaceView?.let(layer::removeView)
+        val view = SurfaceView(layer.context)
         view.isFocusable = false
         cpuSize?.let { view.holder.setFixedSize(it.width, it.height) }
         view.holder.addCallback(object : SurfaceHolder.Callback {
@@ -68,24 +91,54 @@ internal class LycheeSurfaceView(
             }
         })
         surfaceView = view
-        layout.addView(
-            view,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT,
+        view.layoutParams = FrameLayout.LayoutParams(width, height)
+        layout(view)
+        if (layer.parent == null) addLayer()
+        layer.addView(view)
+    }
+
+    // Right below the FlutterView.
+    private fun addLayer() {
+        val parent = flutterView.parent as? ViewGroup ?: return
+        parent.addView(
+            layer,
+            parent.indexOfChild(flutterView),
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
             ),
         )
     }
 
-    class Factory(private val textures: Map<Long, LycheeTexture>) :
-        PlatformViewFactory(StandardMessageCodec.INSTANCE) {
-        override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
-            val id = ((args as? Map<*, *>)?.get("textureId") as? Number)?.toLong()
-            return LycheeSurfaceView(context, id?.let(textures::get))
-        }
-    }
-
     companion object {
-        const val VIEW_TYPE = "lychee_player/surface_view"
+        /**
+         * A view below [activity]'s FlutterView, or null when Flutter does
+         * not draw through a TextureView there.
+         */
+        fun create(activity: Activity): LycheeSurfaceView? {
+            val flutterView = find(activity.window.decorView) ?: return null
+            if ((0 until flutterView.childCount).none { flutterView.getChildAt(it) is FlutterTextureView }) {
+                return null
+            }
+            val parent = flutterView.parent as? ViewGroup ?: return null
+            // One layer per Activity, for all players' views.
+            val layer = (0 until parent.childCount).map(parent::getChildAt)
+                .firstOrNull { it.tag === LAYER_TAG } as? FrameLayout
+                ?: FrameLayout(activity).also {
+                    it.tag = LAYER_TAG
+                    it.isFocusable = false
+                    it.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                }
+            return LycheeSurfaceView(layer, flutterView)
+        }
+
+        private fun find(view: View): FlutterView? {
+            if (view is FlutterView) return view
+            if (view !is ViewGroup) return null
+            for (i in 0 until view.childCount) find(view.getChildAt(i))?.let { return it }
+            return null
+        }
+
+        private val LAYER_TAG = Any()
     }
 }

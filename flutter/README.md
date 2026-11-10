@@ -92,6 +92,27 @@ Subtitles: text arrives in `value.subtitle` for your app to draw over the
 video. Bitmap subtitles (PGS; DVB and VobSub with FFmpeg) arrive in
 `value.subtitlePictures`, and `LycheeVideo` draws them itself.
 
+### Android TV video output
+
+`LycheeVideo(player, surfaceView: true)` sends video to a native
+SurfaceView below Flutter. It can retain 4K panel resolution when the
+TV renders its Flutter UI at 1080p, and passes HDR to the display.
+This implementation needs a TextureView-backed Flutter activity:
+
+```kotlin
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.RenderMode
+
+class MainActivity : FlutterActivity() {
+    override fun getRenderMode(): RenderMode = RenderMode.texture
+}
+```
+
+Widgets painted above the video remain visible; the video rectangle
+clears widgets painted behind it. Entering this mode can briefly
+rebuffer. Use one native view per player. Other platforms, rotated video,
+unbounded layouts and activities without this setup use the texture.
+
 ### Players your native code creates
 
 Native code can create players through the C ABI (`lychee/lychee.h`),

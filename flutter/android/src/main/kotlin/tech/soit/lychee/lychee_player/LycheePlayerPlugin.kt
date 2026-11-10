@@ -17,7 +17,8 @@ class LycheePlayerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
     private lateinit var textureRegistry: TextureRegistry
     private lateinit var context: Context
     private val textures = HashMap<Long, LycheeTexture>()
-    // Whose window display mode matching asks for modes.
+    // Whose window display mode matching asks for modes, and where
+    // SurfaceViews go.
     private var activity: Activity? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -34,9 +35,6 @@ class LycheePlayerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
         textureRegistry = binding.textureRegistry
         channel = MethodChannel(binding.binaryMessenger, "lychee_player")
         channel.setMethodCallHandler(this)
-        binding.platformViewRegistry.registerViewFactory(
-            LycheeSurfaceView.VIEW_TYPE, LycheeSurfaceView.Factory(textures),
-        )
     }
 
     // Also when an activity's engine goes while the process stays (back out
@@ -48,7 +46,7 @@ class LycheePlayerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
-        textures.values.forEach { it.setWindow(binding.activity.window) }
+        textures.values.forEach { it.setActivity(binding.activity) }
     }
 
     override fun onDetachedFromActivityForConfigChanges() = onDetachedFromActivity()
@@ -58,7 +56,7 @@ class LycheePlayerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
 
     override fun onDetachedFromActivity() {
         activity = null
-        textures.values.forEach { it.setWindow(null) }
+        textures.values.forEach { it.setActivity(null) }
     }
 
     // Releases every texture and destroys its player.
@@ -76,7 +74,7 @@ class LycheePlayerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                 val player = call.argument<Number>("player")!!.toLong()
                 val entry = textureRegistry.createSurfaceTexture()
                 textures[entry.id()] =
-                    LycheeTexture(entry, player, refreshRate()).also { it.setWindow(activity?.window) }
+                    LycheeTexture(entry, player, refreshRate()).also { it.setActivity(activity) }
                 result.success(entry.id())
             }
             // After a hot restart: the previous isolate's players still play.
@@ -88,6 +86,11 @@ class LycheePlayerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                 val id = call.argument<Number>("textureId")!!.toLong()
                 textures[id]?.displayModeMatching = call.argument<Boolean>("enabled")!!
                 result.success(null)
+            }
+            "setSurfaceView" -> {
+                val id = call.argument<Number>("textureId")!!.toLong()
+                val rect = call.argument<List<Number>>("rect")?.map { it.toInt() }?.toIntArray()
+                result.success(textures[id]?.setViewRect(rect) ?: false)
             }
             "disposeTexture" -> {
                 val id = call.argument<Number>("textureId")!!.toLong()

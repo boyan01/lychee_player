@@ -70,25 +70,14 @@ building on top of them.
    unexplained: the 2026-11-10 18:26 run on the TCL TV where H.264 from
    480p to 4K became ready at 0x0 (`DecodeFinal failed, ret=-5`).
 
+8. **Android SurfaceView crop fitting**: the native path has not been
+   checked with `BoxFit.cover` in a container of a different aspect ratio.
+   Dart computes a cropped source, but the native placement currently
+   receives only the destination rectangle. Done when the native result
+   is checked against the texture's center crop and they match.
+
 ## Known defects
 
-- **Android SurfaceView drops frames** (2026-11-10): on the TCL TV
-  (MT9655, 60 Hz), Flutter's native video underlay still uses CLIENT
-  composition and hands out about 42-46 frames per playback second for
-  hevc10_4k60. Explicitly transparent FlutterTextureView and transparent
-  FlutterSurfaceView both failed, including a valid static page that drew
-  only five Flutter frames at startup. The same probe APK's Flutter video
-  texture path handed out about 61 frames/s with 4 drops; the native SDK
-  example used DEVICE(MM), rendering 599 with 1 drop. The exact composer
-  rejection or scheduling cause remains unknown; present-fence warnings
-  do not identify it. A foreground trace showed about 53 vsync callbacks/s
-  with callback durations below 16 ms while acquisition stayed near 42/s.
-  Next: correlate vendor rejection with decoder output-buffer ownership
-  and presentation timing.
-  See [the investigation](android-tv-composition.md). Done when 60 fps
-  video through the native SurfaceView is delivered and presented about
-  as smoothly as through the texture on that TV, retaining panel
-  resolution and HDR support.
 - **macOS MP3 fuzz run leak report** (2026-11-07): `FUZZ_TARGET=mp3
   tool/fuzz.sh` completed 116,883 inputs without a crash artifact, but
   LeakSanitizer reported 995 bytes allocated by the sanitizer's symbolizer

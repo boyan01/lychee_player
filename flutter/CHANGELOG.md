@@ -9,7 +9,8 @@
 * Android: `LycheeVideo(player, surfaceView: true)` shows the video in a
   `SurfaceView` instead of a texture. On TVs this shows 4K at the
   panel's resolution where the app's UI runs at 1080p, and passes HDR on
-  to the display. Widgets drawn over the video cost more with it.
+  to the display. In the app's `FlutterActivity`, override
+  `getRenderMode()` to return `RenderMode.texture`.
 
 ### Fixed
 

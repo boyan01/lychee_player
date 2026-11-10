@@ -1,6 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -59,15 +57,21 @@ class LycheeVideo extends StatelessWidget {
   /// Null draws no text subtitles, for drawing them yourself.
   final LycheeSubtitleStyle? subtitleStyle;
 
-  /// Android: show the video in a SurfaceView (a platform view, in Hybrid
-  /// Composition) instead of a texture, for 4K and HDR on TVs. The
-  /// compositor then shows the decoder's frames itself: at the panel's
-  /// resolution where Flutter's UI is drawn smaller (4K TVs whose UI runs
-  /// at 1080p), with HDR passed on to the display, and without the copy
-  /// into Flutter's texture. Widgets over the video cost more to draw
-  /// (Flutter composites them in layers of their own). Only one
-  /// [LycheeVideo] with it should show a player at a time. Ignored on other
-  /// platforms, for rotated video, and without bounded constraints.
+  /// Android: show the video in a SurfaceView below the app's Flutter
+  /// view instead of a texture, for 4K and HDR on TVs. The compositor then
+  /// shows the decoder's frames itself: at the panel's resolution where
+  /// Flutter's UI is drawn smaller (4K TVs whose UI runs at 1080p), with
+  /// HDR passed on to the display, and without the copy into Flutter's
+  /// texture. The widget clears its video rectangle to transparent, so
+  /// widgets painted over it show and those under it do not.
+  ///
+  /// It needs Flutter to draw through a TextureView: override
+  /// `getRenderMode()` in the app's `FlutterActivity` to return
+  /// `RenderMode.texture`. Without it, and on other platforms, for rotated
+  /// video and without bounded constraints, the video shows in the texture.
+  /// Only one [LycheeVideo] with it should show a player at a time; the
+  /// SurfaceView follows the widget a frame late when it moves. Entering
+  /// this mode can briefly rebuffer while hardware decoding is recreated.
   final bool surfaceView;
 
   @override
@@ -112,8 +116,8 @@ class LycheeVideo extends StatelessWidget {
             if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
               return ClipRect(child: fitted(_textureOf(size, turns)));
             }
-            // The platform view gets the video's rectangle untransformed:
-            // a SurfaceView does not follow a scale.
+            // The SurfaceView gets the video's rectangle untransformed: it
+            // does not follow a scale.
             final box = Offset.zero & constraints.biggest;
             final destination = applyBoxFit(fit, size, box.size).destination;
             final rect = Alignment.center.inscribe(destination, box);
@@ -150,36 +154,108 @@ class LycheeVideo extends StatelessWidget {
       );
 }
 
-// The player's SurfaceView (LycheeSurfaceView.kt). Hybrid Composition: the
-// SurfaceView sits in Android's view hierarchy; texture layer composition
-// would draw it into a texture again.
-class _AndroidSurfaceView extends StatelessWidget {
+// The player's SurfaceView (LycheeSurfaceView.kt), below Flutter's view:
+// this clears its rectangle to transparent and tells the plugin where it
+// is. Not a platform view: in Hybrid Composition, Android's Choreographer
+// missed a vsync in eight, and the video lost a third of its frames on a
+// TV. The texture instead where the app's Activity cannot show one.
+class _AndroidSurfaceView extends StatefulWidget {
   const _AndroidSurfaceView({super.key, required this.textureId});
 
   final int textureId;
 
-  static const _viewType = 'lychee_player/surface_view';
+  @override
+  State<_AndroidSurfaceView> createState() => _AndroidSurfaceViewState();
+}
+
+class _AndroidSurfaceViewState extends State<_AndroidSurfaceView> {
+  static const _channel = MethodChannel('lychee_player');
+
+  // Where the plugin was last told the view is, in pixels of Flutter's view.
+  List<int>? _rect;
+  bool _texture = false;
+
+  void _place(Rect rect) {
+    final pixels = [
+      rect.left.round(),
+      rect.top.round(),
+      rect.width.round(),
+      rect.height.round(),
+    ];
+    if (listEquals(pixels, _rect)) {
+      return;
+    }
+    _rect = pixels;
+    _channel.invokeMethod<bool>('setSurfaceView', {
+      'textureId': widget.textureId,
+      'rect': pixels,
+    }).then((shown) {
+      if (shown == false && mounted) {
+        setState(() => _texture = true);
+      }
+    });
+  }
 
   @override
-  Widget build(BuildContext context) {
-    return PlatformViewLink(
-      viewType: _viewType,
-      surfaceFactory: (context, controller) => AndroidViewSurface(
-        controller: controller as AndroidViewController,
-        gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
-        hitTestBehavior: PlatformViewHitTestBehavior.transparent,
-      ),
-      onCreatePlatformView: (params) =>
-          PlatformViewsService.initExpensiveAndroidView(
-        id: params.id,
-        viewType: _viewType,
-        layoutDirection: TextDirection.ltr,
-        creationParams: {'textureId': textureId},
-        creationParamsCodec: const StandardMessageCodec(),
-      )
-            ..addOnPlatformViewCreatedListener(params.onPlatformViewCreated)
-            ..create(),
-    );
+  void dispose() {
+    if (_rect != null) {
+      _channel.invokeMethod<bool>(
+          'setSurfaceView', {'textureId': widget.textureId, 'rect': null});
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _texture
+      ? Texture(textureId: widget.textureId)
+      : _SurfaceViewHole(_place);
+}
+
+class _SurfaceViewHole extends LeafRenderObjectWidget {
+  const _SurfaceViewHole(this.onPaint);
+
+  final ValueChanged<Rect> onPaint;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderSurfaceViewHole(onPaint, View.of(context).devicePixelRatio);
+
+  @override
+  void updateRenderObject(
+          BuildContext context, _RenderSurfaceViewHole renderObject) =>
+      renderObject
+        ..onPaint = onPaint
+        ..pixelRatio = View.of(context).devicePixelRatio;
+}
+
+class _RenderSurfaceViewHole extends RenderBox {
+  _RenderSurfaceViewHole(this.onPaint, this._pixelRatio);
+
+  ValueChanged<Rect> onPaint;
+  double _pixelRatio;
+  set pixelRatio(double value) {
+    if (value != _pixelRatio) {
+      _pixelRatio = value;
+      markNeedsPaint();
+    }
+  }
+
+  static final _clear = Paint()..blendMode = BlendMode.clear;
+
+  @override
+  bool get sizedByParent => true;
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) => constraints.biggest;
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    context.canvas.drawRect(offset & size, _clear);
+    // The root's coordinates are logical pixels.
+    final rect =
+        MatrixUtils.transformRect(getTransformTo(null), Offset.zero & size);
+    onPaint(Rect.fromLTRB(rect.left * _pixelRatio, rect.top * _pixelRatio,
+        rect.right * _pixelRatio, rect.bottom * _pixelRatio));
   }
 }
 
