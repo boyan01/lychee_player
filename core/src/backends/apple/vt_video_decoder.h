@@ -44,9 +44,19 @@ class VTVideoDecoder : public VideoDecoder {
     CVPixelBufferRef image;
     int64_t duration;
   };
+  // What a failed decode logs about its packet.
+  static constexpr size_t kLoggedNals = 8;
   struct Pending {
     OSStatus status = noErr;
     bool keyframe = false;
+    int64_t pts = kNoTimestamp;
+    int64_t dts = kNoTimestamp;
+    size_t size = 0;
+    // Packets decoded since the last keyframe, before this one.
+    int after_keyframe = 0;
+    // H.264/HEVC NAL unit types of the sample, the first kLoggedNals.
+    std::array<uint8_t, kLoggedNals> nal_types{};
+    size_t nal_count = 0;
   };
   // Bound queued work and its added file-playback latency. Software H.264
   // stays synchronous to deliver the first frame immediately; live input
@@ -125,6 +135,10 @@ class VTVideoDecoder : public VideoDecoder {
   bool decoded_ = false;
   // After bad data: packets are dropped up to the next keyframe.
   bool await_keyframe_ = false;
+  // Packets dropped while awaiting a keyframe, for the log.
+  int dropped_ = 0;
+  // Packets decoded since the last keyframe.
+  int after_keyframe_ = 0;
   // The NAL units of the packet being decoded.
   std::vector<std::pair<const uint8_t*, size_t>> nals_;
 };

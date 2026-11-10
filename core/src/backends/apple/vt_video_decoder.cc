@@ -5,6 +5,7 @@
 #include <TargetConditionals.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 
@@ -20,6 +21,29 @@ constexpr int kMaxConsecutiveErrors = 10;
 constexpr OSStatus kCodecBadDataErr = -8969;
 // Frames held for reordering when packets carry no dts.
 constexpr size_t kMaxReorder = 16;
+
+double ToSeconds(int64_t micros) {
+  return micros == kNoTimestamp ? -1.0 : micros / 1e6;
+}
+
+const char* StatusName(OSStatus status) {
+  switch (status) {
+    case kVTVideoDecoderBadDataErr:
+      return "bad data";
+    case kCodecBadDataErr:
+      return "codec bad data";
+    case kVTVideoDecoderMalfunctionErr:
+      return "decoder malfunction";
+    case kVTInvalidSessionErr:
+      return "invalid session";
+    case kVTVideoDecoderNotAvailableNowErr:
+      return "decoder not available now";
+    case kVTFormatDescriptionChangeNotSupportedErr:
+      return "format change not supported";
+    default:
+      return "other";
+  }
+}
 
 CMTime ToCMTime(int64_t micros) {
   return micros == kNoTimestamp ? kCMTimeInvalid
@@ -576,9 +600,13 @@ bool VTVideoDecoder::Decode(const EncodedPacket& packet,
   }
   if (await_keyframe_) {
     if (!packet.keyframe) {
+      dropped_++;
       return true;
     }
+    LOGW("%s: resuming at keyframe pts %.3f s after dropping %d packets",
+         name(), ToSeconds(packet.pts), dropped_);
     await_keyframe_ = false;
+    dropped_ = 0;
   }
   if (codec_type_ != 0) {
     // VP9 says its profile, depth and size in each keyframe's header; a
@@ -648,6 +676,12 @@ bool VTVideoDecoder::Decode(const EncodedPacket& packet,
                        return converter_.NalType(a) < converter_.NalType(b);
                      });
     if (sets != parameter_sets_) {
+      if (!parameter_sets_.empty()) {
+        // Mid-stream parameter sets that differ (an ad, a new variant)
+        // explain decode failures that follow when they do not take.
+        LOGI("%s: parameter sets changed at pts %.3f s", name(),
+             ToSeconds(packet.pts));
+      }
       parameter_sets_ = std::move(sets);
       CMVideoFormatDescriptionRef format = CreateFormat();
       if (format && session_ &&
@@ -778,7 +812,25 @@ bool VTVideoDecoder::DecodeSample(const EncodedPacket& packet,
     return false;
   }
   Pending& pending = pending_[pending_count_++];
-  pending = {noErr, packet.keyframe};
+  pending = {};
+  pending.keyframe = packet.keyframe;
+  pending.pts = packet.pts;
+  pending.dts = packet.dts;
+  pending.size = packet.size();
+  if (packet.keyframe) {
+    after_keyframe_ = 0;
+  }
+  pending.after_keyframe = after_keyframe_++;
+  if (codec_type_ == 0) {
+    const bool hevc = converter_.hevc();
+    for (const auto& [nal, nal_size] : nals_) {
+      if (pending.nal_count == kLoggedNals) {
+        break;
+      }
+      pending.nal_types[pending.nal_count++] =
+          hevc ? (nal[0] >> 1) & 0x3f : nal[0] & 0x1f;
+    }
+  }
   // Software batching delayed 4K H.264's first frame without improving
   // throughput. Keep other codecs' batching gains, but never batch live input.
   const bool asynchronous =
@@ -827,7 +879,20 @@ bool VTVideoDecoder::CompleteFrames() {
       }
       continue;
     }
-    LOGW("%s: decode failed: %d", name(), static_cast<int>(status));
+    char nals[kLoggedNals * 4 + 1] = "";
+    size_t used = 0;
+    for (size_t n = 0; n < pending.nal_count && used < sizeof(nals); ++n) {
+      int written = std::snprintf(nals + used, sizeof(nals) - used, "%s%d",
+                                  n ? "," : "", pending.nal_types[n]);
+      used += written > 0 ? static_cast<size_t>(written) : 0;
+    }
+    LOGW(
+        "%s: decode failed: %d (%s) for %s pts %.3f s dts %.3f s, %zu bytes, "
+        "%d packets after a keyframe, NAL types [%s], %zu in batch",
+        name(), static_cast<int>(status), StatusName(status),
+        pending.keyframe ? "keyframe" : "frame", ToSeconds(pending.pts),
+        ToSeconds(pending.dts), pending.size, pending.after_keyframe, nals,
+        pending_count_);
     if (status == kVTInvalidSessionErr ||
         status == kVTVideoDecoderMalfunctionErr) {
       session_lost_ = true;
@@ -858,6 +923,8 @@ void VTVideoDecoder::Flush() {
   pending_count_ = 0;
   consecutive_errors_ = 0;
   await_keyframe_ = false;
+  dropped_ = 0;
+  after_keyframe_ = 0;
 }
 
 }  // namespace lychee
