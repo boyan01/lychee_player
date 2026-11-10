@@ -65,6 +65,21 @@ building on top of them.
    a refused start (`'what'`, `audio device started on retry`) is seen
    only in `audio-device-start-retry`. Also unseen: an alarm or call
    alone (an audio interruption) recovering without the foreground hook.
+7. **A hung MediaCodec replaced** (2026-11-10): on a TCL TV (MT9655,
+   Android 14) `c2.mtk.hevc.decoder` stopped returning input buffers 4 s
+   into a 4K HEVC (likely Main 10) stream, with `vdec_vcp_decode() - IPI
+   msg ack fail` in the kernel log. The renderer now aborts the codec's
+   wait so it is deleted, and the player opens a fresh hardware codec,
+   then fails with `LYCHEE_ERROR_DECODE` if that hangs too and software
+   refuses the stream. The CLI's `decoder-hung*` cases simulate a hang
+   that ignores the abort; no run has seen MediaCodec's own wait aborted
+   and a second hardware instance start. Done when the TV's log shows
+   `video rebuilt` with a `c2.mtk.*` codec after a hang, or the decode
+   error instead of sound alone.
+   Also open: the 2026-11-10 18:26 run on that TV where H.264 from 480p
+   to 4K became ready at 0x0 (`DecodeFinal failed, ret=-5`), and
+   choosing another hardware decoder by name (`MediaCodecList` needs
+   Java) when a device lists several.
 
 ## Known defects
 

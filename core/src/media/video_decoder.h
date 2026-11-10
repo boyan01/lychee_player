@@ -32,6 +32,12 @@ class VideoDecoder {
   // Drops all pending frames, e.g. after a seek.
   virtual void Flush() = 0;
 
+  // Makes a Decode() waiting for the codec, now or later, return false,
+  // so its thread can exit. For decoders that wait in a loop of their own
+  // (MediaCodec polling for an input buffer that never comes); one blocked
+  // inside a driver call does not return any sooner. Called on any thread.
+  virtual void Abort() {}
+
   // The ITU-T H.273 transfer characteristics the stream itself says (its
   // VUI), once the decoder has read them; 2 if unknown. Containers often
   // leave them out. Called on any thread.

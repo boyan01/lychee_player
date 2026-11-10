@@ -1663,11 +1663,22 @@ par expect decoder-foreground-paused "<=0 event: state error" "play at" \
   --pause 3 5 --lose-decoder-after 2 --lose-decoder-after 4 --rebuild-decoder-after 6 \
   "$media/h264_aac.mp4"
 # A hardware decoder that never returns (a driver hang) is given up after
-# 4 s without frames and rebuilt in software at the position. Destroying
-# the player meanwhile waits for it no longer than that.
+# 4 s without frames and rebuilt at the position, like a lost one: in
+# hardware the first time, in software after that. Destroying the player
+# meanwhile waits for it no longer than that.
 par expect decoder-hung "hang video decoder at" "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" \
-  "<=0 event: state error" "summary: state=ended .* hw=0 .*backward_jumps=0 .*stalls=0" -- \
+  "<=0 event: state error" "summary: state=ended .* hw=$hw_first .*backward_jumps=0 .*stalls=0" -- \
   --hang-decoder-after 2 "$media/h264_aac.mp4"
+par expect decoder-hung-twice "<=0 event: state error" \
+  "summary: state=ended .*decoder=(ffmpeg|videotoolbox-sw|mediafoundation) hw=0 .*backward_jumps=0 " -- \
+  --hang-decoder-after 1 --hang-decoder-after 6 "$media/h264_aac.mp4"
+# With no software decoder for the stream either (Android's refuse 4K
+# HEVC Main 10), the player fails rather than play on with sound alone.
+if [ "${NO_HW:-0}" != 1 ]; then
+  exits=1 par expect decoder-none-left "event: error kind=decode" \
+    "video decoding failed, no decoder left" "summary: state=error" -- \
+    --refuse-software-video --lose-decoder-after 2 --lose-decoder-after 4 "$media/h264_aac.mp4"
+fi
 realtime=1 par expect decoder-hung-destroy "hang video decoder at" "destroyed in [0-4]\." -- \
   --hang-decoder-after 1 --seconds 2 "$media/h264_aac.mp4"
 # An audio device that never pulls (it failed to start, as on a closed

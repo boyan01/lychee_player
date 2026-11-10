@@ -26,6 +26,7 @@
 #include "pipeline/audio_renderer.h"
 #include "pipeline/player.h"
 #include "pipeline/thumbnailer.h"
+#include "pipeline/video_renderer.h"
 
 using lychee::MediaType;
 using lychee::Player;
@@ -920,6 +921,10 @@ void lychee_testing_lose_video_decoder(lychee_player* player) {
 
 void lychee_testing_hang_video_decoder(lychee_player* player) {
   player->player->HangVideoDecoderForTesting();
+}
+
+void lychee_testing_refuse_software_video(int32_t refuse) {
+  lychee::VideoRenderer::RefuseSoftwareDecodersForTesting(refuse != 0);
 }
 
 void lychee_testing_stall_audio_devices(int32_t stalled) {

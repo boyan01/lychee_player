@@ -28,10 +28,12 @@ namespace lychee {
 // the UI toolkit's vsync), so frames are pulled, not pushed. Frames are
 // chosen by VideoRendererAlgorithm, once per vsync.
 //
-// A hardware decoder can hang in the driver, where nothing interrupts it
-// (VideoToolbox's VP9 on Intel Macs, NVIDIA's VAAPI). Stop() then gives up
-// on the decode thread instead of joining it, and Ptr's deleter leaves the
-// renderer to that thread, which deletes it if the decoder ever returns.
+// A hardware decoder can hang. Stop() aborts it (VideoDecoder::Abort()),
+// which ends a decoder waiting in a loop of its own (MediaCodec), but not
+// one blocked in the driver, where nothing interrupts it (VideoToolbox's
+// VP9 on Intel Macs, NVIDIA's VAAPI). Stop() then gives up on the decode
+// thread instead of joining it, and Ptr's deleter leaves the renderer to
+// that thread, which deletes it if the decoder ever returns.
 class VideoRenderer {
  public:
   struct Deleter {
@@ -105,6 +107,9 @@ class VideoRenderer {
   // Makes the decoder hang at the next packet until Stop() gives up on it,
   // as a hardware decoder that never returns, for tests.
   void SimulateDecoderHangForTesting() { simulate_hang_ = true; }
+  // Software decoders refuse every stream while set, as Android's do 4K
+  // HEVC Main 10, for tests. In every renderer.
+  static void RefuseSoftwareDecodersForTesting(bool refuse);
   // Coded size of the frame last handed out by Acquire(); false before the
   // first. Streams can change resolution midway (adaptive streaming).
   bool shown_size(int* width, int* height) const;

@@ -7,6 +7,18 @@
   `LycheeLog.level` sets how much it logs. On Android the lines
   otherwise only go to logcat, which some devices do not keep for apps.
 
+### Fixed
+
+* A hardware video decoder that stops responding is now replaced by a
+  new hardware decoder first, and only falls back to software decoding
+  if that one fails too. Android: the stuck decoder is released, so the
+  device has an instance free for the new one.
+* When no decoder is left for the video while playing, the player now
+  reports an error (`LycheeErrorKind.decode`) instead of carrying on with
+  sound only, so an app can switch to another quality or format. This
+  happened, for example, when a 4K HEVC stream hit a decoder fault on an
+  Android TV.
+
 ## 1.0.2
 
 ### New

@@ -211,6 +211,8 @@ struct Options {
   bool stall_audio = false;
   // The first |fail_audio_starts| audio device starts fail.
   int fail_audio_starts = 0;
+  // Software video decoders refuse every stream (testing.h).
+  bool refuse_software_video = false;
   // Stop pulling frames this many seconds after playback starts, as an app
   // in the background does, for |hide_for| seconds.
   double hide_after = -1;
@@ -517,6 +519,8 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       if (!v) return false;
       options->stall_audio = true;
       options->stall_audio_after = atof(v);
+    } else if (arg == "--refuse-software-video") {
+      options->refuse_software_video = true;
     } else if (arg == "--fail-audio-start") {
       const char* v = value();
       if (!v) return false;
@@ -1562,6 +1566,7 @@ int main(int argc, char** argv) {
         "[--max-bitrate BPS[@SEC]] [--seek-edge SEC] "
         "[--lose-decoder-after SEC]... "
         "[--hang-decoder-after SEC]... [--rebuild-decoder-after SEC]... "
+        "[--refuse-software-video] "
         "[--stall-audio-after SEC "
         "[--stall-audio-for SEC]] [--fail-audio-start N] "
         "[--hide-after SEC [--hide-for SEC]] [--audio-only] "
@@ -1605,6 +1610,9 @@ int main(int argc, char** argv) {
   }
   if (options.fail_audio_starts > 0) {
     lychee_testing_fail_audio_starts(options.fail_audio_starts);
+  }
+  if (options.refuse_software_video) {
+    lychee_testing_refuse_software_video(1);
   }
   if (options.stall_audio && options.stall_audio_after <= 0) {
     options.stall_audio_after = 0;

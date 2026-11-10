@@ -545,7 +545,7 @@ bool MediaCodecVideoDecoder::DrainToEnd(const OutputCallback& output) {
   }
   const int64_t deadline = MonotonicMicros() + kEndOfStreamTimeoutUs;
   while (!end_of_stream_ && MonotonicMicros() < deadline) {
-    if (!DrainOutput(output)) {
+    if (aborted_ || !DrainOutput(output)) {
       return false;
     }
     if (!end_of_stream_) {
@@ -562,6 +562,13 @@ bool MediaCodecVideoDecoder::QueueInput(const uint8_t* data,
                                         const OutputCallback& output) {
   AMediaCodec* codec = codec_->codec;
   for (;;) {
+    // A codec whose hardware stopped answering (MediaTek's VCP after an IPI
+    // failure) never gives an input buffer back: the renderer counts that
+    // as a hang and aborts, and the codec is then deleted, which frees the
+    // hardware instance for the next one.
+    if (aborted_) {
+      return false;
+    }
     // Input buffers come back only as frames are decoded, which needs free
     // output buffers: hand those out while waiting.
     if (!DrainOutput(output)) {

@@ -2105,7 +2105,8 @@ bool Player::ReadAwaitsNextLocked() const {
   return end != kNoTimestamp && clock_.Now() < end - kNextJoinWait;
 }
 
-VideoRenderer::Ptr Player::CreateVideoRenderer(const StreamInfo& info) {
+VideoRenderer::Ptr Player::CreateVideoRenderer(const StreamInfo& info,
+                                               std::string* error_out) {
   VideoRenderer::Ptr video = VideoRenderer::Create(
       &clock_, config_.video_frame_types, config_.rotate_surface_frames);
   VideoDevice device;
@@ -2121,6 +2122,9 @@ VideoRenderer::Ptr Player::CreateVideoRenderer(const StreamInfo& info) {
   if (!video->Initialize(info.video, hardware, device, surface, &video_queue_,
                          &error)) {
     LOGW("video stream %d disabled: %s", info.index, error.c_str());
+    if (error_out) {
+      *error_out = error;
+    }
     return nullptr;
   }
   return video;
@@ -2299,8 +2303,9 @@ void Player::ChangeTracks(const TrackRequest& request) {
     }
     video_queue_.Reset(generation_);
     VideoRenderer::Ptr video;
+    std::string error;
     if (video_stream >= 0) {
-      video = CreateVideoRenderer(media_info_.streams[video_stream]);
+      video = CreateVideoRenderer(media_info_.streams[video_stream], &error);
     }
     if (video) {
       if (!request.new_item) {
@@ -2308,6 +2313,14 @@ void Player::ChangeTracks(const TrackRequest& request) {
       }
     }
     std::lock_guard<std::mutex> lock(mutex_);
+    if (!video && video_stream >= 0 && request.video == kUnchanged &&
+        state_ != PlayerState::kError) {
+      // A rebuild after a lost or hung decoder found none left: playing on
+      // with sound alone would hide it from the app, which can pick
+      // another quality or format (LYCHEE_ERROR_DECODE).
+      FailLocked(TagError(ErrorKind::kDecode,
+                          "video decoding failed, no decoder left: " + error));
+    }
     const int width = video_width_;
     const int height = video_height_;
     if (video) {
@@ -2427,9 +2440,12 @@ void Player::CheckVideoRendererLocked() {
     LOGW("video decoder lost (%d since open); rebuilding at the position",
          video_decoder_losses_);
   } else if (video_renderer_->DecoderHung(clock_running_)) {
-    // Another hardware decoder would likely hang the same way.
-    video_decoder_losses_ = std::max(video_decoder_losses_, 2);
-    LOGW("video decoder hung; rebuilding in software at the position");
+    // Like a loss: a fresh hardware decoder first. MediaTek's hang after a
+    // VCP failure is the codec instance's, and software decoding does not
+    // take what such devices decode in hardware (4K HEVC Main 10).
+    video_decoder_losses_++;
+    LOGW("video decoder hung (%d lost since open); rebuilding at the position",
+         video_decoder_losses_);
   } else if (video_renderer_->device() == video_device_) {
     return;
   }

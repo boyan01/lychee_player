@@ -24,6 +24,9 @@ constexpr int64_t kHiddenTimeout = 250 * kMicrosPerMilli;
 // A decoder call this long counts as hung. Longer than MediaCodec's wait
 // for the last frames at the end of the stream (3 s).
 constexpr int64_t kHungDecoderTimeout = 4 * kMicrosPerSecond;
+// How long Stop() waits for a hung decoder it aborted to return, before
+// leaving its thread behind. MediaCodec's polls take 10 ms.
+constexpr int64_t kAbortTimeout = 500 * kMicrosPerMilli;
 // Frames without a duration are assumed to last this long (30 fps).
 constexpr int64_t kDefaultFrameDuration = kMicrosPerSecond / 30;
 // Frames ending this little after the start count as ending before it.
@@ -32,6 +35,8 @@ constexpr int64_t kDefaultFrameDuration = kMicrosPerSecond / 30;
 // frame on screen and its counterpart in an HLS variant switched to, can
 // end a microsecond apart.
 constexpr int64_t kFrameEndSlop = 100;
+// RefuseSoftwareDecodersForTesting().
+std::atomic<bool> g_refuse_software{false};
 int64_t FrameEnd(const VideoFrame& frame) {
   return frame.pts +
          (frame.duration > 0 ? frame.duration : kDefaultFrameDuration);
@@ -86,12 +91,22 @@ bool VideoRenderer::Initialize(const VideoConfig& config,
   return InitializeNextDecoder(error);
 }
 
+// static
+void VideoRenderer::RefuseSoftwareDecodersForTesting(bool refuse) {
+  g_refuse_software = refuse;
+}
+
 bool VideoRenderer::InitializeNextDecoder(std::string* error) {
   while (!candidates_.empty()) {
     std::unique_ptr<VideoDecoder> decoder = std::move(candidates_.front());
     candidates_.erase(candidates_.begin());
     std::string decoder_error;
-    if (decoder->Initialize(config_, &decoder_error)) {
+    bool initialized = decoder->Initialize(config_, &decoder_error);
+    if (initialized && g_refuse_software && !decoder->is_hardware()) {
+      initialized = false;
+      decoder_error = "software decoding refused for testing";
+    }
+    if (initialized) {
       {
         std::lock_guard<std::mutex> lock(mutex_);
         decoder_.swap(decoder);
@@ -132,9 +147,18 @@ void VideoRenderer::Stop() {
   if (!thread_.joinable()) {
     return;
   }
+  // A decoder waiting for the codec in a loop of its own returns, and the
+  // thread exits and releases it (a hardware decoder instance, of which
+  // devices have few).
+  if (decoder_) {
+    decoder_->Abort();
+  }
+  const int64_t stop_start = MonotonicMicros();
   while (!exited_) {
     const int64_t since = in_decoder_since_;
-    if (since != 0 && MonotonicMicros() - since >= kHungDecoderTimeout) {
+    const int64_t now = MonotonicMicros();
+    if (since != 0 && now - since >= kHungDecoderTimeout &&
+        now - stop_start >= kAbortTimeout) {
       // After Stop() the thread touches only this renderer, which Deleter
       // then leaves to it.
       LOGW("%s decoder hung; leaving its thread behind", decoder_->name());
@@ -219,6 +243,10 @@ void VideoRenderer::DecodeLoop() {
       // About the last 32 packets.
       average_decode_time_ += (decode_time - average_decode_time_) / 32;
     }
+    if (!ok && stopped_ && !simulated) {
+      // Stop() aborted it.
+      break;
+    }
     if (!ok) {
       // Before the first frame, Decode() has already tried the fallbacks.
       if (simulated || (decoder_has_output_ && decoder_->is_hardware())) {
@@ -289,7 +317,12 @@ bool VideoRenderer::Decode(const std::shared_ptr<EncodedPacket>& packet,
   // Frames already shown cannot be decoded again, so only a decoder without
   // output can be replaced. The packets since the last flush start at a
   // keyframe.
-  while (!ok && !decoder_has_output_) {
+  auto stopped = [this] {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return stopped_;
+  };
+  // A decoder Stop() aborted gets no successor.
+  while (!ok && !decoder_has_output_ && !stopped()) {
     LOGW("%s decoder failed before its first frame", decoder_->name());
     std::string error;
     if (!InitializeNextDecoder(&error)) {

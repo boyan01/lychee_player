@@ -51,6 +51,7 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   bool Decode(const EncodedPacket& packet,
               const OutputCallback& output) override;
   void Flush() override;
+  void Abort() override { aborted_ = true; }
   void SetVideoSurface(std::shared_ptr<void> surface) override;
 
   // The codec and the epoch its output buffer indices belong to, shared with
@@ -120,6 +121,8 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   bool queued_ = false;
   // Packets queued since the last frame (or flush).
   int inputs_without_output_ = 0;
+  // Abort(): the waits in QueueInput() and DrainToEnd() give up.
+  std::atomic<bool> aborted_{false};
 };
 
 }  // namespace lychee

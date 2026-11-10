@@ -360,7 +360,10 @@ class Player {
   // Live: everything pushed so far has been decoded; for
   // SettledForTesting().
   bool LiveSettledLocked() const;
-  VideoRenderer::Ptr CreateVideoRenderer(const StreamInfo& info);
+  // Null if no decoder takes the stream, with the last decoder's |error|
+  // (may be null).
+  VideoRenderer::Ptr CreateVideoRenderer(const StreamInfo& info,
+                                         std::string* error = nullptr);
   std::unique_ptr<AudioRenderer> CreateAudioRenderer(const StreamInfo& info);
   // The renderer of |subtitle_stream_|, or null.
   SubtitleRenderer* SelectedSubtitleLocked() const;
@@ -717,9 +720,10 @@ class Player {
   bool read_awaits_next_ = false;
   // The control thread is to switch to the next item (AdvanceToNext()).
   bool advance_pending_ = false;
-  // Video decoders lost since the last open or device change. The first is
-  // replaced by hardware decoding again (a GPU reset passes), later ones by
-  // software decoding. A hung decoder counts as two.
+  // Video decoders lost or hung since the last open or device change. The
+  // first is replaced by hardware decoding again (a GPU reset passes; a
+  // MediaCodec instance whose hardware stopped answering is deleted and a
+  // new one works), later ones by software decoding.
   int video_decoder_losses_ = 0;
   double rate_ = 1.0;
   // Realtime input plays faster than |rate_| while set (CatchUpLocked()).
