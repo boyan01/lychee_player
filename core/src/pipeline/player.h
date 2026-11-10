@@ -484,6 +484,11 @@ class Player {
   bool ShownSizeLocked(int* width, int* height) const;
   void UpdateSubtitleLocked();
   void ApplyPlayingLocked();
+  // The rate the clock and the audio run at: |rate_|, or faster while
+  // realtime input catches up.
+  double OutputRateLocked() const;
+  // Starts or ends the catch-up of realtime input (MediaInfo::realtime).
+  void CatchUpLocked();
   bool PrerollDoneLocked() const;
   bool EndedLocked() const;
   bool StarvedLocked() const;
@@ -717,6 +722,8 @@ class Player {
   // software decoding. A hung decoder counts as two.
   int video_decoder_losses_ = 0;
   double rate_ = 1.0;
+  // Realtime input plays faster than |rate_| while set (CatchUpLocked()).
+  bool catching_up_ = false;
   bool looping_ = false;
   std::string error_;
   ErrorCode error_code_;

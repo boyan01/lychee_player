@@ -456,7 +456,12 @@ int64_t HttpDataSource::Read(int64_t offset, uint8_t* data, size_t size) {
         }
         if (offset >= end) {
           // The connection broke (or closed early): ask again from here.
-          if (state.refused || state.retries >= kMaxRetries) {
+          // Not a stream of unknown size whose server takes no ranges (a
+          // live stream): it would send what it has now, and dropping
+          // all that came before to get back here takes as long as it
+          // played. The demuxer reconnects itself if it can (FLV).
+          if (state.refused || state.retries >= kMaxRetries ||
+              (offset > 0 && !state.ranges && state.size < 0)) {
             if (state.error.empty()) {
               state.error = TagError(ErrorKind::kNetwork,
                                      "connection closed before the end");

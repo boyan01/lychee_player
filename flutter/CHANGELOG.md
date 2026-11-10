@@ -2,6 +2,12 @@
 
 ### New
 
+* HTTP-FLV live streams play: the player reads them as they arrive,
+  reconnects when the connection drops, keeps playing across timestamp
+  jumps, and plays up to 10% faster after a burst of buffered data
+  until less than 1.5 s is buffered, so the delay behind the live
+  stream does not keep growing. An FLV of unknown size without a
+  duration in its metadata is treated as live.
 * FLV files and streams with HEVC (codec id 12, or Enhanced RTMP `hvc1`)
   and AV1 (`av01`) video play, in builds with FFmpeg and without.
 

@@ -54,7 +54,16 @@ building on top of them.
    `http-hls-prefetch-hls` on Linux, or of the Android example playing
    `hls/index.m3u8`, has segment 5 requested before segment 4's last
    bytes went out.
-5. **iOS audio after the background**: on the iPhone 17 (2026-10-29)
+5. **HTTP-FLV live on Android and Linux** (2026-11-10): the
+   `http-flv-live*` cases ran on macOS only; Windows and Linux run them
+   on CI. On Android no run has played a live FLV through
+   `HttpURLConnection`, whose source now fails instead of resuming a
+   response without a length or ranges, so the FLV reader reconnects. On
+   Linux FFmpeg's http (`reconnect_streamed`) reads the stream, and how
+   it resumes a live response that breaks off is unchecked. Done when
+   `http-flv-live-reconnect` passes on Linux and the Android example
+   plays `--live-flv` through a drop.
+6. **iOS audio after the background**: on the iPhone 17 (2026-10-29)
    sound and hardware video came back after the Home Screen, but that
    run's audio device never failed to start, so the renderer's retry of
    a refused start (`'what'`, `audio device started on retry`) is seen
@@ -122,6 +131,13 @@ building on top of them.
   on to the window's start. Done when a regression case pauses past the
   window and plays on from its start.
 
+- **FLV live configuration changes** (2026-11-10): a live FLV whose
+  video or AAC sequence header changes mid-stream (an encoder restarted
+  at another resolution behind the same URL) fails with "flv: changing
+  video configuration": no decoder here takes a new configuration
+  record mid-stream. Done when a stream that switches resolution after a
+  reconnect plays on (a renderer replacement, as a track change does).
+
 - **Mono audio level**: the FFmpeg backend upmixes mono to stereo 3 dB
   down (swresample's center mix level, 1/sqrt(2) per channel), while
   AudioToolbox and Android's `ChannelMatrix` copy it to both channels
@@ -169,8 +185,10 @@ What the review of 2026-11-02 found and left, by expected gain.
    Streaming) still reads every fragment at open; bisecting a Matroska
    file without cues scans up to a cluster per step, tens of MB per seek
    with 4K clusters (SimpleBlock times or PrevSize would narrow it).
-6. **Legacy container startup**: FLV, AVI and MPEG-PS scan input at open
-   to build an index capped at one million packets. They keep payloads in
+6. **Legacy container startup**: FLV of a known size, AVI and MPEG-PS
+   scan input at open to build an index capped at one million packets
+   (FLV of an unknown size is read as it arrives, and cannot seek; many
+   FLV files carry a keyframe index in onMetaData). They keep payloads in
    the source, but long files and HTTP inputs still pay for the scan.
    Use container indexes where available, with lazy/sparse fallback.
    Done when a long HTTP input starts without scanning to its end while

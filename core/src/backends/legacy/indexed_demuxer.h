@@ -28,12 +28,12 @@ class IndexedDemuxer : public Demuxer {
       source_ = std::move(source);
       if (aborted_) source_->Interrupt();
     }
-    if (!Parse() || samples_.empty() || info_.streams.empty()) {
+    if (!Parse() || (!streaming_ && samples_.empty()) ||
+        info_.streams.empty()) {
       *error = error_.empty() ? "invalid or unsupported container" : error_;
       return false;
     }
     info_.format_name = name();
-    info_.seekable = source_->seekable();
     enabled_.assign(info_.streams.size(), true);
     for (size_t i = 0; i < info_.streams.size(); ++i) {
       auto& stream = info_.streams[i];
@@ -43,6 +43,12 @@ class IndexedDemuxer : public Demuxer {
       if (stream.type == MediaType::kAudio && info_.default_audio_stream < 0)
         info_.default_audio_stream = stream.index;
     }
+    if (streaming_) {
+      // No index, no duration: it cannot seek.
+      info_.seekable = false;
+      return true;
+    }
+    info_.seekable = source_->seekable();
     info_.duration = 0;
     for (const auto& sample : samples_)
       info_.duration = std::max(info_.duration, sample.pts + sample.duration);
@@ -79,9 +85,12 @@ class IndexedDemuxer : public Demuxer {
                                     : DemuxerReadResult::kEndOfStream;
   }
   bool Seek(int64_t time) override {
-    if (aborted_ || !info_.seekable) return false;
+    if (aborted_) return false;
+    // Also when it cannot seek: the player's resync seeks only clear the
+    // interrupt that stopped the read.
     interrupted_ = false;
     source_->ClearInterrupt();
+    if (!info_.seekable) return false;
     int anchor = info_.default_video_stream;
     if (anchor < 0 || !enabled_[anchor]) {
       anchor = -1;
@@ -125,6 +134,9 @@ class IndexedDemuxer : public Demuxer {
     int64_t duration = 0;
     bool key = false;
   };
+  // Fills |info_| and |samples_|; or, for input read as it arrives, sets
+  // |streaming_| and leaves |samples_| empty, and the subclass overrides
+  // Read().
   virtual bool Parse() = 0;
   virtual bool Load(const Sample& sample, std::vector<uint8_t>* bytes) {
     bytes->resize(sample.size);
@@ -188,6 +200,7 @@ class IndexedDemuxer : public Demuxer {
   std::vector<Sample> samples_;
   std::vector<bool> enabled_;
   size_t next_ = 0;
+  bool streaming_ = false;
   std::string error_;
   std::vector<uint8_t> cache_;
   int64_t cache_offset_ = 0;

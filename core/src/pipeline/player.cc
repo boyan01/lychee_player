@@ -42,6 +42,16 @@ constexpr size_t kMaxQueuedBytes = size_t{64} * 1024 * 1024;
 constexpr auto kReadPoll = std::chrono::milliseconds(100);
 constexpr int64_t kReadWakeDuration =
     kMinQueuedDuration - 500 * kMicrosPerMilli;
+// Realtime input (MediaInfo::realtime) with more than kCatchUpAbove read
+// ahead of the clock plays at kCatchUpRate until kCatchUpUntil is left: a
+// live server sends what it holds at once (a CDN's last GOP at the open,
+// what queued up during a stall), and the player would stay that far
+// behind the stream for as long as it plays. mpegts.js's liveSync does
+// the same. Below kMinQueuedDuration, the most the read takes ahead, and
+// above what the renderers need to play on.
+constexpr int64_t kCatchUpAbove = 2500 * kMicrosPerMilli;
+constexpr int64_t kCatchUpUntil = 1500 * kMicrosPerMilli;
+constexpr double kCatchUpRate = 1.1;
 // The read waits at the end for a next item still opening while what it
 // read has more than this to play; decoders give out their last frames
 // only once they see the end, so it stops waiting with time to spare.
@@ -280,6 +290,7 @@ void Player::StopPipeline() {
     end_of_input_ = false;
     read_awaits_next_ = false;
     rebuffering_ = false;
+    catching_up_ = false;
     loop_seek_pending_ = false;
     prerolling_ = false;
     loops_ = 0;
@@ -1083,9 +1094,9 @@ void Player::SetRate(double rate) {
     // For the next file; live input plays in real time.
     return;
   }
-  clock_.SetRate(rate);
+  clock_.SetRate(OutputRateLocked());
   if (audio_renderer_) {
-    audio_renderer_->SetRate(rate);
+    audio_renderer_->SetRate(OutputRateLocked());
   }
 }
 
@@ -2351,7 +2362,7 @@ void Player::ChangeTracks(const TrackRequest& request) {
       audio_stream_ = request.audio;
       audio_renderer_->SetVolume(volume_);
       audio_renderer_->SetGain(gain_, gain_peak_);
-      audio_renderer_->SetRate(rate_);
+      audio_renderer_->SetRate(OutputRateLocked());
       // The resync seek that follows sets where it starts.
       audio_renderer_->Start(kNoTimestamp);
     }
@@ -2904,6 +2915,7 @@ void Player::UpdateStateLocked() {
       break;
   }
   ApplyPlayingLocked();
+  CatchUpLocked();
   UpdateVideoSizeLocked();
   UpdateSubtitleLocked();
   if (const int variant = PlayingVariantLocked();
@@ -2983,6 +2995,43 @@ void Player::ApplyPlayingLocked() {
   }
   if (audio_renderer_) {
     audio_renderer_->SetPlaying(run);
+  }
+}
+
+double Player::OutputRateLocked() const {
+  return catching_up_ ? std::min(rate_ * kCatchUpRate, kMaxRate) : rate_;
+}
+
+void Player::CatchUpLocked() {
+  if (!media_info_.realtime || live_) {
+    return;
+  }
+  bool catching_up = false;
+  int64_t ahead = 0;
+  if (clock_running_ && state_ == PlayerState::kReady && !seek_pending_ &&
+      !seek_in_progress_) {
+    int64_t end = kInfiniteTime;
+    if (video_renderer_) {
+      end = std::min(end, video_last_pts_);
+    }
+    if (audio_renderer_) {
+      end = std::min(end, audio_last_pts_);
+    }
+    if (end != kInfiniteTime && end != kNoTimestamp) {
+      ahead = end - clock_.Now();
+      catching_up =
+          ahead > kCatchUpAbove || (catching_up_ && ahead > kCatchUpUntil);
+    }
+  }
+  if (catching_up == catching_up_) {
+    return;
+  }
+  catching_up_ = catching_up;
+  LOGI("live catch-up %s with %lld ms read ahead", catching_up ? "on" : "off",
+       Millis(ahead));
+  clock_.SetRate(OutputRateLocked());
+  if (audio_renderer_) {
+    audio_renderer_->SetRate(OutputRateLocked());
   }
 }
 

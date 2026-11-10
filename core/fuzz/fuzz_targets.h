@@ -84,6 +84,26 @@ inline std::unique_ptr<DataSource> Memory(const uint8_t* data, size_t size) {
   return CreateMemoryDataSource(std::vector<uint8_t>(data, data + size));
 }
 
+// The same bytes as a stream of unknown size (HTTP-FLV live), whose
+// reconnects get them again.
+inline std::unique_ptr<DataSource> Stream(const uint8_t* data, size_t size) {
+  class Unsized : public DataSource {
+   public:
+    explicit Unsized(std::unique_ptr<DataSource> bytes)
+        : bytes_(std::move(bytes)) {}
+    int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
+      return bytes_->Read(offset, data, size);
+    }
+    int64_t size() const override { return -1; }
+    bool seekable() const override { return false; }
+    std::string error() const override { return bytes_->error(); }
+
+   private:
+    std::unique_ptr<DataSource> bytes_;
+  };
+  return std::make_unique<Unsized>(Memory(data, size));
+}
+
 // The resources of an HLS input, which are separated by this line.
 constexpr char kHlsPartSeparator[] = "\n#PART\n";
 
@@ -187,6 +207,20 @@ inline void FuzzFlvDemuxer(const uint8_t* data, size_t size) {
   std::string error;
   if (demuxer.Open(fuzz::Memory(data, size), &error)) {
     fuzz::Play(&demuxer);
+  }
+  FlvDemuxer stream;
+  // Once: the reconnect's first wait is none, later ones are seconds,
+  // which the abort cuts short.
+  int reopened = 0;
+  stream.SetReopener(
+      [&](const std::string&, std::string*) -> std::unique_ptr<DataSource> {
+        if (reopened++ == 0) return fuzz::Stream(data, size);
+        stream.Abort();
+        return nullptr;
+      },
+      "http://live/stream.flv");
+  if (stream.Open(fuzz::Stream(data, size), &error)) {
+    fuzz::Play(&stream);
   }
 }
 

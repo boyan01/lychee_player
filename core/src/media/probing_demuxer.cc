@@ -198,12 +198,13 @@ bool ProbingDemuxer::OpenInput(const std::string& url, std::string* error) {
     if (opened || !fallback_) return opened;
     return OpenFallback(nullptr, url, "ps: " + *error, error);
   }
-  // FLV too, in every build, so that its HEVC and AV1 (Enhanced RTMP)
-  // play without FFmpeg as with it. FFmpeg takes the codecs it lacks
-  // (MP3, VP6, ...).
+  // FLV too, in every build: its live streams keep one timeline across
+  // timestamp jumps and reconnects, and play caught up (MediaInfo::
+  // realtime). FFmpeg takes the codecs it lacks (MP3, VP6, ...).
   if (FlvDemuxer::Detect(head, filled)) {
     auto flv = std::make_unique<FlvDemuxer>();
     FlvDemuxer* opening = flv.get();
+    opening->SetReopener(CreateSharedOpener(headers_), url);
     Adopt(std::move(flv));
     const bool opened = opening->Open(std::move(source), error);
     if (opened || !fallback_) return opened;

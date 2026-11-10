@@ -38,6 +38,22 @@ Used by tool/regression.sh to test network behaviour:
   --live-start N       live playlists start with N segments out (default 3)
   --live-window N      live playlists keep a window of N segments (default
                        4); 0 keeps all, as PLAYLIST-TYPE EVENT
+  --live-flv PATH FLV  answer requests for path PATH with the FLV file at path
+                       FLV as an HTTP-FLV live stream: chunked, without a
+                       length or ranges, each tag sent once its time has come
+                       (from the first request on). A later request gets the
+                       header and the sequence headers, then the tags from
+                       the keyframe before the time that has come, as a live
+                       server's GOP cache sends them. The stream ends with
+                       the file
+  --live-flv-burst S   the first request gets the file's first S seconds at
+                       once, as a server sends what it holds
+  --live-flv-drop-after S  the first live FLV response breaks off (a TCP
+                       reset) S seconds after its request
+  --live-flv-restart   a later request's tag times start over from 0, as
+                       after an encoder restart
+  --live-flv-uptime MS the stream's tag times are MS later than the
+                       file's, as those of a stream live for a while
 
 Prints "port N" once listening (pass --port 0 for a free port).
 """
@@ -45,7 +61,9 @@ import argparse
 import http.server
 import os
 import re
+import socket
 import socketserver
+import struct
 import sys
 import threading
 import time
@@ -63,6 +81,8 @@ class State:
         # Where the ranges asked for so far end, per path.
         self.range_ends = set()
         self.live_start = None
+        self.flv_start = None
+        self.flv_requests = 0
 
     def claim(self, attribute):
         # True for the one caller that flips |attribute| first.
@@ -118,6 +138,9 @@ def make_handler(root, args, state):
                 if self.path.split("?")[0] == live:
                     self.serve_live(vod, head)
                     return
+            if args.live_flv and self.path.split("?")[0] == args.live_flv[0]:
+                self.serve_live_flv(head)
+                return
             path = os.path.join(root, self.path.lstrip("/").split("?")[0])
             if not os.path.isfile(path):
                 self.send_error(404)
@@ -263,7 +286,96 @@ def make_handler(root, args, state):
             if not head:
                 self.wfile.write(body)
 
+        def serve_live_flv(self, head):
+            header, tags = read_flv(os.path.join(root, args.live_flv[1].lstrip("/")))
+            with state.lock:
+                now = time.monotonic()
+                if state.flv_start is None:
+                    state.flv_start = now
+                state.flv_requests += 1
+                first = state.flv_requests == 1
+                start = state.flv_start
+            # A tag at |ms| is due at this time.
+            def due(ms):
+                return start + ms / 1000 - args.live_flv_burst
+            out = []
+            if first:
+                out = list(tags)
+            else:
+                # The header tags, then from the last keyframe that is due.
+                configs = [t for t in tags if t["config"] or t["type"] == 18]
+                begin = 0
+                for i, t in enumerate(tags):
+                    if due(t["ms"]) > now:
+                        break
+                    if t["key"]:
+                        begin = i
+                out = configs + [t for t in tags[begin:] if not t["config"] and t["type"] != 18]
+            base = -args.live_flv_uptime
+            if not first and args.live_flv_restart:
+                base = min((t["ms"] for t in out if not t["config"] and t["type"] != 18), default=0)
+            self.send_response(200)
+            self.send_header("Content-Type", "video/x-flv")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            if head:
+                return
+            drop = (start + args.live_flv_drop_after
+                    if args.live_flv_drop_after is not None and first else None)
+
+            def send(data):
+                self.wfile.write(b"%x\r\n" % len(data) + data + b"\r\n")
+                self.wfile.flush()
+
+            try:
+                send(header)
+                for t in out:
+                    wait = due(t["ms"]) - time.monotonic()
+                    if drop is not None and time.monotonic() + max(wait, 0) >= drop:
+                        time.sleep(max(drop - time.monotonic(), 0))
+                        # A reset, which clients report as an error (a
+                        # close some take for the end of a chunked body).
+                        self.close_connection = True
+                        self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                                                   struct.pack("ii", 1, 0))
+                        self.connection.close()
+                        return
+                    if wait > 0:
+                        time.sleep(wait)
+                    send(retime(t, t["ms"] - base if t["type"] != 18 and not t["config"] else 0))
+                self.wfile.write(b"0\r\n\r\n")
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                return
+
     return Handler
+
+
+def read_flv(path):
+    # The header with the first previous-tag size, and each tag with its
+    # previous-tag size after it: its type, time, whether it is a sequence
+    # header or a video keyframe.
+    data = open(path, "rb").read()
+    offset = struct.unpack(">I", data[5:9])[0] + 4
+    header = data[:offset]
+    tags = []
+    while offset + 15 <= len(data):
+        kind = data[offset]
+        size = int.from_bytes(data[offset + 1:offset + 4], "big")
+        ms = int.from_bytes(data[offset + 4:offset + 7], "big") | data[offset + 7] << 24
+        payload = data[offset + 11:offset + 11 + size]
+        config = kind in (8, 9) and len(payload) > 1 and payload[1] == 0
+        key = kind == 9 and len(payload) > 1 and payload[0] >> 4 == 1 and payload[1] == 1
+        tags.append({"type": kind, "ms": ms, "config": config, "key": key,
+                     "bytes": data[offset:offset + 15 + size]})
+        offset += 15 + size
+    return header, tags
+
+
+def retime(tag, ms):
+    out = bytearray(tag["bytes"])
+    out[4:7] = (ms & 0xFFFFFF).to_bytes(3, "big")
+    out[7] = (ms >> 24) & 0xFF
+    return bytes(out)
 
 
 class Server(http.server.ThreadingHTTPServer):
@@ -298,6 +410,11 @@ def main():
     parser.add_argument("--live", nargs=2, action="append", metavar=("PATH", "VOD"))
     parser.add_argument("--live-start", type=int, default=3)
     parser.add_argument("--live-window", type=int, default=4)
+    parser.add_argument("--live-flv", nargs=2, metavar=("PATH", "FLV"))
+    parser.add_argument("--live-flv-burst", type=float, default=0)
+    parser.add_argument("--live-flv-drop-after", type=float)
+    parser.add_argument("--live-flv-restart", action="store_true")
+    parser.add_argument("--live-flv-uptime", type=int, default=0)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 

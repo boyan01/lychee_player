@@ -327,7 +327,12 @@ class HttpDataSource : public DataSource {
     if (interrupted_) {
       return false;
     }
-    if (refused_ || retries_ >= kMaxRetries) {
+    // Not a stream of unknown size whose server takes no ranges (a live
+    // stream): it would send what it has now, and dropping all that came
+    // before to get back here takes as long as it played. The demuxer
+    // reconnects itself if it can (FLV).
+    if (refused_ || retries_ >= kMaxRetries ||
+        (offset > 0 && !ranges_ && size_ < 0)) {
       if (error_.empty()) {
         error_ = TagError(ErrorKind::kNetwork, "connection failed");
       }

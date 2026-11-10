@@ -3,8 +3,10 @@
 #include "backends/mpegps/ps_demuxer.h"
 #include "test.h"
 
+#include <algorithm>
 #include <cstring>
 #include <initializer_list>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -65,6 +67,29 @@ TEST(FlvDemuxer, RejectsTruncationAndBadPreviousSize) {
         !demuxer.Open(CreateMemoryDataSource(std::move(bytes)), &error));
   }
 }
+// A stream of unknown size (HTTP-FLV live) that fails to read past
+// |broken_at|, as a dropped connection does.
+class StreamSource : public DataSource {
+ public:
+  explicit StreamSource(Bytes bytes, int64_t broken_at = INT64_MAX)
+      : bytes_(std::move(bytes)), broken_at_(broken_at) {}
+  int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
+    if (offset >= broken_at_) return -1;
+    if (offset >= static_cast<int64_t>(bytes_.size())) return 0;
+    const size_t n =
+        std::min<size_t>({size, bytes_.size() - static_cast<size_t>(offset),
+                          static_cast<size_t>(broken_at_ - offset)});
+    memcpy(data, bytes_.data() + offset, n);
+    return static_cast<int64_t>(n);
+  }
+  int64_t size() const override { return -1; }
+  bool seekable() const override { return false; }
+  std::string error() const override { return "connection broke"; }
+
+ private:
+  Bytes bytes_;
+  int64_t broken_at_;
+};
 Bytes FlvHeader(uint8_t flags) {
   return {'F', 'L', 'V', 1, flags, 0, 0, 0, 9, 0, 0, 0, 0};
 }
@@ -98,6 +123,186 @@ const Bytes kHvcC = [] {
   hvcc[21] = 3;
   return hvcc;
 }();
+TEST(FlvDemuxer, StreamOfUnknownSize) {
+  Bytes bytes = FlvHeader(4);
+  FlvTag(&bytes, 18, 0, FlvMetadata({{"width", 640}}));
+  FlvTag(&bytes, 8, 5000, {0xaf, 0, 0x11, 0x90});
+  for (uint32_t ms : {5000u, 5021u, 5042u})
+    FlvTag(&bytes, 8, ms, {0xaf, 1, 1, 2, 3});
+  FlvDemuxer demuxer;
+  std::string error;
+  EXPECT_TRUE(
+      demuxer.Open(std::make_unique<StreamSource>(std::move(bytes)), &error));
+  const MediaInfo& info = demuxer.media_info();
+  EXPECT_TRUE(!info.seekable);
+  EXPECT_TRUE(info.realtime);
+  EXPECT_EQ(info.duration, kNoTimestamp);
+  EXPECT_EQ(info.start_time, 5000000);
+  EncodedPacket packet;
+  for (int64_t ms : {5000, 5021, 5042}) {
+    EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kOk);
+    EXPECT_EQ(packet.pts, ms * 1000);
+    EXPECT_EQ(packet.duration, 21333);
+    EXPECT_EQ(packet.size(), 3u);
+  }
+  EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kEndOfStream);
+  // An interrupt stops a read; the failed seek of a resync clears it.
+  demuxer.Interrupt();
+  EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kAborted);
+  EXPECT_TRUE(!demuxer.Seek(0));
+  EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kEndOfStream);
+}
+TEST(FlvDemuxer, StreamWithDurationIsNotLive) {
+  Bytes bytes = FlvHeader(4);
+  FlvTag(&bytes, 18, 0, FlvMetadata({{"duration", 12.5}}));
+  FlvTag(&bytes, 8, 0, {0xaf, 0, 0x11, 0x90});
+  FlvTag(&bytes, 8, 0, {0xaf, 1, 1});
+  FlvDemuxer demuxer;
+  std::string error;
+  EXPECT_TRUE(
+      demuxer.Open(std::make_unique<StreamSource>(std::move(bytes)), &error));
+  EXPECT_TRUE(!demuxer.media_info().realtime);
+}
+TEST(FlvDemuxer, StreamKeepsOneTimelineAcrossJumps) {
+  Bytes bytes = FlvHeader(4);
+  FlvTag(&bytes, 8, 0, {0xaf, 0, 0x11, 0x90});
+  // An encoder restart (back to 0), then a gap the stream did not play.
+  for (uint32_t ms : {100000u, 100021u, 0u, 21u, 60021u, 60042u})
+    FlvTag(&bytes, 8, ms, {0xaf, 1, 1});
+  // A configuration again, the same: nothing changes.
+  FlvTag(&bytes, 8, 60042, {0xaf, 0, 0x11, 0x90});
+  FlvTag(&bytes, 8, 60063, {0xaf, 1, 1});
+  FlvDemuxer demuxer;
+  std::string error;
+  EXPECT_TRUE(
+      demuxer.Open(std::make_unique<StreamSource>(std::move(bytes)), &error));
+  EncodedPacket packet;
+  std::vector<int64_t> times;
+  while (demuxer.Read(&packet) == DemuxerReadResult::kOk)
+    times.push_back(packet.pts / 1000);
+  // 21333 us steps where the stream jumped.
+  EXPECT_TRUE(times == (std::vector<int64_t>{100000, 100021, 100042, 100063,
+                                             100084, 100105, 100126}));
+}
+TEST(FlvDemuxer, StreamRejectsAChangedConfiguration) {
+  Bytes bytes = FlvHeader(4);
+  FlvTag(&bytes, 8, 0, {0xaf, 0, 0x11, 0x90});
+  FlvTag(&bytes, 8, 0, {0xaf, 1, 1});
+  FlvTag(&bytes, 8, 21, {0xaf, 0, 0x12, 0x10});
+  FlvDemuxer demuxer;
+  std::string error;
+  EXPECT_TRUE(
+      demuxer.Open(std::make_unique<StreamSource>(std::move(bytes)), &error));
+  EncodedPacket packet;
+  EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kOk);
+  EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kError);
+  EXPECT_EQ(demuxer.error(), "flv: changing AAC configuration");
+}
+TEST(FlvDemuxer, StreamReconnects) {
+  Bytes first = FlvHeader(4);
+  FlvTag(&first, 8, 0, {0xaf, 0, 0x11, 0x90});
+  FlvTag(&first, 8, 0, {0xaf, 1, 1});
+  const auto broken_at = static_cast<int64_t>(first.size());
+  FlvTag(&first, 8, 21, {0xaf, 1, 2});
+  // The server's stream as it is by the reconnect: its header and
+  // configuration again, and times of its own.
+  Bytes second = FlvHeader(4);
+  FlvTag(&second, 8, 9000, {0xaf, 0, 0x11, 0x90});
+  FlvTag(&second, 8, 9000, {0xaf, 1, 3});
+  FlvTag(&second, 8, 9021, {0xaf, 1, 4});
+  FlvDemuxer demuxer;
+  int reopened = 0;
+  demuxer.SetReopener(
+      [&](const std::string&, std::string*) -> std::unique_ptr<DataSource> {
+        ++reopened;
+        return std::make_unique<StreamSource>(second);
+      },
+      "http://live/stream.flv");
+  std::string error;
+  EXPECT_TRUE(
+      demuxer.Open(std::make_unique<StreamSource>(first, broken_at), &error));
+  EncodedPacket packet;
+  std::vector<std::pair<int64_t, int>> read;
+  while (demuxer.Read(&packet) == DemuxerReadResult::kOk)
+    read.emplace_back(packet.pts / 1000, packet.buffer->data()[0]);
+  // Its end too, once, in case it broke off: the same again, dropped.
+  EXPECT_EQ(reopened, 2);
+  EXPECT_TRUE(read ==
+              (std::vector<std::pair<int64_t, int>>{{0, 1}, {21, 3}, {42, 4}}));
+}
+TEST(FlvDemuxer, StreamReconnectsToTheSameTimeline) {
+  Bytes first = FlvHeader(4);
+  FlvTag(&first, 8, 0, {0xaf, 0, 0x11, 0x90});
+  for (uint32_t ms : {1000u, 1021u})
+    FlvTag(&first, 8, ms, {0xaf, 1, 1});
+  const auto broken_at = static_cast<int64_t>(first.size());
+  // What the server still held, then on.
+  Bytes second = FlvHeader(4);
+  FlvTag(&second, 8, 0, {0xaf, 0, 0x11, 0x90});
+  for (uint32_t ms : {1000u, 1021u, 1042u})
+    FlvTag(&second, 8, ms, {0xaf, 1, 2});
+  FlvDemuxer demuxer;
+  demuxer.SetReopener(
+      [&](const std::string&, std::string*) -> std::unique_ptr<DataSource> {
+        return std::make_unique<StreamSource>(second);
+      },
+      "http://live/stream.flv");
+  std::string error;
+  EXPECT_TRUE(
+      demuxer.Open(std::make_unique<StreamSource>(first, broken_at), &error));
+  EncodedPacket packet;
+  std::vector<std::pair<int64_t, int>> read;
+  while (demuxer.Read(&packet) == DemuxerReadResult::kOk)
+    read.emplace_back(packet.pts / 1000, packet.buffer->data()[0]);
+  EXPECT_TRUE(read == (std::vector<std::pair<int64_t, int>>{
+                          {1000, 1}, {1021, 1}, {1042, 2}}));
+}
+TEST(FlvDemuxer, StreamEndsIfItCannotReconnectAfterItsEnd) {
+  Bytes bytes = FlvHeader(4);
+  FlvTag(&bytes, 8, 0, {0xaf, 0, 0x11, 0x90});
+  FlvTag(&bytes, 8, 0, {0xaf, 1, 1});
+  FlvDemuxer demuxer;
+  int reopened = 0;
+  demuxer.SetReopener(
+      [&](const std::string&, std::string*) -> std::unique_ptr<DataSource> {
+        // The stream is over: an empty response.
+        ++reopened;
+        return std::make_unique<StreamSource>(Bytes());
+      },
+      "http://live/stream.flv");
+  std::string error;
+  EXPECT_TRUE(demuxer.Open(std::make_unique<StreamSource>(bytes), &error));
+  EncodedPacket packet;
+  EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kOk);
+  EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kEndOfStream);
+  EXPECT_EQ(reopened, 1);
+}
+TEST(FlvDemuxer, StreamGivesUpReconnecting) {
+  Bytes bytes = FlvHeader(4);
+  FlvTag(&bytes, 8, 0, {0xaf, 0, 0x11, 0x90});
+  FlvTag(&bytes, 8, 0, {0xaf, 1, 1});
+  FlvDemuxer demuxer;
+  int reopened = 0;
+  demuxer.SetReopener(
+      [&](const std::string&, std::string* why) -> std::unique_ptr<DataSource> {
+        ++reopened;
+        *why = "refused";
+        // Interrupts the waits between attempts, as a stop would.
+        if (reopened == 2) demuxer.Interrupt();
+        return nullptr;
+      },
+      "http://live/stream.flv");
+  std::string error;
+  EXPECT_TRUE(demuxer.Open(
+      std::make_unique<StreamSource>(bytes, static_cast<int64_t>(bytes.size())),
+      &error));
+  EncodedPacket packet;
+  EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kOk);
+  EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kAborted);
+  EXPECT_EQ(reopened, 2);
+  demuxer.Abort();
+  EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kAborted);
+}
 TEST(FlvDemuxer, HevcAndAv1Headers) {
   // Codec id 12, and Enhanced RTMP's hvc1 and av01.
   struct Case {
@@ -124,7 +329,7 @@ TEST(FlvDemuxer, HevcAndAv1Headers) {
        0},
   };
   for (const Case& c : cases) {
-    {
+    for (bool stream : {false, true}) {
       Bytes bytes = FlvHeader(1);
       FlvTag(&bytes, 18, 0, FlvMetadata({{"width", 1280}, {"height", 720}}));
       FlvTag(&bytes, 9, 0, c.config);
@@ -133,7 +338,10 @@ TEST(FlvDemuxer, HevcAndAv1Headers) {
       FlvTag(&bytes, 9, 0, c.frame);
       FlvDemuxer demuxer;
       std::string error;
-      EXPECT_TRUE(demuxer.Open(CreateMemoryDataSource(bytes), &error));
+      std::unique_ptr<DataSource> source =
+          stream ? std::make_unique<StreamSource>(bytes)
+                 : CreateMemoryDataSource(bytes);
+      EXPECT_TRUE(demuxer.Open(std::move(source), &error));
       const MediaInfo& info = demuxer.media_info();
       EXPECT_EQ(info.streams.size(), 1u);
       EXPECT_TRUE(info.streams[0].video.codec == c.codec);

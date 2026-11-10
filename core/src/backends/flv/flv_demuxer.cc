@@ -1,10 +1,13 @@
 #include "backends/flv/flv_demuxer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
+#include <iterator>
 #include <utility>
 
 #include "backends/mp2t/elementary_stream.h"
+#include "base/log.h"
 #include "media/annexb.h"
 
 namespace lychee {
@@ -15,12 +18,22 @@ constexpr uint32_t FourCC(const char (&s)[5]) {
          uint32_t(uint8_t(s[2])) << 8 | uint8_t(s[3]);
 }
 
-// The largest tag (IndexedDemuxer's packet limit).
+// The largest tag either mode takes (IndexedDemuxer's packet limit).
 constexpr uint32_t kMaxTagSize = 16 * 1024 * 1024;
 // onMetaData larger than this is skipped unread.
 constexpr uint32_t kMaxMetadataSize = 1 << 20;
 // Bytes of a payload Inspect() looks at.
 constexpr size_t kPayloadHead = 9;
+// The open of a stream waits for the configuration of a stream its
+// header announces until this much media past the first frame is in...
+constexpr int64_t kConfigWait = 2000000;
+// ...or this many frames.
+constexpr size_t kMaxOpenFrames = 4096;
+// What the source is read in.
+constexpr size_t kReadSize = 65536;
+// Unparsed bytes before this much is dropped from the front of the
+// buffer.
+constexpr size_t kCompactAt = 1 << 20;
 constexpr int64_t kDefaultVideoStep = 33333;
 
 int32_t SI24(const uint8_t* p) {
@@ -151,6 +164,12 @@ class Amf {
 bool FlvDemuxer::Parse() {
   uint8_t header[9];
   if (!Exact(0, header, 9) || !Detect(header, 9)) return false;
+  // Known once a read returned.
+  if (source_->size() < 0) {
+    cache_.clear();
+    streaming_ = true;
+    return OpenStream();
+  }
   const int64_t offset = BE32(header + 5);
   if (offset < 9 || offset > INT32_MAX) return false;
   if (!Exact(offset, header, 4) || BE32(header) != 0) return false;
@@ -352,6 +371,7 @@ bool FlvDemuxer::AddConfig(const Payload& payload,
   }
   index = static_cast<int>(info_.streams.size());
   info_.streams.push_back(std::move(s));
+  last_dts_.push_back(kNoTimestamp);
   step_.push_back(step);
   return true;
 }
@@ -449,6 +469,272 @@ bool FlvDemuxer::ParseIndexed(int64_t offset) {
     offset += 4;
   }
   return true;
+}
+
+FlvDemuxer::Step FlvDemuxer::Need(size_t size) {
+  while (buffer_.size() - buffer_head_ < size) {
+    if (interrupted_ || aborted_) return Step::kAborted;
+    if (buffer_head_ == buffer_.size()) {
+      buffer_.clear();
+      buffer_head_ = 0;
+    } else if (buffer_head_ >= kCompactAt) {
+      buffer_.erase(buffer_.begin(),
+                    buffer_.begin() + static_cast<ptrdiff_t>(buffer_head_));
+      buffer_head_ = 0;
+    }
+    const size_t have = buffer_.size();
+    buffer_.resize(have + kReadSize);
+    const int64_t n =
+        source_->Read(read_offset_, buffer_.data() + have, kReadSize);
+    buffer_.resize(have + static_cast<size_t>(std::clamp<int64_t>(
+                              n, 0, static_cast<int64_t>(kReadSize))));
+    if (n > 0 && n <= static_cast<int64_t>(kReadSize)) {
+      read_offset_ += n;
+      continue;
+    }
+    if (interrupted_ || aborted_) return Step::kAborted;
+    if (n == 0 && buffer_head_ == buffer_.size()) return Step::kEnd;
+    error_ = n < 0 ? source_->error()
+                   : TagError(ErrorKind::kEndedEarly,
+                              "flv: stream ended inside a tag");
+    return Step::kError;
+  }
+  return Step::kOk;
+}
+
+FlvDemuxer::Step FlvDemuxer::ReadHeader() {
+  Step step = Need(9);
+  if (step != Step::kOk) {
+    if (step == Step::kEnd) error_ = "flv: empty response";
+    return step == Step::kEnd ? Step::kError : step;
+  }
+  const uint8_t* h = buffer_.data() + buffer_head_;
+  const uint32_t offset = BE32(h + 5);
+  if (!Detect(h, 9) || offset < 9 || offset > kCompactAt) {
+    error_ = "flv: not an FLV stream";
+    return Step::kError;
+  }
+  flags_ = h[4];
+  step = Need(offset + 4);
+  if (step != Step::kOk) return step == Step::kEnd ? Step::kError : step;
+  if (BE32(buffer_.data() + buffer_head_ + offset) != 0) {
+    error_ = "flv: not an FLV stream";
+    return Step::kError;
+  }
+  buffer_head_ += offset + 4;
+  return Step::kOk;
+}
+
+int64_t FlvDemuxer::Rebase(int stream, int64_t time, bool jump) {
+  int64_t dts = time + timeline_offset_;
+  if (newest_ != kNoTimestamp && (jump || dts < newest_ - kMaxBackwardJump ||
+                                  dts > newest_ + kMaxForwardJump)) {
+    const int64_t continued = newest_ + step_[static_cast<size_t>(stream)];
+    LOGI("flv: timestamps jump from %lld to %lld ms; continuing at %lld ms",
+         static_cast<long long>(newest_ / 1000),
+         static_cast<long long>(dts / 1000),
+         static_cast<long long>(continued / 1000));
+    timeline_offset_ = continued - time;
+    dts = continued;
+  }
+  newest_ = newest_ == kNoTimestamp ? dts : std::max(newest_, dts);
+  return dts;
+}
+
+FlvDemuxer::Step FlvDemuxer::ReadTag() {
+  Step step = Need(11);
+  if (step != Step::kOk) return step;
+  const uint8_t* h = buffer_.data() + buffer_head_;
+  const uint32_t size = BE24(h + 1);
+  if (BE24(h + 8) != 0 || (h[0] & 0xe0) || size > kMaxTagSize) {
+    error_ = "flv: corrupt tag";
+    return Step::kError;
+  }
+  step = Need(size_t{11} + size + 4);
+  if (step != Step::kOk) return step == Step::kEnd ? Step::kError : step;
+  h = buffer_.data() + buffer_head_;
+  const uint8_t* payload = h + 11;
+  if (BE32(payload + size) != size + 11) {
+    error_ = "flv: corrupt tag";
+    return Step::kError;
+  }
+  uint8_t head[kPayloadHead] = {};
+  memcpy(head, payload, std::min<size_t>(size, kPayloadHead));
+  Payload p;
+  if (!Inspect(h[0], head, size, &p)) return Step::kInvalid;
+  if (p.kind == Payload::kConfig) {
+    if (!AddConfig(p, std::vector<uint8_t>(payload + p.skip, payload + size)))
+      return Step::kInvalid;
+  } else if (p.kind == Payload::kMetadata && size <= kMaxMetadataSize) {
+    ParseMetadata(payload, size);
+  } else if (p.kind == Payload::kFrame) {
+    const int stream = p.type == MediaType::kVideo ? video_ : audio_;
+    // Frames before their configuration cannot be decoded.
+    const auto index = static_cast<size_t>(stream);
+    const int64_t time = TagTime(h);
+    const int64_t on = time + timeline_offset_;
+    bool jump = false;
+    if (stream >= 0 && resumed_ && newest_ != kNoTimestamp) {
+      resumed_ = false;
+      // Up to kMaxForwardJump ahead it goes on as it is (Rebase()).
+      if (on <= newest_ && on >= newest_ - kMaxResend) {
+        LOGI("flv: the stream goes on from %lld ms, with %lld ms sent again",
+             static_cast<long long>(on / 1000),
+             static_cast<long long>((newest_ - on) / 1000));
+        resending_.assign(info_.streams.size(), true);
+      } else if (on < newest_) {
+        jump = true;
+      }
+    }
+    bool again = false;
+    if (stream >= 0 && index < resending_.size() && resending_[index]) {
+      again = on <= last_dts_[index] && on >= newest_ - kMaxResend;
+      resending_[index] = again;
+    }
+    if (stream >= 0 && size > p.skip && !again) {
+      const int64_t dts = Rebase(stream, time, jump);
+      if (p.type == MediaType::kVideo && last_dts_[index] != kNoTimestamp &&
+          dts > last_dts_[index] && dts - last_dts_[index] <= 1000000)
+        step_[index] = dts - last_dts_[index];
+      last_dts_[index] = dts;
+      EncodedPacket packet;
+      packet.stream_index = stream;
+      packet.dts = dts;
+      packet.pts = dts + p.cts;
+      packet.duration = step_[index];
+      packet.keyframe = p.key;
+      packet.buffer = PacketBuffer::Copy(payload + p.skip, size - p.skip);
+      pending_.push_back(std::move(packet));
+      reconnects_ = 0;
+    }
+  }
+  buffer_head_ += size_t{11} + size + 4;
+  return Step::kOk;
+}
+
+bool FlvDemuxer::OpenStream() {
+  Step step = ReadHeader();
+  while (step == Step::kOk) {
+    const bool want_video = (flags_ & 1) && video_ < 0;
+    const bool want_audio = (flags_ & 4) && audio_ < 0;
+    // At least one frame, for the time the stream starts at.
+    if (!info_.streams.empty() && !pending_.empty() &&
+        ((!want_video && !want_audio) || pending_.size() >= kMaxOpenFrames ||
+         newest_ - pending_.front().dts >= kConfigWait))
+      break;
+    if (pending_.size() >= kMaxOpenFrames) {
+      error_ = "flv: no audio or video configuration";
+      return false;
+    }
+    step = ReadTag();
+  }
+  if (step == Step::kEnd) {
+    ended_ = true;
+  } else if (step != Step::kOk) {
+    return false;
+  }
+  if (info_.streams.empty()) {
+    if (error_.empty()) error_ = "flv: no audio or video configuration";
+    return false;
+  }
+  FinishStreams();
+  info_.realtime = !(metadata_duration_ > 0);
+  if (!pending_.empty()) {
+    info_.start_time = pending_.front().pts;
+    for (const EncodedPacket& packet : pending_)
+      info_.start_time = std::min(info_.start_time, packet.pts);
+  }
+  LOGI("flv: reading as it arrives%s",
+       info_.realtime ? ", as a live stream" : "");
+  return true;
+}
+
+FlvDemuxer::Step FlvDemuxer::Reconnect() {
+  const size_t attempts = after_end_ ? 1 : std::size(kReconnectDelays);
+  while (reconnects_ < attempts) {
+    const int delay = kReconnectDelays[reconnects_++];
+    {
+      std::unique_lock lock(wait_mutex_);
+      if (wait_.wait_for(lock, std::chrono::seconds(delay),
+                         [this] { return interrupted_ || aborted_; })) {
+        reconnects_--;
+        return Step::kAborted;
+      }
+    }
+    std::string why;
+    std::unique_ptr<DataSource> source = reopener_(url_, &why);
+    if (source) {
+      {
+        std::lock_guard lock(source_mutex_);
+        std::swap(source_, source);
+        if (interrupted_ || aborted_) source_->Interrupt();
+      }
+      // The old source closes outside the lock Interrupt() takes.
+      source.reset();
+      buffer_.clear();
+      buffer_head_ = 0;
+      read_offset_ = 0;
+      const Step step = ReadHeader();
+      if (step == Step::kAborted) {
+        reconnects_--;
+        return step;
+      }
+      if (step == Step::kOk) {
+        LOGI("flv: reconnected");
+        broken_ = false;
+        resumed_ = true;
+        return Step::kOk;
+      }
+      why = error_;
+    }
+    LOGW("flv: reconnect %zu of %zu failed: %s", reconnects_, attempts,
+         why.c_str());
+    error_ = why;
+  }
+  return after_end_ ? Step::kEnd : Step::kError;
+}
+
+DemuxerReadResult FlvDemuxer::Read(EncodedPacket* packet) {
+  if (!streaming_) return IndexedDemuxer::Read(packet);
+  while (true) {
+    if (interrupted_ || aborted_) return DemuxerReadResult::kAborted;
+    while (!pending_.empty()) {
+      EncodedPacket next = std::move(pending_.front());
+      pending_.pop_front();
+      if (enabled_[static_cast<size_t>(next.stream_index)]) {
+        *packet = std::move(next);
+        return DemuxerReadResult::kOk;
+      }
+    }
+    if (ended_) return DemuxerReadResult::kEndOfStream;
+    const bool reconnecting = broken_;
+    const Step step = reconnecting ? Reconnect() : ReadTag();
+    if (step == Step::kAborted) return DemuxerReadResult::kAborted;
+    if (step == Step::kInvalid) return DemuxerReadResult::kError;
+    if (step == Step::kOk) continue;
+    // Live: what follows is wherever the stream is by now. Anything else
+    // would start over.
+    if (reconnecting || !info_.realtime || !reopener_) {
+      if (step == Step::kError) return DemuxerReadResult::kError;
+      ended_ = true;
+      continue;
+    }
+    after_end_ = step == Step::kEnd;
+    if (after_end_) {
+      LOGI("flv: the stream ended; reconnecting in case it broke off");
+    } else {
+      LOGW("flv: %s; reconnecting", error_.c_str());
+    }
+    broken_ = true;
+  }
+}
+
+void FlvDemuxer::Interrupt() {
+  IndexedDemuxer::Interrupt();
+  {
+    std::lock_guard lock(wait_mutex_);
+  }
+  wait_.notify_all();
 }
 
 }  // namespace lychee

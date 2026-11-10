@@ -130,6 +130,10 @@ struct MediaInfo {
   // at: 0 but for live HLS, which starts near the end of its window.
   int64_t start_position = 0;
   bool seekable = false;
+  // The input arrives as it is made and cannot be held back (an HTTP-FLV
+  // live stream): the player plays a little faster while it has much of
+  // it buffered, so it does not fall further behind (Player's catch-up).
+  bool realtime = false;
   std::vector<StreamInfo> streams;
   // Indices into |streams| the demuxer suggests, or -1.
   int default_video_stream = -1;
