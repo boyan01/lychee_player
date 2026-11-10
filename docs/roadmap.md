@@ -73,23 +73,22 @@ building on top of them.
 ## Known defects
 
 - **Android SurfaceView drops frames** (2026-11-10): on the TCL TV
-  (MT9655, 60 Hz), TV Play with `LycheeVideo(surfaceView: true)` showed
-  B站 4K HEVC HDR10 correctly (the TV switched to HDR10) but counted 549
-  of 2297 decoded frames dropped in 39 s, and 104 of 661 for 1080p H.264;
-  through the texture the same TV dropped 4 of 932 (4K H.264). Likely
-  not the display time: the SDK example's native SurfaceView, with the
-  same driver, rendered 507 and dropped 8 of hevc10_4k60's frames. With a
-  Hybrid Composition platform view in the app, the Choreographer misses
-  12 to 18 of every 120 vsyncs (gaps of 33 to 66 ms); in 9.5 s of
-  hevc10_4k60 the Flutter example rendered about 400 and dropped 25 to
-  42, against about 577 and 1 to 7 through the texture, so about 140
-  frames are neither shown nor counted. Not yet known: why the
-  Choreographer misses vsyncs (Flutter merging the platform and raster
-  threads, or throttling), and where those frames go (expired while not
-  pulled, or cadence). flutter-airplay avoids platform views: a native
-  SurfaceView under a transparent FlutterView (`RenderMode.texture`),
-  set up by the Activity. Done when 60 fps video through it
-  drops about as few as through the texture on that TV.
+  (MT9655, 60 Hz), Flutter's native video underlay still uses CLIENT
+  composition and hands out about 42-46 frames per playback second for
+  hevc10_4k60. Explicitly transparent FlutterTextureView and transparent
+  FlutterSurfaceView both failed, including a valid static page that drew
+  only five Flutter frames at startup. The same probe APK's Flutter video
+  texture path handed out about 61 frames/s with 4 drops; the native SDK
+  example used DEVICE(MM), rendering 599 with 1 drop. The exact composer
+  rejection or scheduling cause remains unknown; present-fence warnings
+  do not identify it. A foreground trace showed about 53 vsync callbacks/s
+  with callback durations below 16 ms while acquisition stayed near 42/s.
+  Next: correlate vendor rejection with decoder output-buffer ownership
+  and presentation timing.
+  See [the investigation](android-tv-composition.md). Done when 60 fps
+  video through the native SurfaceView is delivered and presented about
+  as smoothly as through the texture on that TV, retaining panel
+  resolution and HDR support.
 - **macOS MP3 fuzz run leak report** (2026-11-07): `FUZZ_TARGET=mp3
   tool/fuzz.sh` completed 116,883 inputs without a crash artifact, but
   LeakSanitizer reported 995 bytes allocated by the sanitizer's symbolizer
