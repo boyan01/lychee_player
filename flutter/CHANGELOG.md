@@ -1,3 +1,10 @@
+## Unreleased
+
+### New
+
+* FLV files and streams with HEVC (codec id 12, or Enhanced RTMP `hvc1`)
+  and AV1 (`av01`) video play, in builds with FFmpeg and without.
+
 ## 1.0.1
 
 ### New

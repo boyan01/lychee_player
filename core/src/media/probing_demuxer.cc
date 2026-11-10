@@ -198,6 +198,17 @@ bool ProbingDemuxer::OpenInput(const std::string& url, std::string* error) {
     if (opened || !fallback_) return opened;
     return OpenFallback(nullptr, url, "ps: " + *error, error);
   }
+  // FLV too, in every build, so that its HEVC and AV1 (Enhanced RTMP)
+  // play without FFmpeg as with it. FFmpeg takes the codecs it lacks
+  // (MP3, VP6, ...).
+  if (FlvDemuxer::Detect(head, filled)) {
+    auto flv = std::make_unique<FlvDemuxer>();
+    FlvDemuxer* opening = flv.get();
+    Adopt(std::move(flv));
+    const bool opened = opening->Open(std::move(source), error);
+    if (opened || !fallback_) return opened;
+    return OpenFallback(nullptr, url, *error, error);
+  }
   if (fallback_) {
     return OpenFallback(std::move(source), url, "", error);
   }
@@ -235,12 +246,6 @@ bool ProbingDemuxer::OpenInput(const std::string& url, std::string* error) {
     auto demuxer = std::make_unique<OggDemuxer>();
     OggDemuxer* opening = demuxer.get();
     Adopt(std::move(demuxer));
-    return opening->Open(std::move(source), error);
-  }
-  if (FlvDemuxer::Detect(head, filled)) {
-    auto flv = std::make_unique<FlvDemuxer>();
-    FlvDemuxer* opening = flv.get();
-    Adopt(std::move(flv));
     return opening->Open(std::move(source), error);
   }
 

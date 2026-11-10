@@ -3,6 +3,10 @@
 #include "backends/mpegps/ps_demuxer.h"
 #include "test.h"
 
+#include <cstring>
+#include <initializer_list>
+#include <string>
+#include <utility>
 #include <vector>
 
 // NOLINTBEGIN(bugprone-throwing-static-initialization)
@@ -59,6 +63,88 @@ TEST(FlvDemuxer, RejectsTruncationAndBadPreviousSize) {
     std::string error;
     EXPECT_TRUE(
         !demuxer.Open(CreateMemoryDataSource(std::move(bytes)), &error));
+  }
+}
+Bytes FlvHeader(uint8_t flags) {
+  return {'F', 'L', 'V', 1, flags, 0, 0, 0, 9, 0, 0, 0, 0};
+}
+// AMF0 onMetaData with numbers.
+Bytes FlvMetadata(
+    std::initializer_list<std::pair<const char*, double>> values) {
+  Bytes out = {2, 0, 10};
+  for (char c : std::string("onMetaData"))
+    out.push_back(uint8_t(c));
+  out.push_back(8);
+  PutBe(&out, static_cast<uint32_t>(values.size()) + 1, 4);
+  // A string first, which the reader skips.
+  for (uint8_t c : Bytes{0, 7, 'e', 'n', 'c', 'o', 'd', 'e', 'r', 2, 0, 1, 'x'})
+    out.push_back(c);
+  for (const auto& [name, value] : values) {
+    PutBe(&out, static_cast<uint32_t>(strlen(name)), 2);
+    out.insert(out.end(), name, name + strlen(name));
+    out.push_back(0);
+    uint64_t bits;
+    memcpy(&bits, &value, 8);
+    for (int i = 7; i >= 0; --i)
+      out.push_back(uint8_t(bits >> (i * 8)));
+  }
+  PutBe(&out, 0, 2);
+  out.push_back(9);
+  return out;
+}
+const Bytes kHvcC = [] {
+  Bytes hvcc(23);
+  hvcc[0] = 1;
+  hvcc[21] = 3;
+  return hvcc;
+}();
+TEST(FlvDemuxer, HevcAndAv1Headers) {
+  // Codec id 12, and Enhanced RTMP's hvc1 and av01.
+  struct Case {
+    Bytes config;
+    Bytes frame;
+    VideoCodec codec;
+    int64_t pts;
+  };
+  Bytes legacy_config = {0x1c, 0, 0, 0, 0};
+  legacy_config.insert(legacy_config.end(), kHvcC.begin(), kHvcC.end());
+  Bytes enhanced_config = {0x90, 'h', 'v', 'c', '1'};
+  enhanced_config.insert(enhanced_config.end(), kHvcC.begin(), kHvcC.end());
+  const Case cases[] = {
+      {legacy_config, {0x1c, 1, 0, 0, 40, 7}, VideoCodec::kHEVC, 40},
+      {enhanced_config,
+       {0x91, 'h', 'v', 'c', '1', 0, 0, 40, 7},
+       VideoCodec::kHEVC,
+       40},
+      // CodedFramesX: no composition time.
+      {enhanced_config, {0x93, 'h', 'v', 'c', '1', 7}, VideoCodec::kHEVC, 0},
+      {{0x90, 'a', 'v', '0', '1', 0x81, 0, 0, 0},
+       {0x91, 'a', 'v', '0', '1', 7},
+       VideoCodec::kAV1,
+       0},
+  };
+  for (const Case& c : cases) {
+    {
+      Bytes bytes = FlvHeader(1);
+      FlvTag(&bytes, 18, 0, FlvMetadata({{"width", 1280}, {"height", 720}}));
+      FlvTag(&bytes, 9, 0, c.config);
+      // A command frame, skipped.
+      FlvTag(&bytes, 9, 0, {0xd0, 'h', 'v', 'c', '1', 0});
+      FlvTag(&bytes, 9, 0, c.frame);
+      FlvDemuxer demuxer;
+      std::string error;
+      EXPECT_TRUE(demuxer.Open(CreateMemoryDataSource(bytes), &error));
+      const MediaInfo& info = demuxer.media_info();
+      EXPECT_EQ(info.streams.size(), 1u);
+      EXPECT_TRUE(info.streams[0].video.codec == c.codec);
+      EXPECT_EQ(info.streams[0].video.width, 1280);
+      EncodedPacket packet;
+      EXPECT_TRUE(demuxer.Read(&packet) == DemuxerReadResult::kOk);
+      EXPECT_EQ(packet.pts, c.pts * 1000);
+      EXPECT_TRUE(packet.keyframe);
+      EXPECT_EQ(packet.size(), 1u);
+      EXPECT_EQ(packet.buffer->data()[0], 7);
+    }
   }
 }
 void PutLe(Bytes* out, uint32_t value, int width) {

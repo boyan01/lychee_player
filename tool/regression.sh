@@ -202,6 +202,10 @@ gen h264_mp3.avi -i "$media/h264_aac.mp4" -t 8 -c:v libx264 -preset veryfast -g 
 gen mpeg4_pcm.avi -f lavfi -i testsrc2=size=320x240:rate=25 \
   -f lavfi -i sine=frequency=440:sample_rate=44100 -t 8 -c:v mpeg4 -g 25 -bf 0 -c:a pcm_s16le -f avi
 gen h264_aac.flv -i "$media/h264_aac.mp4" -t 8 -c:v libx264 -preset veryfast -g 30 -bf 2 -c:a copy -f flv
+# Enhanced RTMP's FourCC headers (hvc1, av01).
+gen hevc_aac.flv -i "$media/h264_aac.mp4" -t 8 -c:v libx265 -preset ultrafast -g 30 -pix_fmt yuv420p \
+  -x265-params log-level=error -c:a copy -f flv
+gen av1_aac.flv -i "$media/av1.mkv" -c copy -f flv
 gen video_only.mp4 -f lavfi -i testsrc2=size=1280x720:rate=60 -t 8 -c:v libx264 -preset veryfast -pix_fmt yuv420p
 # Separate audio (lychee_open_options.audio_urls), as DASH sites serve it:
 # fragmented video-only MP4, and an audio-only file per language (a tone
@@ -1088,7 +1092,7 @@ plays_without_ffmpeg() {
     audio-container-vorbis | seek-audio-container-vorbis) return 1 ;;
     avi-mpeg4 | seek-avi-mpeg4) [ "$windows" = 1 ] || return 1 ;;
     # Windows uses the Store AV1 extension; Apple needs newer hardware.
-    av1-software | av1-mp4-software) [ "$windows" = 1 ] || return 1 ;;
+    av1-software | av1-mp4-software | av1-flv-software) [ "$windows" = 1 ] || return 1 ;;
     # Not media, in either build.
     error-format) return 0 ;;
   esac
@@ -1149,6 +1153,7 @@ if [ "${NO_FFMPEG:-0}:$windows" = 1:1 ] || [ -z "${FFMPEG_ROOT:-}" ] ||
   grep -q dav1d "$FFMPEG_ROOT/lib/pkgconfig/libavcodec.pc" 2>/dev/null; then
   par check av1-software  0 - -- --no-hw "$media/av1.mkv"
   par check av1-mp4-software 0 - -- --no-hw "$media/av1.mp4"
+  par check av1-flv-software 0 - -- --no-hw "$media/av1_aac.flv"
 fi
 # Without FFmpeg on Apple, AV1 needs a hardware decoder (M3, A17 Pro):
 # elsewhere the video track is off and the audio plays to the end.
@@ -1240,6 +1245,7 @@ par expect flv-h264 "summary: state=ended .*rendered=[1-9][0-9]* .*audio_onset="
 par expect seek-flv-h264 "event: seek completed at 3\.000s" \
   "summary: state=ended .*rendered=[1-9][0-9]* .*seeks=1 " -- \
   --volume 1 --seek 3 --seek-after 1 "$media/h264_aac.flv"
+par check flv-hevc      1 - -- "$media/hevc_aac.flv"
 par check video-only    1 - -- "$media/video_only.mp4"
 par expect video-short "summary: state=ended position=0\.100s .*rendered=3 dropped=0 .*backward_jumps=0 .* decoded=3 " -- \
   "$media/short_video.mp4"

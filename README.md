@@ -16,9 +16,9 @@ Flutter plugin, a Swift package, an Android library and Rust crates.
   falling back to software when the hardware gives up.
 - **Formats**: MP4, Matroska/WebM, MPEG-TS, HLS, MP3, FLAC, WAV, ADTS
   and Ogg without FFmpeg on Apple, Windows and Android; Windows also
-  reads ASF (WMV/WMA) through the system. FLV (H.264/AAC), AVI and
-  MPEG-PS also have native readers; AVI and MPEG-PS need a system decoder
-  for the file's codecs. Ogg Vorbis needs FFmpeg on Apple and Windows.
+  reads ASF (WMV/WMA) through the system. FLV (H.264, HEVC or AV1 with
+  AAC), AVI and MPEG-PS also have native readers; AVI and MPEG-PS need a
+  system decoder for the file's codecs. Ogg Vorbis needs FFmpeg on Apple and Windows.
   More codecs and containers use optional LGPL FFmpeg.
 - **HLS**: adaptive variants, fragmented MP4 segments, AES-128, alternate
   audio and subtitle renditions.
