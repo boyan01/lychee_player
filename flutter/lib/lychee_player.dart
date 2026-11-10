@@ -1,5 +1,6 @@
 library;
 
+export 'src/log.dart' show LycheeLog, LycheeLogLevel;
 export 'src/player.dart'
     show
         audioSpectrum,

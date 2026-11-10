@@ -640,3 +640,28 @@ final thumbnailerCancel = _library.lookupFunction<Void Function(Pointer<Void>),
 
 final thumbnailerDestroy = _library.lookupFunction<Void Function(Pointer<Void>),
     void Function(Pointer<Void>)>('lychee_thumbnailer_destroy');
+
+/// lychee_log_listener.
+typedef LogListenerNative = Void Function(Pointer<Void>, Int32, Int64);
+
+/// lychee_set_log_level().
+final setLogLevel =
+    _library.lookupFunction<Void Function(Int32), void Function(int)>(
+        'lychee_set_log_level');
+
+/// Null with a core older than API 31.
+final void Function(Pointer<NativeFunction<LogListenerNative>>, Pointer<Void>)?
+    setLogListener = _library.providesSymbol('lychee_set_log_listener')
+        ? _library.lookupFunction<
+            Void Function(
+                Pointer<NativeFunction<LogListenerNative>>, Pointer<Void>),
+            void Function(Pointer<NativeFunction<LogListenerNative>>,
+                Pointer<Void>)>('lychee_set_log_listener')
+        : null;
+
+/// Null with a core older than API 31.
+final void Function(int)? freeLogMessage =
+    _library.providesSymbol('lychee_free_log_message')
+        ? _library.lookupFunction<Void Function(Int64), void Function(int)>(
+            'lychee_free_log_message')
+        : null;

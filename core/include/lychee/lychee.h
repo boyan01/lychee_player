@@ -99,7 +99,8 @@ extern "C" {
 // 29: lychee_open_options.audio_url_count and audio_urls: separate audio
 //    inputs.
 // 30: thumbnails apart from playback: lychee_thumbnailer.
-#define LYCHEE_API_VERSION 30
+// 31: lychee_set_log_listener() and lychee_free_log_message().
+#define LYCHEE_API_VERSION 31
 
 typedef struct lychee_player lychee_player;
 typedef struct lychee_frame lychee_frame;
@@ -363,6 +364,14 @@ typedef void (*lychee_log_callback)(void* user_data,
                                     int32_t level,
                                     const char* message);
 
+// A log line for a listener that reads it later, after the logging thread
+// has moved on (Dart's NativeCallable.listener): |message| is a copy, a
+// NUL-terminated char* passed as an integer, that the listener owns and
+// frees with lychee_free_log_message().
+typedef void (*lychee_log_listener)(void* user_data,
+                                    int32_t level,
+                                    int64_t message);
+
 typedef struct lychee_config {
   // sizeof(lychee_config) as the caller knows it. Set by
   // lychee_config_init().
@@ -597,6 +606,13 @@ LYCHEE_EXPORT void lychee_set_log_level(int32_t level);
 // they return.
 LYCHEE_EXPORT void lychee_set_log_callback(lychee_log_callback callback,
                                            void* user_data);
+// Like lychee_set_log_callback(), which it replaces (and which replaces it),
+// but |listener| gets a copy of each line that it owns (API 31). NULL
+// restores the default output.
+LYCHEE_EXPORT void lychee_set_log_listener(lychee_log_listener listener,
+                                           void* user_data);
+// Frees a line a lychee_log_listener got.
+LYCHEE_EXPORT void lychee_free_log_message(int64_t message);
 
 // Fills the first |struct_size| bytes of |config| with the defaults and sets
 // config->struct_size; pass sizeof(lychee_config).

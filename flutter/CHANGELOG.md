@@ -1,3 +1,12 @@
+## Unreleased
+
+### New
+
+* `LycheeLog.setHandler((level, message) { ... })` sends the library's
+  log lines to the app, to keep them with its own logs, and
+  `LycheeLog.level` sets how much it logs. On Android the lines
+  otherwise only go to logcat, which some devices do not keep for apps.
+
 ## 1.0.2
 
 ### New

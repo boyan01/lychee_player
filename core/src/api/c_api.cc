@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -202,6 +204,51 @@ void lychee_set_log_level(int32_t level) {
 
 void lychee_set_log_callback(lychee_log_callback callback, void* user_data) {
   lychee::SetLogSink(callback, user_data);
+}
+
+namespace {
+
+struct LogListener {
+  lychee_log_listener listener;
+  void* user_data;
+};
+
+void CopyToListener(void* user_data, int32_t level, const char* message) {
+  const auto* target = static_cast<const LogListener*>(user_data);
+  const size_t size = strlen(message) + 1;
+  char* copy = static_cast<char*>(malloc(size));
+  if (!copy) {
+    return;
+  }
+  memcpy(copy, message, size);
+  target->listener(target->user_data, level,
+                   static_cast<int64_t>(reinterpret_cast<intptr_t>(copy)));
+}
+
+}  // namespace
+
+void lychee_set_log_listener(lychee_log_listener listener, void* user_data) {
+  if (!listener) {
+    lychee::SetLogSink(nullptr, nullptr);
+    return;
+  }
+  // Kept for the life of the process: called from inside a log callback,
+  // SetLogSink() does not wait, so another thread may still be reading an
+  // older one. A process sets a listener a handful of times.
+  static std::mutex mutex;
+  static std::vector<std::unique_ptr<LogListener>> listeners;
+  LogListener* target;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    listeners.push_back(
+        std::make_unique<LogListener>(LogListener{listener, user_data}));
+    target = listeners.back().get();
+  }
+  lychee::SetLogSink(&CopyToListener, target);
+}
+
+void lychee_free_log_message(int64_t message) {
+  free(reinterpret_cast<char*>(static_cast<intptr_t>(message)));
 }
 
 void lychee_config_init(lychee_config* config, uint32_t struct_size) {

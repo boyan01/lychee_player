@@ -137,6 +137,38 @@ TEST(CApi, LogCallbackReplacesItself) {
   EXPECT_TRUE(g_log_lines >= 1);
 }
 
+std::atomic<int> g_listened_lines{0};
+std::atomic<bool> g_listened_text{false};
+
+void CountLogListener(void* user_data, int32_t, int64_t message) {
+  auto* expected = static_cast<const char*>(user_data);
+  const char* line = reinterpret_cast<const char*>(static_cast<intptr_t>(message));
+  if (strstr(line, expected)) {
+    g_listened_text = true;
+  }
+  g_listened_lines++;
+  lychee_free_log_message(message);
+}
+
+// The listener gets copies it owns, which outlive the logging call.
+TEST(CApi, LogListenerOwnsTheLines) {
+  static const char kUrl[] = "/nonexistent/listened.mp4";
+  lychee_set_log_listener(&CountLogListener, const_cast<char*>(kUrl));
+  lychee_config config;
+  lychee_config_init(&config, sizeof(config));
+  config.video_frame_types = 0;
+  lychee_player* player = lychee_player_create(&config);
+  lychee_player_open(player, kUrl);
+  const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!g_listened_text && std::chrono::steady_clock::now() < give_up) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  lychee_player_destroy(player);
+  lychee_set_log_listener(nullptr, nullptr);
+  EXPECT_TRUE(g_listened_lines >= 1);
+  EXPECT_TRUE(g_listened_text.load());
+}
+
 TEST(CApi, NotSeekableBeforeOpen) {
   lychee_config config;
   lychee_config_init(&config, sizeof(config));
