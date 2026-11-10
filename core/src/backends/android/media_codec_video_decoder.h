@@ -106,6 +106,8 @@ class MediaCodecVideoDecoder : public VideoDecoder {
   bool low_delay_ = false;
   ANativeWindow* window_ = nullptr;
   AImageReader* placeholder_ = nullptr;
+  // Images the placeholder keeps (HeldSurfaceImages(), a test hook).
+  std::deque<AImage*> held_images_;
   int coded_width_ = 0;
   int coded_height_ = 0;
   // Decode thread only.

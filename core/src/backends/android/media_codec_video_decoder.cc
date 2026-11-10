@@ -164,10 +164,30 @@ std::vector<std::vector<uint8_t>> InBandParameterSets(
   return sets;
 }
 
-void DiscardImages(void*, AImageReader* reader) {
+// A test hook, not API: `adb shell setprop debug.lychee.hold_surface_images
+// N` makes the placeholder keep the last N images, as Flutter's
+// ImageReaderSurfaceProducer keeps up to five, so lychee_cli shows what a
+// consumer that holds buffers does to the codec. 0 or unset: none.
+int HeldSurfaceImages() {
+  char value[PROP_VALUE_MAX] = {};
+  const int length =
+      __system_property_get("debug.lychee.hold_surface_images", value);
+  int count = 0;
+  const auto parsed = std::from_chars(value, value + length, count);
+  return parsed.ec == std::errc() && parsed.ptr == value + length && count > 0
+             ? std::min(count, 16)
+             : 0;
+}
+
+void DiscardImages(void* context, AImageReader* reader) {
+  auto* held = static_cast<std::deque<AImage*>*>(context);
   AImage* image = nullptr;
   while (AImageReader_acquireNextImage(reader, &image) == AMEDIA_OK) {
-    AImage_delete(image);
+    held->push_back(image);
+    while (held->size() > static_cast<size_t>(HeldSurfaceImages())) {
+      AImage_delete(held->front());
+      held->pop_front();
+    }
   }
 }
 
@@ -187,6 +207,9 @@ MediaCodecVideoDecoder::~MediaCodecVideoDecoder() {
   }
   // After the codec: it may render into the placeholder until deleted.
   if (placeholder_) {
+    for (AImage* image : held_images_) {
+      AImage_delete(image);
+    }
     AImageReader_delete(placeholder_);
   }
 }
@@ -206,15 +229,14 @@ ANativeWindow* MediaCodecVideoDecoder::TargetWindowLocked() {
   }
   if (!placeholder_) {
     AImageReader* reader = nullptr;
-    if (AImageReader_newWithUsage(std::max(coded_width_, 1),
-                                  std::max(coded_height_, 1),
-                                  AIMAGE_FORMAT_PRIVATE,
-                                  AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE, 4,
-                                  &reader) != AMEDIA_OK) {
+    if (AImageReader_newWithUsage(
+            std::max(coded_width_, 1), std::max(coded_height_, 1),
+            AIMAGE_FORMAT_PRIVATE, AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE,
+            4 + HeldSurfaceImages(), &reader) != AMEDIA_OK) {
       LOGE("cannot create a placeholder ImageReader");
       return nullptr;
     }
-    AImageReader_ImageListener listener = {nullptr, &DiscardImages};
+    AImageReader_ImageListener listener = {&held_images_, &DiscardImages};
     AImageReader_setImageListener(reader, &listener);
     placeholder_ = reader;
   }

@@ -15,9 +15,11 @@
   device has an instance free for the new one.
 * When no decoder is left for the video while playing, the player now
   reports an error (`LycheeErrorKind.decode`) instead of carrying on with
-  sound only, so an app can switch to another quality or format. This
-  happened, for example, when a 4K HEVC stream hit a decoder fault on an
-  Android TV.
+  sound only, so an app can switch to another quality or format.
+* Android: 4K video no longer freezes with sound playing on on devices
+  whose hardware decoder has few output buffers (MediaTek TVs such as
+  TCL's). The plugin now draws video through a `SurfaceTexture`, which
+  holds one frame, instead of a `SurfaceProducer`, which held up to five.
 
 ## 1.0.2
 

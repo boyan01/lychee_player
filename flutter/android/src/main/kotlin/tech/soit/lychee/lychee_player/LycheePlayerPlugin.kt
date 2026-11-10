@@ -71,10 +71,10 @@ class LycheePlayerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
         when (call.method) {
             "createTexture" -> {
                 val player = call.argument<Number>("player")!!.toLong()
-                val producer = textureRegistry.createSurfaceProducer()
-                textures[producer.id()] =
-                    LycheeTexture(producer, player, refreshRate()).also { it.setWindow(activity?.window) }
-                result.success(producer.id())
+                val entry = textureRegistry.createSurfaceTexture()
+                textures[entry.id()] =
+                    LycheeTexture(entry, player, refreshRate()).also { it.setWindow(activity?.window) }
+                result.success(entry.id())
             }
             // After a hot restart: the previous isolate's players still play.
             "disposeAll" -> {
