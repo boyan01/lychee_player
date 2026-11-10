@@ -28,6 +28,12 @@ constexpr size_t kRecentSamples = 16;
 // Samples kept after a refresh change, assumed one vsync apart. Detection
 // needs at least this many at the new rate, even with jitter.
 constexpr size_t kSamplesAfterChange = 4;
+// A caller that misses vsyncs, even often and several in a row, still
+// pulls on the grid (an Android Choreographer with a Hybrid Composition
+// platform view missed 13 of 120 on a TV). Only this many samples in a row
+// more than one vsync apart say the rate dropped to a divisor of it (60 to
+// 30 Hz), which no distance from the grid shows.
+constexpr size_t kSkipStepsForChange = 10;
 
 }  // namespace
 
@@ -41,8 +47,7 @@ VsyncEstimator::Vsync VsyncEstimator::Update(int64_t display_time) {
       samples_.clear();
       slope_ = 0;
       grid_valid_ = false;
-      recent_errors_.clear();
-      recent_error_sum_ = 0;
+      ClearRecent();
     }
   }
   last_display_time_ = display_time;
@@ -57,10 +62,9 @@ VsyncEstimator::Vsync VsyncEstimator::Update(int64_t display_time) {
         std::llround((display_time - last_vsync) / interval), 1);
     index = last.index + vsyncs;
     const int64_t error =
-        has_fit() && vsyncs == 1
-            ? std::min<int64_t>(std::llabs(display_time - TimeAt(index)),
-                                std::llround(interval / 2))
-            : std::llround(interval / 2);
+        has_fit() ? std::min<int64_t>(std::llabs(display_time - TimeAt(index)),
+                                      std::llround(interval / 2))
+                  : std::llround(interval / 2);
     if (has_fit()) {
       recent_errors_.push_back(error);
       recent_error_sum_ += error;
@@ -68,19 +72,24 @@ VsyncEstimator::Vsync VsyncEstimator::Update(int64_t display_time) {
         recent_error_sum_ -= recent_errors_.front();
         recent_errors_.pop_front();
       }
+      skip_steps_ = vsyncs > 1 ? skip_steps_ + 1 : 0;
     }
-    if (recent_errors_.size() == kRecentSamples &&
-        recent_error_sum_ > kRecentSamples * interval / 5) {
+    if ((recent_errors_.size() == kRecentSamples &&
+         recent_error_sum_ > kRecentSamples * interval / 5) ||
+        skip_steps_ >= kSkipStepsForChange) {
+      // After a drop to a divisor, the samples of the skipping run are one
+      // new vsync apart, and more of them fit the new line better.
+      const size_t keep = skip_steps_ >= kSkipStepsForChange
+                              ? skip_steps_ - 1
+                              : kSamplesAfterChange;
       samples_.erase(samples_.begin(),
-                     samples_.end() -
-                         std::min(samples_.size(), kSamplesAfterChange));
+                     samples_.end() - std::min(samples_.size(), keep));
       for (size_t i = 0; i < samples_.size(); ++i) {
         samples_[i].index = static_cast<int64_t>(i);
       }
       index = static_cast<int64_t>(samples_.size());
       grid_valid_ = false;
-      recent_errors_.clear();
-      recent_error_sum_ = 0;
+      ClearRecent();
     }
   }
   samples_.push_back({index, display_time});
@@ -106,6 +115,12 @@ VsyncEstimator::Vsync VsyncEstimator::Update(int64_t display_time) {
   grid_valid_ = true;
   last_ = {std::llround(grid_), std::llround(interval)};
   return last_;
+}
+
+void VsyncEstimator::ClearRecent() {
+  recent_errors_.clear();
+  recent_error_sum_ = 0;
+  skip_steps_ = 0;
 }
 
 void VsyncEstimator::Fit() {

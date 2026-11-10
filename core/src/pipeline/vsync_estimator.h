@@ -32,6 +32,7 @@ class VsyncEstimator {
   };
 
   void Fit();
+  void ClearRecent();
   bool has_fit() const { return slope_ > 0; }
   // The fitted time of vsync |index|.
   int64_t TimeAt(int64_t index) const;
@@ -44,6 +45,8 @@ class VsyncEstimator {
   // Distance of the last few samples from the grid.
   std::deque<int64_t> recent_errors_;
   int64_t recent_error_sum_ = 0;
+  // Samples in a row more than one vsync after the one before.
+  size_t skip_steps_ = 0;
   // The vsync last returned, and its index.
   double grid_ = 0;
   int64_t grid_index_ = 0;

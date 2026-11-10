@@ -89,6 +89,39 @@ TEST(VsyncEstimator, SkippedVsyncsKeepTheGrid) {
   EXPECT_NEAR(interval, 16667, 17);
 }
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(VsyncEstimator, FrequentSkipsAreNotARefreshChange) {
+  // A caller that misses vsyncs often, up to three in a row (a
+  // Choreographer on Android with a Hybrid Composition platform view
+  // missed 13 of 120 on a TV, at most three together), still pulls on the
+  // 60 Hz grid: no refresh change, and no half rate. Longer gaps start
+  // over (StartsOverAfterGap).
+  for (int skip_percent : {10, 30, 50}) {
+    VsyncEstimator estimator;
+    std::mt19937 rng(static_cast<unsigned>(skip_percent));
+    double exact = kStart;
+    int64_t worst = 0;
+    int64_t worst_interval = 0;
+    for (int i = 0; i < 1200; ++i) {
+      for (int skips = 0;
+           skips < 3 && static_cast<int>(rng() % 100) < skip_percent; ++skips) {
+        exact += 16666.67;
+      }
+      const int64_t truth = std::llround(exact);
+      const int64_t noise = static_cast<int64_t>(rng() % 2001) - 1000;
+      VsyncEstimator::Vsync result = estimator.Update(truth + noise);
+      if (i >= 120) {
+        worst = std::max(worst, std::abs(result.time - truth));
+        worst_interval =
+            std::max(worst_interval, std::abs(result.interval - 16667));
+      }
+      exact += 16666.67;
+    }
+    EXPECT_TRUE(worst < 1000);
+    EXPECT_TRUE(worst_interval <= 17);
+  }
+}
+
 TEST(VsyncEstimator, FollowsRefreshRateChange) {
   for (double next : {8333.33, 33333.33, 20000.0}) {
     VsyncEstimator estimator;

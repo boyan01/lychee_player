@@ -77,9 +77,18 @@ building on top of them.
   B站 4K HEVC HDR10 correctly (the TV switched to HDR10) but counted 549
   of 2297 decoded frames dropped in 39 s, and 104 of 661 for 1080p H.264;
   through the texture the same TV dropped 4 of 932 (4K H.264). Likely
-  the frame driver's display time (vsync plus two periods, for
-  Flutter's compositor) is a period late for a SurfaceView, which
-  SurfaceFlinger takes directly. Done when 60 fps video through it
+  not the display time: the SDK example's native SurfaceView, with the
+  same driver, rendered 507 and dropped 8 of hevc10_4k60's frames. With a
+  Hybrid Composition platform view in the app, the Choreographer misses
+  12 to 18 of every 120 vsyncs (gaps of 33 to 66 ms); in 9.5 s of
+  hevc10_4k60 the Flutter example rendered about 400 and dropped 25 to
+  42, against about 577 and 1 to 7 through the texture, so about 140
+  frames are neither shown nor counted. Not yet known: why the
+  Choreographer misses vsyncs (Flutter merging the platform and raster
+  threads, or throttling), and where those frames go (expired while not
+  pulled, or cadence). flutter-airplay avoids platform views: a native
+  SurfaceView under a transparent FlutterView (`RenderMode.texture`),
+  set up by the Activity. Done when 60 fps video through it
   drops about as few as through the texture on that TV.
 - **macOS MP3 fuzz run leak report** (2026-11-07): `FUZZ_TARGET=mp3
   tool/fuzz.sh` completed 116,883 inputs without a crash artifact, but
