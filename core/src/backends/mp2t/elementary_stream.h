@@ -8,7 +8,7 @@
 
 namespace lychee {
 
-// What an Annex B access unit (one PES packet of H.264 or HEVC) says
+// What an Annex B access unit (one H.264 or HEVC picture) says
 // about itself, from the NAL units before its first slice.
 struct AccessUnitInfo {
   // An IDR picture (H.264) or an IRAP picture (HEVC).

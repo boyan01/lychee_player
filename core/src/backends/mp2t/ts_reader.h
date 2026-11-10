@@ -127,7 +127,25 @@ class TsReader : private TsParser::Client {
     int64_t pts = kNoTimestamp;
     int64_t dts = kNoTimestamp;
   };
+  struct VideoMark {
+    size_t position = 0;
+    int64_t pts = kNoTimestamp;
+    int64_t dts = kNoTimestamp;
+    int64_t offset = 0;
+    bool random_access = false;
+  };
+  struct VideoAssembly {
+    std::vector<uint8_t> data;
+    std::deque<VideoMark> marks;
+    // Scan each byte only once, retaining a split start code/NAL header.
+    size_t scan = 0;
+    size_t begin = 0;
+    bool started = false;
+    bool has_slice = false;
+    VideoMark current;
+  };
   struct StreamState {
+    VideoAssembly video;
     // A packet waiting for the next one, which gives its duration.
     Pending pending;
     int64_t last_duration = 0;
@@ -171,6 +189,16 @@ class TsReader : private TsParser::Client {
   void OnPes(const PesPacket& pes) override;
   // The rest of OnPes(), once |pes|'s timestamps are known.
   void Deliver(int stream, const PesPacket& pes, int64_t pts, int64_t dts);
+  void DeliverPacket(int stream,
+                     const PesPacket& pes,
+                     int64_t pts,
+                     int64_t dts);
+  void AssembleVideo(int stream,
+                     const PesPacket& pes,
+                     int64_t pts,
+                     int64_t dts);
+  void ScanVideo(int stream, bool flush);
+  void EmitVideo(int stream, size_t end);
   // Delivers what |stream| held back, on its run's shift as it is now.
   void Release(int stream);
 

@@ -14,6 +14,9 @@
 
 ### Fixed
 
+* HLS and MPEG-TS: fix intermittent block corruption on streams with large
+  video frames, including on Android TVs.
+
 * A hardware video decoder that stops responding is now replaced by a
   new hardware decoder first, and only falls back to software decoding
   if that one fails too. Android: the stuck decoder is released, so the

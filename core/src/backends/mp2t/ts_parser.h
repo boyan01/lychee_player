@@ -28,7 +28,8 @@ struct TsStreamEntry {
   bool other_media = false;
 };
 
-// One PES packet's payload: an access unit, or several (audio).
+// One PES packet's payload: part of an elementary stream, not necessarily
+// a whole access unit (a video picture can span several PES packets).
 struct PesPacket {
   int pid = -1;
   const uint8_t* data = nullptr;

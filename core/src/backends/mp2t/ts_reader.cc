@@ -30,6 +30,9 @@ constexpr size_t kMaxHoldBytes = size_t{4} << 20;
 // ADTS frames are at most 8191 bytes, MP3 frames less; more without one
 // is not either.
 constexpr size_t kMaxAdtsBuffer = size_t{64} * 1024;
+// Match the PES parser's byte limit; also bound metadata for tiny PES packets.
+constexpr size_t kMaxVideoBuffer = size_t{32} << 20;
+constexpr size_t kMaxVideoMarks = 4096;
 
 // Where 2-3 sync bytes |stride| apart start in |data|, or -1.
 int64_t FindSync(const uint8_t* data, size_t size, int stride) {
@@ -280,6 +283,9 @@ void TsReader::Flush() {
       Release(static_cast<int>(i));
     }
   }
+  for (size_t i = 0; i < states_.size(); ++i) {
+    ScanVideo(static_cast<int>(i), true);
+  }
   for (StreamState& state : states_) {
     state.adts.clear();
     if (state.pending.valid) {
@@ -335,6 +341,7 @@ void TsReader::Restart(int64_t offset, int64_t reference) {
   queue_.clear();
   for (StreamState& state : states_) {
     state.pending.valid = false;
+    state.video = VideoAssembly();
     state.adts.clear();
     state.adts_anchor = kNoTimestamp;
     state.run = -1;
@@ -613,10 +620,18 @@ void TsReader::OnProgram(const std::vector<TsStreamEntry>& entries) {
       existing.audio.codec = info.audio.codec;
       existing.audio.codec_name = info.audio.codec_name;
     }
+    // A PID replacement starts a different elementary byte stream. Never
+    // attach its first bytes to the previous PID's unfinished picture.
+    states_[index].video = VideoAssembly();
     taken[index] = true;
     streams_[index].pid = entry->pid;
     by_pid[entry->pid] = index;
     states_[index].stream_type = entry->stream_type;
+  }
+  for (size_t i = 0; i < taken.size(); ++i) {
+    if (!taken[i]) {
+      states_[i].video = VideoAssembly();
+    }
   }
   stream_by_pid_ = std::move(by_pid);
 }
@@ -675,6 +690,17 @@ void TsReader::Deliver(int index,
                        const PesPacket& pes,
                        int64_t pts,
                        int64_t dts) {
+  if (streams_[index].info.type == MediaType::kVideo) {
+    AssembleVideo(index, pes, pts, dts);
+    return;
+  }
+  DeliverPacket(index, pes, pts, dts);
+}
+
+void TsReader::DeliverPacket(int index,
+                             const PesPacket& pes,
+                             int64_t pts,
+                             int64_t dts) {
   TsStream& stream = streams_[index];
 
   if (stream.info.type == MediaType::kAudio &&
@@ -723,6 +749,118 @@ void TsReader::Deliver(int index,
   }
   packet.buffer = PacketBuffer::Copy(pes.data, pes.size);
   Emit(index, std::move(packet), pes.offset);
+}
+
+void TsReader::AssembleVideo(int index,
+                             const PesPacket& pes,
+                             int64_t pts,
+                             int64_t dts) {
+  VideoAssembly& video = states_[index].video;
+  if (pes.size > kMaxVideoBuffer - video.data.size() ||
+      video.marks.size() >= kMaxVideoMarks) {
+    LOGW("stream %d: oversized video access unit dropped", index);
+    video = VideoAssembly();
+    if (pes.size > kMaxVideoBuffer) {
+      return;
+    }
+  }
+  video.marks.push_back(
+      {video.data.size(), pts, dts, pes.offset, pes.random_access});
+  video.data.insert(video.data.end(), pes.data, pes.data + pes.size);
+  ScanVideo(index, false);
+}
+
+void TsReader::EmitVideo(int index, size_t end) {
+  VideoAssembly& video = states_[index].video;
+  if (!video.started || !video.has_slice) {
+    return;
+  }
+  PesPacket packet;
+  packet.data = video.data.data() + video.begin;
+  packet.size = end - video.begin;
+  packet.offset = video.current.offset;
+  packet.random_access = video.current.random_access;
+  DeliverPacket(index, packet, video.current.pts, video.current.dts);
+}
+
+void TsReader::ScanVideo(int index, bool flush) {
+  VideoAssembly& video = states_[index].video;
+  const bool hevc = streams_[index].info.video.codec == VideoCodec::kHEVC;
+  const std::vector<uint8_t>& data = video.data;
+  while (video.scan + 3 <= data.size()) {
+    const size_t at = video.scan;
+    size_t code = 0;
+    if (data[at] == 0 && data[at + 1] == 0) {
+      if (data[at + 2] == 1) {
+        code = 3;
+      } else if (at + 4 <= data.size() && data[at + 2] == 0 &&
+                 data[at + 3] == 1) {
+        code = 4;
+      }
+    }
+    if (code == 0) {
+      if (at + 3 == data.size() && data[at] == 0 && data[at + 1] == 0 &&
+          data[at + 2] == 0) {
+        break;  // A four-byte start code may finish in the next PES.
+      }
+      ++video.scan;
+      continue;
+    }
+    const size_t header = at + code;
+    // Enough to distinguish a first slice, even when its header crosses PES.
+    const size_t needed = hevc ? 3 : 2;
+    if (header + needed > data.size()) {
+      break;
+    }
+    const int type = hevc ? (data[header] >> 1) & 0x3f : data[header] & 0x1f;
+    const bool slice = hevc ? type < 32 : type == 1 || type == 2 || type == 5;
+    // H.264 first_mb_in_slice == 0 has the one-bit ue(v) encoding '1'.
+    // H.265 carries first_slice_segment_in_pic_flag after its NAL header.
+    const bool first_slice = slice && (data[header + (hevc ? 2 : 1)] & 0x80);
+    // ITU-T H.264 7.4.1.2.3 and H.265 7.4.2.4.4: these prefix NALs
+    // following a picture belong to the next access unit, not that picture.
+    const bool prefix =
+        hevc ? (type >= 32 && type <= 35) || type == 39
+             : (type >= 6 && type <= 9) || (type >= 14 && type <= 18);
+    if (video.has_slice && (prefix || first_slice)) {
+      EmitVideo(index, at);
+      video.started = false;
+      video.has_slice = false;
+    }
+    if (!video.started) {
+      video.begin = at;
+      video.current = VideoMark();
+      // A PES timestamp describes the first access unit commencing there;
+      // continuation PES timestamps must never retime the picture in progress.
+      bool offset_found = false;
+      while (!video.marks.empty() && video.marks.front().position <= header) {
+        const VideoMark mark = video.marks.front();
+        video.marks.pop_front();
+        if (!offset_found || mark.position <= at) {
+          video.current = mark;
+          offset_found = true;
+        }
+      }
+      video.started = true;
+    }
+    video.has_slice |= slice;
+    video.scan = header + needed;
+  }
+  if (flush) {
+    // No later start code at EOF: the last NAL ends with the input.
+    EmitVideo(index, data.size());
+    video = VideoAssembly();
+    return;
+  }
+  // Retain the current access unit, and at least a possible split start code.
+  const size_t consumed = video.started ? video.begin : video.scan;
+  video.data.erase(video.data.begin(),
+                   video.data.begin() + static_cast<ptrdiff_t>(consumed));
+  video.scan -= consumed;
+  video.begin = 0;
+  for (VideoMark& mark : video.marks) {
+    mark.position = mark.position > consumed ? mark.position - consumed : 0;
+  }
 }
 
 void TsReader::SplitFrames(int index, const PesPacket& pes, int64_t pts) {

@@ -8,6 +8,7 @@
 #include "backends/mp2t/ts_demuxer.h"
 #include "backends/mp2t/ts_parser.h"
 #include "backends/mp2t/ts_reader.h"
+#include "media/annexb.h"
 #include "test.h"
 
 namespace lychee {
@@ -137,9 +138,15 @@ class TsWriter {
                  0,
                  0,
                  0x80,
-                 static_cast<uint8_t>(dts >= 0 ? 0xc0 : 0x80),
-                 static_cast<uint8_t>(dts >= 0 ? 10 : 5)};
-    Timestamp(dts >= 0 ? 3 : 2, pts, &pes);
+                 static_cast<uint8_t>(dts >= 0   ? 0xc0
+                                      : pts >= 0 ? 0x80
+                                                 : 0),
+                 static_cast<uint8_t>(dts >= 0   ? 10
+                                      : pts >= 0 ? 5
+                                                 : 0)};
+    if (pts >= 0) {
+      Timestamp(dts >= 0 ? 3 : 2, pts, &pes);
+    }
     if (dts >= 0) {
       Timestamp(1, dts, &pes);
     }
@@ -402,6 +409,11 @@ TEST(Mp2t, RandomPacketsAreHarmless) {
     }
     w.out.insert(w.out.end(), packet.begin(), packet.end());
   }
+  // Garbage need not contain a schedulable picture. A real picture after
+  // it must still be recovered by the elementary-stream assembler.
+  w.Pmt(0x1000, 1, {{0x1b, 0x100, {}}, {0x0f, 0x101, {}}});
+  const Bytes frame = AccessUnit(kSps360, 0x65, 50);
+  w.Pes(0x100, 0xe0, 9000, -1, frame);
   Collector c;
   TsParser parser(&c);
   Parse(&parser, w.out);
@@ -415,12 +427,15 @@ TEST(Mp2t, RandomPacketsAreHarmless) {
   EXPECT_TRUE(reader.Probe(1 << 20, &error));
   EncodedPacket packet;
   int64_t offset;
-  int count = 0;
+  bool recovered = false;
   while (reader.Read(&packet, &offset) == DemuxerReadResult::kOk) {
     EXPECT_TRUE(packet.stream_index >= 0 && packet.stream_index < 2);
-    ++count;
+    if (packet.stream_index == 0 && packet.pts == 100000) {
+      recovered = Bytes(packet.buffer->data(),
+                        packet.buffer->data() + packet.size()) == frame;
+    }
   }
-  EXPECT_TRUE(count > 0);
+  EXPECT_TRUE(recovered);
 }
 
 TEST(Mp2t, ParsesSps) {
@@ -480,6 +495,166 @@ TEST(Mp2t, ParsesAdtsHeader) {
   EXPECT_EQ(header.samples, 1024);
   frame[2] |= 0x3c;  // Sampling frequency index 15: reserved.
   EXPECT_TRUE(!ParseAdtsHeader(frame.data(), frame.size(), &header));
+}
+
+// A TV HLS keyframe was 87424 bytes, split at the PES length limit.
+// The second PES repeats its timestamps but starts in the slice payload.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(TsReader, ReassemblesVideoAcrossPes) {
+  for (bool hevc : {false, true}) {
+    const Bytes frame =
+        AccessUnit(hevc ? kHevcSps1080 : kSps360, hevc ? 0x26 : 0x65, 87424);
+    // Also split the start code, SPS, NAL header and slice payload.
+    for (size_t cut : {size_t{1}, size_t{2}, size_t{3}, size_t{4}, size_t{12},
+                       size_t{65477}, frame.size() - 2}) {
+      for (bool timed_continuation : {false, true}) {
+        TsWriter w;
+        w.Pat(0x1000);
+        w.Pmt(0x1000, 0, {{hevc ? 0x24 : 0x1b, 0x100, {}}});
+        const int64_t first_offset = static_cast<int64_t>(w.out.size());
+        w.Pes(0x100, 0xe0, 41576400, 41572800,
+              Bytes(frame.begin(), frame.begin() + static_cast<ptrdiff_t>(cut)),
+              true, cut < 65500);
+        w.Pes(0x100, 0xe0, timed_continuation ? 41576400 : -1,
+              timed_continuation ? 41572800 : -1,
+              Bytes(frame.begin() + static_cast<ptrdiff_t>(cut), frame.end()));
+        const Bytes next = AccessUnit({}, hevc ? 0x02 : 0x41, 30);
+        w.Pes(0x100, 0xe0, 41580000, 41576400, next);
+        MemorySource source(w.out);
+        TsReader reader(&source);
+        reader.SetRange(0, -1);
+        std::string error;
+        EXPECT_TRUE(reader.Probe(1 << 20, &error));
+        EncodedPacket packet;
+        int64_t offset = -1;
+        EXPECT_TRUE(reader.Read(&packet, &offset) == DemuxerReadResult::kOk);
+        EXPECT_TRUE(Bytes(packet.buffer->data(),
+                          packet.buffer->data() + packet.size()) == frame);
+        EXPECT_EQ(packet.pts, 461960000);
+        EXPECT_EQ(packet.dts, 461920000);
+        EXPECT_EQ(packet.duration, 40000);
+        EXPECT_EQ(offset, first_offset);
+        EXPECT_TRUE(packet.keyframe);
+        AnnexBConverter converter;
+        EXPECT_TRUE(converter.Initialize(reader.streams()[0].info.video));
+        Bytes converted;
+        EXPECT_TRUE(converter.Convert(packet.buffer->data(), packet.size(),
+                                      packet.keyframe, &converted, true));
+        EXPECT_TRUE(reader.Read(&packet, &offset) == DemuxerReadResult::kOk);
+        EXPECT_TRUE(Bytes(packet.buffer->data(),
+                          packet.buffer->data() + packet.size()) == next);
+        EXPECT_TRUE(!packet.keyframe);
+        EXPECT_TRUE(reader.Read(&packet, &offset) ==
+                    DemuxerReadResult::kEndOfStream);
+      }
+    }
+  }
+}
+
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(TsReader, KeepsSlicesTogetherAndFlushesAtEof) {
+  for (bool hevc : {false, true}) {
+    TsWriter w;
+    w.Pat(0x1000);
+    w.Pmt(0x1000, 0, {{hevc ? 0x24 : 0x1b, 0x100, {}}});
+    Bytes frame =
+        AccessUnit(hevc ? kHevcSps1080 : kSps360, hevc ? 0x26 : 0x65, 50);
+    // A second slice of the same picture, not a first slice.
+    const Bytes slice = hevc ? Bytes{0, 0, 1, 0x26, 1, 0x40, 0xab}
+                             : Bytes{0, 0, 1, 0x65, 0x40, 0xab};
+    const size_t cut = frame.size() + 4;
+    frame.insert(frame.end(), slice.begin(), slice.end());
+    w.Pes(0x100, 0xe0, 9000, 6000,
+          Bytes(frame.begin(), frame.begin() + static_cast<ptrdiff_t>(cut)),
+          true);
+    w.Pes(0x100, 0xe0, -1, -1,
+          Bytes(frame.begin() + static_cast<ptrdiff_t>(cut), frame.end()));
+    // A trailing AUD without a picture must not become a decoder packet.
+    w.Pes(0x100, 0xe0, 12000, 9000,
+          hevc ? Bytes{0, 0, 1, 0x46, 1, 0x50} : Bytes{0, 0, 1, 9, 0x10});
+    MemorySource source(w.out);
+    TsReader reader(&source);
+    reader.SetRange(0, -1);
+    EncodedPacket packet;
+    int64_t offset;
+    EXPECT_TRUE(reader.Read(&packet, &offset) == DemuxerReadResult::kOk);
+    EXPECT_TRUE(Bytes(packet.buffer->data(),
+                      packet.buffer->data() + packet.size()) == frame);
+    EXPECT_EQ(packet.pts, 100000);
+    EXPECT_EQ(packet.dts, 66666);
+    EXPECT_TRUE(packet.keyframe);
+    EXPECT_TRUE(reader.Read(&packet, &offset) ==
+                DemuxerReadResult::kEndOfStream);
+  }
+}
+
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(TsReader, DropsUnfinishedVideoOnRestartAndPidChange) {
+  for (bool restart : {false, true}) {
+    TsWriter w;
+    w.Pat(0x1000);
+    w.Pmt(0x1000, 0, {{0x1b, 0x100, {}}});
+    // More than the reader's 96 KB chunk: Probe stops with an incomplete AU.
+    w.Pes(0x100, 0xe0, 9000, 6000, AccessUnit(kSps360, 0x65, 200000));
+    const int64_t resume = static_cast<int64_t>(w.out.size());
+    if (!restart) {
+      w.Pmt(0x1000, 1, {{0x1b, 0x200, {}}});
+    }
+    const Bytes frame = AccessUnit(kSps360, 0x65, 50);
+    w.Pes(restart ? 0x100 : 0x200, 0xe0, 18000, 15000, frame);
+    MemorySource source(w.out);
+    TsReader reader(&source);
+    reader.SetRange(0, -1);
+    std::string error;
+    EXPECT_TRUE(reader.Probe(188, &error));
+    if (restart) {
+      reader.Restart(resume, 200000);
+    }
+    EncodedPacket packet;
+    int64_t offset;
+    EXPECT_TRUE(reader.Read(&packet, &offset) == DemuxerReadResult::kOk);
+    EXPECT_TRUE(Bytes(packet.buffer->data(),
+                      packet.buffer->data() + packet.size()) == frame);
+    EXPECT_EQ(packet.pts, 200000);
+    EXPECT_TRUE(reader.Read(&packet, &offset) ==
+                DemuxerReadResult::kEndOfStream);
+    // Restart after EOF must clear both the assembler and the EOF state.
+    reader.Restart(resume, 200000);
+    EXPECT_TRUE(reader.Read(&packet, &offset) == DemuxerReadResult::kOk);
+    EXPECT_TRUE(Bytes(packet.buffer->data(),
+                      packet.buffer->data() + packet.size()) == frame);
+    EXPECT_TRUE(reader.Read(&packet, &offset) ==
+                DemuxerReadResult::kEndOfStream);
+  }
+}
+
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(TsReader, BoundsVideoAssemblyAndRecovers) {
+  for (bool many_marks : {false, true}) {
+    TsWriter w;
+    w.Pat(0x1000);
+    w.Pmt(0x1000, 0, {{0x1b, 0x100, {}}});
+    w.Pes(0x100, 0xe0, 9000, -1, AccessUnit(kSps360, 0x65, 50));
+    // No new AU: exceed either the byte budget or the PES metadata budget.
+    const Bytes continuation(many_marks ? 1 : 1 << 20, 0xab);
+    const int count = many_marks ? 4100 : 33;
+    for (int i = 0; i < count; ++i) {
+      w.Pes(0x100, 0xe0, -1, -1, continuation);
+    }
+    const Bytes frame = AccessUnit(kSps360, 0x65, 50);
+    w.Pes(0x100, 0xe0, 18000, -1, frame);
+    MemorySource source(std::move(w.out));
+    TsReader reader(&source);
+    reader.SetRange(0, -1);
+    EncodedPacket packet;
+    int64_t offset;
+    EXPECT_TRUE(reader.Read(&packet, &offset) == DemuxerReadResult::kOk);
+    EXPECT_TRUE(Bytes(packet.buffer->data(),
+                      packet.buffer->data() + packet.size()) == frame);
+    EXPECT_EQ(packet.pts, 200000);
+    EXPECT_TRUE(reader.Read(&packet, &offset) ==
+                DemuxerReadResult::kEndOfStream);
+  }
 }
 
 TEST(TsReader, UnwrapsTimestampsAndSplitsAdts) {
