@@ -1,4 +1,4 @@
-## Unreleased
+## 1.0.3
 
 ### New
 
@@ -16,7 +16,6 @@
 
 * HLS and MPEG-TS: fix intermittent block corruption on streams with large
   video frames, including on Android TVs.
-
 * A hardware video decoder that stops responding is now replaced by a
   new hardware decoder first, and only falls back to software decoding
   if that one fails too. Android: the stuck decoder is released, so the
@@ -24,7 +23,7 @@
 * When no decoder is left for the video while playing, the player now
   reports an error (`LycheeErrorKind.decode`) instead of carrying on with
   sound only, so an app can switch to another quality or format.
-* Android: 4K video no longer freezes with sound playing on on devices
+* Android: 4K video no longer freezes with sound playing on devices
   whose hardware decoder has few output buffers (MediaTek TVs such as
   TCL's). The plugin now draws video through a `SurfaceTexture`, which
   holds one frame, instead of a `SurfaceProducer`, which held up to five.
