@@ -778,6 +778,9 @@ fi
 
 failures=0
 
+# A broken fixture must be caught before playback can hide it as a timeout.
+python3 -I "$root/tool/media_server_test.py" || exit 1
+
 # The HDR reference is checked against independently generated light,
 # before comparing the player's colored HDR frames with that reference.
 if [ "${NO_FFMPEG:-0}" != 1 ]; then

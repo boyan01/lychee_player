@@ -78,6 +78,13 @@ building on top of them.
 
 ## Known defects
 
+- **HTTP-FLV restart on macOS CI** (2026-11-11, run 42938537741):
+  `http-flv-live-restart` with the shipped FFmpeg decoded only 120 of
+  240 frames after a request timed out. The cause has not reproduced
+  locally; the Windows fixture's socket-close bug does not explain it
+  on macOS. Done when the timeout is explained and the CI case passes
+  without weakening its decoded-frame check.
+
 - **macOS MP3 fuzz run leak report** (2026-11-07): `FUZZ_TARGET=mp3
   tool/fuzz.sh` completed 116,883 inputs without a crash artifact, but
   LeakSanitizer reported 995 bytes allocated by the sanitizer's symbolizer

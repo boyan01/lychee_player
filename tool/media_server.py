@@ -340,7 +340,8 @@ def make_handler(root, args, state):
                         self.close_connection = True
                         self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
                                                    struct.pack("ii", 1, 0))
-                        os.close(self.connection.detach())
+                        # os.close() does not close Winsock sockets.
+                        socket.close(self.connection.detach())
                         return
                     if wait > 0:
                         time.sleep(wait)
