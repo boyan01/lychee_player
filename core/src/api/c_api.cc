@@ -249,6 +249,8 @@ void lychee_set_log_listener(lychee_log_listener listener, void* user_data) {
 }
 
 void lychee_free_log_message(int64_t message) {
+  // The listener ABI transports an owned pointer as an integer for Dart.
+  // NOLINTNEXTLINE(performance-no-int-to-ptr)
   free(reinterpret_cast<char*>(static_cast<intptr_t>(message)));
 }
 

@@ -142,7 +142,11 @@ std::atomic<bool> g_listened_text{false};
 
 void CountLogListener(void* user_data, int32_t, int64_t message) {
   auto* expected = static_cast<const char*>(user_data);
-  const char* line = reinterpret_cast<const char*>(static_cast<intptr_t>(message));
+  // The listener ABI transports an owned pointer as an integer for Dart.
+  // NOLINTBEGIN(performance-no-int-to-ptr)
+  const char* line =
+      reinterpret_cast<const char*>(static_cast<intptr_t>(message));
+  // NOLINTEND(performance-no-int-to-ptr)
   if (strstr(line, expected)) {
     g_listened_text = true;
   }
@@ -151,6 +155,7 @@ void CountLogListener(void* user_data, int32_t, int64_t message) {
 }
 
 // The listener gets copies it owns, which outlive the logging call.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 TEST(CApi, LogListenerOwnsTheLines) {
   static const char kUrl[] = "/nonexistent/listened.mp4";
   lychee_set_log_listener(&CountLogListener, const_cast<char*>(kUrl));
@@ -159,7 +164,8 @@ TEST(CApi, LogListenerOwnsTheLines) {
   config.video_frame_types = 0;
   lychee_player* player = lychee_player_create(&config);
   lychee_player_open(player, kUrl);
-  const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  const auto give_up =
+      std::chrono::steady_clock::now() + std::chrono::seconds(5);
   while (!g_listened_text && std::chrono::steady_clock::now() < give_up) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
