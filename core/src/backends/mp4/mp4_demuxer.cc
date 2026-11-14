@@ -518,21 +518,35 @@ bool Mp4Demuxer::Open(std::unique_ptr<DataSource> source,
       return false;
     }
     uint8_t header[16];
-    int64_t got = source_->Read(offset, header, sizeof(header));
-    if (got < 8) {
-      *error = got < 0 ? source_->error() : "no moov box: not an MP4 file";
+    // HTTP may return only the bytes left in its current transfer chunk.
+    // A short read is not EOF, including while opening the first box.
+    LoadResult header_result = ReadFully(offset, header, 8);
+    if (header_result != LoadResult::kLoaded) {
+      *error =
+          header_result == LoadResult::kEnd
+              ? "no moov box: not an MP4 file"
+              : (header_result == LoadResult::kAborted ? "aborted" : error_);
       return false;
     }
     if (first) {
       // Known once the first bytes arrived (HTTP).
       file_size = source_->size();
     }
-    Reader reader(header, static_cast<size_t>(got));
+    Reader reader(header, 8);
     uint64_t size = reader.U32();
     uint32_t type = reader.U32();
     uint64_t header_size = 8;
     if (size == 1) {
-      size = reader.U64();
+      header_result = ReadFully(offset + 8, header + 8, 8);
+      if (header_result != LoadResult::kLoaded) {
+        *error =
+            header_result == LoadResult::kEnd
+                ? "truncated MP4 box header"
+                : (header_result == LoadResult::kAborted ? "aborted" : error_);
+        return false;
+      }
+      Reader extended(header + 8, 8);
+      size = extended.U64();
       header_size = 16;
     } else if (size == 0 && file_size > 0) {
       size = static_cast<uint64_t>(file_size - offset);
@@ -1458,20 +1472,20 @@ Mp4Demuxer::LoadResult Mp4Demuxer::ReadBoxHeader(int64_t offset,
     return LoadResult::kEnd;
   }
   uint8_t bytes[16];
-  int64_t got = source_->Read(offset, bytes, sizeof(bytes));
-  if (got < 0) {
-    if (aborted() || source_->interrupted()) {
-      return LoadResult::kAborted;
-    }
-    error_ = source_->error();
-    return LoadResult::kError;
-  }
-  Reader reader(bytes, static_cast<size_t>(got));
+  // DataSource::Read returns up to the requested size. In particular, the
+  // last few buffered HTTP bytes can split a moof header; treating those as
+  // EOF permanently ends that input and leaves separate audio playing silence.
+  LoadResult result = ReadFully(offset, bytes, 8);
+  if (result != LoadResult::kLoaded) return result;
+  Reader reader(bytes, 8);
   *size = reader.U32();
   *type = reader.U32();
   *header = 8;
   if (*size == 1) {
-    *size = reader.U64();
+    result = ReadFully(offset + 8, bytes + 8, 8);
+    if (result != LoadResult::kLoaded) return result;
+    Reader extended(bytes + 8, 8);
+    *size = extended.U64();
     *header = 16;
   } else if (*size == 0) {
     // To the end of the data.

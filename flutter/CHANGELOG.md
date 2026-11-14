@@ -1,3 +1,10 @@
+## Unreleased
+
+### Fixed
+
+* MP4 streams no longer stop early or lose audio when data arrives in
+  small network chunks.
+
 ## 1.0.3
 
 ### New

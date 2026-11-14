@@ -76,6 +76,13 @@ building on top of them.
    receives only the destination rectangle. Done when the native result
    is checked against the texture's center crop and they match.
 
+- **Android HTTP split MP4 headers** (2026-11-14): the shared parser now
+  completes short header reads instead of treating a transfer boundary as EOF.
+  A local HTTP replay of the affected separate AAC reproduced silence around
+  60 s with video continuing and recovery after seek; the fix preserves audio.
+  Targeted parser tests pass. The correction is not in the installed TV build;
+  device rollout/playback remains unverified and was not performed in this task.
+
 ## Known defects
 
 - **HTTP-FLV restart on macOS CI** (2026-11-11, run 42938537741):

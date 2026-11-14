@@ -220,6 +220,107 @@ TEST(Mp4Demuxer, Av1SampleEntryKeepsConfigurationRecord) {
   EXPECT_TRUE(video.extradata == config);
 }
 
+// A network DataSource may return the few buffered bytes before waiting for
+// its next chunk. The file is complete; only the transfer boundary is short.
+class ChunkBoundarySource : public DataSource {
+ public:
+  ChunkBoundarySource(Bytes bytes, int64_t boundary)
+      : source_(CreateMemoryDataSource(std::move(bytes))),
+        boundary_(boundary) {}
+  int64_t Read(int64_t offset, uint8_t* data, size_t size) override {
+    if (offset < boundary_) {
+      size = std::min(size, static_cast<size_t>(boundary_ - offset));
+    }
+    return source_->Read(offset, data, size);
+  }
+  int64_t size() const override { return source_->size(); }
+  std::string error() const override { return source_->error(); }
+
+ private:
+  std::unique_ptr<DataSource> source_;
+  int64_t boundary_;
+};
+
+TEST(Mp4Demuxer, ShortFragmentHeaderIsNotEndOfStream) {
+  Bytes bytes = FragmentedFile(5, 5000, true);
+  size_t offset = 0;
+  int fragments = 0;
+  int64_t boundary = 0;
+  while (offset + 8 <= bytes.size()) {
+    uint32_t size = 0;
+    for (int i = 0; i < 4; ++i)
+      size = (size << 8) | bytes[offset + i];
+    if (std::memcmp(bytes.data() + offset + 4, "moof", 4) == 0 &&
+        ++fragments == 3) {
+      boundary = static_cast<int64_t>(offset) + 4;
+      break;
+    }
+    offset += size;
+  }
+  EXPECT_TRUE(boundary > 0);
+  Mp4Demuxer demuxer;
+  std::string error;
+  EXPECT_TRUE(demuxer.Open(
+      std::make_unique<ChunkBoundarySource>(std::move(bytes), boundary),
+      &error));
+  DemuxerReadResult last;
+  const auto times = ReadAll(&demuxer, &last);
+  EXPECT_TRUE(last == DemuxerReadResult::kEndOfStream);
+  EXPECT_EQ(times.size(), 50u);
+  EXPECT_EQ(times.empty() ? -1 : times.back(), 4900);
+}
+
+TEST(Mp4Demuxer, ShortOpeningHeaderIsNotInvalidInput) {
+  Mp4Demuxer demuxer;
+  std::string error;
+  const bool opened = demuxer.Open(
+      std::make_unique<ChunkBoundarySource>(FragmentedFile(2, 2000, true), 4),
+      &error);
+  EXPECT_TRUE(opened);
+  if (!opened) return;
+  DemuxerReadResult last;
+  EXPECT_EQ(ReadAll(&demuxer, &last).size(), 20u);
+}
+
+TEST(Mp4Demuxer, ShortExtendedFragmentHeaderIsNotEndOfStream) {
+  Bytes bytes = FragmentedFile(2, 2000, true);
+  const Bytes marker = AsBytes("moof");
+  const auto found =
+      std::search(bytes.begin(), bytes.end(), marker.begin(), marker.end());
+  EXPECT_TRUE(found != bytes.end());
+  if (found == bytes.end()) return;
+  const auto offset = static_cast<size_t>(found - bytes.begin()) - 4;
+  Bytes extended = Append(Fields({{1, 4}}), AsBytes("free"));
+  extended = Append(std::move(extended), Fields({{16, 8}}));
+  bytes.insert(bytes.begin() + static_cast<ptrdiff_t>(offset), extended.begin(),
+               extended.end());
+  Mp4Demuxer demuxer;
+  std::string error;
+  EXPECT_TRUE(demuxer.Open(
+      std::make_unique<ChunkBoundarySource>(std::move(bytes), offset + 12),
+      &error));
+  DemuxerReadResult last;
+  EXPECT_EQ(ReadAll(&demuxer, &last).size(), 20u);
+}
+
+TEST(Mp4Demuxer, ShortExtendedOpeningHeaderIsNotInvalidInput) {
+  Bytes bytes = FragmentedFile(2, 2000, true);
+  uint32_t size = 0;
+  for (int i = 0; i < 4; ++i)
+    size = (size << 8) | bytes[i];
+  Bytes extended = Append(Fields({{1, 4}}), AsBytes("ftyp"));
+  extended = Append(std::move(extended), Fields({{size + 8, 8}}));
+  extended.insert(extended.end(), bytes.begin() + 8, bytes.end());
+  Mp4Demuxer demuxer;
+  std::string error;
+  const bool opened = demuxer.Open(
+      std::make_unique<ChunkBoundarySource>(std::move(extended), 12), &error);
+  EXPECT_TRUE(opened);
+  if (!opened) return;
+  DemuxerReadResult last;
+  EXPECT_EQ(ReadAll(&demuxer, &last).size(), 20u);
+}
+
 TEST(Mp4Demuxer, FragmentDurationFromMehd) {
   std::string error;
   auto demuxer = OpenBytes(FragmentedFile(5, 4800, true), &error);
