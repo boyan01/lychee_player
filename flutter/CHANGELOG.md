@@ -1,24 +1,18 @@
 ## Unreleased
 
-### Breaking
-
-* Android: `LycheeVideo` always presents through a `SurfaceView` (even
-  with `surfaceView: false`, for rotated video, or in unbounded layouts)
-  instead of falling back to a Flutter texture. Apps must use
-  `RenderMode.texture` and set `view.isOpaque = false` in
-  `onFlutterTextureViewCreated`.
-
 ### New
 
-* Android: `LycheeVideo(..., onSurfaceError: ...)` reports surface,
-  layout, or frame-post failures so apps can pause and show retry UI.
+* Android: `LycheeVideo(..., surfaceView: true, onSurfaceError: ...)`
+  reports surface, layout, or frame-post failures instead of falling back
+  to a Flutter texture so apps can pause and show retry UI.
 
 ### Fixed
 
-* Android: `LycheeVideo(fit: BoxFit.cover)` keeps the video proportional
-  when cropping to a differently shaped viewport, native output rotates
-  quarter-turn and software frames upright, and backgrounding or
-  Activity recreation suspends and recreates the surface.
+* Android: `LycheeVideo(..., surfaceView: true, fit: BoxFit.cover)` keeps
+  the video proportional when cropping to a differently shaped viewport,
+  supports quarter-turn rotation natively for MediaCodec and CPU frames,
+  and suspends/recreates the surface across backgrounding or Activity
+  recreation.
 * A hardware decoder that fails before its first frame gets another
   attempt before playback falls back to software; a later display
   surface can also restore hardware decoding.

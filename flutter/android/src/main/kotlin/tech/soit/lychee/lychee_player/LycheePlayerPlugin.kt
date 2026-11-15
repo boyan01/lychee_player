@@ -13,13 +13,14 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.view.TextureRegistry
 import tech.soit.lychee.LycheePlayer
 
 class LycheePlayerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
     private lateinit var channel: MethodChannel
     private lateinit var messenger: BinaryMessenger
+    private lateinit var textureRegistry: TextureRegistry
     private val surfaceChannels = HashMap<Long, EventChannel>()
-    private var nextPresentationId = 0L
     private lateinit var context: Context
     private val textures = HashMap<Long, LycheeTexture>()
     // Whose window display mode matching asks for modes, and where
@@ -50,6 +51,7 @@ class LycheePlayerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
         context = binding.applicationContext
         // Dart's players open content:// URIs through it.
         LycheePlayer.setContext(context)
+        textureRegistry = binding.textureRegistry
         messenger = binding.binaryMessenger
         channel = MethodChannel(binding.binaryMessenger, "lychee_player")
         channel.setMethodCallHandler(this)
@@ -96,10 +98,10 @@ class LycheePlayerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
         when (call.method) {
             "createTexture" -> {
                 val player = call.argument<Number>("player")!!.toLong()
-                // Keep channel/API names stable without allocating a Flutter texture.
-                val id = nextPresentationId++
+                val entry = textureRegistry.createSurfaceTexture()
+                val id = entry.id()
                 var sink: EventChannel.EventSink? = null
-                val texture = LycheeTexture(player, refreshRate()) { sink?.success(it) }
+                val texture = LycheeTexture(entry, player, refreshRate()) { sink?.success(it) }
                 textures[id] = texture
                 texture.setActivity(activity)
                 surfaceChannels[id] = EventChannel(messenger, "lychee_player/surface/${id}").also {

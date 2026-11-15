@@ -94,10 +94,11 @@ video. Bitmap subtitles (PGS; DVB and VobSub with FFmpeg) arrive in
 
 ### Android TV video output
 
-`LycheeVideo(player)` always sends Android video to a native
-SurfaceView below Flutter. It can retain 4K panel resolution when the
-TV renders its Flutter UI at 1080p, and passes HDR to the display.
-This implementation needs a TextureView-backed Flutter activity:
+`LycheeVideo(player)` uses a Flutter texture by default (`surfaceView: false`).
+Pass `LycheeVideo(player, surfaceView: true)` on Android to send video to a
+native SurfaceView below Flutter. It can retain 4K panel resolution when the TV
+renders its Flutter UI at 1080p, and passes HDR to the display. This
+implementation needs a TextureView-backed Flutter activity:
 
 ```kotlin
 import io.flutter.embedding.android.FlutterActivity
@@ -116,16 +117,18 @@ class MainActivity : FlutterActivity() {
 Widgets painted above the video remain visible; the video rectangle
 clears widgets painted behind it. Entering this mode can briefly
 rebuffer. Use one native view per player with finite, bounded constraints.
-The legacy `surfaceView` flag is retained for source compatibility, but false
-cannot opt Android into a texture. Quarter-turn rotation is applied natively
-for MediaCodec (hardware or system software) and CPU RGBA frames. Other
-platforms continue using their texture bridge.
+Quarter-turn rotation is applied natively for MediaCodec (hardware or system
+software) and CPU RGBA frames. Other platforms continue using their texture
+bridge.
 
-Invalid layout, unsupported rotation, missing host setup, surface creation
-exceeding five seconds while foregrounded, and window bind/post failures show
-an actionable error and call `onSurfaceError`. Hosts should pause and expose
-their normal retry UI. Backgrounding and Activity detach suspend output without
-switching to a texture or timing out; resume recreates the SurfaceView.
+Without `onSurfaceError`, activities without this setup, unbounded layouts,
+and non-quarter-turn rotations fall back to the Flutter texture. With
+`onSurfaceError`, invalid layout, unsupported rotation, missing host setup,
+surface creation exceeding five seconds while foregrounded, and window
+bind/post failures show an actionable error and call `onSurfaceError` without
+falling back to a texture; hosts can pause and expose retry UI. Backgrounding
+and Activity detach suspend output without switching to a texture or timing
+out; resume recreates the SurfaceView.
 
 The host regression test `sdk/android/lychee/src/test/cpp/run.sh` exercises the
 production CPU copy, rotation and failure contracts with a window double.

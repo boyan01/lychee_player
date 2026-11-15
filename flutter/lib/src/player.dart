@@ -478,8 +478,8 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
   final Pointer<Void> _player;
   final NativeCallable<native.EventCallbackNative> _events;
 
-  /// The platform presentation ID; on Android it identifies a SurfaceView
-  /// owner and is not a registered Flutter texture.
+  /// Passed to [Texture] by [LycheeVideo], and used as the presentation ID
+  /// for Android's optional SurfaceView output.
   final int textureId;
   Timer? _ticker;
   bool _disposed = false;

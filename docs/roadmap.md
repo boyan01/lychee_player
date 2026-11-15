@@ -82,13 +82,17 @@ building on top of them.
    placement. Native masking/composition is still unverified. Done when the
    native result is checked against the texture's center crop and they match.
 
-   The Android Flutter bridge now requires SurfaceView, rotates both codec and
-   CPU output upright, and reports layout/create/bind/post failures instead of
-   falling back to Texture. CPU copy/transform/error contracts have a host test;
-   Dart/channel tests cover rotated geometry and visible errors. Still waiting
-   on device playback: compare CPU RGBA, system software MediaCodec and hardware
-   output with rotation/crop, background/resume and Activity recreation. Build
-   and source checks do not satisfy this native presentation acceptance.
+   The Android Flutter bridge keeps Flutter `Texture` (`SurfaceTextureEntry`)
+   as the default (`surfaceView: false`) and presents through `SurfaceView`
+   when `surfaceView: true` is passed, rotating both codec and CPU output
+   upright and reporting layout/create/bind/post failures via `onSurfaceError`
+   (or falling back to `Texture` when `onSurfaceError` is omitted). CPU
+   copy/transform/error contracts have a host test; Dart/channel tests cover
+   both paths, rotated geometry, and visible errors. Still waiting on device
+   playback: compare CPU RGBA, system software MediaCodec and hardware
+   SurfaceView output with rotation/crop, background/resume and Activity
+   recreation. Build and source checks do not satisfy this native presentation
+   acceptance.
 
 - **Android HTTP split MP4 headers** (2026-11-14): the shared parser now
   completes short header reads instead of treating a transfer boundary as EOF.

@@ -4,22 +4,33 @@ import android.app.Activity
 import android.os.Handler
 import android.os.Looper
 import android.util.Size
+import android.view.Surface
+import io.flutter.view.TextureRegistry
 import tech.soit.lychee.LycheeFrameDriver
 import tech.soit.lychee.LycheePlayer
 
 /**
- * Owns a native SurfaceView presentation. Dart's legacy textureId is an
- * opaque presentation ID; Android never allocates a Flutter texture or Surface.
- * CPU RGBA and MediaCodec frames share the driver and get separate SurfaceViews
- * when the producer changes, since a CPU-connected window cannot take a codec.
- * Created and released on the platform thread.
+ * Pulls a player's frames once per vsync into a Flutter SurfaceTexture by
+ * default, or into a native [LycheeSurfaceView] when Dart sets a view rect
+ * (`LycheeVideo(surfaceView: true)`).
+ *
+ * A SurfaceTexture rather than a SurfaceProducer: the producer's ImageReader
+ * keeps up to five frames it has shown, which starves decoders with small
+ * output pools (such as MediaTek 4K decoders on TVs); a SurfaceTexture keeps
+ * only the frame it latched.
+ *
+ * MediaCodec and CPU RGBA frames both switch Surfaces when toggling between
+ * texture and SurfaceView or when CPU frame sizes change. Created and
+ * released on the platform thread.
  */
 internal class LycheeTexture(
+    private val entry: TextureRegistry.SurfaceTextureEntry,
     val player: Long,
     refreshRate: Float,
     private val onState: (Map<String, String>) -> Unit,
 ) {
     private var released = false
+    private var surface = Surface(entry.surfaceTexture())
     private var view: LycheeSurfaceView? = null
     private var viewRect: IntArray? = null
     private var viewClipRect: IntArray? = null
@@ -28,10 +39,14 @@ internal class LycheeTexture(
     private val timeout = Runnable { fail("SurfaceView creation timed out. Return to playback and retry; restart the app if it persists.") }
     private var state = mapOf("status" to "pending")
     private val driver = LycheeFrameDriver(player, refreshRate, true, ::onSurfaceNeeded).also {
-        it.onError = { message -> fail(message) }
+        it.onError = { message -> if (viewRect != null) fail(message) }
     }
     private var activity: Activity? = null
     private var active = true
+
+    init {
+        driver.setSurface(surface)
+    }
 
     fun presentationState(): Map<String, String> = state
 
@@ -83,10 +98,12 @@ internal class LycheeTexture(
             fail("SurfaceView has invalid bounds. Restore the video layout and retry.")
             return false
         }
+        val wasSurfaceView = viewRect != null
         viewRect = rect
         viewClipRect = clipRect
         if (rect == null) {
             removeView()
+            if (wasSurfaceView) newTextureSurface()
             return true
         }
         if (activity == null || !active) {
@@ -112,10 +129,10 @@ internal class LycheeTexture(
 
     private fun removeView() {
         handler.removeCallbacks(timeout)
-        val old = view
+        val old = view ?: return
         view = null // Ignore callbacks from the view being removed.
         driver.setSurface(null)
-        old?.remove()
+        old.remove()
         // A later widget/Activity attachment must not inherit a stale error.
         state = mapOf("status" to "pending")
         onState(state)
@@ -124,13 +141,26 @@ internal class LycheeTexture(
     private fun onSurfaceNeeded(cpu: Boolean, width: Int, height: Int) {
         if (released) return
         cpuSize = if (cpu) Size(width, height) else null
-        view?.let {
+        val current = view
+        if (current != null) {
             try {
-                newViewSurface(it)
+                newViewSurface(current)
             } catch (error: RuntimeException) {
                 fail("SurfaceView producer change failed. Retry playback.")
             }
+            return
         }
+        if (viewRect == null) {
+            newTextureSurface()
+        }
+    }
+
+    private fun newTextureSurface() {
+        cpuSize?.let { entry.surfaceTexture().setDefaultBufferSize(it.width, it.height) }
+        val old = surface
+        surface = Surface(entry.surfaceTexture())
+        driver.setSurface(surface)
+        old.release()
     }
 
     private fun newViewSurface(view: LycheeSurfaceView) {
@@ -167,6 +197,9 @@ internal class LycheeTexture(
         if (released) return
         removeView()
         released = true
+        // The player may be destroyed as soon as this returns.
         driver.close()
+        surface.release()
+        entry.release()
     }
 }

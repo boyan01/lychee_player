@@ -50,7 +50,7 @@ class LycheeVideo extends StatelessWidget {
     super.key,
     this.fit = BoxFit.contain,
     this.subtitleStyle = const LycheeSubtitleStyle(),
-    this.surfaceView = true,
+    this.surfaceView = false,
     this.onSurfaceError,
   });
 
@@ -60,19 +60,30 @@ class LycheeVideo extends StatelessWidget {
   /// Null draws no text subtitles, for drawing them yourself.
   final LycheeSubtitleStyle? subtitleStyle;
 
-  /// Android always presents video through a native SurfaceView below a
-  /// transparent Flutter TextureView. This parameter is retained for source
-  /// compatibility; false does not opt Android into a Flutter texture.
-  /// Other platforms continue using their texture bridge.
+  /// Android: show the video in a SurfaceView below the app's Flutter
+  /// view instead of a texture, for 4K and HDR on TVs. The compositor then
+  /// shows the decoder's frames itself: at the panel's resolution where
+  /// Flutter's UI is drawn smaller (4K TVs whose UI runs at 1080p), with
+  /// HDR passed on to the display, and without the copy into Flutter's
+  /// texture. The widget clears its video rectangle to transparent, so
+  /// widgets painted over it show and those under it do not.
   ///
-  /// Use one view per player and finite, bounded constraints. Hardware and CPU
-  /// frames are rotated upright natively. Flutter's hole follows placement a
-  /// frame late; entering native presentation can briefly rebuffer.
+  /// It needs Flutter to draw through a transparent TextureView: override
+  /// `getRenderMode()` in the app's `FlutterActivity` to return
+  /// `RenderMode.texture` and set `view.isOpaque = false` in
+  /// `onFlutterTextureViewCreated`. Without it, without bounded
+  /// constraints, or for non-quarter-turn rotation, the video falls back to
+  /// the texture unless [onSurfaceError] is set. Only one [LycheeVideo] with
+  /// it should show a player at a time; the SurfaceView follows the widget a
+  /// frame late when it moves. Entering this mode can briefly rebuffer while
+  /// hardware decoding is recreated.
   final bool surfaceView;
 
-  /// Reports a native presentation failure, including invalid layout. The
-  /// widget also shows an actionable message. Hosts should pause playback and
-  /// expose their normal retry UI. No Flutter texture fallback is attempted.
+  /// Android: when [surfaceView] is true, reports a native presentation
+  /// failure (invalid layout, unsupported rotation, missing host setup,
+  /// timeout, or bind/post error) instead of falling back to a Flutter
+  /// texture. The widget also shows an actionable message; hosts can pause
+  /// playback and expose their normal retry UI.
   final ValueChanged<String>? onSurfaceError;
 
   @override
@@ -109,21 +120,31 @@ class LycheeVideo extends StatelessWidget {
                 ),
               ),
             );
-        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        Widget textureView() =>
+            ClipRect(child: fitted(_textureOf(size, rotated, turns)));
+        if (surfaceView &&
+            !kIsWeb &&
+            defaultTargetPlatform == TargetPlatform.android) {
           return LayoutBuilder(builder: (context, constraints) {
             if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
-              return _SurfaceFailure(
-                'SurfaceView requires bounded width and height. Retry after restoring the video layout.',
-                onSurfaceError,
-              );
+              if (onSurfaceError != null) {
+                return _SurfaceFailure(
+                  'SurfaceView requires bounded width and height. Retry after restoring the video layout.',
+                  onSurfaceError,
+                );
+              }
+              return textureView();
             }
             if (drawn.rotation % 90 != 0 ||
                 !size.width.isFinite ||
                 !size.height.isFinite) {
-              return _SurfaceFailure(
-                'SurfaceView requires a finite video size and quarter-turn rotation. Try another source.',
-                onSurfaceError,
-              );
+              if (onSurfaceError != null) {
+                return _SurfaceFailure(
+                  'SurfaceView requires a finite video size and quarter-turn rotation. Try another source.',
+                  onSurfaceError,
+                );
+              }
+              return textureView();
             }
             if (constraints.biggest.isEmpty) return const SizedBox.shrink();
             // The SurfaceView gets the video's rectangle untransformed: it
@@ -138,39 +159,40 @@ class LycheeVideo extends StatelessWidget {
                 rotated.width * destination.width / sizes.source.width,
                 rotated.height * destination.height / sizes.source.height);
             final rect = Alignment.center.inscribe(fullSize, box);
-            return ClipRect(
-              child: SizedBox.fromSize(
-                size: box.size,
-                child: Stack(
-                  children: [
-                    Positioned.fromRect(
-                      rect: rect,
-                      child: _AndroidSurfaceView(
-                        key: ValueKey(player.textureId),
-                        textureId: player.textureId,
-                        onError: onSurfaceError,
-                        clipRect: box.shift(-rect.topLeft),
-                      ),
-                    ),
-                    Positioned.fill(child: fitted(null)),
-                  ],
-                ),
-              ),
+            return _AndroidSurfaceView(
+              key: ValueKey(player.textureId),
+              textureId: player.textureId,
+              boxSize: box.size,
+              rect: rect,
+              clipRect: box.shift(-rect.topLeft),
+              overlay: fitted(null),
+              fallback: onSurfaceError == null ? textureView() : null,
+              onError: onSurfaceError,
             );
           });
         }
-        return ClipRect(child: fitted(_textureOf(size, turns)));
+        return textureView();
       },
     );
   }
 
-  Widget _textureOf(Size size, int turns) => RotatedBox(
-        quarterTurns: turns,
-        child: SizedBox.fromSize(
-          size: size,
-          child: Texture(textureId: player.textureId),
-        ),
+  Widget _textureOf(Size size, Size rotated, int turns) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      // Android players enable rotate_surface_frames and an upright driver,
+      // so SurfaceTexture already delivers frames rotated upright.
+      return SizedBox.fromSize(
+        size: rotated,
+        child: Texture(textureId: player.textureId),
       );
+    }
+    return RotatedBox(
+      quarterTurns: turns,
+      child: SizedBox.fromSize(
+        size: size,
+        child: Texture(textureId: player.textureId),
+      ),
+    );
+  }
 }
 
 // The player's SurfaceView (LycheeSurfaceView.kt), below Flutter's view:
@@ -179,14 +201,23 @@ class LycheeVideo extends StatelessWidget {
 // missed a vsync in eight, and the video lost a third of its frames on a
 // TV. The texture instead where the app's Activity cannot show one.
 class _AndroidSurfaceView extends StatefulWidget {
-  const _AndroidSurfaceView(
-      {super.key,
-      required this.textureId,
-      required this.clipRect,
-      this.onError});
+  const _AndroidSurfaceView({
+    super.key,
+    required this.textureId,
+    required this.boxSize,
+    required this.rect,
+    required this.clipRect,
+    required this.overlay,
+    this.fallback,
+    this.onError,
+  });
 
   final int textureId;
+  final Size boxSize;
+  final Rect rect;
   final Rect clipRect;
+  final Widget overlay;
+  final Widget? fallback;
   final ValueChanged<String>? onError;
 
   @override
@@ -200,6 +231,7 @@ class _AndroidSurfaceViewState extends State<_AndroidSurfaceView> {
   List<int>? _rect;
   List<int>? _clipRect;
   String? _error;
+  bool _fallenBack = false;
   StreamSubscription<dynamic>? _events;
   int _placement = 0;
 
@@ -212,15 +244,38 @@ class _AndroidSurfaceViewState extends State<_AndroidSurfaceView> {
       if (event is Map && event['error'] is String) {
         _fail(event['error'] as String);
       }
-    },
-            onError: (Object error) => _fail(
-                'SurfaceView status unavailable. Restart the app and retry.'));
+    }, onError: (Object error) {
+      if (widget.fallback != null && error is MissingPluginException) return;
+      _fail('SurfaceView status unavailable. Restart the app and retry.');
+    });
   }
 
   void _fail(String message) {
-    if (!mounted || _error != null) return;
+    if (!mounted) return;
+    if (widget.fallback != null) {
+      if (!_fallenBack) {
+        _detach();
+        setState(() => _fallenBack = true);
+      }
+      return;
+    }
+    if (_error != null) return;
     setState(() => _error = message);
     widget.onError?.call(message);
+  }
+
+  void _detach() {
+    _placement++;
+    _events?.cancel();
+    _events = null;
+    if (_rect != null) {
+      _rect = null;
+      _clipRect = null;
+      _channel.invokeMethod<bool>('setSurfaceView', {
+        'textureId': widget.textureId,
+        'rect': null,
+      }).catchError((Object _) => false);
+    }
   }
 
   void _place(Rect rect, Rect clipRect) {
@@ -277,21 +332,29 @@ class _AndroidSurfaceViewState extends State<_AndroidSurfaceView> {
 
   @override
   void dispose() {
-    _placement++;
-    _events?.cancel();
-    if (_rect != null) {
-      _channel.invokeMethod<bool>('setSurfaceView', {
-        'textureId': widget.textureId,
-        'rect': null
-      }).catchError((Object _) => false);
-    }
+    _detach();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => _error != null
-      ? _SurfaceFailure(_error!, null)
-      : _SurfaceViewHole(_place, widget.clipRect);
+  Widget build(BuildContext context) {
+    if (_fallenBack && widget.fallback != null) return widget.fallback!;
+    if (_error != null) return _SurfaceFailure(_error!, null);
+    return ClipRect(
+      child: SizedBox.fromSize(
+        size: widget.boxSize,
+        child: Stack(
+          children: [
+            Positioned.fromRect(
+              rect: widget.rect,
+              child: _SurfaceViewHole(_place, widget.clipRect),
+            ),
+            Positioned.fill(child: widget.overlay),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SurfaceFailure extends StatefulWidget {
