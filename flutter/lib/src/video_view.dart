@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -48,7 +50,8 @@ class LycheeVideo extends StatelessWidget {
     super.key,
     this.fit = BoxFit.contain,
     this.subtitleStyle = const LycheeSubtitleStyle(),
-    this.surfaceView = false,
+    this.surfaceView = true,
+    this.onSurfaceError,
   });
 
   final LycheePlayer player;
@@ -57,22 +60,20 @@ class LycheeVideo extends StatelessWidget {
   /// Null draws no text subtitles, for drawing them yourself.
   final LycheeSubtitleStyle? subtitleStyle;
 
-  /// Android: show the video in a SurfaceView below the app's Flutter
-  /// view instead of a texture, for 4K and HDR on TVs. The compositor then
-  /// shows the decoder's frames itself: at the panel's resolution where
-  /// Flutter's UI is drawn smaller (4K TVs whose UI runs at 1080p), with
-  /// HDR passed on to the display, and without the copy into Flutter's
-  /// texture. The widget clears its video rectangle to transparent, so
-  /// widgets painted over it show and those under it do not.
+  /// Android always presents video through a native SurfaceView below a
+  /// transparent Flutter TextureView. This parameter is retained for source
+  /// compatibility; false does not opt Android into a Flutter texture.
+  /// Other platforms continue using their texture bridge.
   ///
-  /// It needs Flutter to draw through a TextureView: override
-  /// `getRenderMode()` in the app's `FlutterActivity` to return
-  /// `RenderMode.texture`. Without it, and on other platforms, for rotated
-  /// video and without bounded constraints, the video shows in the texture.
-  /// Only one [LycheeVideo] with it should show a player at a time; the
-  /// SurfaceView follows the widget a frame late when it moves. Entering
-  /// this mode can briefly rebuffer while hardware decoding is recreated.
+  /// Use one view per player and finite, bounded constraints. Hardware and CPU
+  /// frames are rotated upright natively. Flutter's hole follows placement a
+  /// frame late; entering native presentation can briefly rebuffer.
   final bool surfaceView;
+
+  /// Reports a native presentation failure, including invalid layout. The
+  /// widget also shows an actionable message. Hosts should pause playback and
+  /// expose their normal retry UI. No Flutter texture fallback is attempted.
+  final ValueChanged<String>? onSurfaceError;
 
   @override
   Widget build(BuildContext context) {
@@ -83,7 +84,7 @@ class LycheeVideo extends StatelessWidget {
         if (size == null || size.isEmpty) {
           return const SizedBox.shrink();
         }
-        final turns = drawn.rotation ~/ 90;
+        final turns = (drawn.rotation % 360) ~/ 90;
         final rotated = turns.isOdd ? size.flipped : size;
         final pictures = drawn.pictures;
         final text = pictures == null ? drawn.subtitle : null;
@@ -108,19 +109,35 @@ class LycheeVideo extends StatelessWidget {
                 ),
               ),
             );
-        if (surfaceView &&
-            turns == 0 &&
-            !kIsWeb &&
-            defaultTargetPlatform == TargetPlatform.android) {
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
           return LayoutBuilder(builder: (context, constraints) {
             if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
-              return ClipRect(child: fitted(_textureOf(size, turns)));
+              return _SurfaceFailure(
+                'SurfaceView requires bounded width and height. Retry after restoring the video layout.',
+                onSurfaceError,
+              );
             }
+            if (drawn.rotation % 90 != 0 ||
+                !size.width.isFinite ||
+                !size.height.isFinite) {
+              return _SurfaceFailure(
+                'SurfaceView requires a finite video size and quarter-turn rotation. Try another source.',
+                onSurfaceError,
+              );
+            }
+            if (constraints.biggest.isEmpty) return const SizedBox.shrink();
             // The SurfaceView gets the video's rectangle untransformed: it
             // does not follow a scale.
             final box = Offset.zero & constraints.biggest;
-            final destination = applyBoxFit(fit, size, box.size).destination;
-            final rect = Alignment.center.inscribe(destination, box);
+            // cover crops the source; native placement still needs the full,
+            // proportionally scaled video, clipped to the widget's viewport.
+            final sizes = applyBoxFit(fit, rotated, box.size);
+            if (sizes.source.isEmpty) return const SizedBox.shrink();
+            final destination = sizes.destination;
+            final fullSize = Size(
+                rotated.width * destination.width / sizes.source.width,
+                rotated.height * destination.height / sizes.source.height);
+            final rect = Alignment.center.inscribe(fullSize, box);
             return ClipRect(
               child: SizedBox.fromSize(
                 size: box.size,
@@ -131,6 +148,8 @@ class LycheeVideo extends StatelessWidget {
                       child: _AndroidSurfaceView(
                         key: ValueKey(player.textureId),
                         textureId: player.textureId,
+                        onError: onSurfaceError,
+                        clipRect: box.shift(-rect.topLeft),
                       ),
                     ),
                     Positioned.fill(child: fitted(null)),
@@ -160,9 +179,15 @@ class LycheeVideo extends StatelessWidget {
 // missed a vsync in eight, and the video lost a third of its frames on a
 // TV. The texture instead where the app's Activity cannot show one.
 class _AndroidSurfaceView extends StatefulWidget {
-  const _AndroidSurfaceView({super.key, required this.textureId});
+  const _AndroidSurfaceView(
+      {super.key,
+      required this.textureId,
+      required this.clipRect,
+      this.onError});
 
   final int textureId;
+  final Rect clipRect;
+  final ValueChanged<String>? onError;
 
   @override
   State<_AndroidSurfaceView> createState() => _AndroidSurfaceViewState();
@@ -173,65 +198,152 @@ class _AndroidSurfaceViewState extends State<_AndroidSurfaceView> {
 
   // Where the plugin was last told the view is, in pixels of Flutter's view.
   List<int>? _rect;
-  bool _texture = false;
+  List<int>? _clipRect;
+  String? _error;
+  StreamSubscription<dynamic>? _events;
+  int _placement = 0;
 
-  void _place(Rect rect) {
+  @override
+  void initState() {
+    super.initState();
+    _events = EventChannel('lychee_player/surface/${widget.textureId}')
+        .receiveBroadcastStream()
+        .listen((event) {
+      if (event is Map && event['error'] is String) {
+        _fail(event['error'] as String);
+      }
+    },
+            onError: (Object error) => _fail(
+                'SurfaceView status unavailable. Restart the app and retry.'));
+  }
+
+  void _fail(String message) {
+    if (!mounted || _error != null) return;
+    setState(() => _error = message);
+    widget.onError?.call(message);
+  }
+
+  void _place(Rect rect, Rect clipRect) {
+    final values = [
+      rect.left,
+      rect.top,
+      rect.width,
+      rect.height,
+      clipRect.left,
+      clipRect.top,
+      clipRect.width,
+      clipRect.height
+    ];
+    if (values.any((v) => !v.isFinite || v.abs() > 0x7fffffff) ||
+        rect.isEmpty ||
+        clipRect.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fail(
+          'SurfaceView has invalid physical bounds. Restore the video layout and retry.'));
+      return;
+    }
     final pixels = [
       rect.left.round(),
       rect.top.round(),
       rect.width.round(),
       rect.height.round(),
     ];
-    if (listEquals(pixels, _rect)) {
+    final clipPixels = [
+      clipRect.left.round(),
+      clipRect.top.round(),
+      clipRect.width.round(),
+      clipRect.height.round()
+    ];
+    if (listEquals(pixels, _rect) && listEquals(clipPixels, _clipRect)) {
       return;
     }
     _rect = pixels;
+    _clipRect = clipPixels;
+    final placement = ++_placement;
     _channel.invokeMethod<bool>('setSurfaceView', {
       'textureId': widget.textureId,
       'rect': pixels,
+      'clipRect': clipPixels,
     }).then((shown) {
-      if (shown == false && mounted) {
-        setState(() => _texture = true);
+      if (mounted && placement == _placement && shown != true) {
+        _fail(
+            'SurfaceView could not attach. Restart the app and retry; the host must use a transparent Flutter TextureView.');
+      }
+    }).catchError((Object error) {
+      if (mounted && placement == _placement) {
+        _fail('SurfaceView binding failed. Restart the app and retry.');
       }
     });
   }
 
   @override
   void dispose() {
+    _placement++;
+    _events?.cancel();
     if (_rect != null) {
-      _channel.invokeMethod<bool>(
-          'setSurfaceView', {'textureId': widget.textureId, 'rect': null});
+      _channel.invokeMethod<bool>('setSurfaceView', {
+        'textureId': widget.textureId,
+        'rect': null
+      }).catchError((Object _) => false);
     }
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => _texture
-      ? Texture(textureId: widget.textureId)
-      : _SurfaceViewHole(_place);
+  Widget build(BuildContext context) => _error != null
+      ? _SurfaceFailure(_error!, null)
+      : _SurfaceViewHole(_place, widget.clipRect);
+}
+
+class _SurfaceFailure extends StatefulWidget {
+  const _SurfaceFailure(this.message, this.onError);
+  final String message;
+  final ValueChanged<String>? onError;
+
+  @override
+  State<_SurfaceFailure> createState() => _SurfaceFailureState();
+}
+
+class _SurfaceFailureState extends State<_SurfaceFailure> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onError?.call(widget.message);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Text(widget.message,
+      textDirection: TextDirection.ltr,
+      style: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 16));
 }
 
 class _SurfaceViewHole extends LeafRenderObjectWidget {
-  const _SurfaceViewHole(this.onPaint);
+  const _SurfaceViewHole(this.onPaint, this.clipRect);
 
-  final ValueChanged<Rect> onPaint;
+  final void Function(Rect, Rect) onPaint;
+  final Rect clipRect;
 
   @override
   RenderObject createRenderObject(BuildContext context) =>
-      _RenderSurfaceViewHole(onPaint, View.of(context).devicePixelRatio);
+      _RenderSurfaceViewHole(
+          onPaint, clipRect, View.of(context).devicePixelRatio);
 
   @override
   void updateRenderObject(
           BuildContext context, _RenderSurfaceViewHole renderObject) =>
       renderObject
         ..onPaint = onPaint
+        ..clipRect = clipRect
+        ..markNeedsPaint()
         ..pixelRatio = View.of(context).devicePixelRatio;
 }
 
 class _RenderSurfaceViewHole extends RenderBox {
-  _RenderSurfaceViewHole(this.onPaint, this._pixelRatio);
+  _RenderSurfaceViewHole(this.onPaint, this.clipRect, this._pixelRatio);
 
-  ValueChanged<Rect> onPaint;
+  void Function(Rect, Rect) onPaint;
+  Rect clipRect;
   double _pixelRatio;
   set pixelRatio(double value) {
     if (value != _pixelRatio) {
@@ -254,8 +366,10 @@ class _RenderSurfaceViewHole extends RenderBox {
     // The root's coordinates are logical pixels.
     final rect =
         MatrixUtils.transformRect(getTransformTo(null), Offset.zero & size);
-    onPaint(Rect.fromLTRB(rect.left * _pixelRatio, rect.top * _pixelRatio,
-        rect.right * _pixelRatio, rect.bottom * _pixelRatio));
+    final clip = MatrixUtils.transformRect(getTransformTo(null), clipRect);
+    Rect physical(Rect r) => Rect.fromLTRB(r.left * _pixelRatio,
+        r.top * _pixelRatio, r.right * _pixelRatio, r.bottom * _pixelRatio);
+    onPaint(physical(rect), physical(clip));
   }
 }
 

@@ -45,6 +45,9 @@ class LycheeFrameDriver(
     upright: Boolean,
     private val onSurfaceNeeded: (cpu: Boolean, width: Int, height: Int) -> Unit,
 ) : AutoCloseable, Choreographer.FrameCallback {
+    /** Presentation failures are reported on the main thread; retry by recreating the view. */
+    var onError: ((String) -> Unit)? = null
+
     private val handle = nativeCreate(playerHandle, upright)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val thread =
@@ -61,6 +64,10 @@ class LycheeFrameDriver(
 
     @Volatile
     private var closed = false
+    @Volatile
+    private var surfaceGeneration = 0L
+    @Volatile
+    private var failedGeneration: Long? = null
 
     // Main thread only: which kind of Surface setSurface() gets.
     private var cpuMode = false
@@ -91,22 +98,42 @@ class LycheeFrameDriver(
         if (closed) return
         if (cpuMode) {
             nativeSetOutput(handle, null)
-            nativeSetCpuSurface(handle, surface)
+            check(nativeSetCpuSurface(handle, surface)) { "Could not bind CPU SurfaceView window" }
         } else {
             nativeSetCpuSurface(handle, null)
-            nativeSetOutput(handle, surface)
+            check(nativeSetOutput(handle, surface)) { "Could not bind codec SurfaceView window" }
         }
+        surfaceGeneration++
     }
 
     override fun doFrame(frameTimeNanos: Long) {
         if (closed) {
             return
         }
+        if (failedGeneration == surfaceGeneration) {
+            choreographer.postFrameCallback(this)
+            return
+        }
         // frameTimeNanos is this vsync, in System.nanoTime(), which is
         // lychee_now_us()'s clock. What is drawn now reaches the compositor's
         // next frame and is on screen the vsync after that.
         val displayTimeUs = (frameTimeNanos + 2 * periodNanos) / 1000
+        val generation = surfaceGeneration
         val frame = nativeRender(handle, displayTimeUs)
+        if (frame == -1L) {
+            failedGeneration = generation
+            mainHandler.post {
+                // A destroyed/replaced window's queued failure must not poison
+                // backgrounding, resume, or a newly attached presentation.
+                if (!closed && surfaceGeneration == generation) {
+                    onError?.invoke("SurfaceView CPU frame could not be posted. Retry playback.")
+                }
+            }
+            // Wait for a replacement window without repeatedly copying into
+            // the broken one. A later setSurface resumes frame pulls.
+            choreographer.postFrameCallback(this)
+            return
+        }
         val size = frame and 0xffffffffffffL
         val width = (size ushr 24).toInt()
         val height = (size and 0xffffffL).toInt()
@@ -279,8 +306,8 @@ class LycheeFrameDriver(
         }
 
         @JvmStatic external fun nativeCreate(player: Long, upright: Boolean): Long
-        @JvmStatic external fun nativeSetOutput(handle: Long, surface: Surface?)
-        @JvmStatic external fun nativeSetCpuSurface(handle: Long, surface: Surface?)
+        @JvmStatic external fun nativeSetOutput(handle: Long, surface: Surface?): Boolean
+        @JvmStatic external fun nativeSetCpuSurface(handle: Long, surface: Surface?): Boolean
         @JvmStatic external fun nativeRender(handle: Long, displayTimeUs: Long): Long
         @JvmStatic external fun nativeFramePts(handle: Long): Long
         @JvmStatic external fun nativeVideoInfo(handle: Long, longs: LongArray): Boolean

@@ -77,9 +77,18 @@ building on top of them.
 
 8. **Android SurfaceView crop fitting**: the native path has not been
    checked with `BoxFit.cover` in a container of a different aspect ratio.
-   Dart computes a cropped source, but the native placement currently
-   receives only the destination rectangle. Done when the native result
-   is checked against the texture's center crop and they match.
+   Native placement now receives the full proportionally scaled frame and
+   a separate viewport; widget tests cover both crop axes and subtitle
+   placement. Native masking/composition is still unverified. Done when the
+   native result is checked against the texture's center crop and they match.
+
+   The Android Flutter bridge now requires SurfaceView, rotates both codec and
+   CPU output upright, and reports layout/create/bind/post failures instead of
+   falling back to Texture. CPU copy/transform/error contracts have a host test;
+   Dart/channel tests cover rotated geometry and visible errors. Still waiting
+   on device playback: compare CPU RGBA, system software MediaCodec and hardware
+   output with rotation/crop, background/resume and Activity recreation. Build
+   and source checks do not satisfy this native presentation acceptance.
 
 - **Android HTTP split MP4 headers** (2026-11-14): the shared parser now
   completes short header reads instead of treating a transfer boundary as EOF.

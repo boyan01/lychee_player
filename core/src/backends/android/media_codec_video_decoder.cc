@@ -81,6 +81,7 @@ class OutputBuffer {
                : AMediaCodec_releaseOutputBuffer(codec_->codec, index_, false);
     if (status != AMEDIA_OK) {
       LOGW("releasing output buffer %zu failed: %d", index_, status);
+      if (render) codec_->output_failed = true;
     }
   }
 
@@ -394,6 +395,7 @@ bool MediaCodecVideoDecoder::CreateCodec(
   int attempt = low_delay_ ? (qualcomm ? 0 : 1) : 2;
   std::lock_guard<std::mutex> lock(codec_->mutex);
   window_ = TargetWindowLocked();
+  codec_->output_failed = false;
   media_status_t status = AMEDIA_ERROR_UNKNOWN;
   for (; window_ && attempt <= 2; ++attempt) {
     if (low_delay_) {
@@ -504,6 +506,7 @@ void MediaCodecVideoDecoder::SetVideoSurface(std::shared_ptr<void> surface) {
   media_status_t status = AMediaCodec_setOutputSurface(codec_->codec, window);
   if (status != AMEDIA_OK) {
     LOGW("setOutputSurface failed: %d", status);
+    codec_->output_failed = true;
     return;
   }
   window_ = window;
@@ -625,6 +628,7 @@ bool MediaCodecVideoDecoder::QueueInput(const uint8_t* data,
 }
 
 bool MediaCodecVideoDecoder::DrainOutput(const OutputCallback& output) {
+  if (codec_->output_failed) return false;
   AMediaCodec* codec = codec_->codec;
   for (;;) {
     AMediaCodecBufferInfo info = {};

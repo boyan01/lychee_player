@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "lychee/lychee.h"
+#include "surface_frame.h"
 
 namespace {
 
@@ -137,78 +138,22 @@ void ReleaseCpuWindowLocked(Driver* driver) {
   }
 }
 
-int32_t Transform(int32_t rotation) {
-  switch (rotation) {
-    case 90:
-      return ANATIVEWINDOW_TRANSFORM_ROTATE_90;
-    case 180:
-      return ANATIVEWINDOW_TRANSFORM_ROTATE_180;
-    case 270:
-      return ANATIVEWINDOW_TRANSFORM_ROTATE_270;
-    default:
-      return ANATIVEWINDOW_TRANSFORM_IDENTITY;
-  }
-}
+using lychee::android::DrawResult;
+using lychee::android::WindowSize;
 
 // The rotation CPU frames are drawn with.
 int32_t RotationLocked(Driver* driver) {
   return driver->upright ? lychee_player_get_video_rotation(driver->player) : 0;
 }
 
-// The window size a CPU frame needs: rotated, since a SurfaceView drops
-// buffers whose size, after their transform, is not the window's.
-void WindowSize(int32_t rotation,
-                int32_t width,
-                int32_t height,
-                int32_t* window_width,
-                int32_t* window_height) {
-  const bool sideways = rotation % 180 != 0;
-  *window_width = sideways ? height : width;
-  *window_height = sideways ? width : height;
-}
-
-// Under draw_mutex. Returns false if the window is not the frame's size
-// yet; the caller gets a new window of that size.
-bool DrawLocked(Driver* driver, lychee_frame* frame, int32_t rotation) {
-  const int32_t width = lychee_frame_get_width(frame);
-  const int32_t height = lychee_frame_get_height(frame);
-  int32_t window_width = 0;
-  int32_t window_height = 0;
-  WindowSize(rotation, width, height, &window_width, &window_height);
-  ANativeWindow* window = driver->cpu_window;
-  // The size it had when set: ANativeWindow_getWidth() reports the buffer
-  // size once it is set below.
-  if (!window || driver->cpu_window_width != window_width ||
-      driver->cpu_window_height != window_height) {
-    return false;
-  }
-  ANativeWindow_setBuffersGeometry(window, width, height,
-                                   WINDOW_FORMAT_RGBA_8888);
-  ANativeWindow_setBuffersTransform(window, Transform(rotation));
-  ANativeWindow_Buffer buffer;
-  if (ANativeWindow_lock(window, &buffer, nullptr) != 0) {
-    return false;
-  }
+// Under draw_mutex: only a size mismatch is retried with a new window.
+DrawResult DrawLocked(Driver* driver, lychee_frame* frame, int32_t rotation) {
   int32_t stride = 0;
   const uint8_t* source = lychee_frame_get_data(frame, &stride);
-  if (source) {
-    auto* dest = static_cast<uint8_t*>(buffer.bits);
-    const size_t dest_stride = static_cast<size_t>(buffer.stride) * 4;
-    const size_t row = static_cast<size_t>(std::min(width, buffer.width)) * 4;
-    const int32_t rows = std::min(height, buffer.height);
-    if (static_cast<size_t>(stride) == dest_stride && rows > 0) {
-      // One copy when the strides agree, padding and all.
-      std::memcpy(dest, source,
-                  dest_stride * static_cast<size_t>(rows - 1) + row);
-    } else {
-      for (int32_t y = 0; y < rows; ++y) {
-        std::memcpy(dest + static_cast<size_t>(y) * dest_stride,
-                    source + static_cast<size_t>(y) * stride, row);
-      }
-    }
-  }
-  ANativeWindow_unlockAndPost(window);
-  return true;
+  return lychee::android::DrawRgbaFrame(
+      driver->cpu_window, driver->cpu_window_width, driver->cpu_window_height,
+      source, stride, lychee_frame_get_width(frame),
+      lychee_frame_get_height(frame), rotation);
 }
 
 }  // namespace
@@ -812,27 +757,29 @@ JNIEXPORT jlong JNICALL Java_tech_soit_lychee_LycheeFrameDriver_nativeCreate(
 }
 
 // The window MediaCodec renders into; null detaches it.
-JNIEXPORT void JNICALL Java_tech_soit_lychee_LycheeFrameDriver_nativeSetOutput(
-    JNIEnv* env,
-    jclass,
-    jlong handle,
-    jobject surface) {
+JNIEXPORT jboolean JNICALL
+Java_tech_soit_lychee_LycheeFrameDriver_nativeSetOutput(JNIEnv* env,
+                                                        jclass,
+                                                        jlong handle,
+                                                        jobject surface) {
   Driver* driver = FromHandle(handle);
   std::lock_guard<std::mutex> lock(driver->mutex);
   if (!driver->player) {
-    return;
+    return JNI_FALSE;
   }
   ANativeWindow* window =
       surface ? ANativeWindow_fromSurface(env, surface) : nullptr;
+  if (surface && !window) return JNI_FALSE;
   // The player takes its own reference.
   lychee_player_set_video_surface(driver->player, window);
   if (window) {
     ANativeWindow_release(window);
   }
+  return JNI_TRUE;
 }
 
 // The window CPU frames are copied into; null detaches it.
-JNIEXPORT void JNICALL
+JNIEXPORT jboolean JNICALL
 Java_tech_soit_lychee_LycheeFrameDriver_nativeSetCpuSurface(JNIEnv* env,
                                                             jclass,
                                                             jlong handle,
@@ -843,10 +790,13 @@ Java_tech_soit_lychee_LycheeFrameDriver_nativeSetCpuSurface(JNIEnv* env,
   ReleaseCpuWindowLocked(driver);
   if (surface && driver->player) {
     driver->cpu_window = ANativeWindow_fromSurface(env, surface);
-    driver->cpu_window_width = ANativeWindow_getWidth(driver->cpu_window);
-    driver->cpu_window_height = ANativeWindow_getHeight(driver->cpu_window);
+    if (driver->cpu_window) {
+      driver->cpu_window_width = ANativeWindow_getWidth(driver->cpu_window);
+      driver->cpu_window_height = ANativeWindow_getHeight(driver->cpu_window);
+    }
   }
   driver->redraw = true;
+  return !surface || driver->cpu_window ? JNI_TRUE : JNI_FALSE;
 }
 
 // Returns the latest frame's type and the size a CPU window for it needs
@@ -896,13 +846,14 @@ JNIEXPORT jlong JNICALL Java_tech_soit_lychee_LycheeFrameDriver_nativeRender(
   }
   if (cpu_frame) {
     // A CPU frame keeps its pixels and needs no player.
-    bool drawn = false;
+    DrawResult drawn = DrawResult::kPending;
     {
       std::lock_guard<std::mutex> draw_lock(driver->draw_mutex);
       drawn = DrawLocked(driver, cpu_frame, rotation);
     }
     lychee_frame_release(cpu_frame);
-    if (!drawn) {
+    if (drawn == DrawResult::kFailed) return -1;
+    if (drawn == DrawResult::kPending) {
       std::lock_guard<std::mutex> lock(driver->mutex);
       driver->redraw = true;
     }

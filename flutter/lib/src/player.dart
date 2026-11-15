@@ -477,6 +477,9 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
 
   final Pointer<Void> _player;
   final NativeCallable<native.EventCallbackNative> _events;
+
+  /// The platform presentation ID; on Android it identifies a SurfaceView
+  /// owner and is not a registered Flutter texture.
   final int textureId;
   Timer? _ticker;
   bool _disposed = false;
@@ -501,6 +504,9 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
     native.configInit(config, sizeOf<native.LycheeConfig>());
     config.ref.videoFrameTypes = native.platformFrameType;
     config.ref.hardwareDecoding = hardwareDecoding ? 1 : 0;
+    // Both MediaCodec and the CPU window present Android frames upright.
+    config.ref.rotateSurfaceFrames =
+        defaultTargetPlatform == TargetPlatform.android ? 1 : 0;
     final player = native.playerCreate(config);
     calloc.free(config);
 

@@ -32,24 +32,43 @@ internal class LycheeSurfaceView private constructor(
     private val flutterView: View,
 ) {
     private var surfaceView: SurfaceView? = null
+    // Clip the native view's transparent hole to the viewport too: Flutter's
+    // ClipRect alone cannot constrain a sibling view (notably BoxFit.cover).
+    private val viewport = FrameLayout(layer.context).apply {
+        isFocusable = false
+        clipChildren = true
+        clipToPadding = true
+    }
+    private var clipRect = intArrayOf(0, 0, 1, 1)
     // In pixels of the FlutterView.
     private var left = 0
     private var top = 0
     private var width = 1
     private var height = 1
 
-    fun setRect(left: Int, top: Int, width: Int, height: Int) {
+    fun setRect(left: Int, top: Int, width: Int, height: Int, clipRect: IntArray?) {
         this.left = left
         this.top = top
         this.width = width.coerceAtLeast(1)
         this.height = height.coerceAtLeast(1)
+        this.clipRect = clipRect ?: intArrayOf(left, top, this.width, this.height)
+        layoutViewport()
         surfaceView?.let(::layout)
+    }
+
+    private fun layoutViewport() {
+        viewport.layoutParams = FrameLayout.LayoutParams(
+            clipRect[2].coerceAtLeast(1), clipRect[3].coerceAtLeast(1),
+        ).apply {
+            leftMargin = flutterView.left + clipRect[0]
+            topMargin = flutterView.top + clipRect[1]
+        }
     }
 
     private fun layout(view: SurfaceView) {
         val params = view.layoutParams as FrameLayout.LayoutParams
-        val l = flutterView.left + left
-        val t = flutterView.top + top
+        val l = left - clipRect[0]
+        val t = top - clipRect[1]
         if (params.width == width && params.height == height &&
             params.leftMargin == l && params.topMargin == t
         ) {
@@ -63,8 +82,10 @@ internal class LycheeSurfaceView private constructor(
     }
 
     fun remove() {
-        surfaceView?.let(layer::removeView)
+        val old = surfaceView
         surfaceView = null
+        old?.let(viewport::removeView)
+        layer.removeView(viewport)
         if (layer.childCount == 0) (layer.parent as? ViewGroup)?.removeView(layer)
     }
 
@@ -75,26 +96,43 @@ internal class LycheeSurfaceView private constructor(
      * it goes.
      */
     fun newSurfaceView(cpuSize: Size?, onSurface: (Surface?) -> Unit) {
-        surfaceView?.let(layer::removeView)
+        val old = surfaceView
+        surfaceView = null
+        old?.let(viewport::removeView)
         val view = SurfaceView(layer.context)
         view.isFocusable = false
         cpuSize?.let { view.holder.setFixedSize(it.width, it.height) }
+        var bound = false
+        fun bind(holder: SurfaceHolder, width: Int, height: Int) {
+            if (surfaceView !== view || bound) return
+            // A fixed-size CPU window is ready only after surfaceChanged
+            // confirms its dimensions; capturing the initial size strands redraw.
+            if (cpuSize != null && (width != cpuSize.width || height != cpuSize.height)) return
+            bound = true
+            onSurface(holder.surface)
+        }
         view.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
-                if (surfaceView === view) onSurface(holder.surface)
+                if (cpuSize == null) bind(holder, 0, 0)
             }
 
-            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                bind(holder, width, height)
+            }
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
-                if (surfaceView === view) onSurface(null)
+                if (surfaceView === view) {
+                    bound = false
+                    onSurface(null)
+                }
             }
         })
         surfaceView = view
         view.layoutParams = FrameLayout.LayoutParams(width, height)
         layout(view)
         if (layer.parent == null) addLayer()
-        layer.addView(view)
+        if (viewport.parent == null) layer.addView(viewport)
+        viewport.addView(view)
     }
 
     // Right below the FlutterView.
@@ -117,7 +155,10 @@ internal class LycheeSurfaceView private constructor(
          */
         fun create(activity: Activity): LycheeSurfaceView? {
             val flutterView = find(activity.window.decorView) ?: return null
-            if ((0 until flutterView.childCount).none { flutterView.getChildAt(it) is FlutterTextureView }) {
+            if ((0 until flutterView.childCount).none {
+                    val child = flutterView.getChildAt(it)
+                    child is FlutterTextureView && !child.isOpaque
+                }) {
                 return null
             }
             val parent = flutterView.parent as? ViewGroup ?: return null

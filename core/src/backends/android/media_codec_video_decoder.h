@@ -64,6 +64,7 @@ class MediaCodecVideoDecoder : public VideoDecoder {
     uint64_t epoch = 0;
     // Output buffers of this epoch not released yet.
     int outstanding = 0;
+    std::atomic<bool> output_failed{false};
   };
 
  private:

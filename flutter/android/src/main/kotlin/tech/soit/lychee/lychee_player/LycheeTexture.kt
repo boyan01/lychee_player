@@ -1,59 +1,55 @@
 package tech.soit.lychee.lychee_player
 
-import android.util.Size
-import android.view.Surface
 import android.app.Activity
-import io.flutter.view.TextureRegistry
+import android.os.Handler
+import android.os.Looper
+import android.util.Size
 import tech.soit.lychee.LycheeFrameDriver
 import tech.soit.lychee.LycheePlayer
 
 /**
- * Pulls a player's frames once per vsync into a Flutter SurfaceTexture,
- * through the Android SDK's frame driver. Flutter rotates the texture
- * widget, so frames stay unrotated (the player is created without
- * rotate_surface_frames).
- *
- * A SurfaceTexture rather than a SurfaceProducer: the producer's
- * ImageReader keeps up to five frames it has shown (two queued, three for
- * frames in flight), and some hardware decoders allocate barely more output
- * buffers than they need for reference frames (MediaTek's 4K decoders on
- * TCL TVs: about ten, five or six of them references). With four or more
- * held by Flutter such a decoder runs out and stops; a SurfaceTexture keeps
- * only the frame it latched.
- *
- * MediaCodec renders at whatever size it decodes; software frames need a
- * Surface of the frame's size. Either kind of switch takes a new Surface.
- * While Dart shows the player in a [LycheeSurfaceView], frames go into
- * its SurfaceView instead.
- *
+ * Owns a native SurfaceView presentation. Dart's legacy textureId is an
+ * opaque presentation ID; Android never allocates a Flutter texture or Surface.
+ * CPU RGBA and MediaCodec frames share the driver and get separate SurfaceViews
+ * when the producer changes, since a CPU-connected window cannot take a codec.
  * Created and released on the platform thread.
  */
 internal class LycheeTexture(
-    private val entry: TextureRegistry.SurfaceTextureEntry,
-    /** The player shown; Dart owns it. */
     val player: Long,
     refreshRate: Float,
+    private val onState: (Map<String, String>) -> Unit,
 ) {
     private var released = false
-    private var surface = Surface(entry.surfaceTexture())
-    // The view frames go into instead, if any, and its rectangle (left,
-    // top, width, height in pixels of the FlutterView) while Dart asks
-    // for one, also while the Activity is away.
     private var view: LycheeSurfaceView? = null
     private var viewRect: IntArray? = null
-    // The size of CPU frames since the driver asked for a CPU Surface; null
-    // for MediaCodec.
+    private var viewClipRect: IntArray? = null
     private var cpuSize: Size? = null
-    private val driver = LycheeFrameDriver(player, refreshRate, false, ::onSurfaceNeeded)
+    private val handler = Handler(Looper.getMainLooper())
+    private val timeout = Runnable { fail("SurfaceView creation timed out. Return to playback and retry; restart the app if it persists.") }
+    private var state = mapOf("status" to "pending")
+    private val driver = LycheeFrameDriver(player, refreshRate, true, ::onSurfaceNeeded).also {
+        it.onError = { message -> fail(message) }
+    }
+    private var activity: Activity? = null
+    private var active = true
 
-    init {
-        driver.setSurface(surface)
+    fun presentationState(): Map<String, String> = state
+
+    private fun pending() {
+        handler.removeCallbacks(timeout)
+        state = mapOf("status" to "pending")
+        onState(state)
+        if (activity != null && active && viewRect != null) handler.postDelayed(timeout, 5000)
     }
 
-    // While the plugin has one.
-    private var activity: Activity? = null
+    private fun fail(message: String) {
+        if (released) return
+        handler.removeCallbacks(timeout)
+        driver.setSurface(null)
+        state = mapOf("error" to message)
+        onState(state)
+    }
 
-    /** Dart's LycheePlayer.setDisplayModeMatching(). */
     var displayModeMatching = false
         set(value) {
             field = value
@@ -62,99 +58,115 @@ internal class LycheeTexture(
 
     fun setActivity(activity: Activity?) {
         if (released) return
+        // Activity loss is a suspension, not a failed surface or a texture opt-in.
         removeView()
         this.activity = activity
         applyDisplayModeMatching()
-        viewRect?.let(::setViewRect)
+        if (activity != null) viewRect?.let { setViewRect(it, viewClipRect) }
+    }
+
+    fun setActive(active: Boolean) {
+        if (released || this.active == active) return
+        this.active = active
+        removeView()
+        if (active) viewRect?.let { setViewRect(it, viewClipRect) }
     }
 
     private fun applyDisplayModeMatching() {
         if (!released) driver.setDisplayModeMatching(if (displayModeMatching) activity?.window else null)
     }
 
-    /**
-     * Dart's LycheeVideo(surfaceView: true) at [rect] (left, top, width,
-     * height in pixels of the FlutterView), or gone with null. False when
-     * the Activity cannot show a [LycheeSurfaceView]: Dart then draws the
-     * texture.
-     */
-    fun setViewRect(rect: IntArray?): Boolean {
+    fun setViewRect(rect: IntArray?, clipRect: IntArray? = null): Boolean {
         if (released) return false
+        if (rect != null && (rect.size != 4 || rect[2] <= 0 || rect[3] <= 0 ||
+                (clipRect != null && (clipRect.size != 4 || clipRect[2] <= 0 || clipRect[3] <= 0)))) {
+            fail("SurfaceView has invalid bounds. Restore the video layout and retry.")
+            return false
+        }
         viewRect = rect
+        viewClipRect = clipRect
         if (rect == null) {
             removeView()
             return true
         }
-        val view = view ?: activity?.let(LycheeSurfaceView::create)?.also {
-            it.setRect(rect[0], rect[1], rect[2], rect[3])
-            attachView(it)
-        } ?: return false
-        view.setRect(rect[0], rect[1], rect[2], rect[3])
-        return true
+        if (activity == null || !active) {
+            pending()
+            return true // Reattach when the Activity returns.
+        }
+        return try {
+            val current = view ?: LycheeSurfaceView.create(activity!!)?.also {
+                it.setRect(rect[0], rect[1], rect[2], rect[3], clipRect)
+                view = it
+                newViewSurface(it)
+            } ?: run {
+                fail("SurfaceView host unavailable. Use a transparent Flutter TextureView and retry.")
+                return false
+            }
+            current.setRect(rect[0], rect[1], rect[2], rect[3], clipRect)
+            true
+        } catch (error: RuntimeException) {
+            fail("SurfaceView could not be created or bound. Restart the app and retry.")
+            false
+        }
     }
 
     private fun removeView() {
-        val view = view ?: return
-        detachView(view)
-        view.remove()
+        handler.removeCallbacks(timeout)
+        val old = view
+        view = null // Ignore callbacks from the view being removed.
+        driver.setSurface(null)
+        old?.remove()
+        // A later widget/Activity attachment must not inherit a stale error.
+        state = mapOf("status" to "pending")
+        onState(state)
     }
 
     private fun onSurfaceNeeded(cpu: Boolean, width: Int, height: Int) {
         if (released) return
         cpuSize = if (cpu) Size(width, height) else null
-        val view = view
-        if (view != null) {
-            newViewSurface(view)
-            return
+        view?.let {
+            try {
+                newViewSurface(it)
+            } catch (error: RuntimeException) {
+                fail("SurfaceView producer change failed. Retry playback.")
+            }
         }
-        newTextureSurface()
-    }
-
-    private fun newTextureSurface() {
-        cpuSize?.let { entry.surfaceTexture().setDefaultBufferSize(it.width, it.height) }
-        val old = surface
-        surface = Surface(entry.surfaceTexture())
-        driver.setSurface(surface)
-        old.release()
     }
 
     private fun newViewSurface(view: LycheeSurfaceView) {
         driver.setSurface(null)
+        pending()
         view.newSurfaceView(cpuSize) { surface ->
             if (!released && this.view === view) {
-                driver.setSurface(surface)
-                if (surface != null && cpuSize == null) {
-                    // On some MediaTek TVs, switching from the texture leaves
-                    // video GPU-composited. Recreate with this view attached
-                    // to recover native video composition.
-                    LycheePlayer.rebuildVideoDecoderHandle(player)
+                try {
+                    if (surface != null && !surface.isValid) {
+                        fail("SurfaceView returned an invalid Surface. Retry playback.")
+                    } else {
+                        driver.setSurface(surface)
+                        if (surface == null) {
+                            pending()
+                        } else {
+                            handler.removeCallbacks(timeout)
+                            state = mapOf("status" to "ready")
+                            onState(state)
+                            if (cpuSize == null) {
+                                // Initialize the codec on this native window, also on
+                                // TVs where setOutputSurface leaves GPU composition.
+                                LycheePlayer.rebuildVideoDecoderHandle(player)
+                            }
+                        }
+                    }
+                } catch (error: RuntimeException) {
+                    fail("SurfaceView binding failed. Restart the app and retry.")
                 }
             }
         }
     }
 
-    private fun attachView(view: LycheeSurfaceView) {
-        this.view = view
-        newViewSurface(view)
-    }
-
-    // Back to the texture.
-    private fun detachView(view: LycheeSurfaceView) {
-        if (this.view !== view) return
-        this.view = null
-        driver.setSurface(null)
-        // The SurfaceTexture's old Surface may have been connected to
-        // MediaCodec before; a new one connects to either.
-        newTextureSurface()
-    }
-
     fun release() {
-        view?.remove()
-        view = null
+        if (released) return
+        removeView()
         released = true
-        // The player may be destroyed as soon as this returns.
         driver.close()
-        surface.release()
-        entry.release()
     }
 }
