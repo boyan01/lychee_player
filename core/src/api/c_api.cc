@@ -929,6 +929,14 @@ void lychee_testing_refuse_software_video(int32_t refuse) {
   lychee::VideoRenderer::RefuseSoftwareDecodersForTesting(refuse != 0);
 }
 
+void lychee_testing_fail_initial_hardware_video(int32_t count) {
+  lychee::VideoRenderer::FailInitialHardwareDecodersForTesting(count);
+}
+
+void lychee_testing_hang_initial_hardware_replacement(void) {
+  lychee::VideoRenderer::HangInitialHardwareReplacementForTesting();
+}
+
 void lychee_testing_stall_audio_devices(int32_t stalled) {
   lychee::AudioRenderer::StallDevicesForTesting(stalled != 0);
 }

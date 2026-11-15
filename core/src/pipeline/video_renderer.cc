@@ -37,6 +37,8 @@ constexpr int64_t kDefaultFrameDuration = kMicrosPerSecond / 30;
 constexpr int64_t kFrameEndSlop = 100;
 // RefuseSoftwareDecodersForTesting().
 std::atomic<bool> g_refuse_software{false};
+std::atomic<int> g_fail_initial_hardware{0};
+std::atomic<bool> g_hang_initial_replacement{false};
 int64_t FrameEnd(const VideoFrame& frame) {
   return frame.pts +
          (frame.duration > 0 ? frame.duration : kDefaultFrameDuration);
@@ -85,6 +87,7 @@ bool VideoRenderer::Initialize(const VideoConfig& config,
   config_ = config;
   timestamps_.Initialize(config);
   device_ = device;
+  surface_ = surface;
   candidates_ =
       CreateVideoDecoders(allow_hardware, accepted_storage_, device, surface,
                           rotate_surface_frames_);
@@ -96,10 +99,44 @@ void VideoRenderer::RefuseSoftwareDecodersForTesting(bool refuse) {
   g_refuse_software = refuse;
 }
 
+void VideoRenderer::FailInitialHardwareDecodersForTesting(int count) {
+  g_fail_initial_hardware = count;
+}
+
+void VideoRenderer::HangInitialHardwareReplacementForTesting() {
+  g_hang_initial_replacement = true;
+}
+
 bool VideoRenderer::InitializeNextDecoder(std::string* error) {
+  // Release the failed codec before creating its replacement: Android
+  // devices can have only one producer on a Surface or one free codec.
+  if (!candidates_.empty()) {
+    std::unique_ptr<VideoDecoder> previous;
+    bool simulate_hang = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      previous = std::move(decoder_);
+      replacing_hardware_ = previous && previous->is_hardware();
+      simulate_hang =
+          replacing_hardware_ && g_hang_initial_replacement.exchange(false);
+    }
+    previous.reset();
+    if (simulate_hang) {
+      std::unique_lock<std::mutex> lock(mutex_);
+      condition_.wait(lock, [this] { return abandoned_; });
+      return false;
+    }
+  }
   while (!candidates_.empty()) {
     std::unique_ptr<VideoDecoder> decoder = std::move(candidates_.front());
     candidates_.erase(candidates_.begin());
+    const size_t index = candidate_index_++;
+    std::shared_ptr<void> surface;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      surface = surface_;
+    }
+    decoder->SetVideoSurface(surface);
     std::string decoder_error;
     bool initialized = decoder->Initialize(config_, &decoder_error);
     if (initialized && g_refuse_software && !decoder->is_hardware()) {
@@ -109,8 +146,16 @@ bool VideoRenderer::InitializeNextDecoder(std::string* error) {
     if (initialized) {
       {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (stopped_) {
+          replacing_hardware_ = false;
+          return false;
+        }
+        // The surface can change while Initialize() is running.
+        decoder->SetVideoSurface(surface_);
         decoder_.swap(decoder);
+        replacing_hardware_ = false;
       }
+      active_candidate_index_ = index;
       decoder_has_output_ = false;
       return true;
     }
@@ -121,11 +166,16 @@ bool VideoRenderer::InitializeNextDecoder(std::string* error) {
   if (error->empty()) {
     *error = "no video decoder in this build";
   }
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    replacing_hardware_ = false;
+  }
   return false;
 }
 
 void VideoRenderer::SetVideoSurface(std::shared_ptr<void> surface) {
   std::lock_guard<std::mutex> lock(mutex_);
+  surface_ = surface;
   if (decoder_) {
     decoder_->SetVideoSurface(std::move(surface));
   }
@@ -161,7 +211,8 @@ void VideoRenderer::Stop() {
         now - stop_start >= kAbortTimeout) {
       // After Stop() the thread touches only this renderer, which Deleter
       // then leaves to it.
-      LOGW("%s decoder hung; leaving its thread behind", decoder_->name());
+      LOGW("%s decoder hung; leaving its thread behind",
+           decoder_ ? decoder_->name() : "video");
       abandoned_ = true;
       condition_.notify_all();
       thread_.detach();
@@ -187,7 +238,11 @@ bool VideoRenderer::DecoderHung(bool clock_running) {
   track(algorithm_.effective_frames_queued() <= 1, &drained_since_);
   track(clock_running, &running_since_);
   const int64_t since = in_decoder_since_;
-  if (since == 0 || !(simulate_hang_ || decoder_->is_hardware())) {
+  // The failed codec is released before its replacement is initialized.
+  // Keep detecting a driver hang during that interval too.
+  const bool hardware =
+      decoder_ ? decoder_->is_hardware() : replacing_hardware_;
+  if (since == 0 || !(simulate_hang_ || hardware)) {
     return false;
   }
   // Frames waiting to be shown can hold the decoder's output buffers
@@ -249,11 +304,12 @@ void VideoRenderer::DecodeLoop() {
     }
     if (!ok) {
       // Before the first frame, Decode() has already tried the fallbacks.
-      if (simulated || (decoder_has_output_ && decoder_->is_hardware())) {
+      if (simulated ||
+          (decoder_has_output_ && decoder_ && decoder_->is_hardware())) {
         LOGW("%s decoder lost", decoder_->name());
         decoder_lost_ = true;
       } else {
-        LOGE("%s decoder failed", decoder_->name());
+        LOGE("%s decoder failed", decoder_ ? decoder_->name() : "video");
         failed_ = true;
       }
       break;
@@ -313,7 +369,17 @@ bool VideoRenderer::Decode(const std::shared_ptr<EncodedPacket>& packet,
   if (!decoder_has_output_) {
     unconfirmed_packets_.push_back(packet);
   }
-  bool ok = decoder_->Decode(*packet, output);
+  auto decode = [&](const std::shared_ptr<EncodedPacket>& input) {
+    int remaining = g_fail_initial_hardware.load();
+    while (!decoder_has_output_ && decoder_->is_hardware() && remaining > 0) {
+      if (g_fail_initial_hardware.compare_exchange_weak(remaining,
+                                                        remaining - 1)) {
+        return false;
+      }
+    }
+    return decoder_->Decode(*input, output);
+  };
+  bool ok = decode(packet);
   // Frames already shown cannot be decoded again, so only a decoder without
   // output can be replaced. The packets since the last flush start at a
   // keyframe.
@@ -324,13 +390,30 @@ bool VideoRenderer::Decode(const std::shared_ptr<EncodedPacket>& packet,
   // A decoder Stop() aborted gets no successor.
   while (!ok && !decoder_has_output_ && !stopped()) {
     LOGW("%s decoder failed before its first frame", decoder_->name());
+    if (decoder_->is_hardware()) {
+      std::shared_ptr<void> surface;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        initial_hardware_failed_ = true;
+        surface = surface_;
+      }
+      if (!retried_initial_hardware_) {
+        retried_initial_hardware_ = true;
+        auto retry = CreateVideoDecoders(true, accepted_storage_, device_,
+                                         surface, rotate_surface_frames_);
+        if (active_candidate_index_ < retry.size()) {
+          candidates_.insert(candidates_.begin(),
+                             std::move(retry[active_candidate_index_]));
+        }
+      }
+    }
     std::string error;
     if (!InitializeNextDecoder(&error)) {
       return false;
     }
     ok = true;
     for (size_t i = 0; ok && i < unconfirmed_packets_.size(); ++i) {
-      ok = decoder_->Decode(*unconfirmed_packets_[i], output);
+      ok = decode(unconfirmed_packets_[i]);
     }
   }
   if (decoder_has_output_) {
@@ -491,6 +574,11 @@ bool VideoRenderer::HasError() const {
 bool VideoRenderer::DecoderLost() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return decoder_lost_;
+}
+
+bool VideoRenderer::InitialHardwareFailed() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return initial_hardware_failed_;
 }
 
 bool VideoRenderer::Ended(int64_t media_time) const {

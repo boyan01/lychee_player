@@ -312,6 +312,7 @@ void Player::StopPipeline() {
     subtitle_text_.clear();
     subtitle_images_key_ = 0;
     video_decoder_losses_ = 0;
+    initial_hardware_recovery_used_ = false;
   }
   video_queue_.Reset(0);
   audio_queue_.Reset(0);
@@ -1057,9 +1058,20 @@ void Player::RebuildVideoDecoder() {
     // hardware losses is recovered: iOS invalidates VideoToolbox sessions
     // in the background (-12903), so rebuilds there fail into software,
     // and the foreground is when hardware works again.
-    if (!video_renderer_->is_hardware() &&
-        (!config_.hardware_decoding || video_decoder_losses_ < 2)) {
-      return;
+    if (!video_renderer_->is_hardware()) {
+      if (!config_.hardware_decoding) {
+        return;
+      }
+      if (video_decoder_losses_ < 2) {
+        // Surface attachment can arrive after an initial hardware failure
+        // fell back to software. Retry once for this open, never for a codec
+        // that was simply unsupported or for software chosen by the caller.
+        if (initial_hardware_recovery_used_ ||
+            !video_renderer_->InitialHardwareFailed()) {
+          return;
+        }
+        initial_hardware_recovery_used_ = true;
+      }
     }
     // An explicit platform recovery gets another hardware attempt, like a
     // device change. It must not accumulate losses on every foreground.

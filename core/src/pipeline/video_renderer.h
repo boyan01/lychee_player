@@ -97,6 +97,8 @@ class VideoRenderer {
   // device shows (a GPU reset, MediaCodec reclaiming the codec). Decoding
   // has stopped; a new renderer can take over at the current position.
   bool DecoderLost() const;
+  // A hardware decoder accepted the stream but failed before its first frame.
+  bool InitialHardwareFailed() const;
   // Makes the decoder count as lost at the next packet, for tests.
   void SimulateDecoderLossForTesting() { simulate_loss_ = true; }
   // A hardware decoder has been in one call for kHungDecoderTimeout while
@@ -110,6 +112,10 @@ class VideoRenderer {
   // Software decoders refuse every stream while set, as Android's do 4K
   // HEVC Main 10, for tests. In every renderer.
   static void RefuseSoftwareDecodersForTesting(bool refuse);
+  // Fail this many hardware decoders before their first output, for tests.
+  static void FailInitialHardwareDecodersForTesting(int count);
+  // Hang the next replacement of an initially failing hardware decoder.
+  static void HangInitialHardwareReplacementForTesting();
   // Coded size of the frame last handed out by Acquire(); false before the
   // first. Streams can change resolution midway (adaptive streaming).
   bool shown_size(int* width, int* height) const;
@@ -197,6 +203,9 @@ class VideoRenderer {
   // produced a frame, and until it has, the packets it was given since the
   // last flush, to replay into the next one (as Chromium's DecoderStream).
   std::vector<std::unique_ptr<VideoDecoder>> candidates_;
+  size_t candidate_index_ = 0;
+  size_t active_candidate_index_ = 0;
+  bool retried_initial_hardware_ = false;
   bool decoder_has_output_ = false;
   std::vector<std::shared_ptr<EncodedPacket>> unconfirmed_packets_;
   // Decode thread only: display times for streams that have only decode
@@ -207,6 +216,9 @@ class VideoRenderer {
   bool logged_unsupported_frame_ = false;
 
   mutable std::mutex mutex_;
+  std::shared_ptr<void> surface_;
+  bool initial_hardware_failed_ = false;
+  bool replacing_hardware_ = false;
   std::condition_variable condition_;
   VideoRendererAlgorithm algorithm_;
   // The algorithm's choice for the vsync at |selected_vsync_|, and

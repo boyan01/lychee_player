@@ -25,6 +25,11 @@ building on top of them.
    `background` case exercises the expiry of
    frames nobody pulled: Choreographer kept pulling in the background on
    the Xiaomi 14.
+   The retry after a first-frame hardware decoder failure and the subsequent
+   surface recovery have not been checked on the TCL TV (2026-11-13): the
+   original 4K playback fell back to software until a quality change. Done
+   when a fresh video keeps hardware decoding after the failure and plays
+   smoothly, including a check of the TV's composed video layer.
 2. **Windows**: after a real GPU reset (`dxcap -forcetdr`, 2026-10-28)
    the CLI and `lychee_glfw` recover: ~3-4 s without video, the NVIDIA
    HDMI audio endpoint goes away so WASAPI reopens, then ~5 s of audio

@@ -1639,6 +1639,35 @@ par expect audio-only-config "track 0: video .* selected=0" "select video 0 .*: 
   --audio-only --select video:0 --select-after 1 "$media/h264_aac.mp4"
 # A hardware decoder failing midway (a GPU reset) is rebuilt at the
 # position: in hardware the first time, in software after that.
+if [ "${NO_HW:-0}" != 1 ]; then
+  hw_fail=2
+  hw_fail_no_sw=2
+  if [ "${NO_FFMPEG:-0}" != 1 ]; then
+    [ "$(uname)" = Darwin ] && hw_fail=3
+    if [ "$(uname)" = Darwin ] || [ "$windows" = 1 ]; then
+      hw_fail_no_sw=3
+    fi
+  fi
+  par expect decoder-first-frame-retry "failed before its first frame" \
+    "<=0 event: state error" "summary: state=ended .* hw=1 .*backward_jumps=0 " -- \
+    --fail-initial-hardware-video 1 "$media/h264_aac.mp4"
+  par expect decoder-first-frame-fallback "failed before its first frame" \
+    "<=$hw_fail failed before its first frame" "<=0 event: state error" \
+    "summary: state=ended .* hw=0 .*backward_jumps=0 " -- \
+    --fail-initial-hardware-video "$hw_fail" "$media/h264_aac.mp4"
+  exits=1 par expect decoder-first-frame-no-fallback "event: error kind=decode" \
+    "summary: state=error" -- --refuse-software-video \
+    --fail-initial-hardware-video "$hw_fail_no_sw" "$media/h264_aac.mp4"
+  par expect decoder-first-frame-surface-recovery "video rebuilt" \
+    "<=0 event: state error" "summary: state=ended .* hw=1 .*backward_jumps=0 " -- \
+    --fail-initial-hardware-video "$hw_fail" --rebuild-decoder-after 2 "$media/h264_aac.mp4"
+  par expect decoder-first-frame-bounded-recovery "^video rebuilt: resumed" "<=1 ^video rebuilt: resumed" \
+    "<=0 event: state error" "summary: state=ended .* hw=0 .*backward_jumps=0 " -- \
+    --fail-initial-hardware-video "$((hw_fail * 2))" --rebuild-decoder-after 2 --rebuild-decoder-after 5 "$media/h264_aac.mp4"
+  par expect decoder-first-frame-replacement-hung "video decoder hung" \
+    "<=0 event: state error" "summary: state=ended .* hw=1 .*backward_jumps=0 " -- \
+    --fail-initial-hardware-video 1 --hang-initial-hardware-replacement "$media/h264_aac.mp4"
+fi
 hw_first=1
 [ "${NO_HW:-0}" = 1 ] && hw_first=0
 par expect decoder-lost "video rebuilt: resumed [+-]0\.[0-2][0-9]{2}s" "<=0 event: state error" \

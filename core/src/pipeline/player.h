@@ -725,6 +725,7 @@ class Player {
   // MediaCodec instance whose hardware stopped answering is deleted and a
   // new one works), later ones by software decoding.
   int video_decoder_losses_ = 0;
+  bool initial_hardware_recovery_used_ = false;
   double rate_ = 1.0;
   // Realtime input plays faster than |rate_| while set (CatchUpLocked()).
   bool catching_up_ = false;

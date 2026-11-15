@@ -213,6 +213,8 @@ struct Options {
   int fail_audio_starts = 0;
   // Software video decoders refuse every stream (testing.h).
   bool refuse_software_video = false;
+  int fail_initial_hardware_video = 0;
+  bool hang_initial_hardware_replacement = false;
   // Stop pulling frames this many seconds after playback starts, as an app
   // in the background does, for |hide_for| seconds.
   double hide_after = -1;
@@ -521,6 +523,17 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       options->stall_audio_after = atof(v);
     } else if (arg == "--refuse-software-video") {
       options->refuse_software_video = true;
+    } else if (arg == "--fail-initial-hardware-video") {
+      const char* v = value();
+      if (!v) return false;
+      char* end = nullptr;
+      const long count = std::strtol(v, &end, 10);
+      if (end == v || *end != '\0' || count < 0 || count > 1000) {
+        return false;
+      }
+      options->fail_initial_hardware_video = static_cast<int>(count);
+    } else if (arg == "--hang-initial-hardware-replacement") {
+      options->hang_initial_hardware_replacement = true;
     } else if (arg == "--fail-audio-start") {
       const char* v = value();
       if (!v) return false;
@@ -1613,6 +1626,13 @@ int main(int argc, char** argv) {
   }
   if (options.refuse_software_video) {
     lychee_testing_refuse_software_video(1);
+  }
+  if (options.fail_initial_hardware_video > 0) {
+    lychee_testing_fail_initial_hardware_video(
+        options.fail_initial_hardware_video);
+  }
+  if (options.hang_initial_hardware_replacement) {
+    lychee_testing_hang_initial_hardware_replacement();
   }
   if (options.stall_audio && options.stall_audio_after <= 0) {
     options.stall_audio_after = 0;

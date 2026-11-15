@@ -2,6 +2,9 @@
 
 ### Fixed
 
+* A hardware decoder that fails before its first frame gets another
+  attempt before playback falls back to software; a later display
+  surface can also restore hardware decoding.
 * MP4 streams no longer stop early or lose audio when data arrives in
   small network chunks.
 

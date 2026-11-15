@@ -40,6 +40,10 @@ LYCHEE_EXPORT void lychee_testing_hang_video_decoder(lychee_player* player);
 // Non-zero: software video decoders refuse every stream, in every player,
 // as Android's do 4K HEVC Main 10; zero: they decode again.
 LYCHEE_EXPORT void lychee_testing_refuse_software_video(int32_t refuse);
+// Fail the first |count| hardware video decoders before their first output.
+LYCHEE_EXPORT void lychee_testing_fail_initial_hardware_video(int32_t count);
+// Hang the next replacement after a hardware decoder's initial failure.
+LYCHEE_EXPORT void lychee_testing_hang_initial_hardware_replacement(void);
 // Non-zero: every player's audio device stops pulling audio, as one that
 // fails to start or stops; zero: it pulls again.
 LYCHEE_EXPORT void lychee_testing_stall_audio_devices(int32_t stalled);
