@@ -18,12 +18,12 @@ import 'dart:isolate';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:ffi/ffi.dart';
 import 'package:file_selector_platform_interface/file_selector_platform_interface.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:lychee_player/lychee_player.dart';
 import 'package:lychee_player_example/main.dart';
+import 'package:material_ui/material_ui.dart';
 
 const _mediaDir = String.fromEnvironment(
   'LYCHEE_MEDIA',

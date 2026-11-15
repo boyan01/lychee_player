@@ -18,6 +18,7 @@ dependencies:
       url: https://github.com/flutter/packages.git
       ref: 79f764c366bdbba0236958e3265db3967f33f8f1
       path: packages/file_selector/file_selector
+  material_ui: ^1.11.0
 
 # Pin the complete cross_file 0.4 migration together until it is published.
 # https://github.com/flutter/packages/pull/13147

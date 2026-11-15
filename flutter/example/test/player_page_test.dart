@@ -4,9 +4,9 @@ import 'package:desktop_drop/desktop_drop.dart';
 // desktop_drop exposes its FFI transport test seam from this library.
 // ignore: implementation_imports
 import 'package:desktop_drop/src/native_transport.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lychee_player_example/main.dart';
+import 'package:material_ui/material_ui.dart';
 
 void main() {
   setUpAll(() {

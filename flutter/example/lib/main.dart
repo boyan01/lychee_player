@@ -5,9 +5,9 @@ import 'dart:ui' show AppExitType;
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lychee_player/lychee_player.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Desktop command line: `[--seconds N] [--subtitle URL] [file or URL]`.
 /// The file or URL opens at launch (else the LYCHEE_URL define), with the
