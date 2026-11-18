@@ -342,6 +342,8 @@ class Player {
     // Seek back to the clock's position even if no track changes: a
     // cancelled request already interrupted the read.
     bool resync = false;
+    // Re-decode the MediaCodec frame shown on the previous Surface.
+    int64_t redraw_surface_pts = kNoTimestamp;
     // The streams belong to a new item: its video starts afresh rather than
     // after the frame on screen.
     bool new_item = false;
@@ -349,7 +351,8 @@ class Player {
       return video != kUnchanged || audio != kUnchanged;
     }
     bool pending() const {
-      return tracks_changed() || rebuild_video || resync;
+      return tracks_changed() || rebuild_video || resync ||
+             redraw_surface_pts != kNoTimestamp;
     }
   };
 
@@ -462,14 +465,23 @@ class Player {
   int64_t ItemOffsetLocked(int64_t media_time) const;
   // Copies the loop fields into |loop_map_|, after any of them changed.
   void PublishLoopMapLocked();
+  // Re-decodes a paused Surface frame from unseekable input without
+  // moving the demuxer or flushing the other streams.
+  void RedrawVideoFromHistoryLocked(int64_t pts);
   // Looping off after the read thread wrapped past the pass playing: the
   // renderers end at that pass's end instead of playing the next.
   void ApplyLoopEndLocked();
   // |loop|: back to the start at the end; the state stays kReady.
   // |resync|: after a track change, playing on from where playback is, in
   // pass |loops|.
-  void ProcessSeek(int64_t target, bool loop, bool resync, int64_t loops,
-                   bool tracks_changed);
+  // |redraw_surface_pts|: restore the displayed frame on a new Surface
+  // without changing where playback resumes.
+  void ProcessSeek(int64_t target,
+                   bool loop,
+                   bool resync,
+                   int64_t loops,
+                   bool tracks_changed,
+                   int64_t redraw_surface_pts = kNoTimestamp);
   void FinishSeekLocked();
   // The state machine, once per control thread iteration, around
   // UpdateStateLocked().
@@ -578,8 +590,10 @@ class Player {
   // selected), so one switched to midway starts at the position too. One not
   // selected costs its packets from the keyframe before the position to the
   // read position (a GOP and the read-ahead), up to kMaxQueuedBytes. The map
-  // does not change in between; the read thread pushes to it, and the control
-  // thread uses it while the read thread is parked.
+  // does not change in between. The read thread adds the selected video's
+  // packets under |mutex_| together with the queue append, so a Surface
+  // redraw can replay them without parking a blocking demuxer. Other history
+  // access on the control thread requires the read thread to be parked.
   std::map<int, PacketHistory> histories_;
   std::thread thread_;
   std::thread read_thread_;

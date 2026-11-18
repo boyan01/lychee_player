@@ -70,9 +70,14 @@ class VideoRenderer {
   // are still to be decoded. |continue_shown|: also those up to the end of
   // the frame on screen, for a resync that should not show frames again
   // (callers pull frames for display times ahead of the clock).
-  void Flush(uint64_t generation, int64_t start_time, bool continue_shown);
+  void Flush(uint64_t generation,
+             int64_t start_time,
+             bool continue_shown,
+             bool exact_start = false);
   // Where the frame on screen ends, or kNoTimestamp if none or stale.
   int64_t shown_end() const;
+  // The displayed (already submitted) MediaCodec frame, if it has a PTS.
+  int64_t shown_surface_pts() const;
   // A renderer replacing another: what it showed, for Flush().
   void ContinueFrom(int64_t shown_end);
 
@@ -238,6 +243,8 @@ class VideoRenderer {
   bool first_frame_pending_ = true;
   uint64_t generation_ = 0;
   int64_t start_time_ = kNoTimestamp;
+  // Re-presenting a frame: skip by its start PTS, even if durations overlap.
+  bool exact_start_ = false;
   // ContinueFrom(), until the first flush.
   int64_t inherited_shown_end_ = kNoTimestamp;
   int64_t end_time_ = kNoTimestamp;

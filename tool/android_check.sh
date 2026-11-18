@@ -22,7 +22,10 @@
 #    h264_aac.mp4 and rotated.mp4 from MEDIA_DIR (default
 #    /tmp/lychee-media, from MEDIA_ONLY=1 tool/regression.sh) through
 #    tool/serve_media.py and `adb reverse`, decoding in software and with
-#    MediaCodec, and two snapshots of each pass tool/frame_check.py
+#    MediaCodec, and two snapshots of each pass tool/frame_check.py.
+#    A replacement SurfaceView on the same paused player must show the same
+#    MediaCodec frame without moving playback, also for pipe and no-Range
+#    HTTP inputs.
 #    AES-128 TS and fMP4 HLS also seek through HlsDemuxer, without fallback.
 #    (--bilinear matches PixelCopy's texture sampling when it scales;
 #    swscale's downscaling filter instead averages a wider area;
@@ -62,7 +65,7 @@ if [ "${NATIVE_MPEG2:-0}" = 1 ]; then
 else
   echo "SKIP MPEG-2: set NATIVE_MPEG2=1 on a device with that system decoder"
 fi
-for f in h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8 $onsets $audio_containers $legacy_containers; do
+for f in h264_aac.mp4 rotated.mp4 keyframes.ts hls_aes/ts.m3u8 hls_aes/fmp4.m3u8 $onsets $audio_containers $legacy_containers; do
   [ -f "$media/$f" ] || die "no $media/$f; run MEDIA_ONLY=1 tool/regression.sh"
 done
 
@@ -182,7 +185,24 @@ fi
 echo "== example"
 python3 -I "$root/tool/serve_media.py" "$media" "$port" >"$build/server.log" 2>&1 &
 server=$!
-trap 'kill $server 2>/dev/null || true' EXIT
+python3 -I "$root/tool/media_server.py" "$media" --no-ranges >"$build/no-ranges-server.log" 2>&1 &
+no_ranges_server=$!
+no_ranges_port=""
+cleanup() {
+  kill "$server" "$no_ranges_server" 2>/dev/null || true
+  wait "$server" "$no_ranges_server" 2>/dev/null || true
+  if [ -n "$no_ranges_port" ]; then
+    adb reverse --remove "tcp:$no_ranges_port" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+for _ in $(seq 50); do
+  no_ranges_port="$(awk '/^port / { print $2 }' "$build/no-ranges-server.log")"
+  [ -z "$no_ranges_port" ] || break
+  sleep 0.1
+done
+[ -n "$no_ranges_port" ] || die "no-Range media server did not start"
+adb reverse "tcp:$no_ranges_port" "tcp:$no_ranges_port" >/dev/null
 adb reverse "tcp:$port" "tcp:$port" >/dev/null
 adb install -r -t "$apk" >/dev/null
 package=tech.soit.lychee.example
@@ -202,7 +222,7 @@ fi
 snaps="$build/snapshots"
 rm -rf "$snaps" && mkdir -p "$snaps"
 failed=0
-cases=(h264_aac.mp4 rotated.mp4 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8)
+cases=(h264_aac.mp4 rotated.mp4 reattach/h264_aac.mp4 reattach_http/keyframes.ts hls_aes/ts.m3u8 hls_aes/fmp4.m3u8)
 if [ "$ffmpeg_extension" = 1 ]; then
   cases+=(hls_aes/ts_fallback.m3u8 hls_aes/fmp4_fallback.m3u8)
 fi
@@ -214,16 +234,26 @@ if [ -n "$file_access" ]; then
   adb push "$media/h264_aac.mp4" "$media/subs.srt" /data/local/tmp/ >/dev/null
   adb shell "$file_access cp /data/local/tmp/h264_aac.mp4 /data/local/tmp/subs.srt $files/"
   adb shell rm -f /data/local/tmp/h264_aac.mp4 /data/local/tmp/subs.srt
-  cases+=(content/h264_aac.mp4 content_pipe/h264_aac.mp4)
+  cases+=(content/h264_aac.mp4 content_pipe/h264_aac.mp4 reattach_pipe/h264_aac.mp4)
 fi
 content=content://$package.media
 for file in "${cases[@]}"; do
   modes="false true"
   seek=()
   extra=()
+  seekable=true
   reference="$file"
   url="http://127.0.0.1:$port/$file"
   case "$file" in
+    reattach/* | reattach_http/* | reattach_pipe/*)
+      modes=true
+      reference="${file#*/}"
+      extra=(--ez snapshot_reattach true)
+      case "$file" in
+        reattach_http/*) seekable=false; url="http://127.0.0.1:$no_ranges_port/$reference" ;;
+        reattach_pipe/*) seekable=false; url="$content/pipe/$reference" ;;
+        *) url="http://127.0.0.1:$port/$reference" ;;
+      esac ;;
     content/*) reference="${file#*/}"; url="$content/$reference"; extra=(--es subtitle "$content/subs.srt") ;;
     content_pipe/*) modes=true; reference="${file#*/}"; url="$content/pipe/$reference" ;;
     hls_aes/ts.m3u8 | hls_aes/ts_fallback.m3u8) modes=true; seek=(--es seek 1:6); reference=hls/index.m3u8 ;;
@@ -272,6 +302,18 @@ for file in "${cases[@]}"; do
     if [[ "$file" = content_pipe/* ]] && ! grep -q 'is a stream' "$snaps/$name.logcat.txt"; then
       echo "the pipe was not read as a stream"
       failed=1
+    fi
+    if [[ "$file" = reattach*/* ]]; then
+      pts="$(sed -nE 's/.* pts=([0-9]+) .*/\1/p' <<<"$log")"
+      paused="$(sed -nE "s/.*paused snapshot: position=([0-9]+) playing=false seeks=0 seekable=$seekable decoder=mediacodec$/\\1/p" \
+        "$snaps/$name.logcat.txt")"
+      if ! grep -q 'reattached video view' "$snaps/$name.logcat.txt" ||
+        [ "$(grep -c . <<<"$pts")" != 2 ] || [ "$(sort -u <<<"$pts" | wc -l)" -ne 1 ] ||
+        [ "$(grep -c . <<<"$paused")" != 2 ] || [ "$(sort -u <<<"$paused" | wc -l)" -ne 1 ] ||
+        ! cmp -s "$snaps/$name-a.ppm" "$snaps/$name-b.ppm"; then
+        echo "the replacement SurfaceView did not show the same paused frame"
+        failed=1
+      fi
     fi
     if [[ "$file" = hls_aes/* ]]; then
       if [[ "$file" = *_fallback.m3u8 ]]; then

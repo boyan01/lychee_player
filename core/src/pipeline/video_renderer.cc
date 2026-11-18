@@ -317,6 +317,7 @@ void VideoRenderer::DecodeLoop() {
     if (generation == generation_) {
       if (boundary) {
         start_time_ = boundary_time;
+        exact_start_ = false;
       } else if (entry.packet->end_of_stream) {
         end_of_stream_ = true;
       }
@@ -433,7 +434,8 @@ void VideoRenderer::OnFrame(std::shared_ptr<VideoFrame> frame,
     frame_rate_estimator_.AddFrame(frame->pts);
     // Accurate seek: skip frames that end before the seek target.
     if (start_time_ != kNoTimestamp && frame->pts != kNoTimestamp &&
-        FrameEnd(*frame) <= start_time_ + kFrameEndSlop) {
+        (exact_start_ ? frame->pts < start_time_
+                      : FrameEnd(*frame) <= start_time_ + kFrameEndSlop)) {
       return;
     }
   }
@@ -481,7 +483,8 @@ std::shared_ptr<VideoFrame> VideoRenderer::Adapt(
 
 void VideoRenderer::Flush(uint64_t generation,
                           int64_t start_time,
-                          bool continue_shown) {
+                          bool continue_shown,
+                          bool exact_start) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (continue_shown) {
@@ -496,6 +499,7 @@ void VideoRenderer::Flush(uint64_t generation,
     end_time_ = kNoTimestamp;
     generation_ = generation;
     start_time_ = start_time;
+    exact_start_ = exact_start;
     frame_rate_estimator_.Restart();
     // The frame rate survives a seek; cadence detection need not restart.
     algorithm_.Reset(
@@ -517,6 +521,15 @@ int64_t VideoRenderer::shown_end() const {
     return FrameEnd(*current_);
   }
   return inherited_shown_end_;
+}
+
+int64_t VideoRenderer::shown_surface_pts() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (current_ && !current_stale_ &&
+      current_->storage == VideoFrameStorage::kAndroidSurface) {
+    return current_->pts;
+  }
+  return kNoTimestamp;
 }
 
 void VideoRenderer::ContinueFrom(int64_t shown_end) {

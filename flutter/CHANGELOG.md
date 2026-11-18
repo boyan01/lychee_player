@@ -18,6 +18,8 @@
   timing of audio already queued to the device.
 * Android: Audio retries failed starts and resumes automatically if a
   new output route is temporarily unavailable.
+* Android: Reattaching a `LycheePlayerView` during a pause shows the same
+  MediaCodec frame when it is still seekable or buffered.
 * Queued items that need a different decoder configuration now switch
   cleanly, including A-law and μ-law audio with the same sample rate.
 * Apps can read playback statistics and the playing variant safely while

@@ -109,9 +109,11 @@ building on top of them.
   previous group's audio. Switching should select and fetch the target
   group's matching rendition as it does when opening that variant.
 
-- **Android SDK paused frame on a new Surface.** After reattaching a
-  SurfaceView to the same paused player, the new Surface should display
-  the paused hardware-decoded frame without a play or seek.
+- **Android paused Surface frame after input eviction.** A replacement
+  Surface can redraw the frame while its source remains seekable at that PTS
+  or the sequential input's packet history still covers it. Done when it
+  can also redraw after the paused frame's GOP has left the packet history
+  or the live playlist window.
 
 - **Linux Flutter dmabuf import failure** can leave video frozen while
   audio continues. Video should resume with displayable frames when EGL

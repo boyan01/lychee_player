@@ -1102,9 +1102,23 @@ void Player::RebuildVideoDecoder() {
 void Player::SetVideoSurface(void* surface) {
   std::shared_ptr<void> retained = RetainVideoSurface(surface);
   std::lock_guard<std::mutex> lock(mutex_);
+  const bool new_surface = retained && retained != video_surface_;
   video_surface_ = retained;
   if (video_renderer_) {
     video_renderer_->SetVideoSurface(std::move(retained));
+    if (new_surface && !play_when_ready_ && state_ == PlayerState::kReady &&
+        !live_ && !seek_pending_ && !seek_in_progress_ &&
+        track_request_.video == kUnchanged) {
+      const int64_t pts = video_renderer_->shown_surface_pts();
+      if (pts != kNoTimestamp) {
+        // Its MediaCodec buffer was already released to the old Surface.
+        track_request_.redraw_surface_pts = pts;
+        if (media_info_.seekable) {
+          demuxer_->Interrupt();
+        }
+        condition_.notify_all();
+      }
+    }
   }
 }
 
@@ -1978,6 +1992,7 @@ void Player::Run(const std::string& url) {
     int64_t resync_loops = 0;
     int64_t seek_target = 0;
     TrackRequest tracks;
+    int64_t redraw_surface_pts = kNoTimestamp;
     LiveChange live_change;
     bool advance = false;
     std::unique_ptr<Demuxer> crossed;
@@ -1990,6 +2005,14 @@ void Player::Run(const std::string& url) {
       // The joined item plays from when the clock reaches it.
       if (join_ && !reading_ && clock_.Now() >= join_->at) {
         crossed = CrossLocked();
+      }
+      if (!media_info_.seekable &&
+          track_request_.redraw_surface_pts != kNoTimestamp) {
+        const int64_t pts =
+            std::exchange(track_request_.redraw_surface_pts, kNoTimestamp);
+        if (!play_when_ready_ && !seek_pending_ && !track_request_.pending()) {
+          RedrawVideoFromHistoryLocked(pts);
+        }
       }
       if (live_) {
         if (live_change_.pending() || track_request_.pending()) {
@@ -2053,6 +2076,11 @@ void Player::Run(const std::string& url) {
           resync = true;
           const int64_t now = clock_.Now();
           const int64_t offset = LoopOffsetLocked(now);
+          if (!play_when_ready_ && tracks.video == kUnchanged &&
+              tracks.redraw_surface_pts != kNoTimestamp &&
+              LoopOffsetLocked(tracks.redraw_surface_pts) == offset) {
+            redraw_surface_pts = tracks.redraw_surface_pts;
+          }
           const int64_t passes = offset - item_base_;
           resync_loops = passes ? passes / loop_length_ : 0;
           int64_t position = std::max<int64_t>(
@@ -2100,7 +2128,8 @@ void Player::Run(const std::string& url) {
       if (tracks_changed) {
         ChangeTracks(tracks);
       }
-      ProcessSeek(seek_target, loop, resync, resync_loops, tracks_changed);
+      ProcessSeek(seek_target, loop, resync, resync_loops, tracks_changed,
+                  redraw_surface_pts);
       {
         std::lock_guard<std::mutex> lock(mutex_);
         seeking_ = false;
@@ -2564,13 +2593,13 @@ void Player::ReadPacket() {
   const int64_t offset =
       join ? join->base : item_base_ + (loops_ ? loops_ * loop_length_ : 0);
   if (result != DemuxerReadResult::kOk) {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (video_stream >= 0) {
       video_queue_.Push(EncodedPacket::CreateEndOfStream(video_stream));
     }
     if (audio_stream >= 0) {
       audio_queue_.Push(EncodedPacket::CreateEndOfStream(audio_stream));
     }
-    std::lock_guard<std::mutex> lock(mutex_);
     end_of_input_ = true;
     if (result == DemuxerReadResult::kError) {
       input_error_ = demuxer_->error();
@@ -2605,8 +2634,9 @@ void Player::ReadPacket() {
       packet->dts += offset;
     }
   }
-  if (auto it = histories_.find(packet->stream_index); it != histories_.end()) {
-    it->second.Push(packet, clock_.Now());
+  auto history = histories_.find(packet->stream_index);
+  if (history != histories_.end() && packet->stream_index != video_stream) {
+    history->second.Push(packet, clock_.Now());
   }
   download_rate_.store(demuxer_->download_rate(), std::memory_order_relaxed);
   const int variant = demuxer_->current_variant();
@@ -2614,9 +2644,12 @@ void Player::ReadPacket() {
   if (packet->stream_index == video_stream) {
     video_bytes_read_.fetch_add(static_cast<int64_t>(packet->size()),
                                 std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (history != histories_.end()) {
+      history->second.Push(packet, clock_.Now());
+    }
     video_queue_.Push(std::move(packet));
     if (pts != kNoTimestamp) {
-      std::lock_guard<std::mutex> lock(mutex_);
       video_last_pts_ = std::max(video_last_pts_, pts);
       auto& switches = join ? join->variant_switches : variant_switches_;
       if (variant >= 0 &&
@@ -2764,11 +2797,35 @@ void Player::SetLoopSpan() {
   }
 }
 
+void Player::RedrawVideoFromHistoryLocked(int64_t pts) {
+  auto history = histories_.find(video_stream_);
+  if (history == histories_.end()) {
+    return;
+  }
+  const auto& packets = history->second.packets();
+  // A read-ahead GOP or the memory limit can displace the displayed frame.
+  // In that case keep the queued video intact for the next play.
+  if (std::none_of(packets.begin(), packets.end(), [pts](const auto& packet) {
+        return (packet->pts != kNoTimestamp ? packet->pts : packet->dts) == pts;
+      })) {
+    return;
+  }
+  video_renderer_->Flush(++generation_, pts, false, true);
+  video_queue_.Flush(generation_);
+  for (const auto& packet : packets) {
+    video_queue_.Push(packet);
+  }
+  if (end_of_input_) {
+    video_queue_.Push(EncodedPacket::CreateEndOfStream(video_stream_));
+  }
+}
+
 void Player::ProcessSeek(int64_t target,
                          bool loop,
                          bool resync,
                          int64_t loops,
-                         bool tracks_changed) {
+                         bool tracks_changed,
+                         int64_t redraw_surface_pts) {
   const int64_t file_target = media_info_.start_time + target;
   // A resync stays in the pass playing; the read thread offsets its packets
   // by as much. Other seeks go back to the file's timeline.
@@ -2784,6 +2841,15 @@ void Player::ProcessSeek(int64_t target,
         media_info_.start_time,
         file_target -
             SeekPreroll(media_info_.streams[audio_stream_].audio.codec));
+  }
+  const bool redraw = redraw_surface_pts != kNoTimestamp;
+  if (redraw) {
+    // The display can be one frame ahead of or behind the paused clock.
+    // Start reading early enough for both the saved video and the audio.
+    const int64_t video_target =
+        file_target + (redraw_surface_pts - media_target);
+    demux_target =
+        std::min(demux_target, std::max(media_info_.start_time, video_target));
   }
   const bool user_seek = !loop && !resync && !tracks_changed;
   if (!media_info_.seekable) {
@@ -2816,7 +2882,9 @@ void Player::ProcessSeek(int64_t target,
   video_queue_.Flush(generation_);
   audio_queue_.Flush(generation_);
   if (video_renderer_) {
-    video_renderer_->Flush(generation_, media_target, resync);
+    video_renderer_->Flush(generation_,
+                           redraw ? redraw_surface_pts : media_target,
+                           resync && !redraw, redraw);
   }
   if (audio_renderer_) {
     audio_renderer_->Flush(generation_, media_target);

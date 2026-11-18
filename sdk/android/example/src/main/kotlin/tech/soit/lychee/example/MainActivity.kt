@@ -13,6 +13,7 @@
 // "seek" ("SEC:TARGET,...") seeks at SEC seconds after the start.
 // "seconds" stops the activity after that many seconds and logs summary:.
 // "snapshot_pause" keeps playback paused after a capture for compositor screenshots.
+// "snapshot_reattach" keeps the player paused and reattaches its view after the first capture.
 // "recreate" (seconds) recreates the activity once to check pending captures.
 // "subtitle" (a URL) adds that subtitle file to the media, in the
 // "subtitle_encoding" extra's encoding (default: guessed); "subtitle_delay"
@@ -181,15 +182,23 @@ class MainActivity : Activity() {
             handler.postDelayed({ scheduleSnapshots(spec) }, 50)
             return
         }
-        for (item in spec.split(',')) {
+        val reattach = intent.getBooleanExtra("snapshot_reattach", false)
+        for ((index, item) in spec.split(',').withIndex()) {
             val seconds = item.substringBefore(':').toDoubleOrNull() ?: continue
             val name = item.substringAfter(':')
             handler.postDelayed({
                 player.pause()
-                // A few vsyncs for the display to show the last frame queued.
-                handler.postDelayed({
+                val deadline = SystemClock.elapsedRealtime() + 5_000
+                fun capture() {
                     video.snapshot { bitmap, pts ->
                         if (isDestroyed) return@snapshot
+                        if (reattach && index > 0 && (bitmap == null || pts < 0) &&
+                            SystemClock.elapsedRealtime() < deadline
+                        ) {
+                            // A seekable source may need to read and decode a GOP.
+                            handler.postDelayed(::capture, 50)
+                            return@snapshot
+                        }
                         // An absolute path can use private files on systems
                         // whose scoped storage blocks adb from external files.
                         val file = if (File(name).isAbsolute) {
@@ -205,7 +214,20 @@ class MainActivity : Activity() {
                                 "snapshot ${file.path} pts=$pts size=${bitmap.width}x${bitmap.height}" +
                                     " video=0,0,${bitmap.width},${bitmap.height}")
                         }
-                        if (intent.getBooleanExtra("snapshot_pause", false)) {
+                        if (reattach) {
+                            val stats = player.stats
+                            Log.i("lychee-example",
+                                "paused snapshot: position=${player.positionMs} " +
+                                    "playing=${player.isPlaying} seeks=${stats.seekCount} " +
+                                    "seekable=${player.isSeekable} decoder=${stats.videoDecoder}")
+                            if (index == 0) {
+                                val parent = video.parent as LinearLayout
+                                val layout = video.layoutParams
+                                parent.removeView(video)
+                                parent.addView(video, 0, layout)
+                                Log.i("lychee-example", "reattached video view")
+                            }
+                        } else if (intent.getBooleanExtra("snapshot_pause", false)) {
                             val location = IntArray(2)
                             video.getLocationOnScreen(location)
                             val size = player.videoSize
@@ -223,7 +245,9 @@ class MainActivity : Activity() {
                             player.play()
                         }
                     }
-                }, 300)
+                }
+                // A few vsyncs for the display to show the last frame queued.
+                handler.postDelayed(::capture, 300)
             }, (seconds * 1000).toLong())
         }
     }
