@@ -1591,7 +1591,25 @@ DemuxerReadResult HlsDemuxer::ReadFrom(Rendition* r, EncodedPacket* packet) {
         result = DemuxerReadResult::kOk;
       }
     } else {
-      result = r->mp4 ? r->mp4->Read(packet) : r->reader->Read(packet, &offset);
+      if (r->mp4) {
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          if (aborted_ || interrupted_) {
+            return DemuxerReadResult::kAborted;
+          }
+          active_mp4_ = r->mp4.get();
+        }
+        result = r->mp4->Read(packet);
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          active_mp4_ = nullptr;
+        }
+      } else {
+        result = r->reader->Read(packet, &offset);
+      }
+      if (result == DemuxerReadResult::kAborted || aborted_ || interrupted_) {
+        return DemuxerReadResult::kAborted;
+      }
       if (result == DemuxerReadResult::kOk && !r->ahead) {
         // Most of a segment has arrived once its last quarter is read:
         // the next one's request then overlaps the rest. (fMP4's stream
@@ -1740,11 +1758,16 @@ DemuxerReadResult HlsDemuxer::Read(EncodedPacket* packet) {
 }
 
 bool HlsDemuxer::Seek(int64_t time) {
-  interrupted_ = false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    interrupted_ = false;
     for (const auto& r : renditions_) {
-      if (r->source && !aborted_) {
+      if (aborted_) {
+        return false;
+      }
+      if (r->mp4) {
+        r->mp4->ClearInterrupt();
+      } else if (r->source) {
         r->source->ClearInterrupt();
       }
     }
@@ -1776,9 +1799,11 @@ bool HlsDemuxer::Seek(int64_t time) {
 }
 
 void HlsDemuxer::Interrupt() {
-  interrupted_ = true;
   std::lock_guard<std::mutex> lock(mutex_);
-  if (active_) {
+  interrupted_ = true;
+  if (active_mp4_) {
+    active_mp4_->Interrupt();
+  } else if (active_) {
     active_->Interrupt();
   }
   wake_.notify_all();
@@ -1787,7 +1812,9 @@ void HlsDemuxer::Interrupt() {
 void HlsDemuxer::Abort() {
   aborted_ = true;
   std::lock_guard<std::mutex> lock(mutex_);
-  if (active_) {
+  if (active_mp4_) {
+    active_mp4_->Abort();
+  } else if (active_) {
     active_->Interrupt();
   }
   wake_.notify_all();

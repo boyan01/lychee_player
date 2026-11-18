@@ -509,7 +509,7 @@ fi
 # ISO BMFF WebVTT and IMSC text subtitle renditions (FFmpeg's muxer
 # cannot generate these sample entries).
 [ -f "$media/hls_fmp4_subtitles/stpp_master.m3u8" ] &&
-[ -f "$media/hls_fmp4_images/external-short_master.m3u8" ] ||
+[ -f "$media/hls_fmp4_images/images/later-caption.png" ] ||
   python3 -I "$root/tool/mp4_subtitle_cases.py" "$media" || exit 1
 # AES-128 (FFmpeg encrypts no fMP4): the TS segments with the media
 # sequence number as the IV, the fMP4 ones with an IV attribute and the
@@ -2489,6 +2489,39 @@ if [ "$own_ts" = 1 ]; then
       "summary: state=ready" -- --seconds 1.2 \
       "http://127.0.0.1:$port/hls_fmp4_images/${mode}_master.m3u8"
   done
+  # Stall the first PNG of the second IMSC sample, after playback is
+  # ready. Only a fresh read after the seek should fetch that sample's
+  # second image.
+  hls_image_cancel() {
+    local name="$1" requests="$2"; shift 2
+    local result fetched
+    result="$(expect "$name" "$@")"
+    fetched="$(sed -nE 's@.*GET /hls_fmp4_images/images/later-([a-z]+)\.png .*@\1@p' \
+      "$build/media_server.log" | paste -sd ' ' -)"
+    if [ "$fetched" != "$requests" ]; then
+      echo "FAIL $name: later PNG requests '$fetched', expected '$requests'"
+      [[ "$result" = FAIL* ]] && printf '     %s\n' "$result"
+    else
+      printf '%s\n' "$result"
+    fi
+  }
+  for action in close seek; do
+    name="http-hls-subtitles-image-cancel-$action"
+    selected "$name" || continue
+    serve --verbose --stall-at 0 --stall-for 4 \
+      --stall-path /hls_fmp4_images/images/later-caption.png
+    image_url="http://127.0.0.1:$port/hls_fmp4_images/external_master.m3u8"
+    if [ "$action" = close ]; then
+      realtime=1 seq_ hls_image_cancel "$name" "caption" \
+        "close at .* result=0 state=idle" "summary: .* wall=[0-2]\." -- \
+        --close-after 0.8 --seconds 1.6 "$image_url"
+    else
+      realtime=1 seq_ hls_image_cancel "$name" "caption caption second" \
+        "event: seek completed at 9\.000s" "seek took [0-9]{1,3}\." -- \
+        --seek 9 --seek-after 0.8 --seconds 3 "$image_url"
+    fi
+  done
+  serve
 elif [ "${NO_FFMPEG:-0}" != 1 ]; then
   seq_ expect http-hls-subtitles "track 0: subtitle webvtt lang=en " "summary: state=ended position=12\.000s" -- \
     "http://127.0.0.1:$port/hls/subs_master.m3u8"

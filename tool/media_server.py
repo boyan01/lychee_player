@@ -6,6 +6,7 @@ Used by tool/regression.sh to test network behaviour:
   --rate KBPS          limit every response to KBPS kilobytes per second
   --stall-at OFFSET    the first response to reach file offset OFFSET stops
                        sending there...
+  --stall-path PATH    only stall a response for this URL path
   --stall-for SECONDS  ...for this long, then continues
   --stall-skip N       the first N file responses (in the order the
                        requests came) never stall, wherever they reach: a
@@ -199,6 +200,8 @@ def make_handler(root, args, state):
             with state.lock:
                 state.responses += 1
                 stalls = state.responses > args.stall_skip
+            stalls = stalls and (args.stall_path is None or
+                                 self.path.split("?")[0] == args.stall_path)
             sent = 0
             began = time.monotonic()
             offset = start
@@ -397,6 +400,7 @@ def main():
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--rate", type=float, default=0)
     parser.add_argument("--stall-at", type=int)
+    parser.add_argument("--stall-path")
     parser.add_argument("--stall-for", type=float, default=5)
     parser.add_argument("--stall-skip", type=int, default=0)
     parser.add_argument("--drop-at", type=int)

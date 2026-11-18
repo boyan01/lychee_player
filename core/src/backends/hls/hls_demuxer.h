@@ -287,6 +287,9 @@ class HlsDemuxer : public Demuxer {
   std::mutex mutex_;
   std::condition_variable wake_;
   DataSource* active_ = nullptr;
+  // Registered only during Read(), under mutex_, before the segment can
+  // be closed. MP4 may be reading a subtitle image on another source.
+  Mp4Demuxer* active_mp4_ = nullptr;
 
   // The variant played first, then audio renditions, then other variants.
   std::vector<std::unique_ptr<Rendition>> renditions_;

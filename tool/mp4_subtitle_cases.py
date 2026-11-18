@@ -119,6 +119,8 @@ def generate_images(root):
                                255, 0, 255, 255, 0, 0, 0, 255]))
     (folder / 'images/caption.png').write_bytes(first)
     (folder / 'images/second.png').write_bytes(second)
+    (folder / 'images/later-caption.png').write_bytes(first)
+    (folder / 'images/later-second.png').write_bytes(second)
     for mode in ('aux', 'external', 'aux-short', 'external-short'):
         init = initialization('stpp', image=True)
         (folder / f'{mode}_init.mp4').write_bytes(init)
@@ -127,6 +129,8 @@ def generate_images(root):
                                                         (4000, 8000, 8500, 9500)]):
             uri1 = 'urn:mpeg:14496-30:subs:1' if mode.startswith('aux') else 'images/caption.png'
             uri2 = 'urn:mpeg:14496-30:subs:2' if mode.startswith('aux') else 'images/second.png'
+            if i and mode.startswith('external'):
+                uri1, uri2 = 'images/later-caption.png', 'images/later-second.png'
             second_end = end - 500 if mode.endswith("-short") else end
             xml = ('<tt xmlns="http://www.w3.org/ns/ttml" '
                    'xmlns:ttp="http://www.w3.org/ns/ttml#parameter" '

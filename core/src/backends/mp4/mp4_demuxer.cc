@@ -1575,6 +1575,7 @@ bool Mp4Demuxer::ParseSubsamples(const uint8_t* data,
 
 bool Mp4Demuxer::ReadSubtitleResource(std::string_view uri,
                                       std::vector<uint8_t>* bytes) {
+  if (aborted()) return false;
   // Memory inputs, including fuzz inputs, have no external-resource base.
   std::string base = source_->url();
   if (base.empty()) base = base_url_;
@@ -2278,10 +2279,11 @@ DemuxerReadResult Mp4Demuxer::Read(EncodedPacket* packet) {
         }
         return ReadSubtitleResource(uri, bytes);
       };
-      if (!ParseMp4Subtitle(track.subtitle_format, xml,
-                            packet->pts - subtitle_offset, packet->duration,
-                            &cues, resource)) {
-        if (aborted()) return DemuxerReadResult::kAborted;
+      const bool parsed = ParseMp4Subtitle(track.subtitle_format, xml,
+                                           packet->pts - subtitle_offset,
+                                           packet->duration, &cues, resource);
+      if (aborted()) return DemuxerReadResult::kAborted;
+      if (!parsed) {
         return Fail(packet->pts,
                     "invalid subtitle sample at %.3f s (of %.3f s)", "");
       }
@@ -2422,10 +2424,7 @@ size_t Mp4Demuxer::KeyframeBySlices(Track* track,
 
 bool Mp4Demuxer::Seek(int64_t time) {
   subtitle_packets_.clear();
-  interrupted_ = false;
-  if (!aborted_) {
-    source_->ClearInterrupt();
-  }
+  ClearInterrupt();
   if (fragmented_) {
     return SeekFragments(time);
   }
@@ -2498,12 +2497,20 @@ bool Mp4Demuxer::Seek(int64_t time) {
 }
 
 void Mp4Demuxer::Interrupt() {
-  interrupted_ = true;
   std::lock_guard<std::mutex> lock(source_mutex_);
+  interrupted_ = true;
   if (source_) {
     source_->Interrupt();
   }
   if (subtitle_resource_) subtitle_resource_->Interrupt();
+}
+
+void Mp4Demuxer::ClearInterrupt() {
+  std::lock_guard<std::mutex> lock(source_mutex_);
+  interrupted_ = false;
+  if (source_ && !aborted_) {
+    source_->ClearInterrupt();
+  }
 }
 
 void Mp4Demuxer::Abort() {

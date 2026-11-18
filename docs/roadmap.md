@@ -103,10 +103,6 @@ building on top of them.
 
 ## Known defects
 
-- **Closing HLS while an IMSC subtitle image is downloading** waits for
-  the image and can start the next request during close. Closing should
-  interrupt the in-flight fetch and return before the delayed response.
-
 - **Manual HLS variant selection across audio groups** keeps playing the
   previous group's audio. Switching should select and fetch the target
   group's matching rendition as it does when opening that variant.
