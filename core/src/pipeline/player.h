@@ -519,9 +519,9 @@ class Player {
   // one ended at.
   int64_t stats_log_at_ = kNoTimestamp;
   PlayerStats stats_logged_;
-  // Counts since the open that outlive renderers. MonotonicMicros() times:
-  // of the open, of the last user seek request, and since when playback
-  // is rebuffering (kNoTimestamp when it is not).
+  // Under |mutex_|. Counts since the open that outlive renderers.
+  // MonotonicMicros() times: of the open, of the last user seek request, and
+  // since when playback is rebuffering (kNoTimestamp when it is not).
   VideoRenderer::Counts retired_video_;
   int64_t open_time_ = kNoTimestamp;
   int64_t startup_time_ = 0;
@@ -531,8 +531,8 @@ class Player {
   int64_t seek_request_time_ = kNoTimestamp;
   int64_t seek_count_ = 0;
   int64_t last_seek_time_ = 0;
-  // Where the variant read changed, as (video pts, its index), from the
-  // one playing on; and the one last reported as playing.
+  // Under |mutex_|. Where the variant read changed, as (video pts, its index),
+  // from the one playing on; and the one last reported as playing.
   std::deque<std::pair<int64_t, int>> variant_switches_;
   int variant_logged_ = -1;
   // Written by the read thread.

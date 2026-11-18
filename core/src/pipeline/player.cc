@@ -180,6 +180,9 @@ void Player::StopPipeline() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     quit_ = true;
+    if (demuxer_) {
+      demuxer_->Abort();
+    }
     for (DataSource* source : subtitle_sources_) {
       source->Interrupt();
     }
@@ -188,11 +191,6 @@ void Player::StopPipeline() {
   {
     std::lock_guard<std::mutex> lock(display_mutex_);
     video_for_display_ = nullptr;
-  }
-  // Only Open() and the destructor replace |demuxer_|, and they hold
-  // |open_mutex_|.
-  if (demuxer_) {
-    demuxer_->Abort();
   }
   video_queue_.Abort();
   audio_queue_.Abort();
@@ -313,27 +311,27 @@ void Player::StopPipeline() {
     subtitle_images_key_ = 0;
     video_decoder_losses_ = 0;
     initial_hardware_recovery_used_ = false;
+    live_audio_.output_lead = 0;
+    live_audio_.late = 0;
+    live_audio_.silence = 0;
+    stats_log_at_ = kNoTimestamp;
+    stats_logged_ = PlayerStats();
+    retired_video_ = VideoRenderer::Counts();
+    open_time_ = MonotonicMicros();
+    startup_time_ = 0;
+    rebuffer_start_ = kNoTimestamp;
+    rebuffer_count_ = rebuffer_time_ = 0;
+    seek_request_time_ = kNoTimestamp;
+    seek_count_ = last_seek_time_ = 0;
+    variant_switches_.clear();
+    variant_logged_ = -1;
+    video_bytes_read_ = 0;
+    audio_bytes_read_ = 0;
+    download_rate_ = -1;
   }
   video_queue_.Reset(0);
   audio_queue_.Reset(0);
   clock_.Reset(0);
-  live_audio_.output_lead = 0;
-  live_audio_.late = 0;
-  live_audio_.silence = 0;
-  stats_log_at_ = kNoTimestamp;
-  stats_logged_ = PlayerStats();
-  retired_video_ = VideoRenderer::Counts();
-  open_time_ = MonotonicMicros();
-  startup_time_ = 0;
-  rebuffer_start_ = kNoTimestamp;
-  rebuffer_count_ = rebuffer_time_ = 0;
-  seek_request_time_ = kNoTimestamp;
-  seek_count_ = last_seek_time_ = 0;
-  variant_switches_.clear();
-  variant_logged_ = -1;
-  video_bytes_read_ = 0;
-  audio_bytes_read_ = 0;
-  download_rate_ = -1;
 }
 
 void Player::SetEventCallback(EventCallback callback, void* user_data) {
@@ -788,6 +786,10 @@ void Player::AdvanceToNext() {
   std::map<int, ExternalSubtitle> old_external_subtitles;
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    // Close may have aborted the current demuxer after we took |next_|.
+    if (quit_) {
+      return;
+    }
     {
       std::lock_guard<std::mutex> display_lock(display_mutex_);
       video_for_display_ = nullptr;
