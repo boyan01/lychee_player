@@ -122,10 +122,6 @@ building on top of them.
   audio continues. Video should resume with displayable frames when EGL
   rejects a plane layout that VAAPI exported.
 
-- **Concurrent Linux Flutter builds** can lose the downloaded FFmpeg
-  directory while populating a shared empty cache. Two such builds
-  should both finish and resolve a complete set of libraries.
-
 - **Android thumbnail cancellation during decode** is fixed when a
   MediaCodec decoder stalled waiting for an input buffer can be cancelled
   or destroyed promptly and a new request succeeds after cancellation.
