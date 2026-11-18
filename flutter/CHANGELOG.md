@@ -22,6 +22,8 @@
   new output route is temporarily unavailable.
 * Android: Reattaching a `LycheePlayerView` during a pause shows the same
   MediaCodec frame when it is still seekable or buffered.
+* Android: Cancelling a thumbnail request stops the wait for a MediaCodec
+  input buffer. The same thumbnailer can be used again.
 * Queued items that need a different decoder configuration now switch
   cleanly, including A-law and μ-law audio with the same sample rate.
 * Apps can read playback statistics and the playing variant safely while

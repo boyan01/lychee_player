@@ -68,6 +68,13 @@ if(ANDROID)
   target_include_directories(lychee_ffmpeg_mismatch PRIVATE ../src)
   target_compile_features(lychee_ffmpeg_mismatch PRIVATE cxx_std_20)
   add_dependencies(lychee_unittests lychee_ffmpeg_mismatch)
+
+  # Inject unavailable input buffers without changing the shipped decoder.
+  add_executable(lychee_android_thumbnail_test android_thumbnail_test.cc)
+  target_link_libraries(lychee_android_thumbnail_test PRIVATE lychee)
+  target_compile_features(lychee_android_thumbnail_test PRIVATE cxx_std_20)
+  target_link_options(lychee_android_thumbnail_test PRIVATE
+    -Wl,--wrap=AMediaCodec_dequeueInputBuffer)
 endif()
 # The tests reach into the library's internals.
 target_include_directories(lychee_unittests PRIVATE ../src)

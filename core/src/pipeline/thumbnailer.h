@@ -43,8 +43,8 @@ class Thumbnailer {
   // decode, or Cancel() came first.
   std::shared_ptr<VideoFrame> Get(int64_t position, bool exact);
 
-  // Makes the Get() calls in progress, a network read in flight too,
-  // return null promptly. Later calls open the input again.
+  // Makes Get() calls in progress return null, interrupting network reads
+  // and decoder buffer waits. Later calls open the input again.
   void Cancel();
 
  private:
@@ -56,7 +56,8 @@ class Thumbnailer {
   // With |get_mutex_| held.
   bool OpenLocked(uint64_t cancels);
   void CloseLocked();
-  bool InitializeNextDecoderLocked();
+  void ResetDecoderLocked();
+  bool InitializeNextDecoderLocked(uint64_t cancels);
   std::shared_ptr<VideoFrame> DecodeLocked(int64_t position,
                                            bool exact,
                                            uint64_t cancels);
@@ -79,6 +80,7 @@ class Thumbnailer {
   std::shared_ptr<SurfaceFrameReader> surface_reader_;
 #endif
   std::vector<std::unique_ptr<VideoDecoder>> candidates_;
+  // Replacing the decoder also takes |mutex_| so Cancel() can abort it.
   std::unique_ptr<VideoDecoder> decoder_;
   bool decoder_has_output_ = false;
   std::unique_ptr<FrameConverter> converter_;

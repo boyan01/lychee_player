@@ -8,6 +8,8 @@
 # 1. The core's unit tests, cross-built with the NDK for the device's ABI
 #    into build-android-ABI (FFmpeg from third_party/ffmpeg/android-ABI)
 #    and run from adb shell in /data/local/tmp/lychee-check.
+#    Stall MediaCodec input and check thumbnail cancellation, destruction
+#    and reuse on the device.
 # 2. Audio timing without FFmpeg, as the base AAR decodes (MediaCodec):
 #    lychee_cli, cross-built into build-android-noff-ABI, plays the
 #    onset clips of tool/regression.sh's av-sync cases on the virtual
@@ -87,15 +89,18 @@ if [ "$audio_only" != 1 ] && [ "${LYCHEE_SKIP_UNIT:-0}" != 1 ]; then
     -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI="$abi" -DANDROID_PLATFORM=26 -DANDROID_STL=c++_shared \
     -DLYCHEE_WITH_FFMPEG=ON -DLYCHEE_FFMPEG_ROOT="$ffmpeg" >/dev/null
-  cmake --build "$build" --target lychee_unittests >/dev/null
+  cmake --build "$build" --target lychee_unittests lychee_android_thumbnail_test >/dev/null
   adb shell "rm -rf $dir && mkdir -p $dir"
-  adb push "$build/core/test/lychee_unittests" "$build/core/test/liblychee_ffmpeg_mismatch.so" "$ffmpeg"/lib/*.so \
+  adb push "$build/core/test/lychee_unittests" "$build/core/test/liblychee_ffmpeg_mismatch.so" \
+    "$build/core/test/lychee_android_thumbnail_test" "$media/h264_aac.mp4" "$ffmpeg"/lib/*.so \
     "$(ls "$ndk"/toolchains/llvm/prebuilt/*/sysroot/usr/lib/"$triple"/libc++_shared.so | head -1)" \
     "$dir/" >/dev/null 2>&1
   # adb shell passes the remote command's exit status since Android 7.
   adb shell "cd $dir && LD_LIBRARY_PATH=. ./lychee_unittests" >"$build/unittests.txt" 2>&1 ||
     { cat "$build/unittests.txt"; die "unit tests failed"; }
   tail -1 "$build/unittests.txt"
+  adb shell "cd $dir && LD_LIBRARY_PATH=. timeout -k 2 20 ./lychee_android_thumbnail_test h264_aac.mp4" ||
+    die "thumbnail cancellation failed"
   adb shell "rm -rf $dir"
 fi
 

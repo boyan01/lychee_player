@@ -115,10 +115,6 @@ building on top of them.
   can also redraw after the paused frame's GOP has left the packet history
   or the live playlist window.
 
-- **Android thumbnail cancellation during decode** is fixed when a
-  MediaCodec decoder stalled waiting for an input buffer can be cancelled
-  or destroyed promptly and a new request succeeds after cancellation.
-
 - **HTTP-FLV restart on macOS CI** (2026-11-11, run 42938537741):
   `http-flv-live-restart` with the shipped FFmpeg decoded only 120 of
   240 frames after a request timed out. The cause has not reproduced
@@ -352,11 +348,10 @@ reaches (C ABI, Flutter, Rust, Swift, Kotlin), like any feature.
    HEVC); ContentProtection; one audio Representation per AdaptationSet
    plays (its highest bandwidth), audio does not adapt. Each is done when
    a regression case plays it.
-9. **Thumbnails** (#10), done but for Android's MediaCodec path: without
-   FFmpeg its frames come back through a YUV `ImageReader`
-   (`SurfaceFrameReader`), which no emulator or device has run yet. Done
-   when `tool/android_check.sh` (or the SDK example) gets a thumbnail of
-   `h264_aac.mp4` and `rotated.mp4` that `tool/frame_check.py` passes.
+9. **Android thumbnail pixel checks** (#10): the emulator checks thumbnail
+   cancellation and reuse through MediaCodec. Done when the Android harness
+   also checks thumbnails of `h264_aac.mp4` and `rotated.mp4` with
+   `tool/frame_check.py` in the FFmpeg-free build.
 ## FFmpeg-free builds
 
 The goal is FFmpeg-free builds on Apple platforms, Windows and Android;

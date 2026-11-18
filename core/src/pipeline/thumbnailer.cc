@@ -51,8 +51,11 @@ Thumbnailer::~Thumbnailer() {
 void Thumbnailer::Cancel() {
   std::lock_guard<std::mutex> lock(mutex_);
   cancels_++;
+  if (decoder_) {
+    decoder_->Abort();
+  }
   if (demuxer_) {
-    // Final for the demuxer: the next Get() opens the input again.
+    // Abort is final: the next Get() reopens the demuxer and decoder.
     demuxer_->Abort();
   }
 }
@@ -109,7 +112,7 @@ std::shared_ptr<VideoFrame> Thumbnailer::GetCounted(int64_t position,
 }
 
 void Thumbnailer::CloseLocked() {
-  decoder_.reset();
+  ResetDecoderLocked();
   candidates_.clear();
   converter_.reset();
   {
@@ -179,7 +182,7 @@ bool Thumbnailer::OpenLocked(uint64_t cancels) {
 #endif
   candidates_ =
       CreateVideoDecoders(true, accepted, VideoDevice(), surface, false);
-  if (!InitializeNextDecoderLocked()) {
+  if (!InitializeNextDecoderLocked(cancels)) {
     LOGW("no decoder for %s", config_.codec_name.c_str());
     return false;
   }
@@ -190,13 +193,27 @@ bool Thumbnailer::OpenLocked(uint64_t cancels) {
   return true;
 }
 
-bool Thumbnailer::InitializeNextDecoderLocked() {
-  decoder_.reset();
+void Thumbnailer::ResetDecoderLocked() {
+  // Unpublish first, then release platform resources outside |mutex_|.
+  std::unique_ptr<VideoDecoder> decoder;
+  {
+    std::lock_guard<std::mutex> state(mutex_);
+    decoder = std::move(decoder_);
+  }
+}
+
+bool Thumbnailer::InitializeNextDecoderLocked(uint64_t cancels) {
+  ResetDecoderLocked();
   while (!candidates_.empty()) {
     std::unique_ptr<VideoDecoder> decoder = std::move(candidates_.front());
     candidates_.erase(candidates_.begin());
     std::string error;
     if (decoder->Initialize(config_, &error)) {
+      std::lock_guard<std::mutex> state(mutex_);
+      // Cancel() could have run while the candidate initialized.
+      if (CancelledLocked(cancels)) {
+        return false;
+      }
       decoder_ = std::move(decoder);
       decoder_has_output_ = false;
       return true;
@@ -263,8 +280,11 @@ std::shared_ptr<VideoFrame> Thumbnailer::DecodeLocked(int64_t position,
   auto decode = [&](const EncodedPacket& packet) {
     bool ok = decoder_->Decode(packet, output);
     while (!ok && !decoder_has_output_) {
+      if (cancelled()) {
+        return false;
+      }
       LOGW("%s decoder failed before its first frame", decoder_->name());
-      if (cancelled() || !InitializeNextDecoderLocked()) {
+      if (!InitializeNextDecoderLocked(cancels)) {
         return false;
       }
       ok = true;
