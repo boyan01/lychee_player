@@ -315,11 +315,9 @@ int AudioRendererAlgorithm::FillBuffer(AudioBus* dest,
     return 0;
   }
 
-  const FillBufferMode fill_buffer_mode = ChooseBufferMode(playback_rate);
-  SetFillBufferMode(fill_buffer_mode);
-  last_playback_rate_ = playback_rate;
+  SetPlaybackRate(playback_rate);
 
-  switch (fill_buffer_mode) {
+  switch (last_mode_) {
     case FillBufferMode::kPassthrough:
       // Optimize the most common |playback_rate| ~= 1 case to use a single
       // copy instead of copying frame by frame.
@@ -345,27 +343,29 @@ AudioRendererAlgorithm::FillBufferMode AudioRendererAlgorithm::ChooseBufferMode(
   return FillBufferMode::kWSOLA;
 }
 
-void AudioRendererAlgorithm::SetFillBufferMode(FillBufferMode mode) {
-  if (last_mode_ == mode) {
+void AudioRendererAlgorithm::SetPlaybackRate(double playback_rate) {
+  if (playback_rate == last_playback_rate_) {
     return;
   }
-  // Clear any state from other fill modes so that we don't produce outdated
-  // audio later.
   if (last_mode_ == FillBufferMode::kWSOLA) {
-    output_time_ = 0.0;
-    search_block_index_ = 0;
-    target_block_index_ = 0;
-    if (wsola_output_.frames()) {
-      wsola_output_.Zero();
-    }
-    num_complete_frames_ = 0;
+    // Keep the input reached by output already taken by the renderer.
+    // The unread output and the search windows belong to the old rate.
+    const double consumed =
+        (output_time_ - num_complete_frames_) * last_playback_rate_;
+    queue_.SeekFrames(static_cast<int>(std::lround(std::max(0.0, consumed))));
+    ResetWsola();
   }
-  last_mode_ = mode;
+  last_mode_ = ChooseBufferMode(playback_rate);
+  last_playback_rate_ = playback_rate;
 }
 
 void AudioRendererAlgorithm::FlushBuffers() {
   // Clear the queue of decoded packets (releasing the buffers).
   queue_.Clear();
+  ResetWsola();
+}
+
+void AudioRendererAlgorithm::ResetWsola() {
   output_time_ = 0.0;
   search_block_index_ = 0;
   target_block_index_ = 0;

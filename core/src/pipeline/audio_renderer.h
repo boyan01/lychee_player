@@ -158,7 +158,7 @@ class AudioRenderer {
   int RenderLiveLocked(int frames, int64_t playout_time);
   // Takes the next kFadeDuration of audio, faded out, for the device to
   // play before the audio playing is cut. Not for live input.
-  void FadeOutLocked();
+  void FadeOutLocked(bool for_rate_change = false);
   // Stops the decode thread; the sink plays on.
   void StopDecoding();
   int FadeFrames() const;
@@ -166,6 +166,7 @@ class AudioRenderer {
   int RampFramesLocked() const;
   int64_t BufferedDurationLocked() const;
   bool InputDrainedLocked() const;
+  void UpdateDrainedClockLocked();
   // Output frames at |rate| left before |end_time_|; INT_MAX without one.
   int FramesBeforeEndLocked(double rate) const;
 
@@ -176,10 +177,10 @@ class AudioRenderer {
   std::unique_ptr<AudioDecoder> decoder_;
   AudioOutputFormat format_;
   std::thread thread_;
-  std::atomic<double> rate_{1.0};
 
   mutable std::mutex mutex_;
   std::condition_variable condition_;
+  double rate_ = 1.0;
   // Holds the decoded audio and applies the rate.
   AudioRendererAlgorithm algorithm_;
   // Planar output before interleaving.
@@ -219,6 +220,9 @@ class AudioRenderer {
   AudioBus fade_out_;
   int fade_out_frames_ = 0;
   int fade_out_offset_ = 0;
+  // A rate change keeps driving the clock while its old-rate fade plays.
+  int64_t fade_out_end_pts_ = kNoTimestamp;
+  double fade_out_rate_ = 1.0;
   // Frames of the fade-in after a seek or pause played so far.
   int fade_in_frames_ = 0;
   // The sink should run: playing, or paused and playing the fade-out.

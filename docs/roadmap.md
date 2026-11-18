@@ -107,10 +107,6 @@ building on top of them.
   previous group's audio. Switching should select and fetch the target
   group's matching rendition as it does when opening that variant.
 
-- **Switching directly between two non-unit playback rates** can jump the
-  audio clock. A switch from 0.5x to 4x should preserve the position of
-  audio already queued at the old rate.
-
 - **AAudio route recovery** stops retrying after a failed reopen. Audio
   should resume on the new route when it becomes available during playback.
 

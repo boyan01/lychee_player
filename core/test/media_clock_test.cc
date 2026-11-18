@@ -130,6 +130,29 @@ TEST(MediaClock, SetRateContinuesFromCurrentTime) {
   EXPECT_EQ(clock.rate(), 0.5);
 }
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(MediaClock, QueuedRateChangesFollowAudioPlayout) {
+  MediaClock clock;
+  clock.Reset(0);
+  clock.SetRate(0.5);
+  clock.Play(true);
+  const int64_t start = NowMicros() + 60 * kMs;
+  clock.UpdateFromAudio(0, start, 50 * kMs, 0.5);
+  clock.UpdateFromAudio(50 * kMs, start + 100 * kMs, 130 * kMs, 4.0);
+  clock.UpdateFromAudio(130 * kMs, start + 120 * kMs, 140 * kMs, 0.5);
+  EXPECT_EQ(clock.MediaTimeAt(start + 50 * kMs), 25 * kMs);
+  EXPECT_EQ(clock.MediaTimeAt(start + 100 * kMs), 50 * kMs);
+  EXPECT_EQ(clock.MediaTimeAt(start + 115 * kMs), 110 * kMs);
+  EXPECT_EQ(clock.MediaTimeAt(start + 120 * kMs), 130 * kMs);
+  EXPECT_EQ(clock.MediaTimeAt(start + 130 * kMs), 135 * kMs);
+  std::vector<int64_t> system_times;
+  EXPECT_TRUE(
+      clock.SystemTimesFor({25 * kMs, 110 * kMs, 135 * kMs}, &system_times));
+  EXPECT_EQ(system_times[0], start + 50 * kMs);
+  EXPECT_EQ(system_times[1], start + 115 * kMs);
+  EXPECT_EQ(system_times[2], start + 130 * kMs);
+}
+
 TEST(MediaClock, WaitsForAudioBeforeMoving) {
   MediaClock clock;
   clock.Reset(7 * kSecond);

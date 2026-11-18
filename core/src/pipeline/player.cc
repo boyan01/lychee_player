@@ -1123,9 +1123,10 @@ void Player::SetRate(double rate) {
     // For the next file; live input plays in real time.
     return;
   }
-  clock_.SetRate(OutputRateLocked());
   if (audio_renderer_) {
     audio_renderer_->SetRate(OutputRateLocked());
+  } else {
+    clock_.SetRate(OutputRateLocked());
   }
 }
 
@@ -3075,6 +3076,7 @@ void Player::ApplyPlayingLocked() {
   }
   clock_running_ = run;
   if (run) {
+    clock_.SetRate(OutputRateLocked());
     clock_.Play(audio_renderer_ != nullptr);
   } else {
     clock_.Pause();
@@ -3115,9 +3117,10 @@ void Player::CatchUpLocked() {
   catching_up_ = catching_up;
   LOGI("live catch-up %s with %lld ms read ahead", catching_up ? "on" : "off",
        Millis(ahead));
-  clock_.SetRate(OutputRateLocked());
   if (audio_renderer_) {
     audio_renderer_->SetRate(OutputRateLocked());
+  } else {
+    clock_.SetRate(OutputRateLocked());
   }
 }
 
@@ -3189,7 +3192,7 @@ bool Player::SettledForTesting(int64_t until) const {
   // Not clock_.MediaTimeAt(until): an audio-driven clock stops at the end
   // of the audio handed out so far, and would ask for nothing more.
   const int64_t ahead =
-      std::llround((until - NowMicros()) * clock_.rate());
+      std::llround((until - NowMicros()) * OutputRateLocked());
   return (!audio_renderer_ || audio_renderer_->HasDataFor(ahead)) &&
          (!video_renderer_ ||
           video_renderer_->HasFramesUntil(clock_.Now() + ahead));

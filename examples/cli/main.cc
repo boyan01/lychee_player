@@ -112,6 +112,7 @@ struct Options {
   double rate = 1;
   // Seconds after playback starts to apply |rate|; < 0: before opening.
   double rate_after = -1;
+  double initial_rate = 1.0;
   bool loop = false;
   // Turn looping off this many seconds after playback starts.
   double loop_off_after = -1;
@@ -425,6 +426,15 @@ bool ParseOptions(int argc, char** argv, Options* options) {
       const char* v = value();
       if (!v) return false;
       options->rate_after = atof(v);
+    } else if (arg == "--initial-rate") {
+      const char* v = value();
+      if (!v) return false;
+      char* end = nullptr;
+      options->initial_rate = strtod(v, &end);
+      if (*end != '\0' || !std::isfinite(options->initial_rate) ||
+          options->initial_rate <= 0) {
+        return false;
+      }
     } else if (arg == "--loop") {
       options->loop = true;
     } else if (arg == "--loop-off-after") {
@@ -1569,7 +1579,7 @@ int main(int argc, char** argv) {
         "[--cpu | --rgba | --native | --d3d11 | --d3d11-hdr | --dmabuf NODE | "
         "--android-surface] "
         "[--rate R [--rate-after "
-        "SEC]] [--loop [--loop-off-after SEC]] "
+        "SEC [--initial-rate R]]] [--loop [--loop-off-after SEC]] "
         "[--open-after SEC URL] [--close-after SEC] [--start SEC] "
         "[--switch-after SEC URL] [--next URL [--clear-next-after SEC]] "
         "[--soak SEC "
@@ -1682,9 +1692,8 @@ int main(int argc, char** argv) {
     lychee_player_set_max_bitrate(player, options.max_bitrate);
   }
   lychee_player_set_looping(player, options.loop ? 1 : 0);
-  if (options.rate_after < 0) {
-    lychee_player_set_rate(player, options.rate);
-  }
+  lychee_player_set_rate(
+      player, options.rate_after < 0 ? options.rate : options.initial_rate);
   // Wall-clock latencies, which the virtual clock hides: from the open to
   // the first frame pulled, and from the seek to the first frame after it.
   const auto wall_now = [] { return std::chrono::steady_clock::now(); };
@@ -1834,8 +1843,13 @@ int main(int argc, char** argv) {
   // The frame on screen has been shown only while playing steadily.
   bool steady = false;
   int exit_code = 0;
-  double rate = options.rate_after < 0 ? options.rate : 1;
+  double rate = lychee_player_get_rate(player);
   bool rate_applied = options.rate_after < 0;
+  double previous_rate = rate;
+  int64_t rate_change_at = 0;
+  int64_t rate_check_at = 0;
+  int64_t rate_check_position = 0;
+  int64_t rate_step_error = 0;
   // Largest |drift| reported, a second after playback (re)starts.
   int64_t max_drift = 0;
   int64_t loops = 0;
@@ -2164,10 +2178,27 @@ int main(int argc, char** argv) {
       rate_applied = true;
       printf("rate -> %.2f\n", options.rate);
       lychee_player_set_rate(player, options.rate);
+      previous_rate = rate;
       rate = lychee_player_get_rate(player);
+      rate_change_at = rate_check_at = now;
+      rate_check_position = position;
       // Drift is measured per rate.
       drift_wall = now;
       drift_position = position;
+    } else if (rate_change_at != 0 && state == LYCHEE_STATE_READY &&
+               now - rate_change_at <= 100000) {
+      // While queued audio switches speed, the clock can use either
+      // slope, but it should not advance outside that range.
+      const int64_t elapsed = now - rate_check_at;
+      const int64_t advance = position - rate_check_position;
+      const int64_t least =
+          std::llround(elapsed * std::min(rate, previous_rate));
+      const int64_t most =
+          std::llround(elapsed * std::max(rate, previous_rate));
+      rate_step_error =
+          std::max({rate_step_error, least - advance, advance - most});
+      rate_check_at = now;
+      rate_check_position = position;
     }
     for (size_t i = 0; i < options.selections.size() && ready_wall != 0; ++i) {
       const Selection& selection = options.selections[i];
@@ -2510,6 +2541,9 @@ int main(int argc, char** argv) {
   }
   if (audio_onset != INT64_MIN) {
     Appendf(&summary, " audio_onset=%.4fs", audio_onset / 1e6);
+  }
+  if (rate_change_at != 0) {
+    Appendf(&summary, " rate_step_error=%.1fms", rate_step_error / 1e3);
   }
   // Last: cases match the fields above in order.
   if (options.soak_every > 0) {

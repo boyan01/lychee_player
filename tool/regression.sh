@@ -1525,6 +1525,12 @@ par expect rate-half "summary: state=ended" "summary:.*dropped=[0-3] " "$few_gli
 par expect rate-change "rate -> 1.50" "summary: state=ended" "summary:.*glitches=[0-5] " "$small_drift" -- \
   --rate 1.5 --rate-after 2 "$media/h264_aac.mp4"
 par expect rate-audio-only "summary: state=ended" "$small_drift" -- --rate 2 "$media/audio_only.mp3"
+for rates in '0.5 4' '4 0.5'; do
+  read -r from to <<<"$rates"
+  par expect "rate-change-${from}x-to-${to}x" "rate -> $to" \
+    "summary: state=ended" "$small_drift" "rate_step_error=[0-3]\.[0-9]ms" -- \
+    --initial-rate "$from" --rate "$to" --rate-after 1.5 "$media/audio_float.wav"
+done
 par expect rate-video-only "summary: state=ended" "$few_glitches" "$small_drift" -- \
   --rate 2 "$media/video_only.mp4"
 # What the device outputs around a seek, a pause, a rate change, a track

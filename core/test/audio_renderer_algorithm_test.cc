@@ -127,6 +127,25 @@ TEST(AudioRendererAlgorithm, FlushDropsInput) {
   EXPECT_EQ(algorithm.NextOutputTimestamp(), kNoTimestamp);
 }
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(AudioRendererAlgorithm, RateChangeKeepsTheInputPosition) {
+  for (double old_rate : {0.5, 4.0}) {
+    const double new_rate = old_rate == 0.5 ? 4.0 : 0.5;
+    AudioRendererAlgorithm algorithm;
+    algorithm.Initialize(kChannels, kSampleRate);
+    EnqueueTone(&algorithm, 4);
+    AudioBus bus(kChannels, 512);
+    for (int i = 0; i < 64; ++i) {
+      EXPECT_EQ(algorithm.FillBuffer(&bus, 0, 512, old_rate), 512);
+    }
+    const int64_t before = algorithm.NextOutputTimestamp();
+    EXPECT_EQ(algorithm.FillBuffer(&bus, 0, 512, new_rate), 512);
+    const auto span =
+        static_cast<int64_t>(512 * new_rate * kMicrosPerSecond / kSampleRate);
+    EXPECT_NEAR(algorithm.NextOutputTimestamp() - before, span, 22);
+  }
+}
+
 TEST(AudioRendererAlgorithm, EndInputAtCutsPastTheBoundary) {
   AudioRendererAlgorithm algorithm;
   algorithm.Initialize(kChannels, kSampleRate);

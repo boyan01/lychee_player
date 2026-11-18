@@ -14,6 +14,8 @@
   reporting that an item has ended or switching to the next item.
 * Linux: Multiple Flutter builds can populate a shared FFmpeg cache
   concurrently without failing during configuration.
+* Switching directly between playback speeds preserves the position and
+  timing of audio already queued to the device.
 * Queued items that need a different decoder configuration now switch
   cleanly, including A-law and μ-law audio with the same sample rate.
 * Apps can read playback statistics and the playing variant safely while

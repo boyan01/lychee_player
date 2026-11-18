@@ -87,6 +87,9 @@ class AudioRendererAlgorithm {
                  int requested_frames,
                  double playback_rate);
 
+  // Restarts WSOLA at the input position reached at the previous rate.
+  void SetPlaybackRate(double playback_rate);
+
   // Drops all queued input and WSOLA state.
   void FlushBuffers();
 
@@ -143,9 +146,7 @@ class AudioRendererAlgorithm {
   };
 
   FillBufferMode ChooseBufferMode(double playback_rate) const;
-  // Drops WSOLA state when the mode changes, so it does not leak stale
-  // audio later.
-  void SetFillBufferMode(FillBufferMode mode);
+  void ResetWsola();
   int RunWsolaAndFill(AudioBus* dest,
                       int dest_offset,
                       int requested_frames,
