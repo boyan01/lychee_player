@@ -3103,7 +3103,9 @@ void Player::UpdateStateLocked() {
         }
       } else if (seek_pending_ || advance_pending_) {
         // Wait for the seek; the ended and starved checks see stale data.
-      } else if (EndedLocked()) {
+      } else if (play_when_ready_ && EndedLocked()) {
+        // A pause at the tail can drain the sink. The item completes
+        // when playback resumes, so Play() still acts as a resume.
         if (!input_error_.empty()) {
           FailLocked(input_error_);
         } else if (looping_ && media_info_.seekable) {

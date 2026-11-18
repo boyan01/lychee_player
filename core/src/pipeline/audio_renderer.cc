@@ -521,10 +521,14 @@ void AudioRenderer::SetPlaying(bool playing) {
   } else {
     FadeOutLocked();
     fade_out_end_pts_ = kNoTimestamp;
-    if (fade_out_offset_ < fade_out_frames_ && sink_started_ &&
-        !sink_start_failed_) {
+    const bool has_device = sink_started_ && !sink_start_failed_;
+    if (has_device && fade_out_offset_ < fade_out_frames_) {
       // The device plays the fade-out; UpdateSink() stops it then.
       stop_sink_at_ = now + kFadeOutTimeout;
+    } else if (has_device && InputDrainedLocked() &&
+               device_playout_end_ > now) {
+      // The tail already queued to the device plays out like a fade.
+      stop_sink_at_ = device_playout_end_;
     } else {
       sink_running_ = false;
     }

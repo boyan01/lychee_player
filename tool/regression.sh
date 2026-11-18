@@ -1545,6 +1545,13 @@ par expect loop-ts "video size 640x360" "loops=1" "summary:.*backward_jumps=0 " 
 par check seek-audio    - - -- --seek 3 --seek-after 1 "$media/audio_only.mp3"
 par expect audio-drain "audio tail: ended [0-9]{1,5} us after playout" \
   "summary: state=ended position=8\.000s" -- "$media/audio_float.wav"
+# Pause just before the buffered tail plays. The CLI exits on ENDED, so
+# the resume must still happen at the paused position, with no rewind.
+realtime=1 seq_ expect audio-pause-drain "^pause at 7\.9[0-9]{2}s$" \
+  "^play at 7\.9[0-9]{2}s$" "event: playing 0" "event: state ended" \
+  "<=0 seek to 0 us" "summary: state=ended position=8\.000s .*seeks=1 " -- \
+  --null-audio --refresh 500 --start 7 --pause 0.984 0.35 --seconds 2.5 \
+  "$media/audio_float.wav"
 
 # Playback rate. Drift (position vs. wall clock times the rate) stays small
 # only if both the clock and the WSOLA output follow the rate.
