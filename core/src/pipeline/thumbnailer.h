@@ -57,7 +57,9 @@ class Thumbnailer {
   bool OpenLocked(uint64_t cancels);
   void CloseLocked();
   bool InitializeNextDecoderLocked();
-  std::shared_ptr<VideoFrame> DecodeLocked(int64_t position, bool exact);
+  std::shared_ptr<VideoFrame> DecodeLocked(int64_t position,
+                                           bool exact,
+                                           uint64_t cancels);
   // The decoder's |frame| as upright kCpuRgba of the thumbnail's size.
   std::shared_ptr<VideoFrame> FinishLocked(
       const std::shared_ptr<VideoFrame>& frame);

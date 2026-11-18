@@ -3,6 +3,7 @@
 #include "pipeline/thumbnailer.h"
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 #include "base/log.h"
@@ -18,10 +19,12 @@ namespace lychee {
 
 namespace {
 
-// Packets decoded for one picture at most, keyframe first: one keyframe
-// takes a few (decoder delay); an exact one up to a long GOP.
-constexpr int kMaxPackets = 120;
-constexpr int kMaxExactPackets = 1200;
+// A keyframe request only decodes enough packets to cover decoder delay.
+constexpr size_t kMaxKeyframePackets = 120;
+// Keep decoder fallback bounded until the first frame. Once a decoder has
+// produced a frame, exact requests can continue through arbitrarily long GOPs.
+constexpr size_t kMaxReplayPackets = 1200;
+constexpr size_t kMaxReplayBytes = size_t{64} * 1024 * 1024;
 
 }  // namespace
 
@@ -69,6 +72,9 @@ std::shared_ptr<VideoFrame> Thumbnailer::Get(int64_t position, bool exact) {
   calls_--;
   // Under the lock: once it is released, the destructor may go on.
   condition_.notify_all();
+  if (CancelledLocked(cancels)) {
+    return nullptr;
+  }
   return frame;
 }
 
@@ -98,7 +104,7 @@ std::shared_ptr<VideoFrame> Thumbnailer::GetCounted(int64_t position,
       return nullptr;
     }
   }
-  std::shared_ptr<VideoFrame> frame = DecodeLocked(position, exact);
+  std::shared_ptr<VideoFrame> frame = DecodeLocked(position, exact, cancels);
   return frame ? FinishLocked(frame) : nullptr;
 }
 
@@ -202,9 +208,15 @@ bool Thumbnailer::InitializeNextDecoderLocked() {
 }
 
 std::shared_ptr<VideoFrame> Thumbnailer::DecodeLocked(int64_t position,
-                                                      bool exact) {
+                                                      bool exact,
+                                                      uint64_t cancels) {
   const MediaInfo& info = demuxer_holder_->media_info();
-  const int64_t target = info.start_time + std::max<int64_t>(position, 0);
+  position = std::max<int64_t>(position, 0);
+  if (info.start_time > std::numeric_limits<int64_t>::max() - position) {
+    LOGW("thumbnail position out of range");
+    return nullptr;
+  }
+  const int64_t target = info.start_time + position;
   if (!demuxer_holder_->Seek(target) && !fresh_) {
     LOGW("cannot seek to %.3fs", position / 1e6);
     return nullptr;
@@ -217,13 +229,19 @@ std::shared_ptr<VideoFrame> Thumbnailer::DecodeLocked(int64_t position,
   // The packets since the keyframe, for a decoder that fails before its
   // first frame and the next candidate.
   std::vector<EncodedPacket> packets;
+  size_t replay_bytes = 0;
   int64_t keyframe_pts = kNoTimestamp;
   // Exact: the last frame at or before |target| so far.
   std::shared_ptr<VideoFrame> before;
   std::shared_ptr<VideoFrame> chosen;
+  bool reached_target = false;
+  auto cancelled = [&] {
+    std::lock_guard<std::mutex> state(mutex_);
+    return CancelledLocked(cancels);
+  };
   auto output = [&](std::shared_ptr<VideoFrame> frame) {
     decoder_has_output_ = true;
-    if (chosen) {
+    if (chosen || reached_target) {
       return;
     }
     const int64_t pts = frame->pts;
@@ -233,8 +251,11 @@ std::shared_ptr<VideoFrame> Thumbnailer::DecodeLocked(int64_t position,
           pts >= keyframe_pts) {
         chosen = std::move(frame);
       }
-    } else if (pts != kNoTimestamp && pts > target) {
-      chosen = before ? std::move(before) : std::move(frame);
+    } else if (pts == kNoTimestamp) {
+      before.reset();
+    } else if (pts > target) {
+      reached_target = true;
+      chosen = std::move(before);
     } else {
       before = std::move(frame);
     }
@@ -243,19 +264,27 @@ std::shared_ptr<VideoFrame> Thumbnailer::DecodeLocked(int64_t position,
     bool ok = decoder_->Decode(packet, output);
     while (!ok && !decoder_has_output_) {
       LOGW("%s decoder failed before its first frame", decoder_->name());
-      if (!InitializeNextDecoderLocked()) {
+      if (cancelled() || !InitializeNextDecoderLocked()) {
         return false;
       }
       ok = true;
       for (size_t i = 0; ok && i < packets.size(); ++i) {
+        if (cancelled()) {
+          return false;
+        }
         ok = decoder_->Decode(packets[i], output);
+      }
+      if (ok && packet.end_of_stream) {
+        ok = decoder_->Decode(packet, output);
       }
     }
     return ok;
   };
-  const int max_packets = exact ? kMaxExactPackets : kMaxPackets;
-  int decoded = 0;
-  while (!chosen) {
+  size_t decoded = 0;
+  while (!chosen && !reached_target) {
+    if (cancelled()) {
+      return nullptr;
+    }
     EncodedPacket packet;
     const DemuxerReadResult result = demuxer_holder_->Read(&packet);
     if (result == DemuxerReadResult::kAborted) {
@@ -265,13 +294,22 @@ std::shared_ptr<VideoFrame> Thumbnailer::DecodeLocked(int64_t position,
       LOGW("read failed: %s", demuxer_holder_->error().c_str());
       return nullptr;
     }
-    if (result == DemuxerReadResult::kEndOfStream || decoded >= max_packets) {
+    if (result == DemuxerReadResult::kEndOfStream ||
+        (!exact && decoded >= kMaxKeyframePackets)) {
       // The frames the decoder still holds.
-      if (decoded > 0) {
-        decode(*EncodedPacket::CreateEndOfStream(stream_));
+      if (decoded > 0 && !decode(*EncodedPacket::CreateEndOfStream(stream_))) {
+        LOGW("decoder drain failed");
+        return nullptr;
       }
-      if (!chosen) {
-        chosen = std::move(before);
+      // At EOF the last frame's own duration is the end of its interval.
+      if (before) {
+        const auto elapsed =
+            static_cast<uint64_t>(target) - static_cast<uint64_t>(before->pts);
+        if (elapsed == 0 ||
+            (before->duration > 0 &&
+             elapsed < static_cast<uint64_t>(before->duration))) {
+          chosen = std::move(before);
+        }
       }
       break;
     }
@@ -286,6 +324,12 @@ std::shared_ptr<VideoFrame> Thumbnailer::DecodeLocked(int64_t position,
     }
     ++decoded;
     if (!decoder_has_output_) {
+      if (packets.size() >= kMaxReplayPackets ||
+          packet.size() > kMaxReplayBytes - replay_bytes) {
+        LOGW("decoder produced no frame within the thumbnail replay limit");
+        return nullptr;
+      }
+      replay_bytes += packet.size();
       packets.push_back(packet);
     }
     if (!decode(packet)) {
@@ -299,7 +343,7 @@ std::shared_ptr<VideoFrame> Thumbnailer::DecodeLocked(int64_t position,
   if (!chosen) {
     LOGW("no frame at %.3fs", position / 1e6);
   }
-  return chosen;
+  return cancelled() ? nullptr : std::move(chosen);
 }
 
 std::shared_ptr<VideoFrame> Thumbnailer::FinishLocked(

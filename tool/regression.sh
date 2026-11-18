@@ -240,6 +240,10 @@ gen hevc10.ts -i "$media/hevc10.mp4" -c copy -f mpegts
 # (seen in the wild): decoding must still start at the first sample.
 gen keyframes.mp4 -i "$media/h264_aac.mp4" -t 4 -c:v libx264 -preset veryfast -g 30 \
   -sc_threshold 0 -c:a copy
+# A single GOP longer than 1200 video packets, with reordered frames at EOF.
+# Grayscale keeps the pixel comparison independent of SD color matrices.
+gen thumbnail_exact_long_gop.mp4 -f lavfi -i testsrc2=size=96x64:rate=60 -t 28 \
+  -vf hue=s=0 -c:v libx264 -preset veryfast -g 1800 -sc_threshold 0 -bf 3 -pix_fmt yuv420p
 [ -f "$media/stss_late.mp4" ] ||
   python3 -I "$root/tool/mp4_stss_case.py" "$media/keyframes.mp4" "$media/stss_late.mp4" 3 ||
   { rm -f "$media/stss_late.mp4"; exit 1; }
@@ -974,8 +978,8 @@ frames() {
 # thumbs NAME MEDIA SEC... -- CLI_ARGS: thumbnails of MEDIA at each SEC
 # (--thumbnail, into $build/thumbs/NAME, fitted to 320x320 unless CLI_ARGS
 # say otherwise), which pass if tool/frame_check.py finds each to be
-# MEDIA's frame at its pts and, unless --thumbnail-exact, that pts is the
-# keyframe at or before SEC (ref=FILE: FILE's frames instead).
+# MEDIA's frame at its pts and that pts is the keyframe (or, with
+# --thumbnail-exact, the frame) at or before SEC (ref=FILE: FILE's frames).
 thumbs() {
   local name="$1" file="$2"; shift 2
   local dir="$build/thumbs/$name" secs=() thumbnails=() out status checked problems="" start=$SECONDS
@@ -994,7 +998,33 @@ thumbs() {
   checked="$(grep '^snapshot ' <<<"$out" |
     python3 -I "$root/tool/frame_check.py" "${ref:-$file}" --log - 2>&1)" ||
     problems+=" pixels"
-  if [[ " $* " != *" --thumbnail-exact "* ]]; then
+  if [[ " $* " == *" --thumbnail-exact "* ]]; then
+    # Compare with the frame whose presentation interval contains each request.
+    checked+=$'\n'"$(grep '^snapshot ' <<<"$out" | python3 -I -c '
+import json, subprocess, sys
+file, directory, *seconds = sys.argv[1:]
+probe = json.loads(subprocess.run(
+    ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+     "frame=best_effort_timestamp_time:format=start_time", "-of", "json", file],
+    capture_output=True, check=True).stdout)
+start = round(float(probe["format"].get("start_time", 0)) * 1e6)
+frames = [round(float(f["best_effort_timestamp_time"]) * 1e6)
+          for f in probe["frames"] if "best_effort_timestamp_time" in f]
+snapshots = dict(line.removeprefix("snapshot ").rsplit(" pts=", 1) for line in sys.stdin)
+ok = True
+for sec in seconds:
+    snapshot = snapshots.get(f"{directory}/{sec}.ppm")
+    if snapshot is None:
+        ok = False
+        continue
+    pts = int(snapshot.split()[0])
+    target = start + int(float(sec) * 1e6)
+    want = max((frame for frame in frames if frame <= target), default=None)
+    if want is None or abs(pts - want) > 1:
+        print(f"thumbnail at {sec}s: pts {pts} us, expected {want} us")
+        ok = False
+sys.exit(0 if ok else 1)' "${ref:-$file}" "$dir" "${secs[@]}" 2>&1)" || problems+=" exact-frame"
+  else
     # Each pts against ffprobe's keyframes, positions from the start time.
     checked+=$'\n'"$(grep '^thumbnail at .*: pts=' <<<"$out" | python3 -I -c '
 import json, re, subprocess, sys
@@ -1365,6 +1395,9 @@ par frames frame-bt601-sw "$media/h264_bt601.mp4" 1 -- --no-hw --cpu --seconds 1
 # demuxer kept open across requests.
 par thumbs thumbnail-mp4 "$media/keyframes.mp4" 0.2 2.5 3.9 1.5 --
 par thumbs thumbnail-exact "$media/keyframes.mp4" 1.5 2.5 0.5 -- --thumbnail-exact
+par thumbs thumbnail-exact-long-gop "$media/thumbnail_exact_long_gop.mp4" 25.009 27.990 0.009 -- --thumbnail-exact
+par expect thumbnail-exact-past-end "thumbnail at 28\.001s: none" "<=0 ^snapshot" -- \
+  --thumbnail-exact --thumbnail "28.001:$build/thumbnail-past-end.ppm" "$media/thumbnail_exact_long_gop.mp4"
 par thumbs thumbnail-rotated "$media/rotated.mp4" 1 9 --
 par thumbs thumbnail-mkv "$media/h264_aac.mkv" 1 9 --
 ref="$media/keyframes.mp4" par frames frame-no-ctts "$media/no_ctts.mp4" 1 2.5 -- --seconds 2.6
@@ -2571,7 +2604,7 @@ realtime=1 seq_ expect thumbnail-destroy-stalled "decoder [a-z]" "thumbnail at 1
 serve "${thumb_stall[@]}"
 realtime=1 seq_ expect thumbnail-cancel-stalled "thumbnail at 1\.000s: none" \
   "thumbnail at 1\.000s took 1[0-9]{3} ms" "thumbnailer cancelled in [0-9]{1,3} ms" \
-  "thumbnail at 2\.000s: pts=0\.000s size=1920x1080" -- \
+  "thumbnail at 2\.000s: pts=2\.000s size=1920x1080" -- --thumbnail-exact \
   --thumbnail "1:$build/thumbnail-cancelled.ppm" --thumbnail "2:$build/thumbnail-after-cancel.ppm" \
   --thumbnail-cancel-after 1 "$url"
 wait_cases

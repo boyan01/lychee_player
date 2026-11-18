@@ -8,6 +8,8 @@
   closing or reopening a player.
 * Queued HLS and DASH items now expose their own quality options when
   playback reaches them. Automatic selection respects the bitrate limit.
+* Exact thumbnails can reach positions deep inside a long GOP and return
+  no image when the requested frame is unavailable.
 
 ## 1.0.4
 
