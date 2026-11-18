@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import 'bindings.dart' as native;
 
@@ -18,7 +19,7 @@ import 'bindings.dart' as native;
 /// completes with null, so a seek bar dragged along gets the newest
 /// position soon.
 class LycheeThumbnailer {
-  LycheeThumbnailer._(this._handle);
+  LycheeThumbnailer._(this._load, this._cancel, this._destroy);
 
   /// Thumbnails of [url], whose http(s) requests carry [headers] as for
   /// `LycheePlayer.open`, fitted to [maxSize] in pixels (null: the video's
@@ -27,27 +28,42 @@ class LycheeThumbnailer {
   ///
   /// Throws an [UnsupportedError] with a core older than API 30, and an
   /// [ArgumentError] for a malformed header.
-  factory LycheeThumbnailer.create(String url,
-      {Map<String, String>? headers, ui.Size? maxSize}) {
+  factory LycheeThumbnailer.create(
+    String url, {
+    Map<String, String>? headers,
+    ui.Size? maxSize,
+  }) {
     final create = native.thumbnailerCreate;
     if (create == null) {
       throw UnsupportedError('thumbnails need a lychee core of API 30');
     }
     final lines = native.headerLines(headers);
-    final nativeUrl = url.toNativeUtf8();
-    final handle = native.withOpenOptions(
+    final handle = using((arena) {
+      final nativeUrl = url.toNativeUtf8(allocator: arena);
+      return native.withOpenOptions(
         lines,
         null,
-        (options) => create(nativeUrl.cast(), options,
-            maxSize?.width.round() ?? 0, maxSize?.height.round() ?? 0));
-    malloc.free(nativeUrl);
+        (options) => create(
+          nativeUrl.cast(),
+          options,
+          maxSize?.width.round() ?? 0,
+          maxSize?.height.round() ?? 0,
+        ),
+      );
+    });
     if (handle == nullptr) {
       throw ArgumentError.value(url, 'url', 'rejected');
     }
-    return LycheeThumbnailer._(handle);
+    return LycheeThumbnailer._(
+      (micros, exact) => Isolate.run(_task(handle.address, micros, exact)),
+      () => native.thumbnailerCancel(handle),
+      () => native.thumbnailerDestroy(handle),
+    );
   }
 
-  final Pointer<Void> _handle;
+  final Future<ThumbnailPicture?> Function(int micros, bool exact) _load;
+  final void Function() _cancel;
+  final void Function() _destroy;
   _Request? _waiting;
   bool _running = false;
   bool _disposed = false;
@@ -56,7 +72,8 @@ class LycheeThumbnailer {
   /// or before it, which is quick; with it, the frame showing there. Null
   /// if the input cannot be opened, has no video, cannot seek there or be
   /// decoded (the log says why), after [dispose], or when a newer request
-  /// replaced this one before it started.
+  /// replaced this one before it started. Errors from the worker isolate
+  /// or image creation complete this request's future with the error.
   Future<ui.Image?> thumbnailAt(Duration position, {bool exact = false}) {
     if (_disposed) {
       return Future.value(null);
@@ -64,7 +81,7 @@ class LycheeThumbnailer {
     _waiting?.completer.complete(null);
     final request = _Request(position, exact);
     _waiting = request;
-    _run();
+    unawaited(_run());
     return request.completer.future;
   }
 
@@ -73,18 +90,37 @@ class LycheeThumbnailer {
       return;
     }
     _running = true;
-    while (!_disposed && _waiting != null) {
-      final request = _waiting!;
-      _waiting = null;
-      // The pixels are copied there: nothing native comes back.
-      final picture = await Isolate.run(_task(
-          _handle.address, request.position.inMicroseconds, request.exact));
-      request.completer.complete(
-          picture == null || _disposed ? null : await _image(picture));
-    }
-    _running = false;
-    if (_disposed) {
-      native.thumbnailerDestroy(_handle);
+    try {
+      while (!_disposed && _waiting != null) {
+        final request = _waiting!;
+        _waiting = null;
+        try {
+          // The pixels are copied there: nothing native comes back.
+          final picture = await _load(
+            request.position.inMicroseconds,
+            request.exact,
+          );
+          final image =
+              picture == null || _disposed ? null : await _image(picture);
+          if (_disposed) {
+            image?.dispose();
+            request.completer.complete(null);
+          } else {
+            request.completer.complete(image);
+          }
+        } catch (error, stackTrace) {
+          if (_disposed) {
+            request.completer.complete(null);
+          } else {
+            request.completer.completeError(error, stackTrace);
+          }
+        }
+      }
+    } finally {
+      _running = false;
+      if (_disposed) {
+        _destroy();
+      }
     }
   }
 
@@ -98,9 +134,9 @@ class LycheeThumbnailer {
     _waiting?.completer.complete(null);
     _waiting = null;
     if (_running) {
-      native.thumbnailerCancel(_handle);
+      _cancel();
     } else {
-      native.thumbnailerDestroy(_handle);
+      _destroy();
     }
   }
 }
@@ -113,51 +149,77 @@ class _Request {
   final completer = Completer<ui.Image?>();
 }
 
-typedef _Picture = ({Uint8List pixels, int width, int height, int stride});
+typedef ThumbnailPicture = ({
+  Uint8List pixels,
+  int width,
+  int height,
+  int stride,
+});
+
+@visibleForTesting
+LycheeThumbnailer createThumbnailerForTesting({
+  required Future<ThumbnailPicture?> Function(int micros, bool exact) load,
+  required void Function() cancel,
+  required void Function() destroy,
+}) =>
+    LycheeThumbnailer._(load, cancel, destroy);
 
 // A closure that captures only what it is given, for Isolate.run().
-_Picture? Function() _task(int handle, int micros, bool exact) =>
+ThumbnailPicture? Function() _task(int handle, int micros, bool exact) =>
     () => _get(handle, micros, exact);
 
 // In a background isolate.
-_Picture? _get(int handle, int micros, bool exact) {
+ThumbnailPicture? _get(int handle, int micros, bool exact) {
   final frame = native.thumbnailerGet(
-      Pointer<Void>.fromAddress(handle), micros, exact ? 1 : 0);
+    Pointer<Void>.fromAddress(handle),
+    micros,
+    exact ? 1 : 0,
+  );
   if (frame == nullptr) {
     return null;
   }
-  final stride = calloc<Int32>();
   try {
-    final data = native.frameGetData(frame, stride);
-    if (native.frameGetType(frame) != native.kFrameCpuRgba || data == nullptr) {
-      return null;
-    }
-    final height = native.frameGetHeight(frame);
-    return (
-      pixels: Uint8List.fromList(data.asTypedList(stride.value * height)),
-      width: native.frameGetWidth(frame),
-      height: height,
-      stride: stride.value,
-    );
+    return using((arena) {
+      final stride = arena<Int32>();
+      final data = native.frameGetData(frame, stride);
+      if (native.frameGetType(frame) != native.kFrameCpuRgba ||
+          data == nullptr) {
+        return null;
+      }
+      final height = native.frameGetHeight(frame);
+      return (
+        pixels: Uint8List.fromList(data.asTypedList(stride.value * height)),
+        width: native.frameGetWidth(frame),
+        height: height,
+        stride: stride.value,
+      );
+    });
   } finally {
-    calloc.free(stride);
     native.frameRelease(frame);
   }
 }
 
-Future<ui.Image> _image(_Picture picture) async {
+Future<ui.Image> _image(ThumbnailPicture picture) async {
   final buffer = await ui.ImmutableBuffer.fromUint8List(picture.pixels);
-  final descriptor = ui.ImageDescriptor.raw(buffer,
+  try {
+    final descriptor = ui.ImageDescriptor.raw(
+      buffer,
       width: picture.width,
       height: picture.height,
       rowBytes: picture.stride,
-      pixelFormat: ui.PixelFormat.rgba8888);
-  final codec = await descriptor.instantiateCodec();
-  try {
-    return (await codec.getNextFrame()).image;
+      pixelFormat: ui.PixelFormat.rgba8888,
+    );
+    try {
+      final codec = await descriptor.instantiateCodec();
+      try {
+        return (await codec.getNextFrame()).image;
+      } finally {
+        codec.dispose();
+      }
+    } finally {
+      descriptor.dispose();
+    }
   } finally {
-    codec.dispose();
-    descriptor.dispose();
     buffer.dispose();
   }
 }
