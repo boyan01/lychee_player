@@ -529,10 +529,11 @@ int64_t VideoRenderer::shown_end() const {
   return inherited_shown_end_;
 }
 
-int64_t VideoRenderer::shown_surface_pts() const {
+int64_t VideoRenderer::last_acquired_pts(
+    std::optional<VideoFrameStorage> storage) const {
   std::lock_guard<std::mutex> lock(mutex_);
   if (current_ && !current_stale_ &&
-      current_->storage == VideoFrameStorage::kAndroidSurface) {
+      (!storage || current_->storage == *storage)) {
     return current_->pts;
   }
   return kNoTimestamp;

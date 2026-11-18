@@ -1117,7 +1117,8 @@ void Player::SetVideoSurface(void* surface) {
     if (new_surface && !play_when_ready_ && state_ == PlayerState::kReady &&
         !live_ && !seek_pending_ && !seek_in_progress_ &&
         track_request_.video == kUnchanged) {
-      const int64_t pts = video_renderer_->shown_surface_pts();
+      const int64_t pts = video_renderer_->last_acquired_pts(
+          VideoFrameStorage::kAndroidSurface);
       if (pts != kNoTimestamp) {
         // Its MediaCodec buffer was already released to the old Surface.
         track_request_.redraw_surface_pts = pts;
@@ -2170,11 +2171,10 @@ void Player::Run(const std::string& url) {
     } else if (seek) {
       const bool tracks_changed =
           tracks.tracks_changed() || tracks.rebuild_video;
-      if (tracks_changed) {
-        ChangeTracks(tracks);
-      }
+      const int64_t drm_repaint_pts =
+          tracks_changed ? ChangeTracks(tracks) : kNoTimestamp;
       ProcessSeek(seek_target, loop, resync, resync_loops, tracks_changed,
-                  redraw_surface_pts);
+                  redraw_surface_pts, drm_repaint_pts);
       {
         std::lock_guard<std::mutex> lock(mutex_);
         seeking_ = false;
@@ -2413,7 +2413,8 @@ bool Player::Prepare(const std::string& url, std::string* error) {
   return true;
 }
 
-void Player::ChangeTracks(const TrackRequest& request) {
+int64_t Player::ChangeTracks(const TrackRequest& request) {
+  int64_t repaint_pts = kNoTimestamp;
   int video_stream = request.video;
   if (video_stream == kUnchanged && request.rebuild_video) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -2441,11 +2442,15 @@ void Player::ChangeTracks(const TrackRequest& request) {
     }
     video_queue_.Abort();
     int64_t shown_end = kNoTimestamp;
+    int64_t previous_pts = kNoTimestamp;
     VideoDevice::Type previous_device_type = VideoDevice::Type::kNone;
     if (old) {
       old->Stop();
       shown_end = old->shown_end();
       previous_device_type = old->device().type;
+      if (previous_device_type == VideoDevice::Type::kDrmRenderNode) {
+        previous_pts = old->last_acquired_pts();
+      }
       old.reset();
     }
     video_queue_.Reset(generation_);
@@ -2463,6 +2468,8 @@ void Player::ChangeTracks(const TrackRequest& request) {
           video->device().type == VideoDevice::Type::kNone;
       if (!request.new_item && !dropping_dmabuf) {
         video->ContinueFrom(shown_end);
+      } else if (!request.new_item && request.video == kUnchanged) {
+        repaint_pts = previous_pts;
       }
     }
     std::lock_guard<std::mutex> lock(mutex_);
@@ -2543,6 +2550,7 @@ void Player::ChangeTracks(const TrackRequest& request) {
   if (request.tracks_changed()) {
     PostEventLocked(PlayerEvent::kTracksChanged);
   }
+  return repaint_pts;
 }
 
 void Player::EnableStreamsLocked() {
@@ -2890,12 +2898,14 @@ void Player::ProcessSeek(int64_t target,
                          bool resync,
                          int64_t loops,
                          bool tracks_changed,
-                         int64_t redraw_surface_pts) {
+                         int64_t redraw_surface_pts,
+                         int64_t drm_repaint_pts) {
   const int64_t file_target = media_info_.start_time + target;
   // A resync stays in the pass playing; the read thread offsets its packets
   // by as much. Other seeks go back to the file's timeline.
-  const int64_t media_target = file_target + (resync ? item_base_ : 0) +
-                               (loops ? loops * loop_length_ : 0);
+  const int64_t media_offset =
+      (resync ? item_base_ : 0) + (loops ? loops * loop_length_ : 0);
+  const int64_t media_target = file_target + media_offset;
   LOGI("%s to %lld us", loop ? "loop" : "seek", static_cast<long long>(target));
   // The read starts the audio's preroll early (as Chromium's FFmpegDemuxer
   // does for Opus); the audio renderer cuts what comes before the target.
@@ -2908,13 +2918,23 @@ void Player::ProcessSeek(int64_t target,
             SeekPreroll(media_info_.streams[audio_stream_].audio.codec));
   }
   const bool redraw = redraw_surface_pts != kNoTimestamp;
+  int64_t video_target = media_target;
   if (redraw) {
     // The display can be one frame ahead of or behind the paused clock.
+    video_target = redraw_surface_pts;
+  } else if (resync && target == media_info_.duration &&
+             drm_repaint_pts != kNoTimestamp &&
+             drm_repaint_pts >= media_info_.start_time + media_offset &&
+             drm_repaint_pts < media_target) {
+    // The clock can reach EOF while the caller imports the last frame.
+    // Preroll video from its PTS and leave the clock and audio at EOF.
+    video_target = drm_repaint_pts;
+  }
+  if (video_target != media_target) {
     // Start reading early enough for both the saved video and the audio.
-    const int64_t video_target =
-        file_target + (redraw_surface_pts - media_target);
     demux_target =
-        std::min(demux_target, std::max(media_info_.start_time, video_target));
+        std::min(demux_target,
+                 std::max(media_info_.start_time, video_target - media_offset));
   }
   const bool user_seek = !loop && !resync && !tracks_changed;
   if (!media_info_.seekable) {
@@ -2947,9 +2967,8 @@ void Player::ProcessSeek(int64_t target,
   video_queue_.Flush(generation_);
   audio_queue_.Flush(generation_);
   if (video_renderer_) {
-    video_renderer_->Flush(generation_,
-                           redraw ? redraw_surface_pts : media_target,
-                           resync && !redraw, redraw);
+    video_renderer_->Flush(generation_, video_target, resync && !redraw,
+                           redraw);
   }
   if (audio_renderer_) {
     audio_renderer_->Flush(generation_, media_target);

@@ -10,15 +10,20 @@
 // the real device change and subsequent GL uploads.
 // With LYCHEE_DMABUF_TEST_PAUSE_AT=1 and a one-frame video, the first frame
 // is rejected while paused and must still be uploaded as a CPU frame.
+// Set LYCHEE_DMABUF_TEST_EOF_PTS_US to the last frame's PTS (0 for a
+// one-frame video). Delay the clear until the clock reaches EOF, then
+// pause and check that the same frame is uploaded at the EOF position.
 
 #include <dlfcn.h>
 #include <epoxy/egl.h>
 #include <epoxy/gl.h>
 #include <lychee/lychee.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <thread>
 
 namespace {
 
@@ -31,6 +36,8 @@ thread_local const lychee_frame* rejected_frame = nullptr;
 thread_local const uint8_t* rgba = nullptr;
 thread_local int rejected_width = 0;
 const char* const pause_at = std::getenv("LYCHEE_DMABUF_TEST_PAUSE_AT");
+const char* const eof_pts = std::getenv("LYCHEE_DMABUF_TEST_EOF_PTS_US");
+const int64_t last_pts = eof_pts ? std::atoll(eof_pts) : -1;
 const int reject_at = pause_at ? std::atoi(pause_at) : 9;
 int acquired = 0;
 int rejected = 0;
@@ -38,6 +45,13 @@ int cleared = 0;
 int uploads_after_clear = 0;
 int rejected_resizes = 0;
 bool resumed = false;
+int64_t duration = -1;
+int64_t cleared_position = -1;
+int64_t rejected_pts = -1;
+int64_t acquired_pts = -1;
+int64_t acquired_position = -1;
+int64_t uploaded_pts = -1;
+int64_t uploaded_position = -1;
 
 EGLImageKHR CreateImage(EGLDisplay display,
                         EGLContext context,
@@ -67,6 +81,8 @@ void TexSubImage(GLenum target,
   next(target, level, x, y, width, height, format, type, pixels);
   if (rgba && pixels == rgba && cleared) {
     ++uploads_after_clear;
+    uploaded_pts = acquired_pts;
+    uploaded_position = acquired_position;
     rgba = nullptr;
   }
 }
@@ -95,9 +111,24 @@ __attribute__((destructor)) void CheckResult() {
                "rejected_resizes=%d resumed=%d\n",
                rejected, cleared, uploads_after_clear, rejected_resizes,
                resumed);
+  if (eof_pts) {
+    std::fprintf(stderr,
+                 "dmabuf_fallback_test EOF: duration_us=%lld clear_pos_us=%lld "
+                 "rejected_pts_us=%lld upload_pts_us=%lld upload_pos_us=%lld\n",
+                 static_cast<long long>(duration),
+                 static_cast<long long>(cleared_position),
+                 static_cast<long long>(rejected_pts),
+                 static_cast<long long>(uploaded_pts),
+                 static_cast<long long>(uploaded_position));
+    if (duration <= 0 || cleared_position != duration ||
+        rejected_pts != last_pts || uploaded_pts != rejected_pts ||
+        uploaded_position != duration) {
+      std::_Exit(EXIT_FAILURE);
+    }
+  }
   if (rejected != 1 || cleared != 1 ||
-      uploads_after_clear < (pause_at ? 1 : 10) || rejected_resizes != 0 ||
-      resumed) {
+      uploads_after_clear < (pause_at || eof_pts ? 1 : 10) ||
+      rejected_resizes != 0 || resumed) {
     std::_Exit(EXIT_FAILURE);
   }
 }
@@ -124,17 +155,27 @@ lychee_frame* lychee_player_acquire_frame(lychee_player* player,
   static const auto next = Next<decltype(&lychee_player_acquire_frame)>(
       "lychee_player_acquire_frame");
   lychee_frame* frame = next(player, time_us);
-  if (frame && ++acquired == reject_at && pause_at) {
+  if (frame && ++acquired == reject_at && pause_at && !eof_pts) {
     static const auto pause =
         Next<decltype(&lychee_player_pause)>("lychee_player_pause");
     pause(player);
   }
-  if (pause_at && frame && cleared) {
+  if ((pause_at || eof_pts) && frame && cleared) {
     static const auto is_playing =
         Next<decltype(&lychee_player_is_playing)>("lychee_player_is_playing");
     resumed |= is_playing(player) != 0;
   }
-  rejected_frame = frame && acquired >= reject_at && !cleared ? frame : nullptr;
+  if (eof_pts && frame) {
+    static const auto pts =
+        Next<decltype(&lychee_frame_get_pts)>("lychee_frame_get_pts");
+    static const auto position = Next<decltype(&lychee_player_get_position)>(
+        "lychee_player_get_position");
+    acquired_pts = pts(frame);
+    acquired_position = position(player);
+  }
+  const bool should_reject =
+      eof_pts ? acquired_pts == last_pts : acquired >= reject_at;
+  rejected_frame = frame && should_reject && !cleared ? frame : nullptr;
   rejected_width = 0;
   rgba = nullptr;
   return frame;
@@ -145,6 +186,25 @@ int32_t lychee_player_set_video_device(lychee_player* player,
   static const auto next = Next<decltype(&lychee_player_set_video_device)>(
       "lychee_player_set_video_device");
   if (!device && rejected_frame) {
+    if (eof_pts) {
+      static const auto get_duration =
+          Next<decltype(&lychee_player_get_duration)>(
+              "lychee_player_get_duration");
+      static const auto position = Next<decltype(&lychee_player_get_position)>(
+          "lychee_player_get_position");
+      static const auto pause =
+          Next<decltype(&lychee_player_pause)>("lychee_player_pause");
+      duration = get_duration(player);
+      const auto deadline =
+          std::chrono::steady_clock::now() + std::chrono::seconds(2);
+      while (position(player) < duration &&
+             std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+      pause(player);
+      cleared_position = position(player);
+      rejected_pts = acquired_pts;
+    }
     ++cleared;
   }
   return next(player, device);

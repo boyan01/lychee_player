@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -76,8 +77,10 @@ class VideoRenderer {
              bool exact_start = false);
   // Where the frame on screen ends, or kNoTimestamp if none or stale.
   int64_t shown_end() const;
-  // The displayed (already submitted) MediaCodec frame, if it has a PTS.
-  int64_t shown_surface_pts() const;
+  // PTS of the last frame handed out, optionally requiring |storage|.
+  // Returns kNoTimestamp if it is stale, unavailable, or a different type.
+  int64_t last_acquired_pts(
+      std::optional<VideoFrameStorage> storage = std::nullopt) const;
   // Replays the displayed frame from the queue's consumed packets.
   bool ReplaySurfaceFrame(uint64_t generation, int64_t pts);
   // A renderer replacing another: what it showed, for Flush().

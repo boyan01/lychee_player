@@ -14,7 +14,7 @@
   reporting that an item has ended or switching to the next item.
   Pausing near the end keeps the item paused until playback resumes.
 * Linux: Video switches to CPU frames if Flutter's graphics driver rejects
-  a hardware-decoded frame, including while paused.
+  a hardware-decoded frame, including while paused or at the end of a clip.
 * Linux: Multiple Flutter builds can populate a shared FFmpeg cache
   concurrently without failing during configuration.
 * Switching directly between playback speeds preserves the position and

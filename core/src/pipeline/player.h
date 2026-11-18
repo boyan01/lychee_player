@@ -370,7 +370,9 @@ class Player {
   // Replaces the renderer of each type in |request|; stream -1 disables it.
   // Rebuilds the video renderer of the current stream for |rebuild_video|.
   // The read thread must be parked.
-  void ChangeTracks(const TrackRequest& request);
+  // Returns the last acquired video PTS when clearing a DRM binding on
+  // the same track, or kNoTimestamp.
+  int64_t ChangeTracks(const TrackRequest& request);
   // Live: replaces and flushes renderers for |request| and |change|. The
   // read thread must be parked.
   void ApplyLiveChange(TrackRequest request, const LiveChange& change);
@@ -481,12 +483,15 @@ class Player {
   // pass |loops|.
   // |redraw_surface_pts|: restore the displayed frame on a new Surface
   // without changing where playback resumes.
+  // |drm_repaint_pts|: restore the last frame after removing the DRM
+  // binding at EOF.
   void ProcessSeek(int64_t target,
                    bool loop,
                    bool resync,
                    int64_t loops,
                    bool tracks_changed,
-                   int64_t redraw_surface_pts = kNoTimestamp);
+                   int64_t redraw_surface_pts = kNoTimestamp,
+                   int64_t drm_repaint_pts = kNoTimestamp);
   void FinishSeekLocked();
   // The state machine, once per control thread iteration, around
   // UpdateStateLocked().
