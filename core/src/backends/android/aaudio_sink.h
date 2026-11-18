@@ -4,6 +4,7 @@
 #include <aaudio/AAudio.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <mutex>
 #include <thread>
@@ -27,9 +28,9 @@ class AAudioSink : public AudioSink {
   void Stop() override;
 
  private:
-  bool OpenStreamLocked(std::string* error);
-  void CloseStreamLocked();
-  void Reopen();
+  AAudioStream* OpenStream(std::string* error);
+  void CloseStream(std::unique_lock<std::mutex>& lock);
+  void Run();
   static aaudio_data_callback_result_t OnData(AAudioStream* stream,
                                               void* user_data,
                                               void* audio_data,
@@ -46,11 +47,13 @@ class AAudioSink : public AudioSink {
   std::atomic<int64_t> start_time_{0};
 
   std::mutex mutex_;
+  std::condition_variable condition_;
   AAudioStream* stream_ = nullptr;
   bool started_ = false;
+  bool disconnected_ = false;
   bool closing_ = false;
-  // Reopens the stream: the error callback must not close it itself.
-  std::thread reopen_thread_;
+  // Owns the stream after Open() and retries failures while playing.
+  std::thread thread_;
 };
 
 }  // namespace lychee

@@ -16,6 +16,8 @@ building on top of them.
    AAudio route changes to a USB-C headset (deferred at the user's
    request), and a sub-frame timing check
    when switching AirPods back to the speaker after clock correction.
+   Recovery after a failed reopen or start has been checked with an AAudio
+   substitute on the host and still needs a device check.
    On the Xiaomi 14 (2026-10-29), turning Bluetooth off restored speaker
    output and the user noticed no stutter, but two captured switches
    added 8 and 3 dropped frames; the count then stayed flat. The example's
@@ -106,9 +108,6 @@ building on top of them.
 - **Manual HLS variant selection across audio groups** keeps playing the
   previous group's audio. Switching should select and fetch the target
   group's matching rendition as it does when opening that variant.
-
-- **AAudio route recovery** stops retrying after a failed reopen. Audio
-  should resume on the new route when it becomes available during playback.
 
 - **Android SDK paused frame on a new Surface.** After reattaching a
   SurfaceView to the same paused player, the new Surface should display
