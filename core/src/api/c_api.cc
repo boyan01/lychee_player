@@ -538,33 +538,29 @@ int32_t lychee_player_select_track(lychee_player* player,
 }
 
 int32_t lychee_player_get_variant_count(lychee_player* player) {
-  return static_cast<int32_t>(player->player->variants().size());
+  return player->player->variant_count();
 }
 
 int32_t lychee_player_get_variant_info(lychee_player* player,
                                        int32_t index,
                                        lychee_variant_info* info) {
-  std::vector<lychee::VariantInfo> variants = player->player->variants();
-  if (!info || index < 0 || index >= static_cast<int32_t>(variants.size())) {
+  if (!info) {
     return -1;
   }
-  const lychee::VariantInfo& variant = variants[index];
+  const auto snapshot = player->player->variant_info(index);
+  if (!snapshot) {
+    return -1;
+  }
+  const lychee::VariantInfo& variant = snapshot->variant;
   lychee_variant_info result = {};
   result.bandwidth = variant.bandwidth;
   result.width = variant.width;
   result.height = variant.height;
   result.frame_rate = variant.frame_rate;
   CopyString(variant.codecs, result.codecs, sizeof(result.codecs));
-  result.track = -1;
-  std::vector<lychee::TrackInfo> tracks = player->player->tracks();
-  for (size_t i = 0; i < tracks.size(); ++i) {
-    if (tracks[i].type == MediaType::kVideo &&
-        tracks[i].stream_index == variant.stream) {
-      result.track = static_cast<int32_t>(i);
-    }
-  }
-  result.playing = player->player->playing_variant() == index ? 1 : 0;
-  result.selected = player->player->selected_variant() == index ? 1 : 0;
+  result.track = snapshot->track;
+  result.playing = snapshot->playing ? 1 : 0;
+  result.selected = snapshot->selected ? 1 : 0;
   CopyOut(result, info);
   return 0;
 }

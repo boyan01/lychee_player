@@ -1288,19 +1288,34 @@ void Player::ApplyVariantsLocked() {
   demuxer_->Interrupt();
 }
 
-std::vector<VariantInfo> Player::variants() const {
+int Player::variant_count() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return variants_;
+  return static_cast<int>(variants_.size());
+}
+
+std::optional<VariantSnapshot> Player::variant_info(int index) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (index < 0 || index >= static_cast<int>(variants_.size())) {
+    return std::nullopt;
+  }
+  VariantSnapshot snapshot{variants_[index]};
+  const int stream = snapshot.variant.stream;
+  if (stream >= 0 && stream < static_cast<int>(media_info_.streams.size()) &&
+      media_info_.streams[stream].type == MediaType::kVideo) {
+    const std::vector<int> tracks = TrackStreamsLocked();
+    const auto it = std::find(tracks.begin(), tracks.end(), stream);
+    if (it != tracks.end()) {
+      snapshot.track = static_cast<int>(it - tracks.begin());
+    }
+  }
+  snapshot.playing = PlayingVariantLocked() == index;
+  snapshot.selected = selected_variant_ == index;
+  return snapshot;
 }
 
 int Player::playing_variant() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return PlayingVariantLocked();
-}
-
-int Player::selected_variant() const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  return selected_variant_;
 }
 
 bool Player::LiveWindowLocked(LiveWindow* window) const {

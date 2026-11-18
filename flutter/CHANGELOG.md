@@ -7,7 +7,9 @@
 * Apps can read playback statistics and the playing variant safely while
   closing or reopening a player.
 * Queued HLS and DASH items now expose their own quality options when
-  playback reaches them. Automatic selection respects the bitrate limit.
+  playback reaches them. A query during the transition returns the track
+  and selection for the same item. Automatic selection respects the
+  bitrate limit.
 * Exact thumbnails can reach positions deep inside a long GOP and return
   no image when the requested frame is unavailable.
 * Flutter thumbnail requests report errors without stalling later requests.

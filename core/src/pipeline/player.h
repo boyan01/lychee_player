@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -91,6 +92,14 @@ struct PlayerStats {
   int64_t variant_bandwidth = 0;
   double video_frame_rate = 0;
   int video_color_transfer = 0;
+};
+
+// A single variant of the displayed item, with its public video track index.
+struct VariantSnapshot {
+  VariantInfo variant;
+  int track = -1;
+  bool playing = false;
+  bool selected = false;
 };
 
 // An audio, video or subtitle stream of the open media.
@@ -220,7 +229,7 @@ class Player {
   // Shows every subtitle track |delay| microseconds later (earlier if
   // negative). Kept across Open().
   void SetSubtitleDelay(int64_t delay);
-  // Plays variant |index| of variants() only, or adapts again for -1:
+  // Plays variant |index| only, or adapts again for -1:
   // the demuxer moves the stream playing to an adaptive one from its next
   // segment, and another one is a video track switch. False if there is
   // no such variant or nothing is open.
@@ -258,11 +267,10 @@ class Player {
   void HangVideoDecoderForTesting();
   std::vector<TrackInfo> tracks() const;
   // The variants of an adaptive stream (HLS), from kMediaInfo on.
-  std::vector<VariantInfo> variants() const;
-  // The variant on screen, and the one SelectVariant() keeps to; -1 if
-  // none.
+  int variant_count() const;
+  std::optional<VariantSnapshot> variant_info(int index) const;
+  // The variant on screen, or -1 if none.
   int playing_variant() const;
-  int selected_variant() const;
   // Positions a seek reaches, false if none: [0, duration] for input that
   // can seek, a live window as it moves on.
   bool seekable_range(int64_t* start, int64_t* end) const;
