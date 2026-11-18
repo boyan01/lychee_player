@@ -103,6 +103,15 @@ building on top of them.
 
 ## Known defects
 
+- **Flutter thumbnail disposal before FFI** is fixed when disposing a
+  thumbnailer after dispatch but before its worker enters FFI completes
+  the request with `null` and promptly releases the native handle even
+  if opening the input would block.
+
+- **Android thumbnail cancellation during decode** is fixed when a
+  MediaCodec decoder stalled waiting for an input buffer can be cancelled
+  or destroyed promptly and a new request succeeds after cancellation.
+
 - **HTTP-FLV restart on macOS CI** (2026-11-11, run 42938537741):
   `http-flv-live-restart` with the shipped FFmpeg decoded only 120 of
   240 frames after a request timed out. The cause has not reproduced
