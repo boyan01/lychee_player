@@ -109,7 +109,7 @@ void main() {
       expect(await queued, isNull);
       expect(created, isNotNull);
       expect(released, [same(created)]);
-      expect(cancelled, 1);
+      expect(cancelled, greaterThanOrEqualTo(1));
       expect(destroyed, 1);
       thumbnailer.dispose();
       expect(await thumbnailer.thumbnailAt(Duration.zero), isNull);
@@ -134,6 +134,47 @@ void main() {
     expect(destroyed, 0);
     worker.completeError(StateError('worker failed'));
     expect(await running, isNull);
+    expect(destroyed, 1);
+  });
+
+  test('disposing before FFI cancels a late worker and destroys once',
+      () async {
+    final enterFfi = Completer<void>();
+    final blockedOpen = Completer<ThumbnailPicture?>();
+    var inFfi = false;
+    var cancelled = 0;
+    var destroyed = 0;
+    final thumbnailer = createThumbnailerForTesting(
+      load: (micros, exact) async {
+        await enterFfi.future;
+        inFfi = true;
+        return blockedOpen.future;
+      },
+      cancel: () {
+        cancelled++;
+        // Like native cancel, this cannot interrupt a future Get() call.
+        if (inFfi && !blockedOpen.isCompleted) blockedOpen.complete(null);
+      },
+      destroy: () => destroyed++,
+    );
+    addTearDown(() {
+      if (!blockedOpen.isCompleted) blockedOpen.complete(null);
+      thumbnailer.dispose();
+    });
+
+    final running = thumbnailer.thumbnailAt(Duration.zero);
+    thumbnailer.dispose();
+    expect(cancelled, 1);
+    expect(inFfi, isFalse);
+    expect(destroyed, 0);
+
+    enterFfi.complete();
+    expect(await running.timeout(const Duration(seconds: 1)), isNull);
+    expect(destroyed, 1);
+    final callsAtDestroy = cancelled;
+    thumbnailer.dispose();
+    await Future<void>.delayed(const Duration(milliseconds: 75));
+    expect(cancelled, callsAtDestroy);
     expect(destroyed, 1);
   });
 }

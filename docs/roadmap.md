@@ -126,11 +126,6 @@ building on top of them.
   directory while populating a shared empty cache. Two such builds
   should both finish and resolve a complete set of libraries.
 
-- **Flutter thumbnail disposal before FFI** is fixed when disposing a
-  thumbnailer after dispatch but before its worker enters FFI completes
-  the request with `null` and promptly releases the native handle even
-  if opening the input would block.
-
 - **Android thumbnail cancellation during decode** is fixed when a
   MediaCodec decoder stalled waiting for an input buffer can be cancelled
   or destroyed promptly and a new request succeeds after cancellation.

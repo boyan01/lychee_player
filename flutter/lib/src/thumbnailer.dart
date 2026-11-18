@@ -65,6 +65,7 @@ class LycheeThumbnailer {
   final void Function() _cancel;
   final void Function() _destroy;
   _Request? _waiting;
+  Timer? _cancelRetry;
   bool _running = false;
   bool _disposed = false;
 
@@ -119,6 +120,7 @@ class LycheeThumbnailer {
     } finally {
       _running = false;
       if (_disposed) {
+        _cancelRetry?.cancel();
         _destroy();
       }
     }
@@ -135,6 +137,12 @@ class LycheeThumbnailer {
     _waiting = null;
     if (_running) {
       _cancel();
+      // The isolate may still be on its way to Get(), which only observes
+      // cancels after entering FFI. Keep cancelling until it returns.
+      _cancelRetry = Timer.periodic(
+        const Duration(milliseconds: 25),
+        (_) => _cancel(),
+      );
     } else {
       _destroy();
     }

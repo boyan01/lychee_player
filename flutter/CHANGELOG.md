@@ -27,7 +27,8 @@
 * Exact thumbnails can reach positions deep inside a long GOP and return
   no image when the requested frame is unavailable.
 * Flutter thumbnail requests report errors without stalling later requests.
-  Disposing a `LycheeThumbnailer` completes outstanding requests with `null`.
+  Disposing a `LycheeThumbnailer` completes outstanding requests with `null`,
+  even while a worker is starting or opening a stalled input.
 
 ## 1.0.4
 
