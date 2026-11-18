@@ -197,4 +197,5 @@ jobs:
       - name: Tag and push
         run: |
           git tag "v$VERSION"
-          git push origin "HEAD:$GITHUB_REF_NAME" "v$VERSION"
+          # A rejected branch update must also reject the tag that starts publish.yml.
+          git push --atomic origin "HEAD:$GITHUB_REF_NAME" "v$VERSION"
