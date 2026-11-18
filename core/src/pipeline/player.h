@@ -410,11 +410,9 @@ class Player {
   // opening: it reads the end again once that has opened, unless what it
   // read has less than kNextJoinWait left to play.
   bool ReadAwaitsNextLocked() const;
-  // Whether |next|'s default tracks can follow the ones selected without
-  // a new decoder; their stream ids if so.
+  // Whether the next item's initial tracks can reuse the current decoders.
   bool ContinuesLocked(const MediaInfo& next,
-                       int* video_stream,
-                       int* audio_stream,
+                       int next_video,
                        std::string* why) const;
   // Control thread, with the read thread out of ReadPacket(): the joined
   // item becomes the one playing, once the clock has reached it. Returns
@@ -477,6 +475,9 @@ class Player {
   void EndRebufferLocked();
   // The variant at the clock's position, from |variant_switches_|.
   int PlayingVariantLocked() const;
+  int InitialVideoStreamLocked(const MediaInfo& info,
+                               const std::vector<VariantInfo>& variants) const;
+  void AdoptItemVariantsLocked();
   // Hands |selected_variant_| and |max_bitrate_| to the demuxer, and
   // switches the video track to the stream that plays the variant chosen.
   void ApplyVariantsLocked();
@@ -705,6 +706,8 @@ class Player {
     // The item playing until |at|, whose demuxer |demuxer_| replaced.
     std::unique_ptr<Demuxer> previous;
     MediaInfo info;
+    // Read ahead on this item's timeline, published when the clock crosses.
+    std::deque<std::pair<int64_t, int>> variant_switches;
     int video_stream = -1;
     int audio_stream = -1;
     std::map<int, std::unique_ptr<SubtitleRenderer>> subtitles;

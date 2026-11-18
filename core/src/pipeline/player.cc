@@ -543,8 +543,7 @@ void Player::DropNext(std::unique_ptr<NextItem> item) {
 }
 
 bool Player::ContinuesLocked(const MediaInfo& next,
-                             int* video_stream,
-                             int* audio_stream,
+                             int next_video,
                              std::string* why) const {
   // Seeks before it starts take it back, to read it from its start again.
   if (!next.seekable) {
@@ -552,11 +551,9 @@ bool Player::ContinuesLocked(const MediaInfo& next,
     return false;
   }
   const bool video = video_stream_ >= 0;
-  const bool next_video =
-      next.default_video_stream >= 0 && config_.video_frame_types != 0;
   const bool audio = audio_stream_ >= 0;
   const bool next_audio = next.default_audio_stream >= 0;
-  if (video != next_video || audio != next_audio) {
+  if (video != (next_video >= 0) || audio != next_audio) {
     *why = "other kinds of tracks";
     return false;
   }
@@ -564,7 +561,7 @@ bool Player::ContinuesLocked(const MediaInfo& next,
   // so the next item must need no other configuration.
   if (video) {
     const VideoConfig& a = media_info_.streams[video_stream_].video;
-    const VideoConfig& b = next.streams[next.default_video_stream].video;
+    const VideoConfig& b = next.streams[next_video].video;
     if (a.codec == VideoCodec::kUnknown || a.codec != b.codec ||
         a.codec_name != b.codec_name || a.width != b.width ||
         a.height != b.height || a.rotation != b.rotation ||
@@ -587,8 +584,6 @@ bool Player::ContinuesLocked(const MediaInfo& next,
       return false;
     }
   }
-  *video_stream = video ? next.default_video_stream : -1;
-  *audio_stream = audio ? next.default_audio_stream : -1;
   return true;
 }
 
@@ -614,8 +609,10 @@ bool Player::JoinNext() {
     }
     read_awaits_next_ = false;
     std::string why;
-    if (!ContinuesLocked(next_->demuxer->media_info(), &video_stream,
-                         &audio_stream, &why)) {
+    const MediaInfo& info = next_->demuxer->media_info();
+    video_stream = InitialVideoStreamLocked(info, next_->demuxer->variants());
+    audio_stream = info.default_audio_stream;
+    if (!ContinuesLocked(info, video_stream, &why)) {
       LOGI("the next item %s switches at the end: %s", next_->url.c_str(),
            why.c_str());
       return false;
@@ -663,6 +660,8 @@ bool Player::JoinNext() {
        Millis(join->at - media_info_.start_time - item_base_));
   video_last_pts_ = std::max(video_last_pts_, join->at);
   audio_last_pts_ = std::max(audio_last_pts_, join->at);
+  // The cap may have changed while the read thread owned |item|.
+  item->demuxer->SetVariantPolicy(-1, max_bitrate_);
   join->previous = std::move(demuxer_);
   demuxer_ = std::move(item->demuxer);
   join->item = std::move(item);
@@ -691,13 +690,15 @@ std::unique_ptr<Demuxer> Player::CrossLocked() {
   loop_start_ = loop_length_ = 0;
   loop_end_ = kNoTimestamp;
   PublishLoopMapLocked();
-  variant_switches_.clear();
+  AdoptItemVariantsLocked();
+  variant_switches_ = std::move(join->variant_switches);
+  ApplyVariantsLocked();
   PostEventLocked(PlayerEvent::kItemChanged, 1);
   PostEventLocked(PlayerEvent::kMediaInfo, media_info_.duration == kNoTimestamp
                                                ? -1
                                                : media_info_.duration);
   PostEventLocked(PlayerEvent::kTracksChanged);
-  // The size goes on (ContinuesLocked()), but for the pixel aspect ratio.
+  // A previous frame may have reported a different display size.
   if (video_stream_ >= 0) {
     const VideoConfig& config = media_info_.streams[video_stream_].video;
     if (config.display_width() != video_width_ ||
@@ -784,6 +785,7 @@ void Player::AdvanceToNext() {
   std::unique_ptr<AudioRenderer> old_audio;
   std::map<int, std::unique_ptr<SubtitleRenderer>> old_subtitles;
   std::map<int, ExternalSubtitle> old_external_subtitles;
+  TrackRequest request;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     // Close may have aborted the current demuxer after we took |next_|.
@@ -806,6 +808,9 @@ void Player::AdvanceToNext() {
     previous = std::move(demuxer_);
     demuxer_ = std::move(item->demuxer);
     media_info_ = info;
+    AdoptItemVariantsLocked();
+    demuxer_->SetVariantPolicy(-1, max_bitrate_);
+    request.video = InitialVideoStreamLocked(info, variants_);
     histories_ = std::move(histories);
     old_subtitles = std::move(subtitle_renderers_);
     subtitle_renderers_ = std::move(subtitles);
@@ -841,13 +846,14 @@ void Player::AdvanceToNext() {
       retired_audio_.push_back(std::move(old_audio));
     }
   }
-  TrackRequest request;
-  request.video = info.default_video_stream >= 0 && config_.video_frame_types
-                      ? info.default_video_stream
-                      : -1;
   request.audio = info.default_audio_stream;
   request.new_item = true;
   ChangeTracks(request);
+  {
+    // SetMaxBitrate may have run while the new renderers were opening.
+    std::lock_guard<std::mutex> lock(mutex_);
+    ApplyVariantsLocked();
+  }
   ProcessSeek(0, false, false, 0, true);
 }
 
@@ -1221,9 +1227,35 @@ void Player::SetMaxBitrate(int64_t bitrate) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     max_bitrate_ = std::max<int64_t>(bitrate, 0);
+    if (next_) {
+      next_->demuxer->SetVariantPolicy(-1, max_bitrate_);
+    }
+    if (join_) {
+      demuxer_->SetVariantPolicy(-1, max_bitrate_);
+    }
     ApplyVariantsLocked();
   }
   condition_.notify_all();
+}
+
+int Player::InitialVideoStreamLocked(
+    const MediaInfo& info,
+    const std::vector<VariantInfo>& variants) const {
+  if (!config_.video_frame_types) {
+    return -1;
+  }
+  const int stream = AutoVariantStream(variants, max_bitrate_);
+  return stream >= 0 ? stream : info.default_video_stream;
+}
+
+void Player::AdoptItemVariantsLocked() {
+  variants_ = demuxer_->variants();
+  selected_variant_ = -1;
+  variant_logged_ = -1;
+  variant_switches_.clear();
+  // A track or variant requested for the old item names its stream ids.
+  // Keep any resync needed to resume an interrupted read.
+  track_request_.video = track_request_.audio = kUnchanged;
 }
 
 void Player::ApplyVariantsLocked() {
@@ -1232,7 +1264,10 @@ void Player::ApplyVariantsLocked() {
   }
   const bool pinned = selected_variant_ >= 0 &&
                       selected_variant_ < static_cast<int>(variants_.size());
-  demuxer_->SetVariantPolicy(
+  // A pin belongs to the item on screen. During read-ahead |demuxer_|
+  // already reads the next item, which starts with automatic selection.
+  Demuxer* playing = join_ ? join_->previous.get() : demuxer_.get();
+  playing->SetVariantPolicy(
       pinned && variants_[selected_variant_].adaptive ? selected_variant_ : -1,
       max_bitrate_);
   if (variants_.empty() || live_ || state_ == PlayerState::kError ||
@@ -2200,18 +2235,15 @@ bool Player::Prepare(const std::string& url, std::string* error) {
 
   // An adaptive stream starts on the variant automatic selection plays.
   std::vector<VariantInfo> variants = demuxer_->variants();
-  int video_index = info.default_video_stream;
+  int video_index;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (const int stream = AutoVariantStream(variants, max_bitrate_);
-        stream >= 0) {
-      video_index = stream;
-    }
+    video_index = InitialVideoStreamLocked(info, variants);
   }
   VideoRenderer::Ptr video;
   std::unique_ptr<AudioRenderer> audio;
   std::map<int, std::unique_ptr<SubtitleRenderer>> subtitles;
-  if (video_index >= 0 && config_.video_frame_types != 0) {
+  if (video_index >= 0) {
     video = CreateVideoRenderer(info.streams[video_index]);
     // Set before this thread started, by SwitchSource().
     if (video && continue_shown_ != kNoTimestamp) {
@@ -2506,7 +2538,7 @@ void Player::ReadPacket() {
   // The read thread is the only writer of these while it runs. A joined
   // item has stream ids, subtitles and a timeline of its own until it
   // plays.
-  const Join* join = join_.get();
+  Join* join = join_.get();
   const int video_stream = join ? join->video_stream : video_stream_;
   const int audio_stream = join ? join->audio_stream : audio_stream_;
   const std::map<int, std::unique_ptr<SubtitleRenderer>>& subtitles =
@@ -2568,15 +2600,15 @@ void Player::ReadPacket() {
     if (pts != kNoTimestamp) {
       std::lock_guard<std::mutex> lock(mutex_);
       video_last_pts_ = std::max(video_last_pts_, pts);
-      if (variant >= 0 && (variant_switches_.empty() ||
-                           variant_switches_.back().second != variant)) {
-        variant_switches_.emplace_back(pts, variant);
+      auto& switches = join ? join->variant_switches : variant_switches_;
+      if (variant >= 0 &&
+          (switches.empty() || switches.back().second != variant)) {
+        switches.emplace_back(pts, variant);
       }
       // Keep the one playing.
       const int64_t now = clock_.Now();
-      while (variant_switches_.size() > 1 &&
-             variant_switches_[1].first <= now) {
-        variant_switches_.pop_front();
+      while (switches.size() > 1 && switches[1].first <= now) {
+        switches.pop_front();
       }
     }
   } else if (packet->stream_index == audio_stream) {

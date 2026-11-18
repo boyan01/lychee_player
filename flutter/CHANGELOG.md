@@ -6,6 +6,8 @@
   cleanly, including A-law and μ-law audio with the same sample rate.
 * Apps can read playback statistics and the playing variant safely while
   closing or reopening a player.
+* Queued HLS and DASH items now expose their own quality options when
+  playback reaches them. Automatic selection respects the bitrate limit.
 
 ## 1.0.4
 

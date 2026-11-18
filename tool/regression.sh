@@ -1560,6 +1560,29 @@ if [ "${NO_FFMPEG:-0}" != 1 ] && [ -z "${FFMPEG_ROOT:-}" ]; then
 fi
 par expect next-vbr-opus "event: item changed, gapless 1" "summary: state=ended" -- \
   --next "$media/vbr_opus_96k.mp4" "$media/vbr_opus_48k.mp4"
+if [ "$own_ts" = 1 ]; then
+  par expect next-switch-variants "event: item changed, gapless 0" \
+    "variant 1: 5000000 bit/s" "select variant 0 at 2\..*: accepted" \
+    "summary: state=ended .* variant=800kbit/s" -- \
+    --next "$media/hls/master.m3u8" --variant 0@5 "$media/loop.mp4"
+  # The same video in a media playlist and a master joins without a gap.
+  # Only the item on screen exposes the master and its pre-read variant.
+  par expect next-gapless-variants "event: item changed, gapless 1" \
+    "select variant 0 at 11\..*: rejected" "variant 1: 5000000 bit/s" \
+    "variant playing: 1 \(5000000 bit/s\) at 0\." "select variant 0 at 2\..*: accepted" \
+    "summary: state=ended .* variant=800kbit/s" -- \
+    --next "$media/hls/master.m3u8" --variant 0@11 --variant 0@14 "$media/hls/index.m3u8"
+  par expect next-leave-variants "event: item changed, gapless 1" \
+    "select variant 1 at 11\..*: accepted" "select variant 0 at 2\..*: rejected" \
+    "summary: state=ended .* variant=0kbit/s" -- \
+    --next "$media/hls/index.m3u8" --variant 1@11 --variant 0@14 "$media/hls/master.m3u8"
+  # A pin still belongs to the old master while the next one reads ahead.
+  # The bitrate cap belongs to the player and applies to later segments.
+  par expect next-variant-policy "select variant 1 at 11\..*: accepted" \
+    "max bitrate 1000000 at 11\." "event: item changed, gapless 1" \
+    "variant playing: 0 \(800000 bit/s\)" "summary: state=ended .* variant=800kbit/s" -- \
+    --next "$media/hls/master.m3u8" --variant 1@11 --max-bitrate 1000000@11.5 "$media/hls/master.m3u8"
+fi
 par expect next-seek "taking back the next item" "joins at the end again" "event: seek completed at 0\.500s" \
   "event: item changed, gapless 1" "summary: state=ended position=3\.000s .*backward_jumps=0 " -- \
   --next "$media/loop.mp4" --seek 0.5 --seek-after 1.5 "$media/loop.mp4"
