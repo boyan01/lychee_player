@@ -496,6 +496,10 @@ jobs:
         if: needs.changes.outputs.flutter == 'true'
         working-directory: flutter
         run: flutter analyze
+      - name: Flutter package tests
+        if: needs.changes.outputs.flutter == 'true'
+        working-directory: flutter
+        run: flutter test
       - name: Build example
         if: needs.changes.outputs.flutter == 'true'
         working-directory: flutter/example
