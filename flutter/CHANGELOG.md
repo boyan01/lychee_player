@@ -6,6 +6,8 @@
   running on servers without Range support in FFmpeg-free builds.
 * Static DASH streams with a presentation time offset play through the
   final segment when the timeline repeats to the end of the Period.
+* MP4 playback in FFmpeg-free builds starts on the marked default audio
+  track when the format is recognized, even if another track comes first.
 
 * Queued items that need a different decoder configuration now switch
   cleanly, including A-law and μ-law audio with the same sample rate.

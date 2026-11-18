@@ -142,10 +142,6 @@ building on top of them.
   directory while populating a shared empty cache. Two such builds
   should both finish and resolve a complete set of libraries.
 
-- **Default MP4 audio without FFmpeg** falls back to the first audio
-  track even when only a later track is marked as default. Opening the
-  same file with either backend should select the marked track.
-
 - **Flutter thumbnail disposal before FFI** is fixed when disposing a
   thumbnailer after dispatch but before its worker enters FFI completes
   the request with `null` and promptly releases the native handle even

@@ -1085,9 +1085,22 @@ bool Mp4Demuxer::ParseTrack(const uint8_t* data,
   }
   if (info.type == MediaType::kVideo && media_info_.default_video_stream < 0) {
     media_info_.default_video_stream = info.index;
-  } else if (info.type == MediaType::kAudio &&
-             media_info_.default_audio_stream < 0) {
-    media_info_.default_audio_stream = info.index;
+  } else if (info.type == MediaType::kAudio) {
+    int& chosen = media_info_.default_audio_stream;
+    if (chosen < 0) {
+      chosen = info.index;
+    } else {
+      // Keep unrecognized audio entries listed, but prefer a known codec.
+      auto known = [](AudioCodec codec) {
+        return codec != AudioCodec::kUnknown && codec != AudioCodec::kOther;
+      };
+      const StreamInfo& current = media_info_.streams[chosen];
+      if (known(info.audio.codec) &&
+          (!known(current.audio.codec) ||
+           (info.default_track && !current.default_track))) {
+        chosen = info.index;
+      }
+    }
   } else if (info.type == MediaType::kSubtitle &&
              (info.default_track || info.forced) &&
              media_info_.default_subtitle_stream < 0) {

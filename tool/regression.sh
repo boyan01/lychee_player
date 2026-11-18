@@ -228,6 +228,16 @@ gen separate_video.mp4 -f lavfi -i testsrc2=size=1280x720:rate=30 -t 8 -c:v libx
 gen separate_audio_eng.m4a -f lavfi -i sine=frequency=440:sample_rate=48000 -t 8 -c:a aac \
   -metadata:s:a language=eng -movflags frag_keyframe+empty_moov+default_base_moof -frag_duration 1000000
 gen separate_audio_fre.m4a -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a aac -metadata:s:a language=fre
+# MP4 with the second audio track enabled in tkhd, in both layouts.
+default_audio=(-i "$media/separate_audio_eng.m4a" -i "$media/separate_audio_fre.m4a"
+  -map 0:a -map 1:a -c copy -disposition:a:0 0 -disposition:a:1 default)
+gen mp4_default_audio.mp4 "${default_audio[@]}"
+gen fmp4_default_audio.mp4 "${default_audio[@]}" \
+  -movflags empty_moov+default_base_moof -frag_duration 2000000
+# The native MP4 reader has no E-AC-3 sample entry mapping.
+gen mp4_unsupported_default_audio.mp4 -i "$media/separate_audio_eng.m4a" \
+  -f lavfi -i sine=frequency=880:sample_rate=48000 -t 8 -map 0:a -map 1:a \
+  -c:a:0 copy -c:a:1 eac3 -disposition:a:0 0 -disposition:a:1 default
 # Fewer pictures than VideoToolbox's asynchronous batch: end-of-stream
 # must complete and deliver the partial batch, including a reordered B-frame.
 gen short_video.mp4 -f lavfi -i testsrc2=size=320x180:rate=30 -frames:v 3 \
@@ -1646,6 +1656,17 @@ par expect track-audio "select audio 2 at [0-9.]+s: accepted" "track 2: audio .*
 # goes on.
 par expect track-cancel "select audio 1 at [0-9.]+s: accepted" "track 1: audio .* selected=1" \
   "summary: state=ended position=8\.[0-9]{3}s" -- --select audio:2 --select audio:1 "$media/tracks.mkv"
+for kind in mp4 fmp4; do
+  par expect "$kind-default-audio" "track 1: audio .* lang=fre title= selected=1 default" \
+    "select audio 0 at [0-9.]+s: accepted" "track 0: audio .* lang=eng title= selected=1" \
+    "summary: state=ended position=8\.[0-9]{3}s .*audio_onset=" -- \
+    --volume 1 --select audio:0@2 "$media/${kind}_default_audio.mp4"
+done
+if [ "${NO_FFMPEG:-0}" = 1 ]; then
+  par expect mp4-unsupported-default-audio "track 0: audio .* lang=eng title= selected=1" \
+    "track 1: audio ec-3 .* selected=0 default" "summary: state=ended .*audio_onset=" -- \
+    --volume 1 "$media/mp4_unsupported_default_audio.mp4"
+fi
 # Separate audio inputs (lychee_open_options.audio_urls) are audio
 # tracks after the video file's own: the first plays by default, a track
 # switch moves to the other file, and seeks reach every file.
