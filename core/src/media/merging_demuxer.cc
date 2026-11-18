@@ -76,6 +76,8 @@ bool MergingDemuxer::Open(const std::string& url, std::string* error) {
       }
       StreamInfo stream = info.streams[s];
       stream.index = static_cast<int>(media_info_.streams.size());
+      // The input's group IDs are local to its own MediaInfo.
+      stream.audio_group = -1;
       input.streams[s] = stream.index;
       // Each file marks its own as the default: only the first is.
       stream.default_track = media_info_.default_audio_stream < 0;

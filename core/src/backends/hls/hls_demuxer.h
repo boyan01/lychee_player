@@ -27,8 +27,9 @@ class SegmentStream;
 // HTTP Live Streaming (RFC 8216) with MPEG-TS or fragmented MP4
 // (EXT-X-MAP) segments, for builds without FFmpeg. A master playlist
 // plays one variant (PickHlsVariant) and lists the others it can decode
-// as video streams, described by CODECS and RESOLUTION and read only once
-// selected (their audio is the first's). While the first one's stream is
+// as video streams. Other audio groups are probed for their track formats
+// at open and read alongside the matching variant once selected.
+// While the first variant's stream is
 // selected, it moves between the variants of its codec and audio group
 // by the bandwidth its segments arrived at (TS, or fMP4 with each map
 // supplying the in-band parameter sets at a keyframe), or keeps to the
@@ -116,14 +117,16 @@ class HlsDemuxer : public Demuxer {
   // audio rendition's.
   struct Rendition {
     std::string url;
-    // Loaded: the first variant and audio renditions at the open, other
-    // variants once selected. Until then a position to start from.
+    // The first variant and probed renditions load their playlist at
+    // open. Others load when selected, at the saved position.
     bool loaded = false;
     int64_t resume = kNoTimestamp;
     // A variant's own video stream, or -1 (audio renditions), and the
     // variant it reads (variants_; -1 without a master playlist).
     int video = -1;
     int variant = -1;
+    // Has its own muxed audio streams, distinct from the first variant's.
+    bool own_audio = false;
     std::vector<Segment> segments;
     size_t current = 0;
     bool live = false;
@@ -198,14 +201,30 @@ class HlsDemuxer : public Demuxer {
                     HlsPlaylist* playlist,
                     std::string* final_url,
                     std::string* error);
-  // Takes |playlist| into |r| and opens its first segment (live: three
-  // target durations from the end), which adds |r|'s streams.
-  bool Start(Rendition* r, const HlsPlaylist& playlist, std::string* error);
+  // Takes |playlist| into |r| and discovers its streams at the start
+  // (live: three target durations from the end). In probe-only mode,
+  // the connection is closed and positions are set when first played.
+  bool Start(Rendition* r,
+             const HlsPlaylist& playlist,
+             std::string* error,
+             bool probe_only = false);
   // Takes the playlist into |r| (live: where segments_[0] reads), and
   // goes to r->resume.
   void Load(Rendition* r, const HlsPlaylist& playlist);
+  // Registers a group's audio tracks, probing the decoder configuration
+  // before Open() publishes the stream list.
+  bool AddAudioGroup(const std::string& group,
+                     const std::vector<HlsRendition>& audio,
+                     const Rendition* muxed,
+                     int* group_index,
+                     std::string* error);
   // Lists the variants other than |pick| as video streams.
-  void AddVariants(const std::vector<HlsVariant>& variants, int pick);
+  bool AddVariants(const std::vector<HlsVariant>& variants,
+                   int pick,
+                   const std::vector<HlsRendition>& audio,
+                   int initial_group,
+                   std::string* error);
+  int VariantIndex(const HlsVariant& variant) const;
   // Appends the segments after the last one known. True if there were.
   bool Merge(Rendition* r, const HlsPlaylist& playlist);
   // Live: the last segment that starts three target durations or more
@@ -217,7 +236,7 @@ class HlsDemuxer : public Demuxer {
   // is placed in their current windows.
   void ReloadForSeek();
   // Opens r->segments[r->current]; the first one adds r's streams.
-  bool OpenSegment(Rendition* r, std::string* error);
+  bool OpenSegment(Rendition* r, std::string* error, bool probe_only = false);
   // OpenSegment() for a subtitle rendition.
   bool OpenWebVtt(Rendition* r, std::string* error);
   // Also drops r->prefetch unless |keep_prefetch|.
@@ -300,9 +319,9 @@ class HlsDemuxer : public Demuxer {
   size_t rung_ = 0;
   int64_t estimate_ = 0;
   // The master playlist's variants this build plays, in its order, and
-  // their URLs.
+  // their (URL, audio group) keys. Two variants can share the video URL.
   std::vector<VariantInfo> variants_;
-  std::vector<std::string> variant_urls_;
+  std::vector<std::pair<std::string, std::string>> variant_keys_;
   // SetVariantPolicy().
   std::atomic<int> pinned_{-1};
   std::atomic<int64_t> max_bandwidth_{0};

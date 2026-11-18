@@ -105,9 +105,10 @@ building on top of them.
 
 ## Known defects
 
-- **Manual HLS variant selection across audio groups** keeps playing the
-  previous group's audio. Switching should select and fetch the target
-  group's matching rendition as it does when opening that variant.
+- **Slow probes of optional HLS audio groups delay startup.** The
+  initial variant waits for the other groups' track formats before
+  publishing the track list. A stalled optional rendition should not
+  delay playback of the initial group.
 
 - **Android paused Surface frame after input eviction.** A replacement
   Surface can redraw the frame while its source remains seekable at that PTS

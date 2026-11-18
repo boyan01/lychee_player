@@ -347,6 +347,12 @@ class Player {
     // The streams belong to a new item: its video starts afresh rather than
     // after the frame on screen.
     bool new_item = false;
+    int VideoOr(int current) const {
+      return video == kUnchanged ? current : video;
+    }
+    int AudioOr(int current) const {
+      return audio == kUnchanged ? current : audio;
+    }
     bool tracks_changed() const {
       return video != kUnchanged || audio != kUnchanged;
     }
@@ -501,6 +507,10 @@ class Player {
   // Hands |selected_variant_| and |max_bitrate_| to the demuxer, and
   // switches the video track to the stream that plays the variant chosen.
   void ApplyVariantsLocked();
+  // Resolves the preferred audio track for the video group. All three
+  // track arguments are stream indices, with -1 for an off selection.
+  int AudioForVideoLocked(int video, int preferred, int current) const;
+  void RequestTracksLocked(int video, int audio);
   // The demuxer's live window, moved on to now; false if it has none.
   bool LiveWindowLocked(LiveWindow* window) const;
   void UpdateVideoSizeLocked();
@@ -687,6 +697,8 @@ class Player {
   mutable std::mutex loop_mutex_;
   LoopMap loop_map_;
   TrackRequest track_request_;
+  // The control thread's targets while renderers are being replaced.
+  TrackRequest changing_tracks_;
   LiveChange live_change_;
   // The input stopped early (network failure, truncated file). Reported
   // once the data read so far has played, unless a seek comes first.
@@ -762,6 +774,8 @@ class Player {
   // The demuxer's variants(), SelectVariant() and SetMaxBitrate().
   std::vector<VariantInfo> variants_;
   int selected_variant_ = -1;
+  // An explicit audio selection, kept even when a group lacks a match.
+  int audio_preference_ = kUnchanged;
   int64_t max_bitrate_ = 0;
   int64_t video_last_pts_ = kNoTimestamp;
   // Display size last reported by kVideoSizeChanged, and the rotation of

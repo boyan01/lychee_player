@@ -125,6 +125,9 @@ struct StreamInfo {
   // Bits per second the container declares or its sizes imply; 0 if
   // unknown.
   int64_t bitrate = 0;
+  // On a rendition-based input, the audio group this audio belongs to
+  // or this video uses. -1 for independent tracks.
+  int audio_group = -1;
   VideoConfig video;
   AudioConfig audio;
   SubtitleConfig subtitle;
@@ -147,6 +150,8 @@ struct MediaInfo {
   // Indices into |streams| the demuxer suggests, or -1.
   int default_video_stream = -1;
   int default_audio_stream = -1;
+  // A default stream per audio group, or -1 for a group without audio.
+  std::vector<int> audio_group_defaults;
   // Only a stream the container marks as default (or forced).
   int default_subtitle_stream = -1;
   // Container tags (title, artist, album, ...), keys lowercase.

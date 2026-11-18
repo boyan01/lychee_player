@@ -297,12 +297,14 @@ void Player::StopPipeline() {
     loop_end_ = kNoTimestamp;
     PublishLoopMapLocked();
     track_request_ = TrackRequest();
+    changing_tracks_ = TrackRequest();
     input_error_.clear();
     error_.clear();
     error_code_ = ErrorCode();
     media_info_ = MediaInfo();
     variants_.clear();
     selected_variant_ = -1;
+    audio_preference_ = kUnchanged;
     video_last_pts_ = audio_last_pts_ = kNoTimestamp;
     video_width_ = video_height_ = video_rotation_ = 0;
     switch_seek_ = false;
@@ -1193,31 +1195,23 @@ bool Player::SelectTrack(MediaType type, int track) {
       }
       return true;
     }
-    int* requested = type == MediaType::kVideo ? &track_request_.video
-                                               : &track_request_.audio;
-    const int current =
-        type == MediaType::kVideo ? video_stream_ : audio_stream_;
-    // Keep something to play.
-    int video = track_request_.video != kUnchanged ? track_request_.video
-                                                    : video_stream_;
-    int audio = track_request_.audio != kUnchanged ? track_request_.audio
-                                                    : audio_stream_;
+    int video = track_request_.VideoOr(changing_tracks_.VideoOr(video_stream_));
+    int audio = track_request_.AudioOr(changing_tracks_.AudioOr(audio_stream_));
     if (type == MediaType::kVideo) {
+      if (stream >= 0 && stream != video) {
+        audio = AudioForVideoLocked(stream, audio_preference_, audio);
+      }
       video = stream;
-    } else if (type == MediaType::kAudio) {
-      audio = stream;
+    } else {
+      audio = AudioForVideoLocked(video, stream, audio);
     }
     if (video < 0 && audio < 0) {
       return false;
     }
-    if (*requested == kUnchanged && stream == current) {
-      return true;
+    if (type == MediaType::kAudio) {
+      audio_preference_ = stream;
     }
-    *requested = stream == current ? kUnchanged : stream;
-    // Even when this cancels the request: it interrupted the read, which
-    // only the control thread's seek resumes.
-    track_request_.resync = true;
-    demuxer_->Interrupt();
+    RequestTracksLocked(video, audio);
   }
   condition_.notify_all();
   return true;
@@ -1238,6 +1232,55 @@ bool Player::SelectVariant(int index) {
   }
   condition_.notify_all();
   return true;
+}
+
+int Player::AudioForVideoLocked(int video, int preferred, int current) const {
+  const auto& streams = media_info_.streams;
+  const int group = video >= 0 ? streams[video].audio_group : -1;
+  if (group < 0 || preferred == -1) {
+    return preferred == kUnchanged ? current : preferred;
+  }
+  const int fallback = media_info_.audio_group_defaults[group];
+  if (preferred == kUnchanged) {
+    return current >= 0 && streams[current].audio_group == group ? current
+                                                                 : fallback;
+  }
+  const StreamInfo& wanted = streams[preferred];
+  if (wanted.audio_group < 0 || wanted.audio_group == group) {
+    return preferred;
+  }
+  int same_language = -1;
+  for (const StreamInfo& candidate : streams) {
+    if (candidate.type != MediaType::kAudio || candidate.audio_group != group ||
+        candidate.role != wanted.role) {
+      continue;
+    }
+    if (!wanted.title.empty() && candidate.title == wanted.title) {
+      return candidate.index;
+    }
+    if (same_language < 0 && !wanted.language.empty() &&
+        candidate.language == wanted.language) {
+      same_language = candidate.index;
+    }
+  }
+  return same_language >= 0 ? same_language : fallback;
+}
+
+void Player::RequestTracksLocked(int video, int audio) {
+  const int want_video =
+      video == changing_tracks_.VideoOr(video_stream_) ? kUnchanged : video;
+  const int want_audio =
+      audio == changing_tracks_.AudioOr(audio_stream_) ? kUnchanged : audio;
+  if (want_video == track_request_.video &&
+      want_audio == track_request_.audio) {
+    return;
+  }
+  track_request_.video = want_video;
+  track_request_.audio = want_audio;
+  // Even if a request was canceled, only a seek resumes the read it
+  // interrupted.
+  track_request_.resync = true;
+  demuxer_->Interrupt();
 }
 
 void Player::SetMaxBitrate(int64_t bitrate) {
@@ -1268,6 +1311,7 @@ int Player::InitialVideoStreamLocked(
 void Player::AdoptItemVariantsLocked() {
   variants_ = demuxer_->variants();
   selected_variant_ = -1;
+  audio_preference_ = kUnchanged;
   variant_logged_ = -1;
   variant_switches_.clear();
   // A track or variant requested for the old item names its stream ids.
@@ -1294,15 +1338,16 @@ void Player::ApplyVariantsLocked() {
   const int want = pinned ? variants_[selected_variant_].stream
                           : AutoVariantStream(variants_, max_bitrate_);
   const int current =
-      track_request_.video != kUnchanged ? track_request_.video : video_stream_;
+      track_request_.VideoOr(changing_tracks_.VideoOr(video_stream_));
   // Video turned off stays off.
   if (want < 0 || current < 0 || want == current) {
     return;
   }
   LOGI("variant: video track -> stream %d", want);
-  track_request_.video = want == video_stream_ ? kUnchanged : want;
-  track_request_.resync = true;
-  demuxer_->Interrupt();
+  const int audio =
+      track_request_.AudioOr(changing_tracks_.AudioOr(audio_stream_));
+  RequestTracksLocked(want,
+                      AudioForVideoLocked(want, audio_preference_, audio));
 }
 
 int Player::variant_count() const {
@@ -2054,6 +2099,10 @@ void Player::Run(const std::string& url) {
         advance_pending_ = false;
         tracks = track_request_;
         track_request_ = TrackRequest();
+        changing_tracks_ = tracks;
+        if (tracks.rebuild_video) {
+          changing_tracks_.video = tracks.VideoOr(video_stream_);
+        }
         if (seek_pending_) {
           seek_pending_ = false;
           loop = loop_seek_pending_;
@@ -2489,6 +2538,7 @@ void Player::ChangeTracks(const TrackRequest& request) {
     }
   }
   std::lock_guard<std::mutex> lock(mutex_);
+  changing_tracks_ = TrackRequest();
   EnableStreamsLocked();
   // A live input may have no tracks for a while.
   if (!video_renderer_ && !audio_renderer_ && !live_) {
@@ -2509,14 +2559,19 @@ void Player::EnableStreamsLocked() {
   for (const auto& [stream, renderer] : subtitle_renderers_) {
     streams.push_back(stream);
   }
-  // HLS fetches each variant on its own: reading the other video streams
-  // there would download every variant.
+  // Keep history for the audio choices of the group playing, and fetch
+  // HLS video for the chosen variant only.
   const bool hls = media_info_.format_name == "hls";
+  const int group_stream = video_stream_ >= 0 ? video_stream_ : audio_stream_;
+  const int audio_group =
+      group_stream >= 0 ? media_info_.streams[group_stream].audio_group : -1;
   for (auto& [stream, history] : histories_) {
     if (stream == video_stream_ || stream == audio_stream_) {
       continue;
     }
-    if (hls && media_info_.streams[stream].type == MediaType::kVideo) {
+    const StreamInfo& info = media_info_.streams[stream];
+    if ((hls && info.type == MediaType::kVideo) ||
+        (info.audio_group >= 0 && info.audio_group != audio_group)) {
       // Read again later, it would have a gap.
       history.Clear();
     } else {

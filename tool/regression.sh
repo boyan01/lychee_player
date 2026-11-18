@@ -562,6 +562,47 @@ fi
 # The same with an audio description in English (CHARACTERISTICS).
 [ -f "$media/hls_alt/roles.m3u8" ] || sed 's|NAME="English",|&CHARACTERISTICS="public.accessibility.describes-video",|' \
   "$media/hls_alt/master.m3u8" >"$media/hls_alt/roles.m3u8"
+# Two video-only variants with the same choices at different channel counts.
+if [ ! -f "$media/hls_groups/master.m3u8" ]; then
+  mkdir -p "$media/hls_groups"
+  group_hls=(-f hls -hls_time 2 -hls_playlist_type vod -hls_segment_type fmp4)
+  for group in hi lo; do
+    size=192x108 channels=2
+    [ "$group" != lo ] || { size=160x90; channels=1; }
+    dir="$media/hls_groups/$group"
+    mkdir -p "$dir"
+    ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=$size:rate=24" \
+      -t 10 -c:v libx264 -preset veryfast -g 48 -sc_threshold 0 -bf 0 "${group_hls[@]}" \
+      -hls_fmp4_init_filename video-init.mp4 "$dir/video.m3u8" || exit 1
+    for lang in en fr; do
+      tone=440
+      [ "$lang" != fr ] || tone=880
+      [ "$group" != lo ] || tone=$((tone * 3 / 4))
+      ffmpeg -hide_banner -loglevel error -y -f lavfi -i "sine=frequency=$tone:sample_rate=48000" \
+        -t 10 -ac "$channels" -c:a aac "${group_hls[@]}" \
+        -hls_fmp4_init_filename "$lang-init.mp4" "$dir/$lang.m3u8" || exit 1
+    done
+  done
+  printf '%s\n' '#EXTM3U' \
+    '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="hi",NAME="English",LANGUAGE="en",DEFAULT=YES,AUTOSELECT=YES,CHANNELS="2",URI="hi/en.m3u8"' \
+    '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="hi",NAME="French",LANGUAGE="fr",AUTOSELECT=YES,CHANNELS="2",URI="hi/fr.m3u8"' \
+    '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="lo",NAME="English",LANGUAGE="en",DEFAULT=YES,AUTOSELECT=YES,CHANNELS="1",URI="lo/en.m3u8"' \
+    '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="lo",NAME="French",LANGUAGE="fr",AUTOSELECT=YES,CHANNELS="1",URI="lo/fr.m3u8"' \
+    '#EXT-X-STREAM-INF:BANDWIDTH=500000,RESOLUTION=192x108,CODECS="avc1.64000a,mp4a.40.2",AUDIO="hi"' hi/video.m3u8 \
+    '#EXT-X-STREAM-INF:BANDWIDTH=250000,RESOLUTION=160x90,CODECS="avc1.64000a,mp4a.40.2",AUDIO="lo"' lo/video.m3u8 \
+    >"$media/hls_groups/master.m3u8"
+fi
+[ -f "$media/hls_groups/shared-video.m3u8" ] ||
+  sed -e 's/160x90/192x108/' -e 's|^lo/video.m3u8$|hi/video.m3u8|' \
+    "$media/hls_groups/master.m3u8" >"$media/hls_groups/shared-video.m3u8"
+if [ ! -f "$media/hls_groups/muxed.m3u8" ]; then
+  dir="$media/hls_groups/lo"
+  ffmpeg -hide_banner -loglevel error -y -i "$dir/video.m3u8" -i "$dir/en.m3u8" \
+    -map 0:v -map 1:a -c copy -f hls -hls_time 2 -hls_playlist_type vod \
+    -hls_segment_type fmp4 -hls_fmp4_init_filename muxed-init.mp4 "$dir/muxed.m3u8" || exit 1
+  sed -e 's|,URI="lo/en.m3u8"||' -e 's|^lo/video.m3u8$|lo/muxed.m3u8|' \
+    "$media/hls_groups/master.m3u8" >"$media/hls_groups/muxed.m3u8"
+fi
 # Matroska: the MP4 remuxed, with and without Cues, with clusters of
 # unknown size, damaged (tool/mkv_cases.py); FLAC in it, and MP3 in MP4.
 gen h264_aac.mkv -i "$media/h264_aac.mp4" -c copy
@@ -2557,6 +2598,58 @@ fi
 # so each switch may land on any 2 s segment boundary after its
 # selection.
 if [ "$own_ts" = 1 ]; then
+  groups_url="http://127.0.0.1:$port/hls_groups/master.m3u8"
+  seq_ expect http-hls-variant-audio-groups \
+    "variant playing: 1 \(250000 bit/s\) at 1\." "variant playing: 0 \(500000 bit/s\) at 4\." \
+    "audio aac 48000 Hz 1 ch lang=en title=English selected=1" \
+    "summary: state=ended position=10\.000s .*audio_output=48000Hz/2ch .*variant=500kbit/s" -- \
+    --variant 1@1 --variant 0@4 "$groups_url"
+  seq_ expect http-hls-variant-audio-preference \
+    "audio aac 48000 Hz 2 ch lang=fr title=French selected=1" \
+    "audio aac 48000 Hz 1 ch lang=fr title=French selected=1" \
+    "audio aac 48000 Hz 1 ch lang=en title=English selected=1" \
+    'select audio 3 at [0-9.]+s: accepted' \
+    "audio track -> stream 1$" \
+    "summary: state=ended position=10\.000s .*audio_output=48000Hz/2ch .*variant=500kbit/s" -- \
+    --select audio:2@0.5 --variant 1@2 --select audio:3@4 --variant 0@6 "$groups_url"
+  seq_ expect http-hls-variant-audio-shared-video \
+    "variant playing: 1 \(250000 bit/s\) at 1\." \
+    "audio aac 48000 Hz 1 ch lang=en title=English selected=1" \
+    "summary: state=ended position=10\.000s .*variant=250kbit/s" -- \
+    --variant 1@1 "http://127.0.0.1:$port/hls_groups/shared-video.m3u8"
+  seq_ expect http-hls-variant-audio-concurrent \
+    "audio aac 48000 Hz 1 ch lang=fr title=French selected=1" \
+    "summary: state=ended position=10\.000s .*variant=250kbit/s" -- \
+    --variant 1@1 --select audio:2@1 "$groups_url"
+  seq_ expect http-hls-variant-audio-muxed \
+    "audio aac 48000 Hz 1 ch lang=en title=English selected=1" \
+    "summary: state=ended position=10\.000s decoder=none .*audio_output=[1-9][0-9]*Hz/[1-9][0-9]*ch" -- \
+    --variant 1@1 --select video:-1@4 "http://127.0.0.1:$port/hls_groups/muxed.m3u8"
+  seq_ expect http-hls-variant-audio-off \
+    "variant playing: 1 \(250000 bit/s\)" "<=1 ^track [0-9]+: audio .*selected=1" \
+    "summary: state=ended position=10\.000s .*audio_output=0Hz/0ch .*variant=250kbit/s" -- \
+    --select audio:-1@0 --variant 1@2 "$groups_url"
+  if selected http-hls-variant-audio-probe; then
+    # The unselected fMP4 group can be described even if its media
+    # fragments are unavailable. Only the initialization maps are needed.
+    serve --status /hls_groups/lo/en0.m4s 404 --status /hls_groups/lo/fr0.m4s 404
+    seq_ expect http-hls-variant-audio-probe \
+      "audio aac 48000 Hz 1 ch lang=en title=English selected=0" \
+      "audio aac 48000 Hz 1 ch lang=fr title=French selected=0" \
+      "<=0 variant playing: 1" "summary: state=ended position=10\.000s" -- \
+      "http://127.0.0.1:$port/hls_groups/master.m3u8"
+    serve
+  fi
+  if selected http-hls-variant-audio-fallback; then
+    serve --status /hls_groups/lo/fr.m3u8 404
+    seq_ expect http-hls-variant-audio-fallback \
+      "audio aac 48000 Hz 1 ch lang=en title=English selected=1" \
+      "variant playing: 0 \(500000 bit/s\) at 6\." \
+      "summary: state=ended position=10\.000s .*audio_output=48000Hz/2ch .*variant=500kbit/s" -- \
+      --select audio:2@0.5 --variant 1@2 --variant 0@6 \
+      "http://127.0.0.1:$port/hls_groups/master.m3u8"
+    serve
+  fi
   seq_ expect http-hls-variant-select "variant 0: 800000 bit/s 640x360 fps=0\.000 codecs=avc1\.64001e,mp4a\.40\.2 track=0" \
     "variant 1: 5000000 bit/s 1920x1080 .* track=0" "<=0 variant 2:" "variant playing: 1 \(5000000 bit/s\) at 0\." \
     "select variant 0 at 1\.[0-9]{3}s: accepted" "variant playing: 0 \(800000 bit/s\) at [2-7]\." "video size 640x360" \

@@ -6,6 +6,8 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <set>
+#include <string_view>
 #include <utility>
 
 #include "base/log.h"
@@ -318,9 +320,7 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
          variant.width, variant.height, variant.codecs.c_str());
     main->url = variant.url;
     for (const HlsRendition& rendition : playlist.renditions) {
-      if (rendition.type == HlsRendition::Type::kAudio &&
-          !variant.audio.empty() && rendition.group == variant.audio &&
-          !rendition.url.empty() && audio.size() < kMaxAudioRenditions) {
+      if (rendition.type == HlsRendition::Type::kAudio) {
         audio.push_back(rendition);
       }
       if (rendition.type == HlsRendition::Type::kSubtitles &&
@@ -342,47 +342,14 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
   if (!Start(renditions_[0].get(), playlist, error)) {
     return false;
   }
-  const bool had_audio = media_info_.default_audio_stream >= 0;
-  int default_audio = -1;
-  bool default_is_tagged = false;
-  for (const HlsRendition& info : audio) {
-    auto r = std::make_unique<Rendition>();
-    r->url = info.url;
-    r->only = MediaType::kAudio;
-    HlsPlaylist list;
-    std::string why;
-    if (!LoadPlaylist(nullptr, r->url, &list, &final_url, &why) ||
-        list.master || !Start(r.get(), list, &why)) {
-      CloseSegment(r.get());
-      if (Failed()) {
-        *error = "aborted";
-        return false;
-      }
-      LOGW("audio rendition \"%s\": %s", info.name.c_str(),
-           list.master ? "a master playlist" : why.c_str());
-      continue;
+  int initial_audio_group = -1;
+  if (pick >= 0) {
+    if (!AddAudioGroup(variants[pick].audio, audio, renditions_[0].get(),
+                       &initial_audio_group, error)) {
+      return false;
     }
-    LOGI("audio rendition \"%s\" (%s)%s", info.name.c_str(),
-         info.language.c_str(), info.is_default ? ", default" : "");
-    for (int index : r->streams) {
-      StreamInfo& stream = media_info_.streams[index];
-      if (!info.language.empty()) {
-        stream.language = info.language;
-      }
-      stream.title = info.name;
-      stream.default_track = info.is_default;
-      stream.role = info.role;
-      // The DEFAULT=YES one, else the first if the variant has none.
-      if (info.is_default ? !default_is_tagged
-                          : default_audio < 0 && !had_audio) {
-        default_audio = index;
-        default_is_tagged = info.is_default;
-      }
-    }
-    renditions_.push_back(std::move(r));
-  }
-  if (default_audio >= 0) {
-    media_info_.default_audio_stream = default_audio;
+    media_info_.default_audio_stream =
+        media_info_.audio_group_defaults[initial_audio_group];
   }
   for (const HlsRendition& info : subtitles) {
     auto r = std::make_unique<Rendition>();
@@ -419,8 +386,9 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
     }
     renditions_.push_back(std::move(r));
   }
-  if (pick >= 0) {
-    AddVariants(variants, pick);
+  if (pick >= 0 &&
+      !AddVariants(variants, pick, audio, initial_audio_group, error)) {
+    return false;
   }
   const Rendition& variant = *renditions_[0];
   media_info_.format_name = format_name_;
@@ -448,14 +416,15 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
 
 bool HlsDemuxer::Start(Rendition* r,
                        const HlsPlaylist& playlist,
-                       std::string* error) {
+                       std::string* error,
+                       bool probe_only) {
   r->live = !playlist.ended;
   r->ended = playlist.ended;
   r->event = playlist.event;
   r->target_duration = std::max(playlist.target_duration, kMicrosPerSecond);
   Merge(r, playlist);
   r->last_reload = Now();
-  if (r->segments.empty() && !r->live) {
+  if (r->segments.empty() && (!r->live || probe_only)) {
     *error = "HLS playlist without segments";
     return false;
   }
@@ -469,9 +438,12 @@ bool HlsDemuxer::Start(Rendition* r,
       return false;
     }
   }
-  if (!OpenSegment(r, error)) {
+  if (!OpenSegment(r, error, probe_only)) {
     CloseSegment(r);
     return false;
+  }
+  if (probe_only) {
+    CloseSegment(r);
   }
   r->loaded = true;
   for (int index : r->streams) {
@@ -530,18 +502,107 @@ void HlsDemuxer::Load(Rendition* r, const HlsPlaylist& playlist) {
   }
 }
 
-void HlsDemuxer::AddVariants(const std::vector<HlsVariant>& variants,
-                             int pick) {
-  const Rendition& first = *renditions_[0];
+bool HlsDemuxer::AddAudioGroup(const std::string& group,
+                               const std::vector<HlsRendition>& audio,
+                               const Rendition* muxed,
+                               int* group_index,
+                               std::string* error) {
+  *group_index = static_cast<int>(media_info_.audio_group_defaults.size());
+  int default_audio = -1;
+  bool default_is_tagged = false;
+  auto describe = [&](int index, const HlsRendition* info) {
+    StreamInfo& stream = media_info_.streams[index];
+    stream.audio_group = *group_index;
+    if (info) {
+      if (!info->language.empty()) {
+        stream.language = info->language;
+      }
+      stream.title = info->name;
+      stream.default_track = info->is_default;
+      stream.role = info->role;
+    }
+    const bool tagged = info && info->is_default;
+    if (default_audio < 0 || (tagged && !default_is_tagged)) {
+      default_audio = index;
+      default_is_tagged = tagged;
+    }
+  };
+  if (muxed) {
+    const auto in_band =
+        std::find_if(audio.begin(), audio.end(), [&](const HlsRendition& info) {
+          return !group.empty() && info.group == group && info.url.empty();
+        });
+    for (int index : muxed->streams) {
+      if (media_info_.streams[index].type == MediaType::kAudio) {
+        describe(index, default_audio < 0 && in_band != audio.end() ? &*in_band
+                                                                    : nullptr);
+      }
+    }
+  }
+  size_t count = 0;
+  for (const HlsRendition& info : audio) {
+    if (group.empty() || info.group != group || info.url.empty()) {
+      continue;
+    }
+    if (count++ == kMaxAudioRenditions) {
+      break;
+    }
+    auto r = std::make_unique<Rendition>();
+    r->url = info.url;
+    r->only = MediaType::kAudio;
+    HlsPlaylist list;
+    std::string final_url;
+    std::string why;
+    const bool probe_only = muxed != renditions_[0].get();
+    const bool opened =
+        LoadPlaylist(nullptr, r->url, &list, &final_url, &why) &&
+        !list.master && Start(r.get(), list, &why, probe_only);
+    if (Failed()) {
+      *error = "aborted";
+      return false;
+    }
+    if (!opened) {
+      LOGW("audio rendition \"%s\": %s", info.name.c_str(),
+           list.master ? "a master playlist" : why.c_str());
+      continue;
+    }
+    LOGI("audio rendition \"%s\" (%s)%s", info.name.c_str(),
+         info.language.c_str(), info.is_default ? ", default" : "");
+    for (int index : r->streams) {
+      describe(index, &info);
+    }
+    renditions_.push_back(std::move(r));
+  }
+  media_info_.audio_group_defaults.push_back(default_audio);
+  return true;
+}
+
+int HlsDemuxer::VariantIndex(const HlsVariant& variant) const {
+  const auto known = std::find_if(
+      variant_keys_.begin(), variant_keys_.end(), [&](const auto& key) {
+        return key.first == variant.url && key.second == variant.audio;
+      });
+  return known == variant_keys_.end()
+             ? -1
+             : static_cast<int>(known - variant_keys_.begin());
+}
+
+bool HlsDemuxer::AddVariants(const std::vector<HlsVariant>& variants,
+                             int pick,
+                             const std::vector<HlsRendition>& audio,
+                             int initial_group,
+                             std::string* error) {
+  Rendition& first = *renditions_[0];
   if (first.video < 0) {
-    return;
+    return true;
   }
   const VideoCodec played = media_info_.streams[first.video].video.codec;
-  // Their audio is the first variant's: the same, muxed alike.
-  std::vector<int> audio;
+  const HlsVariant& initial = variants[pick];
+  media_info_.streams[first.video].audio_group = initial_group;
+  std::vector<int> muxed_audio;
   for (int index : first.streams) {
     if (media_info_.streams[index].type == MediaType::kAudio) {
-      audio.push_back(index);
+      muxed_audio.push_back(index);
     }
   }
   auto describe = [](const HlsVariant& variant) {
@@ -594,43 +655,101 @@ void HlsDemuxer::AddVariants(const std::vector<HlsVariant>& variants,
       rung_ = i;
     }
   }
-  std::vector<std::string> urls = {variants[pick].url};
+  std::map<std::string, int> audio_groups;
+  std::set<std::pair<std::string_view, std::string_view>> seen;
+  size_t others = 0;
   for (const HlsVariant& variant : variants) {
-    if (urls.size() > kMaxVariants ||
-        std::find(urls.begin(), urls.end(), variant.url) != urls.end() ||
-        !HlsCodecsDecodable(variant.codecs)) {
+    const bool shares_audio = variant.audio == initial.audio;
+    const bool is_first = shares_audio && variant.url == initial.url;
+    if (!HlsCodecsDecodable(variant.codecs)) {
       continue;
     }
     const VideoCodec codec = codec_of(variant);
-    if (codec == VideoCodec::kUnknown) {
-      continue;  // Audio only.
-    }
-    urls.push_back(variant.url);
-    StreamInfo info;
-    info.index = static_cast<int>(media_info_.streams.size());
-    info.type = MediaType::kVideo;
-    info.title = describe(variant);
-    info.bitrate = variant.bandwidth;
-    info.video.codec = codec;
-    info.video.codec_name = VideoCodecName(codec);
-    info.video.width = variant.width;
-    info.video.height = variant.height;
-    media_info_.streams.push_back(info);
-    auto r = std::make_unique<Rendition>();
-    r->url = variant.url;
-    r->video = info.index;
-    r->streams.push_back(info.index);
-    r->streams.insert(r->streams.end(), audio.begin(), audio.end());
-    renditions_.push_back(std::move(r));
-  }
-  // What can be played, once each: the ladder's and the played one on
-  // the first variant's stream, the others on their own.
-  for (const HlsVariant& variant : variants) {
-    if (std::find(variant_urls_.begin(), variant_urls_.end(), variant.url) !=
-            variant_urls_.end() ||
-        !HlsCodecsDecodable(variant.codecs) ||
-        codec_of(variant) == VideoCodec::kUnknown) {
+    if (codec == VideoCodec::kUnknown ||
+        !seen.emplace(variant.url, variant.audio).second) {
       continue;
+    }
+    const bool adaptive =
+        shares_audio && std::any_of(ladder_.begin(), ladder_.end(),
+                                    [&variant](const HlsVariant& rung) {
+                                      return rung.url == variant.url;
+                                    });
+    const bool add_track = !is_first && others < kMaxVariants;
+    if (!is_first && !add_track && !adaptive) {
+      continue;
+    }
+    Rendition* rendition = &first;
+    if (add_track) {
+      ++others;
+      auto r = std::make_unique<Rendition>();
+      r->url = variant.url;
+      int group = initial_group;
+      const size_t first_stream = media_info_.streams.size();
+      if (!shares_audio) {
+        const bool in_band =
+            variant.audio.empty() ||
+            std::any_of(
+                audio.begin(), audio.end(), [&](const HlsRendition& info) {
+                  return info.group == variant.audio && info.url.empty();
+                });
+        if (in_band) {
+          // The target's audio configuration lives in its own video
+          // playlist. Probe once, and keep the streams for later reads.
+          HlsPlaylist list;
+          std::string final_url, why;
+          const bool opened =
+              LoadPlaylist(nullptr, r->url, &list, &final_url, &why) &&
+              !list.master && Start(r.get(), list, &why, true);
+          if (Failed()) {
+            *error = "aborted";
+            return false;
+          }
+          if (!opened || r->video < 0) {
+            media_info_.streams.resize(first_stream);
+            LOGW("variant %s: cannot probe grouped audio: %s", r->url.c_str(),
+                 why.c_str());
+            continue;
+          }
+          if (!AddAudioGroup(variant.audio, audio, r.get(), &group, error)) {
+            return false;
+          }
+          r->own_audio = media_info_.audio_group_defaults[group] >= 0;
+        } else {
+          auto [it, inserted] = audio_groups.try_emplace(variant.audio, -1);
+          if (inserted && !AddAudioGroup(variant.audio, audio, nullptr,
+                                         &it->second, error)) {
+            return false;
+          }
+          group = it->second;
+        }
+        if (!variant.audio.empty() &&
+            media_info_.audio_group_defaults[group] < 0) {
+          media_info_.streams.resize(first_stream);
+          continue;
+        }
+      }
+      if (r->video < 0) {
+        StreamInfo info;
+        info.index = static_cast<int>(media_info_.streams.size());
+        info.type = MediaType::kVideo;
+        info.video.codec = codec;
+        info.video.codec_name = VideoCodecName(codec);
+        info.video.width = variant.width;
+        info.video.height = variant.height;
+        r->video = info.index;
+        r->streams.push_back(info.index);
+        media_info_.streams.push_back(std::move(info));
+      }
+      StreamInfo& video = media_info_.streams[r->video];
+      video.title = describe(variant);
+      video.bitrate = variant.bandwidth;
+      video.audio_group = group;
+      if (shares_audio) {
+        r->streams.insert(r->streams.end(), muxed_audio.begin(),
+                          muxed_audio.end());
+      }
+      rendition = r.get();
+      renditions_.push_back(std::move(r));
     }
     VariantInfo info;
     info.bandwidth = variant.bandwidth;
@@ -638,34 +757,15 @@ void HlsDemuxer::AddVariants(const std::vector<HlsVariant>& variants,
     info.height = variant.height;
     info.frame_rate = variant.frame_rate;
     info.codecs = variant.codecs;
-    info.adaptive = std::any_of(
-        ladder_.begin(), ladder_.end(),
-        [&variant](const HlsVariant& rung) { return rung.url == variant.url; });
-    if (info.adaptive || variant.url == variants[pick].url) {
-      info.stream = first.video;
-    } else {
-      for (const auto& r : renditions_) {
-        if (r->video >= 0 && r->url == variant.url) {
-          info.stream = r->video;
-        }
-      }
+    info.adaptive = adaptive;
+    info.stream = adaptive ? first.video : rendition->video;
+    if (is_first || add_track) {
+      rendition->variant = static_cast<int>(variants_.size());
     }
-    if (info.stream < 0) {
-      continue;  // Past kMaxVariants.
-    }
-    variants_.push_back(info);
-    variant_urls_.push_back(variant.url);
+    variants_.push_back(std::move(info));
+    variant_keys_.emplace_back(variant.url, variant.audio);
   }
-  for (auto& r : renditions_) {
-    if (r->video < 0) {
-      continue;
-    }
-    const auto known =
-        std::find(variant_urls_.begin(), variant_urls_.end(), r->url);
-    if (known != variant_urls_.end()) {
-      r->variant = static_cast<int>(known - variant_urls_.begin());
-    }
-  }
+  return true;
 }
 
 void HlsDemuxer::SetVariantPolicy(int pinned, int64_t max_bandwidth) {
@@ -1010,9 +1110,9 @@ size_t HlsDemuxer::AffordedRung(const Rendition& r) const {
     return rung_;
   }
   const int pinned = pinned_;
-  if (pinned >= 0 && pinned < static_cast<int>(variant_urls_.size())) {
+  if (pinned >= 0 && pinned < static_cast<int>(variant_keys_.size())) {
     for (size_t i = 0; i < ladder_.size(); ++i) {
-      if (ladder_[i].url == variant_urls_[pinned]) {
+      if (ladder_[i].url == variant_keys_[pinned].first) {
         return i;
       }
     }
@@ -1086,11 +1186,7 @@ void HlsDemuxer::Adapt(Rendition* r) {
        static_cast<long long>(variant.bandwidth),
        static_cast<long long>(estimate_));
   r->url = variant.url;
-  const auto known =
-      std::find(variant_urls_.begin(), variant_urls_.end(), variant.url);
-  r->variant = known != variant_urls_.end()
-                   ? static_cast<int>(known - variant_urls_.begin())
-                   : -1;
+  r->variant = VariantIndex(variant);
   r->segments = std::move(next.segments);
   r->current = index;
   r->live = !playlist.ended;
@@ -1157,7 +1253,9 @@ bool HlsDemuxer::OpenWebVtt(Rendition* r, std::string* error) {
   return true;
 }
 
-bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
+bool HlsDemuxer::OpenSegment(Rendition* r,
+                             std::string* error,
+                             bool probe_only) {
   const Segment& segment = r->segments[r->current];
   if (r->only == MediaType::kSubtitle && !segment.initialization) {
     return OpenWebVtt(r, error);
@@ -1175,8 +1273,16 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
   std::unique_ptr<Mp4Demuxer> mp4;
   // Encrypted segments are decrypted whole, in memory; the others stream.
   const bool whole = segment.key.method == HlsKey::Method::kAes128;
+  const bool map_only = probe_only && segment.initialization;
   std::unique_ptr<DataSource> source;
-  if (whole) {
+  if (map_only) {
+    // The initialization segment contains fMP4 decoder configuration.
+    // Fetch media only once this rendition is enabled.
+    if (!LoadMap(r, segment, error)) {
+      return false;
+    }
+    source = CreateMemoryDataSource(*r->map_data);
+  } else if (whole) {
     std::vector<uint8_t> data;
     if (!LoadSegment(r, segment, &data, error)) {
       return false;
@@ -1196,7 +1302,7 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
   }
   r->ahead = false;
   r->measured = false;
-  if (segment.initialization && whole) {
+  if (segment.initialization && (whole || map_only)) {
     mp4 = std::make_unique<Mp4Demuxer>();
     if (!mp4->Open(std::move(source), error, segment.url, opener_)) {
       *error = segment.url + ": " + *error;
@@ -1210,7 +1316,7 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
     r->streamed = !whole;
     Track(r->source.get());
   }
-  if (segment.initialization && !whole) {
+  if (segment.initialization && !whole && !map_only) {
     auto input = std::make_unique<SegmentStream>(
         r->map_data, r->source.get(), std::max<int64_t>(segment.offset, 0),
         segment.length, [this, r] {
@@ -1278,6 +1384,9 @@ bool HlsDemuxer::OpenSegment(Rendition* r, std::string* error) {
       *error = "no H.264, HEVC or audio stream in the HLS segment";
       return false;
     }
+  }
+  if (probe_only) {
+    return true;
   }
   // A segment's n-th video (audio) stream is the rendition's n-th.
   r->stream_map.clear();
@@ -1468,9 +1577,9 @@ DemuxerReadResult HlsDemuxer::WaitForSegments(Rendition* r) {
 
 bool HlsDemuxer::Enabled(const Rendition& r) const {
   if (r.video >= 0 && !enabled_[r.video]) {
-    // A variant without its video is read only for audio alone, and only
-    // the first.
-    if (&r != renditions_[0].get() ||
+    // With video off, read the variant that owns the selected muxed
+    // audio. Shared muxed audio comes from the first variant.
+    if ((&r != renditions_[0].get() && !r.own_audio) ||
         std::any_of(renditions_.begin(), renditions_.end(),
                     [this](const std::unique_ptr<Rendition>& other) {
                       return other->video >= 0 && enabled_[other->video];
