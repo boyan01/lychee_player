@@ -2154,6 +2154,16 @@ realtime=1 seq_ expect http-flv-live-reconnect "flv: .*; reconnecting" "flv: rec
 serve "${live_flv[@]}" --live-flv-drop-after 3 --live-flv-restart
 realtime=1 seq_ expect http-flv-live-restart "flv: reconnected" \
   "flv: timestamps jump from 6[0-9]{4} to 0 ms" "${live_flv_ok[@]}" -- "http://127.0.0.1:$port/live.flv"
+# Switch to a non-seekable WAV and keep reading it past the packet history.
+if [ "${NO_FFMPEG:-0}" = 1 ] && [ "$data_source" = 1 ]; then
+  serve --no-ranges
+  seq_ expect http-no-ranges-separate-wav "^seekable=0$" \
+    "track 2: audio pcm_s16le .* selected=1" \
+    "summary: state=ended position=8\.000s .*rendered=2(3[5-9]|40) .*read_audio=([5-9][0-9]{2}|[1-9][0-9]{3,})kB" -- \
+    --select audio:2@0.6 --volume 1 \
+    --audio "$media/separate_audio_eng.m4a" --audio "http://127.0.0.1:$port/audio_pcm.wav" \
+    "$media/separate_video.mp4"
+fi
 # A server without range requests: FFmpeg cannot seek, so the seek is
 # ignored, not reported, and playback goes on from where it was to the end.
 # (The FFmpeg-free source reads from the start and discards up to the

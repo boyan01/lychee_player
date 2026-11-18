@@ -56,8 +56,8 @@ class AudioFileDemuxer : public Demuxer {
     enabled_ = std::find(streams.begin(), streams.end(), 0) != streams.end();
   }
   void Interrupt() override {
-    interrupted_ = true;
     std::lock_guard lock(source_mutex_);
+    interrupted_ = true;
     if (source_) source_->Interrupt();
   }
   void Abort() override {
@@ -73,11 +73,13 @@ class AudioFileDemuxer : public Demuxer {
   virtual bool Parse() = 0;
   bool Cancelled() const { return interrupted_ || aborted_; }
   bool BeginSeek() {
-    interrupted_ = false;
-    if (aborted_ || !media_info_.seekable) return false;
+    std::lock_guard lock(source_mutex_);
+    if (aborted_) return false;
+    // A track switch calls Seek to resume even a sequential input.
     source_->ClearInterrupt();
+    interrupted_ = false;
     error_.clear();
-    return true;
+    return media_info_.seekable;
   }
   // Returns the bytes available; zero is EOF, -1 an IO error/interrupt.
   int64_t Bytes(int64_t offset, uint8_t* out, size_t size) {
