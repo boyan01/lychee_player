@@ -4,6 +4,8 @@
 
 * Switching to a separate WAV audio track over HTTP keeps playback
   running on servers without Range support in FFmpeg-free builds.
+* Static DASH streams with a presentation time offset play through the
+  final segment when the timeline repeats to the end of the Period.
 
 * Queued items that need a different decoder configuration now switch
   cleanly, including A-law and μ-law audio with the same sample rate.

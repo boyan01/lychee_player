@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -215,6 +216,41 @@ TEST(Dash, ParsesManifests) {
   EXPECT_EQ(playlist.segments[0].url,
             std::string("http://cdn.example/subs.vtt"));
   EXPECT_FALSE(playlist.segments[0].initialization);
+}
+
+TEST(Dash, RepeatsToThePeriodEndOnTheSampleTimeline) {
+  const char* mpd = R"(
+<MPD>
+  <Period duration="PT4.25S">
+    <SegmentTemplate timescale="2" presentationTimeOffset="10">
+      <SegmentTimeline><S t="10" d="4" r="-2"/></SegmentTimeline>
+    </SegmentTemplate>
+    <AdaptationSet contentType="video">
+      <SegmentTemplate media="s-$Time$.m4s" initialization="init.mp4"/>
+      <Representation id="v" mimeType="video/mp4" codecs="avc1"/>
+    </AdaptationSet>
+  </Period>
+</MPD>)";
+  DashManifest manifest;
+  std::string error;
+  ASSERT_TRUE(ParseMpd(mpd, "http://host/manifest.mpd", &manifest, &error));
+  ASSERT_EQ(manifest.adaptation_sets.size(), 1u);
+  const auto& video = manifest.adaptation_sets[0];
+  ASSERT_EQ(video.representations.size(), 1u);
+  HlsPlaylist playlist;
+  ASSERT_TRUE(DashMediaPlaylist(video.representations[0], video.type,
+                                manifest.duration, {}, &playlist, &error));
+  // The Period ends at tick 18.5, so the segment at tick 18 overlaps it.
+  ASSERT_EQ(playlist.segments.size(), 3u);
+  EXPECT_EQ(playlist.segments[0].url, std::string("http://host/s-10.m4s"));
+  EXPECT_EQ(playlist.segments[2].url, std::string("http://host/s-18.m4s"));
+
+  auto too_late = video.representations[0];
+  too_late.segments.presentation_time_offset =
+      std::numeric_limits<int64_t>::max();
+  EXPECT_FALSE(DashMediaPlaylist(too_late, video.type, manifest.duration, {},
+                                 &playlist, &error));
+  EXPECT_EQ(error, std::string("segment times overflow"));
 }
 
 TEST(Dash, ParsesSegmentIndexes) {

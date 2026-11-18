@@ -628,6 +628,23 @@ gen dash/timeline.mpd "${dash_streams[@]}" -use_template 1 -use_timeline 1 \
 gen dash/number.mpd "${dash_streams[@]}" -use_template 1 -use_timeline 0 \
   -init_seg_name 'n-init-$RepresentationID$.m4s' -media_seg_name 'n-$RepresentationID$-$Number$.m4s'
 gen dash/list.mpd "${dash_streams[@]}" -single_file 1 -single_file_name 'l-$RepresentationID$.mp4'
+# Play segments 2 through 4 of the video timeline. Their media times
+# start 2 s into the source; the Period still starts at playback time 0.
+for repeat in 2 -1; do
+  cat >"$media/dash/offset-$repeat.mpd" <<MPD || exit 1
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
+  <Period duration="PT6S">
+    <AdaptationSet contentType="video" mimeType="video/mp4">
+      <SegmentTemplate timescale="15360" presentationTimeOffset="30720"
+                       initialization="t-init-0.m4s" media="t-0-\$Number%05d\$.m4s" startNumber="2">
+        <SegmentTimeline><S t="30720" d="30720" r="$repeat"/></SegmentTimeline>
+      </SegmentTemplate>
+      <Representation id="0" codecs="avc1.64001f" bandwidth="1500000" width="1280" height="720"/>
+    </AdaptationSet>
+  </Period>
+</MPD>
+MPD
+done
 # SegmentBase: B站-style files with a 'sidx' after the 'moov', the
 # languages' AdaptationSets with Roles (French the main one, English
 # commentary), and a WebVTT sidecar.
@@ -1667,6 +1684,15 @@ if [ "$own_ts" = 1 ]; then
     par expect "dash-seek-$kind" "event: seek completed at 7\.000s" \
       "summary: state=ended position=12\.000s .*backward_jumps=0 .*first_pts_after_seek=7\.000s .*seeks=1 " -- \
       --volume 1 --seek 7 --seek-after 3 "$media/dash/$kind.mpd"
+  done
+  for repeat in 2 -1; do
+    par expect "dash-offset-repeat-$repeat" "event: media info, duration 6\.000s" \
+      "summary: state=ended position=6\.000s .*rendered=180 .*backward_jumps=0 " -- \
+      "$media/dash/offset-$repeat.mpd"
+    # The frame PTS is on the source timeline, 2 s ahead of the position.
+    par expect "dash-offset-seek-$repeat" "event: seek completed at 5\.000s" \
+      "summary: state=ended position=6\.000s .*first_pts_after_seek=7\.000s .*seeks=1 " -- \
+      --seek 5 --seek-after 1 "$media/dash/offset-$repeat.mpd"
   done
   # A variant pinned plays from a later segment on; on the virtual clock
   # the read is ahead by up to a few segments.

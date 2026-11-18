@@ -19,6 +19,8 @@ struct DashSegments {
   enum class Kind { kNone, kBase, kList, kTemplate };
   Kind kind = Kind::kNone;
   int64_t timescale = 1;
+  // Period start on the sample timeline, in |timescale| units.
+  int64_t presentation_time_offset = 0;
   // Of each segment, in |timescale| units; 0 with a timeline.
   int64_t duration = 0;
   int64_t start_number = 1;

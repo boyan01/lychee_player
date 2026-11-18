@@ -138,6 +138,8 @@ void MergeSegments(const XmlElement& level,
     *chosen = s.kind;
     s.timescale =
         std::max<int64_t>(1, IntAttribute(*element, "timescale", s.timescale));
+    s.presentation_time_offset = IntAttribute(
+        *element, "presentationTimeOffset", s.presentation_time_offset);
     s.duration = IntAttribute(*element, "duration", s.duration);
     s.start_number = IntAttribute(*element, "startNumber", s.start_number);
     if (const std::string* range = element->Attribute("indexRange")) {
@@ -179,11 +181,11 @@ void MergeSegments(const XmlElement& level,
         e.t = IntAttribute(*entry, "t", -1);
         e.d = IntAttribute(*entry, "d", 0);
         const std::string r = StringAttribute(*entry, "r");
-        int64_t repeat = 0;
-        if (r == "-1") {
+        if (!r.empty() && r.front() == '-' &&
+            ParseInt(std::string_view(r).substr(1), &e.r) && e.r > 0) {
           e.r = -1;
-        } else if (ParseInt(r, &repeat)) {
-          e.r = repeat;
+        } else {
+          ParseInt(r, &e.r);
         }
         if (e.d > 0) {
           s.timeline.push_back(e);
@@ -615,14 +617,14 @@ bool DashMediaPlaylist(const DashRepresentation& representation,
     playlist->segments.push_back(std::move(segment));
     return playlist->segments.size() < kMaxSegments;
   };
-  // The end of the Period in |s.timescale| units, or -1.
-  int64_t end = -1;
-  if (duration != kNoTimestamp) {
-    const long double units = static_cast<long double>(duration) *
-                              static_cast<long double>(s.timescale) / 1e6L;
-    end = units >= 9e18L ? int64_t{9000000000000000000}
-                         : static_cast<int64_t>(units);
-  }
+  // The Period's length in |s.timescale| units, or -1.
+  const long double units = duration == kNoTimestamp
+                                ? -1
+                                : static_cast<long double>(duration) *
+                                      static_cast<long double>(s.timescale) /
+                                      1e6L;
+  const int64_t end = units >= 9e18L ? int64_t{9000000000000000000}
+                                     : static_cast<int64_t>(units);
   switch (s.kind) {
     case DashSegments::Kind::kTemplate: {
       if (s.media.empty()) {
@@ -642,6 +644,21 @@ bool DashMediaPlaylist(const DashRepresentation& representation,
             ExpandDashTemplate(s.media, representation, number, time));
       };
       if (!s.timeline.empty()) {
+        int64_t timeline_end = end;
+        if (units >= 0 && s.timeline.back().r < 0) {
+          // S@t and $Time$ use sample times. Round up so a segment
+          // starting just before the Period end is included.
+          const long double ticks = std::ceil(units);
+          constexpr int64_t kMaxTime = std::numeric_limits<int64_t>::max();
+          if (ticks >= static_cast<long double>(kMaxTime) ||
+              s.presentation_time_offset >
+                  kMaxTime - static_cast<int64_t>(ticks)) {
+            *error = "segment times overflow";
+            return false;
+          }
+          timeline_end =
+              s.presentation_time_offset + static_cast<int64_t>(ticks);
+        }
         // How often entry |i|, starting at |time|, repeats.
         auto repeats_of = [&](size_t i, int64_t time) {
           const DashSegments::Entry& e = s.timeline[i];
@@ -652,8 +669,8 @@ bool DashMediaPlaylist(const DashRepresentation& representation,
           const int64_t until =
               i + 1 < s.timeline.size() && s.timeline[i + 1].t >= 0
                   ? s.timeline[i + 1].t
-                  : end;
-          return until > time ? (until - time + e.d - 1) / e.d - 1 : int64_t{0};
+                  : timeline_end;
+          return until > time ? (until - time - 1) / e.d : int64_t{0};
         };
         // Count the segments before expanding any: each costs a template
         // expansion and a URL resolution, and a short d with r="-1" asks
