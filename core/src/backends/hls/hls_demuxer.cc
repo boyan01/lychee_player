@@ -407,7 +407,10 @@ bool HlsDemuxer::Open(std::unique_ptr<DataSource> source,
       UpdateWindow(variant);
     }
   }
-  enabled_.assign(media_info_.streams.size(), true);
+  enabled_.reserve(media_info_.streams.size());
+  for (const StreamInfo& stream : media_info_.streams) {
+    enabled_.push_back(!stream.deferred);
+  }
   need_keyframe_.assign(media_info_.streams.size(), true);
   delivered_.assign(media_info_.streams.size(), kNoTimestamp);
   started_ = true;
@@ -550,13 +553,24 @@ bool HlsDemuxer::AddAudioGroup(const std::string& group,
     auto r = std::make_unique<Rendition>();
     r->url = info.url;
     r->only = MediaType::kAudio;
+    if (muxed != renditions_[0].get()) {
+      StreamInfo track;
+      track.index = static_cast<int>(media_info_.streams.size());
+      track.type = MediaType::kAudio;
+      track.audio.codec_name = "unknown";
+      track.deferred = true;
+      r->streams.push_back(track.index);
+      media_info_.streams.push_back(std::move(track));
+      describe(r->streams.front(), &info);
+      renditions_.push_back(std::move(r));
+      continue;
+    }
     HlsPlaylist list;
     std::string final_url;
     std::string why;
-    const bool probe_only = muxed != renditions_[0].get();
     const bool opened =
         LoadPlaylist(nullptr, r->url, &list, &final_url, &why) &&
-        !list.master && Start(r.get(), list, &why, probe_only);
+        !list.master && Start(r.get(), list, &why);
     if (Failed()) {
       *error = "aborted";
       return false;
@@ -574,6 +588,36 @@ bool HlsDemuxer::AddAudioGroup(const std::string& group,
     renditions_.push_back(std::move(r));
   }
   media_info_.audio_group_defaults.push_back(default_audio);
+  return true;
+}
+
+bool HlsDemuxer::ConfigureAudioStream(int stream) {
+  if (Failed()) {
+    return false;
+  }
+  const auto it = std::find_if(
+      renditions_.begin(), renditions_.end(), [stream](const auto& r) {
+        return r->only == MediaType::kAudio && !r->streams.empty() &&
+               r->streams.front() == stream;
+      });
+  if (it == renditions_.end()) {
+    return false;
+  }
+  auto prepared = std::make_unique<Rendition>();
+  prepared->url = (*it)->url;
+  prepared->only = MediaType::kAudio;
+  prepared->streams = (*it)->streams;
+  HlsPlaylist playlist;
+  std::string final_url, why;
+  if (!LoadPlaylist(nullptr, prepared->url, &playlist, &final_url, &why) ||
+      playlist.master || !Start(prepared.get(), playlist, &why, true)) {
+    if (!Failed()) {
+      LOGW("audio rendition %s: %s", prepared->url.c_str(),
+           playlist.master ? "a master playlist" : why.c_str());
+    }
+    return false;
+  }
+  *it = std::move(prepared);
   return true;
 }
 
@@ -1386,6 +1430,21 @@ bool HlsDemuxer::OpenSegment(Rendition* r,
     }
   }
   if (probe_only) {
+    StreamInfo& track = media_info_.streams[r->streams.front()];
+    if (track.deferred) {
+      const auto audio =
+          std::find_if(streams.begin(), streams.end(), [](const auto& entry) {
+            return entry.first.type == MediaType::kAudio;
+          });
+      if (audio == streams.end()) {
+        *error = "no audio stream in the HLS rendition";
+        return false;
+      }
+      track.audio = audio->first.audio;
+      track.bitrate = audio->first.bitrate;
+      track.duration = audio->first.duration;
+      track.deferred = false;
+    }
     return true;
   }
   // A segment's n-th video (audio) stream is the rendition's n-th.
@@ -1620,7 +1679,8 @@ void HlsDemuxer::SetEnabledStreams(const std::vector<int>& stream_indices) {
   }
   std::fill(enabled_.begin(), enabled_.end(), false);
   for (int index : stream_indices) {
-    if (index >= 0 && index < static_cast<int>(enabled_.size())) {
+    if (index >= 0 && index < static_cast<int>(enabled_.size()) &&
+        !media_info_.streams[index].deferred) {
       enabled_[index] = true;
     }
   }
@@ -1866,20 +1926,25 @@ DemuxerReadResult HlsDemuxer::Read(EncodedPacket* packet) {
   }
 }
 
-bool HlsDemuxer::Seek(int64_t time) {
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    interrupted_ = false;
-    for (const auto& r : renditions_) {
-      if (aborted_) {
-        return false;
-      }
-      if (r->mp4) {
-        r->mp4->ClearInterrupt();
-      } else if (r->source) {
-        r->source->ClearInterrupt();
-      }
+void HlsDemuxer::ClearInterrupt() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  interrupted_ = false;
+  for (const auto& r : renditions_) {
+    if (aborted_) {
+      return;
     }
+    if (r->mp4) {
+      r->mp4->ClearInterrupt();
+    } else if (r->source) {
+      r->source->ClearInterrupt();
+    }
+  }
+}
+
+bool HlsDemuxer::Seek(int64_t time) {
+  ClearInterrupt();
+  if (aborted_) {
+    return false;
   }
   if (!media_info_.seekable) {
     return false;

@@ -45,7 +45,7 @@ class Mp4Demuxer : public Demuxer {
   bool Seek(int64_t time) override;
   void Interrupt() override;
   // Resumes a parked segment reader without repositioning it (live HLS).
-  void ClearInterrupt();
+  void ClearInterrupt() override;
   void Abort() override;
   std::string error() const override { return error_; }
   int64_t download_rate() const override {

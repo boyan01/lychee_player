@@ -97,6 +97,34 @@ bool MergingDemuxer::Open(const std::string& url, std::string* error) {
   return true;
 }
 
+bool MergingDemuxer::ConfigureAudioStream(int stream) {
+  for (const Input& input : inputs_) {
+    const auto it =
+        std::find(input.streams.begin(), input.streams.end(), stream);
+    if (it == input.streams.end()) {
+      continue;
+    }
+    const int local = static_cast<int>(it - input.streams.begin());
+    if (!input.demuxer->ConfigureAudioStream(local)) {
+      return false;
+    }
+    const StreamInfo& info = input.demuxer->media_info().streams[local];
+    StreamInfo& track = media_info_.streams[stream];
+    track.audio = info.audio;
+    track.duration = info.duration;
+    track.bitrate = info.bitrate;
+    track.deferred = false;
+    return true;
+  }
+  return false;
+}
+
+void MergingDemuxer::ClearInterrupt() {
+  for (const Input& input : inputs_) {
+    input.demuxer->ClearInterrupt();
+  }
+}
+
 void MergingDemuxer::SetEnabledStreams(const std::vector<int>& stream_indices) {
   for (Input& input : inputs_) {
     std::vector<int> local;

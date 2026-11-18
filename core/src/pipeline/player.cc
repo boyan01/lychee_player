@@ -2100,6 +2100,11 @@ void Player::Run(const std::string& url) {
         if (tracks.rebuild_video) {
           changing_tracks_.video = tracks.VideoOr(video_stream_);
         }
+        if (tracks.audio >= 0 && media_info_.streams[tracks.audio].deferred) {
+          // Clear only the interrupt that parked the read. Later API
+          // requests can interrupt the configuration in flight.
+          demuxer_->ClearInterrupt();
+        }
         if (seek_pending_) {
           seek_pending_ = false;
           loop = loop_seek_pending_;
@@ -2169,6 +2174,10 @@ void Player::Run(const std::string& url) {
       }
       condition_.notify_all();
     } else if (seek) {
+      if (tracks.audio >= 0 && media_info_.streams[tracks.audio].deferred &&
+          !ConfigureAudioChange(&tracks)) {
+        continue;
+      }
       const bool tracks_changed =
           tracks.tracks_changed() || tracks.rebuild_video;
       const int64_t drm_repaint_pts =
@@ -2413,6 +2422,56 @@ bool Player::Prepare(const std::string& url, std::string* error) {
   return true;
 }
 
+bool Player::ConfigureAudioChange(TrackRequest* request) {
+  int stream = request->audio;
+  const int group = media_info_.streams[stream].audio_group;
+  if (!demuxer_->ConfigureAudioStream(stream)) {
+    const int fallback =
+        group >= 0 ? media_info_.audio_group_defaults[group] : -1;
+    stream = fallback != stream ? fallback : -1;
+    if (stream >= 0 && media_info_.streams[stream].deferred &&
+        !demuxer_->ConfigureAudioStream(stream)) {
+      stream = -1;
+    }
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (stream >= 0 && media_info_.streams[stream].deferred) {
+    media_info_.streams[stream] = demuxer_->media_info().streams[stream];
+  }
+  if (quit_) {
+    return false;
+  }
+  if (stream >= 0 && !track_request_.pending() && !seek_pending_) {
+    request->audio = stream == audio_stream_ ? kUnchanged : stream;
+    changing_tracks_ = *request;
+    return true;
+  }
+  if (track_request_.pending()) {
+    // A request arriving during the probe was relative to its targets.
+    // Keep the targets that the new request left unchanged.
+    const int video = track_request_.VideoOr(request->VideoOr(video_stream_));
+    const int audio = track_request_.AudioOr(request->AudioOr(audio_stream_));
+    track_request_.video = video == video_stream_ ? kUnchanged : video;
+    track_request_.audio = audio == audio_stream_ ? kUnchanged : audio;
+  } else if (request->video != kUnchanged) {
+    selected_variant_ = -1;
+    demuxer_->SetVariantPolicy(-1, max_bitrate_);
+  }
+  if (stream < 0 && !track_request_.pending() && !seek_pending_) {
+    LOGW("audio track %d unavailable", request->audio);
+  }
+  if (current_seek_reported_ && !seek_pending_) {
+    seek_pending_ = true;
+    report_seek_ = true;
+  }
+  seek_in_progress_ = false;
+  current_seek_reported_ = false;
+  changing_tracks_ = TrackRequest();
+  track_request_.resync = true;
+  track_request_.rebuild_video |= request->rebuild_video;
+  return false;
+}
+
 int64_t Player::ChangeTracks(const TrackRequest& request) {
   int64_t repaint_pts = kNoTimestamp;
   int video_stream = request.video;
@@ -2574,7 +2633,7 @@ void Player::EnableStreamsLocked() {
       continue;
     }
     const StreamInfo& info = media_info_.streams[stream];
-    if ((hls && info.type == MediaType::kVideo) ||
+    if (info.deferred || (hls && info.type == MediaType::kVideo) ||
         (info.audio_group >= 0 && info.audio_group != audio_group)) {
       // Read again later, it would have a gap.
       history.Clear();

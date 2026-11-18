@@ -105,10 +105,9 @@ building on top of them.
 
 ## Known defects
 
-- **Slow probes of optional HLS audio groups delay startup.** The
-  initial variant waits for the other groups' track formats before
-  publishing the track list. A stalled optional rendition should not
-  delay playback of the initial group.
+- **Optional HLS variants with muxed audio still probe their video on
+  open.** A stalled alternate video playlist can delay startup while
+  the demuxer finds its in-band audio configuration.
 
 - **Android paused Surface frame beyond the replay budget.** The decoder
   retains the displayed GOP across source eviction, up to 64 MiB and

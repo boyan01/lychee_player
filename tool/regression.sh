@@ -2608,9 +2608,11 @@ if [ "$own_ts" = 1 ]; then
   groups_url="http://127.0.0.1:$port/hls_groups/master.m3u8"
   seq_ expect http-hls-variant-audio-groups \
     "variant playing: 1 \(250000 bit/s\) at 1\." "variant playing: 0 \(500000 bit/s\) at 4\." \
-    "audio aac 48000 Hz 1 ch lang=en title=English selected=1" \
-    "summary: state=ended position=10\.000s .*audio_output=48000Hz/2ch .*variant=500kbit/s" -- \
-    --variant 1@1 --variant 0@4 "$groups_url"
+    "variant playing: 1 \(250000 bit/s\) at 7\." \
+    "track 3: audio unknown 0 Hz 0 ch lang=en title=English selected=0" \
+    "track 3: audio aac 48000 Hz 1 ch lang=en title=English selected=1" \
+    "summary: state=ended position=10\.000s .*audio_output=48000Hz/2ch .*variant=250kbit/s" -- \
+    --variant 1@1 --variant 0@4 --variant 1@7 "$groups_url"
   seq_ expect http-hls-variant-audio-preference \
     "audio aac 48000 Hz 2 ch lang=fr title=French selected=1" \
     "audio aac 48000 Hz 1 ch lang=fr title=French selected=1" \
@@ -2636,14 +2638,38 @@ if [ "$own_ts" = 1 ]; then
     "variant playing: 1 \(250000 bit/s\)" "<=1 ^track [0-9]+: audio .*selected=1" \
     "summary: state=ended position=10\.000s .*audio_output=0Hz/0ch .*variant=250kbit/s" -- \
     --select audio:-1@0 --variant 1@2 "$groups_url"
-  if selected http-hls-variant-audio-probe; then
-    # The unselected fMP4 group can be described even if its media
-    # fragments are unavailable. Only the initialization maps are needed.
-    serve --status /hls_groups/lo/en0.m4s 404 --status /hls_groups/lo/fr0.m4s 404
-    seq_ expect http-hls-variant-audio-probe \
-      "audio aac 48000 Hz 1 ch lang=en title=English selected=0" \
-      "audio aac 48000 Hz 1 ch lang=fr title=French selected=0" \
-      "<=0 variant playing: 1" "summary: state=ended position=10\.000s" -- \
+  hls_audio_deferred() {
+    local result
+    result="$(expect "$@")"
+    if grep -q 'GET /hls_groups/lo/' "$build/media_server.log"; then
+      echo "FAIL $1: fetched the unselected audio group"
+      grep 'GET /hls_groups/lo/' "$build/media_server.log" | sed 's/^/     /'
+    else
+      printf '%s\n' "$result"
+    fi
+  }
+  for wait_time in slow hung; do
+    name="http-hls-variant-audio-deferred-$wait_time"
+    selected "$name" || continue
+    delay=3
+    [ "$wait_time" != hung ] || delay=120
+    serve --verbose --stall-at 0 --stall-for "$delay" \
+      --stall-path /hls_groups/lo/fr.m3u8
+    realtime=1 seq_ hls_audio_deferred "$name" \
+      "track 3: audio unknown 0 Hz 0 ch lang=en title=English selected=0" \
+      "track 4: audio unknown 0 Hz 0 ch lang=fr title=French selected=0" \
+      "variant playing: 0 \(500000 bit/s\)" "summary: state=ready position=[1-3]\." -- \
+      --seconds 2.5 "http://127.0.0.1:$port/hls_groups/master.m3u8"
+    serve
+  done
+  if selected http-hls-variant-audio-deferred-retry; then
+    serve --stall-at 0 --stall-for 120 --stall-path /hls_groups/lo/en.m3u8
+    realtime=1 seq_ expect http-hls-variant-audio-deferred-retry \
+      "select variant 0 at [0-9.]+s: accepted" \
+      "<=1 variant playing: 1" "variant playing: 1 \(250000 bit/s\)" \
+      "track 3: audio aac 48000 Hz 1 ch lang=en title=English selected=1" \
+      "summary: state=ready .*variant=250kbit/s" -- \
+      --variant 1@0.3 --variant 0@0.8 --variant 1@1.7 --seconds 3.5 \
       "http://127.0.0.1:$port/hls_groups/master.m3u8"
     serve
   fi

@@ -128,6 +128,9 @@ struct StreamInfo {
   // On a rendition-based input, the audio group this audio belongs to
   // or this video uses. -1 for independent tracks.
   int audio_group = -1;
+  // The track has a stable ID and manifest metadata. Its decoder
+  // configuration is discovered when selected.
+  bool deferred = false;
   VideoConfig video;
   AudioConfig audio;
   SubtitleConfig subtitle;

@@ -54,6 +54,14 @@ class Demuxer {
 
   virtual const MediaInfo& media_info() const = 0;
 
+  // Resolve a deferred audio stream's decoder configuration in
+  // media_info(). May block. Called with reads parked and interrupts
+  // cleared. Stream indices stay fixed.
+  virtual bool ConfigureAudioStream(int /*stream*/) { return false; }
+  // Clears a parked read's interrupt before configuring deferred audio.
+  // Must not perform I/O.
+  virtual void ClearInterrupt() {}
+
   // Only packets of the enabled streams are returned.
   virtual void SetEnabledStreams(const std::vector<int>& stream_indices) = 0;
 

@@ -27,8 +27,8 @@ class SegmentStream;
 // HTTP Live Streaming (RFC 8216) with MPEG-TS or fragmented MP4
 // (EXT-X-MAP) segments, for builds without FFmpeg. A master playlist
 // plays one variant (PickHlsVariant) and lists the others it can decode
-// as video streams. Other audio groups are probed for their track formats
-// at open and read alongside the matching variant once selected.
+// as video streams. External tracks in other audio groups are listed
+// from the master and configured the first time they are selected.
 // While the first variant's stream is
 // selected, it moves between the variants of its codec and audio group
 // by the bandwidth its segments arrived at (TS, or fMP4 with each map
@@ -61,6 +61,8 @@ class HlsDemuxer : public Demuxer {
                     const std::string& url,
                     std::string* error);
   const MediaInfo& media_info() const override { return media_info_; }
+  bool ConfigureAudioStream(int stream) override;
+  void ClearInterrupt() override;
   void SetEnabledStreams(const std::vector<int>& stream_indices) override;
   DemuxerReadResult Read(EncodedPacket* packet) override;
   bool Seek(int64_t time) override;
@@ -211,8 +213,8 @@ class HlsDemuxer : public Demuxer {
   // Takes the playlist into |r| (live: where segments_[0] reads), and
   // goes to r->resume.
   void Load(Rendition* r, const HlsPlaylist& playlist);
-  // Registers a group's audio tracks, probing the decoder configuration
-  // before Open() publishes the stream list.
+  // Registers a group's audio tracks. External tracks outside the
+  // initial group have stable IDs but no decoder configuration yet.
   bool AddAudioGroup(const std::string& group,
                      const std::vector<HlsRendition>& audio,
                      const Rendition* muxed,
