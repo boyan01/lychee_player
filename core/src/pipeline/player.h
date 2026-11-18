@@ -373,9 +373,11 @@ class Player {
   // Returns the last acquired video PTS when clearing a DRM binding on
   // the same track, or kNoTimestamp.
   int64_t ChangeTracks(const TrackRequest& request);
-  // Configures a deferred audio rendition while the read thread is parked.
+  // Configures deferred streams while the read thread is parked.
   // False to process a newer request or resume the current tracks.
-  bool ConfigureAudioChange(TrackRequest* request);
+  bool ConfigureTrackChange(TrackRequest* request);
+  bool TrackChangeNeedsConfiguration(const TrackRequest& request) const;
+  void ResolveTrackAudioLocked(TrackRequest* request) const;
   // Live: replaces and flushes renderers for |request| and |change|. The
   // read thread must be parked.
   void ApplyLiveChange(TrackRequest request, const LiveChange& change);

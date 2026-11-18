@@ -266,8 +266,8 @@ const MediaInfo& ProbingDemuxer::media_info() const {
   return demuxer_ ? demuxer_->media_info() : empty_;
 }
 
-bool ProbingDemuxer::ConfigureAudioStream(int stream) {
-  return demuxer_ && demuxer_->ConfigureAudioStream(stream);
+bool ProbingDemuxer::ConfigureStream(int stream) {
+  return demuxer_ && demuxer_->ConfigureStream(stream);
 }
 
 void ProbingDemuxer::ClearInterrupt() {

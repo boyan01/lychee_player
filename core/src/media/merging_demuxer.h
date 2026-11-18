@@ -32,7 +32,7 @@ class MergingDemuxer : public Demuxer {
   // one; fails if any fails or an audio input has no audio.
   bool Open(const std::string& url, std::string* error) override;
   const MediaInfo& media_info() const override { return media_info_; }
-  bool ConfigureAudioStream(int stream) override;
+  bool ConfigureStream(int stream) override;
   void ClearInterrupt() override;
   void SetEnabledStreams(const std::vector<int>& stream_indices) override;
   DemuxerReadResult Read(EncodedPacket* packet) override;

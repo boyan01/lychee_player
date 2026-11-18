@@ -97,23 +97,41 @@ bool MergingDemuxer::Open(const std::string& url, std::string* error) {
   return true;
 }
 
-bool MergingDemuxer::ConfigureAudioStream(int stream) {
-  for (const Input& input : inputs_) {
+bool MergingDemuxer::ConfigureStream(int stream) {
+  for (Input& input : inputs_) {
     const auto it =
         std::find(input.streams.begin(), input.streams.end(), stream);
     if (it == input.streams.end()) {
       continue;
     }
     const int local = static_cast<int>(it - input.streams.begin());
-    if (!input.demuxer->ConfigureAudioStream(local)) {
+    if (!input.demuxer->ConfigureStream(local)) {
       return false;
     }
-    const StreamInfo& info = input.demuxer->media_info().streams[local];
+    const MediaInfo& updated = input.demuxer->media_info();
+    const StreamInfo& info = updated.streams[local];
     StreamInfo& track = media_info_.streams[stream];
     track.audio = info.audio;
+    track.video = info.video;
     track.duration = info.duration;
     track.bitrate = info.bitrate;
     track.deferred = false;
+    if (&input == &inputs_.front()) {
+      // Preserve the global IDs of the side inputs. Newly discovered
+      // main-input tracks go after every track already published.
+      for (size_t i = input.streams.size(); i < updated.streams.size(); ++i) {
+        StreamInfo discovered = updated.streams[i];
+        discovered.index = static_cast<int>(media_info_.streams.size());
+        input.streams.push_back(discovered.index);
+        media_info_.streams.push_back(std::move(discovered));
+      }
+      media_info_.audio_group_defaults = updated.audio_group_defaults;
+      for (int& fallback : media_info_.audio_group_defaults) {
+        if (fallback >= 0) {
+          fallback = input.streams[fallback];
+        }
+      }
+    }
     return true;
   }
   return false;

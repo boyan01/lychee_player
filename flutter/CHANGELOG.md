@@ -28,7 +28,8 @@
   input buffer. The same thumbnailer can be used again.
 * Manually switching HLS variants uses the new variant's audio group and
   carries the selected audio preference across compatible renditions.
-  Alternate audio playlists load when first selected.
+  Alternate audio groups and variants with their own muxed audio load
+  when first selected.
 * Queued items that need a different decoder configuration now switch
   cleanly, including A-law and μ-law audio with the same sample rate.
 * Apps can read playback statistics and the playing variant safely while

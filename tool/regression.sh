@@ -603,6 +603,10 @@ if [ ! -f "$media/hls_groups/muxed.m3u8" ]; then
   sed -e 's|,URI="lo/en.m3u8"||' -e 's|^lo/video.m3u8$|lo/muxed.m3u8|' \
     "$media/hls_groups/master.m3u8" >"$media/hls_groups/muxed.m3u8"
 fi
+[ -f "$media/hls_groups/video-only.m3u8" ] ||
+  sed -e '/^#EXT-X-MEDIA:.*GROUP-ID="lo"/d' \
+    -e '/^#EXT-X-STREAM-INF:.*AUDIO="lo"/s/,mp4a\.40\.2",AUDIO="lo"/"/' \
+    "$media/hls_groups/master.m3u8" >"$media/hls_groups/video-only.m3u8"
 # Matroska: the MP4 remuxed, with and without Cues, with clusters of
 # unknown size, damaged (tool/mkv_cases.py); FLAC in it, and MP3 in MP4.
 gen h264_aac.mkv -i "$media/h264_aac.mp4" -c copy
@@ -2634,6 +2638,29 @@ if [ "$own_ts" = 1 ]; then
     "audio aac 48000 Hz 1 ch lang=en title=English selected=1" \
     "summary: state=ended position=10\.000s decoder=none .*audio_output=[1-9][0-9]*Hz/[1-9][0-9]*ch" -- \
     --variant 1@1 --select video:-1@4 "http://127.0.0.1:$port/hls_groups/muxed.m3u8"
+  seq_ expect http-hls-variant-audio-muxed-preference \
+    "variant playing: 1 \(250000 bit/s\) at 2\." "variant playing: 0 \(500000 bit/s\) at 4\." \
+    "variant playing: 1 \(250000 bit/s\) at 6\." "variant playing: 0 \(500000 bit/s\) at 8\." \
+    "video size 160x90" "track 3: audio aac 48000 Hz 1 ch lang=fr title=French selected=1" \
+    "track 5: audio aac 48000 Hz 1 ch lang=en title=English selected=1" \
+    "audio track -> stream 1$" "summary: state=ended position=10\.000s" -- \
+    --select audio:2@0.5 --variant 1@2 --variant 0@4 --variant 1@6 \
+    --select audio:1@7 --variant 0@8.5 "http://127.0.0.1:$port/hls_groups/muxed.m3u8"
+  seq_ expect http-hls-variant-audio-muxed-off \
+    "video size 160x90" "track 5: audio aac 48000 Hz 1 ch lang=en title=English selected=0" \
+    "summary: state=ended position=10\.000s .*audio_output=0Hz/0ch .*variant=250kbit/s" -- \
+    --select audio:-1@0 --variant 1@1 "http://127.0.0.1:$port/hls_groups/muxed.m3u8"
+  seq_ expect http-hls-variant-audio-muxed-video-only \
+    "video size 160x90" "variant playing: 1 \(250000 bit/s\)" \
+    "summary: state=ended position=10\.000s .*audio_output=0Hz/0ch .*variant=250kbit/s" -- \
+    --variant 1@1 "http://127.0.0.1:$port/hls_groups/video-only.m3u8"
+  seq_ expect http-hls-variant-audio-muxed-merged \
+    "track 5: audio .*selected=1" \
+    "track 6: audio aac 48000 Hz 1 ch lang=en title=English selected=1" \
+    "summary: state=ended position=10\.000s" -- \
+    --audio "$media/separate_audio_eng.m4a" --select audio:5@0.5 \
+    --variant 1@2 --select audio:1@5 --variant 0@7 \
+    "http://127.0.0.1:$port/hls_groups/muxed.m3u8"
   seq_ expect http-hls-variant-audio-off \
     "variant playing: 1 \(250000 bit/s\)" "<=1 ^track [0-9]+: audio .*selected=1" \
     "summary: state=ended position=10\.000s .*audio_output=0Hz/0ch .*variant=250kbit/s" -- \
@@ -2660,6 +2687,30 @@ if [ "$own_ts" = 1 ]; then
       "track 4: audio unknown 0 Hz 0 ch lang=fr title=French selected=0" \
       "variant playing: 0 \(500000 bit/s\)" "summary: state=ready position=[1-3]\." -- \
       --seconds 2.5 "http://127.0.0.1:$port/hls_groups/master.m3u8"
+    serve
+  done
+  if selected http-hls-variant-audio-muxed-retry; then
+    serve --stall-at 0 --stall-for 120 --stall-path /hls_groups/lo/muxed.m3u8
+    realtime=1 seq_ expect http-hls-variant-audio-muxed-retry \
+      "select variant 0 at [0-9.]+s: accepted" \
+      "<=1 variant playing: 1" "variant playing: 1 \(250000 bit/s\)" \
+      "track 5: audio aac 48000 Hz 1 ch lang=en title=English selected=1" \
+      "summary: state=ready .*variant=250kbit/s" -- \
+      --variant 1@0.3 --variant 0@0.8 --variant 1@1.7 --seconds 3.5 \
+      "http://127.0.0.1:$port/hls_groups/muxed.m3u8"
+    serve
+  fi
+  for wait_time in slow hung; do
+    name="http-hls-variant-audio-muxed-$wait_time"
+    selected "$name" || continue
+    delay=3
+    [ "$wait_time" != hung ] || delay=120
+    serve --verbose --stall-at 0 --stall-for "$delay" \
+      --stall-path /hls_groups/lo/muxed.m3u8
+    realtime=1 seq_ hls_audio_deferred "$name" \
+      "variant 1: 250000 bit/s 160x90 .* track=4" \
+      "variant playing: 0 \(500000 bit/s\)" "summary: state=ready position=[1-3]\." -- \
+      --seconds 2.5 "http://127.0.0.1:$port/hls_groups/muxed.m3u8"
     serve
   done
   if selected http-hls-variant-audio-deferred-retry; then

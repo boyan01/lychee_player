@@ -42,7 +42,7 @@ class ProbingDemuxer : public Demuxer {
   const char* name() const override;
   bool Open(const std::string& url, std::string* error) override;
   const MediaInfo& media_info() const override;
-  bool ConfigureAudioStream(int stream) override;
+  bool ConfigureStream(int stream) override;
   void ClearInterrupt() override;
   void SetEnabledStreams(const std::vector<int>& stream_indices) override;
   DemuxerReadResult Read(EncodedPacket* packet) override;

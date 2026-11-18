@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -28,7 +29,8 @@ class SegmentStream;
 // (EXT-X-MAP) segments, for builds without FFmpeg. A master playlist
 // plays one variant (PickHlsVariant) and lists the others it can decode
 // as video streams. External tracks in other audio groups are listed
-// from the master and configured the first time they are selected.
+// from the master, and alternative variants' own formats and audio
+// tracks are discovered when selected.
 // While the first variant's stream is
 // selected, it moves between the variants of its codec and audio group
 // by the bandwidth its segments arrived at (TS, or fMP4 with each map
@@ -61,7 +63,7 @@ class HlsDemuxer : public Demuxer {
                     const std::string& url,
                     std::string* error);
   const MediaInfo& media_info() const override { return media_info_; }
-  bool ConfigureAudioStream(int stream) override;
+  bool ConfigureStream(int stream) override;
   void ClearInterrupt() override;
   void SetEnabledStreams(const std::vector<int>& stream_indices) override;
   DemuxerReadResult Read(EncodedPacket* packet) override;
@@ -119,7 +121,7 @@ class HlsDemuxer : public Demuxer {
   // audio rendition's.
   struct Rendition {
     std::string url;
-    // The first variant and probed renditions load their playlist at
+    // The initial variant and its renditions load their playlists at
     // open. Others load when selected, at the saved position.
     bool loaded = false;
     int64_t resume = kNoTimestamp;
@@ -129,6 +131,8 @@ class HlsDemuxer : public Demuxer {
     int variant = -1;
     // Has its own muxed audio streams, distinct from the first variant's.
     bool own_audio = false;
+    // Master metadata for the first embedded audio stream, if declared.
+    std::optional<HlsRendition> muxed_audio;
     std::vector<Segment> segments;
     size_t current = 0;
     bool live = false;
@@ -204,12 +208,13 @@ class HlsDemuxer : public Demuxer {
                     std::string* final_url,
                     std::string* error);
   // Takes |playlist| into |r| and discovers its streams at the start
-  // (live: three target durations from the end). In probe-only mode,
-  // the connection is closed and positions are set when first played.
+  // (live: three target durations from the end). With |probe|, return
+  // the discovered formats, close the connection and leave positioning
+  // to the first playback.
   bool Start(Rendition* r,
              const HlsPlaylist& playlist,
              std::string* error,
-             bool probe_only = false);
+             std::vector<StreamInfo>* probe = nullptr);
   // Takes the playlist into |r| (live: where segments_[0] reads), and
   // goes to r->resume.
   void Load(Rendition* r, const HlsPlaylist& playlist);
@@ -220,6 +225,10 @@ class HlsDemuxer : public Demuxer {
                      const Rendition* muxed,
                      int* group_index,
                      std::string* error);
+  void AddMuxedAudio(Rendition* r,
+                     int group,
+                     const std::optional<HlsRendition>& declared,
+                     std::vector<StreamInfo>* formats);
   // Lists the variants other than |pick| as video streams.
   bool AddVariants(const std::vector<HlsVariant>& variants,
                    int pick,
@@ -238,7 +247,9 @@ class HlsDemuxer : public Demuxer {
   // is placed in their current windows.
   void ReloadForSeek();
   // Opens r->segments[r->current]; the first one adds r's streams.
-  bool OpenSegment(Rendition* r, std::string* error, bool probe_only = false);
+  bool OpenSegment(Rendition* r,
+                   std::string* error,
+                   std::vector<StreamInfo>* probe = nullptr);
   // OpenSegment() for a subtitle rendition.
   bool OpenWebVtt(Rendition* r, std::string* error);
   // Also drops r->prefetch unless |keep_prefetch|.

@@ -2096,11 +2096,12 @@ void Player::Run(const std::string& url) {
         advance_pending_ = false;
         tracks = track_request_;
         track_request_ = TrackRequest();
+        ResolveTrackAudioLocked(&tracks);
         changing_tracks_ = tracks;
         if (tracks.rebuild_video) {
           changing_tracks_.video = tracks.VideoOr(video_stream_);
         }
-        if (tracks.audio >= 0 && media_info_.streams[tracks.audio].deferred) {
+        if (TrackChangeNeedsConfiguration(tracks)) {
           // Clear only the interrupt that parked the read. Later API
           // requests can interrupt the configuration in flight.
           demuxer_->ClearInterrupt();
@@ -2174,8 +2175,8 @@ void Player::Run(const std::string& url) {
       }
       condition_.notify_all();
     } else if (seek) {
-      if (tracks.audio >= 0 && media_info_.streams[tracks.audio].deferred &&
-          !ConfigureAudioChange(&tracks)) {
+      if (TrackChangeNeedsConfiguration(tracks) &&
+          !ConfigureTrackChange(&tracks)) {
         continue;
       }
       const bool tracks_changed =
@@ -2422,29 +2423,80 @@ bool Player::Prepare(const std::string& url, std::string* error) {
   return true;
 }
 
-bool Player::ConfigureAudioChange(TrackRequest* request) {
-  int stream = request->audio;
-  const int group = media_info_.streams[stream].audio_group;
-  if (!demuxer_->ConfigureAudioStream(stream)) {
-    const int fallback =
-        group >= 0 ? media_info_.audio_group_defaults[group] : -1;
-    stream = fallback != stream ? fallback : -1;
-    if (stream >= 0 && media_info_.streams[stream].deferred &&
-        !demuxer_->ConfigureAudioStream(stream)) {
-      stream = -1;
-    }
+bool Player::TrackChangeNeedsConfiguration(const TrackRequest& request) const {
+  return (request.video >= 0 && media_info_.streams[request.video].deferred) ||
+         (request.audio >= 0 && media_info_.streams[request.audio].deferred);
+}
+
+void Player::ResolveTrackAudioLocked(TrackRequest* request) const {
+  if (request->video < 0 ||
+      media_info_.streams[request->video].audio_group < 0) {
+    return;
   }
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (stream >= 0 && media_info_.streams[stream].deferred) {
-    media_info_.streams[stream] = demuxer_->media_info().streams[stream];
+  const int stream =
+      AudioForVideoLocked(request->video, audio_preference_, audio_stream_);
+  request->audio = stream == audio_stream_ ? kUnchanged : stream;
+}
+
+bool Player::ConfigureTrackChange(TrackRequest* request) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  bool discovered = false;
+  const auto superseded = [this] {
+    return quit_ || track_request_.pending() || seek_pending_;
+  };
+  const auto configure = [&](int stream) {
+    if (superseded()) {
+      return false;
+    }
+    if (stream < 0 || !media_info_.streams[stream].deferred) {
+      return true;
+    }
+    lock.unlock();
+    const bool configured = demuxer_->ConfigureStream(stream);
+    lock.lock();
+    if (configured) {
+      const MediaInfo& info = demuxer_->media_info();
+      if (!media_info_.seekable) {
+        for (size_t i = media_info_.streams.size(); i < info.streams.size();
+             ++i) {
+          const StreamInfo& added = info.streams[i];
+          if (added.type == MediaType::kAudio) {
+            histories_.try_emplace(added.index, kMaxQueuedBytes, true);
+          }
+        }
+      }
+      discovered = true;
+      media_info_.streams = info.streams;
+      media_info_.audio_group_defaults = info.audio_group_defaults;
+    }
+    return configured;
+  };
+  bool configured = configure(request->video);
+  if (configured && !superseded()) {
+    // The muxed tracks can change the group's default or provide a
+    // counterpart to the user's explicit audio preference.
+    ResolveTrackAudioLocked(request);
+    changing_tracks_ = *request;
+    configured = configure(request->audio);
+    if (!configured && !superseded()) {
+      const int group = media_info_.streams[request->audio].audio_group;
+      const int fallback =
+          group >= 0 ? media_info_.audio_group_defaults[group] : -1;
+      if (fallback >= 0 && fallback != request->audio && configure(fallback)) {
+        request->audio = fallback == audio_stream_ ? kUnchanged : fallback;
+        configured = true;
+      }
+    }
   }
   if (quit_) {
     return false;
   }
-  if (stream >= 0 && !track_request_.pending() && !seek_pending_) {
-    request->audio = stream == audio_stream_ ? kUnchanged : stream;
+  if (configured && !superseded()) {
     changing_tracks_ = *request;
     return true;
+  }
+  if (discovered) {
+    PostEventLocked(PlayerEvent::kTracksChanged);
   }
   if (track_request_.pending()) {
     // A request arriving during the probe was relative to its targets.
@@ -2457,8 +2509,9 @@ bool Player::ConfigureAudioChange(TrackRequest* request) {
     selected_variant_ = -1;
     demuxer_->SetVariantPolicy(-1, max_bitrate_);
   }
-  if (stream < 0 && !track_request_.pending() && !seek_pending_) {
-    LOGW("audio track %d unavailable", request->audio);
+  if (!superseded()) {
+    LOGW("requested tracks unavailable (video %d, audio %d)", request->video,
+         request->audio);
   }
   if (current_seek_reported_ && !seek_pending_) {
     seek_pending_ = true;
