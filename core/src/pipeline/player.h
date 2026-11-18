@@ -471,9 +471,8 @@ class Player {
   int64_t ItemOffsetLocked(int64_t media_time) const;
   // Copies the loop fields into |loop_map_|, after any of them changed.
   void PublishLoopMapLocked();
-  // Re-decodes a paused Surface frame from unseekable input without
-  // moving the demuxer or flushing the other streams.
-  void RedrawVideoFromHistoryLocked(int64_t pts);
+  // Replays a paused Surface frame, or queues the seek fallback.
+  void RestoreSurfaceFrameLocked();
   // Looping off after the read thread wrapped past the pass playing: the
   // renderers end at that pass's end instead of playing the next.
   void ApplyLoopEndLocked();
@@ -600,10 +599,8 @@ class Player {
   // selected), so one switched to midway starts at the position too. One not
   // selected costs its packets from the keyframe before the position to the
   // read position (a GOP and the read-ahead), up to kMaxQueuedBytes. The map
-  // does not change in between. The read thread adds the selected video's
-  // packets under |mutex_| together with the queue append, so a Surface
-  // redraw can replay them without parking a blocking demuxer. Other history
-  // access on the control thread requires the read thread to be parked.
+  // does not change in between; the read thread pushes to it, and the control
+  // thread uses it while the read thread is parked.
   std::map<int, PacketHistory> histories_;
   std::thread thread_;
   std::thread read_thread_;

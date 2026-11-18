@@ -27,7 +27,7 @@
 #    MediaCodec, and two snapshots of each pass tool/frame_check.py.
 #    A replacement SurfaceView on the same paused player must show the same
 #    MediaCodec frame without moving playback, also for pipe and no-Range
-#    HTTP inputs.
+#    HTTP inputs and after a live HLS window passes the paused position.
 #    AES-128 TS and fMP4 HLS also seek through HlsDemuxer, without fallback.
 #    (--bilinear matches PixelCopy's texture sampling when it scales;
 #    swscale's downscaling filter instead averages a wider area;
@@ -67,7 +67,7 @@ if [ "${NATIVE_MPEG2:-0}" = 1 ]; then
 else
   echo "SKIP MPEG-2: set NATIVE_MPEG2=1 on a device with that system decoder"
 fi
-for f in h264_aac.mp4 rotated.mp4 keyframes.ts hls_aes/ts.m3u8 hls_aes/fmp4.m3u8 $onsets $audio_containers $legacy_containers; do
+for f in h264_aac.mp4 rotated.mp4 keyframes.ts hls_long/index.m3u8 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8 $onsets $audio_containers $legacy_containers; do
   [ -f "$media/$f" ] || die "no $media/$f; run MEDIA_ONLY=1 tool/regression.sh"
 done
 
@@ -190,7 +190,9 @@ fi
 echo "== example"
 python3 -I "$root/tool/serve_media.py" "$media" "$port" >"$build/server.log" 2>&1 &
 server=$!
-python3 -I "$root/tool/media_server.py" "$media" --no-ranges >"$build/no-ranges-server.log" 2>&1 &
+python3 -I "$root/tool/media_server.py" "$media" --no-ranges \
+  --live /hls_long/live.m3u8 /hls_long/index.m3u8 --live-start 8 --live-window 8 \
+  >"$build/stream-server.log" 2>&1 &
 no_ranges_server=$!
 no_ranges_port=""
 cleanup() {
@@ -202,7 +204,7 @@ cleanup() {
 }
 trap cleanup EXIT
 for _ in $(seq 50); do
-  no_ranges_port="$(awk '/^port / { print $2 }' "$build/no-ranges-server.log")"
+  no_ranges_port="$(awk '/^port / { print $2 }' "$build/stream-server.log")"
   [ -z "$no_ranges_port" ] || break
   sleep 0.1
 done
@@ -227,7 +229,8 @@ fi
 snaps="$build/snapshots"
 rm -rf "$snaps" && mkdir -p "$snaps"
 failed=0
-cases=(h264_aac.mp4 rotated.mp4 reattach/h264_aac.mp4 reattach_http/keyframes.ts hls_aes/ts.m3u8 hls_aes/fmp4.m3u8)
+cases=(h264_aac.mp4 rotated.mp4 reattach/h264_aac.mp4 reattach_http/keyframes.ts
+  reattach_live/hls_long/index.m3u8 hls_aes/ts.m3u8 hls_aes/fmp4.m3u8)
 if [ "$ffmpeg_extension" = 1 ]; then
   cases+=(hls_aes/ts_fallback.m3u8 hls_aes/fmp4_fallback.m3u8)
 fi
@@ -247,16 +250,18 @@ for file in "${cases[@]}"; do
   seek=()
   extra=()
   seekable=true
+  last_snapshot=3.5
   reference="$file"
   url="http://127.0.0.1:$port/$file"
   case "$file" in
-    reattach/* | reattach_http/* | reattach_pipe/*)
+    reattach/* | reattach_http/* | reattach_pipe/* | reattach_live/*)
       modes=true
       reference="${file#*/}"
       extra=(--ez snapshot_reattach true)
       case "$file" in
         reattach_http/*) seekable=false; url="http://127.0.0.1:$no_ranges_port/$reference" ;;
         reattach_pipe/*) seekable=false; url="$content/pipe/$reference" ;;
+        reattach_live/*) last_snapshot=17; url="http://127.0.0.1:$no_ranges_port/hls_long/live.m3u8" ;;
         *) url="http://127.0.0.1:$port/$reference" ;;
       esac ;;
     content/*) reference="${file#*/}"; url="$content/$reference"; extra=(--es subtitle "$content/subs.srt") ;;
@@ -277,7 +282,7 @@ for file in "${cases[@]}"; do
     extension_args=()
     [ "$ffmpeg_extension" != 1 ] || extension_args=(--es ffmpeg load)
     adb shell am start -n "$package/.MainActivity" ${extension_args[@]+"${extension_args[@]}"} --es url "$url" \
-      --ez hw "$hw" ${seek[@]+"${seek[@]}"} ${extra[@]+"${extra[@]}"} ${recreate[@]+"${recreate[@]}"} --es snapshot "2:${snapshot_prefix}$name-a.ppm,3.5:${snapshot_prefix}$name-b.ppm" >/dev/null
+      --ez hw "$hw" ${seek[@]+"${seek[@]}"} ${extra[@]+"${extra[@]}"} ${recreate[@]+"${recreate[@]}"} --es snapshot "2:${snapshot_prefix}$name-a.ppm,$last_snapshot:${snapshot_prefix}$name-b.ppm" >/dev/null
     log=""
     for _ in $(seq 60); do
       # A recreation can log the same path twice; the last line describes
@@ -318,6 +323,14 @@ for file in "${cases[@]}"; do
         ! cmp -s "$snaps/$name-a.ppm" "$snaps/$name-b.ppm"; then
         echo "the replacement SurfaceView did not show the same paused frame"
         failed=1
+      fi
+      if [[ "$file" = reattach_live/* ]]; then
+        window_start="$(sed -nE 's/.*reattached video view seekable_start=([0-9]+)$/\1/p' "$snaps/$name.logcat.txt")"
+        if [ -z "$window_start" ] || [ -z "$paused" ] ||
+          [ "$window_start" -le "$(head -n 1 <<<"$paused")" ]; then
+          echo "the live HLS window did not move past the paused position"
+          failed=1
+        fi
       fi
     fi
     if [[ "$file" = hls_aes/* ]]; then

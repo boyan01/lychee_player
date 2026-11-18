@@ -7,8 +7,10 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 #include "media/encoded_packet.h"
+#include "pipeline/packet_history.h"
 
 namespace lychee {
 
@@ -26,6 +28,14 @@ class PacketQueue {
   // below |duration|, on the popping thread, holding none of the queue's
   // locks, so the producer can wait for that rather than poll.
   void SetLowWater(int64_t duration, std::function<void()> notify);
+
+  // Before any Push or Pop: retain consumed video packets for replay from
+  // the last frame presented, with independent byte and packet limits.
+  void SetReplayLimits(size_t max_bytes, size_t max_packets);
+  void SetReplayAnchor(uint64_t generation, int64_t pts);
+  // Prepends the consumed packets needed to show |pts| again, keeping the
+  // unread packets after them. False if the GOP no longer fits the cache.
+  bool Replay(int64_t pts, uint64_t generation);
 
   void Push(std::shared_ptr<EncodedPacket> packet);
 
@@ -51,6 +61,7 @@ class PacketQueue {
  private:
   static int64_t Timestamp(const EncodedPacket& packet);
   int64_t DurationLocked() const;
+  void ClearLocked(uint64_t generation);
 
   int64_t low_water_ = 0;
   std::function<void()> low_water_notify_;
@@ -58,6 +69,8 @@ class PacketQueue {
   mutable std::mutex mutex_;
   std::condition_variable condition_;
   std::deque<Entry> entries_;
+  std::optional<PacketHistory> consumed_;
+  int64_t replay_anchor_ = kNoTimestamp;
   uint64_t generation_ = 0;
   size_t bytes_ = 0;
   bool aborted_ = false;

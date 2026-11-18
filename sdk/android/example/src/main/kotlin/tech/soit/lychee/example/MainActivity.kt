@@ -13,7 +13,7 @@
 // "seek" ("SEC:TARGET,...") seeks at SEC seconds after the start.
 // "seconds" stops the activity after that many seconds and logs summary:.
 // "snapshot_pause" keeps playback paused after a capture for compositor screenshots.
-// "snapshot_reattach" keeps the player paused and reattaches its view after the first capture.
+// "snapshot_reattach" keeps the player paused and reattaches its view before the second capture.
 // "recreate" (seconds) recreates the activity once to check pending captures.
 // "subtitle" (a URL) adds that subtitle file to the media, in the
 // "subtitle_encoding" extra's encoding (default: guessed); "subtitle_delay"
@@ -188,6 +188,14 @@ class MainActivity : Activity() {
             val name = item.substringAfter(':')
             handler.postDelayed({
                 player.pause()
+                if (reattach && index == 1) {
+                    val parent = video.parent as LinearLayout
+                    val layout = video.layoutParams
+                    parent.removeView(video)
+                    parent.addView(video, 0, layout)
+                    Log.i("lychee-example",
+                        "reattached video view seekable_start=${player.seekableRangeMs?.first ?: -1}")
+                }
                 val deadline = SystemClock.elapsedRealtime() + 5_000
                 fun capture() {
                     video.snapshot { bitmap, pts ->
@@ -220,13 +228,6 @@ class MainActivity : Activity() {
                                 "paused snapshot: position=${player.positionMs} " +
                                     "playing=${player.isPlaying} seeks=${stats.seekCount} " +
                                     "seekable=${player.isSeekable} decoder=${stats.videoDecoder}")
-                            if (index == 0) {
-                                val parent = video.parent as LinearLayout
-                                val layout = video.layoutParams
-                                parent.removeView(video)
-                                parent.addView(video, 0, layout)
-                                Log.i("lychee-example", "reattached video view")
-                            }
                         } else if (intent.getBooleanExtra("snapshot_pause", false)) {
                             val location = IntArray(2)
                             video.getLocationOnScreen(location)

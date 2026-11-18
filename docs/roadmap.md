@@ -110,11 +110,11 @@ building on top of them.
   publishing the track list. A stalled optional rendition should not
   delay playback of the initial group.
 
-- **Android paused Surface frame after input eviction.** A replacement
-  Surface can redraw the frame while its source remains seekable at that PTS
-  or the sequential input's packet history still covers it. Done when it
-  can also redraw after the paused frame's GOP has left the packet history
-  or the live playlist window.
+- **Android paused Surface frame beyond the replay budget.** The decoder
+  retains the displayed GOP across source eviction, up to 64 MiB and
+  4096 packets. Done when a replacement Surface can also redraw if that
+  GOP exceeds the budget and the source cannot read it again. That needs a
+  retained image because MediaCodec's submitted output buffer is gone.
 
 - **HTTP-FLV restart on macOS CI** (2026-11-11, run 42938537741):
   `http-flv-live-restart` with the shipped FFmpeg decoded only 120 of

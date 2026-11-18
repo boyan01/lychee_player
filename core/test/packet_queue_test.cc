@@ -82,6 +82,59 @@ TEST(PacketQueue, FlushStartsNewGeneration) {
   EXPECT_EQ(entry.packet->dts, 5000);
 }
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(PacketQueue, ReplaysDisplayedGopBeforeUnreadPackets) {
+  PacketQueue queue;
+  queue.SetReplayLimits(100, 10);
+  for (int64_t pts = 0; pts < 4000; pts += 1000) {
+    auto packet = MakePacket(pts, 10);
+    packet->keyframe = pts % 2000 == 0;
+    queue.Push(std::move(packet));
+  }
+  queue.Push(EncodedPacket::CreateEndOfStream(0));
+  PacketQueue::Entry entry;
+  EXPECT_TRUE(queue.Pop(&entry));
+  EXPECT_TRUE(queue.Pop(&entry));
+  queue.SetReplayAnchor(0, 1000);
+  // The decoder has started the next GOP before it is presented.
+  EXPECT_TRUE(queue.Pop(&entry));
+  const bool replayed = queue.Replay(1000, 7);
+  EXPECT_TRUE(replayed);
+  if (!replayed || queue.bytes() != 40u) {
+    EXPECT_EQ(queue.bytes(), 40u);
+    return;
+  }
+  for (int64_t pts = 0; pts < 4000; pts += 1000) {
+    EXPECT_TRUE(queue.Pop(&entry));
+    EXPECT_EQ(entry.packet->pts, pts);
+    EXPECT_EQ(entry.generation, 7u);
+  }
+  EXPECT_TRUE(queue.Pop(&entry));
+  EXPECT_TRUE(entry.packet->end_of_stream);
+  EXPECT_EQ(entry.generation, 7u);
+  queue.Flush(8);
+  queue.SetReplayAnchor(7, 1000);
+  EXPECT_TRUE(!queue.Replay(1000, 9));
+}
+
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(PacketQueue, LimitsReplayEvenForEmptyPackets) {
+  PacketQueue queue;
+  queue.SetReplayLimits(100, 3);
+  PacketQueue::Entry entry;
+  for (int64_t pts = 0; pts < 4000; pts += 1000) {
+    auto packet = MakePacket(pts, 0);
+    packet->keyframe = pts % 2000 == 0;
+    queue.Push(std::move(packet));
+    EXPECT_TRUE(queue.Pop(&entry));
+    if (pts == 1000) {
+      queue.SetReplayAnchor(0, pts);
+    }
+  }
+  EXPECT_TRUE(!queue.Replay(1000, 7));
+  EXPECT_TRUE(queue.empty());
+}
+
 TEST(PacketQueue, EndOfStreamHasNoBytes) {
   PacketQueue queue;
   queue.Push(EncodedPacket::CreateEndOfStream(0));

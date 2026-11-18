@@ -495,24 +495,30 @@ void VideoRenderer::Flush(uint64_t generation,
         start_time = std::max(start_time, shown);
       }
     }
-    inherited_shown_end_ = kNoTimestamp;
     end_time_ = kNoTimestamp;
-    generation_ = generation;
-    start_time_ = start_time;
-    exact_start_ = exact_start;
-    frame_rate_estimator_.Restart();
-    // The frame rate survives a seek; cadence detection need not restart.
-    algorithm_.Reset(
-        VideoRendererAlgorithm::ResetFlag::kPreserveNextFrameEstimates);
-    selected_.reset();
-    selected_vsync_ = kNoTimestamp;
-    current_stale_ = true;
-    first_frame_pending_ = true;
-    end_of_stream_ = false;
-    // Frames given back can let a decoder waiting for output buffers go on.
-    drained_since_ = kNoTimestamp;
+    FlushFramesLocked(generation, start_time, exact_start);
   }
   condition_.notify_all();
+}
+
+void VideoRenderer::FlushFramesLocked(uint64_t generation,
+                                      int64_t start_time,
+                                      bool exact_start) {
+  inherited_shown_end_ = kNoTimestamp;
+  generation_ = generation;
+  start_time_ = start_time;
+  exact_start_ = exact_start;
+  frame_rate_estimator_.Restart();
+  // The frame rate survives a seek; cadence detection need not restart.
+  algorithm_.Reset(
+      VideoRendererAlgorithm::ResetFlag::kPreserveNextFrameEstimates);
+  selected_.reset();
+  selected_vsync_ = kNoTimestamp;
+  current_stale_ = true;
+  first_frame_pending_ = true;
+  end_of_stream_ = false;
+  // Frames given back can let a decoder waiting for output buffers go on.
+  drained_since_ = kNoTimestamp;
 }
 
 int64_t VideoRenderer::shown_end() const {
@@ -530,6 +536,20 @@ int64_t VideoRenderer::shown_surface_pts() const {
     return current_->pts;
   }
   return kNoTimestamp;
+}
+
+bool VideoRenderer::ReplaySurfaceFrame(uint64_t generation, int64_t pts) {
+  {
+    // OnFrame() cannot see the new queue generation with the old frame
+    // selection still installed.
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!queue_->Replay(pts, generation)) {
+      return false;
+    }
+    FlushFramesLocked(generation, pts, true);
+  }
+  condition_.notify_all();
+  return true;
 }
 
 void VideoRenderer::ContinueFrom(int64_t shown_end) {
@@ -729,6 +749,9 @@ std::shared_ptr<VideoFrame> VideoRenderer::Acquire(
       frame->present = nullptr;
       current_ = std::move(frame);
       current_stale_ = false;
+      if (current_->storage == VideoFrameStorage::kAndroidSurface) {
+        queue_->SetReplayAnchor(generation_, current_->pts);
+      }
       shown_width_ = current_->width;
       shown_height_ = current_->height;
     }

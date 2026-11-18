@@ -7,6 +7,45 @@ void PacketQueue::SetLowWater(int64_t duration, std::function<void()> notify) {
   low_water_notify_ = std::move(notify);
 }
 
+void PacketQueue::SetReplayLimits(size_t max_bytes, size_t max_packets) {
+  consumed_.emplace(max_bytes, false, max_packets);
+}
+
+void PacketQueue::SetReplayAnchor(uint64_t generation, int64_t pts) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (consumed_ && generation == generation_) {
+    replay_anchor_ = pts;
+    consumed_->Trim(replay_anchor_);
+  }
+}
+
+bool PacketQueue::Replay(int64_t pts, uint64_t generation) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!consumed_ || consumed_->packets().empty() || pts != replay_anchor_) {
+      return false;
+    }
+    const auto& packets = consumed_->packets();
+    const EncodedPacket& start = *packets.front();
+    const int64_t first_time =
+        start.pts != kNoTimestamp ? start.pts : start.dts;
+    if (first_time == kNoTimestamp || first_time > pts) {
+      return false;
+    }
+    for (auto& entry : entries_) {
+      entry.generation = generation;
+    }
+    for (auto it = packets.rbegin(); it != packets.rend(); ++it) {
+      bytes_ += (*it)->size();
+      entries_.push_front({*it, generation});
+    }
+    generation_ = generation;
+    consumed_->Clear();
+  }
+  condition_.notify_one();
+  return true;
+}
+
 void PacketQueue::Push(std::shared_ptr<EncodedPacket> packet) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -29,6 +68,9 @@ bool PacketQueue::Pop(Entry* entry) {
     *entry = std::move(entries_.front());
     entries_.pop_front();
     bytes_ -= entry->packet->size();
+    if (consumed_) {
+      consumed_->Push(entry->packet, replay_anchor_);
+    }
     consumer_busy_ = true;
     low = low_water_notify_ && before >= low_water_ &&
           DurationLocked() < low_water_;
@@ -41,9 +83,7 @@ bool PacketQueue::Pop(Entry* entry) {
 
 void PacketQueue::Flush(uint64_t generation) {
   std::lock_guard<std::mutex> lock(mutex_);
-  entries_.clear();
-  bytes_ = 0;
-  generation_ = generation;
+  ClearLocked(generation);
 }
 
 void PacketQueue::Abort() {
@@ -56,11 +96,19 @@ void PacketQueue::Abort() {
 
 void PacketQueue::Reset(uint64_t generation) {
   std::lock_guard<std::mutex> lock(mutex_);
-  entries_.clear();
-  bytes_ = 0;
-  generation_ = generation;
+  ClearLocked(generation);
   aborted_ = false;
   consumer_busy_ = false;
+}
+
+void PacketQueue::ClearLocked(uint64_t generation) {
+  entries_.clear();
+  if (consumed_) {
+    consumed_->Clear();
+  }
+  replay_anchor_ = kNoTimestamp;
+  bytes_ = 0;
+  generation_ = generation;
 }
 
 bool PacketQueue::empty() const {

@@ -4,8 +4,12 @@
 
 namespace lychee {
 
-PacketHistory::PacketHistory(size_t max_bytes, bool every_packet_starts)
-    : max_bytes_(max_bytes), every_packet_starts_(every_packet_starts) {}
+PacketHistory::PacketHistory(size_t max_bytes,
+                             bool every_packet_starts,
+                             size_t max_packets)
+    : max_bytes_(max_bytes),
+      every_packet_starts_(every_packet_starts),
+      max_packets_(max_packets) {}
 
 void PacketHistory::Push(std::shared_ptr<EncodedPacket> packet,
                          int64_t position) {
@@ -17,19 +21,23 @@ void PacketHistory::Push(std::shared_ptr<EncodedPacket> packet,
   }
   bytes_ += packet->size();
   packets_.push_back(std::move(packet));
-  if (position != kNoTimestamp) {
-    for (size_t next = NextStart(); next < packets_.size();
-         next = NextStart()) {
-      const EncodedPacket& start = *packets_[next];
-      const int64_t time = start.pts != kNoTimestamp ? start.pts : start.dts;
-      if (time == kNoTimestamp || time > position) {
-        break;
-      }
-      DropFront(next);
-    }
-  }
-  while (bytes_ > max_bytes_) {
+  Trim(position);
+  while (bytes_ > max_bytes_ || packets_.size() > max_packets_) {
     DropFront(NextStart());
+  }
+}
+
+void PacketHistory::Trim(int64_t position) {
+  if (position == kNoTimestamp) {
+    return;
+  }
+  for (size_t next = NextStart(); next < packets_.size(); next = NextStart()) {
+    const EncodedPacket& start = *packets_[next];
+    const int64_t time = start.pts != kNoTimestamp ? start.pts : start.dts;
+    if (time == kNoTimestamp || time > position) {
+      break;
+    }
+    DropFront(next);
   }
 }
 

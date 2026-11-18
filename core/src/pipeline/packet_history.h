@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <limits>
 #include <memory>
 
 #include "media/encoded_packet.h"
@@ -18,13 +19,17 @@ namespace lychee {
 class PacketHistory {
  public:
   // |every_packet_starts|: a decoder can start at any packet (audio).
-  // Past |max_bytes| the oldest packets go, up to the next keyframe.
-  PacketHistory(size_t max_bytes, bool every_packet_starts);
+  // Past either limit the oldest packets go, up to the next keyframe.
+  PacketHistory(size_t max_bytes,
+                bool every_packet_starts,
+                size_t max_packets = std::numeric_limits<size_t>::max());
 
   // Adds |packet| and drops what a decoder starting at |position| does not
   // need: the packets before the last keyframe at or before it. Packets
   // before the first keyframe are not kept.
   void Push(std::shared_ptr<EncodedPacket> packet, int64_t position);
+  // Drops packets before the last keyframe at or before |position|.
+  void Trim(int64_t position);
   void Clear();
 
   // Oldest first, starting with a keyframe.
@@ -41,6 +46,7 @@ class PacketHistory {
 
   const size_t max_bytes_;
   const bool every_packet_starts_;
+  const size_t max_packets_;
   std::deque<std::shared_ptr<EncodedPacket>> packets_;
   size_t bytes_ = 0;
   // Packets ever pushed and kept, numbered from 0: the number of the

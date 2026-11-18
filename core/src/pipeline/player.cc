@@ -35,6 +35,8 @@ std::string NoPlayableStream(const MediaInfo& info) {
 constexpr int64_t kMinQueuedDuration = 3 * kMicrosPerSecond;
 // ...unless the queues already hold this many bytes.
 constexpr size_t kMaxQueuedBytes = size_t{64} * 1024 * 1024;
+// Same byte budget as the read queue, plus a bound on tiny packets.
+constexpr size_t kMaxSurfaceReplayPackets = 4096;
 // The read thread refills queues that hold enough at most this often, in
 // batches; one drained below kReadWakeDuration wakes it at once (media
 // plays faster than real time on the virtual clock), and so do seeks and
@@ -156,6 +158,10 @@ thread_local const Player* t_control_thread_player = nullptr;
 
 Player::Player(const PlayerConfig& config)
     : config_(config), video_device_(config.video_device) {
+  if (config_.video_frame_types &
+      static_cast<uint32_t>(VideoFrameStorage::kAndroidSurface)) {
+    video_queue_.SetReplayLimits(kMaxQueuedBytes, kMaxSurfaceReplayPackets);
+  }
   // On a decode thread, which holds no lock then; it takes |mutex_|, so no
   // thread may wait for a decode thread while it holds that. Taking it
   // means the read thread has either yet to check the queues or is
@@ -1115,9 +1121,6 @@ void Player::SetVideoSurface(void* surface) {
       if (pts != kNoTimestamp) {
         // Its MediaCodec buffer was already released to the old Surface.
         track_request_.redraw_surface_pts = pts;
-        if (media_info_.seekable) {
-          demuxer_->Interrupt();
-        }
         condition_.notify_all();
       }
     }
@@ -2051,14 +2054,7 @@ void Player::Run(const std::string& url) {
       if (join_ && !reading_ && clock_.Now() >= join_->at) {
         crossed = CrossLocked();
       }
-      if (!media_info_.seekable &&
-          track_request_.redraw_surface_pts != kNoTimestamp) {
-        const int64_t pts =
-            std::exchange(track_request_.redraw_surface_pts, kNoTimestamp);
-        if (!play_when_ready_ && !seek_pending_ && !track_request_.pending()) {
-          RedrawVideoFromHistoryLocked(pts);
-        }
-      }
+      RestoreSurfaceFrameLocked();
       if (live_) {
         if (live_change_.pending() || track_request_.pending()) {
           seek = true;
@@ -2656,13 +2652,13 @@ void Player::ReadPacket() {
   const int64_t offset =
       join ? join->base : item_base_ + (loops_ ? loops_ * loop_length_ : 0);
   if (result != DemuxerReadResult::kOk) {
-    std::lock_guard<std::mutex> lock(mutex_);
     if (video_stream >= 0) {
       video_queue_.Push(EncodedPacket::CreateEndOfStream(video_stream));
     }
     if (audio_stream >= 0) {
       audio_queue_.Push(EncodedPacket::CreateEndOfStream(audio_stream));
     }
+    std::lock_guard<std::mutex> lock(mutex_);
     end_of_input_ = true;
     if (result == DemuxerReadResult::kError) {
       input_error_ = demuxer_->error();
@@ -2697,9 +2693,8 @@ void Player::ReadPacket() {
       packet->dts += offset;
     }
   }
-  auto history = histories_.find(packet->stream_index);
-  if (history != histories_.end() && packet->stream_index != video_stream) {
-    history->second.Push(packet, clock_.Now());
+  if (auto it = histories_.find(packet->stream_index); it != histories_.end()) {
+    it->second.Push(packet, clock_.Now());
   }
   download_rate_.store(demuxer_->download_rate(), std::memory_order_relaxed);
   const int variant = demuxer_->current_variant();
@@ -2707,12 +2702,9 @@ void Player::ReadPacket() {
   if (packet->stream_index == video_stream) {
     video_bytes_read_.fetch_add(static_cast<int64_t>(packet->size()),
                                 std::memory_order_relaxed);
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (history != histories_.end()) {
-      history->second.Push(packet, clock_.Now());
-    }
     video_queue_.Push(std::move(packet));
     if (pts != kNoTimestamp) {
+      std::lock_guard<std::mutex> lock(mutex_);
       video_last_pts_ = std::max(video_last_pts_, pts);
       auto& switches = join ? join->variant_switches : variant_switches_;
       if (variant >= 0 &&
@@ -2860,27 +2852,37 @@ void Player::SetLoopSpan() {
   }
 }
 
-void Player::RedrawVideoFromHistoryLocked(int64_t pts) {
-  auto history = histories_.find(video_stream_);
-  if (history == histories_.end()) {
+void Player::RestoreSurfaceFrameLocked() {
+  const int64_t pts =
+      std::exchange(track_request_.redraw_surface_pts, kNoTimestamp);
+  if (pts == kNoTimestamp || play_when_ready_ || !video_renderer_) {
     return;
   }
-  const auto& packets = history->second.packets();
-  // A read-ahead GOP or the memory limit can displace the displayed frame.
-  // In that case keep the queued video intact for the next play.
-  if (std::none_of(packets.begin(), packets.end(), [pts](const auto& packet) {
-        return (packet->pts != kNoTimestamp ? packet->pts : packet->dts) == pts;
-      })) {
+  // Pause() may have only set the requested state. Freeze the clock and
+  // start fading audio out before a replay or a fallback seek can block.
+  ApplyPlayingLocked();
+  if (seek_pending_ || track_request_.video != kUnchanged) {
     return;
   }
-  video_renderer_->Flush(++generation_, pts, false, true);
-  video_queue_.Flush(generation_);
-  for (const auto& packet : packets) {
-    video_queue_.Push(packet);
+  if (!track_request_.pending() &&
+      video_renderer_->ReplaySurfaceFrame(generation_ + 1, pts)) {
+    ++generation_;
+    return;
   }
-  if (end_of_input_) {
-    video_queue_.Push(EncodedPacket::CreateEndOfStream(video_stream_));
+  if (!media_info_.seekable) {
+    return;
   }
+  // A very large GOP can exceed the cache. Seek only if its source can
+  // still serve this position.
+  if (LiveWindow window; LiveWindowLocked(&window)) {
+    const int64_t position =
+        pts - LoopOffsetLocked(pts) - media_info_.start_time;
+    if (position < window.start || position > window.end) {
+      return;
+    }
+  }
+  track_request_.redraw_surface_pts = pts;
+  demuxer_->Interrupt();
 }
 
 void Player::ProcessSeek(int64_t target,

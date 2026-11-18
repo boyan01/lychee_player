@@ -78,6 +78,8 @@ class VideoRenderer {
   int64_t shown_end() const;
   // The displayed (already submitted) MediaCodec frame, if it has a PTS.
   int64_t shown_surface_pts() const;
+  // Replays the displayed frame from the queue's consumed packets.
+  bool ReplaySurfaceFrame(uint64_t generation, int64_t pts);
   // A renderer replacing another: what it showed, for Flush().
   void ContinueFrom(int64_t shown_end);
 
@@ -187,6 +189,9 @@ class VideoRenderer {
               uint64_t generation,
               int64_t* waited);
   void OnFrame(std::shared_ptr<VideoFrame> frame, uint64_t generation);
+  void FlushFramesLocked(uint64_t generation,
+                         int64_t start_time,
+                         bool exact_start);
   std::shared_ptr<VideoFrame> Adapt(const std::shared_ptr<VideoFrame>& frame);
   // The frame to show at |display_time|. Runs the algorithm once per vsync
   // interval; later calls within the same interval get the same answer.

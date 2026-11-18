@@ -21,7 +21,8 @@
 * Android: Audio retries failed starts and resumes automatically if a
   new output route is temporarily unavailable.
 * Android: Reattaching a `LycheePlayerView` during a pause shows the same
-  MediaCodec frame when it is still seekable or buffered.
+  MediaCodec frame, including when a live HLS window has moved past the
+  paused position and the frame is still buffered for replay.
 * Android: Cancelling a thumbnail request stops the wait for a MediaCodec
   input buffer. The same thumbnailer can be used again.
 * Manually switching HLS variants uses the new variant's audio group and
