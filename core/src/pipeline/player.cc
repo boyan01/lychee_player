@@ -2396,9 +2396,11 @@ void Player::ChangeTracks(const TrackRequest& request) {
     }
     video_queue_.Abort();
     int64_t shown_end = kNoTimestamp;
+    VideoDevice::Type previous_device_type = VideoDevice::Type::kNone;
     if (old) {
       old->Stop();
       shown_end = old->shown_end();
+      previous_device_type = old->device().type;
       old.reset();
     }
     video_queue_.Reset(generation_);
@@ -2408,7 +2410,13 @@ void Player::ChangeTracks(const TrackRequest& request) {
       video = CreateVideoRenderer(media_info_.streams[video_stream], &error);
     }
     if (video) {
-      if (!request.new_item) {
+      // The caller may have cleared its DRM binding because the acquired
+      // frame could not be drawn. Replay the picture at the current
+      // position, even if it is the last frame and playback is paused.
+      const bool dropping_dmabuf =
+          previous_device_type == VideoDevice::Type::kDrmRenderNode &&
+          video->device().type == VideoDevice::Type::kNone;
+      if (!request.new_item && !dropping_dmabuf) {
         video->ContinueFrom(shown_end);
       }
     }

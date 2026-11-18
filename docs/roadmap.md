@@ -115,10 +115,6 @@ building on top of them.
   can also redraw after the paused frame's GOP has left the packet history
   or the live playlist window.
 
-- **Linux Flutter dmabuf import failure** can leave video frozen while
-  audio continues. Video should resume with displayable frames when EGL
-  rejects a plane layout that VAAPI exported.
-
 - **Android thumbnail cancellation during decode** is fixed when a
   MediaCodec decoder stalled waiting for an input buffer can be cancelled
   or destroyed promptly and a new request succeeds after cancellation.

@@ -46,6 +46,7 @@ constexpr uint32_t Fourcc(char a, char b, char c, char d) {
 }
 // drm_fourcc.h, which is not always installed.
 constexpr uint32_t kDrmFormatP010 = Fourcc('P', '0', '1', '0');
+constexpr uint32_t kDrmFormatNv12 = Fourcc('N', 'V', '1', '2');
 constexpr uint32_t kDrmFormatR8 = Fourcc('R', '8', ' ', ' ');
 constexpr uint32_t kDrmFormatGR88 = Fourcc('G', 'R', '8', '8');
 constexpr uint32_t kDrmFormatR16 = Fourcc('R', '1', '6', ' ');
@@ -395,6 +396,8 @@ struct _LycheeTexture {
   GMutex mutex;
   lychee_player* player;      // Guarded by mutex; NULL for none.
   int64_t next_display_time;  // Guarded by mutex.
+  uint64_t attachment;        // Guarded by mutex.
+  bool dmabuf_disabled;       // For this attachment, guarded by mutex.
   // For the plugin's own textures, the player Dart created it for, even
   // after it was unset: the plugin destroys it when Dart, which owns it, is
   // gone. NULL for host textures, whose players the app owns.
@@ -490,9 +493,27 @@ static gboolean lychee_texture_initialize_program(LycheeTexture* self) {
   return TRUE;
 }
 
-// Uploads a CPU RGBA frame into |gl.output|, bound.
+static void lychee_texture_bind_output(LycheeTexture* self,
+                                       int32_t width,
+                                       int32_t height) {
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, self->gl.output);
+  if (width != self->width || height != self->height) {
+    if (epoxy_gl_version() >= 30) {
+      glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    }
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, nullptr);
+    self->width = width;
+    self->height = height;
+  }
+}
+
+// Uploads a CPU RGBA frame into |gl.output|.
 static gboolean lychee_texture_upload(LycheeTexture* self,
-                                      lychee_frame* frame) {
+                                      lychee_frame* frame,
+                                      int32_t width,
+                                      int32_t height) {
   int32_t stride = 0;
   const uint8_t* data = lychee_frame_get_type(frame) == LYCHEE_FRAME_CPU_RGBA
                             ? lychee_frame_get_data(frame, &stride)
@@ -500,6 +521,7 @@ static gboolean lychee_texture_upload(LycheeTexture* self,
   if (!data) {
     return FALSE;
   }
+  lychee_texture_bind_output(self, width, height);
   const size_t row = static_cast<size_t>(self->width) * 4;
   const bool es3 = epoxy_gl_version() >= 30;
   if (es3) {
@@ -531,14 +553,20 @@ static gboolean lychee_texture_upload(LycheeTexture* self,
 
 // Imports the planes of |dmabuf| and converts them into |gl.output|.
 static gboolean lychee_texture_convert(LycheeTexture* self,
-                                       const lychee_dmabuf* dmabuf) {
+                                       const lychee_dmabuf* dmabuf,
+                                       int32_t width,
+                                       int32_t height) {
+  const EGLDisplay display = eglGetCurrentDisplay();
+  const bool ten_bit = dmabuf && dmabuf->fourcc == kDrmFormatP010;
   // libepoxy aborts on calls the context cannot make.
-  if (dmabuf->plane_count != 2 || !epoxy_has_gl_extension("GL_OES_EGL_image") ||
+  if (!dmabuf || dmabuf->plane_count != 2 ||
+      (!ten_bit && dmabuf->fourcc != kDrmFormatNv12) ||
+      display == EGL_NO_DISPLAY ||
+      !epoxy_has_egl_extension(display, "EGL_EXT_image_dma_buf_import") ||
+      !epoxy_has_gl_extension("GL_OES_EGL_image") ||
       !lychee_texture_initialize_program(self)) {
     return FALSE;
   }
-  const EGLDisplay display = eglGetCurrentDisplay();
-  const bool ten_bit = dmabuf->fourcc == kDrmFormatP010;
   const uint32_t formats[2] = {ten_bit ? kDrmFormatR16 : kDrmFormatR8,
                                ten_bit ? kDrmFormatGR1616 : kDrmFormatGR88};
   const bool modifiers = dmabuf->modifier != kDrmFormatModInvalid &&
@@ -577,19 +605,28 @@ static gboolean lychee_texture_convert(LycheeTexture* self,
     images[i] = eglCreateImageKHR(display, EGL_NO_CONTEXT,
                                   EGL_LINUX_DMA_BUF_EXT, nullptr, attributes);
     ok = images[i] != EGL_NO_IMAGE_KHR;
-    if (ok) {
-      glActiveTexture(GL_TEXTURE0 + i);
-      glBindTexture(GL_TEXTURE_2D, self->gl.planes[i]);
-      glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, images[i]);
+    if (!ok) {
+      g_debug(
+          "lychee_player: EGL rejected dmabuf plane %d (format %#x, "
+          "modifier %#" G_GINT64_MODIFIER "x, error %#x)",
+          i, formats[i], static_cast<guint64>(dmabuf->modifier),
+          static_cast<unsigned>(eglGetError()));
     }
   }
   if (ok) {
+    // Keep the last picture and its size if EGL rejects either plane.
+    lychee_texture_bind_output(self, width, height);
     glBindFramebuffer(GL_FRAMEBUFFER, self->gl.framebuffer);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
                            self->gl.output, 0);
     ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
   }
   if (ok) {
+    for (int i = 0; i < 2; ++i) {
+      glActiveTexture(GL_TEXTURE0 + i);
+      glBindTexture(GL_TEXTURE_2D, self->gl.planes[i]);
+      glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, images[i]);
+    }
     GLfloat offset[3];
     GLfloat matrix[9];
     YuvToRgb(dmabuf, offset, matrix);
@@ -645,20 +682,29 @@ static gboolean lychee_texture_draw(LycheeTexture* self, lychee_frame* frame) {
   if (width <= 0 || height <= 0) {
     return FALSE;
   }
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, self->gl.output);
-  if (width != self->width || height != self->height) {
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
-                 GL_UNSIGNED_BYTE, nullptr);
-    self->width = width;
-    self->height = height;
-  }
   if (lychee_frame_get_type(frame) == LYCHEE_FRAME_DMABUF) {
     return lychee_texture_convert(self,
                                   static_cast<const lychee_dmabuf*>(
-                                      lychee_frame_get_native_handle(frame)));
+                                      lychee_frame_get_native_handle(frame)),
+                                  width, height);
   }
-  return lychee_texture_upload(self, frame);
+  return lychee_texture_upload(self, frame, width, height);
+}
+
+static void lychee_texture_fallback(LycheeTexture* self, uint64_t attachment) {
+  g_mutex_lock(&self->mutex);
+  if (!self->player || attachment != self->attachment ||
+      self->dmabuf_disabled) {
+    g_mutex_unlock(&self->mutex);
+    return;
+  }
+  self->dmabuf_disabled = true;
+  // The control thread rebuilds at the current position. VAAPI can
+  // still decode, but without a DRM device binding it returns CPU RGBA.
+  lychee_player_set_video_device(self->player, nullptr);
+  g_mutex_unlock(&self->mutex);
+  g_warning(
+      "lychee_player: cannot draw dmabuf frames, falling back to CPU RGBA");
 }
 
 static gboolean lychee_texture_populate(FlTextureGL* texture,
@@ -687,6 +733,7 @@ static gboolean lychee_texture_populate(FlTextureGL* texture,
   lychee_frame* frame = nullptr;
   g_mutex_lock(&self->mutex);
   const bool has_player = self->player != nullptr;
+  const uint64_t attachment = self->attachment;
   if (has_player) {
     int64_t display_time = self->next_display_time;
     const int64_t now = lychee_now_us();
@@ -722,7 +769,9 @@ static gboolean lychee_texture_populate(FlTextureGL* texture,
     }
     self->frame = frame;
   } else if (frame) {
-    if (!self->logged_error) {
+    if (lychee_frame_get_type(frame) == LYCHEE_FRAME_DMABUF) {
+      lychee_texture_fallback(self, attachment);
+    } else if (!self->logged_error) {
       self->logged_error = TRUE;
       g_warning("lychee_player: cannot draw frames of type %d",
                 lychee_frame_get_type(frame));
@@ -825,6 +874,11 @@ static LycheeTexture* lychee_texture_new(FlTextureRegistrar* registrar) {
 // under the mutex.
 static void lychee_texture_swap_player(LycheeTexture* self,
                                        lychee_player* player) {
+  g_mutex_lock(&self->mutex);
+  if (self->player == player) {
+    g_mutex_unlock(&self->mutex);
+    return;
+  }
   if (player && self->render_node) {
     lychee_video_device video_device = {};
     video_device.struct_size = sizeof(video_device);
@@ -832,8 +886,9 @@ static void lychee_texture_swap_player(LycheeTexture* self,
     video_device.path = self->render_node;
     lychee_player_set_video_device(player, &video_device);
   }
-  g_mutex_lock(&self->mutex);
   self->player = player;
+  ++self->attachment;
+  self->dmabuf_disabled = false;
   g_mutex_unlock(&self->mutex);
 }
 

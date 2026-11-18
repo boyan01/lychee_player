@@ -12,6 +12,8 @@
   image download so the operation can finish promptly.
 * Playback waits for the last samples queued to the audio device before
   reporting that an item has ended or switching to the next item.
+* Linux: Video switches to CPU frames if Flutter's graphics driver rejects
+  a hardware-decoded frame, including while paused.
 * Linux: Multiple Flutter builds can populate a shared FFmpeg cache
   concurrently without failing during configuration.
 * Switching directly between playback speeds preserves the position and
