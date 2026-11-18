@@ -353,22 +353,60 @@ TEST(CApi, ClearEventCallbackWaitsForTheCallback) {
   EXPECT_EQ(test.inside.load(), seen);
 }
 
-void ClearFromCallback(void* user_data, int32_t, int64_t, int64_t) {
-  auto* player = static_cast<lychee_player*>(user_data);
-  lychee_player_clear_event_callback(player);
+struct ChangedEventCallback {
+  lychee_player* player;
+  bool replace;
+  std::atomic<int> changed{0};
+  int old_errors = 0;
+  int new_errors = 0;
+};
+
+void CountError(void* user_data, int32_t type, int64_t, int64_t) {
+  if (type == LYCHEE_EVENT_ERROR) {
+    ++*static_cast<int*>(user_data);
+  }
 }
 
-// From inside its own callback, the setter must not wait for itself.
-TEST(CApi, ClearEventCallbackFromTheCallback) {
-  Watchdog watchdog("ClearEventCallbackFromTheCallback");
+void ChangeOnErrorState(void* user_data, int32_t type, int64_t arg0, int64_t) {
+  auto* test = static_cast<ChangedEventCallback*>(user_data);
+  if (type == LYCHEE_EVENT_STATE_CHANGED && arg0 == LYCHEE_STATE_ERROR) {
+    if (test->replace) {
+      lychee_player_set_event_callback(test->player, &CountError,
+                                       &test->new_errors);
+    } else {
+      lychee_player_clear_event_callback(test->player);
+    }
+    test->changed = 1;
+  } else if (type == LYCHEE_EVENT_ERROR) {
+    ++test->old_errors;
+  }
+}
+
+void CheckEventCallbackChange(bool replace) {
+  Watchdog watchdog("CheckEventCallbackChange");
   lychee_config config;
   lychee_config_init(&config, sizeof(config));
   config.video_frame_types = 0;
   lychee_player* player = lychee_player_create(&config);
-  lychee_player_set_event_callback(player, &ClearFromCallback, player);
-  lychee_player_open(player, "/nonexistent/f.mp4");
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  ChangedEventCallback test{player, replace};
+  lychee_player_set_event_callback(player, &ChangeOnErrorState, &test);
+  // A failed open queues ERROR state and the error details together.
+  EXPECT_EQ(lychee_player_open(player, "/nonexistent/f.mp4"), 0);
+  WaitFor(test.changed, 1);
+  // Joins the dispatch thread before we read the callback counts.
   lychee_player_destroy(player);
+  EXPECT_EQ(test.old_errors, 0);
+  EXPECT_EQ(test.new_errors, replace ? 1 : 0);
+}
+
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(CApi, ClearEventCallbackFromTheCallback) {
+  CheckEventCallbackChange(false);
+}
+
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
+TEST(CApi, ReplaceEventCallbackFromTheCallback) {
+  CheckEventCallbackChange(true);
 }
 
 }  // namespace

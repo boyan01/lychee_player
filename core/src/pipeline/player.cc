@@ -338,10 +338,12 @@ void Player::SetEventCallback(EventCallback callback, void* user_data) {
   std::unique_lock<std::mutex> lock(mutex_);
   event_callback_ = callback;
   event_user_data_ = user_data;
-  // The events being handed out use the old callback. From inside it,
-  // waiting would never end.
-  if (t_control_thread_player != this) {
-    condition_.wait(lock, [this] { return !dispatching_; });
+  // Wait only for the call in flight, even if the new callback gets the
+  // next event before this thread wakes. From inside, do not wait for self.
+  if (dispatching_ && t_control_thread_player != this) {
+    const uint64_t dispatched = dispatched_events_;
+    condition_.wait(
+        lock, [this, dispatched] { return dispatched_events_ != dispatched; });
   }
 }
 
@@ -3324,27 +3326,23 @@ void Player::PostEventLocked(PlayerEvent type, int64_t arg0, int64_t arg1) {
 
 void Player::DispatchEvents() {
   std::vector<Event> events;
-  EventCallback callback;
-  void* user_data;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    events.swap(events_);
-    callback = event_callback_;
-    user_data = event_user_data_;
-    if (!callback || events.empty()) {
-      return;
-    }
-    dispatching_ = true;
-  }
+  std::unique_lock<std::mutex> lock(mutex_);
+  events.swap(events_);
   for (const Event& event : events) {
+    const EventCallback callback = event_callback_;
+    if (!callback) {
+      break;
+    }
+    void* const user_data = event_user_data_;
+    dispatching_ = true;
+    lock.unlock();
     callback(user_data, static_cast<int32_t>(event.type), event.arg0,
              event.arg1);
-  }
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
+    lock.lock();
     dispatching_ = false;
+    ++dispatched_events_;
+    condition_.notify_all();
   }
-  condition_.notify_all();
 }
 
 void Player::FailLocked(const std::string& error) {

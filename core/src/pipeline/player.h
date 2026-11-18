@@ -610,8 +610,9 @@ class Player {
   EventCallback event_callback_ = nullptr;
   void* event_user_data_ = nullptr;
   std::vector<Event> events_;
-  // DispatchEvents() is handing events to the callback.
+  // Event callback calls in flight and completed, respectively.
   bool dispatching_ = false;
+  uint64_t dispatched_events_ = 0;
   PlayerState state_ = PlayerState::kIdle;
   bool play_when_ready_ = false;
   bool clock_running_ = false;

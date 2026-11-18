@@ -16,6 +16,8 @@
   cleanly, including A-law and μ-law audio with the same sample rate.
 * Apps can read playback statistics and the playing variant safely while
   closing or reopening a player.
+* The C event callback can replace or unregister itself. Later events use
+  the updated registration.
 * Queued HLS and DASH items now expose their own quality options when
   playback reaches them. A query during the transition returns the track
   and selection for the same item. Automatic selection respects the

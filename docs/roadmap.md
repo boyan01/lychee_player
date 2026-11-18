@@ -126,10 +126,6 @@ building on top of them.
   information. A synchronously rejected open should preserve the current
   item's metadata and pending subtitle requests.
 
-- **Replacing or clearing a C event callback from inside it** can deliver
-  later events in the same batch to the old registration. Those events
-  should use the registration in effect after the first callback returns.
-
 - **Concurrent Linux Flutter builds** can lose the downloaded FFmpeg
   directory while populating a shared empty cache. Two such builds
   should both finish and resolve a complete set of libraries.
