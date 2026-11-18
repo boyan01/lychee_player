@@ -107,10 +107,6 @@ building on top of them.
   previous group's audio. Switching should select and fetch the target
   group's matching rendition as it does when opening that variant.
 
-- **Audio can end while the device still holds its final samples.** On a
-  delayed output, the ended event and sink stop should wait until the
-  last scheduled sample has played, including for audio-only media.
-
 - **Switching directly between two non-unit playback rates** can jump the
   audio clock. A switch from 0.5x to 4x should preserve the position of
   audio already queued at the old rate.

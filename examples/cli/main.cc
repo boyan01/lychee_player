@@ -2456,6 +2456,12 @@ int main(int argc, char** argv) {
       break;
     }
     if (state == LYCHEE_STATE_ENDED) {
+      if (options.virtual_time) {
+        const int64_t end = lychee_testing_last_playout_end_us();
+        if (end != INT64_MIN) {
+          printf("audio tail: ended %" PRId64 " us after playout\n", now - end);
+        }
+      }
       break;
     }
     if (stalls >= kMaxStalls) {

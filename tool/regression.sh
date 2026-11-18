@@ -1502,6 +1502,8 @@ fi
 par expect loop-ts "video size 640x360" "loops=1" "summary:.*backward_jumps=0 " "<=0 event: state (ended|buffering)" -- \
   --loop --seconds 9 "$media/resolution_change.ts"
 par check seek-audio    - - -- --seek 3 --seek-after 1 "$media/audio_only.mp3"
+par expect audio-drain "audio tail: ended [0-9]{1,5} us after playout" \
+  "summary: state=ended position=8\.000s" -- "$media/audio_float.wav"
 
 # Playback rate. Drift (position vs. wall clock times the rate) stays small
 # only if both the clock and the WSOLA output follow the rate.

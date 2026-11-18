@@ -10,6 +10,8 @@
   track when the format is recognized, even if another track comes first.
 * Closing or seeking HLS playback cancels an in-progress IMSC subtitle
   image download so the operation can finish promptly.
+* Playback waits for the last samples queued to the audio device before
+  reporting that an item has ended or switching to the next item.
 * Queued items that need a different decoder configuration now switch
   cleanly, including A-law and μ-law audio with the same sample rate.
 * Apps can read playback statistics and the playing variant safely while

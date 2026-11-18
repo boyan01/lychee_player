@@ -54,6 +54,9 @@ LYCHEE_EXPORT void lychee_testing_fail_audio_starts(int32_t count);
 // quiet level (lychee_now_us() timebase), or INT64_MIN. With the volume
 // up, where a clip's sound starts, for its A/V sync.
 LYCHEE_EXPORT int64_t lychee_testing_first_sound_us(void);
+// In virtual time: when the last sample from a silent device has played,
+// in the lychee_now_us() timebase, or INT64_MIN if none was written.
+LYCHEE_EXPORT int64_t lychee_testing_last_playout_end_us(void);
 // From now on, records what the silent devices play, mixed on the
 // lychee_now_us() timeline, with silence where none plays: what a sound
 // card would output, for tool/audio_check.py.

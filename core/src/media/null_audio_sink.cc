@@ -30,6 +30,7 @@ std::vector<NullAudioSink*>& Sinks() {
 }
 // Guarded by g_mutex.
 int64_t g_first_sound = kNoTimestamp;
+int64_t g_last_playout_end = kNoTimestamp;
 // StartCapture(): when the recording starts, kNoTimestamp if not
 // capturing, and the interleaved samples (every sink has the same format).
 int64_t g_capture_start = kNoTimestamp;
@@ -61,6 +62,11 @@ void NullAudioSink::RenderAll(int64_t now) {
 int64_t NullAudioSink::FirstSound() {
   std::lock_guard<std::mutex> lock(g_mutex);
   return g_first_sound;
+}
+
+int64_t NullAudioSink::LastPlayoutEnd() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  return g_last_playout_end;
 }
 
 void NullAudioSink::StartCapture() {
@@ -154,6 +160,12 @@ void NullAudioSink::RenderUntil(int64_t now) {
     const int written =
         std::clamp(callback_(buffer_.data(), kPeriodFrames, playout_time), 0,
                    kPeriodFrames);
+    if (written > 0) {
+      g_last_playout_end =
+          std::max(g_last_playout_end,
+                   playout_time + static_cast<int64_t>(written) *
+                                      kMicrosPerSecond / format_.sample_rate);
+    }
     // As a device does, silence after what the callback wrote.
     std::fill(
         buffer_.begin() + static_cast<ptrdiff_t>(written) * format_.channels,

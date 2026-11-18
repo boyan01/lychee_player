@@ -23,6 +23,8 @@ class NullAudioSink : public AudioSink {
   // NowMicros() timebase, or kNoTimestamp: where a test clip's sound
   // starts, for its A/V sync.
   static int64_t FirstSound();
+  // End of the last buffer's valid samples, in the NowMicros() timebase.
+  static int64_t LastPlayoutEnd();
   // From now on, records what every sink plays, mixed on the NowMicros()
   // timeline: silence where none plays, as a device would output it.
   static void StartCapture();

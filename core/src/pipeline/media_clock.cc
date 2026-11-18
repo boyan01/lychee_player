@@ -145,10 +145,15 @@ void MediaClock::ClearMaxTime() {
   if (max_media_time_ == kInfiniteTime && !waiting_for_audio_) {
     return;
   }
-  // Continue from where audio stopped instead of jumping ahead.
-  int64_t now = NowMicros();
-  anchor_media_time_ = MediaTimeAtLocked(now);
-  anchor_system_time_ = now;
+  // Preserve the playout anchor while the device is still playing queued
+  // samples, even if the first sample has yet to reach the device.
+  // If audio has already stopped or never started, continue from now.
+  const int64_t now = NowMicros();
+  const int64_t media_now = MediaTimeAtLocked(now);
+  if (waiting_for_audio_ || media_now >= max_media_time_) {
+    anchor_media_time_ = media_now;
+    anchor_system_time_ = now;
+  }
   max_media_time_ = kInfiniteTime;
   waiting_for_audio_ = false;
   has_audio_anchor_ = false;

@@ -343,15 +343,18 @@ int AudioRenderer::Render(float* destination,
       fade_in_frames_ = std::min(fade_frames, fade_in_frames_ + filled);
     }
     written = faded + filled;
+    if (from_device && written > 0) {
+      device_playout_end_ = std::max(
+          device_playout_end_,
+          first_playout_time + static_cast<int64_t>(written) *
+                                   kMicrosPerSecond / format_.sample_rate);
+    }
     if (requested == 0) {
       // Paused, or the fade-out filled the buffer: nothing for the clock.
     } else if (filled == 0 && end_of_stream_) {
       // WSOLA keeps less than a window it cannot use: drop it so the stream
-      // can end. Then let video (if any) run on the system clock.
+      // can end.
       algorithm_.FlushBuffers();
-      clock_->ClearMaxTime();
-    } else if (filled == 0 && FramesBeforeEndLocked(rate) == 0) {
-      clock_->ClearMaxTime();
     } else if (const int64_t end_pts = algorithm_.NextOutputTimestamp();
                filled > 0 && end_pts != kNoTimestamp && !live_) {
       // Under the lock: a device taking over from PullForStalledDevice()
@@ -360,14 +363,10 @@ int AudioRenderer::Render(float* destination,
       const int64_t span = static_cast<int64_t>(
           filled * rate * kMicrosPerSecond / format_.sample_rate);
       clock_->UpdateFromAudio(end_pts - span, playout_time, end_pts);
-      // The last of the audio: the clock runs on past its end now, not
-      // from the next pull, which finds nothing. That pull is a device
-      // period later (a vsync on the virtual clock), and the clock would
-      // stand still at the end meanwhile, holding the video frame on
-      // screen.
-      if (end_of_stream_ && algorithm_.BufferedFrames() == 0) {
-        clock_->ClearMaxTime();
-      }
+    }
+    if (playing_ && !live_ && InputDrainedLocked()) {
+      // Let video continue on the same timeline past the audio tail.
+      clock_->ClearMaxTime();
     }
     // PullForStalledDevice() drops what it pulls.
     if (destination) {
@@ -487,6 +486,7 @@ void AudioRenderer::Flush(uint64_t generation, int64_t start_time) {
     live_started_ = false;
     end_time_ = kNoTimestamp;
     end_of_stream_ = false;
+    device_playout_end_ = kNoTimestamp;
   }
   condition_.notify_all();
 }
@@ -526,6 +526,10 @@ void AudioRenderer::UpdateSink(int64_t now) {
   bool retry = false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    // The decoder may report EOS after the last device callback.
+    if (playing_ && !live_ && InputDrainedLocked()) {
+      clock_->ClearMaxTime();
+    }
     // Paused, and the device has played the fade-out, or never took it.
     if (!playing_ && sink_running_ && stop_sink_at_ != kNoTimestamp &&
         now >= stop_sink_at_) {
@@ -556,6 +560,7 @@ void AudioRenderer::UpdateSink(int64_t now) {
   } else if (stop) {
     sink_->Stop();
     std::lock_guard<std::mutex> lock(mutex_);
+    device_playout_end_ = kNoTimestamp;
     sink_started_ = false;
     sink_start_failed_ = false;
   }
@@ -626,6 +631,7 @@ void AudioRenderer::PullForStalledDevice(int64_t now) {
       LOGW("audio device pulled nothing for %lld ms; playing on without it",
            static_cast<long long>((now - device_pull_time_) / kMicrosPerMilli));
       stalled_playout_time_ = now;
+      device_playout_end_ = kNoTimestamp;
     }
     playout_time = stalled_playout_time_;
     frames = static_cast<int>((now + kStalledDeviceLead - playout_time) *
@@ -692,6 +698,13 @@ bool AudioRenderer::IsStarved() const {
 
 bool AudioRenderer::Ended() const {
   std::lock_guard<std::mutex> lock(mutex_);
+  return InputDrainedLocked() && NowMicros() >= device_playout_end_;
+}
+
+bool AudioRenderer::InputDrainedLocked() const {
+  if (fade_out_offset_ < fade_out_frames_) {
+    return false;
+  }
   return (end_of_stream_ && algorithm_.BufferedFrames() == 0) ||
          FramesBeforeEndLocked(rate_.load()) == 0;
 }

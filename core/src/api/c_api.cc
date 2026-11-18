@@ -946,6 +946,11 @@ int64_t lychee_testing_first_sound_us(void) {
   return time == lychee::kNoTimestamp ? INT64_MIN : time;
 }
 
+int64_t lychee_testing_last_playout_end_us(void) {
+  const int64_t time = lychee::NullAudioSink::LastPlayoutEnd();
+  return time == lychee::kNoTimestamp ? INT64_MIN : time;
+}
+
 void lychee_testing_capture_audio(void) {
   lychee::NullAudioSink::StartCapture();
 }

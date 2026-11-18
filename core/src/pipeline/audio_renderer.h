@@ -165,6 +165,7 @@ class AudioRenderer {
   // How long a level change ramps: kFadeDuration while playing.
   int RampFramesLocked() const;
   int64_t BufferedDurationLocked() const;
+  bool InputDrainedLocked() const;
   // Output frames at |rate| left before |end_time_|; INT_MAX without one.
   int FramesBeforeEndLocked(double rate) const;
 
@@ -208,6 +209,8 @@ class AudioRenderer {
   bool stopped_ = false;
   // When the device last pulled, or playing started.
   int64_t device_pull_time_ = 0;
+  // The device may still have samples to play after decoded input drains.
+  int64_t device_playout_end_ = kNoTimestamp;
   std::atomic<int64_t> output_latency_{0};
   // While the device is stalled: when the audio pulled in its place next
   // plays.
