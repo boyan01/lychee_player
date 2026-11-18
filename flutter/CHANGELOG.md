@@ -18,6 +18,8 @@
   closing or reopening a player.
 * The C event callback can replace or unregister itself. Later events use
   the updated registration.
+* Flutter keeps the current item's tracks, artwork and outstanding subtitle
+  requests when `open` rejects the new input immediately.
 * Queued HLS and DASH items now expose their own quality options when
   playback reaches them. A query during the transition returns the track
   and selection for the same item. Automatic selection respects the

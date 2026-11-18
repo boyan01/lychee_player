@@ -122,10 +122,6 @@ building on top of them.
   audio continues. Video should resume with displayable frames when EGL
   rejects a plane layout that VAAPI exported.
 
-- **Flutter open rejection** clears the playing item's track and artwork
-  information. A synchronously rejected open should preserve the current
-  item's metadata and pending subtitle requests.
-
 - **Concurrent Linux Flutter builds** can lose the downloaded FFmpeg
   directory while populating a shared empty cache. Two such builds
   should both finish and resolve a complete set of libraries.

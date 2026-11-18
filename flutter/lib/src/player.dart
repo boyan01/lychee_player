@@ -574,18 +574,18 @@ class LycheePlayer extends ValueNotifier<LycheePlayerValue>
       throw UnsupportedError('HTTP headers need lychee API 21');
     }
     _checkAudioUrls(audioUrls);
+    final result = using((arena) {
+      final nativeUrl = url.toNativeUtf8(allocator: arena).cast<Char>();
+      return openWithOptions == null
+          ? native.playerOpen(_player, nativeUrl)
+          : native.withOpenOptions(lines, audioUrls,
+              (options) => openWithOptions(_player, nativeUrl, options));
+    });
+    if (result != 0) {
+      return;
+    }
     _forgetMedia();
-    final nativeUrl = url.toNativeUtf8();
-    final opened = openWithOptions == null
-        ? native.playerOpen(_player, nativeUrl.cast()) == 0
-        : native.withOpenOptions(
-                lines,
-                audioUrls,
-                (options) =>
-                    openWithOptions(_player, nativeUrl.cast(), options)) ==
-            0;
-    malloc.free(nativeUrl);
-    if (opened && start != null && start > Duration.zero) {
+    if (start != null && start > Duration.zero) {
       // While loading, a seek sets where playback starts.
       native.playerSeek(_player, start.inMicroseconds);
     }
