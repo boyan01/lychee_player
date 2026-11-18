@@ -103,6 +103,58 @@ building on top of them.
 
 ## Known defects
 
+- **Switching to separate audio over HTTP** can stop playback when the
+  FFmpeg-free reader cannot seek. Switching to a WAV served without Range
+  support should let both video and audio play to the end.
+
+- **Closing HLS while an IMSC subtitle image is downloading** waits for
+  the image and can start the next request during close. Closing should
+  interrupt the in-flight fetch and return before the delayed response.
+
+- **Static DASH can lose its final segments** when the last timeline
+  entry repeats to the end of the Period and has a positive presentation
+  time offset. The explicit and open-ended repeats should play the same
+  frames and report the same duration.
+
+- **Manual HLS variant selection across audio groups** keeps playing the
+  previous group's audio. Switching should select and fetch the target
+  group's matching rendition as it does when opening that variant.
+
+- **Audio can end while the device still holds its final samples.** On a
+  delayed output, the ended event and sink stop should wait until the
+  last scheduled sample has played, including for audio-only media.
+
+- **Switching directly between two non-unit playback rates** can jump the
+  audio clock. A switch from 0.5x to 4x should preserve the position of
+  audio already queued at the old rate.
+
+- **AAudio route recovery** stops retrying after a failed reopen. Audio
+  should resume on the new route when it becomes available during playback.
+
+- **Android SDK paused frame on a new Surface.** After reattaching a
+  SurfaceView to the same paused player, the new Surface should display
+  the paused hardware-decoded frame without a play or seek.
+
+- **Linux Flutter dmabuf import failure** can leave video frozen while
+  audio continues. Video should resume with displayable frames when EGL
+  rejects a plane layout that VAAPI exported.
+
+- **Flutter open rejection** clears the playing item's track and artwork
+  information. A synchronously rejected open should preserve the current
+  item's metadata and pending subtitle requests.
+
+- **Replacing or clearing a C event callback from inside it** can deliver
+  later events in the same batch to the old registration. Those events
+  should use the registration in effect after the first callback returns.
+
+- **Concurrent Linux Flutter builds** can lose the downloaded FFmpeg
+  directory while populating a shared empty cache. Two such builds
+  should both finish and resolve a complete set of libraries.
+
+- **Default MP4 audio without FFmpeg** falls back to the first audio
+  track even when only a later track is marked as default. Opening the
+  same file with either backend should select the marked track.
+
 - **Flutter thumbnail disposal before FFI** is fixed when disposing a
   thumbnailer after dispatch but before its worker enters FFI completes
   the request with `null` and promptly releases the native handle even
