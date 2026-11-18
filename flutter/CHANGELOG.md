@@ -1,3 +1,10 @@
+## Unreleased
+
+### Fixed
+
+* Queued items that need a different decoder configuration now switch
+  cleanly, including A-law and μ-law audio with the same sample rate.
+
 ## 1.0.4
 
 ### New

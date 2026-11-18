@@ -567,8 +567,13 @@ bool Player::ContinuesLocked(const MediaInfo& next,
   if (video) {
     const VideoConfig& a = media_info_.streams[video_stream_].video;
     const VideoConfig& b = next.streams[next.default_video_stream].video;
-    if (a.codec != b.codec || a.width != b.width || a.height != b.height ||
-        a.rotation != b.rotation || a.extradata != b.extradata) {
+    if (a.codec == VideoCodec::kUnknown || a.codec != b.codec ||
+        a.codec_name != b.codec_name || a.width != b.width ||
+        a.height != b.height || a.rotation != b.rotation ||
+        a.sar_num != b.sar_num || a.sar_den != b.sar_den ||
+        a.color != b.color || a.frame_rate != b.frame_rate ||
+        a.low_delay != b.low_delay || a.extradata != b.extradata ||
+        !CodecPrivateMatches(a.codec_private, b.codec_private)) {
       *why = "another video format";
       return false;
     }
@@ -576,8 +581,10 @@ bool Player::ContinuesLocked(const MediaInfo& next,
   if (audio) {
     const AudioConfig& a = media_info_.streams[audio_stream_].audio;
     const AudioConfig& b = next.streams[next.default_audio_stream].audio;
-    if (a.codec != b.codec || a.sample_rate != b.sample_rate ||
-        a.channels != b.channels || a.extradata != b.extradata) {
+    if (a.codec == AudioCodec::kUnknown || a.codec != b.codec ||
+        a.codec_name != b.codec_name || a.sample_rate != b.sample_rate ||
+        a.channels != b.channels || a.extradata != b.extradata ||
+        !CodecPrivateMatches(a.codec_private, b.codec_private)) {
       *why = "another audio format";
       return false;
     }

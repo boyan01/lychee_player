@@ -21,6 +21,61 @@ FFmpegCodecParams::~FFmpegCodecParams() {
   avcodec_parameters_free(&parameters);
 }
 
+bool FFmpegCodecParams::Matches(const CodecPrivate& other) const {
+  const auto* next = dynamic_cast<const FFmpegCodecParams*>(&other);
+  if (!next || !parameters || !next->parameters) {
+    return false;
+  }
+  const auto& a = *parameters;
+  const auto& b = *next->parameters;
+  // Extradata, dimensions, sample rate and channel count are also in
+  // the portable config. Side data may carry more decoder setup.
+  if (a.codec_id != b.codec_id || a.codec_type != b.codec_type ||
+      a.codec_tag != b.codec_tag || a.format != b.format ||
+      a.profile != b.profile || a.level != b.level ||
+      a.bits_per_coded_sample != b.bits_per_coded_sample ||
+      a.bits_per_raw_sample != b.bits_per_raw_sample ||
+      a.nb_coded_side_data != b.nb_coded_side_data) {
+    return false;
+  }
+  for (int i = 0; i < a.nb_coded_side_data; ++i) {
+    const auto& left = a.coded_side_data[i];
+    const auto& right = b.coded_side_data[i];
+    if (left.type != right.type || left.size != right.size ||
+        (left.size && memcmp(left.data, right.data, left.size) != 0)) {
+      return false;
+    }
+  }
+  if (a.codec_type == AVMEDIA_TYPE_AUDIO) {
+    // These decoders derive their coding mode from the declared bitrate.
+    // For ordinary VBR tracks it is only an average over this file.
+    const bool uses_bitrate =
+        a.codec_id == AV_CODEC_ID_WMAV1 || a.codec_id == AV_CODEC_ID_WMAV2 ||
+        a.codec_id == AV_CODEC_ID_SIPR || a.codec_id == AV_CODEC_ID_ILBC ||
+        a.codec_id == AV_CODEC_ID_TWINVQ || a.codec_id == AV_CODEC_ID_METASOUND;
+    return av_channel_layout_compare(&a.ch_layout, &b.ch_layout) == 0 &&
+           a.block_align == b.block_align && a.frame_size == b.frame_size &&
+           a.initial_padding == b.initial_padding &&
+           a.trailing_padding == b.trailing_padding &&
+           a.seek_preroll == b.seek_preroll &&
+           (!uses_bitrate || a.bit_rate == b.bit_rate);
+  }
+  const auto same_ratio = [](AVRational left, AVRational right) {
+    return (left.num == right.num && left.den == right.den) ||
+           av_cmp_q(left, right) == 0;
+  };
+  return a.codec_type == AVMEDIA_TYPE_VIDEO && a.field_order == b.field_order &&
+         a.video_delay == b.video_delay && a.color_range == b.color_range &&
+         a.color_space == b.color_space &&
+         a.color_primaries == b.color_primaries && a.color_trc == b.color_trc &&
+         a.chroma_location == b.chroma_location &&
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(62, 15, 100)
+         a.alpha_mode == b.alpha_mode &&
+#endif
+         same_ratio(a.sample_aspect_ratio, b.sample_aspect_ratio) &&
+         same_ratio(a.framerate, b.framerate);
+}
+
 std::string AVErrorString(int error) {
   char buffer[AV_ERROR_MAX_STRING_SIZE] = {};
   av_strerror(error, buffer, sizeof(buffer));

@@ -19,7 +19,14 @@ namespace lychee {
 // use the portable fields.
 struct CodecPrivate {
   virtual ~CodecPrivate() = default;
+  // A backend must recognize all the decoder state it would reuse.
+  virtual bool Matches(const CodecPrivate&) const { return false; }
 };
+
+inline bool CodecPrivateMatches(const std::shared_ptr<const CodecPrivate>& a,
+                                const std::shared_ptr<const CodecPrivate>& b) {
+  return a && b ? a->Matches(*b) : !a && !b;
+}
 
 // ITU-T H.273 code points. 2 means unspecified.
 struct ColorInfo {
@@ -27,6 +34,8 @@ struct ColorInfo {
   uint8_t transfer = 2;
   uint8_t matrix = 2;
   bool full_range = false;
+
+  bool operator==(const ColorInfo&) const = default;
 };
 
 struct VideoConfig {

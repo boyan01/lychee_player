@@ -26,6 +26,7 @@ inline constexpr int kMaxConsecutiveDecodeErrors = 32;
 struct FFmpegCodecParams : public CodecPrivate {
   explicit FFmpegCodecParams(const AVCodecParameters* source);
   ~FFmpegCodecParams() override;
+  bool Matches(const CodecPrivate& other) const override;
 
   AVCodecParameters* parameters = nullptr;
 };

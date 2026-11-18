@@ -183,8 +183,18 @@ gen audio_only.mp3 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a li
 gen audio_vbr.mp3 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a libmp3lame -q:a 3
 gen audio_only.flac -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a flac
 gen audio_pcm.wav -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -ac 2 -c:a pcm_s16le
+if [ "${NO_FFMPEG:-0}" != 1 ] && [ -z "${FFMPEG_ROOT:-}" ]; then
+  # AU and G.711 are available in a full FFmpeg build.
+  for law in alaw mulaw; do
+    gen "$law.au" -f lavfi -i sine=frequency=440:sample_rate=8000 -t 2 -c:a "pcm_$law"
+  done
+fi
 gen audio_float.wav -f lavfi -i sine=frequency=880:sample_rate=48000 -t 8 -ac 2 -c:a pcm_f32le
 gen audio_only.aac -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -c:a aac -f adts
+# MP4 records each Opus track's average bit rate in its sample entry.
+for rate in 48k 96k; do
+  gen "vbr_opus_$rate.mp4" -f lavfi -i sine=frequency=660:sample_rate=48000 -t 2 -c:a libopus -b:a "$rate"
+done
 gen audio_opus.ogg -f lavfi -i sine=frequency=880:sample_rate=48000 -t 8 -c:a libopus
 gen audio_vorbis.ogg -f lavfi -i sine=frequency=880:sample_rate=44100 -t 8 -ac 2 -c:a vorbis -strict -2
 gen audio_flac.ogg -i "$media/audio_only.flac" -c copy -f ogg
@@ -1543,6 +1553,13 @@ par expect next-switch "the next item .* switches at the end: another video form
   "event: item changed, gapless 0" "<=1 event: state ended" "<=0 event: state error" \
   "summary: state=ended position=10\.000s .*glitches=0 backward_jumps=0 " -- \
   --next "$media/hevc10.mp4" "$media/h264_aac.mp4"
+if [ "${NO_FFMPEG:-0}" != 1 ] && [ -z "${FFMPEG_ROOT:-}" ]; then
+  par expect next-audio-codec "event: item changed, gapless 0" \
+    "decoder opened for pcm_mulaw" "summary: state=ended position=2\.000s" -- \
+    --next "$media/mulaw.au" "$media/alaw.au"
+fi
+par expect next-vbr-opus "event: item changed, gapless 1" "summary: state=ended" -- \
+  --next "$media/vbr_opus_96k.mp4" "$media/vbr_opus_48k.mp4"
 par expect next-seek "taking back the next item" "joins at the end again" "event: seek completed at 0\.500s" \
   "event: item changed, gapless 1" "summary: state=ended position=3\.000s .*backward_jumps=0 " -- \
   --next "$media/loop.mp4" --seek 0.5 --seek-after 1.5 "$media/loop.mp4"
