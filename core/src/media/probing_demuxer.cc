@@ -3,6 +3,7 @@
 #include "media/probing_demuxer.h"
 
 #include <algorithm>
+#include <cstring>
 #include <iterator>
 #include <utility>
 
@@ -31,13 +32,36 @@ namespace lychee {
 
 namespace {
 
-// Enough for three TS packets (M2TS: 192 bytes) and a playlist's header.
-constexpr size_t kProbeBytes = 1024;
+// Enough for three TS packets (M2TS: 192 bytes), a playlist's header, and
+// resyncing a mid-frame live MP3 stream across 3 consecutive frames up to
+// 320 kbps at 44.1/48 kHz (~3.1 KiB worst case).
+constexpr size_t kProbeBytes = 4096;
 
 // An EBML header element starts every Matroska and WebM file.
 bool IsEbml(const uint8_t* data, size_t size) {
   return size >= 4 && data[0] == 0x1a && data[1] == 0x45 && data[2] == 0xdf &&
          data[3] == 0xa3;
+}
+
+// Top-level boxes Mp4Demuxer::Open accepts as the start of an MP4 file.
+bool IsMp4Box(const uint8_t* data, size_t size) {
+  if (size < 8) {
+    return false;
+  }
+  const uint32_t box_size = (static_cast<uint32_t>(data[0]) << 24) |
+                            (static_cast<uint32_t>(data[1]) << 16) |
+                            (static_cast<uint32_t>(data[2]) << 8) | data[3];
+  if (box_size != 0 && box_size != 1 && box_size < 8) {
+    return false;
+  }
+  static constexpr const char* kTypes[] = {"ftyp", "moov", "free",
+                                           "wide", "mdat", "skip"};
+  for (const char* type : kTypes) {
+    if (memcmp(data + 4, type, 4) == 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace
@@ -91,10 +115,29 @@ bool ProbingDemuxer::Open(const std::string& url, std::string* error) {
   return opened;
 }
 
+bool ProbingDemuxer::Open(std::unique_ptr<DataSource> source,
+                          const std::string& url,
+                          std::string* error) {
+  const bool opened = OpenSource(std::move(source), url, error);
+  if (!opened && !aborted_) {
+    *error = TagError(ErrorKind::kFormat, std::move(*error));
+  }
+  return opened;
+}
+
 bool ProbingDemuxer::OpenInput(const std::string& url, std::string* error) {
   std::unique_ptr<DataSource> source = OpenDataSource(url, error, headers_);
   if (!source) {
     // Another scheme (data:, rtsp://), or http without a client.
+    return fallback_ && OpenFallback(nullptr, url, "", error);
+  }
+  return OpenSource(std::move(source), url, error);
+}
+
+bool ProbingDemuxer::OpenSource(std::unique_ptr<DataSource> source,
+                                const std::string& url,
+                                std::string* error) {
+  if (!source) {
     return fallback_ && OpenFallback(nullptr, url, "", error);
   }
   {
@@ -219,12 +262,6 @@ bool ProbingDemuxer::OpenInput(const std::string& url, std::string* error) {
     Adopt(std::move(matroska));
     return opening->Open(std::move(source), error);
   }
-  if (Mp3Demuxer::Detect(head, filled)) {
-    auto demuxer = std::make_unique<Mp3Demuxer>();
-    Mp3Demuxer* opening = demuxer.get();
-    Adopt(std::move(demuxer));
-    return opening->Open(std::move(source), error);
-  }
   if (FlacDemuxer::Detect(head, filled)) {
     auto demuxer = std::make_unique<FlacDemuxer>();
     FlacDemuxer* opening = demuxer.get();
@@ -246,6 +283,14 @@ bool ProbingDemuxer::OpenInput(const std::string& url, std::string* error) {
   if (OggDemuxer::Detect(head, filled)) {
     auto demuxer = std::make_unique<OggDemuxer>();
     OggDemuxer* opening = demuxer.get();
+    Adopt(std::move(demuxer));
+    return opening->Open(std::move(source), error);
+  }
+  // Check MP3 after containers with fixed offset-0 magic (and MP4 boxes), so
+  // mid-frame MP3 resync never steals an MP4 carrying raw MP3 frames in mdat.
+  if (!IsMp4Box(head, filled) && Mp3Demuxer::Detect(head, filled)) {
+    auto demuxer = std::make_unique<Mp3Demuxer>();
+    Mp3Demuxer* opening = demuxer.get();
     Adopt(std::move(demuxer));
     return opening->Open(std::move(source), error);
   }

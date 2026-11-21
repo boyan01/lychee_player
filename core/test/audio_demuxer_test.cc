@@ -8,6 +8,7 @@
 #include "backends/audio/ogg_demuxer.h"
 #include "backends/audio/wav_demuxer.h"
 #include "media/pcm_audio_decoder.h"
+#include "media/probing_demuxer.h"
 #include "test.h"
 
 // NOLINTBEGIN(bugprone-throwing-static-initialization)
@@ -443,6 +444,143 @@ TEST(Audio, ShortReadsWithoutContentLengthReachEof) {
   mp3[1] = 0xfb;
   mp3[2] = 0x90;
   ShortUnknown<Mp3Demuxer>(mp3, 1);
+}
+Bytes Mp3Frame(uint8_t bitrate_byte, uint8_t mode_byte, uint8_t marker) {
+  // MPEG-1 Layer III at 44.1 kHz, no CRC.
+  uint8_t header[4] = {0xff, 0xfb, bitrate_byte, mode_byte};
+  AdtsHeader parsed;
+  if (!ParseMp3Header(header, sizeof(header), &parsed)) return {};
+  Bytes frame(parsed.frame_length, 0x22);
+  memcpy(frame.data(), header, sizeof(header));
+  frame[16] = marker;
+  return frame;
+}
+TEST(Audio, Mp3MidFrameLiveStreamResync) {
+  // Leading mid-frame payload bytes (not ID3, not a frame sync), including a
+  // stray false MP3 header (MPEG-2 22050 Hz 16 kbps) whose computed length does
+  // not land on another valid frame.
+  Bytes junk(180, 0x33);
+  junk[0] = 0xb1;
+  junk[1] = 0x00;
+  junk[2] = 0x84;
+  junk[3] = 0x20;
+  junk[40] = 0xff;
+  junk[41] = 0xf3;
+  junk[42] = 0x20;
+  junk[43] = 0x00;
+
+  // 64 kbps / 44.1 kHz MPEG-1 Layer III (208 bytes, bitrate_index 5 -> 0x50),
+  // alternating stereo (0x00) and joint stereo (0x40).
+  Bytes stream = junk;
+  for (uint8_t i = 0; i < 4; ++i) {
+    Append(&stream, Mp3Frame(0x50, (i & 1) ? 0x40 : 0x00, 10 + i));
+  }
+  EXPECT_TRUE(Mp3Demuxer::Detect(stream.data(), stream.size()));
+
+  // Unseekable live stream through ProbingDemuxer -> selects Mp3Demuxer,
+  // skips leading junk + stray false sync, and emits all 4 frames at 44.1 kHz.
+  ProbingDemuxer probed;
+  std::string error;
+  EXPECT_TRUE(probed.Open(std::make_unique<ShortUnknownSource>(stream),
+                          "https://example.invalid/live/64k.mp3", &error));
+  EXPECT_EQ(std::string(probed.name()), std::string("mp3"));
+  EXPECT_TRUE(!probed.media_info().seekable);
+  EXPECT_EQ(probed.media_info().streams.size(), size_t{1});
+  if (!probed.media_info().streams.empty()) {
+    EXPECT_EQ(probed.media_info().streams[0].audio.sample_rate, 44100);
+    EXPECT_EQ(probed.media_info().streams[0].audio.channels, 2);
+  }
+  EncodedPacket packet;
+  int64_t last_pts = -1;
+  for (uint8_t i = 0; i < 4; ++i) {
+    EXPECT_TRUE(probed.Read(&packet) == DemuxerReadResult::kOk);
+    if (packet.buffer && packet.buffer->size() > 16) {
+      EXPECT_EQ(packet.buffer->data()[16], 10 + i);
+    }
+    EXPECT_TRUE(packet.pts > last_pts);
+    last_pts = packet.pts;
+  }
+  EXPECT_TRUE(probed.Read(&packet) == DemuxerReadResult::kEndOfStream);
+
+  // High-bitrate 320 kbps / 44.1 kHz mid-frame live stream (1044-byte frames):
+  // leading partial frame (900 bytes) + 3 frames requires > 3 KiB probe buffer.
+  Bytes high_bitrate(900, 0x5a);
+  high_bitrate[0] = 0xb1;
+  for (uint8_t i = 0; i < 3; ++i) {
+    Append(&high_bitrate, Mp3Frame(0xe0, 0x00, 30 + i));
+  }
+  ProbingDemuxer probed_320;
+  EXPECT_TRUE(
+      probed_320.Open(std::make_unique<ShortUnknownSource>(high_bitrate),
+                      "https://example.invalid/live/320k.mp3", &error));
+  EXPECT_EQ(std::string(probed_320.name()), std::string("mp3"));
+  if (!probed_320.media_info().streams.empty()) {
+    EXPECT_EQ(probed_320.media_info().streams[0].audio.sample_rate, 44100);
+  }
+  for (uint8_t i = 0; i < 3; ++i) {
+    EXPECT_TRUE(probed_320.Read(&packet) == DemuxerReadResult::kOk);
+    if (packet.buffer && packet.buffer->size() > 16) {
+      EXPECT_EQ(packet.buffer->data()[16], 30 + i);
+    }
+  }
+  EXPECT_TRUE(probed_320.Read(&packet) == DemuxerReadResult::kEndOfStream);
+}
+TEST(Audio, Mp3DetectRejectsNonMp3AndStraySync) {
+  // Deterministic pseudo-random binary noise.
+  Bytes noise(4096);
+  uint32_t state = 0x12345678u;
+  for (uint8_t& byte : noise) {
+    state = state * 1664525u + 1013904223u;
+    byte = static_cast<uint8_t>(state >> 24);
+  }
+  EXPECT_TRUE(!Mp3Demuxer::Detect(noise.data(), noise.size()));
+
+  // Single stray 0xFF 0xFB 0x90 0x00 inside binary data.
+  Bytes stray(4096, 0x11);
+  stray[100] = 0xff;
+  stray[101] = 0xfb;
+  stray[102] = 0x90;
+  stray[103] = 0x00;
+  EXPECT_TRUE(!Mp3Demuxer::Detect(stray.data(), stray.size()));
+
+  // ADTS/AAC frames must not be detected as MP3, and ProbingDemuxer picks adts.
+  Bytes adts_frame = {0xff, 0xf1, 0x50, 0x40, 1, 0x1f, 0xfc, 0};
+  Bytes adts;
+  for (int i = 0; i < 20; ++i)
+    Append(&adts, adts_frame);
+  EXPECT_TRUE(!Mp3Demuxer::Detect(adts.data(), adts.size()));
+  ProbingDemuxer adts_probed;
+  std::string error;
+  EXPECT_TRUE(
+      adts_probed.Open(CreateMemoryDataSource(adts), "test.aac", &error));
+  EXPECT_EQ(std::string(adts_probed.name()), std::string("adts"));
+
+  // MPEG-TS packets (0x47 sync every 188 bytes) must not be detected as MP3.
+  Bytes ts(size_t{188} * 4, 0);
+  for (size_t i = 0; i < 4; ++i)
+    ts[i * 188] = 0x47;
+  EXPECT_TRUE(!Mp3Demuxer::Detect(ts.data(), ts.size()));
+
+  // MP4 box header (ftyp + mdat) must not be misclassified as MP3, even when
+  // mdat carries consecutive raw MP3 frames.
+  Bytes mp4 = {0,   0,   0, 20, 'f', 't', 'y', 'p', 'i', 's',
+               'o', 'm', 0, 0,  0,   0,   'i', 's', 'o', 'm'};
+  Bytes mp3_payload;
+  for (uint8_t i = 0; i < 4; ++i) {
+    Append(&mp3_payload, Mp3Frame(0x50, 0x00, i));
+  }
+  const uint32_t mdat_size = static_cast<uint32_t>(8 + mp3_payload.size());
+  mp4.insert(mp4.end(), {static_cast<uint8_t>(mdat_size >> 24),
+                         static_cast<uint8_t>(mdat_size >> 16),
+                         static_cast<uint8_t>(mdat_size >> 8),
+                         static_cast<uint8_t>(mdat_size), 'm', 'd', 'a', 't'});
+  Append(&mp4, mp3_payload);
+  ProbingDemuxer mp4_probed;
+  // Opening fails because there is no moov box, but it must be Mp4Demuxer's
+  // error, never misclassified as Mp3Demuxer.
+  EXPECT_TRUE(
+      !mp4_probed.Open(CreateMemoryDataSource(mp4), "test.mp4", &error));
+  EXPECT_EQ(std::string(mp4_probed.name()), std::string("mp4"));
 }
 TEST(Audio, PcmConvertsIntegerAndRejectsNonfiniteFloat) {
   AudioConfig config = {AudioCodec::kPCM, "pcm_s24le", 48000, 1, {24, 0, 0}};

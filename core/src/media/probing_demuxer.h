@@ -41,6 +41,10 @@ class ProbingDemuxer : public Demuxer {
 
   const char* name() const override;
   bool Open(const std::string& url, std::string* error) override;
+  // Probes and opens an already-opened source without calling OpenDataSource.
+  bool Open(std::unique_ptr<DataSource> source,
+            const std::string& url,
+            std::string* error);
   const MediaInfo& media_info() const override;
   bool ConfigureStream(int stream) override;
   void ClearInterrupt() override;
@@ -61,6 +65,9 @@ class ProbingDemuxer : public Demuxer {
   void Adopt(std::unique_ptr<Demuxer> demuxer);
   // Open(), with the demuxers' errors as they give them.
   bool OpenInput(const std::string& url, std::string* error);
+  bool OpenSource(std::unique_ptr<DataSource> source,
+                  const std::string& url,
+                  std::string* error);
   // Opens |url| with the fallback, unless aborted. |why| is what the own
   // demuxers made of it, logged.
   bool OpenFallback(std::unique_ptr<DataSource> probed,

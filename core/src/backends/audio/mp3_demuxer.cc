@@ -2,10 +2,64 @@
 #include <cmath>
 #include <limits>
 namespace lychee {
+namespace {
+
+constexpr size_t kInitialSyncWindow = 4096;
+constexpr size_t kMaxSyncWindow = 65536;
+
+// Two MP3 headers belong to the same stream when their MPEG version, layer,
+// sample rate and channel count match. Encoders frequently alternate stereo
+// and joint stereo per frame, so compare channel count rather than the raw
+// 2-bit channel mode.
+bool SameMp3Stream(const uint8_t* a,
+                   const AdtsHeader& ha,
+                   const uint8_t* b,
+                   const AdtsHeader& hb) {
+  return ((a[1] >> 1) & 0x0f) == ((b[1] >> 1) & 0x0f) &&
+         ha.sample_rate == hb.sample_rate && ha.channels == hb.channels;
+}
+
+// Scans |data| for a valid MP3 frame header whose computed length lands
+// directly on a second (and third, when the buffer permits) matching MP3
+// frame header.
+bool FindMp3SyncChain(const uint8_t* data,
+                      size_t size,
+                      size_t* found_offset,
+                      AdtsHeader* found_header) {
+  if (size < 8) return false;
+  for (size_t pos = 0; pos + 4 <= size; ++pos) {
+    if (data[pos] != 0xff || (data[pos + 1] & 0xe0) != 0xe0) continue;
+    AdtsHeader h1;
+    if (!ParseMp3Header(data + pos, size - pos, &h1)) continue;
+    const size_t next = pos + h1.frame_length;
+    if (next + 4 > size) continue;
+    AdtsHeader h2;
+    if (!ParseMp3Header(data + next, size - next, &h2) ||
+        !SameMp3Stream(data + pos, h1, data + next, h2)) {
+      continue;
+    }
+    const size_t third = next + h2.frame_length;
+    if (third + 4 <= size) {
+      AdtsHeader h3;
+      if (!ParseMp3Header(data + third, size - third, &h3) ||
+          !SameMp3Stream(data + pos, h1, data + third, h3)) {
+        continue;
+      }
+    }
+    if (found_offset) *found_offset = pos;
+    if (found_header) *found_header = h1;
+    return true;
+  }
+  return false;
+}
+
+}  // namespace
+
 bool Mp3Demuxer::Detect(const uint8_t* data, size_t size) {
+  if (size >= 3 && memcmp(data, "ID3", 3) == 0) return true;
   AdtsHeader header;
-  return (size >= 3 && memcmp(data, "ID3", 3) == 0) ||
-         ParseMp3Header(data, size, &header);
+  if (ParseMp3Header(data, size, &header)) return true;
+  return FindMp3SyncChain(data, size, nullptr, nullptr);
 }
 bool Mp3Demuxer::Find(int64_t* offset, AdtsHeader* header) {
   // Bounded resync: malformed bytes must not make opening scan the file.
@@ -17,6 +71,35 @@ bool Mp3Demuxer::Find(int64_t* offset, AdtsHeader* header) {
       return true;
   }
   return false;
+}
+bool Mp3Demuxer::FindFirstFrame(int64_t* offset, AdtsHeader* header) {
+  // Read sequentially into a local window and validate consecutive frames so
+  // stray sync bytes inside leading mid-frame junk cannot lock the wrong rate.
+  std::vector<uint8_t> window(kInitialSyncWindow);
+  const int64_t initial = Bytes(*offset, window.data(), window.size());
+  if (initial < 4) return false;
+  window.resize(static_cast<size_t>(initial));
+  size_t rel = 0;
+  if (FindMp3SyncChain(window.data(), window.size(), &rel, header)) {
+    *offset += static_cast<int64_t>(rel);
+    return true;
+  }
+  if (window.size() == kInitialSyncWindow && !Cancelled()) {
+    window.resize(kMaxSyncWindow);
+    const int64_t more =
+        Bytes(*offset + static_cast<int64_t>(kInitialSyncWindow),
+              window.data() + kInitialSyncWindow,
+              kMaxSyncWindow - kInitialSyncWindow);
+    if (more > 0) {
+      window.resize(kInitialSyncWindow + static_cast<size_t>(more));
+      if (FindMp3SyncChain(window.data(), window.size(), &rel, header)) {
+        *offset += static_cast<int64_t>(rel);
+        return true;
+      }
+    }
+  }
+  // Single-frame files have no second frame to chain against.
+  return Find(offset, header);
 }
 void Mp3Demuxer::ReadArtwork(const uint8_t* tag, int64_t end) {
   // ID3v2.3/v2.4 APIC frames. Ignore unsupported transformations and
@@ -82,7 +165,7 @@ bool Mp3Demuxer::Parse() {
     if (tag[3] == 4 && (tag[5] & 0x10)) first_ += 10;
   }
   AdtsHeader header;
-  if (!Find(&first_, &header)) return false;
+  if (!FindFirstFrame(&first_, &header)) return false;
   rate_ = header.sample_rate;
   stream_.audio = {AudioCodec::kMP3, "mp3", rate_, header.channels};
   audio_bytes_ = file_size_ >= 0 ? file_size_ - first_ : 0;

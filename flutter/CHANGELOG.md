@@ -2,6 +2,8 @@
 
 ### Fixed
 
+* Live HTTP MP3 streams joined mid-frame now open and play in FFmpeg-free
+  builds.
 * Switching to a separate WAV audio track over HTTP keeps playback
   running on servers without Range support in FFmpeg-free builds.
 * Static DASH streams with a presentation time offset play through the
